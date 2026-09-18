@@ -1203,6 +1203,10 @@ export default {
         }),
         'discardPending': 'Ausstehendes Ergebnis verwerfen',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Fehlerbericht gespeichert',
+        'bugReportUnavailable': 'Die Fehlerberichterfassung ist in diesem Build nicht verfügbar',
+    },
     'noteWindow': {
         'popUpNote': 'Seite {page}',
         'unknownAuthor': 'Unbekannter Autor',

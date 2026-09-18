@@ -71,6 +71,60 @@ const zenMode = s.fromParser<IHostZenModeState>(decodeHostZenModeState, () => ({
     supported: true,
 }));
 
+/** Serialized bug report. Content free by construction; see the writer. */
+export interface IHostBugReportBundle {readonly reportJson: string;}
+
+export interface IHostBugReportWriteResult {
+    /** Timestamp directory the bundle landed in, never a full path. */
+    readonly directoryName: string;
+    readonly screenshotWritten: boolean;
+    readonly written: boolean;
+}
+
+/** A bug report is a development aid, so the payload stays small on purpose. */
+const HOST_BUG_REPORT_MAX_JSON_BYTES = 256 * 1024;
+
+function decodeHostBugReportBundle(value: unknown): IHostBugReportBundle {
+    if (
+        !isRecord(value)
+        || typeof value.reportJson !== 'string'
+        || value.reportJson.length === 0
+        || value.reportJson.length > HOST_BUG_REPORT_MAX_JSON_BYTES
+    ) {
+        throw new Error('invalid host bug report bundle');
+    }
+    return {reportJson: value.reportJson};
+}
+
+function decodeHostBugReportWriteResult(value: unknown): IHostBugReportWriteResult {
+    if (
+        !isRecord(value)
+        || typeof value.directoryName !== 'string'
+        || typeof value.screenshotWritten !== 'boolean'
+        || typeof value.written !== 'boolean'
+    ) {
+        throw new Error('invalid host bug report write result');
+    }
+    return {
+        directoryName: value.directoryName,
+        screenshotWritten: value.screenshotWritten,
+        written: value.written,
+    };
+}
+
+const bugReportBundle = s.fromParser<IHostBugReportBundle>(
+    decodeHostBugReportBundle,
+    () => ({reportJson: '{}'}),
+);
+const bugReportWriteResult = s.fromParser<IHostBugReportWriteResult>(
+    decodeHostBugReportWriteResult,
+    () => ({
+        directoryName: '1970-01-01T00-00-00.000Z',
+        screenshotWritten: false,
+        written: false,
+    }),
+);
+
 export const HOST_PLATFORM_FEATURE = definePlatformFeature({
     path: ['host'],
     required: {
@@ -105,6 +159,13 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
             args: s.tuple([s.boolean()]),
             result: zenMode,
             main: 'setHostZenModeForWindow',
+        }),
+        writeBugReportBundle: defineForwardedPlatformMethod({
+            name: 'writeBugReportBundle',
+            channel: 'host:writeBugReportBundle',
+            args: s.tuple([bugReportBundle]),
+            result: bugReportWriteResult,
+            main: 'writeHostBugReportBundleForWindow',
         }),
     },
     events: {

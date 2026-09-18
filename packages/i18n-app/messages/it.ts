@@ -1203,6 +1203,10 @@ export default {
         }),
         'discardPending': 'Scarta il risultato in attesa',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Segnalazione di errore salvata',
+        'bugReportUnavailable': 'La cattura della segnalazione di errore non è disponibile in questa build',
+    },
     'noteWindow': {
         'popUpNote': 'Pagina {page}',
         'unknownAuthor': 'Autore sconosciuto',

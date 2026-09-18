@@ -249,6 +249,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         getEnvironment: {kind: 'async', path: ["host","getEnvironment"]},
         getZenModeState: {kind: 'async', path: ["host","getZenModeState"]},
         setZenMode: {kind: 'async', path: ["host","setZenMode"]},
+        writeBugReportBundle: {kind: 'async', path: ["host","writeBugReportBundle"]},
         onEnvironmentChange: {kind: 'event', path: ["host","onEnvironmentChange"]},
         onZenModeChange: {kind: 'event', path: ["host","onZenModeChange"]},
         onWheelScrollSequenceChange: {kind: 'event', path: ["host","onWheelScrollSequenceChange"]},

@@ -5,6 +5,7 @@
         :class="{'is-pane-sized': isPaneSizedPresentation}"
         :style="windowStyle"
         :data-annotation-id="annotationId"
+        :data-page-number="pageNumber"
         @mousedown="focusNote"
         @focusin="focusNote"
     >

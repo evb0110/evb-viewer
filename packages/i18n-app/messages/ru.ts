@@ -1221,6 +1221,10 @@ export default {
         }),
         'discardPending': 'Отбросить ожидающий результат',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Отчёт об ошибке сохранён',
+        'bugReportUnavailable': 'Сохранение отчёта об ошибке недоступно в этой сборке',
+    },
     'noteWindow': {
         'popUpNote': 'Стр. {page}',
         'unknownAuthor': 'Неизвестный автор',

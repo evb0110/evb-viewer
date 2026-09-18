@@ -7,6 +7,11 @@ import {installConsoleErrorObserver} from '@app/utils/consoleErrorObserver';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
 import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
 import {hasElectronAPI} from '@app/utils/platform';
+import {
+    notifyRendererDiagnosticNotice,
+    redactRendererDiagnosticSignature,
+    type TRendererDiagnosticSource,
+} from '@app/utils/rendererDiagnosticNotices';
 import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
 const RENDERER_GUARD_WARN_THROTTLE_MS = 5000;
@@ -154,11 +159,16 @@ export default defineNuxtPlugin((nuxtApp) => {
     });
 
     const report = (
-        source: 'vue' | 'window' | 'unhandled-rejection',
+        source: Exclude<TRendererDiagnosticSource, 'console-error'>,
         logMessage: string,
         cause: unknown,
         details: Record<string, unknown>,
     ) => {
+        notifyRendererDiagnosticNotice({
+            occurredAt: Date.now(),
+            signature: redactRendererDiagnosticSignature(`${logMessage}: ${stringifyErrorValue(cause)}`),
+            source,
+        });
         const presentation = reporter.captureForPresentation({
             code: 'RENDERER_ERROR_GUARD_FAILED',
             context: {source},

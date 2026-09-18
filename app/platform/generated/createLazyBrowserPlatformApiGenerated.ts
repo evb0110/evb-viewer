@@ -231,6 +231,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const hostGetEnvironmentMethod = lazyAsync(pathDescriptors.host.getEnvironment.path);
     const hostGetZenModeStateMethod = lazyAsync(pathDescriptors.host.getZenModeState.path);
     const hostSetZenModeMethod = lazyAsync(pathDescriptors.host.setZenMode.path);
+    const hostWriteBugReportBundleMethod = lazyAsync(pathDescriptors.host.writeBugReportBundle.path);
     const hostOnEnvironmentChangeMethod = lazyEvent(pathDescriptors.host.onEnvironmentChange.path);
     const hostOnZenModeChangeMethod = lazyEvent(pathDescriptors.host.onZenModeChange.path);
     const hostOnWheelScrollSequenceChangeMethod = lazyEvent(pathDescriptors.host.onWheelScrollSequenceChange.path);
@@ -508,6 +509,7 @@ export function createLazyBrowserPlatformApiGenerated({
         getEnvironment: hostGetEnvironmentMethod,
         getZenModeState: hostGetZenModeStateMethod,
         setZenMode: hostSetZenModeMethod,
+        writeBugReportBundle: hostWriteBugReportBundleMethod,
         onEnvironmentChange: hostOnEnvironmentChangeMethod,
         onZenModeChange: hostOnZenModeChangeMethod,
         onWheelScrollSequenceChange: hostOnWheelScrollSequenceChangeMethod,

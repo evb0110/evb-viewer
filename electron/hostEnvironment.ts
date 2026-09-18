@@ -13,6 +13,7 @@ import {
     type IHostZenModeState,
     type THostPlatform,
 } from '@contracts/hostPlatformFeature';
+import { writeHostBugReportBundle } from '@electron/writeHostBugReportBundle';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import { createLogger } from '@electron/utils/createLogger';
@@ -267,6 +268,8 @@ export const hostMainBindings = {
     snapshotHostZenModeForWindow: context => snapshotHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender)),
     setHostZenModeForWindow: (context, active) =>
         setHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender), active),
+    writeHostBugReportBundleForWindow: (context, bundle) =>
+        writeHostBugReportBundle(BrowserWindow.fromWebContents(context.sender), bundle),
 } satisfies TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, Electron.IpcMainInvokeEvent>;
 
 function broadcastHostEnvironmentForWindow(window: BrowserWindow) {

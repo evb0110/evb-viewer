@@ -1203,6 +1203,10 @@ export default {
         }),
         'discardPending': 'Descartar resultado pendiente',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Informe de error guardado',
+        'bugReportUnavailable': 'La captura de informes de error no está disponible en esta compilación',
+    },
     'noteWindow': {
         'popUpNote': 'Página {page}',
         'unknownAuthor': 'Autor desconocido',

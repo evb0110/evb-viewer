@@ -1203,6 +1203,10 @@ export default {
         }),
         'discardPending': 'Discard pending result',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Bug report saved',
+        'bugReportUnavailable': 'Bug report capture is unavailable in this build',
+    },
     'noteWindow': {
         'popUpNote': 'Page {page}',
         'unknownAuthor': 'Unknown Author',

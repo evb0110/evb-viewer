@@ -6,6 +6,7 @@
         :class="chassisAuthority ? viewerClass : ['pdfViewer app-scrollbar app-scroll-region--balanced', viewerClass]"
         :style="containerStyle"
         data-pdf-page-track
+        v-bind="viewportStateAttributes"
         @scroll.passive="!chassisAuthority && emit('scroll', $event)"
         @wheel="!chassisAuthority && handleStandaloneWheel($event)"
         @mousedown="!chassisAuthority && emit('mousedown', $event)"
@@ -170,6 +171,23 @@ const virtualPageItems = computed(() => {
         initialPageShellPage,
     });
 });
+
+// The presentation modes an observer has to read back off the rendered page
+// track. They are derived from the same class map that styles the viewer, so
+// the view model stays the single owner of the state itself.
+const viewportStateAttributes = computed(() => ({
+    'data-pdf-continuous-scroll': viewerClass['pdfViewer--single-page'] === true ? 'false' : 'true',
+    'data-pdf-view-mode': viewerClass['pdfViewer--mode-facing'] === true
+        ? 'facing'
+        : viewerClass['pdfViewer--mode-facing-first-single'] === true
+            ? 'facing-first-single'
+            : 'single',
+    'data-pdf-zoom-mode': viewerClass['pdfViewer--fit-width'] === true
+        ? 'fit-width'
+        : viewerClass['pdfViewer--fit-height'] === true
+            ? 'fit-height'
+            : 'custom',
+}));
 
 const groupedVirtualPageItems = computed(() => groupPdfVirtualPageItems(
     virtualPageItems.value,

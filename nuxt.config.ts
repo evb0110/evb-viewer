@@ -545,6 +545,7 @@ export default defineNuxtConfig({
         'ph:trash',
         'ph:text-t',
         'ph:warning',
+        'ph:bug',
         'ph:question',
         'ph:arrow-u-up-left',
         'ph:upload',

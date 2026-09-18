@@ -1204,6 +1204,10 @@ export default {
         }),
         'discardPending': 'Descartar resultado pendente',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Relatório de erro salvo',
+        'bugReportUnavailable': 'A captura de relatórios de erro não está disponível nesta compilação',
+    },
     'noteWindow': {
         'popUpNote': 'Página {page}',
         'unknownAuthor': 'Autor Desconhecido',

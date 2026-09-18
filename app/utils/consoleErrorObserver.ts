@@ -18,6 +18,10 @@ import {
     type IRendererFailureReporter,
 } from '@app/utils/failureReporter';
 import {hasElectronAPI} from '@app/utils/platform';
+import {
+    notifyRendererDiagnosticNotice,
+    redactRendererDiagnosticSignature,
+} from '@app/utils/rendererDiagnosticNotices';
 
 const CONSOLE_OBSERVER_MODULE_SUFFIX = 'app/utils/consoleErrorObserver.ts';
 const MAX_HEALTH_COUNTER = Number.MAX_SAFE_INTEGER;
@@ -288,6 +292,16 @@ export function installConsoleErrorObserver(
             } catch {
                 // The reporter is best effort. The original console call already ran.
             }
+            // The observer never reads the console arguments, so the notice
+            // carries the closed record's own call site instead of the message.
+            notifyRendererDiagnosticNotice({
+                occurredAt: record.occurredAt,
+                signature: redactRendererDiagnosticSignature(
+                    `console-error ${record.frames[0]?.module ?? 'unknown'}`
+                    + `#${record.frames[0]?.function ?? 'anonymous'}`,
+                ),
+                source: 'console-error',
+            });
         } finally {
             if (!wasReentrant) {
                 reentrancyDepth = 0;

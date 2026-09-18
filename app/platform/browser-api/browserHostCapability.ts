@@ -92,4 +92,13 @@ export const browserHostCapability = {
     onZenModeChange: onBrowserZenModeChange,
     // A page cannot see scroll sequence boundaries; the viewport falls back to packet timing.
     onWheelScrollSequenceChange: noopUnsubscribe,
+    // The browser workspace has no app profile to write a bundle into, so the
+    // capability answers honestly instead of pretending it captured one.
+    writeBugReportBundle() {
+        return Promise.resolve({
+            directoryName: '',
+            screenshotWritten: false,
+            written: false,
+        });
+    },
 } satisfies IHostCapability;

@@ -1203,6 +1203,10 @@ export default {
         }),
         'discardPending': 'Wachtend resultaat verwijderen',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Foutrapport opgeslagen',
+        'bugReportUnavailable': 'Foutrapportvastlegging is niet beschikbaar in deze build',
+    },
     'noteWindow': {
         'popUpNote': 'Pagina {page}',
         'unknownAuthor': 'Onbekende auteur',

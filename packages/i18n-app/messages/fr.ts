@@ -1204,6 +1204,10 @@ export default {
         }),
         'discardPending': 'Ignorer le résultat en attente',
     },
+    'viewerInvariants': {
+        'bugReportSaved': 'Rapport de bogue enregistré',
+        'bugReportUnavailable': 'La capture de rapport de bogue est indisponible dans cette version',
+    },
     'noteWindow': {
         'popUpNote': 'Page {page}',
         'unknownAuthor': 'Auteur inconnu',

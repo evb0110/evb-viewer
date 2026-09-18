@@ -5,6 +5,7 @@
         :data-annotation-id="entity.identity.id"
         :data-pdf-annotation-id="entity.identity.pdfRef"
         data-annotation-kind="shape"
+        :data-annotation-outside-page="isDrawnPastPageEdge ? '' : undefined"
         :style="shapeStyle"
     >
         <g
@@ -65,6 +66,27 @@ const renderPasses = [
 const strokePointSets = computed(() => props.entity.strokes?.length ? props.entity.strokes : props.entity.points ? [props.entity.points] : []);
 const drawableStrokePointSets = computed(() => strokePointSets.value.filter(points => points.length > 1));
 const linePoints = computed(() => props.entity.points?.length ? props.entity.points : props.entity.strokes?.[0] ?? []);
+// Drawing tools clamp to unit page space, but an imported line, polyline or
+// ink annotation authored elsewhere is not clamped and legitimately paints
+// past the page edge. Marking it here is what lets an observer tell that case
+// apart from an overlay that drifted off its page.
+const OUTSIDE_PAGE_EPSILON = 0.001;
+const isDrawnPastPageEdge = computed(() => {
+    const { rect } = props.entity;
+    const coordinates = [
+        rect.left,
+        rect.top,
+        rect.left + rect.width,
+        rect.top + rect.height,
+        ...strokePointSets.value.flatMap(points => points.flatMap(point => [
+            point.x,
+            point.y,
+        ])),
+    ];
+    return coordinates.some(value => (
+        value < -OUTSIDE_PAGE_EPSILON || value > 1 + OUTSIDE_PAGE_EPSILON
+    ));
+});
 function formatPoints(points: ReadonlyArray<{
     x: number;
     y: number
