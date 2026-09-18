@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/components/annotations/PdfAnnotationContextMenu.vue
+  s_29115bfae74fcc::t_f1542de2ed104f 219-221,263-265
+app/modules/workspace-shell/composables/usePageAnnotationActions.ts
+  s_29115bfae74fcc::t_f1542de2ed104f 335-342
+app/modules/workspace-shell/composables/pageAnnotationActionsPdfViewer.ts
+  s_29115bfae74fcc::t_f1542de2ed104f 25
+tests/unit/app/modules/workspace-shell/composables/usePageAnnotationActions.test.ts
+  s_29115bfae74fcc::t_16ab42d3263caa 695-717
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c9454950aaac7bbb0b442adfb8a2446519c21c07",
+  "prompts": {},
+  "sessions": {
+    "s_29115bfae74fcc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5f60d84b-148f-45b2-934e-2ed5730fb638",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
