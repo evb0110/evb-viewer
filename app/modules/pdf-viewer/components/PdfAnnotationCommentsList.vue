@@ -821,7 +821,10 @@ function setTool(tool: TAnnotationTool) {
 
 .note-item-text {
     flex-shrink: 0;
+    box-sizing: content-box;
     min-height: 2lh;
+    /* Room for a wavy underline below the last clamped line. */
+    padding-bottom: 3px;
     font-size: var(--app-sidebar-row-font-size);
     line-height: 1.35;
     color: var(--ui-text-highlighted);
