@@ -11,12 +11,15 @@
         tabindex="-1"
         @click.stop
         @keydown="handleMenuKeydown"
+        @pointermove="handleMenuPointerMove"
+        @pointerleave="clearActiveItem"
     >
         <slot />
     </div>
 </template>
 
 <script setup lang="ts">
+import { useEventListener } from '@vueuse/core';
 
 type TVariant = 'grid' | 'panel';
 
@@ -52,10 +55,12 @@ const resolvedStyle = computed(() => {
 });
 
 const { t } = useTypedI18n();
+const documentTarget = typeof document === 'undefined' ? undefined : document;
 const menuElement = ref<HTMLElement | null>(null);
 let previouslyFocusedElement: HTMLElement | null = null;
 let pointerFocusPending = false;
 let pointerFocusResetTimer: ReturnType<typeof setTimeout> | null = null;
+let lastInputWasKeyboard = false;
 
 function getMenuItems() {
     return Array.from(
@@ -66,7 +71,31 @@ function getMenuItems() {
 }
 
 function focusMenuEntry() {
-    (getMenuItems()[0] ?? menuElement.value)?.focus({preventScroll: true});
+    // Focus is the menu's only active-item marker. A pointer-opened menu starts
+    // with no active item so Enter or Space cannot run an action nobody chose.
+    const entry = lastInputWasKeyboard ? getMenuItems()[0] : null;
+    (entry ?? menuElement.value)?.focus({preventScroll: true});
+}
+
+function clearActiveItem() {
+    const root = menuElement.value;
+    if (root && root !== document.activeElement && root.contains(document.activeElement)) {
+        root.focus({preventScroll: true});
+    }
+}
+
+function handleMenuPointerMove(event: PointerEvent) {
+    const target = event.target;
+    const item = target instanceof Element
+        ? getMenuItems().find(element => element.contains(target))
+        : undefined;
+    if (!item) {
+        clearActiveItem();
+        return;
+    }
+    if (item !== document.activeElement) {
+        item.focus({preventScroll: true});
+    }
 }
 
 function handleMenuKeydown(event: KeyboardEvent) {
@@ -107,6 +136,10 @@ function containMenuFocus(event: FocusEvent) {
     }
 }
 
+function markKeyboardInput() {
+    lastInputWasKeyboard = true;
+}
+
 function markPointerFocus() {
     pointerFocusPending = true;
     if (pointerFocusResetTimer !== null) {
@@ -117,6 +150,11 @@ function markPointerFocus() {
         pointerFocusResetTimer = null;
     }, 0);
 }
+
+useEventListener(documentTarget, 'keydown', markKeyboardInput, { capture: true });
+useEventListener(documentTarget, 'pointerdown', () => {
+    lastInputWasKeyboard = false;
+}, { capture: true });
 
 function removeFocusListeners() {
     if (typeof document !== 'undefined') {
@@ -253,8 +291,11 @@ onBeforeUnmount(() => {
     transition: background-color 120ms ease, color 120ms ease;
 }
 
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:hover:not(:disabled)),
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:focus-visible) {
+.pdf-context-menu-base:focus {
+    outline: none;
+}
+
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__action:focus) {
     outline: none;
     background: var(--app-pdf-context-menu-item-hover-bg);
 }
@@ -276,7 +317,8 @@ onBeforeUnmount(() => {
     cursor: pointer;
 }
 
-.pdf-context-menu-base--panel :deep(.pdf-context-menu__action:hover:not(:disabled)) {
+.pdf-context-menu-base--panel :deep(.pdf-context-menu__action:focus) {
+    outline: none;
     border-color: var(--app-pdf-context-menu-panel-action-border);
     background: var(--app-pdf-context-menu-panel-action-hover-bg);
 }
@@ -289,8 +331,7 @@ onBeforeUnmount(() => {
     color: var(--app-pdf-context-menu-danger-fg);
 }
 
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action--danger:hover:not(:disabled)),
-.pdf-context-menu-base--grid :deep(.pdf-context-menu__action--danger:focus-visible) {
+.pdf-context-menu-base--grid :deep(.pdf-context-menu__action--danger:focus) {
     background: var(--app-pdf-context-menu-danger-hover-bg);
 }
 
