@@ -105,6 +105,7 @@ const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
 ];
 const electronE2ERapidNavigationTestFiles = [
+    'tests/e2e/electron/flingNavigationHandoff.e2e.test.ts',
     'tests/e2e/electron/rapidPdfNavigation.e2e.test.ts',
     'tests/e2e/electron/standardPdfFitModeContinuity.e2e.test.ts',
 ];
