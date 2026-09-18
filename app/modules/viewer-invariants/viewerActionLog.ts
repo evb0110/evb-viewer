@@ -48,12 +48,14 @@ function describeTarget(target: EventTarget | null) {
     if (!control) {
         return target.tagName.toLowerCase();
     }
-    const identity = control.dataset.testid
-        ?? control.getAttribute('aria-label')
-        ?? control.getAttribute('role')
-        ?? control.id
-        ?? control.tagName.toLowerCase();
-    return identity.slice(0, CONTROL_DESCRIPTOR_LIMIT);
+    const identity = [
+        control.dataset.testid,
+        control.getAttribute('aria-label'),
+        control.getAttribute('role'),
+        control.id,
+        control.tagName.toLowerCase(),
+    ].find(candidate => typeof candidate === 'string' && candidate.trim().length > 0) ?? 'unknown';
+    return identity.trim().slice(0, CONTROL_DESCRIPTOR_LIMIT);
 }
 
 function readViewerState(): IViewerActionViewerState {

@@ -55,8 +55,19 @@ export async function writeHostBugReportBundle(
 
     let screenshotWritten = false;
     try {
-        const image = await window.webContents.capturePage(undefined, {stayHidden: true});
-        if (!image.isEmpty()) {
+        // An explicit content rect is required: an undefined rect captures an
+        // empty frame. `stayHidden` keeps an automation window from being
+        // revealed by the capture.
+        const bounds = window.getContentBounds();
+        const image = await window.webContents.capturePage({
+            height: bounds.height,
+            width: bounds.width,
+            x: 0,
+            y: 0,
+        }, {stayHidden: true});
+        if (image.isEmpty()) {
+            logger.warn('Bug report screenshot was empty; the window produced no frame');
+        } else {
             await writeFile(join(directory, 'screenshot.png'), image.toPNG());
             screenshotWritten = true;
         }
