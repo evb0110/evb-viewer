@@ -1,0 +1,19 @@
+scripts/installRecordingSkill.mjs
+  s_c217d94211cb3e::t_57501ca60fd809 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "eff3c2e642af6f88bbf9f0fc7484015ff3c09688",
+  "prompts": {},
+  "sessions": {
+    "s_c217d94211cb3e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2cc-3f8d-7400-b42d-7f7e4e46807f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
