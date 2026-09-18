@@ -1,3 +1,6 @@
+import { prepareWindowsRecordingTools } from '@scripts/windows-test/host/recordingTools';
+import { loadWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
+import { loadWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
 import {
     copyFile,
     mkdir,
@@ -104,6 +107,7 @@ export async function prepareWindowsTestHost(options: {
     standaloneUtmctlSourcePath?: string;
     verifyStandaloneUtmctlSignature?: TStandaloneUtmctlSignatureVerifier;
     winappToolSourceDirectory?: string;
+    recordVideo?: boolean;
 }) {
     const {
         layout,
@@ -137,6 +141,11 @@ export async function prepareWindowsTestHost(options: {
                 ? {}
                 : {verifyCodeSignature: options.verifyStandaloneUtmctlSignature}),
         };
+        if (options.recordVideo) {
+            const config = await loadWindowsTestHostConfig(layout.configFile);
+            const image = await loadWindowsTestImageManifest(path.join(layout.baselinesDir, `${config.goldenImageId}.json`));
+            await prepareWindowsRecordingTools(layout, image.osArch);
+        }
         const standaloneUtmctl = await prepareStandaloneUtmctl(standaloneUtmctlOptions);
         const generated = await runWindowsFixtureGeneration({
             outputDirectory: layout.fixturesCacheDir,

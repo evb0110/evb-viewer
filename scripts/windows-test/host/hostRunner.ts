@@ -1,3 +1,4 @@
+import { windowsRecordingToolInputs } from '@scripts/windows-test/host/recordingTools';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     createHash,
@@ -507,6 +508,9 @@ export async function executeWindowsTestRunOnHost(
         stagedInputs = await resolveWindowsTestFixtureInputs(
             path.join(layout.fixturesCacheDir, WINDOWS_TEST_FIXTURE_MANIFEST_FILE_NAME),
         );
+        if (options.env.EVB_RECORD_SESSION === '1') {
+            stagedInputs.push(...await windowsRecordingToolInputs(layout, imageManifest.osArch));
+        }
     } catch (error) {
         return infrastructureReport(getErrorMessage(error));
     }

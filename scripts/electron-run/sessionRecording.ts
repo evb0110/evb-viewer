@@ -356,6 +356,13 @@ export async function recoverSessionRecording(path: string) {
         }
         writeFileSync(path, JSON.stringify(manifest, null, 2));
     }
+    for (const track of manifest.tracks) {
+        if (!track.video) {
+            try { track.video = await inspectRecordingVideo(join(directory, track.file)); }
+            catch { /* Failed capture may contain no decodable fragments. Keep its original failure. */ }
+        }
+    }
+    writeFileSync(path, JSON.stringify(manifest, null, 2));
     const actions = readFileSync(join(directory, 'actions.jsonl'), 'utf8').split('\n').filter(Boolean)
         .flatMap(line => { try { return [JSON.parse(line) as unknown]; } catch { return []; } });
     writeFileSync(join(directory, 'index.html'), recordingReviewHtml(manifest, actions));

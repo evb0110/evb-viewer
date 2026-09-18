@@ -113,6 +113,7 @@ export function createPuppeteerViewerFactory({
             });
             let browser: Browser | null = null;
             let recording: TSessionRecording | null = null;
+            let desktopRecording: Awaited<ReturnType<typeof startNativeVideo>> | null = null;
             try {
                 if (record.browserUrl === null) {
                     throw new Error('the instrumentation launch produced no loopback debugging URL');
@@ -121,6 +122,7 @@ export function createPuppeteerViewerFactory({
                 const connected = await connectBrowser(record.browserUrl);
                 browser = connected;
                 if (recordingDirectory) {
+                    desktopRecording = await startNativeVideo(recordingDirectory, nativeUi?.actionLog);
                     recording = await startSessionRecording(connected, {
                         directory: recordingDirectory,
                         session: 'windows-instrumentation',
@@ -140,11 +142,15 @@ export function createPuppeteerViewerFactory({
                             if (evidence && evidence.status !== 'complete') {
                                 throw new Error(`Windows renderer recording failed: ${evidence.manifestPath}`);
                             }
-                        } finally { await closeInstrumented(connected, record); }
+                        } finally {
+                            try { await desktopRecording?.stop(); }
+                            finally { await closeInstrumented(connected, record); }
+                        }
                     },
                 };
             } catch (error) {
                 await recording?.stop(1).catch(() => {});
+                await desktopRecording?.stop().catch(() => {});
                 // The startup error is the one worth reporting; cleanup failures
                 // must not replace it, and the process must not outlive the attempt.
                 if (browser !== null) {

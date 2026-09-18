@@ -81,12 +81,13 @@ capture loss are explicit evidence gaps, not permission to capture the host.
 
 For lab runs use `EVB_RECORD_SESSION=1 pnpm windows:test ...` (with the usual
 suite/environment arguments). The host sends that request in the validated guest
-job. Instrumented launches produce renderer tracks; native acceptance launches
-record the **guest desktop** through FFmpeg `gdigrab`. Install `ffmpeg.exe` and
-`ffprobe.exe` on the qualified guest worker's PATH before enabling this option;
-missing tools fail the run. The normal evidence collector retrieves the videos.
-Rebuild prepared worker assets using `pnpm windows:test:prepare` after updating
-this code. Do not bypass a failing `windows:test:doctor` preflight.
+job. Instrumented launches produce renderer tracks plus **guest desktop** footage;
+native acceptance launches produce guest desktop footage through FFmpeg `gdigrab`.
+Prepare with `EVB_RECORD_SESSION=1 pnpm windows:test:prepare`. This downloads a
+pinned, SHA-256-verified FFmpeg build for the qualified guest architecture. The
+existing input staging and hash checks deliver FFmpeg/FFprobe into each run; no
+global guest PATH changes are needed. The normal evidence collector retrieves
+the videos. Repeat preparation after updating the worker code. Do not bypass a failing `windows:test:doctor` preflight.
 
 ## Installation
 

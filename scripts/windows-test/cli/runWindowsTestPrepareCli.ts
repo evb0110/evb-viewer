@@ -35,6 +35,7 @@ export async function runWindowsTestPrepareCli(
     const clock = createSystemClock();
     try {
         const preparationOptions = {
+            recordVideo: env.EVB_RECORD_SESSION === '1',
             layout: windowsTestHostLayout(resolveWindowsTestDataRoot(env)),
             repositoryRoot: defaultRepositoryRoot(),
             lock: {

@@ -208,6 +208,18 @@ export async function startRendererVideo(page: Page, path: string, onError: (err
     const stop = () => {
         stopPromise ??= (async () => {
             stopping = true;
+            // Keep the compositor stream active until the final screenshot is delivered.
+            // Hidden Linux windows may stop painting after stopScreencast.
+            if (stream && !page.isClosed() && !encoder.error) {
+                try {
+                    const finalFrame = await stream.client.send('Page.captureScreenshot', {
+                        format: 'jpeg',
+                        quality: 85,
+                        captureBeyondViewport: false,
+                    }, {timeout: 5_000});
+                    latest = Buffer.from(finalFrame.data, 'base64');
+                } catch (error) { encoder.fail(error instanceof Error ? error : new Error(String(error))); }
+            }
             await stream?.stop().catch((error: unknown) => encoder.fail(error instanceof Error ? error : new Error(String(error))));
             let timer: ReturnType<typeof setTimeout> | undefined;
             await Promise.race([
@@ -222,13 +234,6 @@ export async function startRendererVideo(page: Page, path: string, onError: (err
             clearTimeout(timer);
             if (!encoder.error) {
                 try {
-                    if (!page.isClosed()) {
-                        latest = Buffer.from(await page.screenshot({
-                            type: 'jpeg',
-                            quality: 85,
-                            captureBeyondViewport: false,
-                        }));
-                    }
                     // Include the final visual state, even when stop follows the last input immediately.
                     const due = Math.max(frames + 1, recordingFrameCount(performance.now() - started));
                     while (frames < due) { await encoder.write(latest); frames++; }

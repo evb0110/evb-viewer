@@ -146,18 +146,24 @@ function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv, winappExecutable: strin
             paths,
             executable,
             recordVideo,
-        }) => createPuppeteerViewerFactory({
-            launcher: createWindowsAppLauncher({
+        }) => {
+            if (recordVideo) {
+                process.env.FFMPEG_PATH = path.join(paths.stagingDir, 'recording-tools', 'ffmpeg.exe');
+                process.env.FFPROBE_PATH = path.join(paths.stagingDir, 'recording-tools', 'ffprobe.exe');
+            }
+            return createPuppeteerViewerFactory({
+                launcher: createWindowsAppLauncher({
+                    clock,
+                    spawner: createNodeProcessSpawner(),
+                    registry: createOwnedProcessRegistry(),
+                    executable,
+                }),
+                profileDirectory: paths.profileDir,
+                ...(recordVideo || env.EVB_RECORD_SESSION === '1' ? {recordingDirectory: paths.evidenceDir + '\\recordings'} : {}),
+                nativeUi,
                 clock,
-                spawner: createNodeProcessSpawner(),
-                registry: createOwnedProcessRegistry(),
-                executable,
-            }),
-            profileDirectory: paths.profileDir,
-            ...(recordVideo || env.EVB_RECORD_SESSION === '1' ? {recordingDirectory: paths.evidenceDir + '\\recordings'} : {}),
-            nativeUi,
-            clock,
-        }),
+            });
+        },
     };
 }
 

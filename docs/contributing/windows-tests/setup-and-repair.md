@@ -56,6 +56,7 @@ agent.
 | --- | --- | --- |
 | macOS session | The coordinator runs in the logged-in GUI session, not over SSH | `SSH_CONNECTION` unset and the launchd manager is `Aqua` |
 | UTM | 4.7.5 (QEMU 10.0.2) installed at `/Applications/UTM.app` | `utmctl version` parses to the supported version |
+| Launcher file access | Full Disk Access for the responsible launcher when macOS protects UTM’s container | An `EPERM` reading the UTM preference file blocks doctor; enable the launcher in System Settings > Privacy & Security > Full Disk Access, then rerun doctor |
 | UTM preview capture | `NoScreenshot=true` for UTM 4.7.5 on this host | Read-only preference check before readiness and runs |
 | Automation consent | The launcher that runs `utmctl` (Terminal, iTerm, a LaunchAgent) has Automation permission for UTM | `utmctl list` succeeds; OSStatus -1743 is reported as missing consent, not as an SSH problem |
 | Data root | `~/Library/Application Support/EVBViewerWindowsTests/` exists with `config.json` | Config loads and validates |
