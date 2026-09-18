@@ -45,7 +45,7 @@ here is required reading for an ordinary cut.
 
 ## Pre-release proof of packaged behaviour
 
-- The packaged core-PDF journey (`scripts/release/verifyPackagedCorePdfSmoke.ts`) has no local runner and no vitest coverage. Push CI's `pr_packaged_linux` job is where it executes before a release: it calls `build-target.yml` for Linux x64 exactly as the release matrix does, with `upload_artifacts: false`, whenever the `packagedSmoke` changed-area policy matches. Extend that path list in `scripts/release/policy.mjs` when the journey gains a new dependency.
+- The packaged core-PDF journey (`scripts/release/verifyPackagedCorePdfSmoke.ts`) has no local runner and no vitest coverage. The extended push tier's `pr_packaged_linux` job (`ci-extended.yml`) is where it executes before a release: it calls `build-target.yml` for Linux x64 exactly as the release matrix does, with `upload_artifacts: false`, whenever the `packagedSmoke` changed-area policy matches. It reports outside `gates_ok`, so read it before a cut. Extend that path list in `scripts/release/policy.mjs` when the journey gains a new dependency.
 - The proof is Linux-only by design. Both verifier regressions that failed v0.1.447 and v0.1.448 failed identically on all four platforms; the platform-specific steps (signing, notarization, NSIS install, Windows append sharing) stay release-only and are covered daily by the artifact canary.
 - Do not add release-only assertions to the journey without a CI or canary execution first. A behaviour pin that has never run is not a guardrail.
 

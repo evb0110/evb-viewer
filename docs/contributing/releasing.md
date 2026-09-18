@@ -46,7 +46,7 @@ The release preflight (`node scripts/release/release-cut-preflight.mjs`, also th
 
 A release run must never be the first execution of one of its own checks. Three mechanisms keep it that way.
 
-- Push CI runs the packaged Linux proof (`pr_packaged_linux`) whenever the packaged core-PDF verifier, its E2E helpers, `electron-builder.yml`, the bundling scripts, the build workflows, or the dependency manifests change. It is the same `build-target.yml` job the release matrix runs on Linux x64, without the artifact upload. A verifier or packaging mistake fails that commit's CI, not the next release.
+- The extended push tier (`ci-extended.yml`) runs the packaged Linux proof (`pr_packaged_linux`) whenever the packaged core-PDF verifier, its E2E helpers, `electron-builder.yml`, the bundling scripts, the build workflows, or the dependency manifests change. It is the same `build-target.yml` job the release matrix runs on Linux x64, without the artifact upload. A verifier or packaging mistake surfaces on that push rather than at release time; it does not block `gates_ok`, so check the extended run before a cut.
 - The artifact canary (`release-artifacts.yml`) packages the current `main` tip on every platform once a day when `main` changed in the last 24 hours. It covers drift the path filter does not catch.
 - The dependency audit runs daily in `dependency-audit.yml`, never on push CI or the release path. It maintains one open issue labelled `dependency-audit`. An advisory published five minutes ago is not a reason to stop a cut; fix it as ordinary dependency work.
 

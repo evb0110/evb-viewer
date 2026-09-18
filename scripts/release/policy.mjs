@@ -46,6 +46,7 @@ export function hasDeveloperIdSigningCredentials(env = process.env) {
 // these paths in its push trigger because GitHub evaluates that trigger before
 // JavaScript can run; the policy tests require the two lists to stay aligned.
 export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
+    '.github/workflows/ci-extended.yml',
     '.github/workflows/ci.yml',
     'app/composables/useAnalytics.ts',
     'app/modules/pdf-viewer/annotations/**',
@@ -243,6 +244,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 '.github/actions/setup-release-env/**',
                 '.github/workflows/build.yml',
                 '.github/workflows/build-target.yml',
+                '.github/workflows/ci-extended.yml',
                 '.github/workflows/ci.yml',
                 'electron-builder.yml',
                 'electron/features/ocr/**',
