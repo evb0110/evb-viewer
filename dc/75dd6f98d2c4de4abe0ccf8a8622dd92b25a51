@@ -1,0 +1,23 @@
+scripts/windows-test/host/utmInputCaptureProbe.swift
+  s_5fc578ce506341::t_2e199ac7439c18 238-243
+scripts/windows-test/guest/guestWorkerMain.ts
+  s_5fc578ce506341::t_8938e42ca09cac 180-182
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_5fc578ce506341::t_42abc101c8d55a 654-666
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dc75dd6f98d2c4de4abe0ccf8a8622dd92b25a51",
+  "prompts": {},
+  "sessions": {
+    "s_5fc578ce506341": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2e5-6605-7a23-8a43-d0f2b2f6a95e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
