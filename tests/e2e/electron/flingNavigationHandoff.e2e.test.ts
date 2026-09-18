@@ -154,9 +154,11 @@ async function resolveClickablePoint(page: Page, selector: string, ariaLabel?: s
 async function flingAndClickDuringTail(page: Page, target: IPoint, options: {
     clickAfterMs?: number;
     durationMs?: number;
+    holdAfterBurstMs?: number;
 } = {}) {
     const durationMs = options.durationMs ?? FLING_DURATION_MS;
     const clickAfterMs = options.clickAfterMs ?? CLICK_AFTER_MS;
+    const holdAfterBurstMs = options.holdAfterBurstMs ?? HOLD_AFTER_BURST_MS;
     const centre = await resolveViewportCentre(page);
     const sampler = await installViewportPageSampler(page);
     const fling = await startTrustedWheelFling(page, {
@@ -172,13 +174,42 @@ async function flingAndClickDuringTail(page: Page, target: IPoint, options: {
     const clickElapsedMs = Date.now() - fling.startedAt;
 
     const dispatchedWheelEvents = await fling.finished;
-    await delay(HOLD_AFTER_BURST_MS);
+    if (holdAfterBurstMs > 0) {
+        await delay(holdAfterBurstMs);
+    }
     const samples = await sampler.read();
     await sampler.stop();
 
     return {
+        centre,
         clickElapsedMs,
         dispatchedWheelEvents,
+        samples,
+    };
+}
+
+/**
+ * Drives one ordinary wheel gesture and reports when the window first moved.
+ */
+async function runFollowUpWheelGesture(page: Page, centre: IPoint) {
+    const before = await readViewportPageObservation(page);
+    const sampler = await installViewportPageSampler(page);
+    const gesture = await startTrustedWheelFling(page, {
+        x: centre.x,
+        y: centre.y,
+        initialDeltaY: FOLLOW_UP_WHEEL_DELTA_Y,
+        finalDeltaY: FOLLOW_UP_WHEEL_DELTA_Y,
+        durationMs: FOLLOW_UP_WHEEL_MS,
+    });
+    const dispatchedWheelEvents = await gesture.finished;
+    const samples = await sampler.read();
+    await sampler.stop();
+    return {
+        before,
+        dispatchedWheelEvents,
+        firstMovement: samples.find(
+            sample => sample.scrollTop >= before.scrollTop + FOLLOW_UP_MIN_SCROLL_PX,
+        ) ?? null,
         samples,
     };
 }
@@ -354,9 +385,10 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         expect(isToolbarPageVisible(settled), artifact).toBe(true);
     }, 180_000);
 
-    // P5. Winning over the tail must not cost the document its scrolling. Once
-    // the burst is over and the navigation has landed, the next ordinary wheel
-    // gesture is a new intention and has to move the window again.
+    // P5. Winning over the tail must not cost the document its scrolling.
+    // Two ordinary gestures are measured: one the instant the burst ends, and
+    // one after the window has gone quiet. A person does both, and only the
+    // first one can catch a suppression that a later gesture boundary clears.
     it('keeps the next wheel gesture working after a navigation lands during a fling', async () => {
         const session = sessionFixture.getSession();
         await goToPageForSetup(session.page, FLING_START_PAGE);
@@ -366,42 +398,39 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
             'First Page',
         );
 
-        await flingAndClickDuringTail(session.page, firstPagePoint);
+        const run = await flingAndClickDuringTail(session.page, firstPagePoint, {holdAfterBurstMs: 0});
+        const immediate = await runFollowUpWheelGesture(session.page, run.centre);
         await waitForViewportQuiet(session.page);
-        const before = await readViewportPageObservation(session.page);
-
-        const centre = await resolveViewportCentre(session.page);
-        const sampler = await installViewportPageSampler(session.page);
-        const gesture = await startTrustedWheelFling(session.page, {
-            x: centre.x,
-            y: centre.y,
-            initialDeltaY: FOLLOW_UP_WHEEL_DELTA_Y,
-            finalDeltaY: FOLLOW_UP_WHEEL_DELTA_Y,
-            durationMs: FOLLOW_UP_WHEEL_MS,
-        });
-        const dispatchedWheelEvents = await gesture.finished;
-        const gestureSamples = await sampler.read();
-        await sampler.stop();
+        const afterQuiet = await runFollowUpWheelGesture(session.page, run.centre);
         await waitForViewportQuiet(session.page);
         const after = await readViewportPageObservation(session.page);
 
-        const firstMovement = gestureSamples.find(
-            sample => sample.scrollTop >= before.scrollTop + FOLLOW_UP_MIN_SCROLL_PX,
-        );
         const artifact = writeArtifact('fling-follow-up-gesture.json', {
             after,
-            before,
-            dispatchedWheelEvents,
+            afterQuiet: {
+                before: afterQuiet.before,
+                dispatchedWheelEvents: afterQuiet.dispatchedWheelEvents,
+                firstMovement: afterQuiet.firstMovement,
+                summary: summarizeSamples(afterQuiet.samples),
+            },
             errorEvidence: await collectSuiteErrorEvidence(session.page),
-            firstMovement,
+            immediate: {
+                before: immediate.before,
+                dispatchedWheelEvents: immediate.dispatchedWheelEvents,
+                firstMovement: immediate.firstMovement,
+                summary: summarizeSamples(immediate.samples),
+            },
+            navigationSummary: summarizeSamples(run.samples),
             scenario: 'p5-wheel-gesture-after-navigation-during-fling',
-            summary: summarizeSamples(gestureSamples),
         });
 
-        expect(before.viewportPage, artifact).toBe(1);
-        expect(firstMovement, artifact).toBeDefined();
-        expect(firstMovement!.elapsedMs, artifact).toBeLessThanOrEqual(FOLLOW_UP_RESPONSE_DEADLINE_MS);
-        expect(after.scrollTop, artifact).toBeGreaterThan(before.scrollTop);
+        // The precondition: the navigation landed before the burst ended.
+        expect(immediate.before.viewportPage, artifact).toBe(1);
+        expect(immediate.firstMovement, artifact).not.toBeNull();
+        expect(immediate.firstMovement!.elapsedMs, artifact).toBeLessThanOrEqual(FOLLOW_UP_RESPONSE_DEADLINE_MS);
+        expect(afterQuiet.firstMovement, artifact).not.toBeNull();
+        expect(afterQuiet.firstMovement!.elapsedMs, artifact).toBeLessThanOrEqual(FOLLOW_UP_RESPONSE_DEADLINE_MS);
+        expect(after.scrollTop, artifact).toBeGreaterThan(immediate.before.scrollTop);
         expect(after.viewportPage, artifact).toBeGreaterThan(1);
         expect(isToolbarPageVisible(after), artifact).toBe(true);
     }, 180_000);
