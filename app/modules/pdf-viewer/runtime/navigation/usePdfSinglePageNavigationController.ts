@@ -33,6 +33,7 @@ import {
     type IResolvedPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 import {
+    captureDocumentViewportResizeAnchor,
     createWheelFlipGate,
     canScrollWithinPageBounds,
     resolveWheelDirection,
@@ -238,7 +239,25 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 ...(intent.viewMode === undefined ? {} : {viewMode: intent.viewMode}),
             });
         },
-        refine: refineNavigationCommit,
+        refine: (intent, commit) => {
+            if (intent.navigation) return refineNavigationCommit(intent, commit);
+            if (intent.kind === 'dpr') return Promise.resolve(commit);
+            // Slots now carry the committed layout, including padding and
+            // scrollbar admission. Resolve the semantic point once against
+            // those mounted bounds before the authority writes the viewport.
+            const snapshot = refreshGeometry();
+            const container = options.viewerContainer.value;
+            const anchor = intent.viewportPoint && container ? {
+                ...commit.anchor,
+                viewportXFraction: intent.viewportPoint.x / Math.max(1, container.clientWidth),
+                viewportYFraction: intent.viewportPoint.y / Math.max(1, container.clientHeight),
+            } : commit.anchor;
+            return Promise.resolve(snapshot ? {
+                ...commit,
+                anchor,
+                ...resolveNavigationScrollForViewport(snapshot, anchor),
+            } : commit);
+        },
         refineAfterVisual: (intent, commit) => (
             intent.navigation
                 ? refineNavigationCommit(intent, commit)
@@ -677,7 +696,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const inheritedNavigation = queuedNavigation?.request
             ?? viewportAuthority.getActiveNavigationRequest();
         const absorbedNavigation = navigationRuntimeReady.value
-            && (state.anchor === undefined || kind === 'resize')
+            && (state.anchor === undefined || kind === 'resize' || kind === 'zoom')
             && state.viewportPoint === undefined
             ? inheritedNavigation
             : undefined;
@@ -688,10 +707,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             ? resolvedTargets.get(viewportAuthority.activeIntent.value.id)
             : null;
         const anchor = (absorbedNavigation ? undefined : state.anchor) ?? (container && snapshot && state.viewportPoint
-            ? resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value), {
-                x: state.viewportPoint.x / Math.max(1, container.clientWidth),
-                y: state.viewportPoint.y / Math.max(1, container.clientHeight),
-            })
+            ? captureCurrentSemanticAnchor(state.viewportPoint) ?? getRequestAnchor(undefined, viewportAuthority.currentPage.value)
             : absorbedNavigation && inheritedResolvedTarget
                 ? resolvePdfNavigationAnchor(absorbedNavigation, inheritedResolvedTarget)
                 : absorbedNavigation
@@ -738,6 +754,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             anchor,
             ...(absorbedNavigation === undefined ? {} : {navigation: absorbedNavigation}),
             ...(state.zoom === undefined ? {} : {zoom: state.zoom}),
+            ...(state.viewportPoint === undefined ? {} : {viewportPoint: state.viewportPoint}),
             ...(state.viewMode === undefined ? {} : {viewMode: state.viewMode}),
             ...(state.dpr === undefined ? {} : {dpr: state.dpr}),
         });
@@ -808,9 +825,32 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return anchor.page;
     }
 
-    function captureCurrentSemanticAnchor() {
+    function captureCurrentSemanticAnchor(viewportPoint?: {
+        x: number;
+        y: number
+    }) {
         const container = options.viewerContainer.value;
+        // A zoom ref can already contain the next scale while Vue still
+        // paints the previous page track. Sample the mounted reading point,
+        // rather than interpreting its scroll offset with next-scale metrics.
+        const mounted = container ? captureDocumentViewportResizeAnchor(container, viewportPoint ? {viewportPoint} : undefined) : null;
+        if (mounted) {
+            return {
+                page: mounted.pageNumber,
+                pageXFraction: mounted.pageRatioX,
+                pageYFraction: mounted.pageRatioY,
+                viewportXFraction: mounted.viewportRatioX,
+                viewportYFraction: mounted.viewportRatioY,
+                affinity: 'center' as const,
+            };
+        }
         const snapshot = refreshGeometry();
+        if (viewportPoint && container && snapshot) {
+            return resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value), {
+                x: viewportPoint.x / Math.max(1, container.clientWidth),
+                y: viewportPoint.y / Math.max(1, container.clientHeight),
+            });
+        }
         return container && snapshot
             ? options.continuousScroll.value
                 ? resolveRetainedAnchorFromScroll(snapshot, {

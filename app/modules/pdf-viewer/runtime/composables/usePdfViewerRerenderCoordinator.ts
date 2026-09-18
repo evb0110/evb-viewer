@@ -18,6 +18,7 @@ import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdf
 import {
     PDF_RERENDER_SOURCE,
     isZoomRestorePdfRerenderSource,
+    isResizePdfRerenderSource,
     normalizePdfRerenderSource,
     shouldUseMinimalPdfRerenderBuffer,
 } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
@@ -87,10 +88,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         modeChangedToCustom: boolean;
         resizeAnchor: IResizeAnchorContext;
         zoomViewportAnchor: IZoomViewportAnchor | null;
+        endGeometryReplacement: (() => void) | undefined;
     } | null = null;
 
     function cancelPendingZoomOrchestration() {
         zoomOrchestrationGeneration += 1;
+        pendingZoomOrchestration?.endGeometryReplacement?.();
         pendingZoomOrchestration = null;
         if (zoomOrchestrationTaskId !== null) {
             clearTimeout(zoomOrchestrationTaskId);
@@ -102,77 +105,81 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         zoomOrchestrationTaskId = null;
         const pending = pendingZoomOrchestration;
         pendingZoomOrchestration = null;
-        if (zoomOrchestrationDisposed || generation !== zoomOrchestrationGeneration || !pending) {
-            return;
+        try {
+            if (zoomOrchestrationDisposed || generation !== zoomOrchestrationGeneration || !pending) {
+                return;
+            }
+            if (pdfDocument.value !== pending.document) {
+                return;
+            }
+            const nextZoom = zoom.value;
+            const zoomChanged = pending.zoomChanged
+                && pending.previousZoom !== null
+                && nextZoom !== pending.previousZoom;
+            if (!zoomChanged && !pending.modeChangedToCustom) {
+                return;
+            }
+            if (zoomChanged && (
+                pending.resizeAnchor.physicalNavigationEpoch === undefined
+                || pending.resizeAnchor.physicalNavigationEpoch === getCurrentUserPhysicalNavigationEpoch()
+            )) {
+                submitZoomViewportStateIntent?.(nextZoom, pending.resizeAnchor.semanticAnchor);
+            }
+            if (!pdfDocument.value) {
+                return;
+            }
+            if (
+                zoomChanged
+                && consumeSuppressedZoomRerender?.(nextZoom)
+                && !pending.modeChangedToCustom
+            ) {
+                return;
+            }
+            cancelDestinationNavigationTarget?.();
+            void cancelInFlightPageRenders?.();
+            const zoomViewportAnchor = pending.zoomViewportAnchor;
+            const zoomRerenderSource = zoomViewportAnchor
+                ? PDF_RERENDER_SOURCE.ZoomGestureChange
+                : pending.modeChangedToCustom
+                    ? PDF_RERENDER_SOURCE.ZoomModeChange
+                    : PDF_RERENDER_SOURCE.ZoomChange;
+            const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? pending.resizeAnchor;
+            logPdfRenderTrace('zoom-rerender-anchor-captured', () => ({
+                previousZoom: pending.previousZoom ?? nextZoom,
+                nextZoom,
+                currentPage: currentPage.value,
+                visibleRange: {...visibleRange.value},
+                anchorPage: zoomAnchor.page,
+                semanticAnchorPage: zoomAnchor.semanticAnchor?.page ?? null,
+                navigationAnchorPage: navigationAnchorPage?.value ?? null,
+                pagedNavigationTargetPage: pagedNavigationTargetPage?.value ?? null,
+            }));
+            BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
+                previousZoom: pending.previousZoom ?? nextZoom,
+                nextZoom,
+                consumedZoomViewportAnchor: zoomViewportAnchor,
+                zoomRerenderSource,
+                builtZoomAnchor: zoomAnchor,
+                viewer: summarizeViewerMetricsForLog(viewerContainer.value),
+            });
+            // The render queue replaces pixels asynchronously. Commit the page
+            // shell geometry in the same zoom turn so the DOM reflects the new
+            // scale before the replacement canvas is requested.
+            if (zoomChanged || pending.modeChangedToCustom) {
+                setupPagePlaceholders();
+            }
+            enqueueZoomSync({
+                source: zoomRerenderSource,
+                stabilize: true,
+                resizeAnchor: zoomAnchor,
+                ...(zoomViewportAnchor?.sessionId !== undefined
+                    ? {zoomGestureSessionId: zoomViewportAnchor.sessionId}
+                    : {}),
+                zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
+            });
+        } finally {
+            pending?.endGeometryReplacement?.();
         }
-        if (pdfDocument.value !== pending.document) {
-            return;
-        }
-        const nextZoom = zoom.value;
-        const zoomChanged = pending.zoomChanged
-            && pending.previousZoom !== null
-            && nextZoom !== pending.previousZoom;
-        if (!zoomChanged && !pending.modeChangedToCustom) {
-            return;
-        }
-        if (zoomChanged) {
-            submitZoomViewportStateIntent?.(nextZoom);
-        }
-        if (!pdfDocument.value) {
-            return;
-        }
-        if (
-            zoomChanged
-            && consumeSuppressedZoomRerender?.(nextZoom)
-            && !pending.modeChangedToCustom
-        ) {
-            return;
-        }
-        cancelDestinationNavigationTarget?.();
-        void cancelInFlightPageRenders?.();
-        const zoomViewportAnchor = pending.zoomViewportAnchor;
-        const trustCurrentPageAnchor = canTrustCurrentPageAsZoomAnchor();
-        const zoomRerenderSource = zoomViewportAnchor
-            ? PDF_RERENDER_SOURCE.ZoomGestureChange
-            : pending.modeChangedToCustom
-                ? PDF_RERENDER_SOURCE.ZoomModeChange
-                : PDF_RERENDER_SOURCE.ZoomChange;
-        const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? pending.resizeAnchor;
-        logPdfRenderTrace('zoom-rerender-anchor-captured', () => ({
-            previousZoom: pending.previousZoom ?? nextZoom,
-            nextZoom,
-            currentPage: currentPage.value,
-            visibleRange: {...visibleRange.value},
-            trustCurrentPageAnchor,
-            anchorPage: zoomAnchor.page,
-            semanticAnchorPage: zoomAnchor.semanticAnchor?.page ?? null,
-            navigationAnchorPage: navigationAnchorPage?.value ?? null,
-            pagedNavigationTargetPage: pagedNavigationTargetPage?.value ?? null,
-        }));
-        BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'zoom-watch-schedule-rerender', ZOOM_QUEUE_LOG_THROTTLE_MS, '[zoom-watch] schedule zoom rerender', {
-            previousZoom: pending.previousZoom ?? nextZoom,
-            nextZoom,
-            consumedZoomViewportAnchor: zoomViewportAnchor,
-            trustCurrentPageAnchor,
-            zoomRerenderSource,
-            builtZoomAnchor: zoomAnchor,
-            viewer: summarizeViewerMetricsForLog(viewerContainer.value),
-        });
-        // The render queue replaces pixels asynchronously. Commit the page
-        // shell geometry in the same zoom turn so the DOM reflects the new
-        // scale before the replacement canvas is requested.
-        if (zoomChanged || pending.modeChangedToCustom) {
-            setupPagePlaceholders();
-        }
-        enqueueZoomSync({
-            source: zoomRerenderSource,
-            stabilize: true,
-            resizeAnchor: zoomAnchor,
-            ...(zoomViewportAnchor?.sessionId !== undefined
-                ? {zoomGestureSessionId: zoomViewportAnchor.sessionId}
-                : {}),
-            zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
-        });
     }
 
     function queueZoomOrchestration(change: {
@@ -195,10 +202,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             ?? null;
         const resizeAnchor = existingPendingZoomOrchestration?.resizeAnchor
             ?? zoomViewportAnchor?.resizeAnchor
-            ?? buildResizeAnchorContext({
-                preferredAnchorPage: currentPage.value,
-                trustPreferredAnchorPage: canTrustCurrentPageAsZoomAnchor(),
-            });
+            ?? buildResizeAnchorContext();
         pendingZoomOrchestration = {
             document: pdfDocument.value,
             previousZoom: existingPendingZoomOrchestration?.previousZoom
@@ -209,6 +213,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 || change.modeChangedToCustom === true,
             resizeAnchor,
             zoomViewportAnchor,
+            // The host task deliberately defers raster work. Browser scrolls
+            // caused by the intervening geometry patch must still be classified
+            // as clamps, while actual wheel/scrollbar input can supersede it.
+            endGeometryReplacement: existingPendingZoomOrchestration?.endGeometryReplacement
+                ?? beginLayoutGeometryReplacement?.(),
         };
         if (zoomOrchestrationTaskId !== null) {
             return;
@@ -268,15 +277,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return shouldUseMinimalPdfRerenderBuffer(source)
             ? 0
             : undefined;
-    }
-
-    function canTrustCurrentPageAsZoomAnchor() {
-        const page = currentPage.value;
-        if (!Number.isFinite(page) || page < 1 || page > numPages.value) {
-            return false;
-        }
-        const range = visibleRange.value;
-        return page >= range.start && page <= range.end;
     }
 
     function resolvePageRowRange(pageNumber: number): IPageRange {
@@ -408,7 +408,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         );
         const runId = ++reRenderSyncRunId;
         const resizeAnchor = syncOptions.resizeAnchor ?? null;
-        const wheelGestureOwnsViewportAnchor = syncOptions.zoomGestureSessionId !== undefined
+        const authorityOwnsViewportAnchor = isResizePdfRerenderSource(source)
+            || isZoomRestorePdfRerenderSource(source)
+            || syncOptions.zoomGestureSessionId !== undefined
             || source === PDF_RERENDER_SOURCE.ZoomGestureChange;
         let transitionOutcome = 'resize-rerender-complete';
         warnZoomRerenderSync(source, `[rerender-sync] begin zoom run=${runId}`, () => ({
@@ -463,14 +465,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 return;
             }
 
-            if (resizeAnchor && !wheelGestureOwnsViewportAnchor) {
-                // A modifier-wheel gesture already submitted one cursor-point
-                // viewport intent against its pre-zoom geometry. Replaying the
-                // separately captured resize/visual anchor here would issue a
-                // second scroll write when the sharp raster commits, usually
-                // moving the cursor's content point to the viewport center.
-                // Non-wheel resize and toolbar transitions still need this final
-                // projection because they do not own that atomic cursor intent.
+            if (resizeAnchor && !authorityOwnsViewportAnchor) {
+                // Resize and zoom commit their anchor through the viewport
+                // authority before rendering. Only legacy fit transactions
+                // restore here; replaying an authority-owned anchor would issue a
+                // second scroll write when the replacement raster commits.
                 await nextTick();
                 const restored = applyResizeAnchorPreview === undefined
                     ? false
@@ -493,7 +492,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 ...buildRerenderSyncNavLogPayload(runId, source),
                 visiblePageSnapshot: summarizeVisiblePageSnapshotForLog(viewerContainer.value),
             });
-            await syncCurrentPageFromViewport(syncOptions);
+            if (!authorityOwnsViewportAnchor) await syncCurrentPageFromViewport(syncOptions);
             if (!isSyncTransactionCurrent(syncOptions)) {
                 transitionOutcome = 'stale-rerender-transaction-after-sync';
                 return;

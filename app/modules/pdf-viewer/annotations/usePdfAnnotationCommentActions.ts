@@ -6,14 +6,11 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import type { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
-import type { IPageRange } from '@app/types/pdfUi';
-import { BrowserLogger } from '@app/utils/browserLogger';
 
 type TPdfAnnotationCommentModel = ReturnType<typeof usePdfAnnotationCommentModel>;
 type TPdfShapeTool = ReturnType<typeof usePdfShapeTool>;
 
 interface IUsePdfAnnotationCommentActionsOptions {
-    viewerContainer: Ref<HTMLElement | null>;
     numPages: Ref<number>;
     activeCommentStableKey: Ref<string | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
@@ -26,20 +23,11 @@ interface IUsePdfAnnotationCommentActionsOptions {
         deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     };
     scrollToPage: (pageNumber: TPageNumber, options?: { markerRect?: IAnnotationCommentSummary['markerRect'] }) => void;
-    updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    renderVisiblePages: (
-        range: IPageRange,
-        options?: {
-            preserveRenderedPages?: boolean;
-            bufferOverride?: number;
-        },
-    ) => Promise<void>;
     emitForcedAnnotationMutation: () => void;
 }
 
 export const usePdfAnnotationCommentActions = (options: IUsePdfAnnotationCommentActionsOptions) => {
     const {
-        viewerContainer,
         numPages,
         activeCommentStableKey,
         annotationCommentsCache,
@@ -49,12 +37,10 @@ export const usePdfAnnotationCommentActions = (options: IUsePdfAnnotationComment
         selectedShapeCommands,
         commentCrud,
         scrollToPage,
-        updateVisibleRange,
-        renderVisiblePages,
         emitForcedAnnotationMutation,
     } = options;
 
-    async function focusShapeAnnotationComment(comment: IAnnotationCommentSummary) {
+    function focusShapeAnnotationComment(comment: IAnnotationCommentSummary) {
         const shape = shapeTool.findShapeForAnnotationComment(comment);
         if (!shape) {
             return;
@@ -67,29 +53,15 @@ export const usePdfAnnotationCommentActions = (options: IUsePdfAnnotationComment
             Math.max(comment.pageNumber, 1),
             Math.max(1, numPages.value),
         ), numPages.value);
+        // Navigation owns target hydration and raster demand for every
+        // annotation kind, including shapes. A second render here can replace
+        // a newer navigation's demand while the original one is still pending.
         scrollToPage(pageNumber, { markerRect: comment.markerRect });
-
-        await nextTick();
-        updateVisibleRange(viewerContainer.value, numPages.value);
-        try {
-            await renderVisiblePages(
-                {
-                    start: pageNumber,
-                    end: pageNumber,
-                },
-                {
-                    preserveRenderedPages: true,
-                    bufferOverride: 0,
-                },
-            );
-        } catch (error) {
-            BrowserLogger.warn('annotations', `Failed to render page ${pageNumber} while focusing shape annotation`, error);
-        }
     }
 
     async function focusAnnotationComment(comment: IAnnotationCommentSummary) {
         if (comment.source === 'shape') {
-            await focusShapeAnnotationComment(comment);
+            focusShapeAnnotationComment(comment);
             return;
         }
 

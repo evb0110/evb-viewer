@@ -59,8 +59,6 @@ function createActionsHarness() {
     const activeCommentStableKey = ref<string | null>(null);
     const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
     const scrollToPage = vi.fn();
-    const updateVisibleRange = vi.fn();
-    const renderVisiblePages = vi.fn(async () => undefined);
     const emitAnnotationComments = vi.fn();
     const focusAnnotationCommentCrud = vi.fn(async () => undefined);
     const deleteAnnotationCommentCrud = vi.fn(async () => true);
@@ -87,7 +85,6 @@ function createActionsHarness() {
             emitAnnotationComments,
         });
         actions = usePdfAnnotationCommentActions({
-            viewerContainer: ref(null),
             numPages: ref(10),
             activeCommentStableKey,
             annotationCommentsCache,
@@ -100,8 +97,6 @@ function createActionsHarness() {
                 deleteAnnotationComment: deleteAnnotationCommentCrud,
             },
             scrollToPage,
-            updateVisibleRange,
-            renderVisiblePages,
             emitForcedAnnotationMutation: () => undefined,
         });
         return () => null;
@@ -115,7 +110,6 @@ function createActionsHarness() {
         shapeTool,
         activeCommentStableKey,
         scrollToPage,
-        renderVisiblePages,
         emitAnnotationComments,
         deleteAnnotationCommentCrud,
     };
@@ -150,16 +144,7 @@ describe('usePdfAnnotationCommentActions shape rows', () => {
         expect(harness.shapeTool.shapeComposable.focusedShapeId.value).toBe('embedded-shape-1');
         expect(harness.activeCommentStableKey.value).toBe(annotationIdForSummary(summary));
         expect(harness.scrollToPage).toHaveBeenCalledWith(4, {markerRect: summary.markerRect});
-        expect(harness.renderVisiblePages).toHaveBeenCalledWith(
-            {
-                start: 4,
-                end: 4,
-            },
-            {
-                preserveRenderedPages: true,
-                bufferOverride: 0,
-            },
-        );
+        expect(harness.scrollToPage).toHaveBeenCalledOnce();
     });
 
     it('leaves focus untouched when no shape owns the row', async () => {

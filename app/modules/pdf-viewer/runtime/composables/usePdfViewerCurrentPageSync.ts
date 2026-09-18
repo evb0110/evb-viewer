@@ -28,6 +28,7 @@ export interface ICurrentPageSyncOptions {
 
 export interface IResizeAnchorContext {
     capturedAtMs: number;
+    physicalNavigationEpoch?: number;
     page: number;
     transitionToken: number;
     visibleRange: {

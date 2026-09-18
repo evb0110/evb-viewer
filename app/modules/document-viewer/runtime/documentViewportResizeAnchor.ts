@@ -14,7 +14,13 @@ export interface IDocumentViewportAnchorPosition {
     readonly top: number;
 }
 
-export interface IDocumentViewportResizeAnchorOptions {readonly preferredPageNumber?: number | null;}
+export interface IDocumentViewportResizeAnchorOptions {
+    readonly preferredPageNumber?: number | null;
+    readonly viewportPoint?: {
+        x: number;
+        y: number
+    };
+}
 
 function clampRatio(value: number) {
     return Math.max(0, Math.min(1, value));
@@ -32,7 +38,7 @@ function distanceFromPoint(rect: DOMRect, x: number, y: number) {
 }
 
 /**
- * Captures a semantic point inside the page nearest the viewport centre.
+ * Captures a semantic point inside the page nearest the supplied point or viewport centre.
  * The element is retained so renderer-specific layout work cannot silently
  * substitute a different page while a workspace transition is in progress.
  */
@@ -41,13 +47,13 @@ export function captureDocumentViewportResizeAnchor(
     options?: IDocumentViewportResizeAnchorOptions,
 ): IDocumentViewportResizeAnchor | null {
     const viewportRect = viewport.getBoundingClientRect();
-    if (viewportRect.width <= 0 || viewportRect.height <= 0) {
+    if (viewport.clientWidth <= 0 || viewport.clientHeight <= 0) {
         return null;
     }
-    const viewportRatioX = 0.5;
-    const viewportRatioY = 0.5;
-    const anchorX = viewportRect.left + (viewportRect.width * viewportRatioX);
-    const anchorY = viewportRect.top + (viewportRect.height * viewportRatioY);
+    const viewportRatioX = clampRatio((options?.viewportPoint?.x ?? viewport.clientWidth / 2) / viewport.clientWidth);
+    const viewportRatioY = clampRatio((options?.viewportPoint?.y ?? viewport.clientHeight / 2) / viewport.clientHeight);
+    const anchorX = viewportRect.left + viewport.clientLeft + (viewport.clientWidth * viewportRatioX);
+    const anchorY = viewportRect.top + viewport.clientTop + (viewport.clientHeight * viewportRatioY);
     const candidates = Array.from(
         viewport.querySelectorAll<HTMLElement>(DOCUMENT_PAGE_ANCHOR_SELECTOR),
     ).flatMap((element) => {
@@ -96,8 +102,8 @@ export function resolveDocumentViewportResizeAnchorPosition(
     const viewportRect = viewport.getBoundingClientRect();
     const pageRect = anchor.element.getBoundingClientRect();
     if (
-        viewportRect.width <= 0
-        || viewportRect.height <= 0
+        viewport.clientWidth <= 0
+        || viewport.clientHeight <= 0
         || pageRect.width <= 0
         || pageRect.height <= 0
     ) {
@@ -107,12 +113,12 @@ export function resolveDocumentViewportResizeAnchorPosition(
         left: viewport.scrollLeft
             + pageRect.left
             + (pageRect.width * anchor.pageRatioX)
-            - viewportRect.left
-            - (viewportRect.width * anchor.viewportRatioX),
+            - viewportRect.left - viewport.clientLeft
+            - (viewport.clientWidth * anchor.viewportRatioX),
         top: viewport.scrollTop
             + pageRect.top
             + (pageRect.height * anchor.pageRatioY)
-            - viewportRect.top
-            - (viewportRect.height * anchor.viewportRatioY),
+            - viewportRect.top - viewport.clientTop
+            - (viewport.clientHeight * anchor.viewportRatioY),
     };
 }

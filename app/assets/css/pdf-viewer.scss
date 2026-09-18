@@ -729,6 +729,10 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
         overflow-x: auto;
     }
 
+    // During fit-width animation the previous frame's page can briefly be
+    // wider than its host. A transient horizontal scrollbar changes the
+    // vertical anchor by half its height and triggers another resize.
+    &.pdfViewer--fit-width.pdfViewer--resize-transition,
     &.pdfViewer--active-spread-fits-width,
     &.pdfViewer--fit-width-page-fits {
         overflow-x: hidden;

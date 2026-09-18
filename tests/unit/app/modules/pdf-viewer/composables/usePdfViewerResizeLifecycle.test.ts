@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import type { Ref } from 'vue';
 import {
+    computed,
     nextTick,
     ref,
 } from 'vue';
@@ -36,6 +37,9 @@ function createResizeLifecycle(
     isActive = ref(true),
     options?: {
         numPages?: number;
+        layoutScale?: Ref<number>;
+        userPhysicalNavigationEpoch?: Ref<number>;
+        committedViewportAnchor?: TResizeLifecycleOptions['committedViewportAnchor'];
         computeFitWidthScale?: () => boolean;
         settlePreviewFitScale?: (commit?: boolean) => boolean;
         isLoading?: Ref<boolean>;
@@ -50,7 +54,12 @@ function createResizeLifecycle(
     },
 ) {
     const getMostVisiblePage = vi.fn(() => 2);
-    const computeFitWidthScale = vi.fn(options?.computeFitWidthScale ?? (() => true));
+    const layoutScale = options?.layoutScale ?? ref(1);
+    const computeFitWidthScale = vi.fn(() => {
+        const updated = options?.computeFitWidthScale?.() ?? true;
+        if (updated && !options?.layoutScale) layoutScale.value += 0.1;
+        return updated;
+    });
     const settlePreviewFitScale = vi.fn(
         options?.settlePreviewFitScale ?? (commit => commit === true),
     );
@@ -61,6 +70,9 @@ function createResizeLifecycle(
     const isResizing = options?.isResizing ?? ref(false);
     const lifecycle = usePdfViewerResizeLifecycle({
         submitResizeIntent,
+        layoutScale,
+        userPhysicalNavigationEpoch: options?.userPhysicalNavigationEpoch ?? ref(0),
+        committedViewportAnchor: options?.committedViewportAnchor ?? computed(() => options?.captureViewportAnchor?.() ?? null),
         applyResizeAnchorPreview,
         viewerContainer: options?.viewerContainer ?? ref(null),
         isLoading: options?.isLoading ?? ref(false),
@@ -342,17 +354,17 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         await nextTick();
         await Promise.resolve();
 
-        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(2);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(1);
         expect(submitResizeIntent).toHaveBeenCalledOnce();
 
         (viewerContainer.value as {clientHeight: number}).clientHeight = 815;
         resizeObserverMock.callback?.();
-        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(3);
-        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(3, semanticAnchor);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(1);
+        expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(semanticAnchor);
         await nextTick();
         await Promise.resolve();
 
-        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(2);
         expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(semanticAnchor);
         expect(submitResizeIntent).toHaveBeenCalledOnce();
     });
@@ -662,6 +674,101 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
     });
 
+    it('follows a same-page annotation destination committed during the sidebar slide', async () => {
+        vi.useFakeTimers();
+        const topAnchor = {
+            affinity: 'center' as const,
+            page: 4,
+            pageXFraction: 0.5,
+            pageYFraction: 0.2,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        };
+        const committedViewportAnchor = ref(topAnchor);
+        const view = createResizeLifecycle(ref(true), {
+            committedViewportAnchor,
+            captureViewportAnchor: () => committedViewportAnchor.value,
+        });
+        view.isResizing.value = true;
+        resizeObserverMock.callback?.();
+        await nextTick();
+        const markerAnchor = {
+            ...topAnchor,
+            pageYFraction: 0.8,
+        };
+        committedViewportAnchor.value = markerAnchor;
+        resizeObserverMock.callback?.();
+        await nextTick();
+        expect(view.applyResizeAnchorPreview).toHaveBeenLastCalledWith(markerAnchor);
+        view.isResizing.value = false;
+        await vi.advanceTimersByTimeAsync(25);
+        expect(view.submitResizeIntent).toHaveBeenLastCalledWith(markerAnchor);
+        view.lifecycle.cleanupResizeLifecycle();
+    });
+
+    it('does not restore the old point after physical input takes the viewport', async () => {
+        vi.useFakeTimers();
+        const userPhysicalNavigationEpoch = ref(0);
+        const view = createResizeLifecycle(ref(true), {userPhysicalNavigationEpoch});
+        view.isResizing.value = true;
+        resizeObserverMock.callback?.();
+        // Wheel input can arrive between the immediate preview and its Vue
+        // layout continuation, before the browser dispatches native scroll.
+        userPhysicalNavigationEpoch.value += 1;
+        view.applyResizeAnchorPreview.mockClear();
+        await nextTick();
+        expect(view.applyResizeAnchorPreview).not.toHaveBeenCalled();
+        view.isResizing.value = false;
+        await vi.advanceTimersByTimeAsync(400);
+        expect(view.submitResizeIntent).not.toHaveBeenCalled();
+        view.lifecycle.cleanupResizeLifecycle();
+    });
+
+    it('keeps canvases and text visible throughout a fixed-scale sidebar toggle', async () => {
+        vi.useFakeTimers();
+        const view = createResizeLifecycle(ref(true), {layoutScale: ref(2.24)});
+        view.isResizing.value = true;
+        resizeObserverMock.callback?.();
+        await nextTick();
+        view.isResizing.value = false;
+        await vi.advanceTimersByTimeAsync(400);
+        expect(view.setResizeTransitionVisible).not.toHaveBeenCalled();
+        expect(view.scheduleResizeAwareRerender).not.toHaveBeenCalled();
+        expect(view.submitResizeIntent).toHaveBeenCalledOnce();
+        view.lifecycle.cleanupResizeLifecycle();
+    });
+
+    it('keeps the physical reading point when the reported page lags behind the viewport', async () => {
+        vi.useFakeTimers();
+        const semanticAnchor = {
+            affinity: 'center' as const,
+            page: 1,
+            pageXFraction: 0.5,
+            pageYFraction: 0.8,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        };
+        const view = createResizeLifecycle(ref(true), {
+            currentPage: ref(4),
+            captureViewportAnchor: () => semanticAnchor,
+        });
+        view.isResizing.value = true;
+        resizeObserverMock.callback?.();
+        await nextTick();
+        expect(view.applyResizeAnchorPreview).toHaveBeenLastCalledWith(semanticAnchor);
+        view.isResizing.value = false;
+        await vi.advanceTimersByTimeAsync(25);
+        expect(view.submitResizeIntent).toHaveBeenCalledExactlyOnceWith(semanticAnchor);
+        expect(view.scheduleResizeAwareRerender).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({resizeAnchor: expect.objectContaining({
+                page: 1,
+                semanticAnchor,
+            })}),
+        );
+        view.lifecycle.cleanupResizeLifecycle();
+    });
+
     it('previews the drag-start anchor on every drag frame and commits it once at settle', async () => {
         vi.useFakeTimers();
         const semanticAnchor = {
@@ -697,7 +804,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         // Drag frames only correct the preview geometry. The authority intent
         // hydrates geometry and commits a position, which is settle work.
         expect(submitResizeIntent).not.toHaveBeenCalled();
-        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(2);
         expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(1, semanticAnchor);
         expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(2, semanticAnchor);
         expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
@@ -708,8 +815,8 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         await Promise.resolve();
 
         expect(submitResizeIntent).toHaveBeenCalledExactlyOnceWith(semanticAnchor);
-        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(6);
-        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(6, semanticAnchor);
+        expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(3);
+        expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(3, semanticAnchor);
         expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
         expect(computeFitWidthScale).toHaveBeenLastCalledWith(null, {
             page: 4,

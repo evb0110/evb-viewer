@@ -27,6 +27,10 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
 describe('document viewport resize anchor', () => {
     it('retains the semantic page point across page and viewport geometry changes', () => {
         const viewport = document.createElement('div');
+        Object.defineProperties(viewport, {
+            clientWidth: {get: () => viewport.getBoundingClientRect().width},
+            clientHeight: {get: () => viewport.getBoundingClientRect().height},
+        });
         const page = document.createElement('section');
         page.dataset.documentPageNumber = '4';
         viewport.append(page);
@@ -60,8 +64,46 @@ describe('document viewport resize anchor', () => {
         });
     });
 
+    it('uses the usable viewport centre excluding borders and scrollbar gutters', () => {
+        const viewport = document.createElement('div');
+        const page = document.createElement('section');
+        page.dataset.documentPageNumber = '4';
+        viewport.append(page);
+        document.body.append(viewport);
+        Object.defineProperties(viewport, {
+            clientWidth: {value: 780},
+            clientHeight: {value: 580},
+            clientLeft: {value: 2},
+            clientTop: {value: 2},
+        });
+        viewport.getBoundingClientRect = () => rect(100, 80, 800, 600);
+        page.getBoundingClientRect = () => rect(102, 82, 780, 580);
+        const anchor = captureDocumentViewportResizeAnchor(viewport);
+        expect(anchor).toMatchObject({
+            pageRatioX: 0.5,
+            pageRatioY: 0.5,
+        });
+        expect(resolveDocumentViewportResizeAnchorPosition(viewport, anchor!)).toEqual({
+            left: 0,
+            top: 0,
+        });
+        expect(captureDocumentViewportResizeAnchor(viewport, {viewportPoint: {
+            x: 195,
+            y: 435,
+        }})).toMatchObject({
+            pageRatioX: 0.25,
+            pageRatioY: 0.75,
+            viewportRatioX: 0.25,
+            viewportRatioY: 0.75,
+        });
+    });
+
     it('chooses the nearest page when the viewport centre is in a page gap', () => {
         const viewport = document.createElement('div');
+        Object.defineProperties(viewport, {
+            clientWidth: {get: () => viewport.getBoundingClientRect().width},
+            clientHeight: {get: () => viewport.getBoundingClientRect().height},
+        });
         document.body.append(viewport);
         viewport.getBoundingClientRect = () => rect(0, 0, 400, 400);
         const first = document.createElement('section');
@@ -77,6 +119,10 @@ describe('document viewport resize anchor', () => {
 
     it('prefers the committed page when it is mounted but not nearest to centre', () => {
         const viewport = document.createElement('div');
+        Object.defineProperties(viewport, {
+            clientWidth: {get: () => viewport.getBoundingClientRect().width},
+            clientHeight: {get: () => viewport.getBoundingClientRect().height},
+        });
         document.body.append(viewport);
         viewport.getBoundingClientRect = () => rect(0, 0, 400, 400);
         const first = document.createElement('section');

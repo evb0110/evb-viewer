@@ -1,3 +1,4 @@
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import {
     clampPageNumber,
     requirePageNumber,
@@ -890,8 +891,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
         if (
             wasAuthorityScroll
-            || options.isResizing.value
-            || resizeTransitionVisible.value
             || zoomSnapSuppressedForClass.value
         ) {
             navigationEpochs.observeAuthoredScrollOffset(container.scrollTop);
@@ -999,7 +998,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         singlePageScroll.submitNavigationRequest(request);
     }
     let anchoredZoomAlreadySubmitted: number | null = null;
-    function submitZoomViewportStateIntent(value: number) {
+    function submitZoomViewportStateIntent(value: number, anchor?: IPdfSemanticAnchor | null) {
         if (
             anchoredZoomAlreadySubmitted !== null
             && Math.abs(anchoredZoomAlreadySubmitted - value) < 0.000_001
@@ -1008,7 +1007,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             return;
         }
         anchoredZoomAlreadySubmitted = null;
-        submitAmbientViewportStateIntent('zoom', { zoom: value });
+        submitAmbientViewportStateIntent('zoom', {
+            zoom: value,
+            ...(anchor ? {anchor} : {}),
+        });
     }
     function submitAmbientViewportStateIntent(
         kind: 'zoom' | 'fit' | 'view-mode' | 'dpr' | 'activation',

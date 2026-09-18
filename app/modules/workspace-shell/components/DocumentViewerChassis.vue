@@ -246,6 +246,12 @@ function releaseRetainedResizeAnchor() {
 }
 
 function retainCurrentResizeAnchor() {
+    // PDF.js owns semantic resize projection together with its virtual page
+    // geometry. A second DOM anchor here races that projection and can restore
+    // a different page between preview and raster commit.
+    if (rendererKind.value === 'pdfjs') {
+        return;
+    }
     const viewport = chassisAuthority.viewportElement.value;
     if (!viewport) {
         return;
@@ -561,7 +567,9 @@ const chassisViewportStyle = computed(() => {
     return [
         chassisAuthority.viewportStyle.value,
         {
-            overflow: policy.overflow,
+            // The opening shell may suppress scrolling, but once ready the
+            // renderer owns axis overflow (including fit-width scrollbar lock).
+            overflow: policy.overflow === 'hidden' ? 'hidden' : undefined,
             scrollbarGutter: policy.scrollbarGutter,
             '--document-open-surface-margin': policy.committedMargin === null
                 ? undefined

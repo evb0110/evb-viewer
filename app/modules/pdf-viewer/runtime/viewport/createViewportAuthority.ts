@@ -19,6 +19,11 @@ export interface IPdfViewportIntent {
     supersessionKey: string;
     navigation?: IPdfNavigationRequest;
     anchor?: IPdfSemanticAnchor;
+    /** Cursor position in viewport pixels, retained across scrollbar changes. */
+    viewportPoint?: {
+        x: number;
+        y: number
+    };
     zoom?: number;
     viewMode?: TPdfViewMode;
     dpr?: number;

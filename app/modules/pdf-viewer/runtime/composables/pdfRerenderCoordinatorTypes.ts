@@ -119,7 +119,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
      */
     beginLayoutGeometryReplacement?: (() => () => void) | undefined;
     consumeZoomViewportAnchor?: (() => IZoomViewportAnchor | null) | undefined;
-    submitZoomViewportStateIntent?: ((zoom: number) => void) | undefined;
+    submitZoomViewportStateIntent?: ((zoom: number, anchor?: IPdfSemanticAnchor | null) => void) | undefined;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
     consumeSuppressedZoomRerender?: ((nextZoom: number) => boolean) | undefined;
     transactionController?: IRerenderCoordinatorTransactionController | undefined;

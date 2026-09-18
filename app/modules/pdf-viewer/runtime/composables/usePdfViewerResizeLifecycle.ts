@@ -39,6 +39,10 @@ interface IUsePdfViewerResizeLifecycleOptions {
     isLoading: Ref<boolean>;
     isActive?: Ref<boolean> | undefined;
     isResizing: Ref<boolean>;
+    layoutScale: Readonly<Ref<number>>;
+    committedViewportAnchor: Readonly<Ref<IPdfSemanticAnchor | null>>;
+    userPhysicalNavigationEpoch: Readonly<Ref<number>>;
+    beginLayoutGeometryReplacement?: () => () => void;
     pdfDocument: Ref<unknown | null>;
     currentPage: Ref<number>;
     pendingNavigationAnchorPage?: Readonly<Ref<number | null>> | undefined;
@@ -112,7 +116,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         currentPage,
         visibleRange,
         numPages,
-        computeFitWidthScale,
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
         scheduleResizeAwareRerender,
@@ -126,6 +129,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     let pendingResizeAnchor: IResizeAnchorContext | null = null;
     let pendingResizeTransactionId: number | null = null;
     let dragResizeAnchor: IResizeAnchorContext | null = null;
+    let dragInitialScale = options.layoutScale.value;
+    let anchorRevision = 0;
     let dragSettleRunId = 0;
     let dragSettleClaimed = false;
     let dragSettleClaimReleaseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -135,6 +140,22 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         width: number;
         height: number
     } | null = null;
+
+    function computeFitWidthScale(...args: Parameters<IUsePdfViewerResizeLifecycleOptions['computeFitWidthScale']>) {
+        const previousScale = options.layoutScale.value;
+        options.computeFitWidthScale(...args);
+        // Updating the remembered fit scale at custom zoom does not change
+        // the displayed page geometry or invalidate any painted layers.
+        return options.layoutScale.value !== previousScale;
+    }
+
+    function beginDragScaleTransition() {
+        if (dragResizeAnchor && dragResizeAnchor.transitionToken === 0) {
+            dragResizeAnchor.transitionToken = beginResizeTransition(
+                PDF_RERENDER_SOURCE.ResizeSettle, dragResizeAnchor.page,
+            );
+        }
+    }
 
     function readViewportSize() {
         const container = viewerContainer.value;
@@ -256,13 +277,14 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     function getResizePreferredAnchorPage() {
-        return options.pendingNavigationAnchorPage?.value ?? currentPage.value;
+        return options.pendingNavigationAnchorPage?.value ?? null;
     }
 
     function buildResizeAnchorContext(optionsOverride?: IBuildResizeAnchorContextOptions) {
         if (isActive?.value === false) {
             return {
                 capturedAtMs: Date.now(),
+                physicalNavigationEpoch: options.userPhysicalNavigationEpoch.value,
                 page: currentPage.value,
                 transitionToken: 0,
                 visibleRange: {
@@ -276,8 +298,8 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         const preferredAnchorPage = optionsOverride?.trustPreferredAnchorPage
             ? normalizePreferredAnchorPage(optionsOverride.preferredAnchorPage)
             : null;
-        const anchorPage = preferredAnchorPage ?? currentPage.value;
         const capturedSemanticAnchor = options.captureViewportAnchor?.() ?? null;
+        const anchorPage = preferredAnchorPage ?? capturedSemanticAnchor?.page ?? currentPage.value;
         // Geometry may already reflect a new scale while scrollTop still
         // belongs to the preceding geometry epoch. Preserve the trusted page
         // owner and only reuse the point fractions from that physical sample;
@@ -295,6 +317,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         });
         return {
             capturedAtMs: Date.now(),
+            physicalNavigationEpoch: options.userPhysicalNavigationEpoch.value,
             page: anchorPage,
             transitionToken: 0,
             visibleRange: {
@@ -336,13 +359,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             }
             return;
         }
-        if (anchor) {
-            // ResizeObserver rerenders clear the renderer canvas before the
-            // replacement is ready. Preserve the committed pixels just as we
-            // do for divider-drag settle so scrollbar admission and other
-            // one-shot geometry changes cannot expose a blank page shell.
-            captureResizeVisualSnapshots(anchor);
-        }
         scheduleResizeAwareRerender('re-render visible pages after resize', {
             source: PDF_RERENDER_SOURCE.ResizeObserver,
             stabilize: true,
@@ -366,23 +382,33 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         );
     }
 
-    function reapplyResizeAnchorPreviewAfterLayout(anchor: IResizeAnchorContext) {
-        options.applyResizeAnchorPreview?.(anchor.semanticAnchor);
-        // Fit-preview scale is reactive: the ResizeObserver updates it before
-        // Vue has patched the page geometry. Reapply once that patch lands so
-        // the semantic page never leaves the painted viewport while the
-        // asynchronous authority hydrates/refines the canonical intent.
-        return nextTick(() => options.applyResizeAnchorPreview?.(anchor.semanticAnchor));
+    function isResizeAnchorCurrent(anchor: IResizeAnchorContext) {
+        return anchor.physicalNavigationEpoch === options.userPhysicalNavigationEpoch.value;
+    }
+
+    async function reapplyResizeAnchorPreviewAfterLayout(anchor: IResizeAnchorContext) {
+        const revision = anchorRevision;
+        const endReplacement = options.beginLayoutGeometryReplacement?.();
+        try {
+            // Project only after Vue has installed this frame's page geometry.
+            // Input or a committed destination invalidates pending projections.
+            await nextTick();
+            if (revision !== anchorRevision || !isResizeAnchorCurrent(anchor)) return false;
+            options.applyResizeAnchorPreview?.(anchor.semanticAnchor);
+            return true;
+        } finally {
+            endReplacement?.();
+        }
     }
 
     function restoreResizeAnchorAfterLayout(anchor: IResizeAnchorContext, source: string) {
-        // The authority resolves its geometry asynchronously. Submitting in
-        // the same turn as the reactive fit-preview write lets it observe the
-        // preceding page track, then apply its scroll position against the
-        // next track. Submit after Vue has committed the preview instead.
-        void reapplyResizeAnchorPreviewAfterLayout(anchor).then(() => {
+        const revision = anchorRevision;
+        void reapplyResizeAnchorPreviewAfterLayout(anchor).then((applied) => {
             if (
-                isActive?.value === false
+                !applied
+                || revision !== anchorRevision
+                || !isResizeAnchorCurrent(anchor)
+                || isActive?.value === false
                 || isLoading.value
                 || !pdfDocument.value
             ) {
@@ -523,6 +549,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 page: dragResizeAnchor?.page ?? currentPage.value,
                 preview: true,
             });
+            if (updated) beginDragScaleTransition();
             if (dragResizeAnchor && (updated || viewportGeometryChanged)) {
                 // Preview scale updates replace the virtual page geometry
                 // immediately. Reapply the drag-start semantic anchor against
@@ -537,6 +564,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             return;
         }
         if (dragSettleClaimed) {
+            consumeViewportGeometryChange();
             return;
         }
         const preferredAnchorPage = getResizePreferredAnchorPage();
@@ -546,7 +574,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         });
         const previousViewportSize = lastObservedViewportSize;
         const viewportGeometryChanged = consumeViewportGeometryChange();
-        const updated = computeFitWidthScale(viewerContainer.value, {page: preferredAnchorPage});
+        const updated = computeFitWidthScale(viewerContainer.value, {page: resizeAnchor.page});
         if (!updated && !viewportGeometryChanged) {
             return;
         }
@@ -651,38 +679,26 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         },
     );
 
-    // A navigation that commits while the sidebar or window is still
-    // animating moves the viewport authority to another page. The drag anchor
-    // was captured for the page the drag started on, so replaying it would
-    // drag the viewport back there while the authority keeps reporting the new
-    // page. The authority owns where the viewport is; the anchor only keeps
-    // that place stable across per-frame geometry changes, so re-derive it
-    // from the committed position. The authority applies its scroll before it
-    // publishes the page, so the capture below reads the new position.
-    // A ResizeObserver burst (sidebar open, scrollbar admission) keeps its
-    // first anchor across packets for the same reason, and needs the same
-    // re-derivation.
-    function followCommittedPage(anchor: IResizeAnchorContext | null, page: number) {
-        if (!anchor || anchor.page === page) {
-            return anchor;
-        }
-        return {
-            ...buildResizeAnchorContext({
-                preferredAnchorPage: page,
-                trustPreferredAnchorPage: true,
-            }),
-            transitionToken: anchor.transitionToken,
-        };
-    }
-
-    watch(currentPage, (page) => {
-        dragResizeAnchor = followCommittedPage(dragResizeAnchor, page);
-        pendingResizeAnchor = followCommittedPage(pendingResizeAnchor, page);
+    // Page numbers cannot describe a note/search jump within the same page.
+    // Follow the authority's full committed point, including native scrolling,
+    // so every remaining resize frame preserves the latest user destination.
+    watch(options.committedViewportAnchor, (semanticAnchor) => {
+        if (!semanticAnchor) return;
+        anchorRevision += 1;
+        const follow = (anchor: IResizeAnchorContext | null): IResizeAnchorContext | null => anchor && ({
+            ...anchor,
+            page: semanticAnchor.page,
+            semanticAnchor,
+            physicalNavigationEpoch: options.userPhysicalNavigationEpoch.value,
+        });
+        dragResizeAnchor = follow(dragResizeAnchor);
+        pendingResizeAnchor = follow(pendingResizeAnchor);
     }, {flush: 'sync'});
 
     watch(isResizing, async (value, previous) => {
         const runId = ++dragSettleRunId;
         if (value) {
+            anchorRevision += 1;
             dragSettleClaimed = true;
             cancelDebouncedResizeRender();
             if (pendingResizeAnchor) {
@@ -698,14 +714,12 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 preferredAnchorPage: getResizePreferredAnchorPage(),
                 trustPreferredAnchorPage: true,
             });
-            dragResizeAnchor = {
-                ...anchor,
-                transitionToken: beginResizeTransition(PDF_RERENDER_SOURCE.ResizeSettle, anchor.page),
-            };
-            computeFitWidthScale(viewerContainer.value, {
+            dragInitialScale = options.layoutScale.value;
+            dragResizeAnchor = anchor;
+            if (computeFitWidthScale(viewerContainer.value, {
                 page: anchor.page,
                 preview: true,
-            });
+            })) beginDragScaleTransition();
             return;
         }
         if (!previous || !dragResizeAnchor) {
@@ -746,7 +760,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
 
         const anchor = dragResizeAnchor;
         dragResizeAnchor = null;
-        captureResizeVisualSnapshots(anchor);
         computeFitWidthScale(viewerContainer.value, {
             page: anchor.page,
             preview: true,
@@ -754,6 +767,16 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         if (!options.settlePreviewFitScale?.(true)) {
             computeFitWidthScale(viewerContainer.value, {page: anchor.page});
             options.settlePreviewFitScale?.();
+        }
+        if (options.layoutScale.value === dragInitialScale) {
+            // Reconcile the viewport once, keeping the existing raster and
+            // text layers when the sidebar only changed the available area.
+            restoreResizeAnchorAfterLayout(anchor, PDF_RERENDER_SOURCE.ResizeSettle);
+            dragSettleClaimed = false;
+            if (anchor.transitionToken !== 0) {
+                scheduleEndResizeTransition(anchor.transitionToken, 'resize-scale-unchanged', anchor.page);
+            }
+            return;
         }
         beginResizeTransaction(anchor, 'resize-settle');
         restoreResizeAnchorAfterLayout(anchor, PDF_RERENDER_SOURCE.ResizeSettle);
@@ -775,6 +798,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }, {flush: 'sync'});
 
     function cleanupResizeLifecycle() {
+        anchorRevision += 1;
         activeResizeVisualSnapshots.forEach((lease) => {
             lease.cancelRelease();
             lease.released = true;

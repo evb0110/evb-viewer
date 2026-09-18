@@ -213,7 +213,10 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
-    it('keeps a page jump absorbed by a resize when page metrics cancel that resize', async () => {
+    it.each([
+        'resize',
+        'zoom',
+    ] as const)('keeps a page jump absorbed by %s when page metrics cancel it', async (kind) => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -298,7 +301,14 @@ describe('usePdfSinglePageNavigationController', () => {
             }
 
             controller.scrollToPage(requirePageNumber(3));
-            const resize = controller.submitViewportStateIntent('resize');
+            const resize = controller.submitViewportStateIntent(kind, {anchor: {
+                page: 1,
+                pageXFraction: 0.5,
+                pageYFraction: 0.5,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center',
+            }});
             await expect(resize).resolves.toMatchObject({outcome: 'cancelled'});
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(3);
@@ -1188,8 +1198,9 @@ describe('usePdfSinglePageNavigationController', () => {
     it('anchors zoom to the viewport authority page while the outer requested page lags', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');
+        let viewportHeight = 700;
         Object.defineProperties(viewer, {
-            clientHeight: {value: 700},
+            clientHeight: {get: () => viewportHeight},
             clientWidth: {value: 900},
             scrollLeft: {
                 value: 0,
@@ -1275,7 +1286,12 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
             expect(controller.currentPageAuthority.canSyncFromViewport()).toBe(false);
             isResizeTransitionActive.value = false;
+            viewer.getBoundingClientRect = () => new DOMRect(0, 0, 900, 700);
+            const mountedPage = viewer.querySelector<HTMLElement>('[data-page="2"]')!;
+            mountedPage.dataset.documentPageNumber = '2';
+            mountedPage.getBoundingClientRect = () => new DOMRect(150, -200, 600, 1_600);
             const livePageTwoAnchor = controller.captureCurrentSemanticAnchor();
+            expect(livePageTwoAnchor?.pageYFraction).toBe(550 / 1_600);
             expect(livePageTwoAnchor?.page).toBe(2);
             controller.viewportAuthority.observeUserScroll(livePageTwoAnchor!);
             expect(controller.viewportAuthority.currentPage.value).toBe(2);
@@ -1290,6 +1306,23 @@ describe('usePdfSinglePageNavigationController', () => {
             await expect(zoom).resolves.toMatchObject({
                 outcome: 'settled',
                 positionCommit: {page: 2},
+            });
+            const cursorZoom = controller.submitViewportStateIntent('zoom', {
+                zoom: 6,
+                viewportPoint: {
+                    x: 300,
+                    y: 500,
+                },
+            });
+            // Admitting a horizontal scrollbar changes the usable height
+            // after capture; the cursor must keep its absolute screen point.
+            viewportHeight = 650;
+            await expect(cursorZoom).resolves.toMatchObject({outcome: 'settled'});
+            expect(controller.viewportAuthority.committedAnchor.value).toMatchObject({
+                page: 2,
+                pageXFraction: 0.25,
+                pageYFraction: 700 / 1_600,
+                viewportYFraction: 500 / 650,
             });
         } finally {
             pageSlots.dispose();

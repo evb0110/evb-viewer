@@ -944,6 +944,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         scheduleEndResizeTransition,
         cleanupResizeLifecycle,
     } = usePdfViewerResizeLifecycle({
+        layoutScale: viewport.scale.layoutScale,
+        committedViewportAnchor: viewport.singlePageScroll.viewportAuthority.committedAnchor,
+        userPhysicalNavigationEpoch: viewport.userPhysicalNavigationEpoch,
+        beginLayoutGeometryReplacement: viewport.beginLayoutGeometryReplacement,
         submitResizeIntent: anchor => void viewport.singlePageScroll.submitViewportStateIntent(
             'resize', anchor ? {anchor} : {},
         ),

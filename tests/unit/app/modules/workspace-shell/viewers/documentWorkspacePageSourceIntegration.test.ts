@@ -111,12 +111,14 @@ function mountWorkspaceChain(
     const host = document.createElement('div');
     document.body.append(host);
     const cleanupOpen = shallowRef(openInitially);
+    const isResizing = shallowRef(false);
     const pageSource = shallowRef<IDocumentPageSource | null>(null);
     const Root = defineComponent({setup() {
         provide(documentOpenSurfaceSessionKey, createDocumentOpenSurfaceSession());
         return () => h('div', [
             h(DocumentViewerChassis, {
                 sourceKind: 'pdf',
+                isResizing: isResizing.value,
                 rendererKind,
                 bindDelayMs: 25,
                 testSource: source,
@@ -160,6 +162,7 @@ function mountWorkspaceChain(
     mountedApps.add(unmount);
     return {
         cleanupOpen,
+        isResizing,
         host,
         pageSource,
     };
@@ -171,6 +174,29 @@ afterEach(() => {
 });
 
 describe('DocumentWorkspace page-source integration', () => {
+    it.each([
+        'pdfjs',
+        'page-source',
+    ] as const)('assigns resize anchoring to one owner for %s', async (kind) => {
+        const view = mountWorkspaceChain(false, kind);
+        await nextTick();
+        const viewport = view.host.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+        const page = document.createElement('div');
+        page.dataset.documentPageNumber = '1';
+        viewport.append(page);
+        Object.defineProperties(viewport, {
+            clientWidth: {value: 600},
+            clientHeight: {value: 800},
+        });
+        const rect = new DOMRect(0, 0, 600, 800);
+        vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(rect);
+        vi.spyOn(page, 'getBoundingClientRect').mockReturnValue(rect);
+        view.isResizing.value = true;
+        await nextTick();
+        expect(view.host.querySelector('.document-viewer-chassis')?.getAttribute('data-chassis-resize-anchor-page')).toBe(kind === 'pdfjs' ? '' : '1');
+        expect(viewport.style.overflow).toBe('');
+    });
+
     it.each([
         [
             'pdfjs',

@@ -283,7 +283,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(enqueueZoomSync).not.toHaveBeenCalled();
     });
 
-    it('uses the visible current page as a trusted toolbar zoom anchor', async () => {
+    it('preserves the captured reading point when the toolbar page is stale', async () => {
         const zoom = ref(1);
         const pdfDocument = shallowRef<IPdfDocument | null>(cast({}));
         const currentPage = ref(157);
@@ -291,7 +291,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             start: 156,
             end: 158,
         });
-        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(157));
+        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(156));
         const enqueueZoomSync = vi.fn();
 
         usePdfViewerRerenderCoordinator(createDeps({
@@ -310,14 +310,11 @@ describe('usePdfViewerRerenderCoordinator', () => {
         zoom.value = 1.43;
         await flushZoomOrchestrationHostTask();
 
-        expect(buildResizeAnchorContext).toHaveBeenCalledWith({
-            preferredAnchorPage: 157,
-            trustPreferredAnchorPage: true,
-        });
+        expect(buildResizeAnchorContext).toHaveBeenCalledWith();
         expect(enqueueZoomSync).toHaveBeenCalledWith(expect.objectContaining({
             source: 'zoom-change',
             stabilize: true,
-            resizeAnchor: expect.objectContaining({ page: 157 }),
+            resizeAnchor: expect.objectContaining({ page: 156 }),
         }));
     });
 
@@ -376,7 +373,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             start: 156,
             end: 158,
         });
-        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(157));
+        const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(156));
         const enqueueZoomSync = vi.fn();
         const gestureAnchor = createResizeAnchor(157);
 
@@ -410,12 +407,43 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
     });
 
+    it('does not replay a queued zoom anchor after physical navigation', async () => {
+        vi.useFakeTimers();
+        try {
+            const zoom = ref(1);
+            const physicalEpoch = ref(0);
+            const submitZoomViewportStateIntent = vi.fn();
+            const endGeometryReplacement = vi.fn();
+            const {cleanupZoomOrchestration} = usePdfViewerRerenderCoordinator(createDeps({
+                zoom: computed(() => zoom.value),
+                getUserPhysicalNavigationEpoch: () => physicalEpoch.value,
+                buildResizeAnchorContext: () => ({
+                    ...createResizeAnchor(1),
+                    physicalNavigationEpoch: 0,
+                }),
+                beginLayoutGeometryReplacement: () => endGeometryReplacement,
+                submitZoomViewportStateIntent,
+            }));
+            zoom.value = 2;
+            await nextTick();
+            physicalEpoch.value += 1;
+            await vi.advanceTimersByTimeAsync(0);
+            expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
+            expect(endGeometryReplacement).toHaveBeenCalledOnce();
+            cleanupZoomOrchestration();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('defers and coalesces discrete zoom orchestration onto one latest host task', async () => {
         vi.useFakeTimers();
         try {
             const zoom = ref(1);
             const zoomMode = ref<'fit-width' | 'custom'>('fit-width');
             const submitZoomViewportStateIntent = vi.fn();
+            const endGeometryReplacement = vi.fn();
+            const beginLayoutGeometryReplacement = vi.fn(() => endGeometryReplacement);
             const buildResizeAnchorContext = vi.fn(() => createResizeAnchor(1));
             const cancelInFlightPageRenders = vi.fn();
             const enqueueZoomSync = vi.fn();
@@ -424,6 +452,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
                 zoomMode: computed(() => zoomMode.value),
                 fitMode: computed(() => 'width' as const),
                 submitZoomViewportStateIntent,
+                beginLayoutGeometryReplacement,
                 buildResizeAnchorContext,
                 cancelInFlightPageRenders,
                 enqueueZoomSync,
@@ -435,6 +464,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await Promise.resolve();
 
             expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
+            expect(beginLayoutGeometryReplacement).toHaveBeenCalledOnce();
+            expect(endGeometryReplacement).not.toHaveBeenCalled();
             expect(buildResizeAnchorContext).toHaveBeenCalledOnce();
             expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
             expect(enqueueZoomSync).not.toHaveBeenCalled();
@@ -442,7 +473,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await vi.advanceTimersByTimeAsync(0);
 
             expect(submitZoomViewportStateIntent).toHaveBeenCalledOnce();
-            expect(submitZoomViewportStateIntent).toHaveBeenCalledWith(2);
+            expect(endGeometryReplacement).toHaveBeenCalledOnce();
+            expect(submitZoomViewportStateIntent).toHaveBeenCalledWith(2, createResizeAnchor(1).semanticAnchor);
             expect(buildResizeAnchorContext).toHaveBeenCalledOnce();
             expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
             expect(enqueueZoomSync).toHaveBeenCalledOnce();
@@ -1598,12 +1630,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
         expect(captureResizeVisualSnapshots).toHaveBeenCalledOnce();
         expect(captureResizeVisualSnapshots).toHaveBeenCalledWith(resizeAnchor);
-        expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(
-            expect.objectContaining({
-                source: PDF_RERENDER_SOURCE.ZoomModeChange,
-                resizeAnchor,
-            }),
-        );
+        expect(syncCurrentPageFromViewport).not.toHaveBeenCalled();
     });
 
     it('contains fit-width current-page rerender failures in the watcher', async () => {
@@ -1734,40 +1761,32 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(transactionController.advanceTransaction).toHaveBeenCalledWith(31, 'render-requested');
         expect(transactionController.advanceTransaction).toHaveBeenCalledWith(31, 'settled');
         expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
-        expect(syncCurrentPageFromViewport).toHaveBeenCalledWith(expect.objectContaining({transactionId: 31}));
+        expect(syncCurrentPageFromViewport).not.toHaveBeenCalled();
     });
 
-    it('reapplies the resize anchor after rendering before sampling the viewport', async () => {
-        const resizeAnchor = createResizeAnchor(8);
-        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+    it('does not replay a resize position after newer navigation while its raster was pending', async () => {
+        const raster = createDeferred();
         const applyResizeAnchorPreview = vi.fn(() => true);
         const syncCurrentPageFromViewport = vi.fn(async () => {});
-        const scheduleEndResizeTransition = vi.fn();
+        const scrollToPage = vi.fn();
         const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
-            reRenderAllVisiblePages,
+            reRenderAllVisiblePages: vi.fn(() => raster.promise),
             applyResizeAnchorPreview,
             syncCurrentPageFromViewport,
-            scheduleEndResizeTransition,
+            scrollToPage,
         }));
-
-        await reRenderVisiblePagesAndSyncCurrentPage({
+        const settlement = reRenderVisiblePagesAndSyncCurrentPage({
             source: 'resize-settle',
-            stabilize: true,
-            resizeAnchor,
+            resizeAnchor: createResizeAnchor(8),
         });
-
-        expect(reRenderAllVisiblePages.mock.invocationCallOrder[0]!).toBeLessThan(
-            applyResizeAnchorPreview.mock.invocationCallOrder[0]!,
-        );
-        expect(applyResizeAnchorPreview).toHaveBeenCalledWith(resizeAnchor.semanticAnchor);
-        expect(applyResizeAnchorPreview.mock.invocationCallOrder[0]!).toBeLessThan(
-            syncCurrentPageFromViewport.mock.invocationCallOrder[0]!,
-        );
-        expect(scheduleEndResizeTransition).toHaveBeenCalledWith(
-            resizeAnchor.transitionToken,
-            'resize-rerender-complete',
-            resizeAnchor.page,
-        );
+        await Promise.resolve();
+        // Navigation has already placed the document at a newer destination.
+        // Raster readiness must not initiate a second viewport placement.
+        raster.resolve();
+        await settlement;
+        expect(applyResizeAnchorPreview).not.toHaveBeenCalled();
+        expect(scrollToPage).not.toHaveBeenCalled();
+        expect(syncCurrentPageFromViewport).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -1784,7 +1803,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
     ] as const)('handles a %s resize preview without changing fallback ownership', async (
         _outcome,
         previewOutcome,
-        shouldFallback,
+        _shouldFallback,
     ) => {
         const resizeAnchor = createResizeAnchor(8);
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
@@ -1802,15 +1821,8 @@ describe('usePdfViewerRerenderCoordinator', () => {
             resizeAnchor,
         });
 
-        expect(applyResizeAnchorPreview).toHaveBeenCalledWith(resizeAnchor.semanticAnchor);
-        if (shouldFallback) {
-            expect(scrollToPage).toHaveBeenCalledWith(resizeAnchor.page, {
-                preferExactDom: true,
-                suppressRenderAfterSnap: true,
-            });
-        } else {
-            expect(scrollToPage).not.toHaveBeenCalled();
-        }
+        expect(applyResizeAnchorPreview).not.toHaveBeenCalled();
+        expect(scrollToPage).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -1854,7 +1866,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(scrollToPage).not.toHaveBeenCalled();
     });
 
-    it('retires the resize transition when its transaction goes stale after viewport sync', async () => {
+    it('retires a fit-page transition when its transaction goes stale after viewport sync', async () => {
         const resizeAnchor = createResizeAnchor(8);
         let transactionCurrent = true;
         const transactionController = {
@@ -1873,7 +1885,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
 
         await reRenderVisiblePagesAndSyncCurrentPage({
-            source: 'resize-settle',
+            source: 'fit-width-current-page',
             stabilize: true,
             resizeAnchor,
             transactionId: 31,

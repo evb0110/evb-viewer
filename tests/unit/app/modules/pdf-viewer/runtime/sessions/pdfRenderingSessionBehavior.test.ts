@@ -249,6 +249,7 @@ function createRenderingFixture(fixtureOptions: {
         notifyRenderStateChanged: vi.fn(),
         scale: {
             effectiveScale,
+            layoutScale: effectiveScale,
             computeFitWidthScale: vi.fn(),
             scaledMargin: ref(20),
         },
@@ -268,6 +269,7 @@ function createRenderingFixture(fixtureOptions: {
             getMostVisiblePage: vi.fn(() => 3),
         },
         singlePageScroll: {
+            viewportAuthority: {committedAnchor: ref(null)},
             scrollToPage: vi.fn(),
             beginSearchNavigation: vi.fn(),
             revealSearchNavigationTarget: vi.fn(),

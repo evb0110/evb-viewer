@@ -138,6 +138,7 @@ function createViewportFixture(input: {
     continuousScroll?: boolean;
     fitMode?: Ref<'width' | 'height'>;
     isActive?: Ref<boolean>;
+    isResizing?: Ref<boolean>;
     isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
     onEmitCurrentPage?: (page: number) => void;
     pageCount?: number;
@@ -181,7 +182,7 @@ function createViewportFixture(input: {
                 continuousScroll: computed(() => input.continuousScroll ?? true),
                 bufferPages: computed(() => input.bufferPages ?? 3),
                 isActive: computed(() => isActive.value),
-                isResizing: computed(() => false),
+                isResizing: computed(() => input.isResizing?.value ?? false),
                 requestedCurrentPage: ref(undefined),
                 outputScale,
                 isPageFreshlyRenderedForNavigation:
@@ -757,6 +758,21 @@ describe('PdfViewportSession behavior', () => {
                 start: 8_226,
                 end: 8_226,
             });
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('observes physical wheel scrolling while a sidebar resize is active', async () => {
+        const fixture = createViewportFixture({isResizing: ref(true)});
+        try {
+            await nextTick();
+            const observe = vi.spyOn(fixture.viewport.singlePageScroll, 'cancelProgrammaticNavigation');
+            fixture.viewport.markUserViewportInteraction();
+            observe.mockClear();
+            fixture.container.scrollTop = 2_000;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            expect(observe).toHaveBeenCalledWith('viewer-scroll-interaction', undefined);
         } finally {
             fixture.app.unmount();
         }
