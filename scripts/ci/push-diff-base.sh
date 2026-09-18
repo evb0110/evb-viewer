@@ -10,11 +10,15 @@
 # successfully. When no such commit is in reach, emit an unresolvable base
 # so the classifier fails open and runs every gate.
 #
-# Usage: push-diff-base.sh <before-sha> <head-sha>
+# Each tier asks about its own runs: a tier only skips a lane because its own
+# base already proved that lane, so the workflow to look at is the caller's.
+#
+# Usage: push-diff-base.sh <before-sha> <head-sha> [workflow-file]
 set -euo pipefail
 
 before_sha="$1"
 head_sha="$2"
+workflow_file="${3:-ci.yml}"
 
 if [ -z "$before_sha" ] || [ "$before_sha" = "0000000000000000000000000000000000000000" ]; then
     parent_sha="$(git rev-parse --verify --quiet "${head_sha}^" 2>/dev/null || true)"
@@ -28,7 +32,7 @@ fi
 
 base_sha="$before_sha"
 for _ in $(seq 1 30); do
-    passing_runs="$(gh run list --workflow ci.yml --event push --commit "$base_sha" \
+    passing_runs="$(gh run list --workflow "$workflow_file" --event push --commit "$base_sha" \
         --json status,conclusion \
         --jq 'map(select(.status == "completed" and .conclusion == "success")) | length' 2>/dev/null)" || {
         # The API is unreachable, so no base can be trusted to have proved anything.

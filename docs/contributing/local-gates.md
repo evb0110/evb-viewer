@@ -56,20 +56,52 @@ or a changed `timeout-minutes` needs the user's words too. See
 
 ## Routine CI
 
-Each main push still gets CI and the `gates_ok` aggregate used by the release
-cutter. Routine CI runs the unit suite without coverage instrumentation. Keeping the full
-unit suite on main avoids missing filesystem and auto-import dependencies. Relevant
-browser, Electron, native, and packaging lanes follow the changed areas.
-Coverage is an optional diagnostic without percentage thresholds. See
-[the CI guide](./ci.md) for the workflow and job map, and
-[ci.yml](../../.github/workflows/ci.yml) for the current selections.
+Push CI has three tiers, described in [the CI guide](./ci.md). Place a check by
+defect relevance first, diagnostic value second, and runtime third.
 
-Every push to main runs to completion; a newer push does not cancel it. The
-changed-area classifier diffs from the last push whose run finished, so lanes
-that an unfinished or hand-cancelled run has not verified are selected again
-by the next run. A cancelled run is not a verdict: the release waiter accepts
-a cancelled parent through a newer green run that contains it, or re-run it
-with `gh run rerun <id>` when the exact commit needs its own verdict.
+- **Required** ([ci.yml](../../.github/workflows/ci.yml)): publication policy,
+  lint, typecheck, unit tests, and one Electron journey. A red job here means
+  the commit that triggered it is broken. `gates_ok` aggregates them and the
+  release cutter reads only this tier. About twelve minutes.
+- **Extended** ([ci-extended.yml](../../.github/workflows/ci-extended.yml)):
+  browser integration, native and packaging lanes, the packaged Linux proof,
+  landing, whole-tree lint, and the macOS Electron suites. A red job means the
+  tip of `main` is broken somewhere; no commit is blocked. A newer push cancels
+  an older in-progress run.
+- **Nightly** ([ci-nightly.yml](../../.github/workflows/ci-nightly.yml)): the
+  canonical scan-cleanup identity gate, ARM64 Rust, fuzz canaries, and the
+  manual large-PDF, quarantine, and visible-window lanes.
+
+Routine CI runs the unit suite without coverage instrumentation. Keeping the
+full unit suite on main avoids missing filesystem and auto-import dependencies.
+Coverage is an optional diagnostic without percentage thresholds.
+
+Every push to main runs the required tier to completion; a newer push does not
+cancel it. The changed-area classifier diffs from the last push whose run in
+that tier finished, so lanes that an unfinished or hand-cancelled run has not
+verified are selected again by the next run. A cancelled run is not a verdict:
+the release waiter accepts a cancelled parent through a newer green run that
+contains it, or re-run it with `gh run rerun <id>` when the exact commit needs
+its own verdict.
+
+The required tier lints only what the push changed, so it can never fail on a
+pre-existing error in a file the push did not touch. `extended_tree_lint`
+covers the rest of the tree on every main push.
+
+### A red required set
+
+A red required set has one owner: the commit that turned it red. Before
+diagnosing anything, run:
+
+```
+node scripts/ci/ci-health.mjs --sha <sha>
+```
+
+It prints each required and extended job as `NEW` or `INHERITED` and names the
+first bad SHA per failing job. An `INHERITED` failure is another commit's
+defect; do not re-diagnose it and do not treat it as a reason to stop pushing.
+A `NEW` failure is fixed in the next commit or reverted. Neither case justifies
+widening a tolerance, adding a retry, or marking a step `continue-on-error`.
 
 ## Flaky checks
 
@@ -83,7 +115,8 @@ every run, and needs an `Adds-Checks:` trailer with the user's words.
   failure and cancellation rates, commits whose reruns flipped between red and
   green, the jobs and steps that fail most, the slowest green jobs, and the
   first red commit, subject, run, and matching failure lines for each failing
-  job.
+  job. `--sha <sha>` answers the narrower question of whether this commit broke
+  anything or inherited it.
 - A failure that starts at one commit and repeats on every later run is a
   regression in that commit, not flake. Fix the product or the test.
 - A `vi.mock` factory for a module under `app/` or `electron/` spreads

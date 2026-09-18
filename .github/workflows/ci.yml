@@ -23,11 +23,13 @@ on:
     # writers pushed minutes apart. The changed-area classifier diffs from
     # the last push whose run finished, so a run that starts while the
     # previous one is unfinished or was cancelled by hand covers both.
-    # Integration candidates also run the macOS Electron qualification jobs
-    # below. Promote an integration candidate to main only after all three
-    # suites pass on that candidate SHA. A pull request opts into the same
-    # qualification with the `qualify-platform` label.
   workflow_dispatch:
+
+# This workflow is the required tier: the checks whose failure means the pushed
+# commit itself is broken, sized so a verdict lands in about twelve minutes.
+# Everything that widens coverage without changing that verdict runs in
+# ci-extended.yml, and everything slow that needs no per-push signal runs in
+# ci-nightly.yml. See docs/contributing/ci.md for how a check is placed.
 
 permissions:
   actions: read
@@ -128,19 +130,25 @@ jobs:
             public/pdfjs/images \
             scripts/release/generated-release-targets.cjs)"
 
+      # Lint's base is the pushed range itself, not the last green base the
+      # changed-area classifier uses. A skipped lane claims a proven base
+      # already covered it, so that base has to be green; lint skips nothing,
+      # so a green base only widens its file list to code the push never
+      # touched and fails the wrong commit for an error that already existed.
+      # An absent or unreachable base still falls back to the whole tree, and
+      # ci-extended.yml lints the whole tree on every main push so drift in
+      # untouched files is still reported, just not as this commit's verdict.
       - name: Lint changed sources
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
-          PUSH_HEAD_SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base_sha="$PR_BASE_SHA"
           else
-            base_sha="$(bash scripts/ci/push-diff-base.sh "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA")"
+            base_sha="$PUSH_BEFORE_SHA"
           fi
           if [ -n "$base_sha" ] \
             && [ "$base_sha" != "0000000000000000000000000000000000000000" ] \
@@ -162,9 +170,9 @@ jobs:
       # publication time, not on anything in the commit, so on the required
       # lane it blocked release cuts twice in one afternoon. It runs daily in
       # dependency-audit.yml and files an issue instead.
-      # Release-check commands that previously ran only in the deleted release
-      # quality job or the local gate. Push CI's gates_ok is the single
-      # validation authority, so they run here, once, on every push.
+      # These three are the release workflow's own fallback checks
+      # (`release:verify:checks`). They cost seconds, so the release path can
+      # keep trusting a green gates_ok instead of repeating them.
       - name: Drizzle schema configuration
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:drizzle-schema
@@ -176,144 +184,6 @@ jobs:
       - name: Web deploy source policy
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:assets
-
-  pr_electron_blocking_smoke:
-    name: Electron Blocking Smoke
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_smoke == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Restore staged Electron native binaries
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
-        with:
-          path: |
-            .tmp/scan-cleanup
-            .tmp/pdf-image-combine
-            .tmp/pdf-page-ops
-          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/generateNativeToolProtocols.ts', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
-          restore-keys: |
-            electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Electron blocking core-PDF smoke
-        run: pnpm run test:e2e:electron:blocking-smoke:headless
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-blocking-smoke-${{ github.run_attempt }}
-
-  # The same Linux x64 job the release matrix runs, minus the artifact upload:
-  # strict build, native-tool bundling, AppImage and DEB packaging, packaged
-  # native-tool and content checks, and the installed core-PDF journeys. A
-  # release must never be the first execution of its own packaged proof.
-  pr_packaged_linux:
-    name: Packaged Linux Proof
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.packaged_smoke == 'true' }}
-    needs: pr_changed_areas
-    uses: ./.github/workflows/build-target.yml
-    with:
-      os: ubuntu-22.04
-      platform: linux
-      arch: x64
-      artifact_group: ci-linux-x64
-      upload_artifacts: false
-
-  pr_electron_native_save_reopen:
-    name: Electron Native Save And Reopen
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils qpdf
-
-      - name: Native save and fresh-process reopen
-        run: pnpm run test:e2e:electron:save-pipeline
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-native-save-reopen-${{ github.run_attempt }}
-
-  pr_native_pdf_integration:
-    name: Native PDF Save Integration
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh qpdf
-
-      - name: Build native PDF page operations
-        run: pnpm run build:pdf-page-ops
-
-      - name: Run native PDF integration gate
-        run: pnpm exec vitest run --project native-integration
-
-  pr_windows_atomic_pdf_replacement:
-    name: Windows Atomic PDF Replacement
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
-    needs: pr_changed_areas
-    runs-on: windows-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Run real Windows filesystem acceptance
-        run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts
 
   pr_changed_areas:
     name: Changed Area Detection
@@ -355,17 +225,19 @@ jobs:
             base_sha="$PR_BASE_SHA"
             head_sha="$PR_HEAD_SHA"
           else
-            base_sha="$(bash scripts/ci/push-diff-base.sh "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA")"
+            base_sha="$(bash scripts/ci/push-diff-base.sh "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA" ci.yml)"
             head_sha="$PUSH_HEAD_SHA"
           fi
           node scripts/ci/classify-changed-areas.mjs --base="$base_sha" --head="$head_sha"
 
-  pr_browser_integration:
-    name: Browser Integration
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.browser_integration == 'true' }}
+  # The one real Electron journey in the required tier. Every other Electron
+  # suite runs in ci-extended.yml, where a newer push supersedes it.
+  pr_electron_blocking_smoke:
+    name: Electron Blocking Smoke
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_smoke == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -377,218 +249,27 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+          verify-electron: 'true'
 
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Browser integration tests
-        run: pnpm run test:integration:browser
-
-  pr_native_build_safety:
-    name: Native And Build Safety
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils qpdf
-
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Install Rust lint components
-        run: rustup component add rustfmt clippy
-
-      - name: Build source-verified browser WASM artifacts
-        run: node scripts/build-wasm-artifacts.mjs --output-dir=.tmp/wasm-artifacts
-
-      - name: Stage source-verified browser WASM artifacts
-        run: node scripts/stage-wasm-artifacts.mjs .tmp/wasm-artifacts
-
-      - name: Restore Rust build caches
-        # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
-        # purpose as the cache-poisoning tripwire.
-        uses: actions/cache@v5
+      - name: Restore staged Electron native binaries
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: rust-native-${{ runner.os }}-${{ runner.arch }}-
+            .tmp/scan-cleanup
+            .tmp/pdf-image-combine
+            .tmp/pdf-page-ops
+          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/generateNativeToolProtocols.ts', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'rust-toolchain.toml', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Rust tests
-        run: pnpm run test:rust
+      - name: Electron blocking core-PDF smoke
+        run: pnpm run test:e2e:electron:blocking-smoke:headless
 
-      - name: Scan-cleanup catastrophe baseline
-        run: scripts/ci/scan-cleanup-oracles.sh native "$RUNNER_TEMP/scan-cleanup-oracles"
-
-      - name: Rust formatting and clippy
-        run: pnpm run lint:rust
-
-      - name: Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
         with:
-          manifest-path: native/Cargo.toml
-
-      - name: Strict build
-        env:
-          EVB_WASM_ARTIFACT_DIR: .tmp/wasm-artifacts
-        run: pnpm run build:strict
-
-      # Release-check command promoted from release time; push CI's gates_ok
-      # is the single validation authority. The cargo-release-heavy
-      # scan-cleanup gates run in the parallel pr_scan_cleanup_heavy job so
-      # they widen coverage without lengthening this lane's serial path.
-      - name: Electron bundle static integrity
-        run: pnpm run test:electron-bundle-static-integrity:no-build
-
-  pr_scan_cleanup_heavy:
-    # The cargo-release-heavy canonical identity gate ran serially inside
-    # Native And Build Safety and helped push that lane to 45-49 minutes
-    # (issue #109's root growth). It runs as a parallel sibling, blocking
-    # through gates_ok, off the native lane's serial path. The former
-    # real-corpus wrapper was retired; three cheap real-fixture tests now run
-    # in test:rust above, while the remaining corpus acceptance is not
-    # automated by this workflow.
-    name: Scan Cleanup Heavy Gates
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install PDF text test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils
-
-      - name: Restore Rust build caches
-        # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
-        # purpose as the cache-poisoning tripwire.
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Canonical scan-cleanup identity
-        run: pnpm run test:scan-cleanup:canonical-identity
-
-  pr_rust_tests_arm64:
-    name: Rust Tests (Linux arm64)
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils qpdf
-
-      - name: Restore Rust build caches
-        # Push-lane accelerator only. The manual maintenance lanes stay cache-cold on
-        # purpose as the cache-poisoning tripwire.
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            native/target
-          key: rust-arm64-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: rust-arm64-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Rust tests
-        run: pnpm run test:rust
-
-  pr_scan_cleanup_oracles:
-    name: Scan Cleanup Export Oracles
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.scan_cleanup_export == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install PDF audit tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh img2pdf poppler-utils python3-numpy python3-opencv python3-pil qpdf
-
-      - name: Preview, export, and word-loss gates
-        run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
-
-  pr_landing_quality:
-    name: Landing Quality Gates For Changed Sources
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.landing == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Landing lint
-        run: pnpm --dir landing run lint
-
-      - name: Landing typecheck
-        run: pnpm --dir landing run typecheck
-
-      - name: Landing build
-        run: pnpm --dir landing run build
+          artifact-name: electron-blocking-smoke-${{ github.run_attempt }}
 
   gates_ok:
     name: gates_ok
@@ -598,28 +279,6 @@ jobs:
       - pr_quality
       - pr_changed_areas
       - pr_electron_blocking_smoke
-      - pr_packaged_linux
-      - pr_electron_native_save_reopen
-      - pr_native_pdf_integration
-      - pr_windows_atomic_pdf_replacement
-      - pr_browser_integration
-      - pr_native_build_safety
-      - pr_scan_cleanup_heavy
-      - pr_rust_tests_arm64
-      - pr_scan_cleanup_oracles
-      - pr_landing_quality
-      # The shared build is a prerequisite for the three platform suites. It
-      # follows the same required/skippable candidate policy as those suites.
-      - push_electron_e2e_build
-      # Required on main and candidate runs, skipped on ordinary pull requests.
-      # These are the only jobs proving an Electron journey ran on the platform
-      # that ships signed.
-      # They are also required for integration candidates and labelled
-      # qualify-platform pull requests. Large PDF stays manual until #552 turns
-      # that lane green.
-      - push_electron_e2e_regression
-      - push_electron_e2e_save_pipeline
-      - push_electron_e2e_rapid_navigation
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -628,32 +287,11 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           ELECTRON_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_smoke }}
-          PACKAGED_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.packaged_smoke }}
-          ELECTRON_SAVE_REOPEN_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_save_reopen }}
-          BROWSER_INTEGRATION_CHANGED: ${{ needs.pr_changed_areas.outputs.browser_integration }}
-          NATIVE_OR_BUILD_CHANGED: ${{ needs.pr_changed_areas.outputs.native_or_build }}
-          SCAN_CLEANUP_EXPORT_CHANGED: ${{ needs.pr_changed_areas.outputs.scan_cleanup_export }}
-          LANDING_CHANGED: ${{ needs.pr_changed_areas.outputs.landing }}
-          ELECTRON_E2E_REQUIRED: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/main' || endsWith(github.ref, '/integration') || (startsWith(github.ref, 'refs/heads/t3code/') && contains(github.ref, 'integration')))) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'qualify-platform')) }}
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
           const legitimatelySkippable = new Map([
             ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
-            ['pr_packaged_linux', process.env.PACKAGED_SMOKE_CHANGED],
-            ['pr_electron_native_save_reopen', process.env.ELECTRON_SAVE_REOPEN_CHANGED],
-            ['pr_windows_atomic_pdf_replacement', process.env.ELECTRON_SAVE_REOPEN_CHANGED],
-            ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
-            ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],
-            ['pr_native_pdf_integration', process.env.NATIVE_OR_BUILD_CHANGED],
-            ['pr_scan_cleanup_heavy', process.env.NATIVE_OR_BUILD_CHANGED],
-            ['pr_rust_tests_arm64', process.env.NATIVE_OR_BUILD_CHANGED],
-            ['pr_scan_cleanup_oracles', process.env.SCAN_CLEANUP_EXPORT_CHANGED],
-            ['pr_landing_quality', process.env.LANDING_CHANGED],
-            ['push_electron_e2e_build', process.env.ELECTRON_E2E_REQUIRED],
-            ['push_electron_e2e_regression', process.env.ELECTRON_E2E_REQUIRED],
-            ['push_electron_e2e_save_pipeline', process.env.ELECTRON_E2E_REQUIRED],
-            ['push_electron_e2e_rapid_navigation', process.env.ELECTRON_E2E_REQUIRED],
           ]);
           const rejected = [];
 
@@ -669,346 +307,3 @@ jobs:
           }
           console.log('Every applicable PR and push gate passed.');
           NODE
-
-  nightly_rust_fuzz:
-    name: Native Parser Fuzz Canaries
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Install cargo-fuzz
-        run: |
-          rustup toolchain install nightly --profile minimal
-          cargo install cargo-fuzz --version 0.13.1 --locked
-
-      - name: Fuzz image decoders
-        run: |
-          for target in png jpeg tiff netpbm; do
-            cargo +nightly fuzz run "$target" --fuzz-dir native/pdf-image-combine/fuzz -- -max_total_time=15
-          done
-
-      - name: Fuzz xref parsers
-        run: |
-          for target in xref-table xref-stream; do
-            cargo +nightly fuzz run "$target" --fuzz-dir native/pdf-page-ops/fuzz -- -max_total_time=15
-          done
-
-      - name: Fuzz JBIG2 codec
-        run: |
-          for target in decode roundtrip; do
-            cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
-          done
-
-  push_electron_e2e_build:
-    name: macOS Electron E2E Shared Build
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch'
-        || (
-          github.event_name == 'push'
-          && (
-            github.ref == 'refs/heads/main'
-            || endsWith(github.ref, '/integration')
-            || (
-              startsWith(github.ref, 'refs/heads/t3code/')
-              && contains(github.ref, 'integration')
-            )
-          )
-        )
-        || (
-          github.event_name == 'pull_request'
-          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
-        )
-      }}
-    runs-on: macos-14
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      # build:native:e2e is the union of the native outputs used by the
-      # regression suite (pdf-image-combine, pdf-page-ops, scan-cleanup) and
-      # the save suite's pdf-page-ops output. Build it once before bundling
-      # Electron so every suite consumes the same exact checkout.
-      - name: Build shared macOS Electron E2E inputs
-        run: |
-          pnpm run build:native:e2e
-          pnpm run build:electron
-
-      - name: Upload shared Electron E2E build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: electron-e2e-build-${{ github.run_id }}
-          path: |
-            .tmp/pdf-image-combine/**
-            .tmp/pdf-page-ops/**
-            .tmp/scan-cleanup/**
-            dist-electron/**
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 3
-
-  push_electron_e2e_regression:
-    name: Electron E2E Regression
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch'
-        || (
-          github.event_name == 'push'
-          && (
-            github.ref == 'refs/heads/main'
-            || endsWith(github.ref, '/integration')
-            || (
-              startsWith(github.ref, 'refs/heads/t3code/')
-              && contains(github.ref, 'integration')
-            )
-          )
-        )
-        || (
-          github.event_name == 'pull_request'
-          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
-        )
-      }}
-    needs: push_electron_e2e_build
-    runs-on: macos-14
-    timeout-minutes: 60
-    env:
-      ELECTRON_E2E_REQUIRED: 'true'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Install PDF test tools
-        run: brew install imagemagick poppler qpdf
-
-      - name: Download shared Electron E2E build
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: electron-e2e-build-${{ github.run_id }}
-          path: .
-
-      - name: Electron E2E regression
-        run: pnpm run test:e2e:electron:regression:no-build
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-regression-${{ github.run_attempt }}
-
-  push_electron_e2e_save_pipeline:
-    name: Electron E2E Save Pipeline
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch'
-        || (
-          github.event_name == 'push'
-          && (
-            github.ref == 'refs/heads/main'
-            || endsWith(github.ref, '/integration')
-            || (
-              startsWith(github.ref, 'refs/heads/t3code/')
-              && contains(github.ref, 'integration')
-            )
-          )
-        )
-        || (
-          github.event_name == 'pull_request'
-          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
-        )
-      }}
-    needs: push_electron_e2e_build
-    runs-on: macos-14
-    timeout-minutes: 60
-    env:
-      ELECTRON_E2E_REQUIRED: 'true'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Download shared Electron E2E build
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: electron-e2e-build-${{ github.run_id }}
-          path: .
-
-      - name: Electron E2E save pipeline
-        run: pnpm run test:e2e:electron:save-pipeline:no-build
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-save-pipeline-${{ github.run_attempt }}
-
-  push_electron_e2e_rapid_navigation:
-    name: Electron E2E Rapid Navigation
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch'
-        || (
-          github.event_name == 'push'
-          && (
-            github.ref == 'refs/heads/main'
-            || endsWith(github.ref, '/integration')
-            || (
-              startsWith(github.ref, 'refs/heads/t3code/')
-              && contains(github.ref, 'integration')
-            )
-          )
-        )
-        || (
-          github.event_name == 'pull_request'
-          && contains(github.event.pull_request.labels.*.name, 'qualify-platform')
-        )
-      }}
-    needs: push_electron_e2e_build
-    runs-on: macos-14
-    timeout-minutes: 45
-    env:
-      ELECTRON_E2E_REQUIRED: 'true'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Download shared Electron E2E build
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: electron-e2e-build-${{ github.run_id }}
-          path: .
-
-      - name: Electron E2E rapid navigation
-        run: pnpm run test:e2e:electron:rapid-navigation:no-build
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-rapid-navigation-${{ github.run_attempt }}
-
-  nightly_electron_e2e_large_pdf:
-    name: Manual Electron E2E Large PDF
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: macos-14
-    timeout-minutes: 90
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Electron E2E large PDF
-        env:
-          # Manual lanes opt in to the local exact fixture explicitly; the
-          # staging script refuses an unnamed profile so absence cannot pass.
-          EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882
-        run: pnpm run test:e2e:electron:large
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-large-pdf-${{ github.run_attempt }}
-
-  nightly_electron_e2e_quarantine:
-    name: Manual Electron E2E Quarantine
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: macos-14
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Electron E2E quarantine
-        run: pnpm run test:e2e:electron:quarantine
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-quarantine-${{ github.run_attempt }}
-
-  nightly_electron_e2e_visible_window:
-    name: Manual Electron E2E Visible Window
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: macos-14
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Electron E2E visible-window lifecycle
-        run: pnpm run test:e2e:electron:visible-window
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-visible-window-${{ github.run_attempt }}

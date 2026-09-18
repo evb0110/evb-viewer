@@ -286,33 +286,39 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(null).scan_cleanup_export?.matched).toBe(true);
     });
 
+    // The classifier is declared once per tier that skips lanes with it, and
+    // every area's owning job has to exist in one of the tiers, or the area
+    // would be classified and then silently gate nothing.
     it('keeps workflow outputs and job owners aligned with the canonical policy', () => {
-        const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
-        const changedAreasStart = workflow.indexOf('  pr_changed_areas:');
-        const browserIntegrationStart = workflow.indexOf('  pr_browser_integration:');
-        if (changedAreasStart === -1) {
-            throw new Error('CI workflow is missing the pr_changed_areas job.');
-        }
-        if (browserIntegrationStart === -1) {
-            throw new Error('CI workflow is missing the pr_browser_integration job.');
-        }
-        if (browserIntegrationStart <= changedAreasStart) {
-            throw new Error('pr_browser_integration must follow pr_changed_areas in the CI workflow.');
-        }
-        const changedAreaJob = workflow.slice(
-            changedAreasStart,
-            browserIntegrationStart,
-        );
+        const tierWorkflows = [
+            '.github/workflows/ci.yml',
+            '.github/workflows/ci-extended.yml',
+            '.github/workflows/ci-nightly.yml',
+        ].map(relativePath => readFileSync(resolve(process.cwd(), relativePath), 'utf8'));
+        const allTiers = tierWorkflows.join('\n');
+        const classifierJobs = tierWorkflows.flatMap((workflow) => {
+            const changedAreasStart = workflow.indexOf('  pr_changed_areas:');
+            if (changedAreasStart === -1) {
+                return [];
+            }
+            const nextJobOffset = workflow.slice(changedAreasStart + 1).search(/\n {2}[a-z_]+:\n/u);
+            return [nextJobOffset === -1
+                ? workflow.slice(changedAreasStart)
+                : workflow.slice(changedAreasStart, changedAreasStart + 1 + nextJobOffset)];
+        });
+        expect(classifierJobs.length).toBeGreaterThan(0);
 
         for (const definition of Object.values(getCiChangedAreaPolicy())) {
-            expect(changedAreaJob).toContain(`${definition.output}: \${{ steps.classify.outputs.${definition.output} }}`);
-            expect(workflow).toContain(`  ${definition.owner}:`);
-            for (const pattern of definition.paths) {
-                if (pattern === 'scripts/ci/classify-changed-areas.mjs') {
-                    continue;
+            for (const changedAreaJob of classifierJobs) {
+                expect(changedAreaJob).toContain(`${definition.output}: \${{ steps.classify.outputs.${definition.output} }}`);
+                for (const pattern of definition.paths) {
+                    if (pattern === 'scripts/ci/classify-changed-areas.mjs') {
+                        continue;
+                    }
+                    expect(changedAreaJob).not.toContain(pattern);
                 }
-                expect(changedAreaJob).not.toContain(pattern);
             }
+            expect(allTiers, definition.output).toContain(`  ${definition.owner}:`);
         }
     });
 

@@ -1,0 +1,221 @@
+name: CI Nightly
+
+# The nightly tier: checks whose value does not depend on which commit runs
+# them. They are slow, they change rarely with application code, and a
+# per-push signal from them buys nothing that a daily signal does not.
+#
+# Nightly execution certifies nothing about a release. The release path runs
+# its own packaging and packaged verification for the exact target SHA through
+# build.yml, build-target.yml, and release.yml's packaged proofs; the jobs here
+# are early warning, not release evidence.
+#
+# The manual lanes need a local fixture profile or run quarantined scenarios,
+# so they stay on workflow_dispatch: a scheduled red from a missing fixture
+# would teach everyone to ignore this workflow.
+
+concurrency:
+  group: ci-nightly-${{ github.ref_name }}
+  cancel-in-progress: false
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NODE_VERSION: '24.11.1'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EVB_E2E_PRESERVE_ARTIFACTS: '1'
+
+jobs:
+  nightly_scan_cleanup_heavy:
+    name: Scan Cleanup Heavy Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install PDF text test tools
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh poppler-utils
+
+      - name: Restore Rust build caches
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-scan-heavy-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Canonical scan-cleanup identity
+        run: pnpm run test:scan-cleanup:canonical-identity
+
+  # The second architecture for the Rust workspace. The x64 run in
+  # ci-extended.yml catches a logic regression on the push that caused it; this
+  # one exists for the architecture-specific failure, which no commit predicts.
+  nightly_rust_tests_arm64:
+    name: Rust Tests (Linux arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install PDF test tools
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh poppler-utils qpdf
+
+      - name: Restore Rust build caches
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: rust-arm64-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-arm64-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Rust tests
+        run: pnpm run test:rust
+
+  nightly_rust_fuzz:
+    name: Native Parser Fuzz Canaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-fuzz --version 0.13.1 --locked
+
+      - name: Fuzz image decoders
+        run: |
+          for target in png jpeg tiff netpbm; do
+            cargo +nightly fuzz run "$target" --fuzz-dir native/pdf-image-combine/fuzz -- -max_total_time=15
+          done
+
+      - name: Fuzz xref parsers
+        run: |
+          for target in xref-table xref-stream; do
+            cargo +nightly fuzz run "$target" --fuzz-dir native/pdf-page-ops/fuzz -- -max_total_time=15
+          done
+
+      - name: Fuzz JBIG2 codec
+        run: |
+          for target in decode roundtrip; do
+            cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
+          done
+
+  nightly_electron_e2e_large_pdf:
+    name: Manual Electron E2E Large PDF
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          verify-electron: 'true'
+
+      - name: Electron E2E large PDF
+        env:
+          # Manual lanes opt in to the local exact fixture explicitly; the
+          # staging script refuses an unnamed profile so absence cannot pass.
+          EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882
+        run: pnpm run test:e2e:electron:large
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-large-pdf-${{ github.run_attempt }}
+
+  nightly_electron_e2e_quarantine:
+    name: Manual Electron E2E Quarantine
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          verify-electron: 'true'
+
+      - name: Electron E2E quarantine
+        run: pnpm run test:e2e:electron:quarantine
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-quarantine-${{ github.run_attempt }}
+
+  nightly_electron_e2e_visible_window:
+    name: Manual Electron E2E Visible Window
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          verify-electron: 'true'
+
+      - name: Electron E2E visible-window lifecycle
+        run: pnpm run test:e2e:electron:visible-window
+
+      - name: Upload Electron E2E artifacts
+        if: ${{ always() }}
+        uses: ./.github/actions/upload-electron-e2e-artifacts
+        with:
+          artifact-name: electron-visible-window-${{ github.run_attempt }}
