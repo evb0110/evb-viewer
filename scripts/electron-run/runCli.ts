@@ -33,6 +33,8 @@ import { devSupervisor } from '@scripts/electron-run/devSupervisor';
 import { runDevLogs } from '@scripts/devLogs';
 import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
 import { recoverSessionRecording } from '@scripts/electron-run/sessionRecording';
+import { prepareRecordingReview } from '@scripts/electron-run/recordingAnalysis';
+import { serveRecordingReview } from '@scripts/electron-run/serveRecordingReview';
 import {
     stopSession,
     stopSingleSession,
@@ -378,6 +380,8 @@ Options:
 Session:
   record              Start an isolated hidden recorded session (requires a non-default name)
   recording [mark <label>]  Capture health, evidence paths, or a timeline marker; recovers interrupted runs when stopped
+  recording review [path] [--track id] [--at seconds,... | --from seconds --to seconds --step seconds]  Extract full-resolution frames and contact sheets
+  recording serve <directory>  Serve evidence on a local port with video seeking; stop with Ctrl+C
   start               Start session (foreground, Ctrl+C to stop)
   startd              Start session in background (detached) and return
   cleanstart          Start with fresh Nuxt server (clears stale cache)
@@ -635,6 +639,64 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
         printJson(await sendCommand('recording'));
     },
     async recording(args) {
+        if (args[0] === 'serve') {
+            if (!args[1] || args.length !== 2) { throw new Error('Usage: recording serve <directory>'); }
+            const server = await serveRecordingReview(args[1]);
+            printJson({
+                url: server.url,
+                directory: server.directory,
+                pid: process.pid,
+            });
+            for (const signal of [
+                'SIGINT',
+                'SIGTERM',
+            ] as const) {
+                process.once(signal, () => { void server.close(); });
+            }
+            return;
+        }
+        if (args[0] === 'review') {
+            const options: {
+                from?: number;
+                to?: number;
+                step?: number;
+                at?: number[];
+                track?: string
+            } = {};
+            let path: string | undefined;
+            for (let index = 1; index < args.length; index++) {
+                const arg = args[index];
+                if (arg === '--from' || arg === '--to' || arg === '--step') {
+                    const value = Number(args[++index]);
+                    if (!Number.isFinite(value)) { throw new Error(`${arg} requires a number`); }
+                    if (arg === '--from') { options.from = value; }
+                    else if (arg === '--to') { options.to = value; }
+                    else { options.step = value; }
+                } else if (arg === '--at') {
+                    const value = args[++index];
+                    if (!value || value.split(',').some(item => !item.trim())) { throw new Error('--at requires comma-separated timestamps'); }
+                    options.at = value.split(',').map(Number);
+                } else if (arg === '--track') {
+                    const value = args[++index];
+                    if (!value || value.startsWith('--')) { throw new Error('--track requires a track ID'); }
+                    options.track = value;
+                } else if (!path && arg && !arg.startsWith('--')) { path = arg; }
+                else { throw new Error(`Unexpected review argument: ${String(arg)}`); }
+            }
+            if (!path) {
+                if (await isSessionRunning() || isProcessAlive(getSessionInfo()?.pid ?? 0)
+                    || isProcessAlive(getSessionStartingInfo()?.pid ?? 0)) {
+                    throw new Error('Stop the task-owned recording before reviewing it');
+                }
+                const root = join(sessionDir(), 'recordings');
+                const latest = readdirSync(root).sort().at(-1);
+                if (!latest) { throw new Error('No recording exists for this session'); }
+                path = join(root, latest, 'manifest.json');
+                await recoverSessionRecording(path);
+            }
+            printJson(await prepareRecordingReview(path, options));
+            return;
+        }
         if (await isSessionRunning()) {
             await printJsonCommand('recording', args);
         } else {

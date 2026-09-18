@@ -77,7 +77,7 @@ export async function inspectRecordingVideo(path: string) {
         'v:0',
         '-count_frames',
         '-show_entries',
-        'stream=width,height,nb_read_frames:format=duration',
+        'stream=width,height,nb_read_frames,avg_frame_rate:format=duration',
         '-of',
         'json',
         path,
@@ -90,12 +90,18 @@ export async function inspectRecordingVideo(path: string) {
             width: number;
             height: number;
             nb_read_frames: string
+            avg_frame_rate?: string
         }>;
         format?: {duration: string};
     };
     const stream = result.streams?.[0];
     const frames = Number(stream?.nb_read_frames);
     const duration = Number(result.format?.duration);
+    const [
+        rate,
+        divisor,
+    ] = (stream?.avg_frame_rate ?? '').split('/').map(Number);
+    const frameRate = (rate ?? 0) / (divisor ?? 0);
     if (!stream || !(frames > 0) || !(duration > 0)) {
         throw new Error(`Recording has no decodable video: ${path}`);
     }
@@ -105,6 +111,7 @@ export async function inspectRecordingVideo(path: string) {
         width: stream.width,
         height: stream.height,
         bytes: statSync(path).size,
+        frameRate: Number.isFinite(frameRate) && frameRate > 0 ? frameRate : FPS,
     };
 }
 

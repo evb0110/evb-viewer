@@ -60,10 +60,61 @@ Evidence lives under `.devkit/sessions/<session>/recordings/<run>/`:
 - `actions.jsonl`: commands, delivered inputs, markers, errors and track boundaries.
 - `manifest.json`: source identity, capture scope, status, paths and video probes.
 
-Check the manifest status, open the review page or inspect extracted frames,
-and check the actual persisted output when saving documents is part of the
-task. A video alone does not prove that a PDF was saved correctly. Preserve
-failed recordings. Link the review page and video paths in the task receipt.
+### Agent visual review
+
+Before presenting a recording as proof, prepare a review package and inspect it:
+
+```sh
+pnpm electron:run -s proof-my-task recording review
+# Also accepts a recording directory or manifest collected from Windows or another host:
+pnpm electron:run recording review /absolute/path/to/recording
+# Revisit exact video timestamps at full resolution, selecting a window when needed:
+pnpm electron:run recording review /absolute/path/to/recording --track window-1 --at 12.3,18.7
+# Investigate a transient state or motion in a bounded interval:
+pnpm electron:run recording review /absolute/path/to/recording --from 10 --to 13 --step 0.1
+```
+
+The command fully decodes each selected video to detect corruption, preserves the
+source and its capture status, and writes a unique `reviews/review-*` directory.
+It contains a browser-friendly MP4 copy, full-resolution PNG frames, contact
+sheets labeled with frame numbers and video seconds, and `review.json` linking
+frames to session timestamps, actions, hashes and sampling coverage. Default
+sampling covers the full duration every five seconds, both ends, and before/after
+meaningful actions. Explicit `--at` times replace that sampling. Times are relative
+to the selected track; extraction selects the containing frame on the recorder's
+constant-frame-rate timeline and reports its `frameSeconds`. Use a time strictly
+before the video's end.
+Extraction is bounded to 600 frames per track; split larger investigations into
+explicit intervals. A failed capture remains failed even when its video decodes.
+
+Use the model's image-reading tool to open every contact sheet, then open the
+full-resolution frames supporting each expected outcome. Contact sheets are an
+overview, not evidence that small text is correct or motion is smooth. Request
+additional timestamps or dense intervals until the relevant behavior is visible;
+play the video when the claim depends on continuous motion. Image-capable agents
+can do this without computer-use tools or another provider's API credentials.
+
+Write `assessment.md` beside `review.json`: each expected outcome gets a
+pass/fail/inconclusive verdict, observed behavior, inspected track/timestamps/frame
+paths, and limitations. Extraction always reports `visualAssessment: required`;
+only the agent's actual inspection supports its written verdict. If a provider
+cannot read images, its visual verdict is inconclusive. Check persisted output
+separately when saving is part of the task. A video does not establish PDF validity.
+Preserve failures and include the assessment with the delivered evidence.
+
+Serve the review directory as HTML in the thread browser preview or open it
+locally in a browser. `pnpm electron:run recording serve <review-directory>`
+prints a loopback URL with correct MIME types and byte-range video seeking.
+Open that URL in the thread's browser preview, which can display the host page
+to a remote client; a phone's own `127.0.0.1` is not the Mac. The server stays
+in the foreground until Ctrl+C. Retain it while the user is inspecting the
+evidence, and stop only that task-owned server when no longer needed.
+Verify the delivered page renders, video duration matches
+the probe, and seeking reaches the final state. T3's plain file-link route may
+serve HTML as text and does not preserve relative assets. In that case use the
+thread preview with a loopback static server or provide direct MP4 links; an
+unopened `index.html` link is not a verified delivery. Keep recordings private
+unless publication is authorized.
 
 Encoding streams through a bounded latest-frame buffer at 15 FPS. Completed
 MP4 fragments survive an interrupted process. A lag over five seconds or an

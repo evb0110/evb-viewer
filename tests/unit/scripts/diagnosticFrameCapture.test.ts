@@ -1,4 +1,8 @@
 import type * as RecordingVideo from '@scripts/electron-run/recordingVideo';
+import { serveRecordingReview } from '@scripts/electron-run/serveRecordingReview';
+import {
+    recordingReviewTimes, prepareRecordingReview, recordingContactSheet,
+} from '@scripts/electron-run/recordingAnalysis';
 import { EventEmitter } from 'node:events';
 import {
     mkdtempSync,
@@ -77,6 +81,123 @@ class FakeCdpClient extends EventEmitter {
 }
 
 describe('diagnostic frame capture', () => {
+    it('keeps every frame in a partial contact sheet and leaves unused cells black', () => {
+        const tiles = Buffer.concat([
+            30,
+            60,
+            90,
+            120,
+        ].map(value => Buffer.alloc(384 * 240 * 3, value)));
+        const sheet = recordingContactSheet([
+            0,
+            1,
+            2,
+            3,
+        ].map(seconds => ({ seconds })), 12, tiles);
+        const header = Buffer.from('P6\n1152 528\n255\n');
+        expect(sheet.subarray(0, header.length)).toEqual(header);
+        const pixel = (x: number, y: number) => sheet[header.length + (y * 1152 + x) * 3];
+        expect([
+            pixel(0, 0),
+            pixel(384, 0),
+            pixel(768, 0),
+            pixel(0, 264),
+        ]).toEqual([
+            30,
+            60,
+            90,
+            120,
+        ]);
+        expect(pixel(384, 264)).toBe(0);
+        expect(sheet.length).toBe(header.length + 1152 * 528 * 3);
+    });
+
+    it('serves review HTML and seekable video byte ranges without directory listing', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-review-http-'));
+        writeFileSync(join(root, 'index.html'), '<h1>Review</h1>');
+        writeFileSync(join(root, 'video.mp4'), Buffer.from('0123456789'));
+        const server = await serveRecordingReview(root);
+        try {
+            const page = await fetch(server.url);
+            expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
+            expect(await page.text()).toBe('<h1>Review</h1>');
+            const range = await fetch(server.url + 'video.mp4', { headers: { Range: 'bytes=4-6' } });
+            expect(range.status).toBe(206);
+            expect(range.headers.get('content-range')).toBe('bytes 4-6/10');
+            expect(range.headers.get('content-type')).toBe('video/mp4');
+            expect(await range.text()).toBe('456');
+            expect((await fetch(server.url + 'video.mp4', { headers: { Range: 'bytes=20-' } })).status).toBe(416);
+            expect((await fetch(server.url + 'missing/')).status).toBe(404);
+        } finally {
+            await server.close();
+            rmSync(root, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('samples track-relative boundaries and before/after actions while ignoring pointer movement', () => {
+        expect(recordingReviewTimes(12, 2000, [
+            {
+                atMs: 8000,
+                kind: 'input',
+                type: 'click',
+            },
+            {
+                atMs: 9000,
+                kind: 'input',
+                type: 'pointermove',
+            },
+        ])).toEqual([
+            0,
+            5,
+            5.75,
+            6.75,
+            10,
+            11.933,
+        ]);
+        expect(recordingReviewTimes(12, 2000, [], { at: [
+            9.5,
+            1.25,
+            9.5,
+        ] })).toEqual([
+            1.25,
+            9.5,
+        ]);
+        expect(recordingReviewTimes(12, 2000, [], {
+            from: 7,
+            to: 8,
+            step: 0.25,
+        })).toEqual([
+            7,
+            7.25,
+            7.5,
+            7.75,
+            7.933,
+        ]);
+        expect(() => recordingReviewTimes(12, 0, [], { at: [12] })).toThrow('within the video duration');
+        expect(() => recordingReviewTimes(12, 0, [], { step: 0 })).toThrow('step');
+        expect(() => recordingReviewTimes(4000, 0, [])).toThrow('600 frames');
+    });
+
+    it('rejects visual review of a running capture instead of finalizing another owner', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-review-live-'));
+        try {
+            const manifest = JSON.stringify({
+                status: 'recording',
+                tracks: [],
+            });
+            writeFileSync(join(root, 'manifest.json'), manifest);
+            await expect(prepareRecordingReview(root)).rejects.toThrow('stopped recording');
+            expect(readFileSync(join(root, 'manifest.json'), 'utf8')).toBe(manifest);
+            expect(readdirSync(root)).toEqual(['manifest.json']);
+        } finally { rmSync(root, {
+            recursive: true,
+            force: true,
+        }); }
+    });
+
     it('preserves elapsed idle time on a 15 fps grid and writes crash-decodable MP4', () => {
         expect(recordingFrameCount(0)).toBe(1);
         expect(recordingFrameCount(60_000)).toBe(901);
