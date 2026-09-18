@@ -216,6 +216,9 @@ const EDITABLE_COLOR_SUBTYPES = new Set([
 ]);
 
 function getFallbackColorForSubtype(subtype: string | null | undefined) {
+    if (menu.comment?.annotationKind === 'shape') {
+        return DEFAULT_ANNOTATION_SETTINGS.shapeColor;
+    }
     const normalizedSubtype = subtype?.trim().toLowerCase() ?? '';
     if (normalizedSubtype === 'underline') {
         return DEFAULT_ANNOTATION_SETTINGS.underlineColor;
@@ -257,6 +260,9 @@ function normalizeColorInputValue(
 }
 
 const canEditColor = computed(() => {
+    if (menu.comment?.annotationKind === 'shape') {
+        return true;
+    }
     const subtype = menu.comment?.subtype?.trim().toLowerCase() ?? '';
     return EDITABLE_COLOR_SUBTYPES.has(subtype);
 });

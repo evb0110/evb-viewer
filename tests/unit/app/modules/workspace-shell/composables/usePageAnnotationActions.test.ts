@@ -692,6 +692,29 @@ describe('usePageAnnotationActions', () => {
         expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledTimes(2);
     });
 
+    it('recolors a shape from the context menu through the selection property command', () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        const updateSelectedAnnotationProperties = vi.fn(() => true);
+        Object.assign(viewer, {updateSelectedAnnotationProperties});
+        const comment = createComment('context-color-shape');
+        comment.source = 'shape';
+        comment.annotationKind = 'shape';
+        comment.subtype = 'Circle';
+        comment.color = '#2563eb';
+        deps.annotationContextMenu.value.comment = comment;
+
+        actions.handleContextTextMarkupColorUpdate('#22c55e');
+
+        expect(viewer.selectAnnotationById).toHaveBeenCalledWith('anno-context-color-shape');
+        expect(updateSelectedAnnotationProperties).toHaveBeenCalledWith({color: '#22c55e'});
+        expect(viewer.updateTextMarkupAnnotationColor).not.toHaveBeenCalled();
+        expect(viewer.registerAnnotationHistoryCommand).not.toHaveBeenCalled();
+    });
+
     it('closes the context menu when free note placement fails', async () => {
         const {
             deps,
