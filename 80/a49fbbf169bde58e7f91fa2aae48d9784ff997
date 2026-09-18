@@ -1,0 +1,72 @@
+tests/unit/app/modules/pdf-viewer/usePdfViewerRerenderCoordinator.test.ts
+  s_c217d94211cb3e::t_34ee60f8f2e7f3 286,294,313,317,376,410-438,445-446,455,467-468,476-477,1633,1764,1767-1768,1771,1773,1776,1778,1780,1782-1789,1806,1824-1825,1869,1888
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_c217d94211cb3e::t_0a20ad68472459 948-950
+  s_c217d94211cb3e::t_6e641c5354f06c 947
+app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions.ts
+  s_c217d94211cb3e::t_52ff499de3060f 43,56-58,64
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_c217d94211cb3e::t_20e965902219c3 1,1001,1010-1013
+tests/unit/app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions.test.ts
+  s_c217d94211cb3e::t_89129fab8deddd 147
+app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator.ts
+  s_c217d94211cb3e::t_4dd75989dd474a 21,91,96,108-116,495
+  s_c217d94211cb3e::t_41a6104e731d7f 117-181,205,216-220,411-413,468-472
+tests/unit/app/modules/workspace-shell/viewers/documentWorkspacePageSourceIntegration.test.ts
+  s_c217d94211cb3e::t_ad10c0d5c97c07 179
+  s_c217d94211cb3e::t_48e62e5657845b 183,196
+  s_c217d94211cb3e::t_25a0b44fc5c870 114,121,165,177-178,180-182,184-195,197-199
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerResizeLifecycle.test.ts
+  s_c217d94211cb3e::t_6e641c5354f06c 40-42,57,60,73,729
+  s_c217d94211cb3e::t_275084fdab20ff 58-59,61-62,722,725-728,730-738
+  s_c217d94211cb3e::t_52ff499de3060f 12,75,357,362-363,367,807,818-819
+  s_c217d94211cb3e::t_216fe2cdc1f2e8 74,677,679,681,683,687,689-690,695-696,699,702,705,708-709,711-712,715-718,720,723,740,766
+  s_c217d94211cb3e::t_6b3948342ceae0 678,680,682,684-686,688,691-694,697-698,700-701,703-704,706-707,710,713-714,719,721,724,739,741-765,767-771
+app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes.ts
+  s_c217d94211cb3e::t_48b444ee7b8276 122
+app/assets/css/pdf-viewer.scss
+  s_c217d94211cb3e::t_3d2f69712b9a5c 732-735
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_c217d94211cb3e::t_b57340522e272b 216-219,304-311,1314
+  s_c217d94211cb3e::t_34608b9dbc085c 1201,1203,1289-1292,1294,1310-1313,1315-1326
+app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync.ts
+  s_c217d94211cb3e::t_28c27176ca2f9a 31
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_c217d94211cb3e::t_fa6d3df0ced75b 133,320,385-386,388-400,405-406,408-411,567,682-695,701,801
+  s_c217d94211cb3e::t_6e641c5354f06c 42-45,132,145,149,717,771
+  s_c217d94211cb3e::t_92608ed8ad12d6 280,287,302,577
+  s_c217d94211cb3e::t_3d2f69712b9a5c 144,146-148,150-159,387,401,552,718-719,722,772-780
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_c217d94211cb3e::t_3ded9bc715046d 252,272
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_c217d94211cb3e::t_2616a89ab53067 36,242-260,699,710,757,828-831,833-835
+  s_c217d94211cb3e::t_247867511e1e80 836-846,848-853
+app/modules/pdf-viewer/runtime/viewport/createViewportAuthority.ts
+  s_c217d94211cb3e::t_8bc86c19b0bfea 22-26
+tests/unit/app/modules/document-viewer/documentViewportResizeAnchor.test.ts
+  s_c217d94211cb3e::t_247867511e1e80 33,78,85,89-91,93-98,106,125
+  s_c217d94211cb3e::t_10ea24ceb6bdd4 30-32,67-77,79-84,86-88,92,99-100,103-105,122-124
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_c217d94211cb3e::t_182d0507235628 141,185,763-777
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_c217d94211cb3e::t_25a0b44fc5c870 570-572
+  s_c217d94211cb3e::t_92608ed8ad12d6 249-254
+app/modules/document-viewer/runtime/documentViewportResizeAnchor.ts
+  s_c217d94211cb3e::t_17444f2dd9bc5d 17-23,41,50,53-56,105-106,116-117,121-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "80a49fbbf169bde58e7f91fa2aae48d9784ff997",
+  "prompts": {},
+  "sessions": {
+    "s_c217d94211cb3e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2cc-3f8d-7400-b42d-7f7e4e46807f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
