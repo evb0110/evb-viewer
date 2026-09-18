@@ -1,0 +1,24 @@
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.test.ts
+  s_f3098092b11d7e::t_420ef75e6d34c8 12-13
+  s_f3098092b11d7e::t_c5fe47260379ba 105-136
+app/modules/pdf-viewer/tools/annotationShapeDrawing.ts
+  s_f3098092b11d7e::t_6f976b7c1df957 318-319,322-325
+  s_f3098092b11d7e::t_5112d3b9f7bff9 355-356
+  s_f3098092b11d7e::t_2f098f4925c82e 395-397,399-401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ccd6c1c3eb5fe6fb8deded8276215cf279d07e19",
+  "prompts": {},
+  "sessions": {
+    "s_f3098092b11d7e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26815026-ca18-408a-9416-f70de517ca80",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
