@@ -156,9 +156,6 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
 
     it('releases rendered page resources from hidden PDF tabs and restores them on activation', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         await setTabMemoryPolicyForE2E(session.page, 'aggressive');
         firstFixturePath = await createMultiPageTextFixturePdf(`inactive-tabs-first-${Date.now()}.pdf`, 3);
@@ -204,9 +201,6 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
 
     it('keeps every visible split-pane document rendered while releasing hidden resources', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         await setTabMemoryPolicyForE2E(session.page, 'aggressive');
         const splitPrimaryFixturePath = await createMultiPageTextFixturePdf(`inactive-tabs-split-primary-${Date.now()}.pdf`, 3);
@@ -236,9 +230,6 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
     it('keeps the rendered right PDF visible while activating scan cleanup on the left', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 2,
@@ -345,17 +336,11 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
 
     it('keeps the exact PDF pane, tab, document surface, and viewport anchor while closing an empty split', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-pdf-empty-split-continuity-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createMultiPageTextFixturePdf(
             `pdf-empty-split-continuity-${Date.now()}.pdf`,

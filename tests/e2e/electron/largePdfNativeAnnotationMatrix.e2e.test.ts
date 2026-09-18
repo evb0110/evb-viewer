@@ -977,9 +977,6 @@ async function hardRestartAfterSave(
         hard: true,
         keepNuxt: true,
     });
-    if (!restarted) {
-        throw new Error(`Hard restart failed for ${documentPath}`);
-    }
     await waitForPdfLoaded(restarted.page, MATRIX_TIMEOUT_MS);
     await waitForViewerInteractive(restarted.page, MATRIX_TIMEOUT_MS);
     return restarted;
@@ -1118,7 +1115,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
 
     it('creates, updates, deletes, recreates, saves, and hard-reopens canonical annotations', async () => {
         let session = sessionFixture.getSession();
-        if (!session || !fixture.path) {
+        if (!fixture.path) {
             throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);
         }
         const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {timeoutMs: MATRIX_TIMEOUT_MS});
@@ -1413,7 +1410,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
 
     it('creates, moves, deletes, saves, and hard-reopens a placed image through the canonical layer', async () => {
         let session = await sessionFixture.restart({clean: true});
-        if (!session || !fixture.path) {
+        if (!fixture.path) {
             throw new Error(`Exact large fixture is unavailable: ${fixture.reason}`);
         }
         const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {timeoutMs: MATRIX_TIMEOUT_MS});

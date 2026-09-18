@@ -124,9 +124,6 @@ runDjvuPrintHandoffOrSkip('Electron E2E - DjVu Print Handoff', () => {
 
     it('prints selected DjVu pages to a multi-page nonblank PDF surface', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }

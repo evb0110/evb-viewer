@@ -2893,9 +2893,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     it.runIf(runImportedTextPopupScenario)('imports a Text annotation with its Popup and preserves it through a clean save and hard restart', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Electron session is unavailable for the imported Text annotation test');
-        }
         if (exactZaliznyakSourcePath === null || !existsSync(exactZaliznyakSourcePath)) {
             throw new Error('Set EVB_E2E_LARGE_PDF_FIXTURE to the exact Zaliznyak fixture');
         }
@@ -2977,9 +2974,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!restartedSession) {
-            throw new Error('Hard restart did not produce a new Electron process for the imported Text annotation test');
-        }
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
         expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
@@ -2995,9 +2989,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     it.runIf(runImportedTextPopupScenario)('edits an imported text-markup note through the bounded native route and hard-reopens it', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Electron session is unavailable for the imported text-markup note test');
-        }
         if (exactZaliznyakSourcePath === null || !existsSync(exactZaliznyakSourcePath)) {
             throw new Error('Set EVB_E2E_LARGE_PDF_FIXTURE to the exact Zaliznyak fixture');
         }
@@ -3132,9 +3123,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!restartedSession) {
-            throw new Error('Hard restart did not produce a new Electron process for the imported text-markup note test');
-        }
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
         expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
@@ -3152,9 +3140,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     it.runIf(runImportedTextPopupScenario)('persists a moved imported sticky-note marker and Popup rectangle through native save and hard restart', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Electron session is unavailable for the imported Text geometry test');
-        }
         if (exactZaliznyakSourcePath === null || !existsSync(exactZaliznyakSourcePath)) {
             throw new Error('Set EVB_E2E_LARGE_PDF_FIXTURE to the exact Zaliznyak fixture');
         }
@@ -3240,9 +3225,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!restartedSession) {
-            throw new Error('Hard restart did not produce a new Electron process for the imported Text geometry test');
-        }
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
         expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
@@ -3281,9 +3263,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     it('saves canonical notes and text boxes with multiple edits on a large PDF', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
 
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
@@ -3456,9 +3435,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     it.runIf(runStickyRestartScenario)('reopens a saved sticky note cleanly after a hard restart', async () => {
         const initialSession = sessionFixture.getSession();
-        if (!initialSession) {
-            return;
-        }
         const fixtureSourcePath = largePdfFixture.path;
         if (!fixtureSourcePath) {
             throw new Error(`Required large PDF fixture is unavailable: ${largePdfFixture.reason}`);
@@ -3470,9 +3446,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!freshSession) {
-            throw new Error('Could not start a fresh Electron process for the exact-fixture test');
-        }
         await expectProcessesExited(initialProcesses.pids);
         const freshProcesses = readSessionProcessSnapshot(freshSession.name);
         expect(freshProcesses.rootPid).not.toBe(initialProcesses.rootPid);
@@ -3636,9 +3609,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!restartedSession) {
-            throw new Error('First hard restart did not produce a new Electron process');
-        }
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
         expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
@@ -3796,9 +3766,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!twiceRestartedSession) {
-            throw new Error('Second hard restart did not produce a new Electron process');
-        }
         await expectProcessesExited(secondProcesses.pids);
         const twiceRestartedProcesses = readSessionProcessSnapshot(twiceRestartedSession.name);
         expect(twiceRestartedProcesses.rootPid).not.toBe(secondProcesses.rootPid);
@@ -3841,9 +3808,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     exactZaliznyakIt('keeps ordinary FreeText visible through issue 139 save and layout transitions', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Issue 139 visibility test requires a live Electron session');
-        }
         const fixtureSourcePath = largePdfFixture.path;
         if (!fixtureSourcePath) {
             throw new Error(`Required exact Zaliznyak fixture is unavailable: ${largePdfFixture.reason}`);
@@ -3904,9 +3868,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!persistedSession) {
-            throw new Error('Issue 139 persistence setup did not produce a new Electron process');
-        }
         await expectProcessesExited(preRestartProcesses.pids);
         session = persistedSession;
         await waitForRestoredDocument(session.page, fixtureRealPath);
@@ -4113,9 +4074,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!reopenedSession) {
-            throw new Error('Issue 139 transition save did not produce a hard-restart session');
-        }
         await expectProcessesExited(transitionProcesses.pids);
         session = reopenedSession;
         await waitForRestoredDocument(session.page, fixtureRealPath);
@@ -4146,9 +4104,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     it('creates, saves, and reopens an ordinary FreeText box on a large PDF', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const fixtureSourcePath = largePdfFixture.path;
         if (!fixtureSourcePath) {
@@ -4382,9 +4337,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
     it.runIf(runStickyRestartScenario)('deletes a persisted ordinary FreeText through the sidebar and keeps it absent after restart', async () => {
         const initialSession = sessionFixture.getSession();
-        if (!initialSession) {
-            return;
-        }
         const fixtureSourcePath = largePdfFixture.path;
         if (!fixtureSourcePath) {
             throw new Error(`Required large PDF fixture is unavailable: ${largePdfFixture.reason}`);
@@ -4396,9 +4348,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!freshSession) {
-            throw new Error('Could not start a fresh Electron process for the FreeText sidebar-delete test');
-        }
         await expectProcessesExited(initialProcesses.pids);
         const freshProcesses = readSessionProcessSnapshot(freshSession.name);
         expect(freshProcesses.rootPid).not.toBe(initialProcesses.rootPid);
@@ -4512,9 +4461,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!reopenedSession) {
-            throw new Error('First hard restart did not produce a new Electron process for the FreeText sidebar-delete test');
-        }
         await expectProcessesExited(firstRestartProcesses.pids);
         const reopenedProcesses = readSessionProcessSnapshot(reopenedSession.name);
         expect(reopenedProcesses.rootPid).not.toBe(firstRestartProcesses.rootPid);
@@ -4671,9 +4617,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!finalSession) {
-            throw new Error('Second hard restart did not produce a new Electron process for the FreeText sidebar-delete test');
-        }
         await expectProcessesExited(secondRestartProcesses.pids);
         const finalProcesses = readSessionProcessSnapshot(finalSession.name);
         expect(finalProcesses.rootPid).not.toBe(secondRestartProcesses.rootPid);

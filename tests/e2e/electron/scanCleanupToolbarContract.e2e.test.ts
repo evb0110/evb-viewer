@@ -49,9 +49,6 @@ describe('scan cleanup toolbar contract', () => {
     it('keeps the detection counter, queued cleanup, and run meter contract the release verifier relies on', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
-        if (!session) {
-            return;
-        }
 
         // Enough pages that detection is reliably observable in flight.
         const sourcePath = await createLargeScannedFixturePdf(

@@ -88,9 +88,6 @@ describe('assistant bookmark persistence', () => {
     it('applies assistant bookmarks and saves them to the PDF file', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
-        if (!session) {
-            return;
-        }
 
         const pdfPath = await createMultiPageTextFixturePdf('assistant-bookmarks-persistence.pdf', 3);
         await openPdfInApp(session.page, pdfPath, ASSISTANT_BOOKMARK_E2E_TIMEOUT_MS);

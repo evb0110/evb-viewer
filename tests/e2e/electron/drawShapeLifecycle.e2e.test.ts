@@ -2242,9 +2242,6 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
 
     it('preserves repeated draw-save-delete-redraw cycles without ghost shapes or auto-selecting new strokes', async () => {
         const session = await startDrawShapeSession();
-        if (!session) {
-            return;
-        }
         const { page } = session;
 
         const fixturePath = await createBlankFixturePdf(`draw-shape-${Date.now()}.pdf`, 1);
@@ -2381,9 +2378,6 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
 
     it('keeps drawing undo and redo coherent after saving the new shape', async () => {
         const session = await startDrawShapeSession();
-        if (!session) {
-            return;
-        }
         const { page } = session;
 
         const fixturePath = await createBlankFixturePdf(`draw-shape-save-undo-redo-${Date.now()}.pdf`, 1);
@@ -2421,9 +2415,6 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
     for (const scenario of savedShapeDeleteScenarios) {
         it(scenario.name, async () => {
             const session = await startDrawShapeSession();
-            if (!session) {
-                return;
-            }
             await runSavedShapeDeleteScenario(session.page, scenario);
         });
     }

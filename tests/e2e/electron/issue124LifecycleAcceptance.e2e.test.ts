@@ -413,9 +413,6 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             }
             const sourceIdentity = await assertExactIssue124Fixture(configuredFixture);
             const session = sessionFixture.getSession();
-            if (!session) {
-                throw new Error('Issue 124 lazy-materialization session did not start');
-            }
             const sourcePath = configuredFixture;
             const sourceBefore = statSync(sourcePath);
             await openPdfInApp(session.page, sourcePath, ISSUE_124_TEST_TIMEOUT_MS);
@@ -489,9 +486,6 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             }
             await assertExactIssue124Fixture(configuredFixture);
             const session = sessionFixture.getSession();
-            if (!session) {
-                throw new Error('Issue 124 image-placement session did not start');
-            }
             await openPdfInApp(session.page, configuredFixture, ISSUE_124_TEST_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, ISSUE_124_TEST_TIMEOUT_MS);
             await waitForViewerInteractive(session.page, ISSUE_124_TEST_TIMEOUT_MS);
@@ -577,9 +571,6 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
                 throw new Error(`Set ${ISSUE_124_FIXTURE_ENV} to the exact large PDF fixture for SAV-018`);
             }
             const session = sessionFixture.getSession();
-            if (!session) {
-                throw new Error('Issue 124 qpdf-cancellation session did not start');
-            }
             rmSync(qpdfHoldMarkerPath, {force: true});
             onTestFinished(() => rmSync(qpdfHoldMarkerPath, {force: true}));
             const sourceIdentity = await assertExactIssue124Fixture(configuredFixture);

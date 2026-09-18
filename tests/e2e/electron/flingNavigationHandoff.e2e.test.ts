@@ -213,9 +213,6 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
 
     beforeAll(async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Fling navigation E2E session did not start');
-        }
         pdfPath = await createLargeScannedFixturePdf(
             `fling-navigation-source-${Date.now()}.pdf`,
             FIXTURE_PAGE_COUNT,
@@ -261,9 +258,6 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
     // different rule and are deliberately out of scope here.
     it('names the page the window shows after a fling settles', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Fling navigation E2E session is unavailable');
-        }
         await goToPageForSetup(session.page, FLING_START_PAGE);
 
         const centre = await resolveViewportCentre(session.page);
@@ -300,9 +294,6 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
     // paused for it.
     it('lets a navigation click win over the rest of the fling', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Fling navigation E2E session is unavailable');
-        }
         await goToPageForSetup(session.page, FLING_START_PAGE);
         const firstPagePoint = await resolveClickablePoint(
             session.page,
@@ -352,9 +343,6 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
     // P4. Closing the tab in the middle of the tail must not surface an error.
     it('closes the tab mid-fling without an error surface', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Fling navigation E2E session is unavailable');
-        }
         await goToPageForSetup(session.page, FLING_START_PAGE);
         const closingTabLabel = await session.page.evaluate(() => (
             document.querySelector<HTMLElement>('.tab.is-active')?.innerText.trim() ?? ''

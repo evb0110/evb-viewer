@@ -47,9 +47,6 @@ lifecycleDescribe('Electron E2E - Large PDF split-pane lifecycle', () => {
 
     it('keeps same-path panes independent after the native opening preview hands off to PDF.js', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Large PDF split-pane Electron E2E session failed to start');
-        }
         if (!sourceFixture.path) {
             throw new Error(`Large PDF split-pane fixture unavailable: ${sourceFixture.reason}`);
         }

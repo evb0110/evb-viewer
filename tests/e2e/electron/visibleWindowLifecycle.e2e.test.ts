@@ -25,9 +25,6 @@ describe('Electron E2E - Visible Window Lifecycle', () => {
 
     it('shows and maximizes the real application window after renderer readiness', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         await waitForFunctionInPage(session.page, () => {
             const timeline = (window as INavigationTimelineWindow).__navigationTimeline ?? [];

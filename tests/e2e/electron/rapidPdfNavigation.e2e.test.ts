@@ -676,9 +676,6 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
 
     beforeAll(async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Paged fit-height backward-wheel E2E session did not start');
-        }
         pdfPath = await resolvePageJumpPdfPath();
         await enableBufferedPdfTrace(session);
         await openPdfInApp(session.page, pdfPath, 45_000);
@@ -686,8 +683,8 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
 
     it('returns from page 6 to page 1 and closes cleanly using mouse wheel navigation', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pdfPath) {
-            return;
+        if (!pdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
         const states: unknown[] = [];
         const collectState = () => session.page.evaluate(() => {
@@ -819,9 +816,6 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     beforeAll(async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('PDF page-jump E2E session did not start');
-        }
 
         pageJumpPdfPath = await resolvePageJumpPdfPath();
         await enableBufferedPdfTrace(session);
@@ -831,8 +825,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     beforeEach(async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady) {
-            return;
+        if (!pageJumpReady) {
+            throw new Error('Page-jump suite setup did not complete');
         }
         const toolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (toolbar?.continuousScroll === false) {
@@ -847,8 +841,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('keeps the toolbar on the final page after Last Page navigation settles', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady) {
-            return;
+        if (!pageJumpReady) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -886,8 +880,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('keeps paged fit-height wheel navigation visually committed during sustained scrolling', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -1135,8 +1129,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('renders page 7 after toolbar next navigation to page 10 and previous navigation back', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         let targetCanvasMounted = false;
@@ -1197,7 +1191,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('advances the chassis current page when PageDown is pressed in the viewer', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
+        if (!pageJumpReady || !pageJumpPdfPath) {
             throw new Error('Page navigation fixture is unavailable');
         }
 
@@ -1228,8 +1222,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('renders the final page after twenty rapid next-page clicks', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         let targetCanvasMounted = false;
@@ -1300,8 +1294,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('keeps the first committed page crisp without a quality-promotion replacement after revisit', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -1344,8 +1338,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('keeps exact page-track geometry and renders every visible page beyond the initial wheel buffer', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -1423,8 +1417,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('keeps trusted fast scroll, toolbar semantics, and subsequent navigation synchronized', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -1595,8 +1589,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('returns to the first page after trusted fast scroll leaves the requested page stale', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -1715,8 +1709,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('recovers when trusted scroll supersedes an in-flight navigation', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -1832,8 +1826,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('never exposes a frame without a page skeleton or committed canvas during rapid Next then Fit Width', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await jumpToPageAndWaitForCanvas(session, 1);
@@ -1879,8 +1873,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
     it('keeps page overlays mounted after jumping to page 100', async () => {
         const session = sessionFixture.getSession();
-        if (!session || !pageJumpReady || !pageJumpPdfPath) {
-            return;
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
         }
 
         await delay(5_000);

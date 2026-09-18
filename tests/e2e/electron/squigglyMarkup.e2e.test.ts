@@ -352,9 +352,6 @@ describe('Electron E2E - EVB text markup', () => {
 
     it.each(TEXT_MARKUP_SUBTYPES)('authors, saves, and reopens a %s annotation', async (tool, subtype) => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const fixturePath = await createTextMarkupAcceptanceFixturePdf(
             `evb-text-markup-${Date.now()}-${subtype}.pdf`,
@@ -407,9 +404,6 @@ describe('Electron E2E - EVB text markup', () => {
 
     it('keeps three-line authored geometry unchanged at 50%, 100%, and 200% zoom', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const fixturePath = await createTextMarkupAcceptanceFixturePdf(
             `evb-text-markup-zoom-${Date.now()}.pdf`,
@@ -458,9 +452,6 @@ describe('Electron E2E - EVB text markup', () => {
 
     it('splits a cross-page selection into one canonical annotation per page', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const fixturePath = await createTextMarkupAcceptanceFixturePdf(
             `evb-text-markup-cross-page-${Date.now()}.pdf`,
@@ -490,9 +481,6 @@ describe('Electron E2E - EVB text markup', () => {
 
     it('edits EVB markup properties', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const fixturePath = await createTextMarkupAcceptanceFixturePdf(
             `evb-text-markup-properties-${Date.now()}.pdf`,
@@ -515,9 +503,6 @@ describe('Electron E2E - EVB text markup', () => {
 
     it('tolerates a foreign no-text highlight', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const foreignPath = await createForeignHighlightNoTextFixturePdf(
             `evb-text-markup-foreign-${Date.now()}.pdf`,

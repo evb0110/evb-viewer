@@ -26,11 +26,14 @@ interface IElectronE2ESessionRestartOptions {
     extraEnv?: Record<string, string>;
 }
 
+// Every accessor fails closed. A test that receives no session never ran the
+// app, and a guard that returned quietly from that state reported the test as
+// passed. Throwing here makes the missing app a failure with a reason.
 interface IElectronE2ESessionFixtureControls {
-    getSession: () => IElectronE2ESession | null;
-    start: (options?: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'extraEnv'>) => Promise<IElectronE2ESession | null>;
-    restart: (options?: IElectronE2ESessionRestartOptions) => Promise<IElectronE2ESession | null>;
-    resetForE2E: () => Promise<IElectronE2ESession | null>;
+    getSession: () => IElectronE2ESession;
+    start: (options?: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'extraEnv'>) => Promise<IElectronE2ESession>;
+    restart: (options?: IElectronE2ESessionRestartOptions) => Promise<IElectronE2ESession>;
+    resetForE2E: () => Promise<IElectronE2ESession>;
     stop: (options?: { preserveArtifacts?: boolean }) => Promise<void>;
 }
 
@@ -61,10 +64,9 @@ function createElectronE2ESessionFixtureWithStarter(
             if (session) {
                 return session;
             }
-            if (bootFailure) {
-                return null;
-            }
-            throw new Error('Electron E2E session is not initialized; the suite boot hook may not have completed.');
+            throw bootFailure ?? new Error(
+                `Electron E2E session '${sessionName}' is not initialized; the suite boot hook may not have completed.`,
+            );
         },
         start: async (startOptions: Pick<IElectronE2ESessionRestartOptions, 'sessionName' | 'clean' | 'extraEnv'> = {}) => {
             try {
@@ -73,12 +75,13 @@ function createElectronE2ESessionFixtureWithStarter(
                     ? resolveSessionName(startOptions.sessionName)
                     : sessionName;
                 const extraEnv = startOptions.extraEnv ?? options.extraEnv;
-                session = await startSession(sessionName, {
+                const started = await startSession(sessionName, {
                     clean: startOptions.clean ?? true,
                     ...(extraEnv ? {extraEnv} : {}),
                 });
+                session = started;
                 bootFailure = null;
-                return session;
+                return started;
             } catch (error) {
                 bootFailure = formatElectronE2ESessionFailure('Electron E2E session boot failed.', error);
                 throw bootFailure;
@@ -86,9 +89,6 @@ function createElectronE2ESessionFixtureWithStarter(
         },
         restart: async (restartOptions: IElectronE2ESessionRestartOptions = {}) => {
             const previousSession = controls.getSession();
-            if (!previousSession) {
-                return null;
-            }
 
             try {
                 const clean = restartOptions.clean ?? true;
@@ -128,14 +128,13 @@ function createElectronE2ESessionFixtureWithStarter(
                 sessionName = restartOptions.sessionName
                     ? resolveSessionName(restartOptions.sessionName)
                     : previousSession.name;
-                session = await controls.start({
+                return await controls.start({
                     sessionName,
                     clean,
                     ...(restartOptions.extraEnv
                         ? {extraEnv: restartOptions.extraEnv}
                         : {}),
                 });
-                return session;
             } catch (error) {
                 bootFailure = formatElectronE2ESessionFailure('Electron E2E session restart failed.', error);
                 throw bootFailure;
@@ -143,9 +142,6 @@ function createElectronE2ESessionFixtureWithStarter(
         },
         resetForE2E: async () => {
             const currentSession = controls.getSession();
-            if (!currentSession) {
-                return null;
-            }
             await currentSession.resetForE2E();
             return currentSession;
         },

@@ -446,7 +446,6 @@ describe('Electron E2E - annotation controls', () => {
 
     it('keeps one inline inspector stable and separates selected properties from tool defaults', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation controls session did not start');
         const {page} = session;
         const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}.pdf`);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -519,7 +518,6 @@ describe('Electron E2E - annotation controls', () => {
 
     it('places one text box through sequential keyboard activation and reopens it', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation controls session did not start');
         const {page} = session;
         const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}-keyboard-text.pdf`);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -587,7 +585,6 @@ describe('Electron E2E - annotation controls', () => {
         }));
         copyFileSync(fixturePath, reopenPath);
         const restarted = await sessionFixture.restart({hard: true});
-        if (!restarted) throw new Error('Keyboard text-box reopen did not start');
         await openPdfInApp(restarted.page, reopenPath);
         await waitForPdfLoaded(restarted.page);
         await waitForViewerInteractive(restarted.page);
@@ -599,9 +596,6 @@ describe('Electron E2E - annotation controls', () => {
 
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}-delayed-text.pdf`);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -715,9 +709,6 @@ describe('Electron E2E - annotation controls', () => {
 
     it('creates a compact text box that grows and commits its text geometry at the page edge', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const {page} = session;
         const fixturePath = await createBlankFixturePdf(`annotation-controls-${Date.now()}-text-geometry.pdf`);
         onTestFinished(() => rmSync(fixturePath, {force: true}));

@@ -376,7 +376,7 @@ acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
         if (!configuredFixturePath) {
             throw new Error(`${LARGE_PDF_FIXTURE_ENV} must point to the exact local 882-page fixture`);
         }
-        if (!session || !fixture.path) {
+        if (!fixture.path) {
             throw new Error(`Exact fixture is unavailable: ${fixture.reason}`);
         }
         const electronPid = getSessionInfo(session.name)?.electronPid;
@@ -475,9 +475,6 @@ printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () 
 
     it('composes first-page-single output as uniform landscape spreads before native handoff', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Electron session is unavailable for the macOS print composition smoke');
-        }
 
         rmSync(printLayoutSmokeOutputPath, {force: true});
         mkdirSync(printLayoutSmokeDir, {recursive: true});

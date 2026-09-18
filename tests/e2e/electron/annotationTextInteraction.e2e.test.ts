@@ -380,7 +380,6 @@ describe('Electron E2E - text interaction contract', () => {
 
     async function openFixture(keepActive = false, zoom = 2.62, source?: string) {
         const session = sessions.getSession();
-        if (!session) throw new Error('Text interaction session did not start');
         await session.page.setViewport({
             width: 1920,
             height: 1080,
@@ -476,7 +475,6 @@ describe('Electron E2E - text interaction contract', () => {
             },
         });
         const restarted = await sessions.restart({hard: true});
-        if (!restarted) throw new Error('Highlight overlap save/reopen did not start');
         const reopened = restarted.page;
         await reopened.setViewport({
             width: 1920,
@@ -566,7 +564,6 @@ describe('Electron E2E - text interaction contract', () => {
             copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-saved.pdf`));
         }
         const restarted = await sessions.restart({hard: true});
-        if (!restarted) throw new Error('Markup save reopen did not start');
         const reopened = restarted.page;
         await reopened.setViewport({
             width: 1920,
@@ -1094,7 +1091,6 @@ describe('Electron E2E - text interaction contract', () => {
         await expectRotation(page, 270);
         await saveViaWindowHandle(page, 30_000);
         const restarted = await sessions.restart({hard: true});
-        if (!restarted) throw new Error('Rotated text save reopen did not start');
         await restarted.page.setViewport({
             width: 1920,
             height: 1080,
@@ -1137,7 +1133,6 @@ describe('Electron E2E - text interaction contract', () => {
         }
         await saveViaWindowHandle(page, 30_000);
         const restarted = await sessions.restart({hard: true});
-        if (!restarted) throw new Error('Text save reopen did not start');
         await openPdfInApp(restarted.page, path);
         await waitForPdfLoaded(restarted.page);
         await waitForViewerInteractive(restarted.page);

@@ -224,9 +224,6 @@ async function saveDecryptedOutput(page: Page, path: string) {
 describe('Electron E2E - VPS interoperability acceptance', () => {
     it('imports, edits, saves, independently renders, and reopens the committed corpus twice', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('VPS interoperability Electron session failed to start');
-        }
         const fixturePath = copyFreshFixture(SYNTHETIC_FIXTURE, 'corpus');
         const artifactDirectory = join(
             process.cwd(),
@@ -266,9 +263,6 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
 
     it('opens a generated encrypted corpus input and saves a password-free output', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('VPS encrypted interoperability Electron session failed to start');
-        }
         const encrypted = createGeneratedEncryptedFixture(STOCK_FIXTURE);
         const artifactDirectory = join(
             process.cwd(),

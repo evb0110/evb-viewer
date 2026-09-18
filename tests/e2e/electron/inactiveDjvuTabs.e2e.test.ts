@@ -468,17 +468,14 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
     it('keeps fit-width geometry scroll-invariant and retires opening destinations', async () => {
         let session = sessionFixture.getSession();
-        if (!session || !djvuFixture.path) {
-            return;
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
         }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-djvu-fit-width-layout-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         expect((await callWorkspaceCommand(session.page, 'handleFitWidth')).called).toBe(true);
@@ -509,9 +506,6 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
     it('retains a warm high-zoom DjVu presentation without scroll input', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -616,17 +610,14 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
     it('cancels queued and in-flight DjVu renders when its tab deactivates', async () => {
         let session = sessionFixture.getSession();
-        if (!session || !djvuFixture.path) {
-            return;
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
         }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-djvu-deactivation-cancellation-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await createNewTab(session);
         await activateTab(session, 0);
@@ -720,17 +711,14 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
     it('releases inactive DjVu leases immediately under moderate memory pressure', async () => {
         let session = sessionFixture.getSession();
-        if (!session || !djvuFixture.path) {
-            return;
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
         }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-djvu-moderate-pressure-release-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await createNewTab(session);
         await activateTab(session, 0);
@@ -799,9 +787,6 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
     it('keeps independently opened visible split-pane DjVu documents rendered', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -824,9 +809,6 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
 
     it('keeps the exact DjVu pane, tab, document surface, and viewport anchor while closing an empty split', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -835,9 +817,6 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             clean: true,
             sessionName: () => `e2e-djvu-empty-split-continuity-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);

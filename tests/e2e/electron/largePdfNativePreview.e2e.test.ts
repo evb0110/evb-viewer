@@ -580,9 +580,6 @@ exactNativePreviewDescribe('Electron E2E - Large PDF native opening preview hand
         'hands the exact production dictionary to PDF.js without a navigation flash',
         async () => {
             const session = sessionFixture.getSession();
-            if (!session) {
-                throw new Error('Large-PDF Electron E2E session failed to start');
-            }
             if (!exactNativePdf.path) {
                 throw new Error(exactNativePdf.reason);
             }

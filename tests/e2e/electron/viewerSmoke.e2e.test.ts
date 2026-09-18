@@ -1199,9 +1199,6 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('closes and reopens an annotated PDF without crashing its workspace host', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Failure session did not start');
-        }
 
         const fixturePath = await createAnnotatedLinkFixturePdf(
             `viewer-smoke-close-tab-${Date.now()}.pdf`,
@@ -1279,17 +1276,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('loads Scan Cleanup through its skeleton, detection, and narrow overflow entry', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-scan-cleanup-workspace-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 1,
@@ -1715,17 +1706,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('renders bounded native cleanup detail tiles for zoomed and panned scan regions', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-scan-cleanup-detail-tile-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 1,
@@ -1939,17 +1924,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('keeps crop and screenshot selection overlays attached to the visible scrolled viewport', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-region-selection-overlay-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 1,
@@ -2051,17 +2030,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('keeps disabled selected toolbar controls visually selected on hover', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-disabled-selected-toolbar-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 1,
@@ -2131,17 +2104,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('keeps physical macOS Control-wheel scrolling and reserves Command-wheel for zoom', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-macos-wheel-modifiers-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const isMac = await session.page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform));
         if (!isMac) {
@@ -2328,17 +2295,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('keeps the PDF viewport scrollable, navigable, and scalable', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-pdf-smoke-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-${Date.now()}.pdf`, 4);
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -2388,17 +2349,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('preserves a user-established PDF viewport anchor through separate split-divider drags', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-pdf-split-resize-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         const fixturePath = await createMultiPageTextFixturePdf(
             `viewer-pdf-split-resize-${Date.now()}.pdf`,
@@ -2453,17 +2408,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('exposes named sidebar tabs and navigates from a real search result', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-sidebar-search-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createMultiPageTextFixturePdf(
             `viewer-sidebar-search-${Date.now()}.pdf`,
@@ -2557,17 +2506,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('keeps a visible search result at its clicked position', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-search-result-position-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createMultiPageTextFixturePdf(
             `viewer-search-result-position-${Date.now()}.pdf`,
@@ -2736,17 +2679,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('never presents an under-resolution thumbnail when the sidebar first opens', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-thumbnail-first-open-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 2,
@@ -2881,17 +2818,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('toggles the visible thumbnail selection control through native keyboard activation', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-thumbnail-keyboard-selection-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             height: 800,
@@ -2934,17 +2865,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('activates a newly mounted distant thumbnail selection control', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-thumbnail-keyboard-virtualized-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             height: 600,
@@ -2992,9 +2917,6 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('fits explicitly navigated mixed-size pages without thumbnail overlap', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 1,
@@ -3115,17 +3037,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-thumbnail-open-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 2,
@@ -3414,17 +3330,11 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('keeps rapidly scrolled large-scan pages and thumbnails visibly occupied', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-thumbnail-fast-scroll-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport({
             deviceScaleFactor: 2,
@@ -3788,9 +3698,6 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('opens a PNG image through the same document entrypoint', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
@@ -3800,9 +3707,6 @@ describe('Electron E2E - Viewer Smoke', () => {
             },
             sessionName: () => `e2e-viewer-smoke-image-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const pngPath = createPngFixture(`viewer-smoke-image-${Date.now()}.png`);
         await triggerOpenPathInApp(session.page, pngPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -3825,17 +3729,14 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('uses one thumbnail rail presentation and late-page activation contract for PDF and DjVu', async () => {
         let session = sessionFixture.getSession();
-        if (!session || !djvuFixture.path) {
-            return;
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
         }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-thumbnail-parity-pdf-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         const pdfPath = await createMultiPageTextFixturePdf(`thumbnail-parity-${Date.now()}.pdf`, 36);
         await openPdfInApp(session.page, pdfPath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -3853,9 +3754,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-thumbnail-parity-djvu-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForFunctionInPage(session.page, () => {
@@ -3911,17 +3809,14 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('uses the shared macOS Control-scroll and Command-zoom policy for DjVu', async () => {
         let session = sessionFixture.getSession();
-        if (!session || !djvuFixture.path) {
-            return;
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
         }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-djvu-macos-wheel-modifiers-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
         const isMac = await session.page.evaluate(() => /Mac|iPhone|iPad|iPod/i.test(navigator.platform));
         if (!isMac) {
             return;
@@ -4013,17 +3908,11 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('searches deterministic late-page native DjVu text through the common sidebar with visible result geometry', async (context) => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-djvu-native-search-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const searchFixture = await createNativeDjvuLatePageSearchFixture();
         if (!searchFixture.path) {
@@ -4275,9 +4164,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('keeps the live DjVu viewport intact while the common sidebar and virtual thumbnail rail settle', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -4286,9 +4172,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-djvu-sidebar-lifecycle-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -4658,9 +4541,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('preserves the DjVu viewport anchor and ready surface through separate split-divider drags', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -4669,9 +4549,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-djvu-split-resize-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -4742,9 +4619,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('keeps DjVu continuous wheel scroll geometry stable on the exact fixture', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -4753,9 +4627,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-djvu-continuous-scroll-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await triggerOpenPathInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -4809,9 +4680,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('settles on a fresh bounded surface after repeatedly pressing DjVu next', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -4820,9 +4688,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-djvu-rapid-next-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -4918,9 +4783,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('keeps paged fit-height DjVu wheel navigation committed through slow and rapid bursts', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -4929,9 +4791,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-djvu-paged-fit-height-scroll-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -5083,9 +4942,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('keeps the DjVu render window ahead of monotonic projected trackpad scrolling', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -5094,9 +4950,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-djvu-projected-scroll-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -5134,9 +4987,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('keeps high-zoom visible pages resident under pressure with PDF-equivalent page framing', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -5145,9 +4995,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             clean: true,
             sessionName: () => `e2e-djvu-high-zoom-residency-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -5347,8 +5194,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
     it('contains and cancels the native DjVu conversion progress modal with Escape', async () => {
         let session = sessionFixture.getSession();
-        if (!session || !djvuFixture.path) {
-            return;
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
         }
 
         const destinationPath = resolve(
@@ -5365,9 +5212,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             sessionName: () => `e2e-djvu-conversion-modal-${Date.now()}`,
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
         });
-        if (!session) {
-            return;
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -5473,7 +5317,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     it('restores a valid focus target after native DjVu conversion completes', async () => {
         let session = sessionFixture.getSession();
         const completionFixture = await copyDjvuFixtureForMutation(djvuFixture, 'completion');
-        if (!session || !completionFixture.path) {
+        if (!completionFixture.path) {
             throw new Error(completionFixture.reason);
         }
         onTestFinished(() => rm(completionFixture.path!, {force: true}));
@@ -5490,9 +5334,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             sessionName: () => `e2e-djvu-conversion-completion-${Date.now()}`,
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
         });
-        if (!session) {
-            throw new Error('Completion session did not start');
-        }
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, completionFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForFunctionInPage(session.page, () => (
@@ -5524,7 +5365,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     it('restores focus and presents the native error surface after DjVu conversion fails', async () => {
         let session = sessionFixture.getSession();
         const failureFixture = await copyDjvuFixtureForMutation(djvuFixture, 'failure');
-        if (!session || !failureFixture.path) {
+        if (!failureFixture.path) {
             throw new Error(failureFixture.reason);
         }
 
@@ -5555,9 +5396,6 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             sessionName: () => `e2e-djvu-conversion-failure-${Date.now()}`,
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
         });
-        if (!session) {
-            throw new Error('Failure session did not start');
-        }
 
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, corruptFixturePath, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);

@@ -162,9 +162,6 @@ const sessionFixture = createElectronE2ESessionFixture({
 async function openAssistantPanel() {
     const session = sessionFixture.getSession();
     expect(session).toBeTruthy();
-    if (!session) {
-        return;
-    }
 
     const alreadyOpen = await session.page.evaluate(() => {
         const panel = document.querySelector('.agent-assistant-panel');
@@ -211,9 +208,6 @@ describe('assistant completion finalization', () => {
     it('re-enables the composer when Codex completes before turn/start responds', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
-        if (!session) {
-            return;
-        }
 
         const pdfPath = await createMultiPageTextFixturePdf('assistant-completion-finalization.pdf', 2);
         await openPdfInApp(session.page, pdfPath, ASSISTANT_COMPLETION_E2E_TIMEOUT_MS);

@@ -616,9 +616,6 @@ describe('Electron E2E - Recent Files', () => {
 
     it('opens Recent from the current empty startup tab with an exact page-shell as its first document surface', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createLargeScannedFixturePdf(`recent-file-${Date.now()}.pdf`);
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
@@ -628,9 +625,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: false,
             keepNuxt: true,
         });
-        if (!session) {
-            return;
-        }
 
         await waitForStartupOverlayRemoved(session);
         await installCommittedSurfaceSampler(session.page);
@@ -931,9 +925,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-cold-fit-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createLargeScannedFixturePdf(
             `recent-cold-fit-${Date.now()}.pdf`,
@@ -950,9 +941,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: false,
             keepNuxt: true,
         });
-        if (!session) {
-            return;
-        }
 
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, fixturePath);
@@ -1006,9 +994,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-keyboard-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createLargeScannedFixturePdf(
             `recent-keyboard-${Date.now()}.pdf`,
@@ -1022,9 +1007,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: false,
             keepNuxt: true,
         });
-        if (!session) {
-            return;
-        }
 
         await waitForStartupOverlayRemoved(session);
         await assertRecentListStaysStableBeforeOpen(session, fixturePath);
@@ -1112,9 +1094,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: true,
             sessionName: () => `e2e-recent-duplicate-basename-${Date.now()}`,
         });
-        if (!session) {
-            return;
-        }
 
         const sharedName = 'duplicate-recent-source.pdf';
         const firstPath = createFixturePath(`duplicate-source-a/${sharedName}`);
@@ -1142,9 +1121,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: false,
             keepNuxt: true,
         });
-        if (!session) {
-            return;
-        }
 
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, firstPath);
@@ -1168,9 +1144,6 @@ describe('Electron E2E - Recent Files', () => {
             clean: false,
             keepNuxt: true,
         });
-        if (!session) {
-            return;
-        }
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, secondPath);
         await clickRecentFile(session, secondPath);
@@ -1189,9 +1162,6 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
 
     it('opens a persisted recent DjVu after restarting Electron', async () => {
         let session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuFixture.path) {
             throw new Error(djvuFixture.reason);
         }
@@ -1202,9 +1172,6 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
             clean: false,
             keepNuxt: true,
         });
-        if (!session) {
-            return;
-        }
 
         await assertRecentListStaysStableBeforeOpen(session, djvuFixture.path);
         await clickRecentFile(session, djvuFixture.path);

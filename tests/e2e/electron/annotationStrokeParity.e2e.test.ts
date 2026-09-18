@@ -321,9 +321,6 @@ describe('Electron and Playwright annotation opacity parity', () => {
 
     it('renders canonical stroke and fill opacity identically in both runtimes', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         mkdirSync(ARTIFACT_DIR, { recursive: true });
         await session.page.setViewport({

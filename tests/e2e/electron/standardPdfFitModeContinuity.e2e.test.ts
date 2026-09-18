@@ -907,9 +907,6 @@ describe('standard PDF.js fit-mode continuity', () => {
 
     it('keeps page, viewport authority, and toolbar converged across repeated fit changes', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         await session.page.setViewport({
             deviceScaleFactor: 1,
             height: 900,
@@ -1109,9 +1106,6 @@ describe('standard PDF.js fit-mode continuity', () => {
 
     it('keeps the committed page visible while a fit change replaces its raster', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         await session.page.setViewport({
             deviceScaleFactor: 1,
             height: 900,
@@ -1180,9 +1174,6 @@ describe('standard PDF.js fit-mode continuity', () => {
 
     it('hands the sidebar to the opening document and keeps an invalid open recoverable', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         await session.page.setViewport({
             deviceScaleFactor: 1,
             height: 900,
@@ -1342,9 +1333,6 @@ describe('standard PDF.js fit-mode continuity', () => {
 
     it('preserves the page across rapid fit changes, a non-default scale, and keyboard paging', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         await session.page.setViewport({
             deviceScaleFactor: 1,
             height: 900,

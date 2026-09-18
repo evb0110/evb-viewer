@@ -964,9 +964,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-version',
         });
-        if (!session) {
-            return;
-        }
 
         const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as {version?: unknown};
         expect(packageJson.version).toMatch(/^0\.1\.\d+$/u);
@@ -996,9 +993,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-inactive-tab-close',
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createMultiPageTextFixturePdf(
             'inactive-tab-close-regression-with-an-intentionally-long-document-name.pdf',
@@ -1082,9 +1076,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-rotation-navigation',
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createMultiPageTextFixturePdf('pr-blocking-smoke.pdf', 3);
         await runPdfDiagnosticStage(session.page, 'rotation:open-pdf', () => (
@@ -1242,9 +1233,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-fit-height-overflow',
         });
-        if (!session) {
-            return;
-        }
         const fixturePath = await createMultiPageTextFixturePdf('fit-height-overflow.pdf', 3);
         await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
@@ -1272,9 +1260,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-fit-height',
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createMultiPageTextFixturePdf('pr-blocking-fit-height.pdf', 3);
         await runPdfDiagnosticStage(session.page, 'fit:open-pdf', () => (
@@ -1396,9 +1381,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             keepNuxt: true,
             sessionName: 'e2e-pr-blocking-viewport-lifecycle',
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createLargeScannedFixturePdf(
             'pr-blocking-viewport-lifecycle.pdf',
@@ -1783,9 +1765,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-recent-close-reopen',
         });
-        if (!session) {
-            return;
-        }
 
         const client = await session.page.createCDPSession();
         const rendererExceptions: string[] = [];
@@ -1865,9 +1844,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             keepNuxt: true,
             sessionName: 'e2e-pr-blocking-large-scanned-pdf',
         });
-        if (!session) {
-            return;
-        }
 
         const fixturePath = await createLargeScannedFixturePdf(
             'pr-blocking-large-scanned-pdf.pdf',
@@ -2400,9 +2376,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             keepNuxt: true,
             sessionName: 'e2e-pr-blocking-large-scanned-pdf-interactions',
         });
-        if (!session) {
-            return;
-        }
         const fixturePath = await createLargeScannedFixturePdf(
             'pr-blocking-large-scanned-pdf-interactions.pdf',
             LARGE_PDF_PAGE_COUNT,
@@ -2659,9 +2632,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             keepNuxt: true,
             sessionName: 'e2e-pr-blocking-current-page-render-watchdog',
         });
-        if (!session) {
-            return;
-        }
         const fixturePath = await createMultiPageTextFixturePdf(
             'current-page-render-watchdog.pdf',
             8,
@@ -2737,9 +2707,6 @@ runDjvuBlockingOrSkip('Electron E2E - PR Blocking DjVu Committed Surface', () =>
 
     it('commits one stable in-frame DjVu page shell before the first page visual', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         if (!djvuBlockingFixture.path) {
             throw new Error(djvuBlockingFixture.reason);
         }

@@ -64,9 +64,6 @@ describe('nightly OCR journey', () => {
     }) => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
-        if (!session) {
-            return;
-        }
 
         const sourcePath = await createScannedTextFixturePdf(
             `ocr-journey-scanned-${language}.pdf`,

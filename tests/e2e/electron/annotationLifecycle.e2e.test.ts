@@ -1108,7 +1108,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('creates every shape, draw preset and markup with matching styles, undo, save and hard reopen', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const saved: Array<{
             path: string;
@@ -1247,7 +1246,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             });
         }
         const restarted = await sessionFixture.restart({hard: true});
-        if (!restarted) throw new Error('All-tools hard reopen did not start');
         for (const sample of saved) {
             console.info(`[annotation matrix reopen] ${sample.subtype}`);
             await sessionFixture.restart();
@@ -1280,7 +1278,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         270,
     ])('keeps pointer shape geometry and identity through view rotation %s and reopen', async (rotation) => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         let {page} = session;
         const fixture = await createMultiPageTextFixturePdf(`rotated-shape-${rotation}-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixture, {force: true}));
@@ -1363,7 +1360,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(saved.id).toBe(initial.id);
         const reopenPath = preserveFixtureAcrossRestart(fixture);
         const restarted = await sessionFixture.restart({hard: true});
-        if (!restarted) throw new Error('Rotated shape hard reopen did not start');
         page = restarted.page;
         await openPdfInApp(page, reopenPath);
         await waitForPdfLoaded(page);
@@ -1385,9 +1381,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('renders the canonical annotation surface once and keeps PDF.js read-only', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const { page } = session;
         const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
             `annotation-lifecycle-${Date.now()}-canonical-surface.pdf`,
@@ -1527,9 +1520,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('supports keyboard editing for every canonical kind and atomic mixed selection history', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const {page} = session;
         const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
             `annotation-lifecycle-${Date.now()}-keyboard-selection.pdf`,
@@ -1832,9 +1822,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('places a stamp through the editor layer and round-trips its edited geometry', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-stamp-round-trip.pdf`,
@@ -2024,9 +2011,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('creates and edits a text box through the active workspace pointer path', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const { page } = session;
 
         const fixturePath = copyProjectFixture('freetext-lifecycle-test.pdf', `annotation-lifecycle-${Date.now()}-freetext.pdf`);
@@ -2139,9 +2123,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('saves focused canonical text-box drafts across two saves and reopen', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-focused-text-box-save.pdf`,
@@ -2244,9 +2225,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('opens writer annotations in the canonical sidebar and excludes link annotations', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const { page } = session;
 
         const freeTextFixturePath = copyProjectFixture(
@@ -2277,7 +2255,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         'toolbar',
     ] as const)('exits note placement after a %s note even when Keep active is enabled', async (entry) => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const fixture = await createMultiPageTextFixturePdf(`one-shot-note-${entry}-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixture, {force: true}));
@@ -2375,9 +2352,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('shows a placed empty sticky note in the sidebar before text is entered', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const { page } = session;
 
         const noteFixturePath = await createMultiPageTextFixturePdf(
@@ -2405,9 +2379,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('round-trips a canonical sticky note after editing, recoloring, and moving it', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-sticky-round-trip.pdf`,
@@ -2528,9 +2499,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('shows foreign note replies as read-only and deletes them with their parent', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Annotation lifecycle session did not start');
-        }
         const {page} = session;
         const fixture = await createForeignNoteReplyFixturePdf(
             `annotation-lifecycle-${Date.now()}-foreign-note-replies.pdf`,
@@ -2597,7 +2565,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('persists a restored note after undo before saving a second note', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(`annotation-note-two-saves-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -2638,7 +2605,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(records.filter(record => record.subtype === '/FreeText')).toHaveLength(0);
         const reopenPath = preserveFixtureAcrossRestart(fixturePath);
         const restarted = await sessionFixture.restart({hard: true});
-        if (!restarted) throw new Error('Hard note reopen did not start');
         await openPdfInApp(restarted.page, reopenPath);
         await waitForPdfLoaded(restarted.page);
         await openAnnotationsTab(restarted.page);
@@ -2661,7 +2627,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('undoes a note created after a pointer highlight without removing that highlight', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(`annotation-mixed-create-undo-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -2684,7 +2649,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('keeps saved highlight create undo and redo coherent across intervening saves', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(`annotation-save-undo-redo-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -2713,7 +2677,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForActiveTabDirtyState(page, false);
         const reopenPath = preserveFixtureAcrossRestart(fixturePath);
         const restarted = await sessionFixture.restart({hard: true});
-        if (!restarted) throw new Error('Hard highlight reopen did not start');
         await openPdfInApp(restarted.page, reopenPath);
         await waitForPdfLoaded(restarted.page);
         await openAnnotationsTab(restarted.page);
@@ -2726,7 +2689,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('keeps the saved highlight identity across undo and redo without another save', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(`annotation-saved-identity-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -2759,7 +2721,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('restores a persisted highlight after saving its sidebar deletion and undoing', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(`annotation-saved-delete-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -2770,7 +2731,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await saveViaVisibleToolbar(page, 30_000);
         const reopenPath = preserveFixtureAcrossRestart(fixturePath);
         const restarted = await sessionFixture.restart({hard: true});
-        if (!restarted) throw new Error('Hard persisted-highlight reopen did not start');
         const reopenedPage = restarted.page;
         await openPdfInApp(reopenedPage, reopenPath);
         await waitForPdfLoaded(reopenedPage);
@@ -2814,7 +2774,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     ] as const) {
         it(`keeps an undone ${kind} creation absent through subsequent animation frames`, async () => {
             const session = sessionFixture.getSession();
-            if (!session) throw new Error('Annotation lifecycle session did not start');
             const {page} = session;
             const reopenPath = await createMultiPageTextFixturePdf(`annotation-no-revival-${kind}-${Date.now()}.pdf`, 1);
             onTestFinished(() => rmSync(reopenPath, {force: true}));
@@ -2841,7 +2800,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('restores one canonical entity and one painted markup when a deletion is undone immediately', async () => {
         const session = sessionFixture.getSession();
-        if (!session) throw new Error('Annotation lifecycle session did not start');
         const {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(`annotation-immediate-delete-undo-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(fixturePath, {force: true}));

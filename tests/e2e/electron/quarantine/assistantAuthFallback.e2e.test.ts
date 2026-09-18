@@ -137,9 +137,6 @@ describe('assistant auth fallback', () => {
     it('leaves checking state when account profile read fails but auth status is available', async () => {
         const session = sessionFixture.getSession();
         expect(session).toBeTruthy();
-        if (!session) {
-            return;
-        }
 
         const settings = await session.page.evaluate(async () => (
             (window as IE2EWindow).electronAPI?.settings.get()

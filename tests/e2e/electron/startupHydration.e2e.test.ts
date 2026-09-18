@@ -232,9 +232,6 @@ describe('Electron E2E - Startup Hydration', () => {
 
     it('does not emit Vue hydration mismatch warnings on initial desktop startup', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         const consoleResult = await waitForHydrationConsoleQuiet(session);
         const hydrationWarnings = findHydrationWarnings(consoleResult.messages);
@@ -245,9 +242,6 @@ describe('Electron E2E - Startup Hydration', () => {
 
     it('keeps the start-page toolbar row stable across startup hydration', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         await waitForAppReady(session);
         await installToolbarStartupSampler(session);
@@ -278,9 +272,6 @@ describe('Electron E2E - Startup Hydration', () => {
 
     it('keeps the empty-shell overlay until app-ready and an empty startup claim', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         await waitForAppReady(session);
         await installStartupReadinessSampler(session);
@@ -319,9 +310,6 @@ describe('Electron E2E - Startup Hydration', () => {
 
     it('copies Agentation feedback and auto-clears it after a successful clipboard write', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         const originalMacClipboard = process.platform === 'darwin'
             ? execFileSync('pbpaste', {encoding: 'utf8'})

@@ -48,9 +48,6 @@ describe('stamp placement through the native picker', () => {
     it('places a stamp through the picker and reopens it in a fresh process', async () => {
         onTestFinished(() => rmSync(STAMP_FIXTURE_PATH, {force: true}));
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
             'stamp-picker-' + Date.now() + '.pdf',
         );
@@ -89,9 +86,6 @@ describe('stamp placement through the native picker', () => {
             hard: true,
             keepNuxt: true,
         });
-        if (!reopenedSession) {
-            throw new Error('Fresh Electron process failed to start');
-        }
         await openPdfInApp(reopenedSession.page, fixturePath);
         await waitForPdfLoaded(reopenedSession.page);
         await waitForViewerInteractive(reopenedSession.page);

@@ -101,9 +101,6 @@ const sessionFixture = createElectronE2ESessionFixture({
 describe('Electron E2E - PDF search match scrolling', () => {
     it('keeps the final result visible and centers its match after a high-zoom xlarge search', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
 
         const fixturePath = searchMatchScrollConfig.fixturePath
             ?? await createSearchMatchScrollFixturePdf(`search-match-scroll-${Date.now()}.pdf`);
@@ -642,9 +639,6 @@ describe('Electron E2E - PDF search match scrolling', () => {
 
     it('keeps repeated match selections visible after navigation settles', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            return;
-        }
         const fixturePath = searchMatchScrollConfig.fixturePath
             ?? await createSearchMatchScrollFixturePdf(`search-repeat-${Date.now()}.pdf`);
         await session.page.setViewport({

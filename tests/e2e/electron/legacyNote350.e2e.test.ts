@@ -784,9 +784,6 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
 
     it('preserves legacy note identity through pointer selection, deletion, edit migration, and reopen', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Legacy note #350 Electron E2E session failed to start');
-        }
 
         await expectLegacyFixtureShape(LEGACY_FIXTURE_PATH, LEGACY_FIXTURE_SIZE, LEGACY_FIXTURE_SHA256);
         const fixturePath = copyFreshPdf(LEGACY_FIXTURE_PATH, 'initial');
@@ -944,9 +941,6 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
 
     it('dismisses the page note menu after a left click outside it', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Legacy note #350 Electron E2E session failed to start');
-        }
 
         const fixturePath = copyFreshPdf(LEGACY_FIXTURE_PATH, 'context-menu-dismissal');
         await openPdfInApp(session.page, fixturePath, 90_000);
@@ -1045,9 +1039,6 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
 
     it('keeps note markers round and centered at normal and 218% zoom', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Legacy note #350 Electron E2E session failed to start');
-        }
 
         const fixturePath = copyFreshPdf(LEGACY_FIXTURE_PATH, 'marker-appearance');
         await openPdfInApp(session.page, fixturePath, 90_000);
@@ -1170,9 +1161,6 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
 
     it('shows the established tooltip and opens an unselected note with one left click', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Legacy note #350 Electron E2E session failed to start');
-        }
 
         const fixturePath = copyFreshPdf(LEGACY_FIXTURE_PATH, 'single-click-open');
         await openPdfInApp(session.page, fixturePath, 90_000);
@@ -1242,9 +1230,6 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
 
     runReportedFixtureTest('accepts the supplied reported-file legacy note through pointer deletion and reload', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Reported legacy note #350 Electron E2E session failed to start');
-        }
 
         await expectLegacyFixtureShape(REPORTED_FIXTURE_PATH, REPORTED_FIXTURE_SIZE, REPORTED_FIXTURE_SHA256);
         const fixturePath = copyFreshPdf(REPORTED_FIXTURE_PATH, 'reported');
@@ -1311,9 +1296,6 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
 
     it('removes the legacy popup and reply with the parent while preserving its neighbor', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Legacy reply #350 Electron E2E session failed to start');
-        }
 
         const fixturePath = await createLegacyReplyFixture(LEGACY_FIXTURE_PATH);
         const graph = await readFirstPageAnnotationGraph(fixturePath);
