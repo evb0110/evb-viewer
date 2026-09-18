@@ -41,7 +41,11 @@ export interface IDocumentViewportWritePort {
     readonly userScrollSuppressed: Readonly<Ref<boolean>>;
 }
 
-export type TDocumentWheelPacketOwner = 'command-residue' | 'user-input';
+/**
+ * `adopted-user-input` is user input the viewer has to scroll by hand, because
+ * its sequence began while user scrolling was suppressed.
+ */
+export type TDocumentWheelPacketOwner = 'command-residue' | 'user-input' | 'adopted-user-input';
 
 const DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE =
     'data-document-viewport-pane-relocation-scroll-fence';
@@ -109,6 +113,13 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
     const wheelGestures = createWheelGestureStream();
     const userScrollSuppressed = ref(false);
     let fencedGestureId: number | null = null;
+    // A scroll sequence that begins while the viewport is not user-scrollable
+    // is bound to nothing and stays dead until it ends. Restoring scrolling
+    // inside its first event is already too late, because the compositor
+    // judges the sequence against a copy that learns of the change a frame
+    // later. That first event is cancelable, though, and preventing it keeps
+    // the whole sequence cancelable, so the viewer scrolls this one by hand.
+    let adoptedGestureId: number | null = null;
     let residueReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 
     function releaseCommandFence() {
@@ -118,6 +129,12 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
         }
         fencedGestureId = null;
         userScrollSuppressed.value = false;
+    }
+
+    function isCommandResidueLive(nowMs = performance.now()) {
+        return fencedGestureId !== null
+            && wheelGestures.getGestureId() === fencedGestureId
+            && wheelGestures.isLive(nowMs);
     }
 
     function holdCommandFenceUntilGestureIdle() {
@@ -206,6 +223,15 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
                 return false;
             }
             if (authored.left !== container.scrollLeft || authored.top !== container.scrollTop) {
+                if (isCommandResidueLive()) {
+                    // A command that lands within a frame of its fence can be
+                    // displaced by a residue delta the compositor applied
+                    // before suppression reached it. Suppression stops any
+                    // further one, so this restores the write at most twice.
+                    container.scrollLeft = authored.left;
+                    container.scrollTop = authored.top;
+                    return true;
+                }
                 authorityWrites.delete(container);
                 return false;
             }
@@ -229,22 +255,25 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             holdCommandFenceUntilGestureIdle();
         },
         observeWheelPacket(packet) {
+            const beganWhileSuppressed = userScrollSuppressed.value;
             const gestureId = wheelGestures.observe(packet);
-            if (fencedGestureId === null) {
-                return 'user-input';
-            }
-            if (gestureId !== fencedGestureId) {
+            if (fencedGestureId !== null) {
+                if (gestureId === fencedGestureId) {
+                    holdCommandFenceUntilGestureIdle();
+                    return 'command-residue';
+                }
                 releaseCommandFence();
-                return 'user-input';
+                if (beganWhileSuppressed && packet.cancelable) {
+                    adoptedGestureId = gestureId;
+                }
             }
-            holdCommandFenceUntilGestureIdle();
-            return 'command-residue';
+            // A non-cancelable packet belongs to a sequence Chromium scrolls
+            // natively, so adopting it would scroll twice.
+            return gestureId === adoptedGestureId && packet.cancelable
+                ? 'adopted-user-input'
+                : 'user-input';
         },
-        isCommandResidueLive(nowMs = performance.now()) {
-            return fencedGestureId !== null
-                && wheelGestures.getGestureId() === fencedGestureId
-                && wheelGestures.isLive(nowMs);
-        },
+        isCommandResidueLive,
         userScrollSuppressed: readonly(userScrollSuppressed),
     };
 }
@@ -258,7 +287,8 @@ export function observeDocumentViewportWheelInteraction(
     port: IDocumentViewportWritePort,
     interaction: {
         readonly intent: TDocumentWheelIntent;
-        readonly event: IWheelGesturePacket;
+        readonly deltaPx: number;
+        readonly event: IWheelGesturePacket & { preventDefault(): void };
     },
     container?: HTMLElement,
 ): TDocumentWheelPacketOwner {
@@ -269,8 +299,16 @@ export function observeDocumentViewportWheelInteraction(
         return 'user-input';
     }
     const owner = port.observeWheelPacket(interaction.event);
-    if (owner === 'user-input') {
-        port.observeUserInteraction(container);
+    if (owner === 'command-residue') {
+        return owner;
+    }
+    port.observeUserInteraction(container);
+    if (owner === 'adopted-user-input' && container) {
+        // Deliberately not an authored write: this is the user scrolling, so
+        // the scroll it causes must read as physical input downstream.
+        interaction.event.preventDefault();
+        container.scrollLeft += interaction.event.deltaX;
+        container.scrollTop += interaction.deltaPx;
     }
     return owner;
 }

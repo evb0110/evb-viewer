@@ -97,10 +97,14 @@ emits inertial wheel packets for a second or more. A toolbar, sidebar or
 keyboard command issued during that tail is the newer intent, even though tail
 packets keep arriving after it.
 
-`createWheelGestureStream.ts` groups packets into gestures. A quiet gap of
-`WHEEL_GESTURE_IDLE_MS` or a reversal starts a new gesture. Delta size is not
-used, because Chromium coalesces packets while the main thread is busy and so
-inflates a tail packet exactly when the viewer is under load.
+`createWheelGestureStream.ts` groups packets into gestures. Chromium sends the
+first wheel event of a scroll sequence as cancelable and the rest as
+non-cancelable, so a cancelable packet after a non-cancelable one is an exact
+gesture boundary. A quiet gap of `WHEEL_GESTURE_IDLE_MS` or a reversal is the
+fallback, needed when a handler prevented the sequence and every later packet
+stays cancelable. Delta size is not used, because Chromium coalesces packets
+while the main thread is busy and so inflates a tail packet exactly when the
+viewer is under load.
 
 The viewport write port owns the rule. `queueNavigationRequest` calls
 `fenceCommandAgainstLiveGesture` for every source except `wheel`. Packets of
@@ -113,6 +117,20 @@ The port instead raises `userScrollSuppressed`, which the chassis applies as
 stable scrollbar gutter keeps the layout width, and the port restores scrolling
 when the gesture goes quiet or a new gesture begins. A new gesture remains
 trusted physical input and supersedes the command as before.
+
+Two consequences of suppression are handled in the port. A command whose target
+is already rendered lands within a frame of its fence, before suppression
+reaches the compositor, so a residue delta can displace the write;
+`consumeAuthorityScroll` restores it while residue is live. And a sequence that
+begins while the viewport is not user-scrollable is bound to nothing and stays
+dead until it ends. Restoring scrolling inside its first event is too late in
+the app, because the compositor judges the sequence against a copy that learns
+of the change a frame later. The port therefore adopts such a sequence:
+`observeDocumentViewportWheelInteraction` prevents its cancelable first event,
+which keeps the rest of it cancelable, and applies its deltas by hand as plain
+user scrolling. A plain test page does not reproduce this, since it resolves the
+scroll on the main thread and sees the new style at once, so this behaviour has
+to be checked in the real app.
 
 `documentViewerRuntime.test.ts` covers the fence and `pdfViewportSessionBehavior.test.ts`
 covers a pending navigation surviving residue. Both halves were also confirmed

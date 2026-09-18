@@ -35,11 +35,21 @@ function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSou
     };
 }
 
-function wheelPacket(timeStamp: number, deltaY = 40, deltaX = 0) {
+function wheelPacket(timeStamp: number, deltaY = 40, deltaX = 0, cancelable = false) {
     return {
         timeStamp,
         deltaX,
         deltaY,
+        cancelable,
+        preventDefault: vi.fn(),
+    };
+}
+
+function scrollInteraction(timeStamp: number, deltaY = 40, deltaX = 0, cancelable = false) {
+    return {
+        intent: 'scroll' as const,
+        deltaPx: deltaY,
+        event: wheelPacket(timeStamp, deltaY, deltaX, cancelable),
     };
 }
 
@@ -158,10 +168,7 @@ describe('document viewer chassis authority', () => {
         const staleAfterWheel = authority.viewportWritePort.beginIntent('resize-restore');
         observeDocumentViewportWheelInteraction(
             authority.viewportWritePort,
-            {
-                intent: 'scroll',
-                event: wheelPacket(0),
-            },
+            scrollInteraction(0),
             container,
         );
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(false);
@@ -180,8 +187,8 @@ describe('document viewer chassis authority', () => {
         observeDocumentViewportWheelInteraction(
             authority.viewportWritePort,
             {
+                ...scrollInteraction(16),
                 intent: 'zoom',
-                event: wheelPacket(16),
             },
             container,
         );
@@ -194,10 +201,7 @@ describe('document viewer chassis authority', () => {
         });
 
         function scrollPacket(port: ReturnType<typeof createDocumentViewerRuntime>['viewportWritePort'], timeStamp: number, deltaY = 40) {
-            return observeDocumentViewportWheelInteraction(port, {
-                intent: 'scroll',
-                event: wheelPacket(timeStamp, deltaY),
-            });
+            return observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY));
         }
 
         it('outlives the inertial tail and lands where it aimed', () => {
@@ -258,10 +262,7 @@ describe('document viewer chassis authority', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const diagonalPacket = (timeStamp: number, deltaY: number, deltaX: number) => (
-                observeDocumentViewportWheelInteraction(port, {
-                    intent: 'scroll',
-                    event: wheelPacket(timeStamp, deltaY, deltaX),
-                })
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, deltaX))
             );
 
             diagonalPacket(0, 12, 10);
@@ -271,6 +272,89 @@ describe('document viewer chassis authority', () => {
             expect(diagonalPacket(32, 8, 7)).toBe('command-residue');
             expect(diagonalPacket(48, 0, 5)).toBe('command-residue');
             expect(diagonalPacket(64, -6, -5)).toBe('user-input');
+        });
+
+        it('scrolls a new sequence by hand when it begins while scrolling is suppressed', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+            const send = (timeStamp: number, cancelable: boolean) => {
+                const interaction = scrollInteraction(timeStamp, 40, 0, cancelable);
+                return {
+                    owner: observeDocumentViewportWheelInteraction(port, interaction, container),
+                    prevented: interaction.event.preventDefault,
+                };
+            };
+
+            // Chromium sends only the first event of a sequence as cancelable.
+            send(0, true);
+            send(16, false);
+            port.fenceCommandAgainstLiveGesture(20);
+            expect(send(32, false).owner).toBe('command-residue');
+            expect(port.userScrollSuppressed.value).toBe(true);
+            container.scrollTop = 700;
+
+            // The user scrolls again at once, with no quiet gap. Chromium has
+            // bound this sequence to a viewport it could not scroll, so
+            // restoring scrolling cannot revive it; the viewer adopts it.
+            const first = send(48, true);
+            expect(first.owner).toBe('adopted-user-input');
+            expect(first.prevented).toHaveBeenCalledOnce();
+            expect(port.userScrollSuppressed.value).toBe(false);
+            expect(container.scrollTop).toBe(740);
+
+            // Preventing the first event keeps the rest of it cancelable.
+            expect(send(64, true).owner).toBe('adopted-user-input');
+            expect(container.scrollTop).toBe(780);
+
+            // A later native sequence is Chromium's to scroll again.
+            const native = send(400, true);
+            expect(native.owner).toBe('user-input');
+            expect(native.prevented).not.toHaveBeenCalled();
+            expect(container.scrollTop).toBe(780);
+        });
+
+        it('restores a landing that a late residue delta displaced', () => {
+            vi.useFakeTimers();
+            vi.spyOn(performance, 'now').mockReturnValue(30);
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+
+            observeDocumentViewportWheelInteraction(port, scrollInteraction(0), container);
+            port.fenceCommandAgainstLiveGesture(10);
+            port.apply(container, {
+                intent: port.beginIntent('navigate:1'),
+                reason: 'navigation',
+                top: 700,
+            });
+
+            // The compositor applied one more delta before suppression reached it.
+            container.scrollTop = 837;
+
+            expect(port.consumeAuthorityScroll(container)).toBe(true);
+            expect(container.scrollTop).toBe(700);
+            vi.restoreAllMocks();
+        });
+
+        it('falls back to the quiet gap when a prevented sequence keeps every packet cancelable', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const packet = (timeStamp: number) => (
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, true))
+            );
+
+            packet(0);
+            packet(16);
+            port.fenceCommandAgainstLiveGesture(20);
+
+            expect(packet(32)).toBe('command-residue');
+            expect(packet(48)).toBe('command-residue');
+
+            // The tail went quiet, so the idle timer has restored scrolling
+            // and the next sequence is Chromium's to scroll.
+            vi.advanceTimersByTime(352);
+            expect(port.userScrollSuppressed.value).toBe(false);
+            expect(packet(400)).toBe('user-input');
         });
 
         it('restores scrolling once the tail goes quiet', () => {
