@@ -1,0 +1,106 @@
+scripts/installRecordingSkill.mjs
+  s_5fc578ce506341::t_79bef9257e32e3 1-33,39-91
+  s_5fc578ce506341::t_35d5a609bb991b 34-38
+tests/unit/scripts/windows-test/contracts.test.ts
+  s_5fc578ce506341::t_c0602431fa48e5 127-130
+  s_5fc578ce506341::t_0717c965a9d033 124-126,131-133
+AGENTS.md
+  s_5fc578ce506341::t_79bef9257e32e3 20-21
+scripts/electron-run/runCli.ts
+  s_5fc578ce506341::t_2a7a557c407f4e 7,27,35,380,637-640,643-649
+  s_5fc578ce506341::t_5d4941928b7f15 42-43,379,623-626,628-636
+  s_5fc578ce506341::t_1b5f9ee368eff0 627,641-642
+scripts/electron-run/sessionController.ts
+  s_5fc578ce506341::t_5d4941928b7f15 2-4,274-281,283,432,473,532-539
+  s_5fc578ce506341::t_ee6b0b0ded9216 540
+scripts/electron-run/electronRunSessionTypes.ts
+  s_5fc578ce506341::t_5d4941928b7f15 2,71,81
+tests/unit/scripts/diagnosticFrameCapture.test.ts
+  s_5fc578ce506341::t_2639d052476263 1,33
+  s_5fc578ce506341::t_12497ac087bfd4 8,16,32,34-36,44,52-60,65,80-92,98-100,105-111,116-117,123-128,133-138,144-150,155-160,166,171-173,178,183-188,198-203,208
+  s_c217d94211cb3e::t_c895bb6598fd05 22-30,37,39-43,45,47-51,61-64,93-97,101-104,112-115,118-122,129-132,139-143,151-154,161-165,167-170,174-177,179-182,189-197,204-207
+  s_5fc578ce506341::t_4a453b1300c820 31,38,46
+scripts/diagnostics/diagnosticFrameCapture.ts
+  s_5fc578ce506341::t_deea9d09b6aa02 1
+  s_5fc578ce506341::t_8230ff35351f17 240-242
+scripts/electron-run/electronRunProtocol.ts
+  s_5fc578ce506341::t_5d4941928b7f15 6
+docs/internal/agents/recorded-automation.md
+  s_5fc578ce506341::t_79bef9257e32e3 1-20,22-31,33-97
+  s_5fc578ce506341::t_ed93df8e1bfcfc 21,32,98-102
+scripts/electron-run/createCommandHandler.ts
+  s_5fc578ce506341::t_2a7a557c407f4e 817,979-981
+  s_5fc578ce506341::t_5d4941928b7f15 978,982-987
+scripts/windows-test/guest/viewer/createPuppeteerViewerFactory.ts
+  s_5fc578ce506341::t_19cf054ed58e1d 10,158,168,177
+  s_5fc578ce506341::t_6949721a897554 169,171-173
+  s_5fc578ce506341::t_c65d16a8e4661a 5-8,35,68,115,123-129,137-144,147
+  s_5fc578ce506341::t_6fafd603dbb983 164
+scripts/windows-test/guest/native-ui/startNativeVideo.ts
+  s_5fc578ce506341::t_19cf054ed58e1d 1,7,12-16,18-22,44,57-62,73-85,100
+  s_5fc578ce506341::t_c0602431fa48e5 28-33
+  s_c217d94211cb3e::t_c895bb6598fd05 2-6,8-11,37-43,45-56,63-72,86-94,96-99
+  s_5fc578ce506341::t_21a637d5464fcc 17,23-27,34-36,95
+scripts/electron-run/recordingVideo.ts
+  s_5fc578ce506341::t_deea9d09b6aa02 1
+  s_5fc578ce506341::t_e12c142b66aa47 211
+  s_5fc578ce506341::t_67af897b63178e 74-75,143,212,215-220
+  s_5fc578ce506341::t_a153ba2dccdcd2 2-73,76-102,104-142,144-163,165-191,196-210,236-238,247-250,272-280
+  s_5fc578ce506341::t_8230ff35351f17 195,251-252,255-259
+  s_5fc578ce506341::t_2a7a557c407f4e 164,213-214,221-222
+  s_5fc578ce506341::t_ff33e7a86a4b45 103,192-194,223-235,239-246,253-254,260-271
+scripts/electron-run/sessionRecording.ts
+  s_5fc578ce506341::t_7b7b43c027dd04 66,258
+  s_5fc578ce506341::t_e12c142b66aa47 97,230,235,271,279,334-335
+  s_5fc578ce506341::t_c12689adc07421 1-15,22-29,33-65,67-96,98-125,128-146,149-151,153-165,172-174,176-189,191-196,198-199,204-211,215,218-229,231-234,236-257,259-265,270,280-296,314-332,337-342
+  s_5fc578ce506341::t_2a7a557c407f4e 16-20,126-127,147-148,166-171,197,266-269,297-313,343-347,349-363
+  s_5fc578ce506341::t_35b2c6b41cfdf4 21,30-32,152,175,190,200-203,212-214,216-217,272-278,333,336,348
+scripts/diagnostics/startRendererFrameStream.ts
+  s_5fc578ce506341::t_6995977667d666 1-54
+scripts/electron-run/recordingReviewHtml.ts
+  s_5fc578ce506341::t_2b365688ebd858 1-18
+scripts/electron-run/stopSession.ts
+  s_5fc578ce506341::t_d62611728a194d 123
+scripts/windows-test/contracts/windowsTestContracts.ts
+  s_5fc578ce506341::t_a762835f1d8661 120,313
+scripts/windows-test/guest/guestEvidence.ts
+  s_5fc578ce506341::t_5883322fc29747 26-38
+scripts/windows-test/guest/guestRuntime.ts
+  s_5fc578ce506341::t_0952a602d52cde 3,27-30,114-126
+scripts/windows-test/guest/guestWorker.ts
+  s_5fc578ce506341::t_95bb317d434171 98-101,586
+scripts/windows-test/guest/guestWorkerMain.ts
+  s_5fc578ce506341::t_a0c53aca4fda3a 148,157
+scripts/windows-test/guest/native-ui/nativeUiAdapter.ts
+  s_5fc578ce506341::t_e2c248c14d4419 50,57,61,64-67
+scripts/windows-test/host/hostRunner.ts
+  s_5fc578ce506341::t_c58e76b3db921d 584
+scripts/windows-test/host/runCoordinator.ts
+  s_5fc578ce506341::t_259f046a37bff5 125,877
+tests/unit/scripts/windows-test/guestEvidence.test.ts
+  s_5fc578ce506341::t_6a0d6e5da58ff2 30-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "097f139a8587874c6bc22dfebfe5ddef5d6317da",
+  "prompts": {},
+  "sessions": {
+    "s_5fc578ce506341": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2e5-6605-7a23-8a43-d0f2b2f6a95e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c217d94211cb3e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2cc-3f8d-7400-b42d-7f7e4e46807f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
