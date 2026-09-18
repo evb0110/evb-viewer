@@ -1,0 +1,27 @@
+scripts/windows-test/guest/install-system-bootstrap.cmd
+  s_5fc578ce506341::t_1c41d873ed12a2 15
+scripts/windows-test/guest/system-bootstrap-worker.cmd
+  s_5fc578ce506341::t_0551ddb80e9659 45,70-71
+scripts/windows-test/host/goldenImageProvisioning.ts
+  s_5fc578ce506341::t_2b183e49e06d70 177-183,255-259
+tests/unit/scripts/windows-test/goldenImageProvisioning.test.ts
+  s_5fc578ce506341::t_f00f7aa318b86b 111,154,361,406-409,413,415-419
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_5fc578ce506341::t_f9837248a0c07c 248-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "94ddcb4b7a5004177a0dc30c060d7880232d6809",
+  "prompts": {},
+  "sessions": {
+    "s_5fc578ce506341": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2e5-6605-7a23-8a43-d0f2b2f6a95e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
