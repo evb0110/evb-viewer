@@ -651,6 +651,19 @@ describe('windows test run coordinator', () => {
         expect(report.summary?.failures.map(failure => failure.reason).join('\n')).toContain('pnpm windows:test:heal');
     });
 
+    it('rejects a retained heartbeat after the worker replaces its boot identity', async () => {
+        const harness = await createHarness({script: {
+            bootId: 'boot-new-worker',
+            heartbeat: heartbeat(),
+        }});
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.summary?.executedTests).toEqual([]);
+        expect(report.summary?.failures.map(failure => failure.reason).join('\n')).toContain('fresh interactive');
+    });
+
     it('records a forward-only transition ledger and an immutable summary on disk', async () => {
         const harness = await createHarness();
 

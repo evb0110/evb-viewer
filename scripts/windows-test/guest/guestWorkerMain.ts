@@ -177,10 +177,9 @@ export async function guestWorkerMain(argv: readonly string[], env: NodeJS.Proce
     const workerLock = await acquireGuestWorkerPipeLock(root);
     const fs = createNodeGuestFileSystem();
     try {
-        // A cloned image may contain the golden image's last boot-id file. Replace
-        // the boot identity and heartbeat at worker startup so the host can never
-        // accept a copied heartbeat from before this VM boot.
-        await fs.remove(layout.heartbeatFile);
+        // A new boot identity invalidates any copied heartbeat until this worker
+        // overwrites it. Do not unlink the heartbeat: QEMU's host-side reader can
+        // hold it without delete sharing while polling for this startup.
         await fs.writeTextDurable(layout.bootIdFile, `boot-${randomUUID()}\n`);
         const summary = await runGuestWorker({
             fs,

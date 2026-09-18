@@ -235,6 +235,12 @@ if findCaptureControl(window) == nil {
             size.width = min(availableWidth, max(size.width, 1_024))
             if let expandedSize = AXValueCreate(.cgSize, &size) {
                 _ = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, expandedSize)
+                // AXSetAttributeValue returns before AppKit rebuilds the toolbar.
+                // Wait for that specific layout transition, then validate its value.
+                let layoutDeadline = Date().addingTimeInterval(2)
+                while findCaptureControl(window) == nil && Date() < layoutDeadline {
+                    usleep(50_000)
+                }
             }
         }
     }
