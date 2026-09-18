@@ -81,9 +81,11 @@ reject a plausible wrong implementation of the contract it protects; replace or
 delete it if it cannot.
 
 Add a test file, CI job, workflow, npm check script, lint rule, vitest project,
-or git hook only when the person asking for the change asked for that check. A
-real-app regression test for a user-facing fix is pre-authorized: commit it with
-`Adds-Checks: real-app regression for a user-facing fix`.
+or git hook only when the person asking for the change asked for that check. One
+focused real-app regression test in an existing lane for a user-facing fix is
+pre-authorized: commit it with
+`Adds-Checks: real-app regression for a user-facing fix`. New runners, jobs,
+lanes, frameworks or monitors still need the request.
 Extend an existing test only when user-observable behavior changed and no
 check covers it. The commit-msg hook, the pre-push hook, and CI reject a
 commit that adds a check unless its message carries an

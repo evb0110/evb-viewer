@@ -205,6 +205,22 @@ on varied documents.
 - Testing cannot compensate for unlimited concurrent behavioral change.
 - More machinery will not fix a workflow that permits unsupported closure.
 
+## Review of the contract and procedure
+
+The second model also reviewed the first drafts of the behavior contract and the
+fix-evidence procedure. It rejected "the indicator shows the page at the viewport
+center" (gaps, unequal pages, spreads and ties make it wrong), page-box
+containment for annotations (strokes and decorations legitimately extend
+outside), "a note window never sits over another page" (clamping can require
+it), absolute page-geometry stability (geometry is discovered progressively) and
+universal time bounds that nobody has measured. It added tab isolation,
+unsaved-work protection and complete, usable output. It called the
+pre-authorized trailer a loophole, so the authorization now covers one focused
+regression in an existing lane and nothing larger. Its suggested build order for
+checkers: fail-closed execution, real window and pane resize, click during
+scroll with the rendered counter, annotation alignment through zoom and
+rotation, tab isolation and close during work, saved data last.
+
 ## Uncertainty
 
 The reproduction-first evidence is small and mixed. The audit-to-regression link
