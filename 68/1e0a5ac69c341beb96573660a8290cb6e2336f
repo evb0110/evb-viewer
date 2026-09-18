@@ -1,0 +1,21 @@
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerResizeLifecycle.test.ts
+  s_c217d94211cb3e::t_666d3c6eac7c16 814-821,826-827
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_c217d94211cb3e::t_666d3c6eac7c16 730-733
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "681e0a5ac69c341beb96573660a8290cb6e2336f",
+  "prompts": {},
+  "sessions": {
+    "s_c217d94211cb3e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2cc-3f8d-7400-b42d-7f7e4e46807f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
