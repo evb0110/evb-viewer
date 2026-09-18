@@ -246,6 +246,15 @@ describe('guest PowerShell script files', () => {
         expect(bootstrap).toContain('complete=v2');
         expect(bootstrap).toContain('powershell-copy');
         expect(bootstrap).toContain('pdf-worker-copy');
+        const warmRefresh = bootstrap.slice(bootstrap.indexOf(':refresh\n'), bootstrap.indexOf(':configure\n'));
+        expect(warmRefresh).toContain('EVB_STAGE%guestWorker.cjs');
+        expect(warmRefresh).not.toContain('register-worker-logon-task.ps1');
+        expect(warmRefresh).not.toContain('powershell.exe');
+        expect(warmRefresh).not.toContain('EVB_STAGE%pdf.worker.mjs');
+        expect(warmRefresh).toContain('if not exist "%EVB_STATE%\\test-marker.json"');
+        expect(bootstrap).toContain('fc.exe /b');
+        expect(bootstrap.indexOf('worker-launcher-copy')).toBeLessThan(bootstrap.indexOf('user-startup-launcher-copy'));
+
         expect(installer).toContain('call :copy-required pdf.worker.mjs');
         expect(bootstrap).toContain('query user');
         expect(bootstrap).toContain('user-startup-launcher-copy');

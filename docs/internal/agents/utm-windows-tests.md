@@ -28,8 +28,10 @@ bootstrap, launcher, worker and PowerShell helpers match the prepared sources, o
 and runs the checked-in SYSTEM bootstrap, prepared worker, Node archive,
 PowerShell helpers, startup policy and generated account secret before a
 reboot. It waits for a new boot ID and heartbeat, records image qualification,
-and always leaves the golden stopped. It does not use native input or ask for
-a credential. The generated secret stays under the external lab data root and
+and always leaves the golden stopped. Normal boots refresh changed seed files
+without repeating task registration or machine policy setup. The logon worker
+still checks audio, printer and desktop policy on every boot. Healing does not
+use native input or ask for a credential. The generated secret stays under the external lab data root and
 is absent from output and evidence.
 
 Guest operations need Screen Recording, Accessibility and UTM Automation

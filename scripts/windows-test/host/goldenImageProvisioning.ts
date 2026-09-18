@@ -165,6 +165,7 @@ async function hasCurrentProvisioning(
             [
                 `${SYSTEM_BOOTSTRAP_DIRECTORY}\\start-worker.cmd`,
                 `${windowsTestGuestLayout.root}\\worker\\start-worker.cmd`,
+                'C:\\Users\\EVBTester\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\start-worker.cmd',
             ],
         ],
         [

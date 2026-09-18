@@ -14,7 +14,23 @@ if not exist "%EVB_STAGE%test-account.secret" (
 )
 findstr /c:"complete=v2" "%EVB_STATE%\system-bootstrap-complete.marker" >nul 2>&1
 if errorlevel 1 goto configure
-goto stage
+if not exist "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" goto stage
+if not exist "%EVB_ROOT%\worker\pdf.worker.mjs" goto stage
+schtasks.exe /query /tn "EVB Windows Test Worker" >nul 2>&1
+if errorlevel 1 goto stage
+goto refresh
+
+:refresh
+rem Preserve the host updater's verified PDF.js runtime; only full provisioning seeds it.
+call :refresh-file "%EVB_STAGE%guestWorker.cjs" "%EVB_ROOT%\worker\guestWorker.cjs"
+call :refresh-file "%EVB_STAGE%guestWorker.cjs.map" "%EVB_ROOT%\worker\guestWorker.cjs.map"
+call :refresh-file "%EVB_STAGE%start-worker.cmd" "%EVB_ROOT%\worker\start-worker.cmd"
+for %%F in ("%EVB_STAGE%powershell\*.ps1") do call :refresh-file "%%~fF" "%EVB_ROOT%\worker\powershell\%%~nxF"
+call :refresh-file "%EVB_ROOT%\worker\start-worker.cmd" "C:\Users\EVBTester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start-worker.cmd"
+if not exist "%EVB_STATE%\test-marker.json" >"%EVB_STATE%\test-marker.json" echo {"imageId":"evb-win518-recovery","guestTestMarker":"system-startup"}
+query user >"%EVB_STATE%\system-session.log" 2>&1
+if "%EVB_FAILURE%"=="1" exit /b 1
+exit /b 0
 
 :configure
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$secret=(Get-Content -LiteralPath '%EVB_STAGE%test-account.secret' -Raw).Trim(); $secure=[System.Net.NetworkCredential]::new('', $secret).SecurePassword; $user=Get-LocalUser -Name EVBTester -ErrorAction SilentlyContinue; if ($null -eq $user) { New-LocalUser -Name EVBTester -Password $secure -AccountNeverExpires -PasswordNeverExpires | Out-Null } else { Set-LocalUser -Name EVBTester -Password $secure }; Add-LocalGroupMember -Group Users -Member EVBTester -ErrorAction SilentlyContinue; Remove-LocalGroupMember -Group Administrators -Member EVBTester -ErrorAction SilentlyContinue; New-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name AutoAdminLogon -Value 1 -Type String; Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name DefaultUserName -Value EVBTester -Type String; Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name DefaultPassword -Value $secret -Type String; Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name DefaultDomainName -Value . -Type String" >nul 2>&1
@@ -72,6 +88,8 @@ call :record pdf-worker-copy %ERRORLEVEL%
 xcopy /E /I /Y "%EVB_STAGE%powershell" "%EVB_ROOT%\worker\powershell" >nul 2>&1
 call :record powershell-copy %ERRORLEVEL%
 if not exist "%EVB_ROOT%\worker\powershell\start-worker-logon.ps1" call :record logon-entrypoint-missing 2
+copy /Y "%EVB_STAGE%start-worker.cmd" "%EVB_ROOT%\worker\start-worker.cmd" >nul 2>&1
+call :record worker-launcher-copy %ERRORLEVEL%
 if not exist "C:\Users\EVBTester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup" mkdir "C:\Users\EVBTester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup" >nul 2>&1
 copy /Y "%EVB_ROOT%\worker\start-worker.cmd" "C:\Users\EVBTester\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\start-worker.cmd" >nul 2>&1
 call :record user-startup-launcher-copy %ERRORLEVEL%
@@ -87,8 +105,6 @@ if exist "%EVB_STATE%\test-marker.json" (
 ) else (
   call :record test-marker-write 1
 )
-copy /Y "%EVB_STAGE%start-worker.cmd" "%EVB_ROOT%\worker\start-worker.cmd" >nul 2>&1
-call :record worker-launcher-copy %ERRORLEVEL%
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%EVB_ROOT%\worker\powershell\register-worker-logon-task.ps1" -UserName EVBTester -NodeExecutable "%EVB_ROOT%\node\node-v22.23.2-win-arm64\node.exe" -WorkerScript "%EVB_ROOT%\worker\guestWorker.cjs" -GuestRoot "%EVB_ROOT%" -WorkingDirectory "%EVB_ROOT%\worker" >"%EVB_STATE%\register-worker-logon.stdout.log" 2>"%EVB_STATE%\register-worker-logon.stderr.log"
 call :record register-worker-logon %ERRORLEVEL%
 if exist "%EVB_STATE%\register-worker-logon.stderr.log" type "%EVB_STATE%\register-worker-logon.stderr.log" >>"%EVB_MARKER%"
@@ -118,6 +134,13 @@ if exist "%EVB_STATE%\register-worker-logon.stderr.log" type "%EVB_STATE%\regist
 call :record boot-diagnostic 0
 if "%EVB_FAILURE%"=="1" exit /b 1
 >"%EVB_STATE%\system-bootstrap-complete.marker" echo complete=v2
+exit /b 0
+
+:refresh-file
+fc.exe /b "%~1" "%~2" >nul 2>&1
+if not errorlevel 1 exit /b 0
+copy /Y "%~1" "%~2" >nul 2>&1
+call :record refresh-%~nx2 %ERRORLEVEL%
 exit /b 0
 
 :record
