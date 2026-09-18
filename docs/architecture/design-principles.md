@@ -21,8 +21,10 @@ and serialized formats.
   Split files by responsibility, not merely to satisfy a size limit.
 - Prefer generation when two representations can drift. Temporary compatibility
   layers must state a concrete removal condition.
-- Test observable behavior and invariants at the narrowest useful layer, with at
-  most one real-app proof for the same scenario. Reuse the shared test harnesses.
+- Test observable behavior and invariants at the narrowest layer that can see the
+  defect. Geometry, lifecycle and interaction defects are visible only in the
+  real app with real input; one adequate real-app proof per scenario is enough.
+  Reuse the shared test harnesses.
 - Give structural changes an independent fresh-context review, and review public
   surfaces as product interactions rather than as component snapshots.
 - Treat revert as a first-class outcome. Remove a failed approach instead of

@@ -23,8 +23,10 @@ architecture rules is recorded in
   in place instead of creating feature-local copies.
 - Split responsibilities, not files. New layers must replace old ones, and temporary
   compatibility code must state its removal condition.
-- Test observable invariants with shared harnesses; use at most one real-app proof
-  per scenario. Revert failed approaches instead of patching around them.
+- Test observable invariants with shared harnesses, at the layer that can see the
+  defect: geometry, lifecycle and interaction defects need the real app with real
+  input, and one adequate real-app proof per scenario is enough. Revert failed
+  approaches instead of patching around them.
 
 ## OCR
 

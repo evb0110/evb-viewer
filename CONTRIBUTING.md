@@ -64,9 +64,26 @@ you touch them. Remove a check when its value is unclear. Source spelling, file
 length, coverage percentages, mock counts, and review rounds are not acceptance
 outcomes. Keep actual behavior, data-integrity, and security checks.
 
+For a change a user could see or feel, proof means the behavior observed in the
+running app: reproduce the report in a hidden session with real input, show the
+same script failing before the change and passing after it, and keep it as a
+real-app regression test when the behavior can regress. A passing command is not
+proof that a visible bug is gone. When reproduction fails, report "mitigation
+applied, not confirmed" with what was attempted. The full procedure, including
+the verifier role for delegated work, is in
+[fix evidence](docs/internal/agents/fix-evidence.md); expected behavior comes
+from the [behavior contract](docs/architecture/behavior-contract.md). For other
+changes, proof means running the affected checks that exist.
+
+Do not add tests that assert private call sequences, call counts, or arguments
+passed to a mocked collaborator. When you touch a test, check that it would
+reject a plausible wrong implementation of the contract it protects; replace or
+delete it if it cannot.
+
 Add a test file, CI job, workflow, npm check script, lint rule, vitest project,
-or git hook only when the person asking for the change asked for that check.
-Proof, acceptance, and evidence mean running the affected checks that exist.
+or git hook only when the person asking for the change asked for that check. A
+real-app regression test for a user-facing fix is pre-authorized: commit it with
+`Adds-Checks: real-app regression for a user-facing fix`.
 Extend an existing test only when user-observable behavior changed and no
 check covers it. The commit-msg hook, the pre-push hook, and CI reject a
 commit that adds a check unless its message carries an
