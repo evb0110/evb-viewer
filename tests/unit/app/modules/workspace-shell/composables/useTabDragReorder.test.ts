@@ -34,6 +34,20 @@ function pointerEvent(init: Partial<PointerEvent> & { currentTarget?: EventTarge
     return init as PointerEvent;
 }
 
+// happy-dom's style declaration rejects property redefinition, so a setter spy
+// cannot be installed on it. Observe writes through a forwarding proxy instead.
+function spyOnTransformWrites(element: HTMLElement) {
+    const writes = vi.fn();
+    const style = new Proxy(element.style, {set(target, property, value) {
+        if (property === 'transform') {
+            writes(value);
+        }
+        return Reflect.set(target, property, value);
+    }});
+    Object.defineProperty(element, 'style', {value: style});
+    return writes;
+}
+
 describe('useTabDragReorder', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -160,8 +174,8 @@ describe('useTabDragReorder', () => {
         targetSecondTab.getBoundingClientRect = vi.fn(() => rect(400, 10, 80, 32));
         targetList.append(targetFirstTab, targetSecondTab);
 
-        const firstTargetTransform = vi.spyOn(targetFirstTab.style, 'transform', 'set');
-        const secondTargetTransform = vi.spyOn(targetSecondTab.style, 'transform', 'set');
+        const firstTargetTransform = spyOnTransformWrites(targetFirstTab);
+        const secondTargetTransform = spyOnTransformWrites(targetSecondTab);
 
         container.append(firstTab, secondTab);
         document.body.append(container, targetList);

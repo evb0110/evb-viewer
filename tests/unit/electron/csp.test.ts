@@ -42,6 +42,13 @@ const {
     setupContentSecurityPolicy,
 } = await import('@electron/security/csp');
 
+// setupContentSecurityPolicy registers its handlers once per process, and
+// Vitest clears mock calls between tests, so capture them here.
+setupContentSecurityPolicy();
+const checkHandler = mocks.setPermissionCheckHandler.mock.calls[0]?.[0];
+const requestHandler = mocks.setPermissionRequestHandler.mock.calls[0]?.[0];
+const headersListener = mocks.onHeadersReceived.mock.calls[0]?.[0];
+
 function parseCsp(csp: string) {
     return Object.fromEntries(csp.split('; ').map((directive) => {
         const [
@@ -183,10 +190,6 @@ describe('buildContentSecurityPolicy', () => {
     });
 
     it('allows clipboard writes from the trusted main renderer and denies other permissions', () => {
-        setupContentSecurityPolicy();
-
-        const checkHandler = mocks.setPermissionCheckHandler.mock.calls[0]?.[0];
-        const requestHandler = mocks.setPermissionRequestHandler.mock.calls[0]?.[0];
         expect(checkHandler).toBeTypeOf('function');
         expect(requestHandler).toBeTypeOf('function');
 
@@ -235,11 +238,8 @@ describe('buildContentSecurityPolicy', () => {
     });
 
     it('authorizes the Nuxt UI SPA color cleanup without allowing arbitrary inline scripts', () => {
-        setupContentSecurityPolicy();
-
-        const listener = mocks.onHeadersReceived.mock.calls[0]?.[0];
         const callback = vi.fn();
-        listener?.({url: 'evb-viewer://app/electron'}, callback);
+        headersListener?.({url: 'evb-viewer://app/electron'}, callback);
         const policy = callback.mock.calls[0]?.[0]?.responseHeaders?.['Content-Security-Policy']?.[0] as string;
         const directives = parseCsp(policy);
         const cleanupHash = createInlineScriptCspHash(
@@ -251,24 +251,21 @@ describe('buildContentSecurityPolicy', () => {
     });
 
     it('leaves PDF and extension responses under their own security policies', () => {
-        setupContentSecurityPolicy();
-
-        const listener = mocks.onHeadersReceived.mock.calls[0]?.[0];
         const pdfHeaders = {'Content-Type': ['application/pdf']};
         const pdfCallback = vi.fn();
-        listener?.({
+        headersListener?.({
             url: 'file:///tmp/document.pdf',
             responseHeaders: pdfHeaders,
         }, pdfCallback);
         expect(pdfCallback).toHaveBeenCalledWith({responseHeaders: pdfHeaders});
 
         const noHeadersCallback = vi.fn();
-        listener?.({url: 'file:///tmp/document-without-headers.pdf'}, noHeadersCallback);
+        headersListener?.({url: 'file:///tmp/document-without-headers.pdf'}, noHeadersCallback);
         expect(noHeadersCallback).toHaveBeenCalledWith({});
 
         const extensionHeaders = {'Content-Security-Policy': ['script-src \'self\'; object-src *']};
         const extensionCallback = vi.fn();
-        listener?.({
+        headersListener?.({
             url: 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html',
             responseHeaders: extensionHeaders,
         }, extensionCallback);

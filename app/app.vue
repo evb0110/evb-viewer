@@ -477,10 +477,7 @@ useHead(() => ({
         dir: 'ltr',
         'data-platform': uiHostSnapshot.value.platform,
         style: `--app-ui-scale: ${uiEffectiveScale.value}; --app-toast-stack-max: ${APP_TOAST_STACK_MAX};`,
-        class: [
-            localeHead.value.htmlAttrs.class,
-            settings.value.theme,
-        ].filter(Boolean).join(' '),
+        class: settings.value.theme,
     },
     meta: localeHead.value.meta,
     link: localeHead.value.link,

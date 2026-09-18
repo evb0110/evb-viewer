@@ -244,7 +244,7 @@ async function createLintConfigRoot() {
 }
 
 describe('validation gate policy', () => {
-    it.sequential('skips root config files ignored by ESLint while still checking lintable changed files', async () => {
+    it('skips root config files ignored by ESLint while still checking lintable changed files', async () => {
         // Keep the deliberately invalid fixture outside the directories scanned
         // by the full gate. The explicit --file still exercises changed-file
         // linting without racing the full lint stage.

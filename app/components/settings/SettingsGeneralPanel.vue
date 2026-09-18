@@ -92,6 +92,17 @@ interface ILocaleItem {
     icon: string;
 }
 
+interface IThemeOption {
+    value: TAppTheme;
+    label: string;
+    icon: string;
+}
+
+interface IUiScaleOption {
+    value: TUiScalePreference;
+    label: string;
+}
+
 defineProps<{
     settings: ISettingsData;
     localeItems: ILocaleItem[];
@@ -123,7 +134,7 @@ const localeSelectContent = [
     'w-auto min-w-(--reka-combobox-trigger-width)',
 ].join(' ');
 const localeSelectUi = { content: localeSelectContent };
-const themeOptions = computed(() => [
+const themeOptions = computed<IThemeOption[]>(() => [
     {
         value: 'light',
         label: t('settings.themeLight'),
@@ -135,7 +146,7 @@ const themeOptions = computed(() => [
         icon: 'i-ph-moon',
     },
 ]);
-const uiScaleOptions = computed(() => [
+const uiScaleOptions = computed<IUiScaleOption[]>(() => [
     {
         value: 'auto',
         label: t('settings.uiScaleAuto'),

@@ -44,11 +44,11 @@ describe('Sentry SDK and CLI architecture policy', () => {
         };
 
         expect(packageJson.dependencies).toMatchObject({
-            '@sentry/browser': '10.71.0',
-            '@sentry/core': '10.71.0',
-            '@sentry/node': '10.71.0',
+            '@sentry/browser': '10.74.0',
+            '@sentry/core': '10.74.0',
+            '@sentry/node': '10.74.0',
         });
-        expect(packageJson.devDependencies).toMatchObject({'@sentry/cli': '3.6.2'});
+        expect(packageJson.devDependencies).toMatchObject({'@sentry/cli': '3.7.0'});
         expect(packageJson.dependencies).not.toHaveProperty('@sentry/electron');
         expect(packageJson.devDependencies).not.toHaveProperty('@sentry/electron');
         expect(await readFile(resolve(projectRoot, 'pnpm-workspace.yaml'), 'utf8'))

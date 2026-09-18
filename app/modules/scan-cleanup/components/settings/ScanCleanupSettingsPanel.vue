@@ -456,7 +456,7 @@
                     :model-value="settings.thickness"
                     :aria-label="t('scanCleanup.thickness.control')"
                     :disabled="!thicknessApplies"
-                    @update:model-value="$emit('thickness-input', $event)"
+                    @update:model-value="$emit('thickness-input', $event ?? settings.thickness)"
                 />
                 <div class="scan-cleanup-scale" aria-hidden="true">
                     <span>{{ t('scanCleanup.thickness.thinner') }}</span>

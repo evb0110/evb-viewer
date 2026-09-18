@@ -98,7 +98,7 @@ function findAsarArchives(rootDir) {
     return archives;
 }
 
-/** @param {string} asarPath @param {typeof import('@electron/asar').default} asar @returns {Promise<string[]>} */
+/** @param {string} asarPath @param {typeof import('@electron/asar')} asar @returns {Promise<string[]>} */
 async function collectWasmIdentityViolations(asarPath, asar) {
     const problems = [];
     for (const artifact of WASM_ARTIFACTS) {
@@ -252,7 +252,7 @@ export function collectUnpackedViolations(asarPath) {
 
 /** @returns {Promise<void>} */
 export async function main() {
-    const { default: asar } = await import('@electron/asar');
+    const asar = await import('@electron/asar');
 
     statSync(RELEASE_DIR);
     const archives = findAsarArchives(RELEASE_DIR);
