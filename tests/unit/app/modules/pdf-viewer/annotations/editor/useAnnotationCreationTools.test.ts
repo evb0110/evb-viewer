@@ -9,6 +9,8 @@ import type {
     INoteEntity,
     ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { toLegacyShapeAnnotation } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { isNativeShapeEligible } from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { useAnnotationCreationTools } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
 import {computed} from 'vue';
@@ -98,6 +100,38 @@ describe('useAnnotationCreationTools', () => {
             width: 0.4,
             height: 0.4,
         });
+    });
+
+    it.each([
+        'rectangle',
+        'circle',
+        'line',
+        'arrow',
+        'draw',
+    ] as const)('keeps a %s dragged past the page edge saveable', tool => {
+        const tools = useAnnotationCreationTools({surface: {settings: computed(() => null)} as IAnnotationEditorSurface});
+        const origin = {
+            x: 0.1,
+            y: 0.72,
+        };
+        let draft = tools.beginShape(0, tool, origin)!;
+        // A captured pointer keeps reporting positions after it leaves the page.
+        for (const point of [
+            {
+                x: 0.5,
+                y: 0.9,
+            },
+            {
+                x: 1.2,
+                y: 1.022,
+            },
+        ]) draft = tools.updateShape(draft, point, origin);
+        const created = tools.finishShape(draft);
+
+        expect(created).not.toBeNull();
+        expect(created!.rect.left + created!.rect.width).toBeLessThanOrEqual(1);
+        expect(created!.rect.top + created!.rect.height).toBeLessThanOrEqual(1);
+        expect(isNativeShapeEligible(toLegacyShapeAnnotation(created!), 1)).toBe(true);
     });
 
     it('creates and selects only the text tool entity', () => {

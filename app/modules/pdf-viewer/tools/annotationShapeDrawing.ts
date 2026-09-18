@@ -315,10 +315,14 @@ function createArrowDrawingGeometry(tool: TDrawableShapeType) {
 export function createDrawingShape(
     pageIndex: TPageIndex,
     tool: TDrawableShapeType,
-    x: number,
-    y: number,
+    rawX: number,
+    rawY: number,
     settings: IAnnotationSettings,
 ): IShapeAnnotation {
+    // A captured pointer reports positions outside the page. Geometry past the
+    // unit square cannot be written to the PDF and blocks the whole save.
+    const x = clampUnit(rawX);
+    const y = clampUnit(rawY);
     const style = resolveDrawingStyle(tool, settings);
     const createdAt = createEpochMs();
     return {
@@ -348,8 +352,8 @@ export function buildShapeAnnotation(
         createDrawingShape(
             options.pageIndex,
             options.tool,
-            clampUnit(options.x),
-            clampUnit(options.y),
+            options.x,
+            options.y,
             settings,
         ),
         options.tool,
@@ -388,10 +392,13 @@ export function isDrawableFinishedShape(shape: IShapeAnnotation) {
 
 export function updateDrawingShapeForPoint(
     shape: IShapeAnnotation,
-    drawOrigin: IShapeDrawingOrigin,
-    x: number,
-    y: number,
+    rawOrigin: IShapeDrawingOrigin,
+    rawX: number,
+    rawY: number,
 ): IShapeAnnotation {
+    const drawOrigin = normalizeGeometryPoint(rawOrigin);
+    const x = clampUnit(rawX);
+    const y = clampUnit(rawY);
     if (shape.type === 'polyline') {
         const points = appendDrawPoint(shape.strokes?.[0] ?? shape.points ?? [], x, y);
         const strokes = [points];
