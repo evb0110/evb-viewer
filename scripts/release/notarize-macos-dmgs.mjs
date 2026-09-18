@@ -10,13 +10,13 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import path, {
     basename,
     join,
     resolve,
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import appBuilderBin from 'app-builder-bin';
 
 const DMG_EXTENSION = '.dmg';
 const MAC_METADATA_PATTERN = /^latest-mac.*\.yml$/u;
@@ -434,7 +434,8 @@ export function findAppBuilderExecutable(projectRoot, {
             ? [join(packageRoot, platformPart, arch, 'app-builder.exe')]
             : [join(packageRoot, platformPart, arch, 'app-builder')];
     if (platform === process.platform && arch === process.arch) {
-        candidates.unshift(appBuilderBin.appBuilderPath);
+        // Resolved on demand so dependency-free release jobs can import this module.
+        candidates.unshift(createRequire(import.meta.url)('app-builder-bin').appBuilderPath);
     }
 
     const executable = candidates.find(candidate => existsSync(candidate));
