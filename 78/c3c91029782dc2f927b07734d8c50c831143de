@@ -1,0 +1,47 @@
+scripts/windows-test/host/recordingTools.ts
+  s_5fc578ce506341::t_595976ffc8016f 3-71
+  s_5fc578ce506341::t_ee6602792af5dc 1-2,72-73
+scripts/windows-test/guest/guestWorkerMain.ts
+  s_5fc578ce506341::t_595976ffc8016f 155-163,165
+  s_5fc578ce506341::t_3ff1d8c908e251 149-154,166
+docs/contributing/windows-tests/setup-and-repair.md
+  s_5fc578ce506341::t_2f40327286883e 59
+docs/internal/agents/recorded-automation.md
+  s_5fc578ce506341::t_8950cfc6d85417 84-90
+scripts/electron-run/sessionRecording.ts
+  s_5fc578ce506341::t_498f079a34793c 359-365
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_5fc578ce506341::t_8c204d51692837 38
+scripts/windows-test/guest/viewer/createPuppeteerViewerFactory.ts
+  s_5fc578ce506341::t_5cf28f3f1657d1 116,125,145-148,153
+scripts/windows-test/host/hostRunner.ts
+  s_5fc578ce506341::t_62efa2247cfa03 1,511-513
+scripts/windows-test/host/prepareWindowsTestHost.ts
+  s_5fc578ce506341::t_e7be00ffad3c8d 1-3,110,144-148
+scripts/electron-run/recordingVideo.ts
+  s_2802320b5061b9::t_811e4a6bced87e 211-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "78c3c91029782dc2f927b07734d8c50c831143de",
+  "prompts": {},
+  "sessions": {
+    "s_2802320b5061b9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a8a270f2eb6e40a47",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_5fc578ce506341": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2e5-6605-7a23-8a43-d0f2b2f6a95e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
