@@ -1,0 +1,20 @@
+scripts/release/notarize-macos-dmgs.mjs
+  s_13ee9085066437::t_6368f621ae832e 437-438
+  s_13ee9085066437::t_a0c22daf10d7b2 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1699e24af96fd3358668955d67d1e09c9775d275",
+  "prompts": {},
+  "sessions": {
+    "s_13ee9085066437": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34d69bed-5fb1-427c-9435-58c267e92a0d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
