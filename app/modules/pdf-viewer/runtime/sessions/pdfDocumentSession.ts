@@ -39,7 +39,6 @@ import {
     createStalePdfDocumentError,
     registerPdfDocumentPageLeaseOwner,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { isRenderingCancelledError } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/isRenderingCancelledError';
 import {
     disposePdfPageRasterScheduler,
     ensurePdfPageRasterScheduler,
@@ -444,11 +443,13 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             try {
                 page = await pageCache.getPage(pageNumber);
             } catch (error) {
-                // The cache rejects a request that outlived its document, for
-                // example a fast scroll still hydrating when the tab closes.
-                // A superseded metric load has nothing to report, and several
-                // callers hydrate fire-and-forget.
-                if (isRenderingCancelledError(error) && isStaleMetricLoad()) {
+                // A request that outlived its document rejects, for example a
+                // fast scroll still hydrating when the tab closes. The cache
+                // reports it as stale, but PDF.js can reject first with its
+                // own "Transport destroyed", so staleness decides rather than
+                // the error type. A superseded metric load has nothing to
+                // report, and several callers hydrate fire-and-forget.
+                if (isStaleMetricLoad()) {
                     return null;
                 }
                 throw error;

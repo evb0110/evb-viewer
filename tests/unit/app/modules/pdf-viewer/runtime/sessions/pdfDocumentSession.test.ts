@@ -341,6 +341,92 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.numPages.value).toBe(0);
     });
 
+    it('settles metric hydration when PDF.js destroys its transport during cleanup', async () => {
+        const pendingPage = Promise.withResolvers<never>();
+        const getPage = vi.fn(async (pageNumber: number) => {
+            if (pageNumber === 1) {
+                return {
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 300,
+                        height: 500,
+                    })),
+                };
+            }
+            return pendingPage.promise;
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 3,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = createPdfDocumentSession();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: requireDocumentRef('/tmp/transport-destroyed.pdf'),
+            size: 2048,
+        });
+
+        const hydration = documentState.ensurePageMetricsInRange(2, 3);
+        await vi.waitFor(() => {
+            expect(getPage).toHaveBeenCalledTimes(3);
+        });
+
+        documentState.cleanup();
+        pendingPage.reject(new Error('Transport destroyed'));
+
+        await expect(hydration).resolves.toBe(false);
+    });
+
+    it('still reports a page request failure for the live document', async () => {
+        const getPage = vi.fn(async (pageNumber: number) => {
+            if (pageNumber === 1) {
+                return {
+                    cleanup: vi.fn(),
+                    getViewport: vi.fn(() => ({
+                        width: 300,
+                        height: 500,
+                    })),
+                };
+            }
+            throw new Error('Invalid page request');
+        });
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 2,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const documentState = createPdfDocumentSession();
+        await documentState.loadPdf({
+            kind: 'path',
+            path: requireDocumentRef('/tmp/live-failure.pdf'),
+            size: 2048,
+        });
+
+        await expect(documentState.ensurePageMetricsInRange(2, 2)).rejects.toThrow('Invalid page request');
+        documentState.cleanup();
+    });
+
     it('keeps the preloaded tail cached until PDF.js requests it', async () => {
         const getDocumentCalled = Promise.withResolvers<MockPdfDataRangeTransport>();
         const deferred = Promise.withResolvers<{
