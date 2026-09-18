@@ -1,0 +1,27 @@
+docs/internal/agents/fix-evidence.md
+  s_ecea10291e4b09::t_c0288a45244649 3-7,15-19,21,23-26,29,31-39,45-47,54-56,60-74,85-88,108-112
+docs/architecture/behavior-contract.md
+  s_ecea10291e4b09::t_6dd82054e343d5 3-11,14-28,32-36,40-60,64-68,70-73,75-77,79-82,86-115,117,119-122,124-125,127-129,131,133-134,136-137,139-140,145-148,150-152,154-156,160-164,166-167
+AGENTS.md
+  s_ecea10291e4b09::t_29ff6b897e5586 11
+CONTRIBUTING.md
+  s_ecea10291e4b09::t_93da91ba4e185f 84-88
+docs/internal/methodology-review-2026-09-19.md
+  s_ecea10291e4b09::t_d2303457d5e438 208-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c5aa26e1dfdddfd1bcace0a7c73bf7277d6fbb22",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
