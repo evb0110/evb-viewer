@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import type { TSessionRecording } from '@scripts/electron-run/sessionRecording';
 import type {
     Browser,
     ConsoleMessage,
@@ -67,6 +68,7 @@ export type TDevtoolsEvent =
     | IErrorDevtoolsEvent;
 
 export interface ISessionState {
+    recording?: TSessionRecording;
     browser: Browser;
     page: Page;
     electronProcess: ChildProcess;
@@ -76,6 +78,7 @@ export interface ISessionState {
 }
 
 export interface ISessionInfo {
+    recording?: string;
     port: number;
     pid: number;
     cdpPort: number;

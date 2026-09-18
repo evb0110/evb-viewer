@@ -95,7 +95,10 @@ export interface IGuestWorkerAdapterOptions {
     executable: IInstalledExecutableIdentity;
 }
 
-export interface IGuestWorkerViewerFactoryOptions extends IGuestWorkerAdapterOptions {nativeUi: INativeUiAdapter;}
+export interface IGuestWorkerViewerFactoryOptions extends IGuestWorkerAdapterOptions {
+    nativeUi: INativeUiAdapter;
+    recordVideo?: boolean;
+}
 
 export interface IGuestWorkerAdapters {
     createNativeUiAdapter(options: IGuestWorkerAdapterOptions): INativeUiAdapter;
@@ -580,6 +583,7 @@ export async function runGuestWorker({
             nativeUi,
             viewer: adapters.createViewerFactory({
                 ...adapterOptions,
+                recordVideo: job.recordVideo === true,
                 nativeUi,
             }),
             selectors,

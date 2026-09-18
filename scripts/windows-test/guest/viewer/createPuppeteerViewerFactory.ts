@@ -2,7 +2,12 @@ import type {
     Browser,
     Page,
 } from 'puppeteer-core';
+import {
+    startSessionRecording,
+    type TSessionRecording,
+} from '@scripts/electron-run/sessionRecording';
 import { findFreePort } from '@scripts/electron-run/electronRunProcessTree';
+import { startNativeVideo } from '@scripts/windows-test/guest/native-ui/startNativeVideo';
 import { waitForPackagedCdpEndpoint } from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
     connectInstrumentationBrowser,
@@ -27,6 +32,7 @@ import {
 const VIEWER_PAGE_URL_PREFIX = 'evb-viewer://app/';
 
 export interface ICreatePuppeteerViewerFactoryOptions {
+    recordingDirectory?: string;
     launcher: IWindowsAppLauncher;
     profileDirectory: string;
     nativeUi?: INativeUiAdapter;
@@ -59,6 +65,7 @@ export function createPuppeteerViewerFactory({
     },
     connectBrowser = browserUrl => connectInstrumentationBrowser(browserUrl),
     createDriver = createPuppeteerViewerDriver,
+    recordingDirectory,
 }: ICreatePuppeteerViewerFactoryOptions): IViewerFactory {
     const dismissedFirstLaunchProfiles = new Set<string>();
     const handleFirstLaunchPrompt = async (record: IAppLaunchRecord) => {
@@ -105,6 +112,7 @@ export function createPuppeteerViewerFactory({
                 userDataDirectory: profileDirectory,
             });
             let browser: Browser | null = null;
+            let recording: TSessionRecording | null = null;
             try {
                 if (record.browserUrl === null) {
                     throw new Error('the instrumentation launch produced no loopback debugging URL');
@@ -112,6 +120,13 @@ export function createPuppeteerViewerFactory({
                 await waitForBrowserReady(remoteDebuggingPort, viewerDefaultTimeouts.startupMs);
                 const connected = await connectBrowser(record.browserUrl);
                 browser = connected;
+                if (recordingDirectory) {
+                    recording = await startSessionRecording(connected, {
+                        directory: recordingDirectory,
+                        session: 'windows-instrumentation',
+                        cwd: process.cwd(),
+                    });
+                }
                 await handleFirstLaunchPrompt(record);
                 const driver = createDriver(selectViewerPage(await connected.pages()));
                 await driver.openDocument(documentPath);
@@ -119,9 +134,17 @@ export function createPuppeteerViewerFactory({
                 return {
                     driver,
                     process: record.process,
-                    close: () => closeInstrumented(connected, record),
+                    close: async () => {
+                        try {
+                            const evidence = await recording?.stop();
+                            if (evidence && evidence.status !== 'complete') {
+                                throw new Error(`Windows renderer recording failed: ${evidence.manifestPath}`);
+                            }
+                        } finally { await closeInstrumented(connected, record); }
+                    },
                 };
             } catch (error) {
+                await recording?.stop(1).catch(() => {});
                 // The startup error is the one worth reporting; cleanup failures
                 // must not replace it, and the process must not outlive the attempt.
                 if (browser !== null) {
@@ -132,22 +155,26 @@ export function createPuppeteerViewerFactory({
             }
         },
         launchAcceptance: async (documentPath): Promise<IAcceptanceAppSession> => {
+            let recording: Awaited<ReturnType<typeof startNativeVideo>> | null = null;
             const record = launcher.launch({
                 profile: 'acceptance',
                 ...(documentPath === undefined ? {} : { documentPath }),
             });
             try {
+                if (recordingDirectory) { recording = await startNativeVideo(recordingDirectory, nativeUi?.actionLog); }
                 await handleFirstLaunchPrompt(record);
                 return {
                     process: record.process,
-                    close: () => {
+                    close: async () => {
+                        const recordingResult = await Promise.allSettled([recording?.stop()]);
                         const outcome = launcher.terminate(record);
-                        return outcome.terminated
-                            ? Promise.resolve()
-                            : Promise.reject(new Error(`refusing to report a clean shutdown: ${outcome.reason}`));
+                        if (!outcome.terminated) { throw new Error(`refusing to report a clean shutdown: ${outcome.reason}`); }
+                        const failure = recordingResult[0];
+                        if (failure?.status === 'rejected') { throw failure.reason; }
                     },
                 };
             } catch (error) {
+                await recording?.stop().catch(() => {});
                 launcher.terminate(record);
                 throw error;
             }

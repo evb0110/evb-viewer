@@ -23,12 +23,19 @@ export async function buildEvidenceManifest(
     const entries: IWindowsTestEvidenceEntry[] = [];
     for (const relativePath of relativePaths) {
         const absolutePath = joinGuestPath(separator, evidenceDir, ...relativePath.split('/'));
-        const bytes = await fs.readBytes(absolutePath);
-        entries.push({
-            relativePath,
-            sha256: sha256Hex(bytes),
-            bytes: bytes.byteLength,
-        });
+        if (fs.fingerprint) {
+            entries.push({
+                relativePath,
+                ...await fs.fingerprint(absolutePath),
+            });
+        } else {
+            const bytes = await fs.readBytes(absolutePath);
+            entries.push({
+                relativePath,
+                sha256: sha256Hex(bytes),
+                bytes: bytes.byteLength,
+            });
+        }
     }
     return {
         schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,

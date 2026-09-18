@@ -122,6 +122,7 @@ export interface IWindowsTestHostOracleEvaluationResult {
 }
 
 export interface IWindowsTestRunRequest {
+    recordVideo?: boolean;
     suite: TWindowsTestSuite;
     environment: string;
     tests: string[] | null;
@@ -873,6 +874,7 @@ export async function executeWindowsTestRun(
             await throwIfCanceled('staged');
 
             job = {
+                ...(request.recordVideo ? {recordVideo: true} : {}),
                 schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,
                 runId,
                 sourceSha: candidate.sourceSha,

@@ -121,6 +121,16 @@ function result(overrides: Partial<IWindowsTestResult> = {}): IWindowsTestResult
     };
 }
 
+describe('Windows recording request', () => {
+    it('accepts an optional boolean and rejects malformed recording requests', () => {
+        expect(isWindowsTestJob(job({recordVideo: true}))).toBe(true);
+        expect(isWindowsTestJob({
+            ...job(),
+            recordVideo: 'true',
+        })).toBe(false);
+    });
+});
+
 describe('windows test contracts', () => {
     it('maps every outcome to its documented exit code and reserves 1 and 6 for the host', () => {
         expect(windowsTestOutcomes.map(exitCodeForOutcome)).toEqual([

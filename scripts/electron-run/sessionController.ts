@@ -1,4 +1,7 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { join } from 'node:path';
+import { startSessionRecording } from '@scripts/electron-run/sessionRecording';
+import { assertRecordingTools } from '@scripts/electron-run/recordingVideo';
 import { createServer } from 'node:http';
 import type { ChildProcess } from 'node:child_process';
 import {
@@ -267,9 +270,17 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
         console.log('[Nuxt] Keeping dev server alive for fast restart');
     }
 
-    clearRuntimeSessionFiles();
     httpServer?.close();
+    if (sessionState?.recording) {
+        const evidence = await sessionState.recording.stop(exitCode).catch(error => {
+            console.error(`[Recording] Finalization failed: ${getErrorMessage(error)}`);
+            return null;
+        });
+        console.log(`[Recording] ${evidence?.status ?? 'failed'}: ${sessionState.recording.manifest.reviewPath}`);
+        if (evidence?.status !== 'complete') { exitCode = exitCode || 1; }
+    }
     await stopSessionElectronProcess(sessionState);
+    clearRuntimeSessionFiles();
     // SIGINT/SIGTERM are normal developer-owned restarts. Electron has already
     // been closed gracefully above, so retaining its checkpoint here turns a
     // successful `pnpm dev` restart into an accidental document restore.
@@ -418,6 +429,7 @@ function listenForSessionCommands(options: {
             nuxtPid: options.nuxtProcess?.pid ?? null,
             nuxtPort: getNuxtPort(),
             runId: process.env[E2E_RUN_ID_ENV] ?? null,
+            ...(sessionState?.recording ? {recording: sessionState.recording.manifest.manifestPath} : {}),
             ...(options.outputTee ? {logs: {
                 manifestFile: options.outputTee.logManifestFile,
                 sessionLogFile: options.outputTee.sessionLogFile,
@@ -458,6 +470,7 @@ export async function startControlledSession(forceClean = false, options: IStart
     };
 
     try {
+        if (process.env.EVB_RECORD_SESSION === '1') { await assertRecordingTools(); }
         const sharedRenderer = applyE2ESharedRendererPort(process.env);
         const startupOptions = resolveForceCleanStart(sharedRenderer ? false : forceClean);
         let nuxtProcess: ChildProcess | null = null;
@@ -515,6 +528,15 @@ export async function startControlledSession(forceClean = false, options: IStart
             consoleMessages: diagnostics.consoleMessages,
             devtoolsEvents: diagnostics.devtoolsEvents,
         };
+
+        if (process.env.EVB_RECORD_SESSION === '1') {
+            sessionState.recording = await startSessionRecording(launch.browser, {
+                directory: join(sessionDir(), 'recordings'),
+                session: getCurrentSessionName(),
+                cwd: projectRoot,
+            });
+            console.log(`[Recording] ${sessionState.recording.manifest.manifestPath}`);
+        }
 
         let isShuttingDown = false;
         let httpServer: ReturnType<typeof createServer> | null = null;

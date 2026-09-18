@@ -581,6 +581,7 @@ export async function executeWindowsTestRunOnHost(
     try {
         return await executeWindowsTestRun(
             {
+                ...(options.env.EVB_RECORD_SESSION === '1' ? {recordVideo: true} : {}),
                 suite: options.suite,
                 environment: options.environment ?? config.environment,
                 tests: options.tests,

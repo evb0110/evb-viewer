@@ -47,17 +47,24 @@ export interface INativeUiActionRecord {
 }
 
 export interface INativeUiActionLog {
+    subscribe?(listener: (entry: INativeUiActionRecord) => void): () => void;
     record(entry: INativeUiActionRecord): void;
     entries(): INativeUiActionRecord[];
 }
 
 export function createNativeUiActionLog(): INativeUiActionLog {
     const entries: INativeUiActionRecord[] = [];
+    const listeners = new Set<(entry: INativeUiActionRecord) => void>();
     return {
         record: entry => {
             entries.push(entry);
+            for (const listener of listeners) { listener(entry); }
         },
         entries: () => [...entries],
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => { listeners.delete(listener); };
+        },
     };
 }
 

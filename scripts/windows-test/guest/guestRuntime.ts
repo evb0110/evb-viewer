@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import {createHash} from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import {
     copyFile,
     open,
@@ -23,6 +24,10 @@ export interface IGuestFileSystem {
     exists(filePath: string): Promise<boolean>;
     readText(filePath: string): Promise<string>;
     readBytes(filePath: string): Promise<Uint8Array>;
+    fingerprint?(filePath: string): Promise<{
+        sha256: string;
+        bytes: number
+    }>;
     writeText(filePath: string, contents: string): Promise<void>;
     writeBytes(filePath: string, contents: Uint8Array): Promise<void>;
     copyFile(fromPath: string, toPath: string): Promise<void>;
@@ -106,6 +111,19 @@ export function createNodeGuestFileSystem(): IGuestFileSystem {
         exists: filePath => stat(filePath).then(() => true, () => false),
         readText: filePath => readFile(filePath, 'utf8'),
         readBytes: async filePath => new Uint8Array(await readFile(filePath)),
+        fingerprint: async filePath => {
+            const hash = createHash('sha256');
+            let bytes = 0;
+            for await (const chunk of createReadStream(filePath)) {
+                const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                hash.update(data);
+                bytes += data.length;
+            }
+            return {
+                sha256: hash.digest('hex'),
+                bytes,
+            };
+        },
         writeText: async (filePath, contents) => {
             await ensureParent(filePath);
             await writeFile(filePath, contents, 'utf8');

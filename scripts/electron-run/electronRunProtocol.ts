@@ -3,6 +3,7 @@ import { isJsonRecord } from '@scripts/electron-run/isJsonRecord';
 
 export const ELECTRON_RUN_COMMANDS = [
     'ping',
+    'recording',
     'screenshot',
     'screenshots',
     'console',

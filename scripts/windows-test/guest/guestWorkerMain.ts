@@ -145,6 +145,7 @@ function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv, winappExecutable: strin
             nativeUi,
             paths,
             executable,
+            recordVideo,
         }) => createPuppeteerViewerFactory({
             launcher: createWindowsAppLauncher({
                 clock,
@@ -153,6 +154,7 @@ function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv, winappExecutable: strin
                 executable,
             }),
             profileDirectory: paths.profileDir,
+            ...(recordVideo || env.EVB_RECORD_SESSION === '1' ? {recordingDirectory: paths.evidenceDir + '\\recordings'} : {}),
             nativeUi,
             clock,
         }),

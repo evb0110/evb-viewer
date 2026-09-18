@@ -117,6 +117,7 @@ export const forbiddenAcceptanceLaunchFlags = [
 ] as const;
 
 export interface IWindowsTestJob {
+    recordVideo?: boolean;
     schemaVersion: typeof WINDOWS_TEST_SCHEMA_VERSION;
     runId: string;
     sourceSha: string;
@@ -309,6 +310,7 @@ function isTestIdArray(value: unknown): value is string[] {
 
 export function isWindowsTestJob(value: unknown): value is IWindowsTestJob {
     return isRecord(value)
+        && (value.recordVideo === undefined || typeof value.recordVideo === 'boolean')
         && value.schemaVersion === WINDOWS_TEST_SCHEMA_VERSION
         && isWindowsTestRunId(value.runId)
         && isGitSha(value.sourceSha)

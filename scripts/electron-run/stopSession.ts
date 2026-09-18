@@ -120,7 +120,7 @@ async function stopSessionController(info: ISessionInfo, name: string, keepNuxt?
             return false;
         }
     }
-    if (await waitForProcessExit(info.pid, SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS)) {
+    if (await waitForProcessExit(info.pid, info.recording ? 60_000 : SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS)) {
         return true;
     }
     if (isProcessAlive(info.pid)) {

@@ -27,7 +27,10 @@ describe('guest evidence manifest', () => {
         await fs.writeText(`${evidenceDir}/win-save-01/summary.json`, '{"ok":true}');
         await fs.writeText(`${evidenceDir}/screenshot.txt`, 'placeholder');
 
-        const manifest = await buildEvidenceManifest(fs, runId, evidenceDir, '/');
+        const manifest = await buildEvidenceManifest({
+            ...fs,
+            readBytes: async () => { throw new Error('Evidence hashing must stream large videos'); },
+        }, runId, evidenceDir, '/');
         expect(isWindowsTestEvidenceManifest(manifest)).toBe(true);
         expect(manifest.entries.map(entry => entry.relativePath)).toEqual([
             'screenshot.txt',

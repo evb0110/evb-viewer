@@ -4,6 +4,7 @@ import {
     copyFileSync,
     existsSync,
     readFileSync,
+    readdirSync,
     statSync,
     unlinkSync,
 } from 'node:fs';
@@ -23,6 +24,7 @@ import {
 import {
     getCurrentSessionName,
     sessionFilePath,
+    sessionDir,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
@@ -30,12 +32,15 @@ import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { devSupervisor } from '@scripts/electron-run/devSupervisor';
 import { runDevLogs } from '@scripts/devLogs';
 import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
+import { recoverSessionRecording } from '@scripts/electron-run/sessionRecording';
 import {
     stopSession,
     stopSingleSession,
 } from '@scripts/electron-run/stopSession';
 
 const CLI_COMMANDS = [
+    'record',
+    'recording',
     'start',
     'cleanstart',
     'startd',
@@ -371,6 +376,8 @@ Options:
   --keep-nuxt                   Keep the default Nuxt dev server alive when stopping one session
 
 Session:
+  record              Start an isolated hidden recorded session (requires a non-default name)
+  recording [mark <label>]  Capture health, evidence paths, or a timeline marker; recovers interrupted runs when stopped
   start               Start session (foreground, Ctrl+C to stop)
   startd              Start session in background (detached) and return
   cleanstart          Start with fresh Nuxt server (clears stale cache)
@@ -613,6 +620,33 @@ async function restartSession(detached: boolean) {
 type TCliCommandHandler = (args: string[], parsed: IParsedCliArgs) => Promise<void>;
 
 const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
+    async record() {
+        if (getCurrentSessionName() === 'default') {
+            throw new Error('Choose a task-owned session: electron:run -s <name> record');
+        }
+        if (await isSessionRunning() || isProcessAlive(getSessionInfo()?.pid ?? 0) || getSessionStartingInfo()) {
+            throw new Error('Session already exists; choose a new task-owned name');
+        }
+        process.env.EVB_RECORD_SESSION = '1';
+        process.env.EVB_AUTOMATION_NO_FOCUS = '1';
+        process.env.EVB_AUTOMATION_HIDE_WINDOW = '1';
+        process.env.EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE = process.platform === 'darwin' ? '1' : '0';
+        await startSessionDetached();
+        printJson(await sendCommand('recording'));
+    },
+    async recording(args) {
+        if (await isSessionRunning()) {
+            await printJsonCommand('recording', args);
+        } else {
+            if (isProcessAlive(getSessionInfo()?.pid ?? 0) || isProcessAlive(getSessionStartingInfo()?.pid ?? 0)) {
+                throw new Error('Session controller is still alive; recovery requires it to exit');
+            }
+            const root = join(sessionDir(), 'recordings');
+            const latest = readdirSync(root).sort().at(-1);
+            if (!latest) { throw new Error('No recording exists for this session'); }
+            printJson(await recoverSessionRecording(join(root, latest, 'manifest.json')));
+        }
+    },
     async start() {
         console.log(`Starting session '${getCurrentSessionName()}'...`);
         await devSupervisor(false);

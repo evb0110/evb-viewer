@@ -1,3 +1,4 @@
+import { startRendererFrameStream } from '@scripts/diagnostics/startRendererFrameStream';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { execFile } from 'node:child_process';
 import {
@@ -235,50 +236,10 @@ async function startCdpScreencastCapture(page: Page, options: {
     quality: number;
     startedAt: number;
 }) {
-    const client = await page.createCDPSession();
     const writeFrame = createFrameWriter(options);
-    let acceptingFrames = true;
-    let pendingWrites = Promise.resolve();
-
-    const acknowledgeFrame = (event: IScreencastFrameEvent) => {
-        return client.send('Page.screencastFrameAck', { sessionId: event.sessionId }).catch(() => {});
-    };
-
-    const handleFrame = (event: IScreencastFrameEvent) => {
-        if (!acceptingFrames) {
-            void acknowledgeFrame(event);
-            return;
-        }
-
-        const frameBuffer = Buffer.from(event.data, 'base64');
-        pendingWrites = pendingWrites.finally(async () => {
-            try {
-                writeFrame(frameBuffer, event.metadata?.timestamp ?? null);
-            } finally {
-                await acknowledgeFrame(event);
-            }
-        });
-    };
-
-    client.on('Page.screencastFrame', handleFrame);
-    await client.send('Page.enable');
-    await client.send('Page.startScreencast', {
-        everyNthFrame: 1,
-        format: 'jpeg',
-        quality: options.quality,
-    });
-
-    return {
-        client,
-        handleFrame,
-        stop: async () => {
-            await client.send('Page.stopScreencast').catch(() => {});
-            acceptingFrames = false;
-            client.off('Page.screencastFrame', handleFrame);
-            await pendingWrites.catch(() => {});
-            await client.detach().catch(() => {});
-        },
-    };
+    return startRendererFrameStream(page, event => {
+        writeFrame(Buffer.from(event.data, 'base64'), event.metadata?.timestamp ?? null);
+    }, {quality: options.quality});
 }
 
 function startScreenshotFallbackCapture(page: Page, options: {

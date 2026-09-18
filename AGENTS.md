@@ -17,6 +17,8 @@ Start with [ARCHITECTURE.md](ARCHITECTURE.md) for the engineering map. Shared pe
 
 ## Operations
 
+- For agent UI work and video evidence, use [recorded automation](docs/internal/agents/recorded-automation.md) and start a task-owned recorded session. The same CLI works for every model provider.
+
 - Before any Electron launch, follow [hidden automation](docs/internal/agents/hidden-electron-automation.md) and its shared runner. Resolve the specific dev session over CDP using [session lifecycle](docs/internal/agents/electron-session-lifecycle.md); a generic Electron app name or bundle ID can target another task's app.
 - Before cleanup, read [workspace hygiene](docs/internal/agents/workspace-hygiene.md). Preserve active worktrees, `.devkit` data, and Rust targets.
 - Issues and specs live in GitHub. Use the [issue tracker](docs/internal/agents/issue-tracker.md) and [triage labels](docs/internal/agents/triage-labels.md).

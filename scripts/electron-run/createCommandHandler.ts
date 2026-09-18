@@ -814,7 +814,7 @@ async function handleHealthCommand(context: ICommandContext) {
     };
 }
 
-const COMMAND_HANDLERS: Record<TElectronRunCommand, TSessionCommandHandler> = {
+const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessionCommandHandler> = {
     ping() {
         return {
             status: 'ok',
@@ -975,6 +975,15 @@ export function createCommandHandler(getSessionState: () => ISessionState | null
         if (!sessionState) {
             throw new Error('Session not initialized');
         }
-        return await COMMAND_HANDLERS[command](createCommandContext(sessionState), args);
+        if (command === 'recording') {
+            if (args[0] === 'mark' && typeof args[1] === 'string') {
+                sessionState.recording?.mark(args[1]);
+            }
+            return sessionState.recording?.manifest ?? {status: 'disabled'};
+        }
+        const execute = () => Promise.resolve(COMMAND_HANDLERS[command](createCommandContext(sessionState), args));
+        return sessionState.recording
+            ? sessionState.recording.command(command, args, execute)
+            : execute();
     };
 }
