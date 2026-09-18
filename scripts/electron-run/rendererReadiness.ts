@@ -6,12 +6,18 @@ import puppeteer, {
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import {
-    ELECTRON_SERVER_PATH,
     getElectronAppUrl,
     waitForReusableNuxtServer,
 } from '@scripts/electron-run/electronRunNuxtServer';
-import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
+import {
+    isElectronAppPageUrl,
+    isNuxtDevServerUrl,
+} from '@scripts/electron-run/appRendererUrl';
 import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
+export {
+    isElectronAppPageUrl,
+    isNuxtDevServerUrl,
+} from '@scripts/electron-run/appRendererUrl';
 
 const RENDERER_READY_TIMEOUT_MS = 30_000;
 const ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS = 20_000;
@@ -265,45 +271,6 @@ async function reattachToAppPage(
         return freshPage;
     }
     return currentPage;
-}
-
-function isElectronRendererPath(pathname: string) {
-    return pathname === ELECTRON_SERVER_PATH
-        || pathname.startsWith(`${ELECTRON_SERVER_PATH}/`);
-}
-
-function isLocalNuxtHost(hostname: string) {
-    return hostname === '127.0.0.1'
-        || hostname === 'localhost'
-        || hostname === '::1'
-        || hostname === '[::1]';
-}
-
-export function isElectronAppPageUrl(url: string) {
-    try {
-        const parsedUrl = new URL(url);
-        if (parsedUrl.protocol === 'evb-viewer:' && parsedUrl.hostname === 'app') {
-            return isElectronRendererPath(parsedUrl.pathname);
-        }
-
-        return (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:')
-            && isLocalNuxtHost(parsedUrl.hostname)
-            && parsedUrl.port === String(getNuxtPort())
-            && isElectronRendererPath(parsedUrl.pathname);
-    } catch {
-        return false;
-    }
-}
-
-export function isNuxtDevServerUrl(url: string) {
-    try {
-        const parsedUrl = new URL(url);
-        return (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:')
-            && isLocalNuxtHost(parsedUrl.hostname)
-            && parsedUrl.port === String(getNuxtPort());
-    } catch {
-        return false;
-    }
 }
 
 export function selectNewestElectronAppPage<TPage extends {

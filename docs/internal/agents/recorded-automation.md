@@ -54,7 +54,9 @@ Evidence lives under `.devkit/sessions/<session>/recordings/<run>/`:
 - `index.html`: offline review page with selectable window tracks, clickable
   action timestamps and an orange input-coordinate overlay.
 - `window-*.mp4`: actual rendered pixels, including idle time. New windows get
-  separate tracks. Output is 1280×800 with aspect-preserving letterboxing.
+  separate tracks. Only EVB Viewer app renderer routes are recorded; hidden
+  PDF print-support pages are excluded. Windows guest-desktop footage covers
+  native print and save dialogs. Output is 1280×800 with aspect-preserving letterboxing.
 - `actions.jsonl`: commands, delivered inputs, markers, errors and track boundaries.
 - `manifest.json`: source identity, capture scope, status, paths and video probes.
 

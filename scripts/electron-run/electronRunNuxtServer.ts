@@ -53,7 +53,8 @@ import {
     shouldUseStrictE2EIsolation,
 } from '@scripts/electron-run/electronRunRunId';
 
-export const ELECTRON_SERVER_PATH = '/electron';
+import { ELECTRON_SERVER_PATH } from '@scripts/electron-run/appRendererUrl';
+export { ELECTRON_SERVER_PATH } from '@scripts/electron-run/appRendererUrl';
 
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const NUXT_HTTP_READINESS_TIMEOUT_MS = 1000;

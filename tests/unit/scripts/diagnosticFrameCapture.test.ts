@@ -56,7 +56,7 @@ function recordingBrowser() {
         exposeFunction: vi.fn(async () => {}),
         evaluateOnNewDocument: vi.fn(async () => {}),
         evaluate: vi.fn(async () => {}),
-        url: () => 'http://localhost/electron',
+        url: (): string => 'evb-viewer://app/electron',
     });
     return {
         page,
@@ -163,7 +163,26 @@ describe('diagnostic frame capture', () => {
                 session: 'windows',
                 cwd: process.cwd(),
             });
+            const {page: printPage} = recordingBrowser();
+            printPage.url = () => 'file:///C:/Temp/print-data-fixture.pdf';
+            browser.emit('targetcreated', {
+                type: () => 'page',
+                page: async () => printPage,
+            });
+            await Promise.resolve();
+            expect(printPage.exposeFunction).not.toHaveBeenCalled();
+            expect(capture.manifest.tracks).toHaveLength(1);
             const {page} = recordingBrowser();
+            page.url = () => 'about:blank';
+            const target = {
+                type: () => 'page',
+                page: async () => page,
+            };
+            browser.emit('targetcreated', target);
+            await Promise.resolve();
+            expect(capture.manifest.tracks).toHaveLength(1);
+            page.url = () => 'evb-viewer://app/electron?detachedNote=1';
+            browser.emit('targetchanged', target);
             browser.emit('targetcreated', {
                 type: () => 'page',
                 page: async () => page,
@@ -176,6 +195,7 @@ describe('diagnostic frame capture', () => {
                 'complete',
             ]);
             expect(browser.listenerCount('targetcreated')).toBe(0);
+            expect(browser.listenerCount('targetchanged')).toBe(0);
         } finally { rmSync(root, {
             recursive: true,
             force: true,

@@ -18,6 +18,7 @@ import {
     inspectRecordingVideo,
     startRendererVideo,
 } from '@scripts/electron-run/recordingVideo';
+import { isElectronAppPageUrl } from '@scripts/electron-run/appRendererUrl';
 import { recordingReviewHtml } from '@scripts/electron-run/recordingReviewHtml';
 
 interface IRecordingTrack {
@@ -161,6 +162,7 @@ export async function startSessionRecording(browser: Browser, options: {
     let stopping = false;
     const attach = (page: Page) => {
         if (pages.has(page) || stopping) { return pages.get(page); }
+        if (!isElectronAppPageUrl(page.url())) { return undefined; }
         const capture = (async () => {
             const id = `window-${manifest.tracks.length + 1}`;
             const track: IRecordingTrack = {
@@ -221,11 +223,12 @@ export async function startSessionRecording(browser: Browser, options: {
         return capture;
     };
     const onTarget = (target: Target) => {
-        if (target.type() === 'page') {
+        if (!stopping && target.type() === 'page') {
             void target.page().then(page => page ? attach(page) : undefined).catch(fail);
         }
     };
     browser.on('targetcreated', onTarget);
+    browser.on('targetchanged', onTarget);
     let queue = Promise.resolve();
     let pendingActions = 0;
     let stopPromise: Promise<typeof manifest> | null = null;
@@ -234,6 +237,7 @@ export async function startSessionRecording(browser: Browser, options: {
             stopping = true;
             if (pendingActions) { fail(new Error('Session stopped before pending commands completed')); }
             browser.off('targetcreated', onTarget);
+            browser.off('targetchanged', onTarget);
             event({
                 kind: 'session-stop',
                 exitCode,
@@ -253,8 +257,8 @@ export async function startSessionRecording(browser: Browser, options: {
             kind: 'session-start',
             scope: manifest.scope,
         });
-        const initialPages = await browser.pages();
-        if (!initialPages.length) { throw new Error('No renderer page is available to record'); }
+        const initialPages = (await browser.pages()).filter(page => isElectronAppPageUrl(page.url()));
+        if (!initialPages.length) { throw new Error('No app renderer page is available to record'); }
         await Promise.all(initialPages.map(async page => attach(page)));
         if (manifest.errors.length) { throw new Error(manifest.errors.join('\n')); }
         manifest.status = 'recording';
