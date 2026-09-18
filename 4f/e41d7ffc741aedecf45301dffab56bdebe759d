@@ -1,0 +1,22 @@
+package.json
+  s_13ee9085066437::t_826e5fd5109f68 244
+  s_13ee9085066437::t_3a54a354b3d21b 200
+pnpm-lock.yaml
+  s_13ee9085066437::t_e1b6c561bb3dc3 13,244-245,4892-4893,11276,11362,11855,14510,16964,17106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4fe41d7ffc741aedecf45301dffab56bdebe759d",
+  "prompts": {},
+  "sessions": {
+    "s_13ee9085066437": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34d69bed-5fb1-427c-9435-58c267e92a0d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
