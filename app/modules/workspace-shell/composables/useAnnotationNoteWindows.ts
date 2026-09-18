@@ -605,6 +605,15 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         removeOwnedAnnotationNoteWindow(owned);
     }
 
+    // Discarding a note that another annotation hosts is an ordinary edit to
+    // empty text followed by a close, so it shares the save path, the dirty
+    // flag and the failure surface with typing. A failed save keeps the window
+    // open with its error instead of pretending the note is gone.
+    async function discardAnnotationNote(value: string) {
+        updateAnnotationNoteText(value, '');
+        await closeAnnotationNote(value);
+    }
+
     function clearAllTimers() {
         timers.forEach(timer => clearTimeout(timer));
         disappearanceTimers.forEach(timer => clearTimeout(timer));
@@ -703,6 +712,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         persistAnnotationNote,
         persistAllAnnotationNotes,
         closeAnnotationNote,
+        discardAnnotationNote,
         closeAllAnnotationNotes,
         handleOpenAnnotationNote: upsertAnnotationNoteWindow,
         removeAnnotationNoteWindow,

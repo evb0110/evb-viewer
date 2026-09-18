@@ -35,11 +35,10 @@ function normalizeCommentSubtype(comment: {subtype?: string | null | undefined;}
     return (comment.subtype ?? '').trim().toLowerCase();
 }
 
+// The action removes the markup itself, note text or not, so the label names
+// the markup. Calling it a sticky note once the markup carries note text would
+// promise a smaller deletion than the one that happens.
 function resolveMarkupDeleteLabel(comment: IContextMenuDeleteComment, labels: IContextMenuDeleteLabels) {
-    if (comment.text.trim().length > 0) {
-        return null;
-    }
-
     const labelKey = MARKUP_DELETE_LABEL_BY_SUBTYPE[normalizeCommentSubtype(comment)];
     return labelKey ? labels[labelKey] : null;
 }
@@ -62,10 +61,9 @@ export function resolveContextMenuDeleteActionLabel(
         return markupLabel;
     }
 
-    const isExplicitNote = comment.annotationKind === 'note'
-        || comment.hasNote === true
-        || subtype === 'popup'
-        || subtype === 'text';
+    const isExplicitNote = comment.annotationKind
+        ? comment.annotationKind === 'note'
+        : comment.hasNote === true || subtype === 'popup' || subtype === 'text';
     return isExplicitNote ? labels.deleteStickyNote : labels.deleteAnnotation;
 }
 

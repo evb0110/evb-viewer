@@ -49,6 +49,7 @@ describe('deleteAnnotationById', () => {
             uid: 'note-2',
         });
         const remove = vi.fn();
+        const discardHostedNote = vi.fn();
 
         const deleted = deleteAnnotationById(
             [
@@ -57,12 +58,55 @@ describe('deleteAnnotationById', () => {
             ],
             annotationIdForSummary(target),
             remove,
+            discardHostedNote,
         );
 
         expect(deleted).toBe(true);
         expect(remove).toHaveBeenCalledTimes(1);
         expect(remove).toHaveBeenCalledWith(target);
+        expect(discardHostedNote).not.toHaveBeenCalled();
         expect(BrowserLogger.warn).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        {
+            annotationKind: 'text-markup' as const,
+            subtype: 'highlight',
+        },
+        {
+            annotationKind: 'text-box' as const,
+            subtype: 'freetext',
+        },
+        {subtype: 'Underline'},
+    ])('discards only the note when $subtype hosts it', (overrides) => {
+        const target = createComment(overrides);
+        const remove = vi.fn();
+        const discardHostedNote = vi.fn();
+
+        const deleted = deleteAnnotationById(
+            [target],
+            annotationIdForSummary(target),
+            remove,
+            discardHostedNote,
+        );
+
+        expect(deleted).toBe(true);
+        expect(remove).not.toHaveBeenCalled();
+        expect(discardHostedNote).toHaveBeenCalledWith(target);
+    });
+
+    it('removes a sticky note, which is its own annotation', () => {
+        const target = createComment({
+            annotationKind: 'note',
+            subtype: 'text',
+        });
+        const remove = vi.fn();
+        const discardHostedNote = vi.fn();
+
+        deleteAnnotationById([target], annotationIdForSummary(target), remove, discardHostedNote);
+
+        expect(remove).toHaveBeenCalledWith(target);
+        expect(discardHostedNote).not.toHaveBeenCalled();
     });
 
     it('reports a stale note-window delete instead of removing an unrelated comment', () => {
@@ -72,6 +116,7 @@ describe('deleteAnnotationById', () => {
             [createComment()],
             'annotation-that-left-the-projection',
             remove,
+            vi.fn(),
         );
 
         expect(deleted).toBe(false);
@@ -88,7 +133,7 @@ describe('deleteAnnotationById', () => {
     });
 
     it('reports an empty projection without throwing', () => {
-        expect(() => deleteAnnotationById([], 'missing-annotation', vi.fn())).not.toThrow();
+        expect(() => deleteAnnotationById([], 'missing-annotation', vi.fn(), vi.fn())).not.toThrow();
         expect(BrowserLogger.warn).toHaveBeenCalledTimes(1);
     });
 });

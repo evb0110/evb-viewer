@@ -324,6 +324,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isAnyAnnotationNoteSaving,
         persistAllAnnotationNotes,
         closeAllAnnotationNotes,
+        discardAnnotationNote,
         openAnnotationNoteWindow,
         removeAnnotationNoteWindow,
         setAnnotationNoteWindowError,
@@ -1156,6 +1157,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                     annotationComments.value,
                     annotationId,
                     annotationActions.handleDeleteAnnotationComment,
+                    () => discardAnnotationNote(annotationId),
                 );
                 if (!requested) {
                     setAnnotationNoteWindowError(annotationId, t('errors.annotation.delete'));

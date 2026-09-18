@@ -74,7 +74,9 @@ function getNoteMarkerRect(note: IAnnotationNoteWindowEntry) {
 }
 
 function resolveKnownFloatingEligibility(note: IAnnotationNoteWindowEntry, subtype: string) {
-    if (isTextMarkupSubtype(note.subtype) && note.hasNote) {
+    // A minimized window is what the indicator stands for, so a markup keeps
+    // it while its note text is empty.
+    if (isTextMarkupSubtype(note.subtype)) {
         return true;
     }
     if (INLINE_NOTE_SUBTYPES.has(subtype)) {

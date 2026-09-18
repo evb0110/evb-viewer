@@ -1134,6 +1134,40 @@ describe('useAnnotationNoteWindows', () => {
             vi.useRealTimers();
         });
 
+        it('discards a hosted note by saving empty text and then closing its window', async () => {
+            const {
+                deps,
+                settleRequest,
+                windows,
+            } = createClosingHarness();
+
+            const discarding = windows.discardAnnotationNote(noteId);
+            await nextTick();
+
+            expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(1);
+            expect(deps.updateAnnotationCommentInViewer).toHaveBeenLastCalledWith(noteId, '');
+            expect(windows.findAnnotationNoteWindow(noteId)).not.toBeNull();
+
+            await settleRequest(0, true);
+            await discarding;
+
+            expect(windows.findAnnotationNoteWindow(noteId)).toBeNull();
+        });
+
+        it('keeps the window and its error when discarding a hosted note fails to save', async () => {
+            const {
+                settleRequest,
+                windows,
+            } = createClosingHarness();
+
+            const discarding = windows.discardAnnotationNote(noteId);
+            await nextTick();
+            await settleRequest(0, false);
+            await discarding;
+
+            expect(windows.findAnnotationNoteWindow(noteId)?.error).toBeTruthy();
+        });
+
         it('keeps a note reopened under the same id while a single close drains the old save', async () => {
             const {
                 deps,
