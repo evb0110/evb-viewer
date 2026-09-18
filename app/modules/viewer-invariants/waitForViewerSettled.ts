@@ -6,6 +6,8 @@ const INPUT_QUIET_MS = 500;
 const DEFAULT_SETTLE_TIMEOUT_MS = 6_000;
 const PAGE_TRACK_SELECTOR = '[data-pdf-page-track]';
 const PAGE_SKELETON_SELECTOR = '.document-page-skeleton';
+const VIEWPORT_SELECTOR = '[data-document-viewer-chassis-viewport], #pdf-viewer';
+const VISIBLE_PAGE_SELECTOR = '.page_container[data-page]:not(.page_container--buffered)';
 
 export interface IViewerSettleOutcome {
     /** Null when settled; otherwise the condition that never became true. */
@@ -16,9 +18,9 @@ export interface IViewerSettleOutcome {
 
 export interface IViewerSettleOptions {
     /**
-     * Requires a `navigation-idle` automation event after the wait started.
-     * Off by default because the event only follows a page report and a plain
-     * dev session never publishes it at all. A caller that just drove a
+     * Requires a `navigation-idle` automation event no older than the last
+     * input. Off by default because the event only follows a page report and a
+     * plain dev session never publishes it at all. A caller that just drove a
      * navigation turns it on, and then a missing event is a settle failure
      * rather than an unnoticed race.
      */
@@ -30,23 +32,58 @@ function nextAnimationFrame() {
     return new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
 }
 
-function latestAutomationEventId() {
-    return getAutomationEvents().at(-1)?.id ?? 0;
+/**
+ * The navigation the last input asked for has reported idle. Anchoring on the
+ * input rather than on the start of the wait keeps the condition true for a
+ * caller that already waited for its own scroll to come to rest.
+ */
+function hasNavigationIdleSinceLastInput() {
+    const lastInputAt = readLastViewerInputAt();
+    return getAutomationEvents().some(event => (
+        event.type === 'navigation-idle' && event.timestamp >= lastInputAt
+    ));
 }
 
-function hasNavigationIdleAfter(eventId: number) {
-    return getAutomationEvents().some(event => event.type === 'navigation-idle' && event.id > eventId);
-}
-
-function isPageRenderQuiet() {
+/**
+ * Page render completion, kept separate from UI readiness. A skeleton element
+ * stays mounted for a page the viewer is not currently showing, so only a
+ * painted skeleton inside a page that intersects the viewport means the viewer
+ * is still resolving what the reader sees.
+ */
+function findPageRenderPending() {
     const track = document.querySelector<HTMLElement>(PAGE_TRACK_SELECTOR);
-    if (!track) {
-        return false;
+    const viewport = document.querySelector<HTMLElement>(VIEWPORT_SELECTOR);
+    if (!track || !viewport) {
+        return 'the viewer has no page track';
     }
     if (track.classList.contains('pdfViewer--resize-transition')) {
-        return false;
+        return 'the page track was mid-resize';
     }
-    return track.querySelector(PAGE_SKELETON_SELECTOR) === null;
+    const viewportRect = viewport.getBoundingClientRect();
+    const pending = [...track.querySelectorAll<HTMLElement>(VISIBLE_PAGE_SELECTOR)]
+        .filter((container) => {
+            const rect = container.getBoundingClientRect();
+            return rect.bottom > viewportRect.top
+                && rect.top < viewportRect.bottom
+                && rect.right > viewportRect.left
+                && rect.left < viewportRect.right;
+        })
+        .filter((container) => {
+            const skeleton = container.querySelector<HTMLElement>(PAGE_SKELETON_SELECTOR);
+            if (!skeleton) {
+                return false;
+            }
+            const style = window.getComputedStyle(skeleton);
+            const rect = skeleton.getBoundingClientRect();
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') !== 0
+                && rect.width > 0
+                && rect.height > 0;
+        });
+    return pending.length > 0
+        ? `${String(pending.length)} visible pages were still showing a skeleton`
+        : null;
 }
 
 /**
@@ -64,7 +101,6 @@ export async function waitForViewerSettled(
     const timeoutMs = options.timeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
     const requireNavigationIdle = options.requireNavigationIdle ?? false;
     const startedAt = Date.now();
-    const baselineEventId = latestAutomationEventId();
     let lastPending = 'the wait never sampled a frame';
 
     while (Date.now() - startedAt < timeoutMs) {
@@ -74,12 +110,13 @@ export async function waitForViewerSettled(
             lastPending = `input was still arriving ${String(quietForMs)}ms ago`;
             continue;
         }
-        if (!isPageRenderQuiet()) {
-            lastPending = 'pages were still laying out';
+        const pageRenderPending = findPageRenderPending();
+        if (pageRenderPending) {
+            lastPending = pageRenderPending;
             continue;
         }
-        if (requireNavigationIdle && !hasNavigationIdleAfter(baselineEventId)) {
-            lastPending = 'no navigation-idle event arrived after the wait began';
+        if (requireNavigationIdle && !hasNavigationIdleSinceLastInput()) {
+            lastPending = 'no navigation-idle event followed the last input';
             continue;
         }
         return {

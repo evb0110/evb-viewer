@@ -76,6 +76,7 @@ const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/interopVpsAcceptance.e2e.test.ts',
     'tests/e2e/electron/stampPicker.e2e.test.ts',
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
+    'tests/e2e/electron/viewerInvariantJourney.e2e.test.ts',
 ];
 
 // project8RecoveryCloseAcceptance is deliberately absent. It belongs to the
