@@ -75,6 +75,7 @@ import {
     type ICreatePdfAnnotationSelectionMarkupRequest,
 } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSelectionMarkup';
 import { createPdfAnnotationEditorCompatibility } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationEditorCompatibility';
+import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
 import {
     createAnnotationCreationFailureReporter,
@@ -804,7 +805,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             event.preventDefault();
             event.stopPropagation();
             setActiveSummary(comment);
-            if (comment.subtype === 'Text' || comment.hasNote === true) {
+            // The sidebar and the context menu offer a note on the same
+            // rule. A markup whose note was cleared still takes a new one.
+            if (isNoteEligibleComment(comment)) {
                 emitAnnotationOpenNoteWithReconciliation(comment);
             } else {
                 options.emitAnnotationCommentClick(comment);

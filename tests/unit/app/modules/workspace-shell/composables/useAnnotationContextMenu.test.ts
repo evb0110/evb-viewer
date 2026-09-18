@@ -63,6 +63,24 @@ describe('annotation context menu delete labels', () => {
             expect(resolveContextMenuDeleteActionLabel(
                 {
                     annotationKind: 'text-markup',
+                    text: 'a note carried by the highlight',
+                    subtype: 'highlight',
+                    hasNote: true,
+                },
+                labels,
+            )).toBe(messages.contextMenu.deleteHighlight);
+            expect(resolveContextMenuDeleteActionLabel(
+                {
+                    annotationKind: 'shape',
+                    text: 'a note carried by the shape',
+                    subtype: 'rectangle',
+                    hasNote: true,
+                },
+                labels,
+            )).toBe(messages.contextMenu.deleteAnnotation);
+            expect(resolveContextMenuDeleteActionLabel(
+                {
+                    annotationKind: 'text-markup',
                     text: '',
                     subtype: 'underline',
                 },
