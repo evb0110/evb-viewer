@@ -67,7 +67,7 @@ for (const loader of loaders) {
     mkdirSync(dirname(destination), { recursive: true });
     let present = false;
     try { lstatSync(destination); present = true; } catch (error) {
-        if (error.code !== 'ENOENT') { throw error; }
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') { throw error; }
     }
     if (present) {
         if (realpathSync(destination) !== realpathSync(canonical)) {
