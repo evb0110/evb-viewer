@@ -1,0 +1,19 @@
+scripts/build-warning-allowlist.json
+  s_d72c1616b49563::t_bed6cbbc721921 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "14f265f88c789197b41e3e450c5550718abe2f9f",
+  "prompts": {},
+  "sessions": {
+    "s_d72c1616b49563": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de5a4c81-f158-4f0a-9813-7bbc8c30e9fb",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
