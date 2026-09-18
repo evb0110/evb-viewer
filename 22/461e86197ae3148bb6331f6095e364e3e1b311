@@ -1,0 +1,23 @@
+tests/e2e/electron/flingNavigationHandoff.e2e.test.ts
+  s_ecea10291e4b09::t_2fc89be55922a7 344-348
+  s_ecea10291e4b09::t_796b78560f9cf9 58
+  s_ecea10291e4b09::t_189318635757e5 148-151,153
+  s_ecea10291e4b09::t_e81a4017a4d492 164
+  s_ecea10291e4b09::t_c68bab86df1777 366-369
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "22461e86197ae3148bb6331f6095e364e3e1b311",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
