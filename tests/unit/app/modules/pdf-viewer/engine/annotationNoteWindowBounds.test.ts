@@ -7,6 +7,11 @@ import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
 import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
 import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
+import {
+    captureAnnotationNoteWindowPageAnchor,
+    resolveAnnotationNoteWindowClipPath,
+    resolveAnnotationNoteWindowPagePosition,
+} from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowPageAnchor';
 
 const PDF_VIEWER_BOUNDS: IAnnotationNoteWindowBounds = {
     left: 40,
@@ -67,5 +72,38 @@ describe('annotationNoteWindowBounds', () => {
             width: 194,
             height: 174,
         });
+    });
+
+    it('carries a floating note with its page through scroll and zoom', () => {
+        const anchor = captureAnnotationNoteWindowPageAnchor(300, 400, {
+            left: 200,
+            top: 300,
+            width: 800,
+            height: 1000,
+        });
+
+        expect(resolveAnnotationNoteWindowPagePosition(anchor, {
+            left: 200,
+            top: -2700,
+            width: 800,
+            height: 1000,
+        })).toEqual({
+            x: 300,
+            y: -2600,
+        });
+        expect(resolveAnnotationNoteWindowPagePosition(anchor, {
+            left: 400,
+            top: 300,
+            width: 400,
+            height: 500,
+        })).toEqual({
+            x: 450,
+            y: 350,
+        });
+    });
+
+    it('clips a floating note scrolled past the PDF viewer top edge', () => {
+        expect(resolveAnnotationNoteWindowClipPath(56, 120, 380, 360, PDF_VIEWER_BOUNDS))
+            .toBe('inset(100px -24px -24px -16px)');
     });
 });

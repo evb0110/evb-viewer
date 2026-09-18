@@ -71,6 +71,12 @@ import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
 import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
 import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
+import {
+    captureAnnotationNoteWindowPageAnchor,
+    resolveAnnotationNoteWindowClipPath,
+    resolveAnnotationNoteWindowPagePosition,
+    type IAnnotationNoteWindowPageAnchor,
+} from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowPageAnchor';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
@@ -130,6 +136,10 @@ const frameStartY = ref(0);
 const isDragging = ref(false);
 let initialFocusRepairFrame: number | null = null;
 const dragWindowTarget = shallowRef<Window | undefined>();
+const pageElement = shallowRef<HTMLElement | null>(null);
+const clipPath = ref<string | undefined>();
+let pageAnchor: IAnnotationNoteWindowPageAnchor | null = null;
+let isScrolledOut = false;
 
 function focusNote() {
     emit('focus');
@@ -179,6 +189,7 @@ const windowStyle = computed(() => ({
     minWidth: `${Math.min(NOTE_WINDOW.MIN_WIDTH, width.value)}px`,
     minHeight: `${Math.min(NOTE_WINDOW.MIN_HEIGHT, height.value)}px`,
     zIndex: String(zIndex),
+    clipPath: clipPath.value,
 }));
 const isPaneSizedPresentation = computed(() => (
     width.value < NOTE_WINDOW.MIN_WIDTH
@@ -242,14 +253,12 @@ function syncPosition(position: IAnnotationNotePosition | null) {
     width.value = nextSize.width;
     height.value = nextSize.height;
 
-    const clamped = clampPosition(
+    placeClamped(
         position?.x ?? offsetX.value,
         position?.y ?? offsetY.value,
         nextSize.width,
         nextSize.height,
     );
-    offsetX.value = clamped.x;
-    offsetY.value = clamped.y;
     return (
         previous.x !== offsetX.value
         || previous.y !== offsetY.value
@@ -318,6 +327,54 @@ function clampPosition(x: number, y: number, nextWidth: number, nextHeight: numb
     return clampAnnotationNoteWindowPosition(x, y, nextWidth, nextHeight, getWindowBounds());
 }
 
+function resolvePageRect() {
+    const current = pageElement.value;
+    if (!current?.isConnected || current.dataset.page !== String(pageNumber)) {
+        pageElement.value = boundsRoot?.querySelector<HTMLElement>(
+            `.page_container[data-page="${String(pageNumber)}"]`,
+        ) ?? null;
+    }
+    const rect = pageElement.value?.getBoundingClientRect();
+    return rect && rect.width > 0 && rect.height > 0 ? rect : null;
+}
+
+function refreshClipPath() {
+    const rootRect = boundsRoot?.getBoundingClientRect();
+    clipPath.value = rootRect && rootRect.width > 0 && rootRect.height > 0
+        ? resolveAnnotationNoteWindowClipPath(offsetX.value, offsetY.value, width.value, height.value, rootRect)
+        : undefined;
+}
+
+// Every user-driven placement lands inside the viewer and becomes the spot the
+// window keeps on its page.
+function placeClamped(x: number, y: number, nextWidth: number, nextHeight: number) {
+    const clamped = clampPosition(x, y, nextWidth, nextHeight);
+    offsetX.value = clamped.x;
+    offsetY.value = clamped.y;
+    isScrolledOut = false;
+    const pageRect = resolvePageRect();
+    pageAnchor = pageRect ? captureAnnotationNoteWindowPageAnchor(clamped.x, clamped.y, pageRect) : null;
+    refreshClipPath();
+}
+
+// Scroll and zoom move the page, and the window goes with it, unclamped. The
+// stored position stays where the user left it, so restoring a note reopens it in view.
+function followPage() {
+    if (isDragging.value) {
+        return;
+    }
+    const pageRect = pageAnchor ? resolvePageRect() : null;
+    if (!pageAnchor || !pageRect) {
+        return;
+    }
+    const next = resolveAnnotationNoteWindowPagePosition(pageAnchor, pageRect);
+    const clamped = clampPosition(next.x, next.y, width.value, height.value);
+    isScrolledOut = clamped.x !== next.x || clamped.y !== next.y;
+    offsetX.value = next.x;
+    offsetY.value = next.y;
+    refreshClipPath();
+}
+
 function handlePointerMove(event: MouseEvent) {
     if (!isDragging.value) {
         return;
@@ -325,10 +382,7 @@ function handlePointerMove(event: MouseEvent) {
 
     const nextX = frameStartX.value + (event.clientX - dragStartX.value);
     const nextY = frameStartY.value + (event.clientY - dragStartY.value);
-    const clamped = clampPosition(nextX, nextY, width.value, height.value);
-
-    offsetX.value = clamped.x;
-    offsetY.value = clamped.y;
+    placeClamped(nextX, nextY, width.value, height.value);
     emitPositionUpdate();
 }
 
@@ -369,9 +423,11 @@ function handleViewportResize() {
     const clampedSize = clampSize(width.value, height.value);
     width.value = clampedSize.width;
     height.value = clampedSize.height;
-    const clampedPosition = clampPosition(offsetX.value, offsetY.value, clampedSize.width, clampedSize.height);
-    offsetX.value = clampedPosition.x;
-    offsetY.value = clampedPosition.y;
+    if (isScrolledOut) {
+        followPage();
+        return;
+    }
+    placeClamped(offsetX.value, offsetY.value, clampedSize.width, clampedSize.height);
     if (positionChanged(previous)) {
         emitPositionUpdate();
     }
@@ -402,6 +458,8 @@ useEventListener(
 );
 useEventListener(dragWindowTarget, 'mousemove', noteDragMove.schedule);
 useEventListener(dragWindowTarget, 'mouseup', stopDrag);
+useEventListener(boundsRootElement, 'scroll', followPage, { passive: true });
+useResizeObserver(pageElement, followPage);
 
 useResizeObserver(noteWindowRef, (entries) => {
     const entry = entries[0];
@@ -416,9 +474,11 @@ useResizeObserver(noteWindowRef, (entries) => {
     const previous = getCurrentPosition();
     width.value = nextSize.width;
     height.value = nextSize.height;
-    const clampedPosition = clampPosition(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
-    offsetX.value = clampedPosition.x;
-    offsetY.value = clampedPosition.y;
+    if (isScrolledOut) {
+        refreshClipPath();
+        return;
+    }
+    placeClamped(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
     if (positionChanged(previous)) {
         emitPositionUpdate();
     }
