@@ -1,0 +1,42 @@
+tests/integration/browser/annotationCommentRowScale.test.ts
+  s_c217d94211cb3e::t_0aeeba69cb559f 14,31,170-203,205-222,224-231,233-240
+  s_c217d94211cb3e::t_6e0ef8fc9b487a 223,232
+  s_097971b99ad78b::t_4320b55a7d218d 204
+app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue
+  s_c217d94211cb3e::t_6e0ef8fc9b487a 933-935
+  s_c217d94211cb3e::t_edad85d9cd1f9c 824
+  s_c217d94211cb3e::t_f8824241bd0df2 771,774,779,785-787,823,833,918,924-931
+  s_5fc578ce506341::t_f630225a329069 932
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bfc53d9871118b2fb1d936272185c45e83868152",
+  "prompts": {},
+  "sessions": {
+    "s_097971b99ad78b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1ed66692-2740-4768-a312-d3a2e4083034",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_5fc578ce506341": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2e5-6605-7a23-8a43-d0f2b2f6a95e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c217d94211cb3e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2cc-3f8d-7400-b42d-7f7e4e46807f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
