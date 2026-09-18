@@ -1,0 +1,19 @@
+app/modules/pdf-viewer/components/PdfContextMenuBase.vue
+  s_3e9391449815ef::t_a97b88de6d946e 14-15,22,58,63,74-98,139-142,154-158,294-298,320-321,334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7d71cdfddf174df05e74af2af239e1b5a1acc883",
+  "prompts": {},
+  "sessions": {
+    "s_3e9391449815ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ce1eb715-1ce7-4b9d-a236-6281392507ed",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
