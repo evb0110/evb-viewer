@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_c4516e6bd07ba1::t_5b3eac70caddcb 431
+  s_c4516e6bd07ba1::t_528a79a27aef6e 443-456
+  s_c4516e6bd07ba1::t_9455010641d077 42
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_c4516e6bd07ba1::t_f93e7ba58b9731 338-339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4fb4de07fd204b968ac98123642efd45b237a911",
+  "prompts": {},
+  "sessions": {
+    "s_c4516e6bd07ba1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d419ea80-167c-456e-9e7f-3baf2f744ed5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

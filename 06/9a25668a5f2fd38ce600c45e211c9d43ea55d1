@@ -1,0 +1,23 @@
+tests/unit/app/modules/pdf-viewer/engine/annotationNoteWindowBounds.test.ts
+  s_f909d8ce231c33::t_9ec80c2873d8c9 10-14,76-108
+app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue
+  s_f909d8ce231c33::t_394572adbc3bf4 74-79,139-142,192,256,330-377,385,426-430,461-462,477-481
+app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowPageAnchor.ts
+  s_f909d8ce231c33::t_3ec51692f235bb 1-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "069a25668a5f2fd38ce600c45e211c9d43ea55d1",
+  "prompts": {},
+  "sessions": {
+    "s_f909d8ce231c33": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5194dd5d-c2b4-4578-9c93-008b134b9068",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
