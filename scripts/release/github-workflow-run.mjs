@@ -61,15 +61,17 @@ export function briefErrorMessage(error) {
     return errorMessage(error).split('\n')[0] ?? String(error);
 }
 
-/** @param {string} workflow @param {{runCommand?: TCommandRunner}} [options] @returns {IWorkflowRun[]} */
-export function listWorkflowRuns(workflow, {runCommand = run} = {}) {
+/** @param {string} workflow @param {{limit?: number, runCommand?: TCommandRunner}} [options] @returns {IWorkflowRun[]} */
+export function listWorkflowRuns(workflow, {
+    limit = 20, runCommand = run,
+} = {}) {
     const payload = runCommand('gh', [
         'run',
         'list',
         '--workflow',
         workflow,
         '--limit',
-        '20',
+        String(limit),
         '--json',
         'createdAt,databaseId,displayTitle,event,headBranch,headSha,name,status,conclusion,url,workflowName',
     ]);

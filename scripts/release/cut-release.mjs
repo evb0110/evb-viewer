@@ -45,6 +45,15 @@ import {
 
 const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
 const ARTIFACT_CANARY_WORKFLOW_FILE = 'release-artifacts.yml';
+// The extended push tier. gates_ok no longer aggregates the Electron
+// end-to-end suites, browser integration, native save or the packaged Linux
+// proof; they run here, so a candidate needs a completed successful run of
+// this workflow for its own SHA on top of a green gates_ok. Lanes the
+// changed-area classifier skipped inside that run count as success, exactly as
+// they do for gates_ok. Its runs are listed generously because supersession
+// cancels many of them.
+const EXTENDED_CI_WORKFLOW_FILE = 'ci-extended.yml';
+const EXTENDED_CI_RUN_LIST_LIMIT = 100;
 const CARRY_VERSION_ATTEMPTS = 5;
 const CARRY_VERSION_RETRY_DELAY_MS = 3_000;
 const PUSH_RACE_ERROR_PATTERN = /non-fast-forward|fetch first|\[rejected\]|stale info|missing from this checkout/iu;
@@ -75,6 +84,7 @@ const RELEASE_WORKTREE_DIRECTORY = '.devkit/release';
 /** @typedef {{
  *   artifactEvidence?: TArtifactEvidencePolicy | undefined,
  *   assertArtifactCanaryGreenFn?: (candidateSha: string, upstream: IUpstream, options?: {policy?: TArtifactEvidencePolicy, stderr?: IWritable | undefined}) => IArtifactCanaryEvidence,
+ *   assertExtendedCiGreenFn?: (candidateSha: string, upstream: IUpstream, options?: {stderr?: IWritable | undefined}) => IArtifactCanaryEvidence,
  *   assertCurrentReleaseIsNotDraftFn?: (tag: string) => void,
  *   assertGitHubCliReadyFn?: (context: string, options?: object) => Promise<void>,
  *   assertNodeBaselineFn?: (context: string) => void,
@@ -319,57 +329,70 @@ export function getArtifactEvidencePolicy(level, requestedPolicy) {
 }
 
 /** @param {IArtifactCanaryRun} runInfo @returns {string} */
-function getArtifactCanarySha(runInfo) {
+function getWorkflowRunSha(runInfo) {
     return runInfo.headSha ?? runInfo.head_sha ?? '';
 }
 
 /** @param {IArtifactCanaryRun} runInfo @returns {number} */
-function getArtifactCanaryId(runInfo) {
+function getWorkflowRunId(runInfo) {
     return runInfo.databaseId ?? runInfo.id ?? 0;
 }
 
 /** @param {IArtifactCanaryRun} runInfo @returns {string} */
-function getArtifactCanaryUrl(runInfo) {
-    return runInfo.url ?? runInfo.html_url ?? `run ${getArtifactCanaryId(runInfo)}`;
+function getWorkflowRunUrl(runInfo) {
+    return runInfo.url ?? runInfo.html_url ?? `run ${getWorkflowRunId(runInfo)}`;
 }
 
 /** @param {IArtifactCanaryRun} runInfo @returns {number} */
-function getArtifactCanarySortKey(runInfo) {
+function getWorkflowRunSortKey(runInfo) {
     const createdAt = Date.parse(String(runInfo.createdAt ?? ''));
-    return Number.isFinite(createdAt) ? createdAt : getArtifactCanaryId(runInfo);
+    return Number.isFinite(createdAt) ? createdAt : getWorkflowRunId(runInfo);
 }
 
 /** @param {IArtifactCanaryRun[]} runs @param {string} candidateSha @returns {IArtifactCanaryRun | null} */
-function findCandidateArtifactCanary(runs, candidateSha) {
+function findCandidateWorkflowRun(runs, candidateSha) {
     return runs
-        .filter(runInfo => getArtifactCanarySha(runInfo) === candidateSha)
-        .sort((left, right) => getArtifactCanarySortKey(left) - getArtifactCanarySortKey(right))
+        .filter(runInfo => getWorkflowRunSha(runInfo) === candidateSha)
+        .sort((left, right) => getWorkflowRunSortKey(left) - getWorkflowRunSortKey(right))
         .at(-1) ?? null;
 }
 
 /** @param {IArtifactCanaryRun} runInfo @returns {string} */
-function describeArtifactCanary(runInfo) {
-    return `run ${getArtifactCanaryId(runInfo)} (${getArtifactCanaryUrl(runInfo)})`;
+function describeWorkflowRun(runInfo) {
+    return `run ${getWorkflowRunId(runInfo)} (${getWorkflowRunUrl(runInfo)})`;
 }
 
 /** @param {IArtifactCanaryRun | null} runInfo @returns {boolean} */
-function isSatisfiedArtifactCanary(runInfo) {
+function isSatisfiedWorkflowRun(runInfo) {
     return runInfo?.status === 'completed' && runInfo.conclusion === 'success';
 }
 
 /**
- * Answers "does this commit have a green canary" for candidate selection.
- * The run list is fetched once per cut and shared across every candidate
- * the selection considers.
+ * Answers "does this commit have a completed successful run of this workflow"
+ * for candidate selection. The run list is fetched once per cut and shared
+ * across every candidate the selection considers.
  */
-/** @param {TCommandRunner} runCommand @returns {(sha: string) => boolean} */
-export function createArtifactEvidenceLookup(runCommand) {
+/** @param {string} workflowFile @param {TCommandRunner} runCommand @param {number} [limit] @returns {(sha: string) => boolean} */
+export function createWorkflowEvidenceLookup(workflowFile, runCommand, limit = 20) {
     /** @type {IArtifactCanaryRun[] | undefined} */
     let runs;
     return sha => {
-        runs ??= /** @type {IArtifactCanaryRun[]} */ (listWorkflowRuns(ARTIFACT_CANARY_WORKFLOW_FILE, {runCommand}));
-        return isSatisfiedArtifactCanary(findCandidateArtifactCanary(runs, sha));
+        runs ??= /** @type {IArtifactCanaryRun[]} */ (listWorkflowRuns(workflowFile, {
+            limit,
+            runCommand,
+        }));
+        return isSatisfiedWorkflowRun(findCandidateWorkflowRun(runs, sha));
     };
+}
+
+/** @param {TCommandRunner} runCommand @returns {(sha: string) => boolean} */
+export function createArtifactEvidenceLookup(runCommand) {
+    return createWorkflowEvidenceLookup(ARTIFACT_CANARY_WORKFLOW_FILE, runCommand);
+}
+
+/** @param {TCommandRunner} runCommand @returns {(sha: string) => boolean} */
+export function createExtendedCiEvidenceLookup(runCommand) {
+    return createWorkflowEvidenceLookup(EXTENDED_CI_WORKFLOW_FILE, runCommand, EXTENDED_CI_RUN_LIST_LIMIT);
 }
 
 /**
@@ -388,10 +411,10 @@ export function assertArtifactCanaryGreen(candidateSha, upstream, runCommand, {
         throw new Error(`Unsupported artifact evidence policy "${policy}"`);
     }
     const runs = /** @type {IArtifactCanaryRun[]} */ (listWorkflowRuns(ARTIFACT_CANARY_WORKFLOW_FILE, {runCommand}));
-    const matching = findCandidateArtifactCanary(runs, candidateSha);
-    if (matching && isSatisfiedArtifactCanary(matching)) {
+    const matching = findCandidateWorkflowRun(runs, candidateSha);
+    if (matching && isSatisfiedWorkflowRun(matching)) {
         stderr.write(
-            `Artifact canary satisfied for candidate ${candidateSha}: ${describeArtifactCanary(matching)}.\n`,
+            `Artifact canary satisfied for candidate ${candidateSha}: ${describeWorkflowRun(matching)}.\n`,
         );
         return {
             run: matching,
@@ -404,7 +427,7 @@ export function assertArtifactCanaryGreen(candidateSha, upstream, runCommand, {
     let detail = `no ${ARTIFACT_CANARY_WORKFLOW_FILE} run has head_sha ${candidateSha} on ${upstream.ref}`;
     if (matching) {
         state = matching.status === 'completed' ? 'failed' : 'running';
-        detail = `${describeArtifactCanary(matching)} is ${matching.status ?? 'in an unknown state'}`
+        detail = `${describeWorkflowRun(matching)} is ${matching.status ?? 'in an unknown state'}`
             + (matching.status === 'completed' ? ` with conclusion '${matching.conclusion ?? 'missing'}'` : '');
     }
 
@@ -435,6 +458,58 @@ export function assertArtifactCanaryGreen(candidateSha, upstream, runCommand, {
 }
 
 /**
+ * The extended tier is not optional evidence: it holds the only Electron
+ * end-to-end, browser integration, native save and packaged Linux proofs the
+ * repository has, and `cancel-in-progress` means many commits carry a
+ * cancelled run rather than a verdict. A cancelled run is repaired by rerunning
+ * it, which keeps the same head SHA, so the message hands back that command
+ * the way the artifact canary hands back its dispatch command.
+ */
+/** @param {string} candidateSha @param {IUpstream} upstream @param {TCommandRunner} runCommand @param {{stderr?: IWritable | undefined}} [options] @returns {IArtifactCanaryEvidence} */
+export function assertExtendedCiGreen(candidateSha, upstream, runCommand, {stderr = {write: chunk => process.stderr.write(chunk)}} = {}) {
+    const runs = /** @type {IArtifactCanaryRun[]} */ (listWorkflowRuns(EXTENDED_CI_WORKFLOW_FILE, {
+        limit: EXTENDED_CI_RUN_LIST_LIMIT,
+        runCommand,
+    }));
+    const matching = findCandidateWorkflowRun(runs, candidateSha);
+    if (matching && isSatisfiedWorkflowRun(matching)) {
+        stderr.write(
+            `Extended CI satisfied for candidate ${candidateSha}: ${describeWorkflowRun(matching)}.\n`,
+        );
+        return {
+            run: matching,
+            state: 'satisfied',
+        };
+    }
+
+    /** @type {'missing' | 'running' | 'failed'} */
+    let state = 'missing';
+    let detail = `no ${EXTENDED_CI_WORKFLOW_FILE} run has head_sha ${candidateSha}`;
+    if (matching) {
+        state = matching.status === 'completed' ? 'failed' : 'running';
+        detail = `${describeWorkflowRun(matching)} is ${matching.status ?? 'in an unknown state'}`
+            + (matching.status === 'completed' ? ` with conclusion '${matching.conclusion ?? 'missing'}'` : '');
+    }
+
+    const nextAction = state === 'missing'
+        ? ` Next action: dispatch one with \`gh workflow run ${EXTENDED_CI_WORKFLOW_FILE} --ref ${upstream.branch}\``
+            + ` while ${candidateSha} is the tip of ${upstream.branch}, or cut a newer candidate that has one.`
+        : state === 'running'
+            ? ' Next action: wait for that run to finish, then rerun the cut.'
+            : matching?.conclusion === 'cancelled'
+                ? ' Next action: a newer push superseded it, so it carries no verdict; re-run it with '
+                    + `\`gh run rerun ${getWorkflowRunId(matching)}\` and rerun the cut once it is green.`
+                : ' Next action: fix that failure with a new commit and cut from the new candidate.';
+    throw new Error(
+        `Extended CI evidence missing for candidate ${candidateSha}: ${detail}.`
+        + ` Only a completed successful ${EXTENDED_CI_WORKFLOW_FILE} run whose head_sha equals the candidate is`
+        + ' accepted; it carries the Electron end-to-end, browser integration, native save and packaged Linux'
+        + ' proofs that gates_ok does not.'
+        + nextAction,
+    );
+}
+
+/**
  * The newest commit on main whose own push CI run succeeded with a green
  * gates_ok aggregate. This is what the release is built from. Main itself
  * has no owner of green: with dozens of pushes a day the tip is usually
@@ -442,16 +517,18 @@ export function assertArtifactCanaryGreen(candidateSha, upstream, runCommand, {
  * against the next push. A verified ancestor is always available and never
  * moves.
  *
- * When artifact evidence is mandatory, `hasArtifactEvidenceFn` narrows the
- * choice further to the newest green commit that already has a successful
- * exact-SHA artifact canary: the release ships what was packaged and smoke
- * tested, not whatever landed since. Only when no green commit has a canary
- * does the newest green commit come back, so the canary check can name it
- * and the dispatch command that would qualify it.
+ * Evidence lookups narrow the choice further to the newest green commit that
+ * also has the proofs gates_ok does not contain: `hasExtendedCiFn` for the
+ * extended push tier, and `hasArtifactEvidenceFn` for the exact-SHA artifact
+ * canary when artifact evidence is mandatory. The release ships what was
+ * fully proved, not whatever landed since. Only when no green commit has all
+ * of it does the newest green commit come back, so the checks below can name
+ * it and the command that would qualify it.
  */
-/** @param {IUpstream} upstream @param {{hasArtifactEvidenceFn?: (sha: string) => boolean, isAncestorFn?: (ancestorSha: string, descendantRef: string) => boolean, listRunsFn?: (runCommand: TCommandRunner) => ICiRun[], readGatesFn?: (runId: number, runCommand: TCommandRunner) => string | undefined, requiredCommits?: string[], runCommand?: TCommandRunner}} [options] @returns {IReleaseCandidate} */
+/** @param {IUpstream} upstream @param {{hasArtifactEvidenceFn?: (sha: string) => boolean, hasExtendedCiFn?: (sha: string) => boolean, isAncestorFn?: (ancestorSha: string, descendantRef: string) => boolean, listRunsFn?: (runCommand: TCommandRunner) => ICiRun[], readGatesFn?: (runId: number, runCommand: TCommandRunner) => string | undefined, requiredCommits?: string[], runCommand?: TCommandRunner}} [options] @returns {IReleaseCandidate} */
 export function selectReleaseCandidate(upstream, {
     hasArtifactEvidenceFn,
+    hasExtendedCiFn,
     isAncestorFn,
     listRunsFn = listSuccessfulMainPushRuns,
     readGatesFn = readGatesOkConclusion,
@@ -467,8 +544,8 @@ export function selectReleaseCandidate(upstream, {
     /** @type {string[]} */
     const rejected = [];
     /**
-     * Green runs on main without a successful artifact canary, newest first.
-     * Their gates are read only when no canary-backed commit qualifies.
+     * Green runs on main missing some release evidence, newest first. Their
+     * gates are read only when no fully evidenced commit qualifies.
      * @type {ICiRun[]}
      */
     const untestedRuns = [];
@@ -497,6 +574,10 @@ export function selectReleaseCandidate(upstream, {
         }
         if (!isAncestor(sha, upstream.ref)) {
             rejected.push(`${sha.slice(0, 9)} is not on ${upstream.ref}`);
+            continue;
+        }
+        if (hasExtendedCiFn && !hasExtendedCiFn(sha)) {
+            untestedRuns.push(runInfo);
             continue;
         }
         if (hasArtifactEvidenceFn && !hasArtifactEvidenceFn(sha)) {
@@ -540,11 +621,11 @@ export function selectReleaseCandidate(upstream, {
                 + `(ci.yml run ${matching.run.id}, ${matching.run.html_url ?? `run ${matching.run.id}`}), `
                 + 'but the selected newest green candidate is not that commit.'
             : newestUntestedWithRequired
-                ? ` No green candidate with a successful ${ARTIFACT_CANARY_WORKFLOW_FILE} canary contains every `
-                    + `required commit yet. The newest green candidate that does is ${newestUntestedWithRequired.sha} `
-                    + `(ci.yml run ${newestUntestedWithRequired.run.id}); dispatch its canary with `
-                    + `\`gh workflow run ${ARTIFACT_CANARY_WORKFLOW_FILE} --ref ${upstream.branch} `
-                    + `--field target_ref=${newestUntestedWithRequired.sha}\` and rerun once it is green.`
+                ? ` No green candidate with the required ${EXTENDED_CI_WORKFLOW_FILE} and `
+                    + `${ARTIFACT_CANARY_WORKFLOW_FILE} evidence contains every required commit yet. The newest `
+                    + `green candidate that does is ${newestUntestedWithRequired.sha} `
+                    + `(ci.yml run ${newestUntestedWithRequired.run.id}); the evidence check below names what it `
+                    + 'is missing and the command that qualifies it.'
                 : ' No green candidate in the available CI history contains every required commit yet.';
         throw new Error(
             `Selected green release candidate ${selected.sha} (${selectedRun}) does not contain required commit(s): `
@@ -553,8 +634,8 @@ export function selectReleaseCandidate(upstream, {
     }
 
     if (newestUntestedWithRequired) {
-        // No green commit has a canary. Hand back the newest green commit so
-        // the canary check names it and its dispatch command.
+        // No green commit has every piece of evidence. Hand back the newest
+        // green commit so the evidence checks name it and their commands.
         return newestUntestedWithRequired;
     }
 
@@ -662,6 +743,7 @@ export async function assertReleaseCutPreconditions(options = {}) {
             ...artifactEvidencePolicy === 'mandatory'
                 ? {hasArtifactEvidenceFn: createArtifactEvidenceLookup(runCommand)}
                 : {},
+            hasExtendedCiFn: createExtendedCiEvidenceLookup(runCommand),
             isAncestorFn,
             runCommand,
             requiredCommits,
@@ -678,6 +760,14 @@ export async function assertReleaseCutPreconditions(options = {}) {
             upstream,
             runCommand,
             artifactOptions,
+        )
+    );
+    const assertExtendedCiGreenFn = options.assertExtendedCiGreenFn ?? (
+        (candidateSha, upstream, extendedOptions) => assertExtendedCiGreen(
+            candidateSha,
+            upstream,
+            runCommand,
+            extendedOptions,
         )
     );
     const assertCurrentReleaseIsNotDraftFn = options.assertCurrentReleaseIsNotDraftFn ?? (
@@ -713,6 +803,11 @@ export async function assertReleaseCutPreconditions(options = {}) {
             policy: artifactEvidencePolicy,
             stderr: options.stderr,
         };
+    assertExtendedCiGreenFn(
+        candidate.sha,
+        upstream,
+        options.stderr === undefined ? {} : {stderr: options.stderr},
+    );
     assertArtifactCanaryGreenFn(candidate.sha, upstream, artifactEvidenceOptions);
     const nextVersion = bumpVersion(currentVersion, level);
     const nextTag = `v${nextVersion}`;

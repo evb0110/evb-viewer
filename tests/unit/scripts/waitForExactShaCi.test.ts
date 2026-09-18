@@ -9,6 +9,7 @@ import {
     EXACT_SHA_CI_COMPLETION_TIMEOUT_MS,
     findLatestMatchingRun,
     listSuccessfulMainPushRuns,
+    REQUIRED_CI_TIERS,
     waitForExactShaCiGates,
 } from '@scripts/release/wait-for-exact-sha-ci.mjs';
 
@@ -96,6 +97,7 @@ function createParentVerificationHarness({
     ].join('\n'),
     parentObjectMissing = false,
     parentRunMissing = false,
+    extendedConclusion = 'success',
 } = {}) {
     let now = 0;
     let parentLookupAttempts = 0;
@@ -109,7 +111,7 @@ function createParentVerificationHarness({
             }
             if (spec.includes(`head_sha=${PARENT_SHA}`)) {
                 return JSON.stringify({workflow_runs: [{
-                    conclusion: parentConclusion,
+                    conclusion: spec.includes('ci-extended.yml') ? extendedConclusion : parentConclusion,
                     event: parentEvent,
                     head_branch: 'main',
                     head_sha: PARENT_SHA,
@@ -153,9 +155,130 @@ function createParentVerificationHarness({
     };
 }
 
+/**
+ * Scripts each push tier separately, so a green required verdict can be paired
+ * with an extended run in any state.
+ */
+function createTierHarness(required: IScriptedMinute, extended: IScriptedMinute) {
+    let now = 0;
+    const workflowLookups: string[] = [];
+    const runFor = (frame: IScriptedMinute, workflow: string, id: number) => {
+        if (frame.status === 'absent') {
+            return JSON.stringify({workflow_runs: []});
+        }
+        return JSON.stringify({workflow_runs: [{
+            conclusion: frame.status === 'completed' ? frame.conclusion ?? 'success' : null,
+            event: frame.event ?? 'push',
+            head_branch: 'main',
+            head_sha: TARGET_SHA,
+            html_url: `https://github.com/evb0110/evb-viewer/actions/runs/${id}`,
+            id,
+            run_number: 7,
+            status: frame.status,
+            workflow,
+        }]});
+    };
+    const runCommand = (command: string, args: string[]) => {
+        const spec = args.join(' ');
+        if (command === 'git' && spec.includes('rev-parse --verify --quiet')) {
+            return PARENT_SHA;
+        }
+        if (command === 'git' && spec.includes('diff --numstat')) {
+            return '5\t5\tsrc/feature.ts\n';
+        }
+        if (command === 'git' && spec.includes('fetch --depth=2')) {
+            return '';
+        }
+        if (spec.includes('/runs?head_sha=')) {
+            const workflow = spec.includes('ci-extended.yml') ? 'ci-extended.yml' : 'ci.yml';
+            workflowLookups.push(workflow);
+            return workflow === 'ci-extended.yml'
+                ? runFor(extended, workflow, 515151)
+                : runFor(required, workflow, 424242);
+        }
+        if (spec.includes('/jobs?per_page=100')) {
+            return required.gatesOk ?? '';
+        }
+        throw new Error(`Unexpected command in tier harness: ${spec}`);
+    };
+    return {
+        nowFn: () => now,
+        runCommand,
+        sleepFn: async (duration: number) => {
+            now += duration;
+        },
+        stderr: {write: () => true},
+        workflowLookups,
+    };
+}
+
+const GREEN_REQUIRED: IScriptedMinute = {
+    conclusion: 'success',
+    gatesOk: 'success',
+    status: 'completed',
+};
+
 describe('waitForExactShaCiGates', () => {
     it('uses the short appearance window for parent verification', () => {
         expect(EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS).toBe(60_000);
+    });
+
+    // ci-extended.yml carries the Electron e2e, browser integration, native
+    // save and packaged Linux proofs that gates_ok no longer contains, so a
+    // release target needs both tiers green.
+    it('requires the extended tier as well as gates_ok on the release path', async () => {
+        const harness = createTierHarness(GREEN_REQUIRED, {
+            conclusion: 'success',
+            status: 'completed',
+        });
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness)).resolves.toEqual({
+            id: 424242,
+            url: 'https://github.com/evb0110/evb-viewer/actions/runs/424242',
+        });
+        expect(harness.workflowLookups).toContain('ci-extended.yml');
+    });
+
+    it('names the rerun command when supersession cancelled the extended run', async () => {
+        const harness = createTierHarness(GREEN_REQUIRED, {
+            conclusion: 'cancelled',
+            status: 'completed',
+        });
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness))
+            .rejects.toThrow(/extended CI run 515151 .*was cancelled.*gh run rerun 515151/su);
+    });
+
+    it('fails the release path when the extended tier concluded red', async () => {
+        const harness = createTierHarness(GREEN_REQUIRED, {
+            conclusion: 'failure',
+            status: 'completed',
+        });
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness))
+            .rejects.toThrow(/extended CI run 515151 .*concluded 'failure'/u);
+    });
+
+    it('waits for the required tier alone when only the push verdict is wanted', async () => {
+        const harness = createTierHarness(GREEN_REQUIRED, {
+            conclusion: 'failure',
+            status: 'completed',
+        });
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, {
+            ...harness,
+            tiers: REQUIRED_CI_TIERS,
+        })).resolves.toMatchObject({id: 424242});
+        expect(harness.workflowLookups).not.toContain('ci-extended.yml');
+    });
+
+    it('judges a version-only release commit by both of its parent tiers', async () => {
+        const harness = createParentVerificationHarness({extendedConclusion: 'cancelled'});
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, {
+            ...harness,
+            appearanceTimeoutMs: 0,
+        })).rejects.toThrow(/ci-extended\.yml run 313131 .*concluded 'cancelled'/u);
     });
 
     it('waits past the old stale budget for a run that finishes late and green', async () => {
@@ -209,7 +332,7 @@ describe('waitForExactShaCiGates', () => {
         await expect(waitForExactShaCiGates(TARGET_SHA, {
             ...harness,
             appearanceTimeoutMs: 0,
-        })).rejects.toThrow(new RegExp(`No CI run appeared for release parent ${PARENT_SHA}`, 'u'));
+        })).rejects.toThrow(new RegExp(`No ci\\.yml run appeared for release parent ${PARENT_SHA}`, 'u'));
     });
 
     it('rejects a target whose diff is not exactly one package.json version line', async () => {

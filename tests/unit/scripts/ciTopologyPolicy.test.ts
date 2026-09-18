@@ -331,9 +331,16 @@ describe('CI topology policy', () => {
         expect(required.concurrency?.['cancel-in-progress'])
             .toBe('${{ github.event_name == \'pull_request\' }}');
 
+        // A first-attempt push may be superseded. A rerun and a dispatched run
+        // are the release cutter's way of obtaining extended evidence for one
+        // exact commit, so they get their own group and always finish.
         const extended = parseWorkflow(await readProjectFile('.github/workflows/ci-extended.yml'));
-        expect(extended.concurrency?.['cancel-in-progress']).toBe(true);
+        const cancelInProgress = String(extended.concurrency?.['cancel-in-progress'] ?? '');
+        expect(cancelInProgress).toContain('github.run_attempt == 1');
+        expect(cancelInProgress).toContain('github.event_name != \'workflow_dispatch\'');
         expect(extended.concurrency?.group).toContain('github.ref');
+        expect(extended.concurrency?.group).toContain('github.run_attempt');
+        expect(extended.concurrency?.group).toContain('github.run_id');
 
         const nightly = parseWorkflow(await readProjectFile('.github/workflows/ci-nightly.yml'));
         expect(nightly.on?.schedule?.length).toBeGreaterThan(0);

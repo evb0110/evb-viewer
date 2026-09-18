@@ -5,9 +5,11 @@ import {
 } from 'vitest';
 import {
     assertArtifactCanaryGreen,
+    assertExtendedCiGreen,
     assertReleaseCutPreconditions,
     carryVersionToMain,
     createArtifactEvidenceLookup,
+    createExtendedCiEvidenceLookup,
     cutRelease,
     getArtifactEvidencePolicy,
     parseCutReleaseArgs,
@@ -52,6 +54,10 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
             return {state: 'satisfied' as const};
         },
         assertCleanWorktreeFn: () => events.push('clean'),
+        assertExtendedCiGreenFn: () => {
+            events.push('extended');
+            return {state: 'satisfied' as const};
+        },
         assertCurrentReleaseIsNotDraftFn: (tag: string) => events.push(`draft:${tag}`),
         assertGitHubCliReadyFn: async () => {
             events.push('github');
@@ -169,6 +175,7 @@ describe('cut-release', () => {
             'fetch',
             'candidate',
             'ancestor-version',
+            'extended',
             'canary',
             'draft:v0.1.445',
             'tag:v0.1.446',
@@ -451,6 +458,39 @@ describe('selectReleaseCandidate', () => {
         expect(candidate.run.id).toBe(10);
     });
 
+    // gates_ok stopped aggregating the Electron e2e, browser integration,
+    // native save and packaged Linux proofs, so a green gates_ok alone no
+    // longer describes a releasable commit.
+    it('requires a successful extended run as well as a green gates_ok', () => {
+        const candidate = selectReleaseCandidate(UPSTREAM, {
+            hasExtendedCiFn: (sha: string) => sha === OLDER_SHA,
+            isAncestorFn: () => true,
+            listRunsFn: () => [
+                createGreenRun(HEAD_SHA, 11),
+                createGreenRun(OLDER_SHA, 10),
+            ],
+            readGatesFn: () => 'success',
+            runCommand: () => '',
+        });
+
+        expect(candidate.sha).toBe(OLDER_SHA);
+    });
+
+    it('falls back to the newest green commit so the evidence check can name what it lacks', () => {
+        const candidate = selectReleaseCandidate(UPSTREAM, {
+            hasExtendedCiFn: () => false,
+            isAncestorFn: () => true,
+            listRunsFn: () => [
+                createGreenRun(HEAD_SHA, 11),
+                createGreenRun(OLDER_SHA, 10),
+            ],
+            readGatesFn: () => 'success',
+            runCommand: () => '',
+        });
+
+        expect(candidate.sha).toBe(HEAD_SHA);
+    });
+
     it('does not silently cut an older green candidate when a required commit is missing from the newest one', () => {
         const requiredSha = 'f'.repeat(40);
         const newest = createGreenRun(HEAD_SHA, 11);
@@ -555,9 +595,113 @@ describe('selectReleaseCandidate', () => {
             runCommand: () => '',
         })).toThrow(new RegExp(
             `Selected green release candidate ${OLDER_SHA}.*newest green candidate that does is ${HEAD_SHA}`
-            + `.*gh workflow run release-artifacts\\.yml --ref main --field target_ref=${HEAD_SHA}`,
+            + '.*the evidence check below names what it is missing',
             'u',
         ));
+    });
+});
+
+describe('assertExtendedCiGreen', () => {
+    const OLDER_SHA = 'c'.repeat(40);
+
+    function createExtendedRunner(runs: unknown[]) {
+        const commands: string[] = [];
+        return {
+            commands,
+            runCommand: (command: string, args: string[]) => {
+                commands.push(`${command} ${args.join(' ')}`);
+                return JSON.stringify(runs);
+            },
+        };
+    }
+
+    it('accepts a completed successful extended run for the exact candidate', () => {
+        const stderr: string[] = [];
+        const runner = createExtendedRunner([{
+            conclusion: 'success',
+            createdAt: '2026-09-18T21:48:51Z',
+            databaseId: 7,
+            headBranch: 'main',
+            headSha: HEAD_SHA,
+            status: 'completed',
+            url: 'https://github.com/example/extended/runs/7',
+        }]);
+
+        expect(assertExtendedCiGreen(HEAD_SHA, UPSTREAM, runner.runCommand, {stderr: {write: chunk => stderr.push(String(chunk))}})).toMatchObject({state: 'satisfied'});
+        expect(runner.commands.join(' ')).toContain('--workflow ci-extended.yml');
+        expect(stderr.join('')).toContain(`Extended CI satisfied for candidate ${HEAD_SHA}`);
+    });
+
+    // Supersession is the normal reason an extended run has no verdict, and a
+    // rerun keeps the same head SHA, so it is the repair the message names.
+    it('hands back the rerun command when supersession cancelled the run', () => {
+        const runner = createExtendedRunner([{
+            conclusion: 'cancelled',
+            createdAt: '2026-09-18T21:48:51Z',
+            databaseId: 8,
+            headBranch: 'main',
+            headSha: HEAD_SHA,
+            status: 'completed',
+            url: 'https://github.com/example/extended/runs/8',
+        }]);
+
+        expect(() => assertExtendedCiGreen(HEAD_SHA, UPSTREAM, runner.runCommand))
+            .toThrow(/newer push superseded it.*gh run rerun 8/su);
+    });
+
+    it('hands back the dispatch command when the candidate has no extended run', () => {
+        const runner = createExtendedRunner([]);
+
+        expect(() => assertExtendedCiGreen(HEAD_SHA, UPSTREAM, runner.runCommand))
+            .toThrow(/gh workflow run ci-extended\.yml --ref main/u);
+    });
+
+    it('reports a red extended run as a failure to fix rather than to rerun', () => {
+        const runner = createExtendedRunner([{
+            conclusion: 'failure',
+            createdAt: '2026-09-18T21:48:51Z',
+            databaseId: 9,
+            headBranch: 'main',
+            headSha: OLDER_SHA,
+            status: 'completed',
+            url: 'https://github.com/example/extended/runs/9',
+        }]);
+
+        expect(() => assertExtendedCiGreen(OLDER_SHA, UPSTREAM, runner.runCommand))
+            .toThrow(/conclusion 'failure'.*fix that failure with a new commit/su);
+    });
+});
+
+describe('createExtendedCiEvidenceLookup', () => {
+    it('accepts only a completed successful ci-extended.yml run for the exact sha', () => {
+        const commands: string[] = [];
+        const hasEvidence = createExtendedCiEvidenceLookup((command: string, args: string[]) => {
+            commands.push(`${command} ${args.join(' ')}`);
+            return JSON.stringify([
+                {
+                    conclusion: 'success',
+                    createdAt: '2026-09-18T21:48:51Z',
+                    databaseId: 2,
+                    headBranch: 'main',
+                    headSha: HEAD_SHA,
+                    status: 'completed',
+                    url: 'https://github.com/example/extended/runs/2',
+                },
+                {
+                    conclusion: 'cancelled',
+                    createdAt: '2026-09-18T20:48:51Z',
+                    databaseId: 1,
+                    headBranch: 'main',
+                    headSha: PARENT_SHA,
+                    status: 'completed',
+                    url: 'https://github.com/example/extended/runs/1',
+                },
+            ]);
+        });
+
+        expect(hasEvidence(HEAD_SHA)).toBe(true);
+        expect(hasEvidence(PARENT_SHA)).toBe(false);
+        expect(commands.join(' ')).toContain('--workflow ci-extended.yml');
     });
 });
 

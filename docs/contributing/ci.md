@@ -70,14 +70,17 @@ reason to widen a tolerance, add a retry, or mark a step `continue-on-error`.
 
 `ci-extended.yml` carries the browser integration suite, the native and
 packaging lanes, the Linux packaged proof, the landing gates, the whole-tree
-lint, and the three macOS Electron suites. Nothing there feeds `gates_ok` and
-the release cutter does not read it, so a failure reports without blocking a
-commit or a cut.
+lint, and the three macOS Electron suites. Nothing there feeds `gates_ok`, so a
+failure reports without blocking a commit. It does block a release: see
+[release evidence](#release-evidence).
 
-A newer push to `main` cancels an older in-progress extended run. The tier
+A newer push to `main` cancels an older in-progress first-attempt run. The tier
 answers "is the tip of `main` sound", so re-proving a commit that `main` has
-already moved past is wasted runner time. The required tier keeps its own
-exact-SHA run that is never cancelled.
+already moved past is wasted runner time. A rerun (attempt two and up) and a
+`workflow_dispatch` run get their own concurrency group and always finish,
+because those are requests for release evidence on one exact commit. A
+dispatched run also ignores the changed-area classifier and executes every
+lane. The required tier keeps its own exact-SHA run that is never cancelled.
 
 The shared macOS Electron build and the three `push_electron_e2e_*` jobs run on
 pushes to `main`, pushes matching the integration-candidate patterns above, and
@@ -103,6 +106,37 @@ a scheduled red from them would teach everyone to ignore the workflow.
 Nightly execution certifies nothing about a release. The release path runs its
 own packaging and packaged verification for the exact target SHA through
 `build.yml`, `build-target.yml`, and `release.yml`'s packaged proofs.
+
+## Release evidence
+
+Narrowing `gates_ok` narrowed what a green required run proves, so the release
+path asks for the rest explicitly rather than by convention. A release
+candidate must have, for its own SHA:
+
+- a successful `ci.yml` push run with a green `gates_ok`, and
+- a completed successful `ci-extended.yml` run.
+
+`selectReleaseCandidate` skips any commit missing either one and walks back to
+the newest that has both. Lanes the changed-area classifier skipped inside a
+successful extended run count as success, exactly as they do for `gates_ok`.
+
+Because the extended tier supersedes older first-attempt runs, many commits
+carry a cancelled extended run, which is not a verdict. When the newest green
+commit has no successful extended run, `assertExtendedCiGreen` names that
+commit, its run, and the repair: `gh run rerun <id>` for a superseded run, or
+`gh workflow run ci-extended.yml --ref main` while the candidate is the tip. A
+rerun keeps the candidate's head SHA, so it is the repair that qualifies it.
+
+`release.yml` waits on both tiers for its exact target:
+
+```
+node scripts/release/wait-for-exact-sha-ci.mjs <sha>                  # both tiers, the release default
+node scripts/release/wait-for-exact-sha-ci.mjs <sha> --required-only  # ci.yml and gates_ok only
+```
+
+Use `--required-only` when you only want the verdict for a commit you just
+pushed. A version-only release commit carries `[skip ci]` and has no run of its
+own in either tier; its parent's runs vouch for it in both.
 
 The classifier's path policy lives in
 [`scripts/release/policy.mjs`](../../scripts/release/policy.mjs). Its CI areas

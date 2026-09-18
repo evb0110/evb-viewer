@@ -298,6 +298,7 @@ describe('release branch safety', () => {
             await cutRelease('patch', {
                 assertArtifactCanaryGreenFn: () => ({state: 'satisfied'}),
                 assertCurrentReleaseIsNotDraftFn: () => undefined,
+                assertExtendedCiGreenFn: () => ({state: 'satisfied'}),
                 assertGitHubCliReadyFn: async () => undefined,
                 assertNodeBaselineFn: () => undefined,
                 assertTagAbsentFn: async () => undefined,

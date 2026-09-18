@@ -11,9 +11,14 @@ name: CI Extended
 # commit that main has already moved past is wasted runner time. The required
 # tier keeps its own exact-SHA, never-cancelled run.
 
+# A first-attempt push or pull-request run may be superseded. A rerun (attempt
+# two and up) and a dispatched run are requests for release evidence on one
+# exact commit, so they get their own group and always finish: the release
+# cutter accepts only a completed successful run for the candidate's SHA, and
+# `gh run rerun` is the repair it names for a superseded one.
 concurrency:
-  group: ci-extended-${{ github.event_name == 'pull_request' && github.ref || github.ref_name }}
-  cancel-in-progress: true
+  group: ci-extended-${{ github.event_name == 'workflow_dispatch' && github.run_id || format('{0}-{1}', github.event_name == 'pull_request' && github.ref || github.ref_name, github.run_attempt) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.run_attempt == 1 }}
 
 on:
   pull_request:
@@ -42,7 +47,6 @@ env:
 jobs:
   pr_changed_areas:
     name: Changed Area Detection
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -93,7 +97,6 @@ jobs:
   # is the one ci-health.mjs names.
   extended_tree_lint:
     name: Tree Lint
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -125,7 +128,7 @@ jobs:
   # the commit a release will be cut from, not the state of the tree at 02:30.
   pr_packaged_linux:
     name: Packaged Linux Proof
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.packaged_smoke == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.packaged_smoke == 'true' }}
     needs: pr_changed_areas
     uses: ./.github/workflows/build-target.yml
     with:
@@ -137,7 +140,7 @@ jobs:
 
   pr_browser_integration:
     name: Browser Integration
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.browser_integration == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.browser_integration == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -161,7 +164,7 @@ jobs:
 
   pr_electron_native_save_reopen:
     name: Electron Native Save And Reopen
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -193,7 +196,7 @@ jobs:
 
   pr_native_pdf_integration:
     name: Native PDF Save Integration
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -222,7 +225,7 @@ jobs:
 
   pr_windows_atomic_pdf_replacement:
     name: Windows Atomic PDF Replacement
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
     needs: pr_changed_areas
     runs-on: windows-latest
     timeout-minutes: 15
@@ -244,7 +247,7 @@ jobs:
 
   pr_native_build_safety:
     name: Native And Build Safety
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.native_or_build == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.native_or_build == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -312,7 +315,7 @@ jobs:
 
   pr_scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.scan_cleanup_export == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.scan_cleanup_export == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -337,7 +340,7 @@ jobs:
 
   pr_landing_quality:
     name: Landing Quality Gates For Changed Sources
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.landing == 'true' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.pr_changed_areas.outputs.landing == 'true' }}
     needs: pr_changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 15
