@@ -1,0 +1,34 @@
+scripts/windows-test/guest/start-worker.cmd
+  s_5fc578ce506341::t_9fc022dc60af69 10
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_5fc578ce506341::t_a248fb5ef00731 253-254
+scripts/windows-test/guest/install-system-bootstrap.cmd
+  s_5fc578ce506341::t_9fc022dc60af69 26-27
+scripts/windows-test/host/goldenImageProvisioning.ts
+  s_5fc578ce506341::t_9fc022dc60af69 696-698
+  s_5fc578ce506341::t_13f8127afea48d 5,45,151-160,162-167,169-174,176-184,186-190,192-203,616-617
+  s_5fc578ce506341::t_02dec843b418b6 161,168,175,185,191
+tests/unit/scripts/windows-test/goldenImageProvisioning.test.ts
+  s_5fc578ce506341::t_a248fb5ef00731 403-420
+  s_5fc578ce506341::t_9fc022dc60af69 124,129,151-158,176,254,271
+docs/internal/agents/utm-windows-tests.md
+  s_5fc578ce506341::t_b313537ea381a1 26-27
+docs/contributing/windows-tests/setup-and-repair.md
+  s_5fc578ce506341::t_b313537ea381a1 27-28,34-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c6906f2637f9917e651055cafec1d90708a8e1a0",
+  "prompts": {},
+  "sessions": {
+    "s_5fc578ce506341": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b2e5-6605-7a23-8a43-d0f2b2f6a95e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
