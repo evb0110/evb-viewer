@@ -412,12 +412,15 @@ jobs:
 
           $installDir = Join-Path $env:RUNNER_TEMP "evb-viewer-nsis-$env:EVB_RELEASE_TARGET_ARCH-${{ github.run_attempt }}"
           $appPath = Join-Path $installDir 'EVB Viewer.exe'
+          # Extraction-finished markers only, so name files every supported
+          # Electron ships. Electron 44 dropped libEGL.dll and libGLESv2.dll.
+          # The smoke below is what proves the installed runtime works.
           $runtimePaths = @(
             $appPath,
             (Join-Path $installDir 'd3dcompiler_47.dll'),
             (Join-Path $installDir 'ffmpeg.dll'),
-            (Join-Path $installDir 'libEGL.dll'),
-            (Join-Path $installDir 'libGLESv2.dll')
+            (Join-Path $installDir 'vk_swiftshader.dll'),
+            (Join-Path $installDir 'vulkan-1.dll')
           )
           function Write-InstallerDiagnostics {
             param(
