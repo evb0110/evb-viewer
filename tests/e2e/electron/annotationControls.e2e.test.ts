@@ -21,6 +21,7 @@ import {
     clickAnnotationTool,
     createCanonicalTextBoxWithPointer,
     clickVisibleAnnotationControl,
+    revealAnnotationControl,
     selectAllFocusedAnnotationText,
     setAnnotationKeepActiveWithPointer,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
@@ -494,9 +495,10 @@ describe('Electron E2E - annotation controls', () => {
         // moved the whole list. A6/R2/I1: visible row activation selects its mark.
         const session = sessionFixture.getSession();
         const {page} = session;
+        // Hosted macOS runners cannot give a window more than 942 px of content height.
         await session.command('windowResize', [
             1280,
-            1000,
+            900,
         ]);
         const fixturePath = await createAnnotationSidebarFixturePdf(`sidebar-selection-${Date.now()}.pdf`);
         onTestFinished(() => rmSync(fixturePath, {force: true}));
@@ -508,6 +510,8 @@ describe('Electron E2E - annotation controls', () => {
         const ids = await page.$$eval('.note-item', rows => rows.map(row => row.getAttribute('data-annotation-id')!));
         for (let pass = 0; pass < 2; pass += 1) {
             for (const id of ids) {
+                // Scrolling to a card moves the list; only what selecting it does is measured.
+                await revealAnnotationControl(page, `.note-item[data-annotation-id="${id}"] .note-item-content`);
                 const before = await page.$$eval('.note-item', rows => rows.map(row => ({
                     id: row.getAttribute('data-annotation-id'),
                     top: row.getBoundingClientRect().top,
