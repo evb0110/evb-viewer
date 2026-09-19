@@ -395,7 +395,19 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
     window.on('moved', handleMove);
     window.on('enter-full-screen', handleZenModeChange);
     window.on('leave-full-screen', handleZenModeChange);
+    const handleInputEvent = (_event: Event, input: { type: string }) => {
+        const boundary = input.type === 'gestureScrollBegin'
+            ? 'begin'
+            : input.type === 'gestureScrollEnd'
+                ? 'end'
+                : null;
+        if (boundary !== null && !webContents.isDestroyed()) {
+            webContents.send(HOST_PLATFORM_FEATURE.eventChannels.onWheelScrollSequenceChange, boundary);
+        }
+    };
+
     webContents.on('before-input-event', handleBeforeInputEvent);
+    webContents.on('input-event', handleInputEvent);
     window.once('closed', () => {
         const hostEnvironmentBroadcastState = hostEnvironmentBroadcastStateByWindow.get(window);
         if (hostEnvironmentBroadcastState?.timeout) {
@@ -408,6 +420,7 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
         window.removeListener('leave-full-screen', handleZenModeChange);
         if (!webContents.isDestroyed()) {
             webContents.removeListener('before-input-event', handleBeforeInputEvent);
+            webContents.removeListener('input-event', handleInputEvent);
         }
         zenWindowPlacementByWindow.delete(window);
         zenExitInProgressByWindow.delete(window);

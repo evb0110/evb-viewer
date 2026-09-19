@@ -99,12 +99,32 @@ packets keep arriving after it.
 
 `createWheelGestureStream.ts` groups packets into gestures. Chromium sends the
 first wheel event of a scroll sequence as cancelable and the rest as
-non-cancelable, so a cancelable packet after a non-cancelable one is an exact
-gesture boundary. A quiet gap of `WHEEL_GESTURE_IDLE_MS` or a reversal is the
-fallback, needed when a handler prevented the sequence and every later packet
-stays cancelable. Delta size is not used, because Chromium coalesces packets
-while the main thread is busy and so inflates a tail packet exactly when the
-viewer is under load.
+non-cancelable. So a non-cancelable packet can only belong to the sequence
+already in progress, and a cancelable packet after a non-cancelable one begins a
+new sequence. Neither conclusion involves timing. A quiet gap of
+`WHEEL_GESTURE_IDLE_MS` decides only between two cancelable packets, which is
+what a sequence looks like once a handler prevented it, and on a page where no
+cancelable packet has ever been seen. A reversal always starts a new gesture.
+
+Timing is avoided because a slow machine distorts it first. Under a 6x CPU
+slowdown one fling that normally arrives as 69 packets at a 17 ms median gap
+arrived as 10 packets at a 192 ms median gap, with four gaps over 200 ms. A
+quiet-gap rule splits that into five gestures and the fence never holds. Delta
+size is no better, since the same coalescing inflates a tail packet.
+
+Packets also cannot say whether a sequence is still live at the moment a command
+arrives, because the last packet of a live fling can be several hundred
+milliseconds old. The browser process owns the sequence, including its inertial
+tail, so `electron/hostEnvironment.ts` forwards `gestureScrollBegin` and
+`gestureScrollEnd` as the host event `onWheelScrollSequenceChange`, and the
+chassis hands them to the write port. An `end` restores scrolling at once,
+instead of waiting for an idle timer that a busy main thread delays, but it
+keeps the ownership fence: the signal can overtake the gesture's last packets,
+and those must still read as residue or they would cancel a command that has not
+landed. Such late packets cannot reopen the sequence, since only packets after a
+cancelable one can. `begin` repairs the opposite race, where the next gesture's
+first packet overtakes a delayed `end`. A hosted browser has no such signal and
+falls back to packet timing.
 
 The viewport write port owns the rule. `queueNavigationRequest` calls
 `fenceCommandAgainstLiveGesture` for every source except `wheel`. Packets of
@@ -125,7 +145,8 @@ reaches the compositor, so a residue delta can displace the write;
 begins while the viewport is not user-scrollable is bound to nothing and stays
 dead until it ends. Restoring scrolling inside its first event is too late in
 the app, because the compositor judges the sequence against a copy that learns
-of the change a frame later. The port therefore adopts such a sequence:
+of the change a frame later. The same holds for a short settling window after
+scrolling is restored. The port therefore adopts such a sequence:
 `observeDocumentViewportWheelInteraction` prevents its cancelable first event,
 which keeps the rest of it cancelable, and applies its deltas by hand as plain
 user scrolling. A plain test page does not reproduce this, since it resolves the

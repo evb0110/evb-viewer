@@ -96,6 +96,7 @@ import type {
     ComponentPublicInstance,
 } from 'vue';
 import { requirePageNumber } from '@contracts/pageNumbers';
+import { getHostCapability } from '@app/utils/getHostCapability';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 import {
     createDocumentViewerRuntime,
@@ -384,7 +385,13 @@ watch(
         immediate: true,
     },
 );
+// The host knows when a wheel scroll sequence is live. Without it the write
+// port infers that from packet timing, which a busy main thread distorts.
+const unsubscribeWheelScrollSequenceChange = getHostCapability().onWheelScrollSequenceChange((boundary) => {
+    chassisAuthority.viewportWritePort.observeWheelScrollSequence(boundary);
+});
 onBeforeUnmount(() => {
+    unsubscribeWheelScrollSequenceChange();
     releaseRetainedResizeAnchor();
     openingFrameResizeObserver?.disconnect();
     openingFrameResizeObserver = null;

@@ -233,6 +233,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const hostSetZenModeMethod = lazyAsync(pathDescriptors.host.setZenMode.path);
     const hostOnEnvironmentChangeMethod = lazyEvent(pathDescriptors.host.onEnvironmentChange.path);
     const hostOnZenModeChangeMethod = lazyEvent(pathDescriptors.host.onZenModeChange.path);
+    const hostOnWheelScrollSequenceChangeMethod = lazyEvent(pathDescriptors.host.onWheelScrollSequenceChange.path);
     const systemGetMemoryInfoMethod = getMemoryInfo;
     const windowTabsTransferMethod = lazyAsync(pathDescriptors.windowTabs.transfer.path);
     const windowTabsTransferAckMethod = lazyAsync(pathDescriptors.windowTabs.transferAck.path);
@@ -509,6 +510,7 @@ export function createLazyBrowserPlatformApiGenerated({
         setZenMode: hostSetZenModeMethod,
         onEnvironmentChange: hostOnEnvironmentChangeMethod,
         onZenModeChange: hostOnZenModeChangeMethod,
+        onWheelScrollSequenceChange: hostOnWheelScrollSequenceChangeMethod,
     },
 } satisfies IPlatformApi;
 }

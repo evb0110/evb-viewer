@@ -251,6 +251,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         setZenMode: {kind: 'async', path: ["host","setZenMode"]},
         onEnvironmentChange: {kind: 'event', path: ["host","onEnvironmentChange"]},
         onZenModeChange: {kind: 'event', path: ["host","onZenModeChange"]},
+        onWheelScrollSequenceChange: {kind: 'event', path: ["host","onWheelScrollSequenceChange"]},
     },
 } as const;
 

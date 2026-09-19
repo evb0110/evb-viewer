@@ -90,4 +90,6 @@ export const browserHostCapability = {
         return setBrowserZenMode(active);
     },
     onZenModeChange: onBrowserZenModeChange,
+    // A page cannot see scroll sequence boundaries; the viewport falls back to packet timing.
+    onWheelScrollSequenceChange: noopUnsubscribe,
 } satisfies IHostCapability;

@@ -39,6 +39,7 @@ export function createTestPdfViewportWritePort() {
         },
         observeWheelPacket: () => commandResidueLive ? 'command-residue' : 'user-input',
         isCommandResidueLive: () => commandResidueLive,
+        observeWheelScrollSequence: () => {},
         userScrollSuppressed,
     };
     return {

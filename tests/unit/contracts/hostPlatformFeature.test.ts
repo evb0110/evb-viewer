@@ -18,6 +18,7 @@ describe('host platform feature schemas', () => {
         expect(HOST_PLATFORM_FEATURE.eventChannels).toEqual({
             onEnvironmentChange: 'host:environmentChanged',
             onZenModeChange: 'host:zenModeChanged',
+            onWheelScrollSequenceChange: 'host:wheelScrollSequenceChanged',
         });
         expect(HOST_PLATFORM_FEATURE.platformDescriptors.methods).toEqual([
             expect.objectContaining({
@@ -31,6 +32,7 @@ describe('host platform feature schemas', () => {
             expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
+            expect.objectContaining({kind: 'event'}),
             expect.objectContaining({kind: 'event'}),
             expect.objectContaining({kind: 'event'}),
         ]);
@@ -52,6 +54,9 @@ describe('host platform feature schemas', () => {
         expect(HOST_PLATFORM_FEATURE.events.onEnvironmentChange.payload.decode(environment))
             .toEqual(environment);
         expect(HOST_PLATFORM_FEATURE.events.onZenModeChange.payload.decode(zenMode)).toEqual(zenMode);
+        expect(HOST_PLATFORM_FEATURE.events.onWheelScrollSequenceChange.payload.decode('end')).toBe('end');
+        expect(() => HOST_PLATFORM_FEATURE.events.onWheelScrollSequenceChange.payload.decode('update'))
+            .toThrow('expected one of the declared values');
     });
 
     it('rejects malformed host arguments, results, and events', () => {

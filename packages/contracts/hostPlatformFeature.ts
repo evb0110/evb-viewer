@@ -118,6 +118,19 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'host:zenModeChanged',
             payload: zenMode,
         }),
+        // The browser process owns a wheel scroll sequence, including its
+        // inertial tail, so only it knows when one is live. A renderer can
+        // merely infer that from packet timing, and a busy main thread both
+        // stretches the gaps between packets and delays the timer that would
+        // notice the end.
+        onWheelScrollSequenceChange: defineForwardedPlatformEvent({
+            name: 'onWheelScrollSequenceChange',
+            channel: 'host:wheelScrollSequenceChanged',
+            payload: s.oneOf([
+                'begin',
+                'end',
+            ]),
+        }),
     },
 });
 

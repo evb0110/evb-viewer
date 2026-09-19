@@ -37,6 +37,8 @@ export interface IDocumentViewportWritePort {
     /** Classifies a scroll-intent wheel packet against the command fence. */
     observeWheelPacket(packet: IWheelGesturePacket): TDocumentWheelPacketOwner;
     isCommandResidueLive(nowMs?: number): boolean;
+    /** The host reports that the browser began or ended a wheel scroll sequence. */
+    observeWheelScrollSequence(boundary: 'begin' | 'end'): void;
     /** True while residue must not scroll the viewport. */
     readonly userScrollSuppressed: Readonly<Ref<boolean>>;
 }
@@ -94,6 +96,17 @@ function resolveAuthoredOffset(
  * The sole programmatic viewport writer shared by every document source and
  * rendering feature pack mounted in DocumentViewerChassis.
  */
+/**
+ * How long a restored viewport is still treated as not natively scrollable,
+ * on top of two animation frames. No event reports when the compositor has
+ * applied the style, and adopting a gesture needlessly only costs smoothness,
+ * while missing one leaves it dead.
+ */
+const SCROLL_RESTORE_SETTLE_FLOOR_MS = 120;
+
+/** How long an open host sequence may go without any wheel activity before it is presumed lost. */
+const HOST_SEQUENCE_STALL_MS = 2000;
+
 export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
     let documentRevision = 0;
     let interactionEpoch = 0;
@@ -120,7 +133,52 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
     // later. That first event is cancelable, though, and preventing it keeps
     // the whole sequence cancelable, so the viewer scrolls this one by hand.
     let adoptedGestureId: number | null = null;
+    // Restoring scrolling only changes a style. The compositor picks it up a
+    // frame or more later, longer on a slow machine, and a sequence that begins
+    // before then is as dead as one that began while suppressed.
+    let scrollRestoreSettling = false;
+    let scrollRestoreToken = 0;
     let residueReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+    // Whether the browser process still has a wheel scroll sequence open. Packet
+    // timing cannot answer that under load: the last packet of a live fling
+    // can be several hundred milliseconds old. A non-cancelable packet proves
+    // a sequence is open, and only the host can say when it closed, so this
+    // stays false where no host reports boundaries.
+    let hostReportsSequences = false;
+    let hostSequenceOpen = false;
+    // An `end` can overtake the last packets of its own sequence, which wait
+    // behind a busy main thread. Those must not reopen it. A new sequence
+    // always starts with a cancelable packet, so only packets after one can.
+    let cancelableSeenSinceSequenceEnd = false;
+    let lastWheelActivityAtMs = 0;
+
+    function restoreUserScroll() {
+        if (!userScrollSuppressed.value) {
+            return;
+        }
+        userScrollSuppressed.value = false;
+        scrollRestoreSettling = true;
+        const token = ++scrollRestoreToken;
+        const restoredAtMs = performance.now();
+        const settle = () => {
+            if (token === scrollRestoreToken) {
+                scrollRestoreSettling = false;
+            }
+        };
+        const settleAfterFloor = () => {
+            const remainingMs = SCROLL_RESTORE_SETTLE_FLOOR_MS - (performance.now() - restoredAtMs);
+            if (remainingMs > 0) {
+                setTimeout(settle, remainingMs);
+                return;
+            }
+            settle();
+        };
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => requestAnimationFrame(settleAfterFloor));
+            return;
+        }
+        setTimeout(settle, SCROLL_RESTORE_SETTLE_FLOOR_MS);
+    }
 
     function releaseCommandFence() {
         if (residueReleaseTimer !== null) {
@@ -128,20 +186,33 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             residueReleaseTimer = null;
         }
         fencedGestureId = null;
-        userScrollSuppressed.value = false;
+        restoreUserScroll();
+    }
+
+    function isGestureLive(nowMs: number) {
+        return hostSequenceOpen || wheelGestures.isLive(nowMs);
     }
 
     function isCommandResidueLive(nowMs = performance.now()) {
         return fencedGestureId !== null
             && wheelGestures.getGestureId() === fencedGestureId
-            && wheelGestures.isLive(nowMs);
+            && isGestureLive(nowMs);
     }
 
     function holdCommandFenceUntilGestureIdle() {
         if (residueReleaseTimer !== null) {
             clearTimeout(residueReleaseTimer);
         }
-        residueReleaseTimer = setTimeout(releaseCommandFence, WHEEL_GESTURE_IDLE_MS);
+        residueReleaseTimer = setTimeout(() => {
+            residueReleaseTimer = null;
+            // A quiet gap means nothing while the host still has the sequence
+            // open. The stall bound only guards against a lost `end`.
+            if (hostSequenceOpen && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS) {
+                holdCommandFenceUntilGestureIdle();
+                return;
+            }
+            releaseCommandFence();
+        }, WHEEL_GESTURE_IDLE_MS);
     }
 
     const observeUserInteraction = (container?: HTMLElement) => {
@@ -247,31 +318,74 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             observeUserInteraction(container);
         },
         fenceCommandAgainstLiveGesture(nowMs = performance.now()) {
-            if (!wheelGestures.isLive(nowMs)) {
+            if (!isGestureLive(nowMs)) {
                 return;
             }
             fencedGestureId = wheelGestures.getGestureId();
+            lastWheelActivityAtMs = performance.now();
+            scrollRestoreToken += 1;
+            scrollRestoreSettling = false;
             userScrollSuppressed.value = true;
             holdCommandFenceUntilGestureIdle();
         },
         observeWheelPacket(packet) {
-            const beganWhileSuppressed = userScrollSuppressed.value;
+            const nativeScrollUnavailable = userScrollSuppressed.value || scrollRestoreSettling;
+            const previousGestureId = wheelGestures.getGestureId();
             const gestureId = wheelGestures.observe(packet);
+            lastWheelActivityAtMs = performance.now();
+            if (packet.cancelable) {
+                cancelableSeenSinceSequenceEnd = true;
+            } else if (hostReportsSequences && cancelableSeenSinceSequenceEnd) {
+                hostSequenceOpen = true;
+            }
             if (fencedGestureId !== null) {
                 if (gestureId === fencedGestureId) {
-                    holdCommandFenceUntilGestureIdle();
+                    // The idle timer exists to restore scrolling. Once the
+                    // host has done that, ownership ends with the next gesture.
+                    if (userScrollSuppressed.value) {
+                        holdCommandFenceUntilGestureIdle();
+                    }
                     return 'command-residue';
                 }
                 releaseCommandFence();
-                if (beganWhileSuppressed && packet.cancelable) {
-                    adoptedGestureId = gestureId;
-                }
+            }
+            if (gestureId !== previousGestureId && nativeScrollUnavailable && packet.cancelable) {
+                adoptedGestureId = gestureId;
             }
             // A non-cancelable packet belongs to a sequence Chromium scrolls
             // natively, so adopting it would scroll twice.
             return gestureId === adoptedGestureId && packet.cancelable
                 ? 'adopted-user-input'
                 : 'user-input';
+        },
+        observeWheelScrollSequence(boundary) {
+            hostReportsSequences = true;
+            lastWheelActivityAtMs = performance.now();
+            if (boundary === 'begin') {
+                // Also repairs a race: the next gesture's first packet can
+                // overtake a delayed `end`, which would then close the wrong
+                // sequence. Its own `begin` follows in order and reopens it.
+                hostSequenceOpen = true;
+                cancelableSeenSinceSequenceEnd = true;
+                return;
+            }
+            hostSequenceOpen = false;
+            cancelableSeenSinceSequenceEnd = false;
+            if (fencedGestureId === null) {
+                return;
+            }
+            // The sequence is over, so nothing can displace the command any
+            // more and scrolling can come back at once. Ownership stays, and
+            // on no timer: this signal can overtake the gesture's last
+            // packets by however long the main thread is busy, and they must
+            // still read as residue or they would cancel a command that has
+            // not landed yet. They share the fenced gesture's id, while any
+            // new gesture starts with a cancelable packet and releases it.
+            restoreUserScroll();
+            if (residueReleaseTimer !== null) {
+                clearTimeout(residueReleaseTimer);
+                residueReleaseTimer = null;
+            }
         },
         isCommandResidueLive,
         userScrollSuppressed: readonly(userScrollSuppressed),
