@@ -54,6 +54,12 @@ export interface IViewerInvariantNoteWindow {
     anchorRect: IViewerRect | null;
     annotationId: string;
     rect: IViewerRect;
+    /**
+     * `data-user-placement`: changes while the reader drags the window. A drag
+     * suspends anchor following on purpose, so two observations that disagree
+     * here are not comparable.
+     */
+    userPlacementSequence: number;
 }
 
 export interface IViewerSurface {

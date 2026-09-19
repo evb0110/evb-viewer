@@ -56,6 +56,7 @@ interface IRememberedNoteWindow {
     clamped: boolean;
     left: number;
     top: number;
+    userPlacementSequence: number;
 }
 
 interface IViewerInvariantMemory {
@@ -433,6 +434,11 @@ function checkNoteWindowInsidePane(
  * anchor stays visible and the window is not clamped to a pane edge, the
  * window has to move with the anchor. This is the property whose absence shows
  * up as a note window standing still while its page scrolls away.
+ *
+ * A window the reader dragged between the two observations is not comparable:
+ * the viewer suspends page following during a drag by design, so the broken
+ * anchor delta is the user's own placement, not a defect. The window publishes
+ * a placement sequence that changes while it is being dragged.
  */
 function checkNoteWindowFollowsAnchor(
     surface: IViewerSurface,
@@ -456,6 +462,7 @@ function checkNoteWindowFollowsAnchor(
         const comparable = previous !== undefined
             && !previous.clamped
             && !clamped
+            && previous.userPlacementSequence === noteWindow.userPlacementSequence
             && previous.anchorPageNumber === anchorPageNumber
             && Math.abs(previous.anchorWidth - anchorRect.width) <= GEOMETRY_TOLERANCE_PX
             && Math.abs(previous.anchorHeight - anchorRect.height) <= GEOMETRY_TOLERANCE_PX;
@@ -498,6 +505,7 @@ function checkNoteWindowFollowsAnchor(
                 clamped,
                 left: noteWindow.rect.left,
                 top: noteWindow.rect.top,
+                userPlacementSequence: noteWindow.userPlacementSequence,
             });
         }
     }
@@ -512,7 +520,8 @@ function checkNoteWindowFollowsAnchor(
     if (compared === 0) {
         skipped.push({
             id: 'A2-note-window-follows-anchor',
-            reason: 'no open note window had a comparable unclamped earlier observation with a visible anchor',
+            reason: 'no open note window had a comparable unclamped earlier observation'
+                + ' with a visible anchor and the same user placement',
         });
     }
 }

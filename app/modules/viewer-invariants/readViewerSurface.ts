@@ -142,6 +142,7 @@ function readNoteWindows(root: Document, host: HTMLElement): IViewerInvariantNot
                 anchorRect: anchorContainer ? toRect(anchorContainer.getBoundingClientRect()) : null,
                 annotationId,
                 rect: toRect(noteWindow.getBoundingClientRect()),
+                userPlacementSequence: Number.parseInt(noteWindow.dataset.userPlacement ?? '0', 10) || 0,
             };
         })
         .filter((noteWindow): noteWindow is IViewerInvariantNoteWindow => noteWindow !== null);

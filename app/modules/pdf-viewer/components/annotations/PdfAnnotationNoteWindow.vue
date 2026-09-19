@@ -6,6 +6,7 @@
         :style="windowStyle"
         :data-annotation-id="annotationId"
         :data-page-number="pageNumber"
+        :data-user-placement="userPlacementSequence"
         @mousedown="focusNote"
         @focusin="focusNote"
     >
@@ -135,6 +136,12 @@ const dragStartY = ref(0);
 const frameStartX = ref(0);
 const frameStartY = ref(0);
 const isDragging = ref(false);
+// Published on the element because a drag deliberately suspends page
+// following, so a window the reader is moving breaks the anchor delta on
+// purpose. An observer that compares two moments needs to tell that apart from
+// a window that failed to follow its page; the counter changes for as long as
+// the reader is placing the window.
+const userPlacementSequence = ref(0);
 let initialFocusRepairFrame: number | null = null;
 const dragWindowTarget = shallowRef<Window | undefined>();
 const pageElement = shallowRef<HTMLElement | null>(null);
@@ -383,6 +390,7 @@ function handlePointerMove(event: MouseEvent) {
 
     const nextX = frameStartX.value + (event.clientX - dragStartX.value);
     const nextY = frameStartY.value + (event.clientY - dragStartY.value);
+    userPlacementSequence.value += 1;
     placeClamped(nextX, nextY, width.value, height.value);
     emitPositionUpdate();
 }
@@ -406,6 +414,7 @@ function stopDrag(event?: MouseEvent) {
 
 function startDrag(event: MouseEvent) {
     emit('focus');
+    userPlacementSequence.value += 1;
     isDragging.value = true;
     dragStartX.value = event.clientX;
     dragStartY.value = event.clientY;

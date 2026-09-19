@@ -131,6 +131,7 @@ function renderPage(page: IFixturePage, index: number) {
 function renderNoteWindow(noteWindow: IFixtureNoteWindow) {
     return `<div class="note-window" data-annotation-id="${noteWindow.annotationId}"
         data-page-number="${String(noteWindow.pageNumber)}"
+        data-user-placement="0"
         style="position:fixed;left:${String(noteWindow.leftPx)}px;top:${String(noteWindow.topPx)}px;width:200px;height:150px;background:#fff"></div>`;
 }
 
@@ -444,6 +445,28 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 return globalThis.__evbCheckViewerInvariants();
             });
             expect(violationIds(stranded)).toEqual(['A2-note-window-follows-anchor']);
+
+            // A2 stateful applicability: the reader dragged the window between
+            // the two observations, so the anchor delta is broken on purpose
+            // and the viewer suspends following for the duration of the drag.
+            await loadFixture(page, noteMarkup);
+            const dragged = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 80;
+                const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
+                noteWindow.dataset.userPlacement = '3';
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(dragged.violations).toEqual([]);
+            expect(dragged.skipped.map(skip => skip.id)).toContain('A2-note-window-follows-anchor');
+
+            // The placement sequence excuses one comparison, not the next one:
+            // a window that stops following after the drag is still a defect.
+            const strandedAfterDrag = await page.evaluate(() => {
+                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 160;
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(violationIds(strandedAfterDrag)).toEqual(['A2-note-window-follows-anchor']);
         } finally {
             await browser.close();
         }
