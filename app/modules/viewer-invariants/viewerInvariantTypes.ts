@@ -66,6 +66,14 @@ export interface IViewerInvariantNoteWindow {
     anchorPageNumber: number | null;
     anchorRect: IViewerRect | null;
     annotationId: string;
+    /**
+     * The layout box narrowed to what the window's own `inset()` clip path
+     * paints. The window clips itself to its pane, so its layout box reaches
+     * over the toolbar while nothing of it is drawn there; what covers chrome
+     * is decided on this rect, and how far the window moved on its page is
+     * still decided on `rect`, which is the box that follows the anchor.
+     */
+    paintedRect: IViewerRect;
     rect: IViewerRect;
     /**
      * `data-user-placement`: changes while the reader drags the window. A drag

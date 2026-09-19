@@ -45,6 +45,7 @@ const vitestProjectNames = {
     electronE2ENativeSaveReopen: 'e2e-native-save-reopen',
     electronE2EXlargePdf: 'e2e-xlarge-pdf',
     electronE2ESearchMatchScroll: 'e2e-search-match-scroll',
+    electronE2ECalibration: 'e2e-calibration',
 } as const;
 
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
@@ -124,6 +125,11 @@ const electronE2ESavePipelineTestFiles = [
 ];
 const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
 const electronE2ESearchMatchScrollTestFiles = ['tests/e2e/electron/searchMatchScrolling.e2e.test.ts'];
+
+// Calibration runs, driven by hand on a reverted revision and on the current
+// one, to see whether the observation path reports the symptom a historical fix
+// repaired. They are not part of any CI lane.
+const electronE2ECalibrationTestFiles = ['tests/e2e/electron/calibration/*Calibration.e2e.test.ts'];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
@@ -320,4 +326,5 @@ export const vitestProjects = [
     createElectronE2ETestProject(vitestProjectNames.electronE2ENativeSaveReopen, electronE2ENativeSaveReopenTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EXlargePdf, electronE2EXlargePdfTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ESearchMatchScroll, electronE2ESearchMatchScrollTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2ECalibration, electronE2ECalibrationTestFiles),
 ] satisfies TestProjectConfiguration[];

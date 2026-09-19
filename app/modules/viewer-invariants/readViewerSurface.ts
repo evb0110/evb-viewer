@@ -43,6 +43,75 @@ function toRect(rect: DOMRect): IViewerRect {
     };
 }
 
+/**
+ * The part of an element that is actually painted, given an `inset()` clip
+ * path. The note window is fixed-positioned and clips itself to its pane, so
+ * its layout box reaches over the toolbar while nothing of it is drawn there.
+ * A checker that reads only `getBoundingClientRect` reports that as covering
+ * the chrome, which no reader can see.
+ *
+ * Only `inset()` in pixels or percentages is understood. Any other clip path
+ * leaves the rect alone, because a shape this function cannot resolve must not
+ * silently shrink the observation.
+ */
+export function resolvePaintedRect(rect: IViewerRect, clipPath: string | undefined): IViewerRect {
+    const inset = /^inset\(([^)]*)\)$/u.exec((clipPath ?? '').trim());
+    if (!inset) {
+        return rect;
+    }
+    const parts = (inset[1] ?? '').split(/\s+round\s+/u)[0]?.trim().split(/\s+/u) ?? [];
+    if (parts.length === 0 || parts.length > 4) {
+        return rect;
+    }
+    const sides = [
+        parts[0],
+        parts[1] ?? parts[0],
+        parts[2] ?? parts[0],
+        parts[3] ?? parts[1] ?? parts[0],
+    ];
+    const resolved: number[] = [];
+    for (const [
+        index,
+        side,
+    ] of sides.entries()) {
+        const reference = index % 2 === 0 ? rect.height : rect.width;
+        const value = resolveInsetLength(side, reference);
+        if (value === null) {
+            return rect;
+        }
+        // A negative inset grows the clip beyond the box. Nothing but the
+        // element's own shadow is painted there, so it cannot uncover more.
+        resolved.push(Math.max(0, value));
+    }
+    const [
+        top = 0,
+        right = 0,
+        bottom = 0,
+        left = 0,
+    ] = resolved;
+    return {
+        height: Math.max(0, rect.height - top - bottom),
+        left: rect.left + left,
+        top: rect.top + top,
+        width: Math.max(0, rect.width - left - right),
+    };
+}
+
+function resolveInsetLength(value: string | undefined, reference: number) {
+    if (value === undefined) {
+        return null;
+    }
+    if (value.endsWith('px')) {
+        const pixels = Number.parseFloat(value);
+        return Number.isFinite(pixels) ? pixels : null;
+    }
+    if (value.endsWith('%')) {
+        const percentage = Number.parseFloat(value);
+        return Number.isFinite(percentage) ? (percentage / 100) * reference : null;
+    }
+    return null;
+}
+
 function isPaintedElement(element: Element | null): element is HTMLElement {
     if (!(element instanceof HTMLElement) || !element.isConnected) {
         return false;
@@ -150,11 +219,14 @@ function readNoteWindows(root: Document, host: HTMLElement): IViewerInvariantNot
                     `${pdfViewerDomSelectors.pageContainer}[data-page="${String(anchorPageNumber)}"]:not(.page_container--buffered)`,
                 )
                 : null;
+            const rect = toRect(noteWindow.getBoundingClientRect());
+            const style = noteWindow.ownerDocument.defaultView?.getComputedStyle(noteWindow);
             return {
                 anchorPageNumber: hasAnchorPage ? anchorPageNumber : null,
                 anchorRect: anchorContainer ? toRect(anchorContainer.getBoundingClientRect()) : null,
                 annotationId,
-                rect: toRect(noteWindow.getBoundingClientRect()),
+                paintedRect: resolvePaintedRect(rect, style?.clipPath),
+                rect,
                 userPlacementSequence: Number.parseInt(noteWindow.dataset.userPlacement ?? '0', 10) || 0,
             };
         })

@@ -842,12 +842,10 @@ function setTool(tool: TAnnotationTool) {
     box-sizing: content-box;
     min-height: 2lh;
 
-    /* Room for a wavy underline below the last clamped line. Expressed against
-       the line box so the room grows with the text at every UI scale, the way
-       the underline it protects does. */
-    padding-bottom: 0.3lh;
+    /* Keep waves inside each line box. Padding on a clamped box exposes the
+       next line's glyphs beneath the ellipsis. */
     font-size: var(--app-sidebar-row-font-size);
-    line-height: 1.35;
+    line-height: 1.55;
     color: var(--ui-text-highlighted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -938,10 +936,9 @@ function setTool(tool: TAnnotationTool) {
     text-decoration: underline wavy;
     text-decoration-color: var(--note-item-marker-color);
 
-    /* Em units so the wave stays inside the padding the preview reserves for it
-       when the UI scale changes the row's font size. */
+    /* Scale the wave with the preview's line box. */
     text-decoration-thickness: 0.07em;
-    text-underline-offset: 0.27em;
+    text-underline-offset: 0.1em;
 }
 
 .note-item-meta {

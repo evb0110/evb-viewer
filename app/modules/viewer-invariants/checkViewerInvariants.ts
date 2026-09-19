@@ -512,7 +512,10 @@ function checkNoteWindowPlacement(
         }
 
         applicable += 1;
-        const covered = surface.chrome.filter(chrome => overlapsWithTolerance(noteWindow.rect, chrome.rect));
+        // What covers the chrome is what is painted: the window clips itself
+        // to its pane, so a layout box that reaches over the toolbar is not by
+        // itself something a reader can see.
+        const covered = surface.chrome.filter(chrome => overlapsWithTolerance(noteWindow.paintedRect, chrome.rect));
         if (covered.length > 0) {
             violations.push({
                 evidence: {
@@ -521,6 +524,7 @@ function checkNoteWindowPlacement(
                         name: chrome.name,
                         rect: roundRect(chrome.rect),
                     })),
+                    noteWindowPaintedRect: roundRect(noteWindow.paintedRect),
                     noteWindowRect: roundRect(noteWindow.rect),
                 },
                 id: 'A2-note-window-over-chrome',

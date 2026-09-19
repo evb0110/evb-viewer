@@ -179,7 +179,22 @@ export async function assertViewerInvariants(
     page: Page,
     options: IAssertViewerInvariantsOptions,
 ): Promise<IViewerInvariantCheckpointResult> {
-    const report = await evaluateInPage(page, async (input: {
+    return evaluateViewerInvariantCheckpoint(await readViewerInvariantReport(page, options), options);
+}
+
+/**
+ * Settles the viewer and reads one report without deciding anything about it.
+ * A calibration run records the report on both sides of a historical fix, so it
+ * needs the observation before the assertion that would throw on it.
+ */
+export async function readViewerInvariantReport(
+    page: Page,
+    options: Pick<
+        IAssertViewerInvariantsOptions,
+        'documentWellFormed' | 'editedAnnotationIds' | 'requireNavigationIdle' | 'settleTimeoutMs'
+    >,
+): Promise<IViewerInvariantReport> {
+    return evaluateInPage(page, async (input: {
         documentWellFormed: boolean;
         editedAnnotationIds: string[];
         requireNavigationIdle: boolean;
@@ -213,8 +228,6 @@ export async function assertViewerInvariants(
         requireNavigationIdle: options.requireNavigationIdle ?? false,
         settleTimeoutMs: options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS,
     });
-
-    return evaluateViewerInvariantCheckpoint(report, options);
 }
 
 /** Starts a new two-observation sequence, for a test that resets the viewer. */
