@@ -14,6 +14,7 @@ describe('host platform feature schemas', () => {
             getEnvironment: 'host:getEnvironment',
             getZenModeState: 'host:getZenModeState',
             setZenMode: 'host:setZenMode',
+            writeBugReportBundle: 'host:writeBugReportBundle',
         });
         expect(HOST_PLATFORM_FEATURE.eventChannels).toEqual({
             onEnvironmentChange: 'host:environmentChanged',
@@ -29,6 +30,7 @@ describe('host platform feature schemas', () => {
                 kind: 'sync',
                 browserLazy: 'direct',
             }),
+            expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
             expect.objectContaining({kind: 'async'}),
