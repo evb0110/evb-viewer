@@ -1,0 +1,48 @@
+tests/e2e/electron/helpers/viewerInvariants.ts
+  s_ecea10291e4b09::t_f68d4fed935355 217
+  s_ecea10291e4b09::t_ee84e08704509f 63,87-167
+  s_ecea10291e4b09::t_7b31e2c4c4ce70 41-52,56-62
+  s_ecea10291e4b09::t_59301891297c10 64
+app/modules/viewer-invariants/viewerInvariantTypes.ts
+  s_ecea10291e4b09::t_5d65e1c69810b3 124-140,142
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_fe95c66ab69406 698-710
+  s_ecea10291e4b09::t_da634cf714f8a1 750
+  s_ecea10291e4b09::t_051420bf104610 774
+  s_ecea10291e4b09::t_328fd80f12c55b 18
+  s_22b8d7f5de0aba::t_3f8b29ca3f74fe 697
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_522f2213e8f6ba 731-804
+  s_ecea10291e4b09::t_efd06cf593d26a 22
+  s_ecea10291e4b09::t_5cc986c9c5495d 730
+tests/e2e/electron/viewerInvariantJourney.e2e.test.ts
+  s_ecea10291e4b09::t_799eeab767923e 135-139
+  s_ecea10291e4b09::t_b5432300ca3d9f 217-218,223-224
+  s_ecea10291e4b09::t_f46569e867031f 155-156,161-163,165-168,172-176,190-199,203-207
+  s_ecea10291e4b09::t_8ec76fbaecbba8 90-103
+  s_ecea10291e4b09::t_729b0b47ef6380 240-245,256-260,266-267,274-278,284-285,293-297,300-303,311-312,320-324,326-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "799a195d7d67141927e488d355f9f1a29b12a21b",
+  "prompts": {},
+  "sessions": {
+    "s_22b8d7f5de0aba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b857-581c-7052-8132-50d8ecf93692",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

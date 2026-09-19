@@ -1,0 +1,100 @@
+app/modules/pdf-viewer/components/PdfViewerViewport.vue
+  s_ecea10291e4b09::t_6e068de62c7de2 9
+  s_ecea10291e4b09::t_827f5ddb5768db 175-191
+app/modules/workspace-shell/public.ts
+  s_ecea10291e4b09::t_7db98e38057616 2-5
+app/platform/browser-api/browserHostCapability.ts
+  s_ecea10291e4b09::t_53c02000cef389 95-103
+app/modules/pdf-viewer/public.ts
+  s_ecea10291e4b09::t_7b85d4e0c0aeb7 62
+app/modules/viewer-invariants/readViewerSurface.ts
+  s_ecea10291e4b09::t_5f8088e10fbb92 1-161,164-239
+  s_ecea10291e4b09::t_779d9a82fe6925 162-163
+app/modules/viewer-invariants/waitForViewerSettled.ts
+  s_ecea10291e4b09::t_d22abf4f959435 1-97
+app/utils/consoleErrorObserver.ts
+  s_ecea10291e4b09::t_e2ac133a716afe 300-301
+  s_ecea10291e4b09::t_5f06617a21b310 297-299
+  s_ecea10291e4b09::t_e5f014126f8bcb 302-304
+  s_0d30aaeed1f7a9::t_a99ca2803951bb 21-24,295-296
+app/modules/pdf-viewer/components/PdfShapeAnnotation.vue
+  s_ecea10291e4b09::t_42b6b6618cca06 8
+  s_ecea10291e4b09::t_9ed254b1f352a4 69-89
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_e22ed54bba34c5 1-631
+app/modules/viewer-invariants/captureViewerBugReport.ts
+  s_ecea10291e4b09::t_5ac8c3cddace5b 1-145
+app/modules/viewer-invariants/public.ts
+  s_ecea10291e4b09::t_de92415218b7e5 1-31
+app/modules/viewer-invariants/viewerActionLog.ts
+  s_ecea10291e4b09::t_7f15caae9a96e4 1-125
+app/modules/viewer-invariants/viewerInvariantTypes.ts
+  s_ecea10291e4b09::t_5bf756631414b4 1-120
+app/utils/rendererDiagnosticNotices.ts
+  s_ecea10291e4b09::t_664431106f6c83 1-62
+app/plugins/viewerInvariantMonitor.client.ts
+  s_ecea10291e4b09::t_d2abc5f5684929 1-45
+app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue
+  s_ecea10291e4b09::t_c56fb09c717d3b 8
+app/modules/viewer-invariants/viewerDiagnosticLog.ts
+  s_ecea10291e4b09::t_9e059234fa445a 1-40
+app/modules/viewer-invariants/installViewerInvariantMonitor.ts
+  s_ecea10291e4b09::t_0d7a2ad57aa175 1-178
+  s_ecea10291e4b09::t_521ee33174f8f7 179-184
+app/platform/generated/browserPlatformPathDescriptorsGenerated.ts
+  s_ecea10291e4b09::t_48f6cb63112332 252
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
+  s_ecea10291e4b09::t_022a9515df889c 234,512
+app/plugins/rendererErrorGuard.client.ts
+  s_ecea10291e4b09::t_1e2a4c462f6e2d 10-14,162,167-171
+electron/hostEnvironment.ts
+  s_ecea10291e4b09::t_b41c75b1eee020 16,271-272
+electron/writeHostBugReportBundle.ts
+  s_ecea10291e4b09::t_5b751e00415a6c 1-74
+nuxt.config.ts
+  s_ecea10291e4b09::t_14bec3ee9c91f5 548
+packages/contracts/hostPlatformFeature.ts
+  s_ecea10291e4b09::t_26e39e82ba945b 74-127,163-169
+packages/i18n-app/messages/de.ts
+  s_ecea10291e4b09::t_fb7aa73433efc0 1206-1209
+packages/i18n-app/messages/en.ts
+  s_ecea10291e4b09::t_79718c9602ed4d 1206-1209
+packages/i18n-app/messages/es.ts
+  s_ecea10291e4b09::t_885960fa71d69a 1206-1209
+packages/i18n-app/messages/fr.ts
+  s_ecea10291e4b09::t_bc773483c34a12 1207-1210
+packages/i18n-app/messages/it.ts
+  s_ecea10291e4b09::t_16584d47737dee 1206-1209
+packages/i18n-app/messages/nl.ts
+  s_ecea10291e4b09::t_745c49617c1190 1206-1209
+packages/i18n-app/messages/pt.ts
+  s_ecea10291e4b09::t_9adb3b99c8f7c7 1207-1210
+packages/i18n-app/messages/ptBr.ts
+  s_ecea10291e4b09::t_b6feda0837d75d 1207-1210
+packages/i18n-app/messages/ru.ts
+  s_ecea10291e4b09::t_49fa8f327e8615 1224-1227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8fd89e11355396523d4542ca49ef3642fe04b854",
+  "prompts": {},
+  "sessions": {
+    "s_0d30aaeed1f7a9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a116b59845123320c",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

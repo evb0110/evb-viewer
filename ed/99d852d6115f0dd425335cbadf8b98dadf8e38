@@ -1,0 +1,21 @@
+docs/internal/agents/viewer-invariants.md
+  s_ecea10291e4b09::t_73170cba576249 28-38
+  s_ecea10291e4b09::t_13b5a5393c0af1 48-52,56-62
+  s_ecea10291e4b09::t_6573c94481c7cf 75-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ed99d852d6115f0dd425335cbadf8b98dadf8e38",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
