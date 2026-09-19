@@ -10,6 +10,7 @@ import {
 const mocks = vi.hoisted(() => ({
     app: {getPath: vi.fn(() => '/tmp/app-data')},
     dialog: {showMessageBox: vi.fn()},
+    execFile: vi.fn(),
     loadSettings: vi.fn(async () => ({})),
     logger: {
         error: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('fs/promises', () => ({readFile: mocks.readFile}));
+vi.mock('node:child_process', () => ({execFile: mocks.execFile}));
 
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
@@ -63,6 +65,55 @@ describe('default viewer prompt', () => {
             await updater({});
         });
     });
+
+    it.each([
+        'success',
+        'success via GLib',
+        'command failure',
+        'unchanged PDF',
+        'unchanged DjVu',
+    ])(
+        'automatically registers Linux defaults and falls back only when needed: %s',
+        async (outcome) => {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: 'linux',
+            });
+            // Model the external command boundary, including tools which exit successfully
+            // without actually changing the user's default application.
+            mocks.execFile.mockImplementation((
+                file: string,
+                args: string[],
+                _options: unknown,
+                callback: (error: Error | null, result: { stdout: string }) => void,
+            ) => {
+                const unchangedType = outcome === 'unchanged PDF' ? 'application/pdf' : 'image/vnd.djvu';
+                if (outcome === 'success via GLib') {
+                    callback(null, { stdout: file === 'gio'
+                        ? `Default application for “${args[1]}”: evb-viewer.desktop\n`
+                        : 'other.desktop\n' });
+                    return;
+                }
+                callback(outcome === 'command failure' ? new Error('xdg-mime unavailable') : null, {stdout: outcome.startsWith('unchanged') && args[2] === unchangedType
+                    ? 'other.desktop\n'
+                    : 'evb-viewer.desktop\n'});
+            });
+            const { promptSetDefaultViewer } = await loadDefaultViewerModule();
+
+            await promptSetDefaultViewer({} as never);
+
+            expect(mocks.execFile).toHaveBeenCalledWith('xdg-mime', [
+                'default',
+                'evb-viewer.desktop',
+                'application/pdf',
+                'image/vnd.djvu',
+            ], { timeout: 10_000 }, expect.any(Function));
+            const instructions = mocks.dialog.showMessageBox.mock.calls.filter(
+                call => call[1]?.detail === 'dialogs.defaultViewer.instructionsLinux',
+            );
+            expect(instructions).toHaveLength(outcome.startsWith('success') ? 0 : 1);
+        },
+    );
 
     it('shows fallback instructions when Windows default-app settings cannot be opened', async () => {
         const { promptSetDefaultViewer } = await loadDefaultViewerModule();
