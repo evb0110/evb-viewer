@@ -36,6 +36,7 @@ import {
     openDjvuInApp,
     openDocumentSidebarTab,
     openPdfInApp,
+    scrollToPageWithWheel,
     waitForDjvuLoaded,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
@@ -2491,6 +2492,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             `viewer-window-resize-${Date.now()}.pdf`,
             WINDOW_RESIZE_FIXTURE_PAGE_COUNT,
         );
+        // An earlier case in this file can leave viewport emulation in place,
+        // and emulation reports its own size whatever the native window does.
+        // The real window is the subject here, so the override goes first.
+        await session.page.setViewport(null);
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
@@ -2504,7 +2509,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             continuousScroll: true,
             zoomMode: 'fit-width',
         });
-        await goToPageViaToolbar(session.page, WINDOW_RESIZE_ANCHOR_PAGE);
+        // The reading position is reached by scrolling, the way a person gets
+        // to a page in a continuous document, so the resize acts on a viewport
+        // the viewer placed itself.
+        await scrollToPageWithWheel(session.page, WINDOW_RESIZE_ANCHOR_PAGE);
         await waitForViewportQuiet(session.page);
 
         const anchor = {

@@ -74,6 +74,8 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
 /** Smallest wheel step a converging search may use, in CSS pixels. */
 const MIN_WHEEL_STEP_PX = 40;
 const WHEEL_STEP_DURATION_MS = 120;
+/** Trackpad cadence, matching the shared trusted-wheel driver's default. */
+const WHEEL_EVENT_INTERVAL_MS = 16;
 
 async function readActiveViewportCentre(page: Page) {
     const centre = await evaluateInPage(page, () => {
@@ -1337,12 +1339,20 @@ export async function scrollToPageWithWheel(
         previousDirection = direction;
 
         const centre = await readActiveViewportCentre(page);
+        // The burst delivers its step over several events at the trackpad's
+        // cadence, so the whole gesture moves about `stepPx`, not that much per
+        // event.
+        const eventDeltaY = direction * Math.max(
+            1,
+            Math.round(stepPx / Math.ceil(WHEEL_STEP_DURATION_MS / WHEEL_EVENT_INTERVAL_MS)),
+        );
         const run = await startTrustedWheelFling(page, {
             x: centre.x,
             y: centre.y,
-            initialDeltaY: direction * stepPx,
-            finalDeltaY: direction * stepPx,
+            initialDeltaY: eventDeltaY,
+            finalDeltaY: eventDeltaY,
             durationMs: WHEEL_STEP_DURATION_MS,
+            intervalMs: WHEEL_EVENT_INTERVAL_MS,
         });
         await run.finished;
         await waitForViewportQuiet(page);
