@@ -60,12 +60,17 @@ async function expectTwoLinePreviewPaint(page: Page) {
         }
         return bands;
     }
-    // Count actual painted glyph lines, including a fragment leaking out below
-    // the clamp. Box height alone cannot distinguish that from underline room.
+    // Underlines delimit the two painted text lines. Glyphs can have detached
+    // dots and descenders, so gaps between dark pixel rows are not line breaks.
     const text = paintedBands((r, g, b) => Math.max(r, g, b) < 170 && Math.max(r, g, b) - Math.min(r, g, b) < 50);
     const waves = paintedBands((r, g, b) => b - r > 65 && b - g > 35);
-    expect(text, 'Exactly two text lines, with no third-line fragments').toHaveLength(2);
     expect(waves, 'Both blue squiggly underlines remain visible').toHaveLength(2);
+    const textRows = text.flat();
+    const firstWaveEnd = waves[0]!.at(-1)!;
+    const lastWaveEnd = waves[1]!.at(-1)!;
+    expect(textRows.some(y => y <= firstWaveEnd), 'The first text line is painted').toBe(true);
+    expect(textRows.some(y => y > firstWaveEnd && y <= lastWaveEnd), 'The second text line is painted').toBe(true);
+    expect(textRows.filter(y => y > lastWaveEnd), 'No third-line fragments below the final underline').toEqual([]);
     const waveHeights = waves.map(band => band.at(-1)! - band[0]! + 1);
     expect(Math.abs(waveHeights[0]! - waveHeights[1]!), 'The last wave must not be clipped').toBeLessThanOrEqual(2);
 }
