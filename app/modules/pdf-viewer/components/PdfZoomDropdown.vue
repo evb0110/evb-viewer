@@ -56,7 +56,7 @@
 
                         <div class="zoom-divider" />
 
-                        <div class="zoom-toggle-group">
+                        <div class="zoom-toggle-group zoom-toggle-group--fit">
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('width') }]"
                                 @click="handleSetFitMode('width')"
@@ -407,7 +407,8 @@ function selectCustomZoomInput(event: FocusEvent) {
 
 .zoom-dropdown {
     padding: 0.375rem;
-    width: min(var(--app-pdf-zoom-menu-width), var(--app-overlay-viewport-width));
+    width: max-content;
+    min-width: min(var(--app-pdf-zoom-menu-width), var(--app-overlay-viewport-width));
     max-width: var(--app-overlay-viewport-width);
     background: var(--app-toolbar-group-bg);
 }
@@ -488,8 +489,8 @@ function selectCustomZoomInput(event: FocusEvent) {
 }
 
 .zoom-chip-custom-input {
-    min-width: 0;
-    width: 100%;
+    width: 0;
+    min-width: 100%;
     height: 100%;
     background: transparent;
     border: none;
@@ -515,6 +516,19 @@ function selectCustomZoomInput(event: FocusEvent) {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(7rem, 100%), 1fr));
     gap: 0.125rem;
+}
+
+.zoom-toggle-group--fit {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.zoom-toggle-group--fit .zoom-toggle-btn {
+    flex: 1 1 auto;
+}
+
+.zoom-toggle-group--fit .zoom-toggle-label {
+    white-space: nowrap;
 }
 
 .zoom-toggle-group--view-modes {

@@ -22,6 +22,11 @@ const ZOOM_MENU_VIEWPORT = {
 };
 
 interface IZoomMenuLayout {
+    fitLabels: Array<{
+        height: number;
+        lineHeight: number;
+    }>;
+    fitButtonTops: number[];
     buttonRects: Array<{
         bottom: number;
         left: number;
@@ -98,7 +103,19 @@ async function readZoomMenuLayout(page: Page): Promise<IZoomMenuLayout> {
         }
         const menuRect = menu.getBoundingClientRect();
         const viewGroupRect = viewGroup.getBoundingClientRect();
+        const fitGroup = Array.from(menu.querySelectorAll<HTMLElement>('.zoom-toggle-group'))
+            .find(group => group.querySelectorAll('button.zoom-toggle-btn').length === 2);
+        if (!fitGroup) {
+            throw new Error('Zoom fit-mode group was not found');
+        }
         return {
+            fitLabels: Array.from(fitGroup.querySelectorAll<HTMLElement>('.zoom-toggle-label'))
+                .map(label => ({
+                    height: label.getBoundingClientRect().height,
+                    lineHeight: Number.parseFloat(getComputedStyle(label).lineHeight),
+                })),
+            fitButtonTops: Array.from(fitGroup.querySelectorAll<HTMLElement>('button.zoom-toggle-btn'))
+                .map(button => button.getBoundingClientRect().top),
             buttonRects: Array.from(viewGroup.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
                 .map(button => {
                     const rect = button.getBoundingClientRect();
@@ -155,6 +172,11 @@ describe('Electron E2E - localized zoom menu layout', () => {
         expect(layout.buttonRects.every(rect => rect.left >= layout.menuRect.left - 1)).toBe(true);
         expect(layout.buttonRects.every(rect => rect.right <= layout.menuRect.right + 1)).toBe(true);
         expect(layout.viewGroup.bottom - layout.viewGroup.top).toBeGreaterThan(0);
+        expect(layout.fitLabels).toHaveLength(2);
+        expect(layout.fitLabels.every(label => label.height < label.lineHeight * 1.5)).toBe(true);
+        expect(Math.max(...layout.fitButtonTops) - Math.min(...layout.fitButtonTops)).toBeLessThanOrEqual(1);
+        expect(layout.menuRect.left).toBeGreaterThanOrEqual(0);
+        expect(layout.menu.clientWidth).toBeLessThan(ZOOM_MENU_VIEWPORT.width * 0.6);
         expect(layout.menu.scrollWidth).toBeLessThanOrEqual(layout.menu.clientWidth + 1);
     }, ZOOM_MENU_TIMEOUT_MS);
 });
