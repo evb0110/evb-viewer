@@ -14,7 +14,10 @@ export const ELECTRON_RUN_COMMANDS = [
     'type',
     'content',
     'waitfor',
-    'resize',
+    // `windowResize` moves the real window. `emulateViewport` only changes the
+    // metrics the renderer reports, so the two are never the same check.
+    'windowResize',
+    'emulateViewport',
     'viewport',
     'openPdf',
     'health',

@@ -60,7 +60,8 @@ const CLI_COMMANDS = [
     'type',
     'content',
     'waitfor',
-    'resize',
+    'windowResize',
+    'emulateViewport',
     'viewport',
     'run',
     'run-file',
@@ -412,7 +413,10 @@ Commands (require running session):
   content <selector>  Get text content
   waitfor <selector> [timeoutMs]
                      Wait until selector appears (useful for scripted flows)
-  resize <w> <h>      Resize viewport (Puppeteer viewport)
+  windowResize <w> <h>
+                     Resize the real window so its content area is w x h
+  emulateViewport <w> <h>
+                     Override the reported viewport only; the window does not move
   viewport            Print current viewport dimensions
   openPdf <path>      Open PDF file by absolute path
 
@@ -424,7 +428,8 @@ Examples:
   pnpm electron:run devtools network 200           # Recent network diagnostics
   pnpm electron:run logs --follow --since=15m      # Follow merged current-session logs
   pnpm electron:run viewport                       # Read current viewport/window size
-  pnpm electron:run resize 1280 820               # Set viewport for deterministic screenshots
+  pnpm electron:run windowResize 1280 820          # Resize the real window content area
+  pnpm electron:run emulateViewport 1280 820       # Emulate a viewport for deterministic screenshots
   pnpm electron:run list                           # Show all running sessions
   pnpm electron:run stop --all                     # Stop everything
   pnpm electron:run -s test openPdf "/path/to.pdf"
@@ -756,7 +761,8 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
         console.log(await sendCommand('content', args));
     },
     waitfor: args => printJsonCommand('waitfor', args, COMMAND_EXECUTION_TIMEOUT_MS),
-    resize: args => printJsonCommand('resize', args),
+    windowResize: args => printJsonCommand('windowResize', args, COMMAND_EXECUTION_TIMEOUT_MS),
+    emulateViewport: args => printJsonCommand('emulateViewport', args),
     viewport: args => printJsonCommand('viewport', args),
     async run(args) {
         const code = requireJoinedArgs(args, 'No code provided');

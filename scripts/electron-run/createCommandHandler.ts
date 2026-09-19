@@ -15,6 +15,7 @@ import {
     OPEN_PDF_READY_TIMEOUT_MS,
     OPEN_PDF_TRIGGER_TIMEOUT_MS,
 } from '@scripts/electron-run/electronRunTimeouts';
+import { resizeElectronWindowContentArea } from '@scripts/electron-run/resizeElectronWindow';
 import { screenshotDirPath } from '@scripts/electron-run/electronRunSessionPaths';
 import type {
     ISessionState,
@@ -26,6 +27,7 @@ const DEFAULT_CONSOLE_LIMIT = 50;
 const DEFAULT_DEVTOOLS_LIMIT = 120;
 const DEFAULT_SCREENSHOT_INTERVAL_MS = 1000;
 const DEFAULT_SCREENSHOT_COUNT = 5;
+const WINDOW_RESIZE_SETTLE_TIMEOUT_MS = 10_000;
 const TRUTHY_BOOLEAN_TOKENS = [
     '1',
     'true',
@@ -114,6 +116,18 @@ function parseNonNegativeInt(value: unknown, fallback: number, max: number) {
         return fallback;
     }
     return Math.min(parsed, max);
+}
+
+function parseWindowSizeArgs(args: unknown[]) {
+    const width = parsePositiveInt(args[0], 0, 10_000);
+    const height = parsePositiveInt(args[1], 0, 10_000);
+    if (!width || !height) {
+        throw new Error('Width and height required');
+    }
+    return {
+        width,
+        height,
+    };
 }
 
 function parseBooleanArg(value: unknown, fallback = false) {
@@ -906,21 +920,27 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
             timeoutMs,
         };
     },
-    async resize(context, args) {
-        const width = parsePositiveInt(args[0], 0, 10_000);
-        const height = parsePositiveInt(args[1], 0, 10_000);
-        if (!width || !height) {
-            throw new Error('Width and height required');
+    async windowResize(context, args) {
+        const size = parseWindowSizeArgs(args);
+        const result = await resizeElectronWindowContentArea(
+            context.sessionState.page,
+            size,
+            parsePositiveInt(args[2], WINDOW_RESIZE_SETTLE_TIMEOUT_MS, 120_000),
+        );
+        if (!result.settled) {
+            throw new Error(
+                `The window content area did not reach ${String(size.width)}x${String(size.height)}; `
+                + `it settled at ${String(result.after.contentSize.width)}x${String(result.after.contentSize.height)}. `
+                + 'An active viewport emulation overrides the reported size.',
+            );
         }
-        await context.sessionState.page.setViewport({
-            width,
-            height,
-        });
+        return result;
+    },
+    async emulateViewport(context, args) {
+        const size = parseWindowSizeArgs(args);
+        await context.sessionState.page.setViewport(size);
         return {
-            resized: {
-                width,
-                height,
-            },
+            emulated: size,
             viewport: context.sessionState.page.viewport(),
         };
     },
