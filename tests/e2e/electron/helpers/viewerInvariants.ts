@@ -12,8 +12,11 @@ const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
 /**
  * A violation a test accepts at one checkpoint. The reason names the defect,
  * so an exception is a record of a known bug rather than a weakened invariant.
+ * `annotationId` names the subject the tolerated violation must be about; a
+ * violation of the same id about anything else is a different defect.
  */
 export interface IViewerInvariantException {
+    annotationId?: string;
     id: TViewerInvariantId;
     reason: string;
 }
@@ -21,7 +24,12 @@ export interface IViewerInvariantException {
 export interface IAssertViewerInvariantsOptions {
     /** Names the moment in the journey, used in the failure message. */
     checkpoint: string;
-    /** Violations this checkpoint tolerates, each with a written reason. */
+    /**
+     * The exact violations this checkpoint tolerates, each with a written
+     * reason. The list is matched in both directions: an unlisted violation
+     * fails the checkpoint, and a listed one that did not occur fails it too,
+     * so a fix cannot leave a stale exception behind.
+     */
     expected?: readonly IViewerInvariantException[];
     /** Annotations just edited, excluded once from the drift comparison. */
     editedAnnotationIds?: readonly string[];
@@ -40,6 +48,16 @@ export interface IViewerInvariantCheckpointResult {
 
 function formatViolation(violation: IViewerInvariantViolation) {
     return `  - ${violation.id}: ${violation.message}\n      ${JSON.stringify(violation.evidence)}`;
+}
+
+/** Identifies a violation by what it is about, not only by its statement. */
+function describeSubject(id: TViewerInvariantId, annotationId: string | null) {
+    return `${id} on ${annotationId ?? 'the viewer'}`;
+}
+
+function subjectOfViolation(violation: IViewerInvariantViolation) {
+    const annotationId = violation.evidence.annotationId;
+    return describeSubject(violation.id, typeof annotationId === 'string' ? annotationId : null);
 }
 
 /**
@@ -87,13 +105,30 @@ export async function assertViewerInvariants(
         settleTimeoutMs: options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS,
     });
 
-    const expectedIds = new Set((options.expected ?? []).map(exception => exception.id));
-    const tolerated = report.violations.filter(violation => expectedIds.has(violation.id));
-    const unexpected = report.violations.filter(violation => !expectedIds.has(violation.id));
-    if (unexpected.length > 0) {
+    const outstanding = (options.expected ?? []).map(exception => (
+        describeSubject(exception.id, exception.annotationId ?? null)
+    ));
+    const tolerated: IViewerInvariantViolation[] = [];
+    const unexpected: IViewerInvariantViolation[] = [];
+    for (const violation of report.violations) {
+        const index = outstanding.indexOf(subjectOfViolation(violation));
+        if (index === -1) {
+            unexpected.push(violation);
+            continue;
+        }
+        outstanding.splice(index, 1);
+        tolerated.push(violation);
+    }
+
+    if (unexpected.length > 0 || outstanding.length > 0) {
         throw new Error([
             `Viewer invariants failed at checkpoint "${options.checkpoint}":`,
             ...unexpected.map(formatViolation),
+            ...(outstanding.length > 0
+                ? [`  tolerated but not observed: ${outstanding.join(', ')}.`
+                    + ' Either the defect is fixed and the exception belongs in the'
+                    + ' bin, or this checkpoint no longer reaches it.']
+                : []),
             `  not applicable here: ${report.skipped.map(skip => skip.id).join(', ') || 'none'}`,
         ].join('\n'));
     }

@@ -46,15 +46,32 @@ const RESIZED_HEIGHT_PX = 820;
  * zoom moves it over the toolbar and the sidebar.
  * `PdfAnnotationNoteWindow.clampPosition` bounds a drag; `followPage` states
  * that scroll following is deliberately unclamped, and nothing re-clamps the
- * window afterwards. Every checkpoint that holds this exception is a place the
- * defect shows. Remove it with the fix: the scroll checkpoint asserts the
- * violation is still present, so the exception cannot outlive the bug.
+ * window afterwards.
+ *
+ * The same cause has a second face: the window is re-placed by scroll and by a
+ * page resize only, so a sidebar toggle that translates the page sideways
+ * leaves the window where it was and breaks the anchor delta.
+ *
+ * Each exception names the one window it excuses, and only the checkpoints
+ * that reach the defect hold it. The checker asserts the list in both
+ * directions, so the fix fails those checkpoints and a second defect, or the
+ * same one on another window, fails every other checkpoint.
  */
-const UNCLAMPED_NOTE_WINDOW_DEFECT: IViewerInvariantException = {
-    id: 'A2-note-window-inside-pane',
-    reason: 'an open note window is never re-clamped to the pane after the page it follows moves',
-};
-const OPEN_NOTE_WINDOW_EXCEPTIONS = [UNCLAMPED_NOTE_WINDOW_DEFECT];
+function unclampedNoteWindowDefect(annotationId: string): IViewerInvariantException[] {
+    return [{
+        annotationId,
+        id: 'A2-note-window-inside-pane',
+        reason: 'an open note window is never re-clamped to the pane after the page it follows moves',
+    }];
+}
+
+function unfollowedNoteWindowDefect(annotationId: string): IViewerInvariantException[] {
+    return [{
+        annotationId,
+        id: 'A2-note-window-follows-anchor',
+        reason: 'an open note window does not follow its page when a pane relayout moves it sideways',
+    }];
+}
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: 'e2e-viewer-invariants'});
 
@@ -133,10 +150,16 @@ describe('viewer invariant journey', () => {
             y: 0.3,
         }, 1);
         await waitForFunctionInPage(page, () => document.querySelector('.note-window') !== null, {timeout: 30_000});
+        const noteAnnotationId = await evaluateInPage(page, () => (
+            document.querySelector('.note-window')?.getAttribute('data-annotation-id') ?? null
+        ));
+        if (noteAnnotationId === null) {
+            throw new Error('The open note window carries no annotation id to name in an exception');
+        }
+        const openNoteWindowExceptions = unclampedNoteWindowDefect(noteAnnotationId);
         await assertViewerInvariants(page, {
             checkpoint: 'with an open note window',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
         });
 
         // A real wheel scroll several pages down: the rendered counter has to
@@ -144,21 +167,18 @@ describe('viewer invariant journey', () => {
         // travel with its anchor.
         const settlement = await wheelPdfViewportAndWaitForSettlement(page, WHEEL_DOWN_DELTA_PX, 30_000);
         expect(settlement.finalScrollTop).toBeGreaterThan(settlement.initialScrollTop);
-        const scrolled = await assertViewerInvariants(page, {
+        await assertViewerInvariants(page, {
             checkpoint: 'after a real wheel scroll down',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
+            expected: openNoteWindowExceptions,
             requireNavigationIdle: true,
         });
-        expect(scrolled.tolerated.map(violation => violation.id))
-            .toStrictEqual([UNCLAMPED_NOTE_WINDOW_DEFECT.id]);
         expect(await readToolbarPageFromScreen(page)).toBeGreaterThan(1);
 
         await wheelPdfViewportAndWaitForSettlement(page, -WHEEL_DOWN_DELTA_PX, 30_000);
         await assertViewerInvariants(page, {
             checkpoint: 'after scrolling back up',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
             requireNavigationIdle: true,
         });
 
@@ -168,33 +188,30 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'after zooming in through the toolbar',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
+            expected: openNoteWindowExceptions,
         });
         await clickVisibleToolbarButton(page, 'Zoom Out');
         await assertViewerInvariants(page, {
             checkpoint: 'after zooming back out',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
         });
 
         await clickVisibleToolbarButton(page, 'Fit Width');
         await assertViewerInvariants(page, {
             checkpoint: 'in fit width',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
         });
         await clickVisibleToolbarButton(page, 'Fit Height');
         await assertViewerInvariants(page, {
             checkpoint: 'in fit height',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
         });
 
         await clickVisibleToolbarButton(page, 'Toggle Sidebar');
         await assertViewerInvariants(page, {
             checkpoint: 'after toggling the sidebar',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
+            expected: unfollowedNoteWindowDefect(noteAnnotationId),
         });
 
         // A second document in its own tab, then back to the first one.
@@ -204,7 +221,6 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'on the second tab',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
         });
 
         await clickFirstTabOnScreen(page);
@@ -212,7 +228,6 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'back on the first tab',
             documentWellFormed: true,
-            expected: OPEN_NOTE_WINDOW_EXCEPTIONS,
         });
     });
 });
