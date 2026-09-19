@@ -3,7 +3,6 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type {TFitMode} from '@app/types/pdfContracts';
 import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type {
@@ -543,34 +542,19 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
 
     async function handleFitScaleModeChange(
         source: string,
-        mode: TFitMode,
         runId: number,
         document: IPdfDocument | null,
         physicalNavigationEpoch: number,
         isRunActive: () => boolean,
         options: {forceRerender?: boolean} = {},
     ) {
-        // A toolbar fit command moves `fitMode` and `zoomMode` together, so both
-        // watchers claim the same change. Yielding once before any geometry is
-        // touched lets the superseded claim retire without replacing the layout
-        // a second time, which is what turned a single fit change into two
-        // rounds of placeholder resizing and cancelled renders.
-        await Promise.resolve();
-        if (!isRunActive()) {
-            return;
-        }
         // Navigation/viewport authority owns the semantic anchor across fit
         // geometry changes. Cancelling it here reinterprets the pre-fit pixel
         // scroll position under changing page metrics and can advance the
         // current page without any user navigation.
         resetZoomRerenderQueueState(`${source}-change`);
         const pageToPreserve = navigationAnchorPage?.value ?? currentPage.value;
-        const pageToSnapTo = mode === 'height'
-            ? pageToPreserve
-            : null;
-        const updated = pageToSnapTo === null
-            ? computeFitWidthScale(viewerContainer.value)
-            : computeFitWidthScale(viewerContainer.value, { page: pageToSnapTo });
+        const updated = computeFitWidthScale(viewerContainer.value, { page: pageToPreserve });
         if (!(updated || options.forceRerender === true) || !document) {
             return;
         }
@@ -626,61 +610,42 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
     }
 
-    const stopFitModeWatch = watch(fitMode, async (mode) => {
-        if (zoomMode && zoomMode.value !== (mode === 'height' ? 'fit-height' : 'fit-width')) {
+    // Fit axis and zoom mode are one effective state. One watcher owns their
+    // render replacement, including custom -> fit with an unchanged axis.
+    const effectiveZoomMode = computed(() => {
+        const mode = zoomMode?.value
+            ?? (fitMode.value === 'height' ? 'fit-height' : 'fit-width');
+        // Props can arrive separately during restore. Only plan a fit once
+        // the selected mode and the scale calculator agree on its axis.
+        return mode === 'custom' || fitMode.value === (mode === 'fit-height' ? 'height' : 'width')
+            ? mode
+            : null;
+    });
+    const stopZoomModeWatch = watch(effectiveZoomMode, async (mode) => {
+        const runId = ++fitModeRunId;
+        if (mode === null) {
             return;
         }
-        const runId = ++fitModeRunId;
+        if (mode === 'custom') {
+            queueZoomOrchestration({modeChangedToCustom: true});
+            return;
+        }
+
+        cancelPendingZoomOrchestration();
         const physicalNavigationEpoch = getCurrentUserPhysicalNavigationEpoch();
         const document = pdfDocument.value;
         await handleFitScaleModeChange(
-            PDF_RERENDER_SOURCE.FitMode,
-            mode,
+            PDF_RERENDER_SOURCE.ZoomMode,
             runId,
             document,
             physicalNavigationEpoch,
             () => (
                 isViewerAsyncRunActive(runId, fitModeRunId, document)
-                && fitMode.value === mode
+                && effectiveZoomMode.value === mode
             ),
+            { forceRerender: true },
         );
     });
-
-    const stopZoomModeWatch = zoomMode
-        ? watch(zoomMode, async (mode, previousMode) => {
-            if (mode === previousMode) {
-                return;
-            }
-            if (mode === 'custom') {
-                queueZoomOrchestration({modeChangedToCustom: true});
-                return;
-            }
-
-            cancelPendingZoomOrchestration();
-
-            const modeFitMode: TFitMode = mode === 'fit-height' ? 'height' : 'width';
-            if (fitMode.value !== modeFitMode) {
-                return;
-            }
-
-            const runId = ++fitModeRunId;
-            const physicalNavigationEpoch = getCurrentUserPhysicalNavigationEpoch();
-            const document = pdfDocument.value;
-            await handleFitScaleModeChange(
-                PDF_RERENDER_SOURCE.ZoomMode,
-                modeFitMode,
-                runId,
-                document,
-                physicalNavigationEpoch,
-                () => (
-                    isViewerAsyncRunActive(runId, fitModeRunId, document)
-                    && zoomMode.value === mode
-                    && fitMode.value === modeFitMode
-                ),
-                { forceRerender: true },
-            );
-        })
-        : null;
 
     const stopViewModeWatch = watch([
         viewMode,
@@ -692,9 +657,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         const runId = ++viewModeRunId;
         const document = pdfDocument.value;
         const activeNavigationAnchorPage = navigationAnchorPage?.value ?? null;
-        if (activeNavigationAnchorPage === null) {
-            cancelDestinationNavigationTarget?.();
-        }
         if (!document || isLoading.value) {
             return;
         }
@@ -702,8 +664,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         const previousViewRotation = previous?.[1];
         const rotationChanged = previousViewRotation !== undefined
             && targetViewRotation !== previousViewRotation;
-        resetContinuousScrollState();
-        const updated = computeFitWidthScale(viewerContainer.value);
+        // The viewport intent owns the semantic anchor. A layout replacement
+        // is not physical navigation and must not cancel that intent.
+        const updated = computeFitWidthScale(viewerContainer.value, {page: activeNavigationAnchorPage ?? currentPage.value});
         if (updated) {
             setupPagePlaceholders();
         }
@@ -718,10 +681,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             || viewRotation.value !== targetViewRotation
         ) {
             return;
-        }
-        syncHorizontalScrollAfterLayoutUpdate();
-        if (activeNavigationAnchorPage !== null) {
-            scrollToPage(activeNavigationAnchorPage, { preferExactDom: true });
         }
         syncHorizontalScrollAfterLayoutUpdate();
     });
@@ -865,7 +824,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     function cleanupZoomOrchestration() {
         zoomOrchestrationDisposed = true;
         for (const stop of [
-            stopFitModeWatch,
             stopZoomModeWatch,
             stopViewModeWatch,
             stopCurrentPageWatch,

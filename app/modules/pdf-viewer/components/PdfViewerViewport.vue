@@ -24,7 +24,11 @@
                 class="pdf-viewer-virtual-spacer"
                 :style="item.style"
             />
-            <div v-else-if="item.kind === 'row'" class="pdf-viewer-page-row">
+            <div
+                v-else-if="item.kind === 'row'"
+                class="pdf-viewer-page-row"
+                :class="{ 'pdf-viewer-page-row--buffered': item.pages.every(pageItem => isBufferedPage(pageItem.page)) }"
+            >
                 <PdfViewerPage
                     v-for="pageItem in item.pages"
                     :key="pageItem.key"

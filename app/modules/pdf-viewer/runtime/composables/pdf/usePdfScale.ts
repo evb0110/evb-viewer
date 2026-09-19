@@ -10,7 +10,6 @@ import type {
     TPdfViewMode,
     TPdfViewRotation,
 } from '@contracts/shared';
-import { getViewColumnCount } from '@app/utils/pdfViewMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
@@ -137,12 +136,17 @@ export const usePdfScale = (
             : container.clientWidth;
     }
 
-    function getFitAvailableSize(rawSize: number, mode: TFitMode) {
+    function getFitAvailableSize(rawSize: number, mode: TFitMode, page: TPageNumber) {
         if (mode === 'height') {
             return rawSize - DOCUMENT_PAGE_GUTTER_PX * 2;
         }
 
-        const columns = getViewColumnCount(toValue(viewMode), toValue(numPages));
+        const row = getPageRowBoundsForViewMode({
+            pageNumber: page,
+            viewMode: toValue(viewMode),
+            totalPages: toValue(numPages),
+        });
+        const columns = row.end - row.start + 1;
         return rawSize - DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
     }
 
@@ -158,7 +162,7 @@ export const usePdfScale = (
             options.mode,
             toValue(viewMode),
             toValue(viewRotation),
-            getViewColumnCount(toValue(viewMode), options.totalPages),
+            options.totalPages,
             options.scalePage,
             Math.round(options.rawSize),
             Math.round(options.availableSize),
@@ -215,7 +219,7 @@ export const usePdfScale = (
             return false;
         }
 
-        const availableSize = getFitAvailableSize(rawSize, mode);
+        const availableSize = getFitAvailableSize(rawSize, mode, scalePage);
         if (availableSize <= 0) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
                 rawSize,
@@ -332,7 +336,7 @@ export const usePdfScale = (
             return true;
         }
 
-        const availableSize = getFitAvailableSize(rawSize, mode);
+        const availableSize = getFitAvailableSize(rawSize, mode, scalePage);
         if (availableSize <= 0) {
             return true;
         }

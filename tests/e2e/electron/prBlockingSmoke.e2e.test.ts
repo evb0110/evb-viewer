@@ -1224,31 +1224,154 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('fit-width');
     });
 
-    blockingIt('leaves no subpixel scroll range in paged fit-height', async () => {
+    blockingIt('fits paged spreads without buffer overflow or phantom gutters', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-fit-height-overflow',
         });
-        const fixturePath = await createMultiPageTextFixturePdf('fit-height-overflow.pdf', 3);
+        const fixturePath = await createMultiPageTextFixturePdf('fit-height-overflow.pdf', 7);
         await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await evaluateInPage(session.page, () => {
-            // App zoom and split layouts can leave a fractional CSS height.
+            // Keep the original fractional-height case as well as spread layout.
             document.querySelector<HTMLElement>('#pdf-viewer')!.style.height = '445.6px';
         });
         await requireWorkspaceCommand(session.page, 'handleFitHeight');
         await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
-        await waitForCommittedFitHeightGeometry(session.page, 1);
-        const scrollRange = await evaluateInPage(session.page, () => {
-            const viewport = document.querySelector<HTMLElement>('#pdf-viewer')!;
-            viewport.scrollTop = 10_000;
-            const maximumScrollTop = viewport.scrollTop;
-            viewport.scrollTop = 0;
-            return maximumScrollTop;
-        });
-        // Integer scrollHeight/clientHeight comparisons miss subpixel overflow.
-        expect(scrollRange).toBe(0);
+
+        async function chooseViewMode(index: number) {
+            await session.page.click('#editor-global-toolbar-host .zoom-controls-display');
+            await session.page.waitForSelector('.zoom-dropdown', {visible: true});
+            const point = await evaluateInPage(session.page, (modeIndex: number) => {
+                const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
+                    '.zoom-dropdown .zoom-toggle-btn',
+                )).slice(-3);
+                const rect = buttons[modeIndex]!.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                };
+            }, index);
+            await session.page.mouse.click(point.x, point.y);
+            const modes = [
+                'single',
+                'facing',
+                'facing-first-single',
+            ] as const;
+            await waitForFunctionInPage(session.page, (expectedMode: string) => (
+                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.viewMode === expectedMode
+            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, modes[index]!);
+        }
+
+        async function readSpread() {
+            return evaluateInPage(session.page, () => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer')!;
+                const bounds = viewport.getBoundingClientRect();
+                const pages = Array.from(viewport.querySelectorAll<HTMLElement>(
+                    '.page_container:not(.page_container--buffered)',
+                )).map(element => {
+                    const rect = element.getBoundingClientRect();
+                    return {
+                        page: Number(element.dataset.page),
+                        left: rect.left,
+                        right: rect.right,
+                        top: rect.top,
+                        bottom: rect.bottom,
+                    };
+                });
+                return {
+                    pages,
+                    top: bounds.top,
+                    bottom: bounds.bottom,
+                    trackBottom: viewport.querySelector('[data-pdf-page-track]')!.getBoundingClientRect().bottom,
+                    left: bounds.left,
+                    width: viewport.clientWidth,
+                    scrollRange: viewport.scrollHeight - viewport.clientHeight,
+                    scrollTop: viewport.scrollTop,
+                };
+            });
+        }
+
+        // L1: buffering is invisible to fit geometry, at both document ends and
+        // in an interior spread. The menu action is trusted pointer input.
+        for (const pageNumber of [
+            1,
+            4,
+            7,
+        ]) {
+            await goToPageViaToolbar(session.page, pageNumber);
+            for (const mode of [
+                0,
+                1,
+                2,
+            ]) {
+                await chooseViewMode(mode);
+                await waitForCommittedFitHeightGeometry(session.page, pageNumber);
+                const spread = await readSpread();
+                expect(spread.scrollRange, JSON.stringify({
+                    pageNumber,
+                    mode,
+                    spread,
+                })).toBe(0);
+                expect(spread.scrollTop).toBe(0);
+                // clientHeight is rounded; compare physical boxes as well to
+                // catch the original fractional-pixel overflow.
+                expect(spread.trackBottom).toBeLessThanOrEqual(spread.bottom);
+                expect(spread.pages.some(page => page.page === pageNumber)).toBe(true);
+                for (const page of spread.pages) {
+                    expect(page.top).toBeGreaterThanOrEqual(spread.top);
+                    expect(page.bottom).toBeLessThanOrEqual(spread.bottom);
+                }
+            }
+        }
+
+        // Rotation is setup; switching back to Single exercises the same
+        // layout transition with PDF.js text/link layers in rotated coordinates.
+        for (const rotation of [
+            90,
+            270,
+            0,
+        ]) {
+            await requireWorkspaceCommand(session.page, 'setViewRotation', [rotation]);
+            await chooseViewMode(0);
+            await waitForCommittedFitHeightGeometry(session.page, 7);
+            const spread = await readSpread();
+            expect(spread.scrollRange, JSON.stringify({
+                rotation,
+                spread,
+            })).toBe(0);
+            expect(spread.trackBottom).toBeLessThanOrEqual(spread.bottom);
+        }
+
+        async function waitForUnpairedFitWidth() {
+            await waitForVisibleMountedPdfCanvases(session.page);
+            await waitForFunctionInPage(session.page, () => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const pages = viewport?.querySelectorAll<HTMLElement>(
+                    '.page_container:not(.page_container--buffered)',
+                );
+                const page = pages?.[0];
+                return Boolean(viewport && page && pages?.length === 1
+                    && page.dataset.page === '7'
+                    && page.querySelector('.pdf-resize-canvas-snapshot') === null
+                    && Math.abs(page.getBoundingClientRect().width - (viewport.clientWidth - 40)) <= 1);
+            }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+        }
+
+        // A lone last page in Facing must fill the same width as Single. It
+        // has no partner, hence no inter-page gutter to reserve (L1).
+        await chooseViewMode(0);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
+        await waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'});
+        await waitForUnpairedFitWidth();
+        const single = await readSpread();
+        await chooseViewMode(1);
+        await waitForUnpairedFitWidth();
+        const facing = await readSpread();
+        expect(facing.pages).toHaveLength(1);
+        expect(Math.abs((facing.pages[0]!.right - facing.pages[0]!.left)
+            - (single.pages[0]!.right - single.pages[0]!.left))).toBeLessThanOrEqual(1);
     });
 
     blockingIt('keeps fit-height geometry stable across continuous and paged modes', async () => {

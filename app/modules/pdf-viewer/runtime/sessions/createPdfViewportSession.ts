@@ -1077,7 +1077,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         viewportLayoutMetrics,
     ], reconcileIdleOpenSurfaceViewport, {flush: 'post'});
     watch(options.fitMode, () => submitAmbientViewportStateIntent('fit'));
-    watch(options.viewMode, value => {
+    watch([
+        options.viewMode,
+        viewRotation,
+    ], ([value]) => {
         submitAmbientViewportStateIntent('view-mode', { viewMode: value });
     });
     watch(options.outputScale, value => {

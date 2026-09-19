@@ -1001,8 +1001,6 @@ export const usePdfTextLayerRenderer = (deps: {
             workingCopyPath: currentWorkingCopyPath,
             documentRevisionToken: currentDocumentRevisionToken,
         });
-        textLayerDiv.style.width = '';
-        textLayerDiv.style.height = '';
         textLayerDiv.dataset.pdfTextLayerReady = 'true';
         delete textLayerDiv.dataset.pdfTextLayerRendering;
     }

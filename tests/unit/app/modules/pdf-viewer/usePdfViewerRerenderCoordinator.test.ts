@@ -230,32 +230,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(syncHorizontalScrollForZoomMode).toHaveBeenCalled();
     });
 
-    it('rerenders visible pages with an anchored rotation transition', async () => {
-        const viewRotation = ref<0 | 90 | 180 | 270>(0);
-        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-        const resetContinuousScrollState = vi.fn();
-        const cancelInFlightPageRenders = vi.fn();
-
-        usePdfViewerRerenderCoordinator(createDeps({
-            viewRotation: computed(() => viewRotation.value),
-            reRenderAllVisiblePages,
-            resetContinuousScrollState,
-            cancelInFlightPageRenders,
-        }));
-
-        viewRotation.value = 90;
-        await nextTick();
-        await Promise.resolve();
-        await nextTick();
-
-        expect(resetContinuousScrollState).toHaveBeenCalled();
-        expect(cancelInFlightPageRenders).toHaveBeenCalled();
-        expect(reRenderAllVisiblePages).toHaveBeenCalledWith(
-            expect.any(Function),
-            expect.objectContaining({rerenderSource: PDF_RERENDER_SOURCE.ViewRotation}),
-        );
-    });
-
     it('skips scheduling a zoom rerender when the zoom change was already handled by reload recovery', async () => {
         const zoom = ref(1);
         const consumeSuppressedZoomRerender = vi.fn(() => true);
