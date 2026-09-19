@@ -46,6 +46,23 @@ Electron children, then remove app temp only when the profile has no verified
 Electron owner. If that ownership check cannot establish that the profile is
 clear, the bytes stay in place.
 
+## Window size
+
+Two session commands change size and they are not interchangeable:
+
+```sh
+pnpm electron:run --session <name> windowResize 600 668
+pnpm electron:run --session <name> emulateViewport 1280 820
+```
+
+`windowResize` resizes the real window so its content area becomes the
+requested size, compensating for the native frame, and fails when the window
+does not reach it. It works for a hidden window. `emulateViewport` only changes
+the metrics the renderer reports; the native window does not move, so it cannot
+reproduce a layout defect a person causes by dragging a window edge. A session
+keeps whatever size it was last given, so a test that resizes restores the
+original content area when it finishes.
+
 ## Recovery
 
 Non-clean E2E restarts may set `preserveWorkspaceCheckpoint`. That marker keeps
