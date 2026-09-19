@@ -1,0 +1,31 @@
+tests/e2e/electron/helpers/fixtures.ts
+  s_1e007b198ae212::t_dff802d7434975 2056
+tests/e2e/electron/annotationControls.e2e.test.ts
+  s_1e007b198ae212::t_68ea593160b183 554-558
+  s_1e007b198ae212::t_dff802d7434975 6,8,40-72
+  s_1e007b198ae212::t_c32b40e1ea4615 544-548,550-553,559,564
+  s_1e007b198ae212::t_a92a97cca2144b 7
+  s_1e007b198ae212::t_f257d4a1c318eb 543
+  s_1e007b198ae212::t_0ad48bcd965c29 549
+  s_1e007b198ae212::t_b42b8409c76aa2 560-563
+tests/integration/browser/annotationCommentRowScale.test.ts
+  s_1e007b198ae212::t_bc458be4c6f02d 221,233-234
+app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue
+  s_1e007b198ae212::t_b2bd739f16624c 845-846,848,939,941
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "266ab8f5dc6af08c65ff21b444be9daed86bff64",
+  "prompts": {},
+  "sessions": {
+    "s_1e007b198ae212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b867-726f-7f52-afea-ebaae570d8e3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
