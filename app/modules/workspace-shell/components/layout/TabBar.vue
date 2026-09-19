@@ -1,67 +1,68 @@
 <template>
     <div ref="tabBarRef" class="tab-bar">
-        <div
-            class="tab-list"
-            role="tablist"
-            aria-orientation="horizontal"
-            :aria-label="t('tabs.tabListLabel')"
-            data-tab-list
-        >
+        <div class="tab-strip" data-tab-list>
             <div
-                v-for="(tab, index) in tabs"
-                :key="tab.id"
-                :data-tab-id="tab.id"
-                role="tab"
-                class="tab"
-                :class="{
-                    'is-active': tab.id === activeTabId,
-                    'is-dirty': tab.isDirty,
-                    'is-dragging': isDragging && dragIndex === index,
-                }"
-                :aria-label="resolveTabTitle(tab)"
-                :aria-description="tab.isDirty ? t('tabs.unsavedChanges') : undefined"
-                :aria-selected="tab.id === activeTabId"
-                :aria-posinset="index + 1"
-                :aria-setsize="tabs.length"
-                :tabindex="tab.id === (focusedTabId ?? activeTabId) ? 0 : -1"
-                @focus="handleTabFocus(tab.id)"
-                @click="handleTabClick(tab.id)"
-                @auxclick.prevent="handleAuxClick($event, tab.id)"
-                @keydown="handleTabKeydown($event, tab.id)"
-                @pointerdown="onPointerDown($event, index)"
-                @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
+                class="tab-list"
+                role="tablist"
+                aria-orientation="horizontal"
+                :aria-label="t('tabs.tabListLabel')"
             >
-                <AppTooltip
-                    :text="resolveTabTitle(tab)"
-                    :delay-duration="800"
-                    usefulness="overflow"
+                <div
+                    v-for="(tab, index) in tabs"
+                    :key="tab.id"
+                    :data-tab-id="tab.id"
+                    role="tab"
+                    class="tab"
+                    :class="{
+                        'is-active': tab.id === activeTabId,
+                        'is-dirty': tab.isDirty,
+                        'is-dragging': isDragging && dragIndex === index,
+                    }"
+                    :aria-label="resolveTabTitle(tab)"
+                    :aria-description="tab.isDirty ? t('tabs.unsavedChanges') : undefined"
+                    :aria-selected="tab.id === activeTabId"
+                    :aria-posinset="index + 1"
+                    :aria-setsize="tabs.length"
+                    :tabindex="tab.id === (focusedTabId ?? activeTabId) ? 0 : -1"
+                    @focus="handleTabFocus(tab.id)"
+                    @click="handleTabClick(tab.id)"
+                    @auxclick.prevent="handleAuxClick($event, tab.id)"
+                    @keydown="handleTabKeydown($event, tab.id)"
+                    @pointerdown="onPointerDown($event, index)"
+                    @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
                 >
-                    <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
-                </AppTooltip>
-                <button
-                    type="button"
-                    class="tab-close"
-                    :class="{ 'is-visible': tab.id === activeTabId }"
-                    :aria-label="t('tabs.closeTab')"
-                    :disabled="!canCloseTabs"
-                    :tabindex="tab.id === activeTabId && canCloseTabs ? 0 : -1"
-                    @pointerdown.stop
-                    @click.stop="requestClose(tab.id)"
-                    @keydown.enter.stop
-                    @keydown.space.stop
-                >
-                    <Icon name="ph:x" size="14" />
-                </button>
+                    <AppTooltip
+                        :text="resolveTabTitle(tab)"
+                        :delay-duration="800"
+                        usefulness="overflow"
+                    >
+                        <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
+                    </AppTooltip>
+                    <button
+                        type="button"
+                        class="tab-close"
+                        :class="{ 'is-visible': tab.id === activeTabId }"
+                        :aria-label="t('tabs.closeTab')"
+                        :disabled="!canCloseTabs"
+                        :tabindex="tab.id === activeTabId && canCloseTabs ? 0 : -1"
+                        @pointerdown.stop
+                        @click.stop="requestClose(tab.id)"
+                        @keydown.enter.stop
+                        @keydown.space.stop
+                    >
+                        <Icon name="ph:x" size="14" />
+                    </button>
+                </div>
             </div>
+            <button
+                type="button"
+                class="tab-new"
+                :aria-label="t('tabs.newTab')"
+                @click="handleNewTab"
+            >
+                <Icon name="ph:plus" size="14" />
+            </button>
         </div>
-        <button
-            type="button"
-            class="tab-new"
-            :aria-label="t('tabs.newTab')"
-            @click="handleNewTab"
-        >
-            <Icon name="ph:plus" size="14" />
-        </button>
     </div>
 
     <UDropdownMenu
@@ -600,10 +601,16 @@ useEventListener(window, 'keydown', (event) => {
     -webkit-app-region: drag;
 }
 
-.tab-list {
+.tab-strip {
     display: flex;
     flex: 1;
-    width: 100%;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.tab-list {
+    display: flex;
+    flex: 0 1 auto;
     align-items: stretch;
     overflow: auto hidden;
     min-width: 0;
@@ -757,6 +764,7 @@ useEventListener(window, 'keydown', (event) => {
     align-items: center;
     align-self: center;
     justify-content: center;
+    flex: none;
     width: var(--app-tab-new-width, 3rem);
     min-width: var(--app-tab-new-width, 3rem);
     height: calc(var(--app-tabbar-height, 2.375rem) - (var(--app-tab-new-block-inset, 0.125rem) * 2));
