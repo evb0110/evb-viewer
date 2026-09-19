@@ -17,8 +17,11 @@ import {
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
     waitForAutomationEvent,
-    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    readToolbarPageIndicator,
+    waitForToolbarPageIndicator,
+} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
     runWithElectronE2EDeadline,
     type IElectronE2EDeadlineOptions,
@@ -1256,10 +1259,6 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
     }
 }
 
-async function readActiveViewerCurrentPageState(page: Page) {
-    return (await getWorkspaceToolbarSnapshot(page))?.currentPage ?? null;
-}
-
 export async function dismissScanCleanupFirstRunGuidance(
     page: Page,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -1331,34 +1330,26 @@ export async function goToPageViaToolbar(page: Page, pageNumber: number) {
     throw new Error(`Toolbar page navigation to ${pageNumber} failed within ${DEFAULT_TIMEOUT_MS}ms (${lastFailure})`);
 }
 
+/**
+ * The page a person reads in the toolbar. The viewer's automation snapshot is
+ * deliberately not consulted here: a counter that stopped following the
+ * document is exactly the defect this reading has to expose.
+ */
 export async function getToolbarCurrentPage(page: Page) {
-    const currentPageFromViewerState = await readActiveViewerCurrentPageState(page);
-    if (Number.isFinite(currentPageFromViewerState)) {
-        return currentPageFromViewerState;
-    }
-
-    return page.evaluate(() => {
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
-        };
-
-        const currentPageText = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current'))
-            .find(isVisibleElement)
-            ?.textContent
-            ?.trim() ?? '';
-        const currentPage = Number.parseInt(currentPageText, 10);
-        return Number.isFinite(currentPage) ? currentPage : null;
-    });
+    return (await readToolbarPageIndicator(page)).renderedPage;
 }
 
+/**
+ * Waits until the rendered page indicator and the viewer's own snapshot both
+ * name `expectedPage`. The signature is unchanged, so every caller keeps
+ * checking the screen without knowing it.
+ */
 export async function waitForToolbarCurrentPage(
     page: Page,
     expectedPage: number,
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
-    await waitForWorkspaceToolbarSnapshot(page, {currentPage: expectedPage}, {timeoutMs});
+    await waitForToolbarPageIndicator(page, expectedPage, {timeoutMs});
 }
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
