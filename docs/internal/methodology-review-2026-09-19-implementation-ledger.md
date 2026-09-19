@@ -11,7 +11,7 @@ measures.
 | --- | --- | --- | --- |
 | Evidence standard, behavior contract, rule changes | `197b67269`, `c5aa26e1d`, `60c8d8bc6`, `0870b853c` | Reviewed twice by a second model; overclaims corrected after an independent review | The contract is a draft until the owner approves it; five questions are open |
 | CI tiers: required, extended, nightly | `b95900ff8`, `ae9e77f21` | First required verdict 11 min 46 s against a 30 to 34 min median before | Total machine time is about the same; lanes moved, they did not disappear |
-| Repair of the red `main` | `e79539e5c` | The failing scale assertion was a real fixed-padding defect; component repaired, tolerance untouched | One defect |
+| Repair of the red `main` | `e79539e5c` | The failing scale assertion was a real fixed-padding defect; the padding was made to scale and the tolerance left alone | The repair kept a wrong design and made its visible symptom larger; see "A repair from this work that asserted the wrong thing" |
 | Failure attribution and verdict-time metric | `460769519`, `40978e199`, `47d9ab52a` | `ci-health.mjs --sha` and `--verdict-times`; baseline 5 to 12 Sep: 86% red, longest streak 238 commits | Reads the Actions API; re-reads a dropped request, reports one line when unreachable |
 | Release needs both tiers green on one commit | `ae9e77f21` | Unit tests on recorded API shapes | Not exercised by a real release yet |
 | Pilot: click during a fling | `41bf5fb6b` to `d17f7a27d` | Independent verifier, trusted decaying wheel burst plus trusted click: 0 of 3 before the fix, 3 of 3 after; counter desync reproduced; passes on hosted macOS against two later iterations of the same code | Wheel input through the debugging protocol has no native momentum phase. Close-during-fling never reproduced. The claimed next-gesture regression was not distinguishable |
@@ -85,6 +85,33 @@ strict, turned the required smoke lane red for a test that asked for a window
 the hosted virtual display could not hold; the display was enlarged
 (`f0f927798`). The hosted macOS runner has a physical limit of about 942 px of
 height, so a test there must ask for a size that fits.
+
+## A repair from this work that asserted the wrong thing
+
+The comment preview clamps to two lines and had `padding-bottom: 3px` as room
+for a squiggly underline. Padding on a clamped box exposes glyph fragments of
+the next line. This work's repair of the red `main` changed that padding to
+`0.3lh`, about 5 px, so it scaled with the UI, and added a real-Chromium
+assertion that the room covers the decoration's measured reach. The assertion
+passed at every scale while a sliver of a third text line was visible in the
+sidebar. Another thread removed the padding altogether in `266ab8f5d`, keeping
+the wave inside the line box, and asserted what a reader sees: exactly two text
+lines with no third-line fragments.
+
+So a test written during this review measured a quantity the author had chosen
+(room for the wave) instead of the outcome (what is painted in the row), in real
+Chromium, with real layout. Moving a test to a layer with a layout engine does
+not by itself make it assert the right thing.
+
+## Adoption
+
+The same day, another thread filed issue 818 as `owner-observed` with a
+`family:` label, reproduced it in a hidden session with trusted clicks before
+fixing, named the contract statements it relied on, and used the pre-authorized
+trailer for its real-app regression. Its new assertion currently fails on the
+hosted Linux runner (three line fragments where two are expected), which keeps
+the required tier red at the time of writing; the attribution tool marks that
+failure as inherited from `266ab8f5d`.
 
 ## Not done
 - **Bounded trial on the private corpus.** A hashed manifest of 30 local
