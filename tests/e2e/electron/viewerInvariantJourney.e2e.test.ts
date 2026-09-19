@@ -142,7 +142,7 @@ describe('viewer invariant journey', () => {
         // A real pane resize: the controls stay reachable and the reading
         // anchor survives the relayout.
         const pageBeforeResize = await readToolbarPageFromScreen(page);
-        await session.command('resize', [
+        await session.command('windowResize', [
             RESIZED_WIDTH_PX,
             RESIZED_HEIGHT_PX,
         ]);
