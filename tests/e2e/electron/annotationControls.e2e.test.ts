@@ -3,6 +3,9 @@ import {
 } from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {
+    createCanvas, loadImage,
+} from '@napi-rs/canvas';
 import type {Page} from 'puppeteer-core';
 import {
     describe,
@@ -33,6 +36,39 @@ import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose'
 const POINTER_READY_TIMEOUT_MS = 30_000;
 const STYLE_UPDATE_TIMEOUT_MS = 20_000;
 const SIDEBAR_RESIZE_DELTA_PX = 96;
+
+async function expectTwoLinePreviewPaint(page: Page) {
+    const preview = await page.$('.note-item[data-annotation-id="sidebar-distant"] .note-item-text');
+    expect(preview).not.toBeNull();
+    const image = await loadImage(Buffer.from(await preview!.screenshot()));
+    const canvas = createCanvas(image.width, image.height);
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    function paintedBands(matches: (r: number, g: number, b: number) => boolean) {
+        const bands: number[][] = [];
+        for (let y = 0; y < image.height; y += 1) {
+            let count = 0;
+            for (let x = 0; x < image.width; x += 1) {
+                const index = (y * image.width + x) * 4;
+                if (matches(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!)) count += 1;
+            }
+            if (count < 3) continue;
+            const last = bands.at(-1);
+            if (last && y - last.at(-1)! <= 2) last.push(y);
+            else bands.push([y]);
+        }
+        return bands;
+    }
+    // Count actual painted glyph lines, including a fragment leaking out below
+    // the clamp. Box height alone cannot distinguish that from underline room.
+    const text = paintedBands((r, g, b) => Math.max(r, g, b) < 170 && Math.max(r, g, b) - Math.min(r, g, b) < 50);
+    const waves = paintedBands((r, g, b) => b - r > 65 && b - g > 35);
+    expect(text, 'Exactly two text lines, with no third-line fragments').toHaveLength(2);
+    expect(waves, 'Both blue squiggly underlines remain visible').toHaveLength(2);
+    const waveHeights = waves.map(band => band.at(-1)! - band[0]! + 1);
+    expect(Math.abs(waveHeights[0]! - waveHeights[1]!), 'The last wave must not be clipped').toBeLessThanOrEqual(2);
+}
 
 interface IPoint {
     x: number;
@@ -503,6 +539,28 @@ describe('Electron E2E - annotation controls', () => {
                     `.pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
                 )), {}, id);
             }
+        }
+        try {
+            for (const scale of [
+                0.85,
+                0.9,
+                1,
+                1.1,
+                1.25,
+            ]) {
+                // Layout setup uses the same root scale property as the settings UI.
+                await page.evaluate(value => document.documentElement.style.setProperty('--app-ui-scale', String(value)), scale);
+                await page.waitForFunction(value => Math.abs(Number.parseFloat(getComputedStyle(document.documentElement).fontSize) - 16 * value) < 0.01, {}, scale);
+                const list = await page.$('.notes-list');
+                const bounds = await list!.boundingBox();
+                expect(bounds).not.toBeNull();
+                await page.mouse.move(bounds!.x + bounds!.width / 2, bounds!.y + bounds!.height / 2);
+                await page.mouse.wheel({deltaY: 1000});
+                await clickVisibleAnnotationControl(page, '.note-item[data-annotation-id="sidebar-distant"] .note-item-content');
+                await expectTwoLinePreviewPaint(page);
+            }
+        } finally {
+            await page.evaluate(() => document.documentElement.style.removeProperty('--app-ui-scale'));
         }
     }, 90_000);
 

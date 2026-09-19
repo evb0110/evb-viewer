@@ -2053,7 +2053,7 @@ export async function createAnnotationSidebarFixturePdf(filename: string) {
             page: 2,
             subtype: 'Squiggly',
             id: 'sidebar-distant',
-            text: 'Distant squiggly',
+            text: 'Long squiggly annotation with enough text to wrap across several lines. The third line must stay hidden while both blue waves remain visible.',
             rect: [
                 70,
                 640,
