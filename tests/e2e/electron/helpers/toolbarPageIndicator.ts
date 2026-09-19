@@ -1,6 +1,7 @@
 import type { Page } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import type { IWorkspaceExposeProbeWindow } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 // The page number a person reads is the text the toolbar renders, not the
 // `currentPage` field of the viewer's automation snapshot. A frozen indicator
@@ -24,8 +25,6 @@ export interface IToolbarPageIndicatorObservation {
     /** Rendered total, when the indicator shows one. */
     totalPagesText: string | null;
 }
-
-interface IToolbarPageIndicatorWindow extends Window {__evbTestApi?: {getActiveToolbarSnapshot?: () => {currentPage?: number;} | null;};}
 
 // The page source below is serialized into the renderer, so it cannot close
 // over module scope. Two page rectangles count as one rendered row when they
@@ -123,9 +122,9 @@ const OBSERVATION_SOURCE = (): IToolbarPageIndicatorObservation => {
         renderedPage,
         renderedRowPages: readRowPages(renderedPage),
         isEditing: Boolean(controls?.querySelector('.page-controls-inline-input')),
-        snapshotPage: (window as IToolbarPageIndicatorWindow)
+        snapshotPage: (window as IWorkspaceExposeProbeWindow)
             .__evbTestApi
-            ?.getActiveToolbarSnapshot?.()
+            ?.getActiveToolbarSnapshot()
             ?.currentPage ?? null,
         totalPagesText: controls ? readText(controls, '.page-controls-total') : null,
     };
