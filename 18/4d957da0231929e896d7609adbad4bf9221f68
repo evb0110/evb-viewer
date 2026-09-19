@@ -1,0 +1,24 @@
+tests/e2e/electron/calibration/corpusDiscoveryCalibration.e2e.test.ts
+  s_ecea10291e4b09::t_1ec7c69100b059 1-345
+  s_ecea10291e4b09::t_ed442662726a83 346-385
+docs/internal/agents/viewer-invariants.md
+  s_ecea10291e4b09::t_ac5fc15e2ae9a4 36-44,128-159
+docs/internal/methodology-review-2026-09-19-implementation-ledger.md
+  s_ecea10291e4b09::t_6eb03d91ec1498 85-94,162-216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "184d957da0231929e896d7609adbad4bf9221f68",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
