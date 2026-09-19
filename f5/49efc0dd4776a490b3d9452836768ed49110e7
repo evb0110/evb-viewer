@@ -1,0 +1,19 @@
+docs/internal/methodology-review-2026-09-19-implementation-ledger.md
+  s_ecea10291e4b09::t_728c48d8d6a282 1-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f549efc0dd4776a490b3d9452836768ed49110e7",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
