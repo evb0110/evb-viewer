@@ -15,6 +15,11 @@
 //        node scripts/ci/ci-health.mjs --sha <rev> [--json]
 //        node scripts/ci/ci-health.mjs --attribute        (rev: origin/main)
 //
+// The third mode measures the verdict itself, which is the metric the tier
+// split is judged by:
+//
+//        node scripts/ci/ci-health.mjs --verdict-times [--days 7] [--json]
+//
 // It prints the required and extended tiers' per-job result for that commit
 // and marks every failure NEW or INHERITED, with the first bad SHA per failing
 // job. Run it before diagnosing a red main: an INHERITED failure belongs to
@@ -27,7 +32,9 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 
-/** @typedef {{id: number, run_number: number, run_attempt?: number, head_sha: string, status: string, conclusion: string | null, created_at: string, html_url?: string}} IRun */
+/** @typedef {{id: number, run_number: number, run_attempt?: number, head_sha: string, status: string, conclusion: string | null, created_at: string, updated_at?: string, html_url?: string}} IRun */
+/** @typedef {{finishedMs: number, minutes: number, red: boolean, sha: string, startedMs: number}} IVerdict */
+/** @typedef {{candidates: number, from: string, hoursWithoutGreenShare: number | null, longestRedStreak: number, medianMinutes: number | null, p90Minutes: number | null, redShare: number | null, to: string, withoutVerdict: number}} IVerdictWindow */
 /** @typedef {{id: number, name: string, conclusion: string | null, started_at?: string | null, completed_at?: string | null, steps?: {name: string, conclusion: string | null}[]}} IJob */
 /** @typedef {{run: IRun, job: IJob, verdict: 'red' | 'green'}} IJobVerdict */
 /** @typedef {{name: string, state: 'streak' | 'flapping', firstRed: {sha: string, subject: string, runNumber: number, date: string}, olderThanWindow: boolean, redRuns: number, greenRuns: number, evidence: {lines: string[], more: number, unavailable: boolean}}} IAttribution */
@@ -78,6 +85,10 @@ const {values: options} = parseArgs({options: {
     sha: {
         default: '',
         type: 'string',
+    },
+    'verdict-times': {
+        default: false,
+        type: 'boolean',
     },
     workflow: {
         default: 'ci.yml',
@@ -516,6 +527,202 @@ export function formatShaReport(tiers, sha) {
     return `${lines.join('\n')}\n`;
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * A run only carries a verdict when it completed with success or failure. A
+ * cancelled run proves nothing, so it is counted separately rather than
+ * averaged into the time it took to say nothing.
+ *
+ * @param {IRun} run @returns {IVerdict | null}
+ */
+function toVerdict(run) {
+    if (run.status !== 'completed' || (run.conclusion !== 'success' && run.conclusion !== 'failure')) {
+        return null;
+    }
+    const startedMs = Date.parse(run.created_at);
+    const finishedMs = Date.parse(run.updated_at ?? run.created_at);
+    if (!Number.isFinite(startedMs) || !Number.isFinite(finishedMs) || finishedMs < startedMs) {
+        return null;
+    }
+    return {
+        finishedMs,
+        minutes: (finishedMs - startedMs) / 60_000,
+        red: run.conclusion === 'failure',
+        sha: run.head_sha,
+        startedMs,
+    };
+}
+
+/** @param {number[]} values @param {number} fraction @returns {number | null} */
+function nearestRank(values, fraction) {
+    if (values.length === 0) {
+        return null;
+    }
+    const sorted = [...values].sort((left, right) => left - right);
+    return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1))] ?? null;
+}
+
+/**
+ * Hours main spent without a green required verdict. An hour is judged by the
+ * newest verdict that had landed by its end, so verdicts from before the
+ * window still colour its first hours. An hour with no verdict behind it at
+ * all is unknown, not red, and leaves the denominator.
+ *
+ * @param {IVerdict[]} chronological @param {number} fromMs @param {number} toMs
+ * @returns {number | null}
+ */
+function hoursWithoutGreenShare(chronological, fromMs, toMs) {
+    let known = 0;
+    let withoutGreen = 0;
+    for (let hourEnd = fromMs + HOUR_MS; hourEnd <= toMs; hourEnd += HOUR_MS) {
+        const latest = chronological.filter(verdict => verdict.finishedMs <= hourEnd).at(-1);
+        if (!latest) {
+            continue;
+        }
+        known += 1;
+        if (latest.red) {
+            withoutGreen += 1;
+        }
+    }
+    return known === 0 ? null : withoutGreen / known;
+}
+
+/**
+ * One window's verdict metrics. Each candidate counts once, through the first
+ * verdict its SHA reached: that is the wait the pusher actually paid, and a
+ * rerun hours later would otherwise be reported as a slow verdict. Hour
+ * coverage uses every verdict, because a rerun that turns green does restore
+ * main.
+ *
+ * @param {IVerdict[]} chronological every verdict, oldest first
+ * @param {number} fromMs @param {number} toMs @param {number} cancelled
+ * @returns {IVerdictWindow}
+ */
+function summarizeVerdictWindow(chronological, fromMs, toMs, cancelled) {
+    /** @type {Map<string, IVerdict>} */
+    const firstBySha = new Map();
+    for (const verdict of chronological) {
+        if (verdict.startedMs >= fromMs && verdict.startedMs < toMs && !firstBySha.has(verdict.sha)) {
+            firstBySha.set(verdict.sha, verdict);
+        }
+    }
+    const candidates = [...firstBySha.values()];
+    const minutes = candidates.map(verdict => verdict.minutes);
+    const reds = candidates.filter(verdict => verdict.red).length;
+
+    let longestRedStreak = 0;
+    let currentStreak = 0;
+    for (const verdict of candidates) {
+        currentStreak = verdict.red ? currentStreak + 1 : 0;
+        longestRedStreak = Math.max(longestRedStreak, currentStreak);
+    }
+
+    return {
+        candidates: candidates.length,
+        from: new Date(fromMs).toISOString().slice(0, 16),
+        hoursWithoutGreenShare: hoursWithoutGreenShare(chronological, fromMs, toMs),
+        longestRedStreak,
+        medianMinutes: nearestRank(minutes, 0.5),
+        p90Minutes: nearestRank(minutes, 0.9),
+        redShare: candidates.length === 0 ? null : reds / candidates.length,
+        to: new Date(toMs).toISOString().slice(0, 16),
+        withoutVerdict: cancelled,
+    };
+}
+
+/**
+ * Median and p90 time from a pushed candidate to a trustworthy required
+ * verdict, with the previous equal window beside it so the trend is visible.
+ * Both timestamps come from the run itself, so nothing has to be recorded by
+ * hand.
+ *
+ * @param {IRun[]} runs push runs covering twice the window, any order
+ * @param {{days: number, now: number}} scope
+ * @returns {{current: IVerdictWindow, previous: IVerdictWindow}}
+ */
+export function summarizeVerdictTimes(runs, {
+    days, now,
+}) {
+    const windowMs = days * 24 * HOUR_MS;
+    const currentFromMs = now - windowMs;
+    const previousFromMs = currentFromMs - windowMs;
+    const chronological = runs
+        .map(toVerdict)
+        .filter(verdict => verdict !== null)
+        .sort((left, right) => left.finishedMs - right.finishedMs);
+    /** @param {number} fromMs @param {number} toMs */
+    const cancelledIn = (fromMs, toMs) => runs.filter((run) => {
+        const startedMs = Date.parse(run.created_at);
+        return run.status === 'completed'
+            && run.conclusion === 'cancelled'
+            && Number.isFinite(startedMs)
+            && startedMs >= fromMs
+            && startedMs < toMs;
+    }).length;
+
+    return {
+        current: summarizeVerdictWindow(
+            chronological,
+            currentFromMs,
+            now,
+            cancelledIn(currentFromMs, now),
+        ),
+        previous: summarizeVerdictWindow(
+            chronological,
+            previousFromMs,
+            currentFromMs,
+            cancelledIn(previousFromMs, currentFromMs),
+        ),
+    };
+}
+
+/** @param {number | null} value @param {string} suffix @returns {string} */
+function formatMetric(value, suffix) {
+    return value === null ? 'n/a' : `${value.toFixed(1)}${suffix}`;
+}
+
+/** @param {number | null} share @returns {string} */
+function formatShare(share) {
+    return share === null ? 'n/a' : `${Math.round(share * 100)}%`;
+}
+
+/** @param {{current: IVerdictWindow, previous: IVerdictWindow}} windows @param {{branch: string, workflow: string}} scope @returns {string} */
+export function formatVerdictTimesReport(windows, scope) {
+    const rows = [
+        {
+            label: 'current',
+            window: windows.current,
+        },
+        {
+            label: 'previous',
+            window: windows.previous,
+        },
+    ].map(({
+        label, window,
+    }) => ({
+        cells: [
+            String(window.candidates).padStart(4),
+            formatMetric(window.medianMinutes, 'm').padStart(7),
+            formatMetric(window.p90Minutes, 'm').padStart(7),
+            formatShare(window.redShare).padStart(5),
+            formatShare(window.hoursWithoutGreenShare).padStart(8),
+            String(window.longestRedStreak).padStart(6),
+            String(window.withoutVerdict).padStart(10),
+        ],
+        scope: `${label.padEnd(8)} ${window.from}..${window.to}`,
+    }));
+    const scopeWidth = Math.max(6, ...rows.map(row => row.scope.length));
+    const lines = [
+        `Verdict times: ${scope.workflow} push runs on ${scope.branch}`,
+        `  ${'window'.padEnd(scopeWidth)}  cand   median      p90    red  no-green  streak  no-verdict`,
+        ...rows.map(row => `  ${row.scope.padEnd(scopeWidth)}  ${row.cells.join('  ')}`),
+        '  median and p90 are minutes from push to the completed required verdict; no-green is the share',
+        '  of hours whose newest verdict was red; no-verdict counts cancelled runs, which prove nothing.',
+    ];
+    return `${lines.join('\n')}\n`;
+}
+
 /** @param {IRawAttribution[]} attribution @returns {IAttribution[]} */
 function loadAttributionEvidence(attribution) {
     return attribution.map(entry => {
@@ -603,7 +810,7 @@ function listPushRuns(workflow, days, limit, quiet = false) {
     return ghLines(
         `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${options.branch}`
         + `&event=push&per_page=100&created=>=${sinceDate(days)}`,
-        '.workflow_runs[] | {id, run_number, run_attempt, head_sha, status, conclusion, created_at, html_url}',
+        '.workflow_runs[] | {id, run_number, run_attempt, head_sha, status, conclusion, created_at, updated_at, html_url}',
         quiet,
     ).slice(0, limit);
 }
@@ -698,7 +905,35 @@ function reportSha() {
     process.stdout.write(formatShaReport(tiers, sha));
 }
 
+function reportVerdictTimes() {
+    const days = Number(options.days);
+    // Both windows come from one fetch, so the previous window is measured the
+    // same way the current one is.
+    const runs = listPushRuns(options.workflow, days * 2, Number(options.limit) * 2);
+    const windows = summarizeVerdictTimes(runs, {
+        days,
+        now: Date.now(),
+    });
+    if (options.json) {
+        process.stdout.write(`${JSON.stringify({
+            branch: options.branch,
+            days,
+            workflow: options.workflow,
+            ...windows,
+        }, null, 2)}\n`);
+        return;
+    }
+    process.stdout.write(formatVerdictTimesReport(windows, {
+        branch: options.branch,
+        workflow: options.workflow,
+    }));
+}
+
 function main() {
+    if (options['verdict-times']) {
+        reportVerdictTimes();
+        return;
+    }
     if (options.attribute || options.sha) {
         reportSha();
         return;

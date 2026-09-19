@@ -66,6 +66,17 @@ For a `NEW` failure, fix it in the next commit or revert the commit that caused
 it. A red required set is not a reason to stop pushing, and it is never a
 reason to widen a tolerance, add a retry, or mark a step `continue-on-error`.
 
+### Verdict-time metric
+
+`node scripts/ci/ci-health.mjs --verdict-times [--days 7] [--json]` measures
+whether the tiers are working: candidate count, median and p90 minutes from a
+push to its completed required verdict, share of candidates red, share of hours
+whose newest verdict was red, and the longest red streak in commits, beside the
+previous equal window. Both timestamps come from the run, so nothing is
+recorded by hand; cancelled runs are counted separately because they prove
+nothing. Baseline before the tier split (2026-09-10 to 09-18): median 30 to 34
+min, p90 41 to 44, 66% red, 46% of hours without green, longest streak 36.
+
 ### Extended tier
 
 `ci-extended.yml` carries the browser integration suite, the native and
