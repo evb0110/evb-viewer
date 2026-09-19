@@ -39,12 +39,23 @@ import {
     waitForDjvuLoaded,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
+    waitForViewerInteractive,
     triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    describeToolbarPageIndicator,
+    readToolbarPageIndicator,
+} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import {
+    readViewportPageObservation,
+    waitForViewportQuiet,
+} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { captureDocumentThumbnailParitySnapshot } from '@tests/e2e/electron/helpers/captureDocumentThumbnailParitySnapshot';
@@ -257,6 +268,20 @@ const DJVU_PROJECTED_SCROLL_WARMUP_SAMPLES = 3;
 const DJVU_HIGH_ZOOM_REGRESSION_ZOOM = 4.72;
 const DJVU_HIGH_ZOOM_PRESSURE_DURATION_MS = 5_500;
 const SPLIT_RESIZE_ANCHOR_TOLERANCE = 0.08;
+const WINDOW_RESIZE_FIXTURE_PAGE_COUNT = 16;
+const WINDOW_RESIZE_ANCHOR_PAGE = 8;
+// A third off the width is enough to re-fit every page and to collapse the
+// toolbar into its overflow tier, which is where L4 can break.
+const WINDOW_RESIZE_NARROW_RATIO = 2 / 3;
+// Essential reader controls. Each one is reachable directly or through the
+// overflow menu at any supported window size.
+const WINDOW_RESIZE_ESSENTIAL_CONTROLS = [
+    'Toggle Sidebar',
+    'Save',
+    'Print',
+    'Undo',
+    'Redo',
+];
 
 async function clickEnabledDialogButton(page: IElectronE2ESession['page'], label: string) {
     // The dialog re-renders while its native conversion controls settle. Keep
@@ -1192,6 +1217,107 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
     }
 
     return samples;
+}
+
+/**
+ * Everything a person can see about the reading position, the fit and the
+ * chrome, read from the window: the rendered page rectangles, the scroll range
+ * the viewport really has, the text line the reader was looking at, and which
+ * toolbar controls a click could reach.
+ */
+async function readWindowLayoutObservation(session: IElectronE2ESession, anchor: {
+    needle: string;
+    page: number;
+}) {
+    return session.page.evaluate((input: {
+        essentialControls: string[];
+        needle: string;
+        page: number;
+    }) => {
+        const isHittable = (element: HTMLElement | null) => {
+            if (!element?.isConnected) {
+                return false;
+            }
+            const style = window.getComputedStyle(element);
+            if (
+                style.display === 'none'
+                || style.visibility === 'hidden'
+                || Number(style.opacity || '1') === 0
+            ) {
+                return false;
+            }
+            const rect = element.getBoundingClientRect();
+            if (rect.width <= 8 || rect.height <= 8) {
+                return false;
+            }
+            const hit = document.elementFromPoint(
+                Math.round(rect.left + (rect.width / 2)),
+                Math.round(rect.top + (rect.height / 2)),
+            );
+            return Boolean(hit && (element.contains(hit) || hit.contains(element)));
+        };
+        // The toolbar keeps a zero-size copy of every control to measure their
+        // natural widths, so a control counts as reachable only when one of
+        // its copies is laid out and takes the click.
+        const isControlReachable = (label: string) => Array
+            .from(document.querySelectorAll<HTMLElement>('button[aria-label]'))
+            .filter((candidate) => {
+                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
+                return ariaLabel === label || ariaLabel.startsWith(`${label} (`);
+            })
+            .some(isHittable);
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = host?.querySelector<HTMLElement>(
+            '[data-document-viewer-chassis-viewport], #pdf-viewer',
+        ) ?? null;
+        if (!viewport) {
+            throw new Error('The active document viewport was not found');
+        }
+        const viewportRect = viewport.getBoundingClientRect();
+        const anchorPage = viewport.querySelector<HTMLElement>(
+            `.page_container[data-page="${String(input.page)}"]`,
+        );
+        const anchorPageRect = anchorPage?.getBoundingClientRect() ?? null;
+        const anchorLine = Array
+            .from(anchorPage?.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span') ?? [])
+            .find(span => (span.textContent ?? '').includes(input.needle)) ?? null;
+        const anchorLineRect = anchorLine?.getBoundingClientRect() ?? null;
+        const overflowReachable = isControlReachable('More tools') || isControlReachable('Menu');
+
+        return {
+            anchorLineText: anchorLine?.textContent?.trim() ?? null,
+            // Where the anchor line sits in the viewport, as a fraction of the
+            // viewport height. R3's weak form only needs it to stay on screen.
+            anchorLineTopRatio: anchorLineRect && viewportRect.height > 0
+                ? (anchorLineRect.top - viewportRect.top) / viewportRect.height
+                : null,
+            anchorLineVisible: Boolean(
+                anchorLineRect
+                && anchorLineRect.bottom > viewportRect.top
+                && anchorLineRect.top < viewportRect.bottom,
+            ),
+            anchorPageCoveredHeight: anchorPageRect
+                ? Math.min(anchorPageRect.bottom, viewportRect.bottom)
+                    - Math.max(anchorPageRect.top, viewportRect.top)
+                : 0,
+            anchorPageHeight: anchorPageRect?.height ?? 0,
+            anchorPageWidth: anchorPageRect?.width ?? 0,
+            contentWidth: window.innerWidth,
+            horizontalScrollRange: viewport.scrollWidth - viewport.clientWidth,
+            overflowReachable,
+            unreachableControls: input.essentialControls.filter(
+                label => !isControlReachable(label) && !overflowReachable,
+            ),
+            viewportHeight: viewportRect.height,
+            viewportWidth: viewportRect.width,
+        };
+    }, {
+        essentialControls: WINDOW_RESIZE_ESSENTIAL_CONTROLS,
+        needle: anchor.needle,
+        page: anchor.page,
+    });
 }
 
 describe('Electron E2E - Viewer Smoke', () => {
@@ -2345,6 +2471,106 @@ describe('Electron E2E - Viewer Smoke', () => {
             const pageRect = pageTwo.getBoundingClientRect();
             return Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 100;
         }, { timeout: 5_000 });
+    });
+
+    // R1, R3 in its weak form, L1 and L4 across a resize of the real window.
+    // Viewport emulation reports different numbers to the renderer and leaves
+    // the native window where it was, so it cannot produce the layout work a
+    // person causes by dragging a window edge. Every property below is read
+    // from the window: the rendered page indicator, the page rectangles that
+    // cover the viewport, the viewport's own scroll range, and which toolbar
+    // controls a click could reach.
+    it('keeps the page, the fit and reachable chrome across a real window resize', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-window-resize-${Date.now()}`,
+        });
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-window-resize-${Date.now()}.pdf`,
+            WINDOW_RESIZE_FIXTURE_PAGE_COUNT,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        // Setup. The resize is the action under test, so the mode switches do
+        // not have to be driven through their controls.
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
+        if ((await getWorkspaceToolbarSnapshot(session.page))?.continuousScroll !== true) {
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+        }
+        await waitForWorkspaceToolbarSnapshot(session.page, {
+            continuousScroll: true,
+            zoomMode: 'fit-width',
+        });
+        await goToPageViaToolbar(session.page, WINDOW_RESIZE_ANCHOR_PAGE);
+        await waitForViewportQuiet(session.page);
+
+        const anchor = {
+            needle: `Page ${WINDOW_RESIZE_ANCHOR_PAGE} sample text`,
+            page: WINDOW_RESIZE_ANCHOR_PAGE,
+        };
+        const originalWindow = await readElectronWindowMetrics(session.page);
+        onTestFinished(async () => {
+            try {
+                await session.command('windowResize', [
+                    originalWindow.contentSize.width,
+                    originalWindow.contentSize.height,
+                ]);
+            } catch (error) {
+                console.warn(`[E2E window resize] Restoring the window size failed: ${getErrorMessage(error)}`);
+            }
+        });
+
+        const before = await readWindowLayoutObservation(session, anchor);
+        expect(before.anchorLineVisible, JSON.stringify(before)).toBe(true);
+        expect(before.anchorLineText, JSON.stringify(before)).toContain(anchor.needle);
+
+        const narrowWidth = Math.round(originalWindow.contentSize.width * WINDOW_RESIZE_NARROW_RATIO);
+        const observeSettledLayout = async (label: string) => {
+            await waitForViewerInteractive(session.page);
+            await waitForViewportQuiet(session.page);
+            const indicator = await readToolbarPageIndicator(session.page);
+            const viewportPages = await readViewportPageObservation(session.page);
+            const layout = await readWindowLayoutObservation(session, anchor);
+            const evidence = JSON.stringify({
+                label,
+                layout,
+                indicator: describeToolbarPageIndicator(indicator),
+                viewportPages: viewportPages.pages,
+            });
+
+            // R1 and R3's weak form: the page the reader was on is still the
+            // page the toolbar names and still the page the window shows.
+            expect(indicator.renderedPage, evidence).toBe(WINDOW_RESIZE_ANCHOR_PAGE);
+            expect(layout.anchorPageCoveredHeight, evidence).toBeGreaterThanOrEqual(
+                0.25 * Math.min(layout.anchorPageHeight, layout.viewportHeight),
+            );
+            expect(layout.anchorLineVisible, evidence).toBe(true);
+            // L1: fit-width leaves a uniform document no horizontal scroll range.
+            expect(layout.horizontalScrollRange, evidence).toBeLessThanOrEqual(1);
+            expect(layout.anchorPageWidth, evidence).toBeLessThanOrEqual(layout.viewportWidth + 1);
+            // L4: every essential control is reachable, directly or through the
+            // overflow menu.
+            expect(layout.unreachableControls, evidence).toEqual([]);
+            return layout;
+        };
+
+        await session.command('windowResize', [
+            narrowWidth,
+            originalWindow.contentSize.height,
+        ]);
+        const narrow = await observeSettledLayout('narrow');
+        expect(narrow.contentWidth).toBe(narrowWidth);
+        expect(narrow.viewportWidth).toBeLessThan(before.viewportWidth);
+
+        await session.command('windowResize', [
+            originalWindow.contentSize.width,
+            originalWindow.contentSize.height,
+        ]);
+        const restored = await observeSettledLayout('restored');
+        expect(restored.contentWidth).toBe(originalWindow.contentSize.width);
+        expect(restored.anchorPageWidth).toBeGreaterThan(narrow.anchorPageWidth);
     });
 
     it('preserves a user-established PDF viewport anchor through separate split-divider drags', async () => {

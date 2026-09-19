@@ -473,6 +473,25 @@ export async function callWorkspaceCommand<TResult = unknown>(
     });
 }
 
+/**
+ * Runs a workspace command that only sets up a scenario and fails loudly when
+ * the command is missing. Setup that silently did nothing used to pass as an
+ * `expect(result.called).toBe(true)` assertion, which proved the command
+ * existed and nothing else.
+ */
+export async function requireWorkspaceCommand<TResult = unknown>(
+    page: Page,
+    commandName: string,
+    args: unknown[] = [],
+    options: IFindWorkspaceExposeOptions = {},
+): Promise<TResult | null> {
+    const result = await callWorkspaceCommand<TResult>(page, commandName, args, options);
+    if (!result.called) {
+        throw new Error(`The active workspace has no '${commandName}' command, so this setup did nothing`);
+    }
+    return result.value;
+}
+
 export async function readWorkspaceStateValues<TValues extends Record<string, unknown> = Record<string, unknown>>(
     page: Page,
     propertyNames: string[],
