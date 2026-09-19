@@ -61,7 +61,7 @@ import {
     openPdfInApp,
     saveViaVisibleToolbarWithDeadline,
     saveViaWindowHandle,
-    scrollViewerToPage,
+    setupScrollToPage,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -3479,7 +3479,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         // The fixture has a non-identity page-label range. Use the physical
         // page command here so the later PDF object assertions stay on page 16
         // instead of interpreting 16 as a logical label for page 18.
-        await scrollViewerToPage(freshSession.page, stickyPageNumber);
+        await setupScrollToPage(freshSession.page, stickyPageNumber);
         await expect.poll(async () => (
             await getWorkspaceToolbarSnapshot(freshSession.page)
         )?.currentPage, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(stickyPageNumber);
@@ -4465,7 +4465,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await waitForRestoredDocument(reopenedSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(reopenedSession.page);
         const reopenedSaveIdentity = await readDocumentSaveIdentity(reopenedSession.page);
-        await scrollViewerToPage(reopenedSession.page, targetPageNumber);
+        await setupScrollToPage(reopenedSession.page, targetPageNumber);
         await openAnnotationsTab(reopenedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         let restoredState: IOrdinaryFreeTextLiveState;
         try {
@@ -4621,7 +4621,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await waitForRestoredDocument(finalSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(finalSession.page);
         const finalSaveIdentity = await readDocumentSaveIdentity(finalSession.page);
-        await scrollViewerToPage(finalSession.page, targetPageNumber);
+        await setupScrollToPage(finalSession.page, targetPageNumber);
         await openAnnotationsTab(finalSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         const finalState = await waitForOrdinaryFreeTextState(
             finalSession.page,

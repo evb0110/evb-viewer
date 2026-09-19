@@ -37,7 +37,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
     saveViaWindowHandle,
-    scrollViewerToPage,
+    setupScrollToPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
@@ -403,7 +403,7 @@ describe('Electron E2E - text interaction contract', () => {
         await session.page.waitForFunction(percent => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent, {}, `${Math.round(zoom * 100)}%`);
         if (source && process.env.EVB_MARKUP_FIXTURE_PAGE) {
             const pageNumber = Number(process.env.EVB_MARKUP_FIXTURE_PAGE);
-            await scrollViewerToPage(session.page, pageNumber);
+            await setupScrollToPage(session.page, pageNumber);
             await session.page.waitForSelector(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer span`);
         }
         await waitForViewerInteractive(session.page);
@@ -490,7 +490,7 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(reopened);
         await reopened.evaluate(async () => { await document.fonts.ready; });
         if (process.env.EVB_MARKUP_FIXTURE_PAGE) {
-            await scrollViewerToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
+            await setupScrollToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
         }
         await waitForViewerInteractive(reopened);
         await reopened.waitForSelector(MARKUP);
@@ -582,7 +582,7 @@ describe('Electron E2E - text interaction contract', () => {
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         });
         if (process.env.EVB_MARKUP_FIXTURE_PAGE) {
-            await scrollViewerToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
+            await setupScrollToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
         }
         await waitForViewerInteractive(reopened);
         await reopened.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`);

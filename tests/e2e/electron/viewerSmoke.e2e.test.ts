@@ -1191,23 +1191,26 @@ async function collectDjvuWheelMetricSamples(session: IElectronE2ESession) {
 
 async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESession) {
     const samples: IDjvuWheelMetricSample[] = [await readDjvuWheelMetricSample(session)];
+    // A synthetic wheel event followed by the test moving scrollTop itself
+    // proved nothing about the viewer's own scrolling: the test performed the
+    // scroll. These are trusted wheel events over the viewer, so the viewer
+    // decides where the window goes.
+    const viewerCentre = await session.page.evaluate(() => {
+        const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
+        const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+        if (!viewer) {
+            throw new Error('DjVu viewer container was not found');
+        }
+        const rect = viewer.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
+        };
+    });
+    await session.page.mouse.move(viewerCentre.x, viewerCentre.y);
 
     for (let index = 0; index < DJVU_PROJECTED_SCROLL_STEPS; index += 1) {
-        await session.page.evaluate((deltaY: number) => {
-            const surface = document.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]');
-            const viewer = surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
-            if (!viewer) {
-                throw new Error('DjVu viewer container was not found');
-            }
-
-            viewer.dispatchEvent(new WheelEvent('wheel', {
-                bubbles: true,
-                cancelable: true,
-                deltaMode: 0,
-                deltaY,
-            }));
-            viewer.scrollTop += deltaY;
-        }, DJVU_PROJECTED_SCROLL_DELTA_Y);
+        await session.page.mouse.wheel({deltaY: DJVU_PROJECTED_SCROLL_DELTA_Y});
         await session.page.evaluate(async (intervalMs: number) => {
             await new Promise(resolve => setTimeout(resolve, intervalMs));
         }, DJVU_PROJECTED_SCROLL_INTERVAL_MS);

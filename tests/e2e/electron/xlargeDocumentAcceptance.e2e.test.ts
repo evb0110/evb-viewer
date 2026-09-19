@@ -50,7 +50,7 @@ import {
 import {
     openAnnotationsTab,
     saveViaVisibleToolbarWithDeadline,
-    scrollViewerToPage,
+    setupScrollToPage,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -989,7 +989,7 @@ async function readRendererPlacementSampling(page: Page) {
 }
 
 async function waitForRenderedPage(page: Page, pageNumber: number, timeoutMs: number) {
-    await scrollViewerToPage(page, pageNumber);
+    await setupScrollToPage(page, pageNumber);
     await page.waitForFunction((targetPageNumber: number) => {
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const host = activeHost ?? document.querySelector<HTMLElement>('.workspace-host');

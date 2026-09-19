@@ -14,7 +14,7 @@ import {
     openDjvuInApp,
     openPdfInApp,
     saveViaVisibleToolbarWithDeadline,
-    scrollViewerToPage,
+    setupScrollToPage,
     setTabMemoryPolicyForE2E,
     triggerOpenPathInApp,
     waitForViewerInteractive,
@@ -265,7 +265,7 @@ async function executeStep(context: IStepContext, step: TStressStep, signal: Abo
             for (const target of step.pages) {
                 signal.throwIfAborted();
                 const pageNumber = resolvePageTarget(target, totalPages);
-                await scrollViewerToPage(page, pageNumber);
+                await setupScrollToPage(page, pageNumber);
                 visited.push(pageNumber);
             }
             return {visited};
@@ -275,7 +275,7 @@ async function executeStep(context: IStepContext, step: TStressStep, signal: Abo
             const pages = planRandomPages(totalPages, step.count, step.seed);
             for (const pageNumber of pages) {
                 signal.throwIfAborted();
-                await scrollViewerToPage(page, pageNumber);
+                await setupScrollToPage(page, pageNumber);
             }
             return {pages};
         }
@@ -344,7 +344,7 @@ async function executeStep(context: IStepContext, step: TStressStep, signal: Abo
                 signal.throwIfAborted();
                 const pageNumber = 1 + (index % totalPages);
                 context.log(`freeText ${index + 1}/${step.count} page ${pageNumber} scroll`);
-                await scrollViewerToPage(page, pageNumber);
+                await setupScrollToPage(page, pageNumber);
                 signal.throwIfAborted();
                 context.log(`freeText ${index + 1}/${step.count} page ${pageNumber} create`);
                 await createFreeTextAnnotationWithPointer(page, `${step.text} ${index + 1}`, {

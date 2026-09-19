@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
     callWorkspaceCommand: vi.fn(),
     createFreeTextAnnotationWithPointer: vi.fn(),
     getWorkspaceToolbarSnapshot: vi.fn(),
-    scrollViewerToPage: vi.fn(),
+    setupScrollToPage: vi.fn(),
 }));
 vi.mock('@tests/e2e/electron/helpers/workspaceExpose', async importOriginal => ({
     ...await importOriginal<typeof TWorkspaceExpose>(),
@@ -33,7 +33,7 @@ vi.mock('@tests/e2e/electron/helpers/viewerAnnotations', async importOriginal =>
 }));
 vi.mock('@tests/e2e/electron/helpers/viewerCore', async importOriginal => ({
     ...await importOriginal<typeof TViewerCore>(),
-    scrollViewerToPage: mocks.scrollViewerToPage,
+    setupScrollToPage: mocks.setupScrollToPage,
 }));
 
 afterEach(() => {
@@ -138,7 +138,7 @@ describe('stress deterministic free-text page targeting', () => {
         const calls: string[] = [];
         const logs: string[] = [];
         mocks.getWorkspaceToolbarSnapshot.mockResolvedValue({totalPages: 3});
-        mocks.scrollViewerToPage.mockImplementation(async (_page, pageNumber) => {
+        mocks.setupScrollToPage.mockImplementation(async (_page, pageNumber) => {
             calls.push(`scroll:${pageNumber}`);
         });
         mocks.createFreeTextAnnotationWithPointer.mockImplementation(async (_page, _text, _position, pageNumber) => {

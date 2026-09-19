@@ -22,6 +22,11 @@ import {
     readToolbarPageIndicator,
     waitForToolbarPageIndicator,
 } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
+import {
+    readViewportPageObservation,
+    waitForViewportQuiet,
+} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     runWithElectronE2EDeadline,
     type IElectronE2EDeadlineOptions,
@@ -65,6 +70,33 @@ const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
         '.overflow-menu-scan-cleanup-icon',
     ],
 };
+
+/** Smallest wheel step a converging search may use, in CSS pixels. */
+const MIN_WHEEL_STEP_PX = 40;
+const WHEEL_STEP_DURATION_MS = 120;
+
+async function readActiveViewportCentre(page: Page) {
+    const centre = await evaluateInPage(page, () => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = host?.querySelector<HTMLElement>(
+            '[data-document-viewer-chassis-viewport], #pdf-viewer',
+        ) ?? null;
+        if (!viewport) {
+            return null;
+        }
+        const rect = viewport.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + (rect.width / 2)),
+            y: Math.round(rect.top + (rect.height / 2)),
+        };
+    });
+    if (!centre) {
+        throw new Error('The active document viewport rectangle was not found');
+    }
+    return centre;
+}
 
 interface IAutomationFileOpenGrantApi {
     __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
@@ -1207,7 +1239,14 @@ export async function openAnnotationsTab(page: Page, timeoutMs = DEFAULT_TIMEOUT
     throw new Error(`Annotations tab did not open within ${timeoutMs}ms (${detail})`);
 }
 
-export async function scrollViewerToPage(page: Page, pageNumber: number) {
+/**
+ * Puts the viewer on a page for setup. No gesture runs: this asks the
+ * workspace command, and failing that writes `scrollTop` and dispatches a
+ * synthetic scroll event, so it skips the input and scrolling paths entirely.
+ * Use it only to establish preconditions. When the scrolling itself is the
+ * behavior under test, use `scrollToPageWithWheel`.
+ */
+export async function setupScrollToPage(page: Page, pageNumber: number) {
     await waitForActiveWorkspaceHost(page);
 
     const scrollCommand = await callWorkspaceCommand(page, 'handleGoToPage', [pageNumber]);
@@ -1257,6 +1296,71 @@ export async function scrollViewerToPage(page: Page, pageNumber: number) {
     } catch {
         await goToPageViaToolbar(page, pageNumber);
     }
+}
+
+export interface IScrollToPageWithWheelOptions {
+    /** Upper bound on gestures, so a viewer that stops scrolling fails fast. */
+    maxGestures?: number;
+    /** Largest step, as a fraction of the viewport height. */
+    maxStepRatio?: number;
+}
+
+/**
+ * Reaches a page the way a person does: trusted wheel gestures over the middle
+ * of the viewer, until the page the window shows is the requested one. The
+ * step halves whenever the direction reverses, so it converges instead of
+ * oscillating around the target. Practical for nearby pages; a jump across a
+ * long document is setup, not a gesture, and belongs to `setupScrollToPage`.
+ */
+export async function scrollToPageWithWheel(
+    page: Page,
+    pageNumber: number,
+    options: IScrollToPageWithWheelOptions = {},
+) {
+    await waitForActiveWorkspaceHost(page);
+    const maxGestures = options.maxGestures ?? 60;
+    const maxStepRatio = options.maxStepRatio ?? 0.8;
+    let observation = await readViewportPageObservation(page);
+    let stepPx = Math.max(MIN_WHEEL_STEP_PX, Math.round(observation.viewportHeight * maxStepRatio));
+    let previousDirection = 0;
+
+    for (let gesture = 0; gesture < maxGestures; gesture += 1) {
+        if (observation.viewportPage === pageNumber) {
+            return observation;
+        }
+        const direction = observation.viewportPage === null || observation.viewportPage < pageNumber
+            ? 1
+            : -1;
+        if (previousDirection !== 0 && direction !== previousDirection) {
+            stepPx = Math.max(MIN_WHEEL_STEP_PX, Math.round(stepPx / 2));
+        }
+        previousDirection = direction;
+
+        const centre = await readActiveViewportCentre(page);
+        const run = await startTrustedWheelFling(page, {
+            x: centre.x,
+            y: centre.y,
+            initialDeltaY: direction * stepPx,
+            finalDeltaY: direction * stepPx,
+            durationMs: WHEEL_STEP_DURATION_MS,
+        });
+        await run.finished;
+        await waitForViewportQuiet(page);
+
+        const next = await readViewportPageObservation(page);
+        if (next.scrollTop === observation.scrollTop && next.viewportPage === observation.viewportPage) {
+            throw new Error(
+                `Wheel input stopped moving the viewer at page ${String(next.viewportPage)} `
+                + `while reaching page ${String(pageNumber)}`,
+            );
+        }
+        observation = next;
+    }
+
+    throw new Error(
+        `Wheel input did not reach page ${String(pageNumber)} in ${String(maxGestures)} gestures; `
+        + `the window shows page ${String(observation.viewportPage)}`,
+    );
 }
 
 export async function dismissScanCleanupFirstRunGuidance(

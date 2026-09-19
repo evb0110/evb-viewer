@@ -13,7 +13,7 @@ import {
     goToPageViaToolbar,
     getToolbarCurrentPage,
     openPdfInApp,
-    scrollViewerToPage,
+    setupScrollToPage,
     setTabMemoryPolicyForE2E,
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -162,12 +162,12 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         secondFixturePath = await createMultiPageTextFixturePdf(`inactive-tabs-second-${Date.now()}.pdf`, 3);
         await openPdfInApp(session.page, firstFixturePath);
         await waitForPdfLoaded(session.page);
-        await scrollViewerToPage(session.page, 3);
+        await setupScrollToPage(session.page, 3);
         expect(await getToolbarCurrentPage(session.page)).toBe(3);
         await createNewTab(session);
         await openPdfInApp(session.page, secondFixturePath);
         await waitForPdfLoaded(session.page);
-        await scrollViewerToPage(session.page, 2);
+        await setupScrollToPage(session.page, 2);
         expect(await getToolbarCurrentPage(session.page)).toBe(2);
 
         await waitForInactiveHostsToReleaseRenderedPages(session);

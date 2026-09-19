@@ -46,7 +46,7 @@ import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaVisibleToolbarWithDeadline,
-    scrollViewerToPage,
+    setupScrollToPage,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
     waitForViewerInteractive,
@@ -561,7 +561,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         pageNumber,
     };
     await clickAnnotationTool(page, 'Select');
-    await scrollViewerToPage(page, pageNumber);
+    await setupScrollToPage(page, pageNumber);
     const pageSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"]`;
     const markerRect = await page.$eval(
         `${pageSelector} .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
@@ -1126,7 +1126,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
-        await scrollViewerToPage(session.page, MATRIX_PAGE_NUMBER);
+        await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
         const initialIndex = await readAnnotationIndex(session.page, initialWorkingCopyPath);
@@ -1325,7 +1325,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
-        await scrollViewerToPage(session.page, MATRIX_PAGE_NUMBER);
+        await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         let reopenedEntities = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
         expect(reopenedEntities.filter(entity => entity.kind === 'note')).not.toHaveLength(0);
@@ -1342,7 +1342,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         ] as const) {
             let entity: ICanonicalEntitySnapshot | undefined;
             if (kind === 'text-markup') {
-                await scrollViewerToPage(session.page, MATRIX_PAGE_NUMBER);
+                await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
                 const topmost = await readTopmostCanonicalTextMarkupId(
                     session.page,
                     MATRIX_PAGE_NUMBER,
@@ -1394,7 +1394,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
-        await scrollViewerToPage(session.page, MATRIX_PAGE_NUMBER);
+        await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         reopenedEntities = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
         expect(reopenedEntities.filter(entity => entity.kind === 'shape')).toHaveLength(5);
@@ -1421,7 +1421,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
-        await scrollViewerToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
         const initialIndex = await readAnnotationIndex(session.page, initialWorkingCopyPath);
@@ -1471,7 +1471,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
-        await scrollViewerToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         let reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
             .find(entity => entity.kind === 'placed-image');
@@ -1498,7 +1498,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
-        await scrollViewerToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
             .find(entity => entity.kind === 'placed-image');
@@ -1518,7 +1518,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
-        await scrollViewerToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
+        await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         expect((await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
             .filter(entity => entity.kind === 'placed-image')).toHaveLength(0);

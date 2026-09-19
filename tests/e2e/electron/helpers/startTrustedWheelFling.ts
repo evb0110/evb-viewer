@@ -14,7 +14,7 @@ export interface ITrustedWheelFlingOptions {
     /** Latched gesture point. Momentum events keep this point for the whole burst. */
     x: number;
     y: number;
-    /** Wheel delta of the first event, in CSS pixels. */
+    /** Wheel delta of the first event, in CSS pixels. Negative scrolls up. */
     initialDeltaY: number;
     /** Wheel delta of the last event. The burst decays exponentially towards it. */
     finalDeltaY: number;
@@ -33,11 +33,17 @@ export interface ITrustedWheelFlingRun {
 
 const DEFAULT_INTERVAL_MS = 16;
 
-function resolveDecayPerMs(options: ITrustedWheelFlingOptions) {
-    if (options.finalDeltaY <= 0 || options.initialDeltaY < options.finalDeltaY) {
-        throw new Error('A wheel burst needs initialDeltaY at least a positive finalDeltaY');
+function resolveBurstShape(options: ITrustedWheelFlingOptions) {
+    const initial = Math.abs(options.initialDeltaY);
+    const final = Math.abs(options.finalDeltaY);
+    if (final <= 0 || initial < final || Math.sign(options.initialDeltaY) !== Math.sign(options.finalDeltaY)) {
+        throw new Error('A wheel burst needs initialDeltaY at least a nonzero finalDeltaY of the same direction');
     }
-    return Math.log(options.initialDeltaY / options.finalDeltaY) / options.durationMs;
+    return {
+        decayPerMs: Math.log(initial / final) / options.durationMs,
+        initialMagnitude: initial,
+        sign: Math.sign(options.initialDeltaY),
+    };
 }
 
 async function detachQuietly(client: CDPSession) {
@@ -60,7 +66,11 @@ export async function startTrustedWheelFling(
     // so a concurrent page.mouse.click is not serialized behind it.
     const client = await page.createCDPSession();
     const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
-    const decayPerMs = resolveDecayPerMs(options);
+    const {
+        decayPerMs,
+        initialMagnitude,
+        sign,
+    } = resolveBurstShape(options);
     const startedAt = Date.now();
     let stopped = false;
 
@@ -77,7 +87,7 @@ export async function startTrustedWheelFling(
                     x: options.x,
                     y: options.y,
                     deltaX: 0,
-                    deltaY: options.initialDeltaY * Math.exp(-decayPerMs * elapsedMs),
+                    deltaY: sign * initialMagnitude * Math.exp(-decayPerMs * elapsedMs),
                     pointerType: 'mouse',
                 });
                 dispatched += 1;
