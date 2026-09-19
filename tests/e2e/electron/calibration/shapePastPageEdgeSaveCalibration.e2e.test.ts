@@ -209,6 +209,6 @@ describe('calibration: a shape drawn past the page edge stays saveable', () => {
             first: true,
             second: true,
         });
-        expect(savedAfterSecond?.bySubtype['/Square'] ?? 0).toBe(2);
+        expect(savedAfterSecond?.bySubtype.Square ?? 0).toBe(2);
     });
 });

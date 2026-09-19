@@ -35,7 +35,7 @@ if [ "${EVB_E2E_SHARED_BUILD_REQUIRED:-0}" = "1" ]; then
 fi
 
 case "$target_project" in
-  e2e-blocking-smoke|e2e-draw-shapes|e2e-large-pdf|e2e-native-save-reopen|e2e-regression|e2e-save-pipeline|e2e-xlarge-pdf)
+  e2e-blocking-smoke|e2e-calibration|e2e-draw-shapes|e2e-large-pdf|e2e-native-save-reopen|e2e-regression|e2e-save-pipeline|e2e-xlarge-pdf)
     if [ "${EVB_PDF_PAGE_OPS_DISABLE:-0}" != "1" ]; then
       export EVB_PDF_PAGE_OPS_ENABLE=1
     fi
