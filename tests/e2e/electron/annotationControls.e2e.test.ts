@@ -63,7 +63,9 @@ async function expectTwoLinePreviewPaint(page: Page) {
     // Underlines delimit the two painted text lines. Glyphs can have detached
     // dots and descenders, so gaps between dark pixel rows are not line breaks.
     const text = paintedBands((r, g, b) => Math.max(r, g, b) < 170 && Math.max(r, g, b) - Math.min(r, g, b) < 50);
-    const waves = paintedBands((r, g, b) => b - r > 65 && b - g > 35);
+    // The fixture underline has a full blue channel. Linux LCD glyph edges
+    // can also be blue-dominant, but their blue channel is darkened by the ink.
+    const waves = paintedBands((r, g, b) => b >= 240 && b - r > 65 && b - g > 35);
     expect(waves, 'Both blue squiggly underlines remain visible').toHaveLength(2);
     const textRows = text.flat();
     const firstWaveEnd = waves[0]!.at(-1)!;
