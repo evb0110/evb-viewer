@@ -72,7 +72,19 @@ jobs:
           if [ "$PRODUCTION_OUTCOME" = 'success' ] && [ "$FULL_OUTCOME" = 'success' ]; then
             echo "Both audits are clean for $AUDITED_SHA."
             if [ -n "$issue_number" ]; then
-              gh issue comment "$issue_number" --body "$(printf 'Both dependency audits passed for %s.\n\nRun: %s' "$AUDITED_SHA" "$RUN_URL")"
+              # Every comment is mailed under the issue title, which says
+              # advisories were found. Report the recovery once, not daily.
+              clean_prefix='Both dependency audits passed'
+              last_report="$(gh issue view "$issue_number" --json comments \
+                --jq '[.comments[] | select(.author.login == "github-actions")] | last | .body // ""')"
+              case "$last_report" in
+                "$clean_prefix"*)
+                  echo "Issue #$issue_number already records a clean audit."
+                  ;;
+                *)
+                  gh issue comment "$issue_number" --body "$(printf '%s for %s.\n\nRun: %s' "$clean_prefix" "$AUDITED_SHA" "$RUN_URL")"
+                  ;;
+              esac
             fi
             exit 0
           fi
@@ -89,7 +101,7 @@ jobs:
             "update or override the affected package, keep \`pnpm run check:production-dependency-audit:production-only\` green locally," \
             "and note in the commit when a fix version is younger than the seven-day \`minimumReleaseAge\` hold in \`pnpm-workspace.yaml\`." \
             "" \
-            "This issue is maintained by \`dependency-audit.yml\`. A clean run comments here instead of closing it.")"
+            "This issue is maintained by \`dependency-audit.yml\`. The first clean run after a failing one comments here instead of closing it.")"
 
           if [ -n "$issue_number" ]; then
             gh issue comment "$issue_number" --body "$body"

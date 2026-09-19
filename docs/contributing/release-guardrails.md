@@ -51,7 +51,7 @@ here is required reading for an ordinary cut.
 
 ## Dependency advisories
 
-- `check:production-dependency-audit` rejects any advisory at any severity and permits no waiver. It runs daily in [`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) and reports through one open issue labelled `dependency-audit`; a clean run comments on that issue rather than closing it. It is absent from push CI and from every release workflow on purpose: advisories arrive on the registry's clock, and on the required lane one publication blocked two release cuts in one afternoon for a commit that changed nothing about dependencies.
+- `check:production-dependency-audit` rejects any advisory at any severity and permits no waiver. It runs daily in [`dependency-audit.yml`](../../.github/workflows/dependency-audit.yml) and reports through one open issue labelled `dependency-audit`; the first clean run after a failing one comments on that issue rather than closing it, and later clean runs stay silent because every comment is mailed under the issue's alarming title. It is absent from push CI and from every release workflow on purpose: advisories arrive on the registry's clock, and on the required lane one publication blocked two release cuts in one afternoon for a commit that changed nothing about dependencies.
 - `pnpm-workspace.yaml` holds new registry releases for seven days (`minimumReleaseAge`). A fix version younger than that needs `pnpm install --config.minimum-release-age=0` for that install only; say so in the commit message. Do not lower the workspace setting.
 - A dependency fix is ordinary work: it goes through push CI like any commit and may be released whenever the next cut happens.
 
