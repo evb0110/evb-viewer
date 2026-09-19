@@ -72,6 +72,8 @@ interface IFixtureOverlay {
 
 interface IFixtureNoteWindow {
     annotationId: string;
+    /** The window's own clip path, as `PdfAnnotationNoteWindow` sets it. */
+    clipPath?: string;
     leftPx: number;
     pageNumber: number;
     topPx: number;
@@ -144,7 +146,9 @@ function renderNoteWindow(noteWindow: IFixtureNoteWindow) {
     return `<div class="note-window" data-annotation-id="${noteWindow.annotationId}"
         data-page-number="${String(noteWindow.pageNumber)}"
         data-user-placement="0"
-        style="position:fixed;left:${String(noteWindow.leftPx)}px;top:${String(noteWindow.topPx)}px;width:200px;height:150px;background:#fff"></div>`;
+        style="position:fixed;left:${String(noteWindow.leftPx)}px;top:${String(noteWindow.topPx)}px;width:200px;height:150px;background:#fff${
+            noteWindow.clipPath ? `;clip-path:${noteWindow.clipPath}` : ''
+        }"></div>`;
 }
 
 function buildFixtureMarkup(options: IFixtureOptions = {}) {
@@ -383,6 +387,32 @@ describe('viewer invariant checker against real Chromium layout', () => {
             const overChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
             expect(violationIds(overChrome)).toEqual(['A2-note-window-over-chrome']);
             expect(overChrome.unresolved).toEqual([]);
+
+            // A2 one observation, conforming: the same layout box, clipped to
+            // its pane the way the note window clips itself. Nothing of it is
+            // painted over the toolbar, so nothing is reported.
+            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
+                annotationId: 'note-1',
+                clipPath: 'inset(30px -24px -24px -24px)',
+                leftPx: 60,
+                pageNumber: 1,
+                topPx: 10,
+            }]}));
+            const clippedOffChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+            expect(clippedOffChrome.violations).toEqual([]);
+            expect(clippedOffChrome.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
+
+            // A2 one observation, known bad: a clip that still leaves part of
+            // the window on the toolbar is still a window over the chrome.
+            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
+                annotationId: 'note-1',
+                clipPath: 'inset(10px -24px -24px -24px)',
+                leftPx: 60,
+                pageNumber: 1,
+                topPx: 10,
+            }]}));
+            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
+                .toEqual(['A2-note-window-over-chrome']);
 
             // A2 one observation, known bad: the window is nowhere near the
             // pane it belongs to while that pane shows its anchor page.

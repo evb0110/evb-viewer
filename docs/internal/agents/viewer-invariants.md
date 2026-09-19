@@ -48,7 +48,17 @@ annotation back in the wrong place is the defect the comparison exists for.
 
 The unobscured viewport is the scroller's client box, which already excludes
 the toolbar, the sidebar and a classic scrollbar. C2 is fed by the renderer
-error guard's own notices, so there is no second global handler.
+error guard's own notices, so there is no second global handler, and a failure
+the product reports through its own logger, such as a refused save, is not a
+C2 diagnostic.
+
+A note window clips itself to its pane, so its layout box reaches over the
+toolbar while nothing of it is painted there. `A2-note-window-over-chrome`
+therefore compares the window's painted rect, which is its layout box narrowed
+by its own `inset()` clip path; the two-observation comparison still uses the
+layout box, because that is what follows the anchor. A window clipped so far
+that its title bar and close button are gone is a real defect, and no statement
+of the contract covers it yet.
 
 ## The monitor and the bug-report shortcut
 

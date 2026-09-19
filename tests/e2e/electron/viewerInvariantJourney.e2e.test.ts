@@ -64,14 +64,6 @@ function unfollowedNoteWindowDefect(annotationId: string): IViewerInvariantExcep
     }];
 }
 
-function noteWindowOverChromeDefect(annotationId: string): IViewerInvariantException[] {
-    return [{
-        annotationId,
-        id: 'A2-note-window-over-chrome',
-        reason: 'an open note window is never re-placed onto the document area after a zoom moves it',
-    }];
-}
-
 const sessionFixture = createElectronE2ESessionFixture({sessionName: 'e2e-viewer-invariants'});
 
 async function readToolbarPageFromScreen(page: Parameters<typeof evaluateInPage>[0]) {
@@ -248,11 +240,14 @@ describe('viewer invariant journey', () => {
         // Zoom through the real toolbar and back with the anchor page on
         // screen: the highlight must keep its place on the page it belongs to,
         // and the note window must stay on the document area.
+        // The window's layout box reaches over the toolbar and the sidebar
+        // here, and its own clip path paints none of it there, which is why
+        // this checkpoint expects no violation: see
+        // `.devkit/methodology/findings/calibration.md`.
         await clickVisibleToolbarButton(page, 'Zoom In');
         await assertViewerInvariants(page, {
             checkpoint: 'after zooming in through the toolbar',
             documentWellFormed: true,
-            expected: noteWindowOverChromeDefect(noteAnnotationId),
             requirePresent: createdWork,
             requireRan: [
                 'A1-annotation-normalized-drift',
