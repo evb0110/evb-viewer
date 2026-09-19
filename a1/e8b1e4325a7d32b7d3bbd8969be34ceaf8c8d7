@@ -1,0 +1,26 @@
+vitest.shared.config.ts
+  s_3373a633924320::t_ef87b2d485df5e 70
+tests/e2e/electron/zoomMenuLayout.e2e.test.ts
+  s_3373a633924320::t_ef87b2d485df5e 1-24,47-55,60-124,126-127,129-154,157-160
+  s_3373a633924320::t_a8d8aa6640f5e2 125,128,155-156
+  s_3373a633924320::t_80654ec3f501eb 25-46,56-59
+app/modules/pdf-viewer/components/PdfZoomDropdown.vue
+  s_3373a633924320::t_ef87b2d485df5e 78,519-521
+  s_3373a633924320::t_3b58217c891b1b 522
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a1e8b1e4325a7d32b7d3bbd8969be34ceaf8c8d7",
+  "prompts": {},
+  "sessions": {
+    "s_3373a633924320": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b8c1-99cc-7550-96b3-f1d52b74d702",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
