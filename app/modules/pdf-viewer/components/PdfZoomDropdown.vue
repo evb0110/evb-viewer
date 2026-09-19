@@ -75,7 +75,7 @@
 
                         <div v-if="canUseViewModes" class="zoom-divider" />
 
-                        <div v-if="canUseViewModes" class="zoom-toggle-group">
+                        <div v-if="canUseViewModes" class="zoom-toggle-group zoom-toggle-group--view-modes">
                             <button
                                 :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('single') }]"
                                 :aria-label="t('zoom.singlePage')"
@@ -515,6 +515,10 @@ function selectCustomZoomInput(event: FocusEvent) {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(7rem, 100%), 1fr));
     gap: 0.125rem;
+}
+
+.zoom-toggle-group--view-modes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .zoom-toggle-btn {
