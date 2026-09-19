@@ -82,9 +82,16 @@ the hidden app at the 900x668 test window, the footer shows 139 px of a 184 to
 the fill colour sit below the fold, one wheel notch away. The click helper never
 scrolled, so it timed out on controls a user can reach. `2e780e0cd` makes the
 helper wheel to a control with real input, which still fails for a control the
-wheel cannot reach, and the extended tier went green on all 14 jobs. What is
-left is a product choice the owner has not made: whether that footer is tall
-enough at a small window.
+wheel cannot reach, and the extended tier went green on all 14 jobs.
+
+Measuring for that fix showed a real defect next to the false one. The footer's
+13rem cap hid the Pen, Pencil and Marker presets below its fold at every window
+size, and at the default window the fill colour of shapes too. The owner left
+the height to the implementer. `6d9dcddad` makes the footer
+`min(15.25rem, 50%)`: no control is hidden at four window heights across 11
+tools and 4 selections, the list keeps its one-card minimum and shows as many
+whole cards as before, and a real-app assertion that was red on the old layout
+holds it.
 
 The bisect and the tier did their job, since they named the commit within
 hours. The reading of the failure was the weak step, for the second time in one
@@ -152,15 +159,62 @@ hosted Linux runner (three line fragments where two are expected), which keeps
 the required tier red at the time of writing; the attribution tool marks that
 failure as inherited from `266ab8f5d`.
 
+## Discovery run on 30 real documents
+
+Run on `c6ee54fda`: 28 PDFs and 2 DjVu documents from the owner's machine, 1 to
+15,605 pages, 0.65 GiB, opened from working copies under neutral names and named
+here by nothing at all. One fresh hidden session per document, twelve reader
+actions with real input, 354 steps, 12 to 13 minutes of wall time per run. The
+runner is `corpusDiscoveryCalibration.e2e.test.ts` in the manual calibration
+project; [viewer invariants](agents/viewer-invariants.md) describes it. It ran
+twice, before and after the corrections below.
+
+Three defects, each reproduced on a synthetic or tracked document before it was
+filed, so every issue carries public evidence and no private page was looked at:
+
+| Issue | Defect | Real documents |
+| --- | --- | --- |
+| 822 | A typed page jump in a document of mixed page sizes lands elsewhere while the toolbar shows the requested page: typed 33, pages 42 and 43 on screen. A second attempt lands correctly. | 2 of 28, plus 1 intermittent |
+| 823 | Fit width at open divides by the stored width of a page that carries `/Rotate 90`, so the page is about 430 px wider than the viewport until the next relayout. | 2 of 28 |
+| 824 | DjVu: a second tab and back loses the place, 251 to 18 of 501. The place survives after a toolbar zoom. | 2 of 2 |
+
+None of the three was reachable by an existing test. Every PDF fixture has
+uniform, unrotated pages; the DjVu restore test sets a custom zoom first, which
+is the one condition under which the place survives.
+
+One expectation the owner has to decide, now open question 6 of the contract:
+in six documents of mixed page widths, fit width left 69 to 1,199 px of
+horizontal scroll range on a page that itself fit, because a wider page
+elsewhere sets the track width. One known defect seen again: issue 819 face B,
+on two documents. One pathological document (a page 56,842 px wide at the zoom
+floor) had frame gaps over one second while scrolling; every other document
+stayed under 150 ms.
+
+False alarms, all in this work's own tooling: 31 of the 61 violations the first
+run reported, and 6 of its 7 failed steps:
+
+| Count | What | Disposition |
+| --- | --- | --- |
+| 20 | The checker reads the PDF page track only. On DjVu it skips every statement and reports "not settled". | Documented. DjVu has no invariant coverage; 824 was found from the toolbar reading instead. |
+| 5 | "The note window does not reach its pane while its anchor page is on screen", on one-page documents read zoomed in. The page was on screen; the note's marker, and the window following it, had scrolled out. That is open question 3, not a lost window. | Fixed: the anchor is the annotation's marker. Red then green in real Chromium, and gone from the second run. |
+| 6 | "No navigation-idle event" after a wheel that changed no page. | Fixed in the runner for four. Two remain where the page did change and no event followed; not user-visible, unexplained. |
+| 6 | The typed-jump helper failed on documents with page labels: typing 109 correctly goes to the page labelled 109, which is physical page 115. | A wrong expectation in the helper, which synthetic fixtures never met. Left as is and recorded. |
+
+The timing overlap asked for is part of the run: wheel packets at 16 ms that
+never wait for the viewer, and a toolbar zoom click 120 ms into a second burst,
+with the checker read on every frame. Across 90 sampled transitions the toolbar
+named an off-screen page for at most 8 ms, and the worst frame gap had a median
+of 42 ms and a 90th percentile of 74 ms. These are measurements: the contract
+has not decided transition time bounds, native macOS momentum is still not
+reachable through CDP, and nothing here certifies the close or next-gesture
+regressions.
+
+What the run does not cover: saving, printing, search, OCR, page operations,
+text markup (it needs a text layer the run does not look for), the native file
+dialog, any document that needs a password, and everything on DjVu beyond the
+page the toolbar shows.
+
 ## Not done
-- **Bounded trial on the private corpus.** A hashed manifest of 30 local
-  documents with a fail-closed resolver exists in the ignored `.devkit`, but
-  nothing consumes it. No real document has been driven. A manifest is
-  preparation, not coverage.
-- **One timing overlap in a discovery task.** Settled-state checks say nothing
-  about transient blanking, ignored input or jerky resize. The per-frame samplers
-  exist and are not yet used outside open and navigation. The stress runner's
-  `wheelBurst` awaits settlement per packet, so it is not a burst.
 - **Nightly lane.** `ci-nightly.yml` runs native jobs; no scheduled real-app
   discovery run exists, and none should until someone is named to process its
   findings through the `robot-found` label.

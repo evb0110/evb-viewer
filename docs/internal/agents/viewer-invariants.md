@@ -33,6 +33,15 @@ defect, so neither the monitor nor `assertViewerInvariants` may fail on one.
 | --- | --- |
 | `A2-anchor-offscreen` | A2 and open question 3: hide, dock, or stay? |
 
+The anchor is the annotation's own marker, not its page. A page taller than the
+viewport stays on screen while the marker, and the window that follows it,
+scroll out of the pane, which is the open question and not a lost window. When
+no marker is drawn for the annotation, the page stands in for it.
+
+The checker reads the PDF page track only. On a DjVu document every statement
+is skipped and `S0` reports that there is no page track, so a DjVu run has no
+invariant coverage yet; read the toolbar and the action outcomes instead.
+
 `waitForViewerSettled()` implements Settled: no input for 500ms, no visible
 page still showing a skeleton, the viewport and the mounted page boxes
 identical to the previous frame, and, for a caller that just drove a
@@ -115,6 +124,38 @@ module. Verify with `pnpm exec nuxi build` and a grep of
   that, because deleting is legitimate and it does not know the user's intent.
 - `tests/e2e/electron/viewerInvariantJourney.e2e.test.ts` drives one composed
   reading session with trusted input.
+
+## Discovery run on real documents
+
+`tests/e2e/electron/calibration/corpusDiscoveryCalibration.e2e.test.ts` is a
+discovery run, not a gate. It lives in the manual `e2e-calibration` project, so
+no CI lane runs it. For each document of a manifest it starts a fresh hidden
+session, opens a working copy under a neutral name, and takes ordinary reader
+actions with real input: a real window resize, a sticky note, wheel bursts that
+never wait for the viewer, a zoom click while a burst is still scrolling, a
+typed page jump, the fit modes, the sidebar, a second tab and back. After each
+action it records the settled invariant report, the page the toolbar shows, and
+renderer console errors. During the wheel steps it also reads the checker every
+frame and records how long each violation lasted and the worst frame gap; that
+is a measurement, because the contract has not decided transition time bounds.
+
+It asserts only that the run happened. A person reads the results, because a
+real document may be malformed and an unexpected result may be a wrong
+expectation. Reproduce a finding on a synthetic document before filing it: the
+issue then carries public evidence, and nobody has to look at a private page.
+
+```bash
+EVB_CORPUS_MANIFEST=/abs/path/manifest.json \
+  bash scripts/test-electron-e2e-headless.sh --no-build e2e-calibration \
+  tests/e2e/electron/calibration/corpusDiscoveryCalibration.e2e.test.ts
+```
+
+The manifest is `{"entries": [{"id", "path", "sha256", "format": "pdf" | "djvu",
+"pages"}]}` and stays outside the repository. `EVB_CORPUS_IDS=c03,c07` limits the
+run, `EVB_CORPUS_RESULTS` moves the per-document JSON (default
+`.devkit/trial/results`), and `EVB_CORPUS_SCREENSHOTS=1` adds a picture at open,
+which shows document content and is off by default. Results name a document by
+id and hash prefix only. Thirty documents take about 13 minutes.
 
 ## Adding an invariant
 
