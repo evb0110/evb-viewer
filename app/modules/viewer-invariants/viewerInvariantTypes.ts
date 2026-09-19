@@ -121,7 +121,25 @@ export interface IViewerInvariantUnresolved {
     question: string;
 }
 
+/**
+ * The identities this observation actually saw on screen. A scenario that
+ * created an annotation can require it to still be there, which the checks
+ * themselves cannot judge: deleting is legitimate and a checker cannot know
+ * what the user meant to do.
+ */
+export interface IViewerObservedIdentities {
+    /** Annotation ids with a mounted overlay, by the page they are on. */
+    annotationIds: string[];
+    /** Annotation ids with an open note window. */
+    noteWindowAnnotationIds: string[];
+    /** Page numbers of the mounted page containers. */
+    mountedPageNumbers: number[];
+    /** The physical page number the toolbar rendered, null when unreadable. */
+    pageIndicator: number | null;
+}
+
 export interface IViewerInvariantReport {
+    observed: IViewerObservedIdentities;
     observedAt: number;
     skipped: IViewerInvariantSkip[];
     /** Never a failure. Carried so a bug bundle shows what was seen. */

@@ -15,6 +15,7 @@ import type {
     IViewerInvariantSkip,
     IViewerInvariantUnresolved,
     IViewerInvariantViolation,
+    IViewerObservedIdentities,
     IViewerRect,
     IViewerSurface,
 } from '@app/modules/viewer-invariants/viewerInvariantTypes';
@@ -694,6 +695,20 @@ function checkRendererDiagnostics(
 }
 
 /**
+ * What this observation actually saw. The checks judge the things that are
+ * there; only the scenario knows what should still be there, so the identities
+ * are reported and a caller with a task in mind decides.
+ */
+function describeObservedIdentities(surface: IViewerSurface | null): IViewerObservedIdentities {
+    return {
+        annotationIds: (surface?.overlays ?? []).map(overlay => overlay.annotationId),
+        mountedPageNumbers: (surface?.pages ?? []).map(page => page.pageNumber),
+        noteWindowAnnotationIds: (surface?.noteWindows ?? []).map(noteWindow => noteWindow.annotationId),
+        pageIndicator: surface?.toolbarPageNumber ?? null,
+    };
+}
+
+/**
  * Reads the rendered viewer once and judges every implemented invariant
  * against it. Cheap enough to run on every settled state.
  */
@@ -732,6 +747,7 @@ export function checkViewerInvariants(options: IViewerInvariantOptions = {}): IV
         }
         checkRendererDiagnostics(options, violations, skipped);
         return {
+            observed: describeObservedIdentities(null),
             observedAt: Date.now(),
             skipped,
             unresolved,
@@ -755,6 +771,7 @@ export function checkViewerInvariants(options: IViewerInvariantOptions = {}): IV
     checkRendererDiagnostics(options, violations, skipped);
 
     return {
+        observed: describeObservedIdentities(surface),
         observedAt: Date.now(),
         skipped,
         unresolved,

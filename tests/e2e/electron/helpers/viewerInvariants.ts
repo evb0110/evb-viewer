@@ -38,7 +38,28 @@ export interface IAssertViewerInvariantsOptions {
     documentWellFormed?: boolean;
     /** Requires a `navigation-idle` event after a navigation was driven. */
     requireNavigationIdle?: boolean;
+    /**
+     * Invariants this checkpoint is about. Each one must have run: a skipped
+     * check is not a pass, and a checkpoint whose subject was not applicable
+     * has not observed what it claims to. The failure names the skip reason.
+     */
+    requireRan?: readonly TViewerInvariantId[];
+    /**
+     * Work the scenario created and has not deleted. The checker cannot judge
+     * this: an annotation that is gone may have been deleted on purpose. The
+     * scenario knows it only zoomed, so it says what must still be there.
+     */
+    requirePresent?: IViewerRequiredIdentities;
     settleTimeoutMs?: number;
+}
+
+export interface IViewerRequiredIdentities {
+    /** Overlays that must be mounted. Their pages must be mounted too. */
+    annotationIds?: readonly string[];
+    /** Annotations whose note window must still be open. */
+    noteWindowFor?: readonly string[];
+    /** The toolbar must render a readable physical page number. */
+    pageIndicator?: true;
 }
 
 export interface IViewerInvariantCheckpointResult {
@@ -61,6 +82,87 @@ function describeSubject(id: TViewerInvariantId, annotationId: string | null) {
 function subjectOfViolation(violation: IViewerInvariantViolation) {
     const annotationId = violation.evidence.annotationId;
     return describeSubject(violation.id, typeof annotationId === 'string' ? annotationId : null);
+}
+
+function describeUnmetRequirements(
+    report: IViewerInvariantReport,
+    options: IAssertViewerInvariantsOptions,
+) {
+    const unmet: string[] = [];
+    for (const id of options.requireRan ?? []) {
+        const skip = report.skipped.find(entry => entry.id === id);
+        if (skip) {
+            unmet.push(`${id} did not run: ${skip.reason}`);
+        }
+    }
+
+    const required = options.requirePresent;
+    if (!required) {
+        return unmet;
+    }
+    for (const annotationId of required.annotationIds ?? []) {
+        if (!report.observed.annotationIds.includes(annotationId)) {
+            unmet.push(`the annotation ${annotationId} is no longer drawn;`
+                + ` mounted pages ${report.observed.mountedPageNumbers.join(', ') || 'none'},`
+                + ` drawn annotations ${report.observed.annotationIds.join(', ') || 'none'}`);
+        }
+    }
+    for (const annotationId of required.noteWindowFor ?? []) {
+        if (!report.observed.noteWindowAnnotationIds.includes(annotationId)) {
+            unmet.push(`the note window for ${annotationId} is no longer open;`
+                + ` open windows ${report.observed.noteWindowAnnotationIds.join(', ') || 'none'}`);
+        }
+    }
+    if (required.pageIndicator && report.observed.pageIndicator === null) {
+        unmet.push('the toolbar rendered no readable page number');
+    }
+    return unmet;
+}
+
+/**
+ * Decides a checkpoint from a report the app produced. Kept apart from the
+ * page plumbing so the decision itself can be exercised against a report built
+ * in a browser fixture.
+ */
+export function evaluateViewerInvariantCheckpoint(
+    report: IViewerInvariantReport,
+    options: IAssertViewerInvariantsOptions,
+): IViewerInvariantCheckpointResult {
+    const outstanding = (options.expected ?? []).map(exception => (
+        describeSubject(exception.id, exception.annotationId ?? null)
+    ));
+    const tolerated: IViewerInvariantViolation[] = [];
+    const unexpected: IViewerInvariantViolation[] = [];
+    for (const violation of report.violations) {
+        const index = outstanding.indexOf(subjectOfViolation(violation));
+        if (index === -1) {
+            unexpected.push(violation);
+            continue;
+        }
+        outstanding.splice(index, 1);
+        tolerated.push(violation);
+    }
+    const unmet = describeUnmetRequirements(report, options);
+
+    if (unexpected.length > 0 || outstanding.length > 0 || unmet.length > 0) {
+        throw new Error([
+            `Viewer invariants failed at checkpoint "${options.checkpoint}":`,
+            ...unexpected.map(formatViolation),
+            ...unmet.map(entry => `  - ${entry}`),
+            ...(outstanding.length > 0
+                ? [`  tolerated but not observed: ${outstanding.join(', ')}.`
+                    + ' Either the defect is fixed and the exception belongs in the'
+                    + ' bin, or this checkpoint no longer reaches it.']
+                : []),
+            `  not applicable here: ${report.skipped.map(skip => skip.id).join(', ') || 'none'}`,
+        ].join('\n'));
+    }
+
+    return {
+        report,
+        tolerated,
+        unresolved: report.unresolved,
+    };
 }
 
 /**
@@ -112,39 +214,7 @@ export async function assertViewerInvariants(
         settleTimeoutMs: options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS,
     });
 
-    const outstanding = (options.expected ?? []).map(exception => (
-        describeSubject(exception.id, exception.annotationId ?? null)
-    ));
-    const tolerated: IViewerInvariantViolation[] = [];
-    const unexpected: IViewerInvariantViolation[] = [];
-    for (const violation of report.violations) {
-        const index = outstanding.indexOf(subjectOfViolation(violation));
-        if (index === -1) {
-            unexpected.push(violation);
-            continue;
-        }
-        outstanding.splice(index, 1);
-        tolerated.push(violation);
-    }
-
-    if (unexpected.length > 0 || outstanding.length > 0) {
-        throw new Error([
-            `Viewer invariants failed at checkpoint "${options.checkpoint}":`,
-            ...unexpected.map(formatViolation),
-            ...(outstanding.length > 0
-                ? [`  tolerated but not observed: ${outstanding.join(', ')}.`
-                    + ' Either the defect is fixed and the exception belongs in the'
-                    + ' bin, or this checkpoint no longer reaches it.']
-                : []),
-            `  not applicable here: ${report.skipped.map(skip => skip.id).join(', ') || 'none'}`,
-        ].join('\n'));
-    }
-
-    return {
-        report,
-        tolerated,
-        unresolved: report.unresolved,
-    };
+    return evaluateViewerInvariantCheckpoint(report, options);
 }
 
 /** Starts a new two-observation sequence, for a test that resets the viewer. */

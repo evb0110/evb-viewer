@@ -19,6 +19,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { evaluateViewerInvariantCheckpoint } from '@tests/e2e/electron/helpers/viewerInvariants';
 import type { IViewerBugReport } from '@app/modules/viewer-invariants/buildViewerBugReport';
 import type { IViewerUserAction } from '@app/modules/viewer-invariants/viewerActionLog';
 import type {
@@ -722,6 +723,81 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 computedStyle: 0,
                 rect: 0,
             });
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
+    it('lets a scenario require what it created, where the checker alone reports nothing', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                height: 700,
+                width: 900,
+            }});
+            await loadFixture(page, buildFixtureMarkup({
+                pages: [
+                    {
+                        overlays: [{
+                            annotationId: 'highlight-1',
+                            height: 0.05,
+                            kind: 'text-markup',
+                            width: 0.3,
+                            x: 0.1,
+                            y: 0.2,
+                        }],
+                        pageNumber: 1,
+                    },
+                    {pageNumber: 2},
+                ],
+                toolbarPageNumber: 1,
+            }));
+
+            // The reviewer's counterexamples: the annotation vanishes from a
+            // page that is still mounted, and the page control disappears.
+            // Neither is a violation, because deleting an annotation and
+            // hiding a control are both legitimate and the checker cannot
+            // know what the user meant.
+            const vanished = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                document.querySelector('[data-annotation-id="highlight-1"]')!.remove();
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(vanished.violations).toEqual([]);
+            expect(vanished.observed.annotationIds).toEqual([]);
+            expect(vanished.observed.mountedPageNumbers).toEqual([
+                1,
+                2,
+            ]);
+
+            const missingControl = await page.evaluate(() => {
+                document.querySelector('.page-controls')!.remove();
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(missingControl.violations).toEqual([]);
+            expect(missingControl.observed.pageIndicator).toBeNull();
+
+            // A scenario that created the highlight and only zoomed says so,
+            // and then the same report is a failure.
+            expect(() => evaluateViewerInvariantCheckpoint(vanished, {
+                checkpoint: 'after zooming',
+                requirePresent: {annotationIds: ['highlight-1']},
+            })).toThrow(/the annotation highlight-1 is no longer drawn/u);
+            expect(() => evaluateViewerInvariantCheckpoint(missingControl, {
+                checkpoint: 'after zooming',
+                requireRan: ['R1-toolbar-page-visible'],
+            })).toThrow(/R1-toolbar-page-visible did not run/u);
+            expect(() => evaluateViewerInvariantCheckpoint(missingControl, {
+                checkpoint: 'after zooming',
+                requirePresent: {pageIndicator: true},
+            })).toThrow(/rendered no readable page number/u);
+
+            // Without a scenario requirement both stay non-failing, which is
+            // the documented behavior of the generic checker.
+            expect(evaluateViewerInvariantCheckpoint(vanished, {checkpoint: 'no requirement'}).tolerated)
+                .toEqual([]);
+            expect(evaluateViewerInvariantCheckpoint(missingControl, {checkpoint: 'no requirement'}).tolerated)
+                .toEqual([]);
         } finally {
             await browser.close();
         }

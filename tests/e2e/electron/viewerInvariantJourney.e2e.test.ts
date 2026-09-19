@@ -87,6 +87,20 @@ async function readToolbarPageFromScreen(page: Parameters<typeof evaluateInPage>
     });
 }
 
+async function readZoomTextFromScreen(page: Parameters<typeof evaluateInPage>[0]) {
+    return evaluateInPage(page, () => (
+        document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')
+            ?.textContent?.trim() ?? null
+    ));
+}
+
+/** Overlay ids the editor layer currently draws, in the order it draws them. */
+async function readDrawnAnnotationIds(page: Parameters<typeof evaluateInPage>[0]) {
+    return evaluateInPage(page, () => [...document.querySelectorAll(
+        '.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+    )].map(entity => entity.getAttribute('data-annotation-id') ?? ''));
+}
+
 async function clickFirstTabOnScreen(page: Parameters<typeof evaluateInPage>[0]) {
     const point = await evaluateInPage(page, () => {
         const tab = document.querySelector('[data-tab-id]');
@@ -118,6 +132,11 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'document open and laid out',
             documentWellFormed: true,
+            requirePresent: {pageIndicator: true},
+            requireRan: [
+                'R1-toolbar-page-visible',
+                'C2-renderer-diagnostics-clean',
+            ],
         });
 
         // A real pane resize: the controls stay reachable and the reading
@@ -133,15 +152,28 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'after a real window resize',
             documentWellFormed: true,
+            requirePresent: {pageIndicator: true},
+            requireRan: ['R1-toolbar-page-visible'],
         });
         expect(await readToolbarPageFromScreen(page)).toBe(pageBeforeResize);
 
         // Pointer-drawn markup, then a sticky note whose window opens over the
-        // page it is anchored to.
+        // page it is anchored to. Both are the reader's work: from here on the
+        // journey requires them to still be there, because it never deletes
+        // them, and the checker cannot tell a deletion from a disappearance.
         await createTextMarkupWithPointer(page, 'Highlight', 0, 1);
+        const highlightAnnotationId = (await readDrawnAnnotationIds(page))[0] ?? null;
+        if (highlightAnnotationId === null) {
+            throw new Error('The pointer-drawn highlight produced no annotation overlay');
+        }
         await assertViewerInvariants(page, {
             checkpoint: 'after drawing a highlight with the pointer',
             documentWellFormed: true,
+            requirePresent: {
+                annotationIds: [highlightAnnotationId],
+                pageIndicator: true,
+            },
+            requireRan: ['A1-annotation-page-containment'],
         });
 
         await createStickyNoteWithPointer(page, 'journey note', {
@@ -155,9 +187,24 @@ describe('viewer invariant journey', () => {
         if (noteAnnotationId === null) {
             throw new Error('The open note window carries no annotation id to name in an exception');
         }
+        // Everything the reader made, required at every later checkpoint where
+        // the page that holds it is on screen.
+        const createdWork = {
+            annotationIds: [
+                highlightAnnotationId,
+                noteAnnotationId,
+            ],
+            noteWindowFor: [noteAnnotationId],
+            pageIndicator: true,
+        } as const;
         await assertViewerInvariants(page, {
             checkpoint: 'with an open note window',
             documentWellFormed: true,
+            requirePresent: createdWork,
+            requireRan: [
+                'A1-annotation-page-containment',
+                'A2-note-window-over-chrome',
+            ],
         });
 
         // A real wheel scroll several pages down: the rendered counter has to
@@ -167,10 +214,14 @@ describe('viewer invariant journey', () => {
         // and asserts no expectation about the window's placement.
         const settlement = await wheelPdfViewportAndWaitForSettlement(page, WHEEL_DOWN_DELTA_PX, 30_000);
         expect(settlement.finalScrollTop).toBeGreaterThan(settlement.initialScrollTop);
+        // No `requirePresent` for the annotations here: their page is
+        // virtualized away on purpose, so their absence is the viewer working.
         const scrolled = await assertViewerInvariants(page, {
             checkpoint: 'after a real wheel scroll down',
             documentWellFormed: true,
             requireNavigationIdle: true,
+            requirePresent: {pageIndicator: true},
+            requireRan: ['R1-toolbar-page-visible'],
         });
         expect(scrolled.unresolved.map(entry => [
             entry.id,
@@ -186,6 +237,12 @@ describe('viewer invariant journey', () => {
             checkpoint: 'after scrolling back up',
             documentWellFormed: true,
             requireNavigationIdle: true,
+            requirePresent: createdWork,
+            requireRan: [
+                'R1-toolbar-page-visible',
+                'A1-annotation-page-containment',
+                'A1-annotation-normalized-drift',
+            ],
         });
 
         // Zoom through the real toolbar and back with the anchor page on
@@ -196,22 +253,36 @@ describe('viewer invariant journey', () => {
             checkpoint: 'after zooming in through the toolbar',
             documentWellFormed: true,
             expected: noteWindowOverChromeDefect(noteAnnotationId),
+            requirePresent: createdWork,
+            requireRan: [
+                'A1-annotation-normalized-drift',
+                'A2-note-window-over-chrome',
+            ],
         });
         await clickVisibleToolbarButton(page, 'Zoom Out');
         await assertViewerInvariants(page, {
             checkpoint: 'after zooming back out',
             documentWellFormed: true,
+            requirePresent: createdWork,
+            requireRan: ['A1-annotation-normalized-drift'],
         });
 
         await clickVisibleToolbarButton(page, 'Fit Width');
         await assertViewerInvariants(page, {
             checkpoint: 'in fit width',
             documentWellFormed: true,
+            requirePresent: createdWork,
+            requireRan: [
+                'L1-fit-mode-scroll-range',
+                'A1-annotation-normalized-drift',
+            ],
         });
         await clickVisibleToolbarButton(page, 'Fit Height');
         await assertViewerInvariants(page, {
             checkpoint: 'in fit height',
             documentWellFormed: true,
+            requirePresent: createdWork,
+            requireRan: ['A1-annotation-normalized-drift'],
         });
 
         await clickVisibleToolbarButton(page, 'Toggle Sidebar');
@@ -219,7 +290,16 @@ describe('viewer invariant journey', () => {
             checkpoint: 'after toggling the sidebar',
             documentWellFormed: true,
             expected: unfollowedNoteWindowDefect(noteAnnotationId),
+            requirePresent: createdWork,
+            requireRan: [
+                'A1-annotation-normalized-drift',
+                'A2-note-window-follows-anchor',
+            ],
         });
+
+        // T1: what the first tab shows before the journey works elsewhere.
+        const firstTabPage = await readToolbarPageFromScreen(page);
+        const firstTabZoom = await readZoomTextFromScreen(page);
 
         // A second document in its own tab, then back to the first one.
         const secondPdf = await createMultiPageTextFixturePdf('invariant-journey-second.pdf', 4);
@@ -228,6 +308,8 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'on the second tab',
             documentWellFormed: true,
+            requirePresent: {pageIndicator: true},
+            requireRan: ['R1-toolbar-page-visible'],
         });
 
         await clickFirstTabOnScreen(page);
@@ -235,6 +317,14 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'back on the first tab',
             documentWellFormed: true,
+            requirePresent: createdWork,
+            requireRan: [
+                'R1-toolbar-page-visible',
+                'A1-annotation-page-containment',
+            ],
         });
+        // T1: the other tab's work did not move this one.
+        expect(await readToolbarPageFromScreen(page)).toBe(firstTabPage);
+        expect(await readZoomTextFromScreen(page)).toBe(firstTabZoom);
     });
 });
