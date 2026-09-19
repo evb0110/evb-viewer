@@ -1,0 +1,30 @@
+app/modules/document-viewer/runtime/documentViewportWritePort.ts
+  s_c4516e6bd07ba1::t_ccb9e93683ee81 157-160,460,463-465,467
+  s_c4516e6bd07ba1::t_3c699b444f1771 39,128-132,134,148-154,156,161-165,169-199,228,235-239,242-247,250,253-260,263-268,271,275-284,388-391,401,403-409,414-418,420-433,437-440,459,466,468-473,477-480
+  s_c4516e6bd07ba1::t_035b80ae3314ab 166,392-396,399
+tests/unit/app/modules/document-viewer/documentViewerRuntime.test.ts
+  s_c4516e6bd07ba1::t_0a754c260b91a6 534,550-552,564
+  s_c4516e6bd07ba1::t_316bb3db210355 624-652
+  s_c4516e6bd07ba1::t_ccb9e93683ee81 39,44-47,49,226,245,345,348-354,379,416,438
+  s_c4516e6bd07ba1::t_958484453b7c5f 506-533,535-549,553-563,565-623,653-732
+docs/architecture/pdf-viewer-architecture.md
+  s_c4516e6bd07ba1::t_9cd5bd4edf1595 100-154
+app/modules/document-viewer/input/createWheelGestureStream.ts
+  s_c4516e6bd07ba1::t_54338c9d08cd95 2-3,7-11,17,20-26,29-30,35-38,40-56,61-62,71-72,75-88,93-94,96-97,99-101,104-105,108-111,118-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "76229f2baef2d2e6d508e3b0d74ae10338a4fd87",
+  "prompts": {},
+  "sessions": {
+    "s_c4516e6bd07ba1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d419ea80-167c-456e-9e7f-3baf2f744ed5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
