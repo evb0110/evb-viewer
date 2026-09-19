@@ -127,6 +127,7 @@ function readOverlays(host: HTMLElement): IViewerInvariantOverlay[] {
                 outsidePage: entity.dataset.annotationOutsidePage !== undefined,
                 pageNumber,
                 rect: toRect(visual.getBoundingClientRect()),
+                screenSized: entity.dataset.annotationScreenSized !== undefined,
                 selected: entity.classList.contains('is-selected'),
                 subtype: entity.dataset.markupSubtype ?? null,
             };

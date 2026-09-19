@@ -52,6 +52,12 @@ export interface IViewerInvariantOverlay {
     outsidePage: boolean;
     pageNumber: number;
     rect: IViewerRect;
+    /**
+     * A marker drawn at a fixed size in screen pixels, such as the note icon.
+     * Its box relative to the page box legitimately changes with zoom, so only
+     * its centre is comparable between two observations.
+     */
+    screenSized: boolean;
     selected: boolean;
     subtype: string | null;
 }

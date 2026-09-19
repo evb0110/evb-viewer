@@ -40,12 +40,13 @@ const NOTE_WINDOW_FOLLOW_TOLERANCE_PX = 2;
 export const VIEWER_INVARIANT_CONSOLE_ALLOWLIST: readonly IViewerConsoleAllowlistEntry[] = [];
 
 interface IRememberedOverlay {
+    centerX: number;
+    centerY: number;
     height: number;
     pageNumber: number;
+    screenSized: boolean;
     viewRotation: number;
     width: number;
-    x: number;
-    y: number;
 }
 
 interface IRememberedNoteWindow {
@@ -336,13 +337,35 @@ function toNormalizedOverlay(
     page: IViewerInvariantPage,
 ): IRememberedOverlay {
     return {
+        centerX: (overlay.rect.left + overlay.rect.width / 2 - page.rect.left) / page.rect.width,
+        centerY: (overlay.rect.top + overlay.rect.height / 2 - page.rect.top) / page.rect.height,
         height: overlay.rect.height / page.rect.height,
         pageNumber: overlay.pageNumber,
+        screenSized: overlay.screenSized,
         viewRotation: page.viewRotation,
         width: overlay.rect.width / page.rect.width,
-        x: (overlay.rect.left - page.rect.left) / page.rect.width,
-        y: (overlay.rect.top - page.rect.top) / page.rect.height,
     };
+}
+
+/**
+ * A1 names the annotation's position, so the comparison is anchored on the
+ * centre. The box is compared too, except for a marker the viewer draws at a
+ * fixed size in screen pixels: its box relative to the page legitimately
+ * changes with zoom while the point it marks does not move.
+ */
+function measureNormalizedDrift(previous: IRememberedOverlay, observation: IRememberedOverlay) {
+    const positionDrift = Math.max(
+        Math.abs(previous.centerX - observation.centerX),
+        Math.abs(previous.centerY - observation.centerY),
+    );
+    if (previous.screenSized || observation.screenSized) {
+        return positionDrift;
+    }
+    return Math.max(
+        positionDrift,
+        Math.abs(previous.width - observation.width),
+        Math.abs(previous.height - observation.height),
+    );
 }
 
 /**
@@ -350,6 +373,11 @@ function toNormalizedOverlay(
  * same page and rotation, its position normalized to the page box may not
  * move. Normalizing by the page box makes the comparison zoom independent,
  * which is what makes drift on zoom or resize observable.
+ *
+ * The centre is the position. A marker the viewer draws at a fixed screen size
+ * keeps its centre through a zoom while its normalized box changes, and
+ * reporting that as drift was a false alarm the monitor raised on the note
+ * icon during ordinary zooming.
  */
 function checkOverlayDrift(
     surface: IViewerSurface,
@@ -378,12 +406,7 @@ function checkOverlayDrift(
             && previous.viewRotation === observation.viewRotation;
         if (comparable) {
             compared += 1;
-            const drift = Math.max(
-                Math.abs(previous.x - observation.x),
-                Math.abs(previous.y - observation.y),
-                Math.abs(previous.width - observation.width),
-                Math.abs(previous.height - observation.height),
-            );
+            const drift = measureNormalizedDrift(previous, observation);
             if (drift > MAX_NORMALIZED_DRIFT) {
                 violations.push({
                     evidence: {

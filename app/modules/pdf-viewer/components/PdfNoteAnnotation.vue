@@ -15,6 +15,7 @@
             :data-annotation-id="entity.identity.id"
             :data-stable-key="`ann:${entity.pageIndex}:${entity.identity.pdfRef ?? entity.identity.id}`"
             data-annotation-kind="note"
+            data-annotation-screen-sized
             :aria-label="t('annotations.openNote')"
             @mousedown.stop
             @pointerdown.stop="handlePointerDown"

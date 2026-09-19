@@ -62,6 +62,8 @@ interface IFixtureOverlay {
     height: number;
     kind: string;
     outsidePage?: boolean;
+    /** Drawn at a fixed pixel size around its point, like the note icon. */
+    screenSizedPx?: number;
     width: number;
     x: number;
     y: number;
@@ -108,11 +110,19 @@ function renderTabBar(fileName: string) {
 }
 
 function renderOverlay(overlay: IFixtureOverlay) {
-    const style = `position:absolute;left:${String(overlay.x * 100)}%;top:${String(overlay.y * 100)}%;`
-        + `width:${String(overlay.width * 100)}%;height:${String(overlay.height * 100)}%;`;
+    // A screen-sized marker is centred on its point and keeps its pixel size,
+    // exactly as `PdfNoteAnnotation.vue` places the note icon.
+    const style = overlay.screenSizedPx === undefined
+        ? `position:absolute;left:${String(overlay.x * 100)}%;top:${String(overlay.y * 100)}%;`
+            + `width:${String(overlay.width * 100)}%;height:${String(overlay.height * 100)}%;`
+        : `position:absolute;left:${String((overlay.x + overlay.width / 2) * 100)}%;`
+            + `top:${String((overlay.y + overlay.height / 2) * 100)}%;`
+            + `width:${String(overlay.screenSizedPx)}px;height:${String(overlay.screenSizedPx)}px;`
+            + 'transform:translate(-50%, -50%);';
     return `<div class="pdf-annotation-editor-entity" data-annotation-id="${overlay.annotationId}"
         data-annotation-kind="${overlay.kind}"
         ${overlay.outsidePage ? 'data-annotation-outside-page=""' : ''}
+        ${overlay.screenSizedPx === undefined ? '' : 'data-annotation-screen-sized=""'}
         style="${style}"><div data-annotation-visual style="width:100%;height:100%"></div></div>`;
 }
 
@@ -459,6 +469,45 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 return globalThis.__evbCheckViewerInvariants();
             });
             expect(violationIds(drifted)).toEqual(['A1-annotation-normalized-drift']);
+
+            // A1 stateful, conforming: a marker drawn at a fixed screen size
+            // keeps the point it marks through a zoom while its box relative
+            // to the page changes. The monitor reported this as drift on the
+            // note icon during ordinary zooming.
+            const screenSizedMarkup = buildFixtureMarkup({pages: [
+                {
+                    overlays: [{
+                        annotationId: 'note-icon-1',
+                        height: 0.04,
+                        kind: 'note',
+                        screenSizedPx: 20,
+                        width: 0.04,
+                        x: 0.38,
+                        y: 0.28,
+                    }],
+                    pageNumber: 1,
+                },
+                {pageNumber: 2},
+            ]});
+            await loadFixture(page, screenSizedMarkup);
+            const screenSized = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
+                container.style.width = '400px';
+                container.style.height = '240px';
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(screenSized.violations).toEqual([]);
+
+            // A1 stateful, known bad: the same marker moves off its point.
+            await loadFixture(page, screenSizedMarkup);
+            const screenSizedDrift = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                const marker = document.querySelector<HTMLElement>('[data-annotation-id="note-icon-1"]')!;
+                marker.style.left = '55%';
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(violationIds(screenSizedDrift)).toEqual(['A1-annotation-normalized-drift']);
 
             // A1 stateful applicability: a tab switch ends the sequence.
             // Annotation ids are unique inside one document, so the same id in
