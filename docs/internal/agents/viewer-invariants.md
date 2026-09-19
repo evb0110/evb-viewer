@@ -54,21 +54,34 @@ error guard's own notices, so there is no second global handler.
 
 A dev-only Nuxt plugin installs the monitor, which runs the checker on each
 settled state (throttled), keeps a content-free ring buffer of recent actions
-and violations, and logs one structured `console.warn` per violation. An action
-records its type, its timestamp, the page track's presentation modes and the
-control's authored identity: test id, role, element id, tag name. No free-text
-attribute is read, because a tab's `aria-label` is the open document's file
-name. Recording measures nothing, so it cannot perturb the gesture it observes.
+and violations, and logs one structured `console.warn` per violation and one
+`console.info` per unresolved observation.
+
+An action records the control's authored identity only: test id, role, element
+id, tag name. No free-text attribute is read, because a tab's `aria-label` is
+the open document's file name. Wheel packets are coalesced into one gesture
+entry, split at a pause, a direction reversal or a modifier change, carrying
+the packet count, the summed and first and last deltas, the ctrl modifier that
+means zoom, and the start point in the viewport. Meaningful actions live in a
+separate bounded queue that wheel volume cannot flush. A key action keeps its
+`code` and modifiers only when it is not a typed character; typing is a count.
+Recording measures nothing per packet: one rect read starts a gesture.
 
 **Cmd/Ctrl+Alt+B** writes `<userData>/bug-reports/<ISO timestamp>/` with
 `report.json` and `screenshot.png`, and confirms with a small toast. The main
 process owns the timestamp, the directory and the screenshot, and keeps the
 newest twenty bundles; a packaged build refuses the call. `report.json` carries
-recent actions, violations, the toolbar snapshot, a redacted
-workspace-checkpoint shape, window size, DPR, app version, page count and a
-geometry-only document fingerprint, and never document text, file names or
-annotation content. The screenshot is a picture of the window and therefore
-shows whatever is on screen.
+recent actions, the invariant report, the toolbar snapshot, a redacted
+workspace-checkpoint shape, window size, DPR, app version, page count, the
+build's commit, and the first 16 hex of the sha256 of the source file's bytes.
+The renderer hands the path to the main process, which hashes the file and
+discards it, so the bundle identifies the document without naming it. It never
+carries document text, file names or annotation content. The screenshot is a
+picture of the window and therefore shows whatever is on screen.
+
+A bundle is a diagnostic snapshot, not a replayable checkpoint. What is missing
+for a replay is measured and named in
+`.devkit/methodology/findings/capture-reconstruction.md`.
 
 Production exclusion works like the dev-only agent widget: the plugin reaches
 its implementation through an `import.meta.dev` ternary, so rollup drops the
@@ -81,11 +94,15 @@ module. Verify with `pnpm exec nuxi build` and a grep of
   per statement plus a conforming one, laid out by real Chromium. This is the
   guard against a weakened checker.
 - `tests/e2e/electron/helpers/viewerInvariants.ts` exposes
-  `assertViewerInvariants(page, {checkpoint, expected})`. `expected` is the
-  exact list of tolerated violations, each naming its statement, the annotation
-  it is about and a written reason. The list is matched in both directions, so
-  a fix cannot leave a stale exception behind and a second defect cannot hide
-  behind one.
+  `assertViewerInvariants(page, {checkpoint, expected, requireRan,
+  requirePresent})`. `expected` is the exact list of tolerated violations, each
+  naming its statement, the annotation it is about and a written reason, matched
+  in both directions, so a fix cannot leave a stale exception behind and a
+  second defect cannot hide behind one. `requireRan` names the invariants the
+  checkpoint is about, so a skipped check fails with its reason instead of
+  looking green. `requirePresent` names the annotations, note windows and page
+  indicator the scenario created and has not deleted: the checker cannot judge
+  that, because deleting is legitimate and it does not know the user's intent.
 - `tests/e2e/electron/viewerInvariantJourney.e2e.test.ts` drives one composed
   reading session with trusted input.
 
