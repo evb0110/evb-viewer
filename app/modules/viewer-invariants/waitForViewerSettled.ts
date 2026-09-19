@@ -3,7 +3,8 @@ import { readLastViewerInputAt } from '@app/modules/viewer-invariants/viewerActi
 
 /** The quiet window that makes an interaction finished rather than paused. */
 const INPUT_QUIET_MS = 500;
-const DEFAULT_SETTLE_TIMEOUT_MS = 6_000;
+// The behavior contract gives settling its own 10s bound.
+const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
 const PAGE_TRACK_SELECTOR = '[data-pdf-page-track]';
 const PAGE_SKELETON_SELECTOR = '.document-page-skeleton';
 const VIEWPORT_SELECTOR = '[data-document-viewer-chassis-viewport], #pdf-viewer';

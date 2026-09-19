@@ -1,11 +1,12 @@
 /**
- * User-level invariants for the viewer, read from the rendered document rather
- * than from the app's own view model. Internal state may be compared against
- * the screen, never substituted for it.
+ * Checkable forms of the statements in
+ * `docs/architecture/behavior-contract.md`, read from the rendered document
+ * rather than from the app's own view model. Internal state may be compared
+ * against the screen, never substituted for it.
  *
- * Every invariant carries an applicability predicate and reports
- * "not applicable" instead of guessing. Geometry is in CSS pixels of the
- * unobscured document viewport.
+ * Each id names the contract statement it checks. `S0-viewer-settled` is the
+ * contract's Settled definition: a viewer that does not settle within the
+ * bound has failed, and checking is not skipped.
  */
 export type TViewerInvariantId =
     | 'A1-annotation-normalized-drift'

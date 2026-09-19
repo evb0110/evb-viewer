@@ -6,7 +6,8 @@ import type {
 } from '@app/modules/viewer-invariants/viewerInvariantTypes';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
-const DEFAULT_SETTLE_TIMEOUT_MS = 8_000;
+// The Settled definition in docs/architecture/behavior-contract.md.
+const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
 
 /**
  * A violation a test accepts at one checkpoint. The reason names the defect,
