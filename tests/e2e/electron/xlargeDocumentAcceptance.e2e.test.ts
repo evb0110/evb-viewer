@@ -57,6 +57,7 @@ import {
 import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
+    requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 /**
@@ -1436,7 +1437,7 @@ async function createCanonicalNoteViaAgentAction(
                 : []
         )),
     );
-    const createdResult = await callWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
+    const created = await requireWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
         'annotation.create_note_at_point',
         {
             page: pageNumber,
@@ -1445,10 +1446,8 @@ async function createCanonicalNoteViaAgentAction(
             preferTextAnchor: false,
         },
     ], {requiredMethods: ['runAgentAction']});
-    const created = createdResult.value;
-    expect(createdResult.called).toBe(true);
     expect(created?.created).toBe(true);
-    if (!createdResult.called || created?.created !== true) {
+    if (created?.created !== true) {
         throw new Error('Canonical note creation action did not create a note');
     }
     const tabId = created.tabId;
@@ -1492,7 +1491,7 @@ async function createCanonicalNoteViaAgentAction(
         throw new Error(`Canonical note ${text} did not publish a stable key`);
     }
 
-    const updatedResult = await callWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
+    const updatedResult = await requireWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
         'annotation.update_note',
         {
             markerRect: created.markerRect,
@@ -1500,8 +1499,7 @@ async function createCanonicalNoteViaAgentAction(
             text,
         },
     ], {requiredMethods: ['runAgentAction']});
-    expect(updatedResult.called).toBe(true);
-    expect(updatedResult.value?.updated).toBe(true);
+    expect(updatedResult?.updated).toBe(true);
     await waitForWorkspaceComment(page, text, pageNumber);
 }
 

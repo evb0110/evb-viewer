@@ -21,7 +21,7 @@ import {
     openPdfInApp,
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import { callWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const MATCHED_DISPLAY_ZOOM = 2;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'annotation-stroke-parity');
@@ -218,8 +218,7 @@ async function waitForStrokeMetrics(
 }
 
 async function setElectronZoom(page: ElectronPage) {
-    const result = await callWorkspaceCommand(page, 'setCustomZoomFromDisplay', [MATCHED_DISPLAY_ZOOM]);
-    expect(result.called).toBe(true);
+    await requireWorkspaceCommand(page, 'setCustomZoomFromDisplay', [MATCHED_DISPLAY_ZOOM]);
 }
 
 async function readBlueStrokePixelMetrics(

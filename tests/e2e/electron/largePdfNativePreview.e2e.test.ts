@@ -19,8 +19,8 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
@@ -184,8 +184,7 @@ async function openWithHandoffTrace(
         2,
     );
     await openPdfInApp(page, priorPdfPath, LARGE_PDF_TIMEOUT_MS);
-    const seedNavigation = await callWorkspaceCommand(page, 'handleGoToPage', [2]);
-    expect(seedNavigation.called).toBe(true);
+    await requireWorkspaceCommand(page, 'handleGoToPage', [2]);
     await waitForWorkspaceToolbarSnapshot(page, {currentPage: 2}, {timeoutMs: 30_000});
     const closedToPlaceholder = await page.evaluate(() => {
         const closeButton = document.querySelector<HTMLButtonElement>(
@@ -383,8 +382,7 @@ async function assertFinalPdfjsCapabilities(
         expect(toolbar?.totalPages).toBe(expectedTotalPages);
     }
     if (selectableTextPage !== undefined) {
-        const navigation = await callWorkspaceCommand(page, 'handleGoToPage', [selectableTextPage]);
-        expect(navigation.called).toBe(true);
+        await requireWorkspaceCommand(page, 'handleGoToPage', [selectableTextPage]);
         await waitForWorkspaceToolbarSnapshot(
             page,
             {currentPage: selectableTextPage},
@@ -447,8 +445,7 @@ async function assertFinalPdfjsCapabilities(
     expect(state.textSpanCount, JSON.stringify(state)).toBeGreaterThan(0);
     expect(state.selectedText.trim().length, JSON.stringify(state)).toBeGreaterThan(0);
 
-    const sidebarToggle = await callWorkspaceCommand(page, 'handleToggleSidebar');
-    expect(sidebarToggle.called).toBe(true);
+    await requireWorkspaceCommand(page, 'handleToggleSidebar');
     await waitForWorkspaceToolbarSnapshot(page, {showSidebar: true}, {timeoutMs: 30_000});
     await waitForFunctionInPage(page, () => {
         const host = document.querySelector<HTMLElement>(
@@ -465,8 +462,7 @@ async function assertFinalPdfjsCapabilities(
                 : thumbnail.complete && thumbnail.naturalWidth > 0 && thumbnail.naturalHeight > 0
         ));
     }, {timeout: 30_000});
-    const closeSidebar = await callWorkspaceCommand(page, 'handleToggleSidebar');
-    expect(closeSidebar.called).toBe(true);
+    await requireWorkspaceCommand(page, 'handleToggleSidebar');
     await waitForWorkspaceToolbarSnapshot(page, {showSidebar: false}, {timeoutMs: 30_000});
 }
 
@@ -477,8 +473,7 @@ async function assertSkeletonFreePageJump(page: Page, targetPage: number) {
     let frames: IPdfNavigationFrame[] = [];
     let navigationError: unknown = null;
     try {
-        const navigation = await callWorkspaceCommand(page, 'handleGoToPage', [targetPage]);
-        expect(navigation.called).toBe(true);
+        await requireWorkspaceCommand(page, 'handleGoToPage', [targetPage]);
         await waitForWorkspaceToolbarSnapshot(page, {currentPage: targetPage}, {timeoutMs: 30_000});
         await waitForFunctionInPage(page, (pageNumber: number) => {
             const host = document.querySelector<HTMLElement>(

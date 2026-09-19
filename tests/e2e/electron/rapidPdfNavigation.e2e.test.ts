@@ -25,6 +25,7 @@ import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
@@ -717,8 +718,7 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
 
         const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (initialToolbar?.zoomMode !== 'fit-height') {
-            const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
-            expect(fitHeight.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleFitHeight');
         }
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
@@ -726,8 +726,7 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         ), {timeout: 15_000});
         const fitHeightToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (fitHeightToolbar?.continuousScroll !== false) {
-            const paged = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-            expect(paged.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
@@ -830,8 +829,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
         const toolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (toolbar?.continuousScroll === false) {
-            const continuous = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-            expect(continuous.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
             await session.page.waitForFunction(() => (
                 (window as IRapidNavigationProbeWindow).__evbTestApi
                     ?.getActiveToolbarSnapshot?.()?.continuousScroll === true
@@ -851,8 +849,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
                 .some(element => element.textContent?.trim() === 'ii')
         ), {timeout: 15_000}).catch(() => undefined);
-        const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
-        expect(fitHeight.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitHeight');
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
                 ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
@@ -886,16 +883,14 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
-        const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
-        expect(fitHeight.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitHeight');
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
                 ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
         ), {timeout: 15_000});
         const beforePaged = await getWorkspaceToolbarSnapshot(session.page);
         if (beforePaged?.continuousScroll !== false) {
-            const paged = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-            expect(paged.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
@@ -1058,12 +1053,11 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             return Boolean(canvas);
         });
         expect(removedCurrentCanvas).toBe(true);
-        const samePageRecoveryCommand = await callWorkspaceCommand(
+        await requireWorkspaceCommand(
             session.page,
             'handleGoToPage',
             [1],
         );
-        expect(samePageRecoveryCommand.called).toBe(true);
         const samePageRecoveryCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
         const samePageRecoveryState = await collectPagedState();
         const trace = await collectTrace(session);
@@ -1423,8 +1417,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
-        const zoom = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.33]);
-        expect(zoom.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.33]);
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
                 ?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
@@ -1595,8 +1588,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
-        const zoom = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1.44]);
-        expect(zoom.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1.44]);
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
                 ?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
@@ -1715,8 +1707,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
-        const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
-        expect(fitWidth.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi
                 ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
@@ -1832,8 +1823,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForVisibleMountedPdfCanvases(session.page, 15_000);
-        const actualSize = await callWorkspaceCommand(session.page, 'handleActualSize');
-        expect(actualSize.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleActualSize');
         await session.page.waitForFunction(() => (
             (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
         ), {timeout: 15_000});
@@ -1844,8 +1834,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         let surfaceTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
         try {
             await clickPageNavigationButton(session, 'Next Page');
-            const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
-            expect(fitWidth.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleFitWidth');
             await waitForToolbarCurrentPage(session, 2);
             await session.page.waitForFunction(() => (
                 (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'

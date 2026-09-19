@@ -26,8 +26,8 @@ import {
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
-    callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
@@ -868,8 +868,7 @@ async function alternateFitAndAssertConvergence(
     for (let round = 0; round < rounds; round += 1) {
         const mode = round % 2 === 0 ? 'height' : 'width';
         const command = mode === 'height' ? 'handleFitHeight' : 'handleFitWidth';
-        const result = await callWorkspaceCommand(session.page, command);
-        expect(result.called, `${command} was not callable in round ${String(round)}`).toBe(true);
+        await requireWorkspaceCommand(session.page, command);
         try {
             await (settleMode === 'committed'
                 ? waitForFitSettlement(session, anchorPage)
@@ -1003,8 +1002,7 @@ describe('standard PDF.js fit-mode continuity', () => {
         await waitForFitSettlement(session, DEEP_PAGE);
 
         // Sidebar closed: presentation must not change the fit contract.
-        const toggleSidebar = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
-        expect(toggleSidebar.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
         await waitForWorkspaceToolbarSnapshot(session.page, {showSidebar: false}, {timeoutMs: SETTLE_TIMEOUT_MS});
         await waitForFunctionInPage(session.page, () => {
             const activeHost = document.querySelector<HTMLElement>(
@@ -1144,8 +1142,7 @@ describe('standard PDF.js fit-mode continuity', () => {
                     ],
                 ] as const) {
                 await markFitProbeCheckpoint(session, checkpoint);
-                const result = await callWorkspaceCommand(session.page, command);
-                expect(result.called).toBe(true);
+                await requireWorkspaceCommand(session.page, command);
                 await waitForFitSettlement(session, DEEP_PAGE);
             }
             await markFitProbeCheckpoint(session, 'settled');
@@ -1359,8 +1356,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             'handleFitHeight',
             'handleFitWidth',
         ] as const) {
-            const result = await callWorkspaceCommand(session.page, command);
-            expect(result.called, `${command} was not callable`).toBe(true);
+            await requireWorkspaceCommand(session.page, command);
         }
         await waitForFitSettlement(session, DEEP_PAGE);
         const afterRapid = await readViewerAuthorityState(session);
@@ -1385,8 +1381,7 @@ describe('standard PDF.js fit-mode continuity', () => {
         const fitZoom = rapidToolbar?.effectiveZoom ?? 0;
         expect(fitZoom).toBeGreaterThan(0);
         for (let step = 0; step < 4; step += 1) {
-            const zoomIn = await callWorkspaceCommand(session.page, 'handleZoomIn');
-            expect(zoomIn.called, 'handleZoomIn was not callable').toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleZoomIn');
             await delay(200);
         }
         await waitForFunctionInPage(session.page, () => (
@@ -1414,8 +1409,7 @@ describe('standard PDF.js fit-mode continuity', () => {
         // Fit width is still the active fit mode, so this command changes only
         // the zoom mode. That path never mints a fit viewport intent, and its
         // geometry replacement has to keep the page on its own.
-        const reclaimFitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
-        expect(reclaimFitWidth.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
         await waitForFunctionInPage(session.page, () => (
             (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
                 .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'

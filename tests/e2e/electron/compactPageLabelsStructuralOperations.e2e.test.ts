@@ -17,8 +17,8 @@ import {
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
-    callWorkspaceCommand,
     readWorkspaceStateValues,
+    requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     waitForPdfLoaded,
@@ -251,15 +251,14 @@ async function runCommand<T>(session: IElectronE2ESession, name: string, args: u
         'handlePageReorder',
         'handlePageMove',
     ].includes(name)) {
-        const result = await callWorkspaceCommand<T>(session.page, name, args);
-        expect(result.called, `${name} should be exposed`).toBe(true);
+        const value = await requireWorkspaceCommand<T>(session.page, name, args);
         if (name === 'handleSave') {
-            return result.value;
+            return value;
         }
         await waitForPageOperation(session);
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
-        return result.value;
+        return value;
     }
     const called = await session.page.evaluate((payload: {
         args: unknown[];

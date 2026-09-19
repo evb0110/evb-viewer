@@ -29,6 +29,7 @@ import {
 import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
+    requireWorkspaceCommand,
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
@@ -75,7 +76,7 @@ async function createRecoveredSession(
         y: 0.3,
     });
     const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-    expect((await callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).called).toBe(true);
+    await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
     await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
     const checkpointPath = workspaceCrashCheckpointPath(session.name);
     await expect.poll(async () => {

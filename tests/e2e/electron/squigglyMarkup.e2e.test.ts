@@ -30,6 +30,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
+    requireWorkspaceCommand,
     type IWorkspaceExposeProbeWindow,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -434,8 +435,7 @@ describe('Electron E2E - EVB text markup', () => {
             1,
             2,
         ]) {
-            const result = await callWorkspaceCommand<boolean>(page, 'setCustomZoomFromDisplay', [zoom]);
-            expect(result.called).toBe(true);
+            await requireWorkspaceCommand<boolean>(page, 'setCustomZoomFromDisplay', [zoom]);
             await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: zoom}, {timeoutMs: 20_000});
             await waitForPageWidthAtZoom(page, basePageWidth, zoom);
             await waitForViewerInteractive(page);

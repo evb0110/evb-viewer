@@ -21,7 +21,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
 const CANONICAL_STAMP_SELECTOR = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp';
@@ -59,8 +59,7 @@ describe('stamp placement through the native picker', () => {
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
 
-        const pickerResult = await callWorkspaceCommand(page, 'handleInsertImageFromFile');
-        expect(pickerResult.called).toBe(true);
+        await requireWorkspaceCommand(page, 'handleInsertImageFromFile');
         await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
             timeout: 30_000,
             visible: true,

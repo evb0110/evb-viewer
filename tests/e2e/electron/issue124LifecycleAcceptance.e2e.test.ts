@@ -50,8 +50,8 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    callWorkspaceCommand,
     readWorkspaceStateValues,
+    requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
@@ -502,8 +502,7 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             await waitForImagePlacementTargetPage(session.page, IMAGE_PLACEMENT_PAGE_NUMBER);
             const before = await readPdfAnnotationSummary(workingCopyPath);
             const firstLeaseId = await installManagedJpegClipboard(session.page, imagePath);
-            const firstPaste = await callWorkspaceCommand(session.page, 'handlePasteImageFromClipboard');
-            expect(firstPaste.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handlePasteImageFromClipboard');
             await waitForImagePlacement(session.page);
             await session.page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--secondary`);
             await session.page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
@@ -517,8 +516,7 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             await scrollViewerToPage(session.page, IMAGE_PLACEMENT_PAGE_NUMBER);
             await waitForImagePlacementTargetPage(session.page, IMAGE_PLACEMENT_PAGE_NUMBER);
             const secondLeaseId = await installManagedJpegClipboard(session.page, imagePath);
-            const secondPaste = await callWorkspaceCommand(session.page, 'handlePasteImageFromClipboard');
-            expect(secondPaste.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handlePasteImageFromClipboard');
             await waitForImagePlacement(session.page);
             rmSync(imagePath);
             await waitForImagePlacementReady(session.page);
@@ -536,8 +534,7 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             await scrollViewerToPage(session.page, IMAGE_PLACEMENT_PAGE_NUMBER);
             await waitForImagePlacementTargetPage(session.page, IMAGE_PLACEMENT_PAGE_NUMBER);
             const thirdLeaseId = await installManagedJpegClipboard(session.page, imagePath);
-            const thirdPaste = await callWorkspaceCommand(session.page, 'handlePasteImageFromClipboard');
-            expect(thirdPaste.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handlePasteImageFromClipboard');
             await waitForImagePlacement(session.page);
             await waitForImagePlacementReady(session.page);
             await session.page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);

@@ -36,6 +36,7 @@ import {
 import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
+    requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     startElectronE2ESession,
@@ -493,7 +494,7 @@ async function runHistoryAction(
     page: Parameters<typeof evaluateInPage>[0],
     action: 'undo' | 'redo',
 ) {
-    const result = await callWorkspaceCommand<Record<string, unknown>>(
+    const result = await requireWorkspaceCommand<Record<string, unknown>>(
         page,
         'runAgentAction',
         [
@@ -501,8 +502,7 @@ async function runHistoryAction(
             {},
         ],
     );
-    expect(result.called).toBe(true);
-    expect(result.value?.ok).toBe(true);
+    expect(result?.ok).toBe(true);
 }
 
 async function readAnnotationDirtyState(page: Parameters<typeof evaluateInPage>[0]) {
@@ -658,7 +658,7 @@ describe('Electron E2E - native save and reopen', () => {
         if (!movedRect) {
             throw new Error('The moved text box rectangle could not be normalized');
         }
-        const updateResult = await callWorkspaceCommand<IAgentActionResult>(session.page, 'runAgentAction', [
+        const updateResult = await requireWorkspaceCommand<IAgentActionResult>(session.page, 'runAgentAction', [
             'annotation.update_note',
             {
                 markerRect: movedRect,
@@ -666,8 +666,7 @@ describe('Electron E2E - native save and reopen', () => {
                 text,
             },
         ]);
-        expect(updateResult.called).toBe(true);
-        expect(updateResult.value?.updated).toBe(true);
+        expect(updateResult?.updated).toBe(true);
 
         await expect.poll(async () => {
             const snapshot = await readCanonicalAnnotationSnapshot(session!.page);
@@ -732,9 +731,7 @@ describe('Electron E2E - native save and reopen', () => {
         ))).toBe(true);
 
         const cleanSaveBefore = await stat(pdfPath);
-        const cleanSaveResult = await callWorkspaceCommand<boolean>(session.page, 'handleSave');
-        expect(cleanSaveResult.called).toBe(true);
-        expect(cleanSaveResult.value).toBe(true);
+        expect(await requireWorkspaceCommand<boolean>(session.page, 'handleSave')).toBe(true);
         const cleanSaveAfter = await stat(pdfPath);
         expect(cleanSaveAfter.size).toBe(cleanSaveBefore.size);
         expect(cleanSaveAfter.mtimeMs).toBe(cleanSaveBefore.mtimeMs);

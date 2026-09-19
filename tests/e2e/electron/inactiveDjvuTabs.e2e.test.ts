@@ -28,7 +28,7 @@ import {
     splitActiveWorkspaceDocument as splitActiveDocument,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
-    callWorkspaceCommand,
+    requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
@@ -478,7 +478,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         });
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
-        expect((await callWorkspaceCommand(session.page, 'handleFitWidth')).called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
         const snapshot = await waitForWorkspaceToolbarSnapshot(
             session.page,
             {minTotalPages: 40},
@@ -522,11 +522,11 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         );
         const restoredPage = Math.min(1057, Math.floor(loadedSnapshot.totalPages * 0.9));
         const restoredZoom = 6.47;
-        expect((await callWorkspaceCommand(
+        await requireWorkspaceCommand(
             session.page,
             'setCustomZoomFromDisplay',
             [restoredZoom],
-        )).called).toBe(true);
+        );
         await waitForWorkspaceToolbarSnapshot(
             session.page,
             {minEffectiveZoom: restoredZoom - 0.005},
@@ -624,11 +624,11 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
         await waitForActiveDjvuImages(session);
-        expect((await callWorkspaceCommand(
+        await requireWorkspaceCommand(
             session.page,
             'setCustomZoomFromDisplay',
             [6.47],
-        )).called).toBe(true);
+        );
         const toolbar = await waitForWorkspaceToolbarSnapshot(
             session.page,
             {minEffectiveZoom: 6.465},

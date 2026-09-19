@@ -1121,8 +1121,7 @@ async function configureDjvuWheelMetricStart(
     session: IElectronE2ESession,
     startPage = DJVU_VIDEO_START_PAGE,
 ) {
-    const zoomResult = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [DJVU_VIDEO_ZOOM]);
-    expect(zoomResult.called).toBe(true);
+    await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [DJVU_VIDEO_ZOOM]);
     await waitForWorkspaceToolbarSnapshot(
         session.page,
         {
@@ -1136,8 +1135,7 @@ async function configureDjvuWheelMetricStart(
     const toolbarSnapshot = await getWorkspaceToolbarSnapshot(session.page);
     expect(toolbarSnapshot?.effectiveZoom ?? 0).toBeCloseTo(DJVU_VIDEO_ZOOM, 1);
 
-    const scrollResult = await callWorkspaceCommand(session.page, 'handleGoToPage', [startPage]);
-    expect(scrollResult.called).toBe(true);
+    await requireWorkspaceCommand(session.page, 'handleGoToPage', [startPage]);
     await waitForWorkspaceToolbarSnapshot(
         session.page,
         { currentPage: startPage },
@@ -2587,8 +2585,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         );
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
-        expect(fitWidth.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
         await goToPageViaToolbar(session.page, 4);
         await nudgeActiveDocumentViewportWithWheel(session, 'pdf', 220);
 
@@ -3316,8 +3313,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         await waitForFunctionInPage(session.page, () => Boolean(document.querySelector(
             '.editor-pane.is-active .pdf-thumbnail[data-page="18"]',
         )), {timeout: 10_000});
-        const zoomResult = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [4]);
-        expect(zoomResult.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [4]);
         await waitForWorkspaceToolbarSnapshot(session.page, {minEffectiveZoom: 3.99}, {timeoutMs: 15_000});
 
         await session.page.evaluate(() => {
@@ -4778,10 +4774,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
-        expect(fitWidth.called).toBe(true);
-        const navigation = await callWorkspaceCommand(session.page, 'handleGoToPage', [18]);
-        expect(navigation.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [18]);
         await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 18}, {timeoutMs: 20_000});
         await nudgeActiveDocumentViewportWithWheel(session, 'djvu', 160);
 
@@ -4920,9 +4914,9 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (initialToolbar?.continuousScroll) {
-            expect((await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll')).called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
-        expect((await callWorkspaceCommand(session.page, 'handleGoToPage', [1])).called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [1]);
         await waitForWorkspaceToolbarSnapshot(
             session.page,
             {
@@ -5021,12 +5015,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await session.page.setViewport(DJVU_VIDEO_LIKE_VIEWPORT);
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        expect((await callWorkspaceCommand(session.page, 'handleFitHeight')).called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitHeight');
         const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (initialToolbar?.continuousScroll) {
-            expect((await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll')).called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
-        expect((await callWorkspaceCommand(session.page, 'handleGoToPage', [1])).called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [1]);
         await waitForWorkspaceToolbarSnapshot(
             session.page,
             {
@@ -5162,7 +5156,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         const fastPage = await waitForReadyCurrentPage(slowPage + 1);
         expect(fastPage).toBeGreaterThan(slowPage);
 
-        expect((await callWorkspaceCommand(session.page, 'handleGoToPage', [1])).called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [1]);
         expect(await waitForReadyCurrentPage(1)).toBe(1);
     }, 120_000);
 
@@ -5226,12 +5220,11 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         await openDjvuInApp(session.page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
-        const zoomResult = await callWorkspaceCommand(
+        await requireWorkspaceCommand(
             session.page,
             'setCustomZoomFromDisplay',
             [DJVU_HIGH_ZOOM_REGRESSION_ZOOM],
         );
-        expect(zoomResult.called).toBe(true);
         const toolbar = await waitForWorkspaceToolbarSnapshot(
             session.page,
             {
@@ -5243,8 +5236,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         const totalPages = toolbar.totalPages;
         expect(totalPages).toBeGreaterThan(10);
         const targetPage = Math.max(2, totalPages - 8);
-        const navigation = await callWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
-        expect(navigation.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
         await waitForWorkspaceToolbarSnapshot(
             session.page,
             {currentPage: targetPage},

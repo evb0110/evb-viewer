@@ -22,6 +22,7 @@ import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
     callWorkspaceCommand,
+    requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
@@ -148,8 +149,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
             );
         }, {timeout: SEARCH_MATCH_SCROLL_TIMEOUT_MS}, searchMatchScrollConfig.expectedResultCount);
 
-        const zoomResult = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [searchMatchScrollConfig.zoom]);
-        expect(zoomResult.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [searchMatchScrollConfig.zoom]);
         await waitForWorkspaceToolbarSnapshot(session.page, {
             hasPdf: true,
             minEffectiveZoom: searchMatchScrollConfig.zoom * 0.98,

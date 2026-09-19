@@ -52,6 +52,7 @@ import {
     callWorkspaceCommand,
     getLatestAutomationEventId,
     readWorkspaceStateValues,
+    requireWorkspaceCommand,
     waitForAutomationEvent,
     waitForSaveFrontierReady,
     waitForWorkspaceToolbarIdle,
@@ -667,8 +668,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await expectCommittedCanvasSurvivedSave(session.page);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.Text ?? 0).toBeGreaterThan(1);
 
-        const navigated = await callWorkspaceCommand(session.page, 'handleGoToPage', [2]);
-        expect(navigated.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [2]);
         await session.page.waitForFunction(
             () => window.__evbTestApi?.getActiveToolbarSnapshot()?.currentPage === 2,
             {timeout: 20_000},
@@ -800,8 +800,10 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         }
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: SAVE_TIMEOUT_MS});
 
-        expect(saveOutcome.value?.called).toBe(true);
-        expect(saveOutcome.value?.value).toBe(false);
+        if (saveOutcome.value?.called !== true) {
+            throw new Error('The active workspace has no handleSave command, so this scenario never saved');
+        }
+        expect(saveOutcome.value.value).toBe(false);
         const probe = await session.page.evaluate(
             () => (window as TSaveReceiptProbeWindow).__saveReceiptProbe ?? null,
         );

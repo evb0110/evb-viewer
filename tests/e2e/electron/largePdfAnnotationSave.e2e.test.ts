@@ -92,10 +92,11 @@ import {
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
-    waitForAutomationEvent,
-    waitForSaveFrontierReady,
+    requireWorkspaceCommand,
     type IWorkspaceExpose,
     type IWorkspaceExposeProbeWindow,
+    waitForAutomationEvent,
+    waitForSaveFrontierReady,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 
@@ -3965,24 +3966,21 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         try {
             await waitForStagedArtifact(session.page);
             await setIssue139VisibilityProbePhase(session.page, 'sidebar-close');
-            const sidebarToggleClosed = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
-            expect(sidebarToggleClosed.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
             await waitForIssue139VisibilityFrame(
                 session.page,
                 'sidebar-close',
                 await getIssue139VisibilityFrameCount(session.page),
             );
             await setIssue139VisibilityProbePhase(session.page, 'sidebar-open');
-            const sidebarToggleOpen = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
-            expect(sidebarToggleOpen.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
             await waitForIssue139VisibilityFrame(
                 session.page,
                 'sidebar-open',
                 await getIssue139VisibilityFrameCount(session.page),
             );
             await setIssue139VisibilityProbePhase(session.page, 'zoom');
-            const zoom = await callWorkspaceCommand(session.page, 'handleZoomIn');
-            expect(zoom.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleZoomIn');
             await waitForIssue139VisibilityFrame(
                 session.page,
                 'zoom',

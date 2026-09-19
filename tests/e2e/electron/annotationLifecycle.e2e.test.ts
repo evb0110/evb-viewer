@@ -64,9 +64,9 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import { waitForActiveWorkspaceHost } from '@tests/e2e/electron/helpers/viewerDom';
 import {
-    callWorkspaceCommand,
     installWorkspaceExposeProbe,
     readWorkspaceStateValues,
+    requireWorkspaceCommand,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
@@ -1292,7 +1292,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 if (current === target) {
                     return;
                 }
-                expect((await callWorkspaceCommand(page, 'handleViewRotationCw')).called).toBe(true);
+                await requireWorkspaceCommand(page, 'handleViewRotationCw');
                 await page.waitForFunction((selector: string, before: number) => (
                     Number(document.querySelector(selector)?.getAttribute('data-view-rotation')) !== before
                 ), {}, layer, current);
@@ -1858,8 +1858,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         });
 
         try {
-            const pasteResult = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
-            expect(pasteResult.called).toBe(true);
+            await requireWorkspaceCommand(page, 'handlePasteImageFromClipboard');
             await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
                 timeout: 30_000,
                 visible: true,
@@ -2754,7 +2753,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // The saved file no longer holds the highlight, but PDF.js keeps the
         // pre-save document. Its next page render must not repaint the deleted
         // highlight; a zoom step forces that render.
-        expect((await callWorkspaceCommand(reopenedPage, 'handleZoomIn')).called).toBe(true);
+        await requireWorkspaceCommand(reopenedPage, 'handleZoomIn');
         expect(await maxPageCanvasHighlightPixelsAcrossFrames(reopenedPage, persistedHighlight)).toBe(0);
         await clickEnabledToolbarAction(reopenedPage, 'Undo');
         await expectCanonicalCountsAcrossFrames(reopenedPage, {

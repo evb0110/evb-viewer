@@ -35,10 +35,10 @@ import {
     waitForWorkspaceHistorySettled,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    waitForWorkspaceToolbarSnapshot,
-    callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
+    requireWorkspaceCommand,
+    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     evaluateInPage,
@@ -1116,12 +1116,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
                 )?.dataset.openSurfaceDocumentRevision ?? null
             ));
-            const rotationResult = await runPdfDiagnosticStage(
+            await runPdfDiagnosticStage(
                 session.page,
                 'rotation:persist-workspace-mutation',
-                () => callWorkspaceCommand(session.page, 'handleRotateCw', [[1]]),
+                () => requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]),
             );
-            expect(rotationResult.called).toBe(true);
             await runPdfDiagnosticStage(session.page, 'rotation:wait-workspace-reload', () => (
                 waitForFunctionInPage(session.page, (previousRevision: string | null) => {
                     const chassis = document.querySelector<HTMLElement>(
@@ -1160,12 +1159,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         // The contract is that navigation itself promotes page 2 to required
         // demand and reaches a committed visual, whether or not it was warm.
 
-        const actualSize = await runPdfDiagnosticStage(
+        await runPdfDiagnosticStage(
             session.page,
             'rotation:set-actual-size',
-            () => callWorkspaceCommand(session.page, 'handleActualSize'),
+            () => requireWorkspaceCommand(session.page, 'handleActualSize'),
         );
-        expect(actualSize.called).toBe(true);
         await runPdfDiagnosticStage(session.page, 'rotation:wait-actual-size', () => (
             waitForFunctionInPage(session.page, () => (
                 (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
@@ -1178,21 +1176,19 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         let navigationSurfaceTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
         let navigationRenderTrace: IPdfRenderTraceEntrySnapshot[] = [];
         try {
-            const navigation = await runPdfDiagnosticStage(
+            await runPdfDiagnosticStage(
                 session.page,
                 'rotation:navigate-next',
-                () => callWorkspaceCommand(session.page, 'handleGoToPage', [2]),
+                () => requireWorkspaceCommand(session.page, 'handleGoToPage', [2]),
             );
-            expect(navigation.called).toBe(true);
             await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-toolbar', () => (
                 waitForToolbarCurrentPage(session.page, 2)
             ));
-            const fitWidth = await runPdfDiagnosticStage(
+            await runPdfDiagnosticStage(
                 session.page,
                 'rotation:set-fit-width',
-                () => callWorkspaceCommand(session.page, 'handleFitWidth'),
+                () => requireWorkspaceCommand(session.page, 'handleFitWidth'),
             );
-            expect(fitWidth.called).toBe(true);
             await runPdfDiagnosticStage(session.page, 'rotation:wait-fit-width', () => (
                 waitForFunctionInPage(session.page, () => (
                     (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
@@ -1240,8 +1236,8 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             // App zoom and split layouts can leave a fractional CSS height.
             document.querySelector<HTMLElement>('#pdf-viewer')!.style.height = '445.6px';
         });
-        expect((await callWorkspaceCommand(session.page, 'handleFitHeight')).called).toBe(true);
-        expect((await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll')).called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitHeight');
+        await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
         await waitForCommittedFitHeightGeometry(session.page, 1);
         const scrollRange = await evaluateInPage(session.page, () => {
@@ -1286,8 +1282,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await runPdfDiagnosticStage(session.page, 'fit:wait-toolbar-page-2', () => (
             waitForToolbarCurrentPage(session.page, 2)
         ));
-        const fitWidth = await callWorkspaceCommand(session.page, 'handleFitWidth');
-        expect(fitWidth.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
         await runPdfDiagnosticStage(session.page, 'fit:wait-fit-width-mode', () => (
             waitForFunctionInPage(session.page, () => (
                 (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
@@ -1307,8 +1302,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 width: rect.width,
             };
         });
-        const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
-        expect(fitHeight.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitHeight');
         const continuousFitHeight = await runPdfDiagnosticStage(
             session.page,
             'fit:continuous-fit-height-geometry',
@@ -1327,8 +1321,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             continuousFitHeight.viewportClientWidth + 1,
         );
 
-        const pagedToggle = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-        expect(pagedToggle.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         await runPdfDiagnosticStage(session.page, 'fit:wait-paged-mode', () => (
             waitForWorkspaceToolbarSnapshot(
                 session.page,
@@ -1348,8 +1341,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             pagedFitHeight.viewportClientWidth + 1,
         );
 
-        const continuousToggle = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-        expect(continuousToggle.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         await runPdfDiagnosticStage(session.page, 'fit:wait-restored-continuous-mode', () => (
             waitForWorkspaceToolbarSnapshot(
                 session.page,
@@ -1464,7 +1456,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             }),
         );
         expect(earlyNavigationRequestResults).toHaveLength(5);
-        expect(earlyNavigationRequestResults.every(result => result.called)).toBe(true);
+        // Setup, not an outcome: a navigation request the workspace never
+        // received would make the screen checks below meaningless.
+        if (!earlyNavigationRequestResults.every(result => result.called)) {
+            throw new Error('An early navigation request never reached the active workspace');
+        }
         await runPdfDiagnosticStage(session.page, 'early:wait-toolbar-page-6', () => (
             waitForWorkspaceToolbarSnapshot(
                 session.page,
@@ -1523,10 +1519,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await runPdfDiagnosticStage(session.page, 'early:mark-fast-checkpoint', () => (
             markCommittedSurfaceInteractionCheckpoint(session.page, 'fast-navigation')
         ));
-        const fastNavigation = await runPdfDiagnosticStage(session.page, 'early:go-to-page-7', () => (
-            callWorkspaceCommand(session.page, 'handleGoToPage', [7])
+        await runPdfDiagnosticStage(session.page, 'early:go-to-page-7', () => (
+            requireWorkspaceCommand(session.page, 'handleGoToPage', [7])
         ));
-        expect(fastNavigation.called).toBe(true);
         await runPdfDiagnosticStage(session.page, 'early:wait-toolbar-page-7', () => (
             waitForWorkspaceToolbarSnapshot(
                 session.page,
@@ -1562,10 +1557,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             JSON.stringify(fastNavigationTrace.frames),
         ).toEqual([]);
 
-        const backNavigation = await runPdfDiagnosticStage(session.page, 'late:go-back-to-page-6', () => (
-            callWorkspaceCommand(session.page, 'handleGoToPage', [6])
+        await runPdfDiagnosticStage(session.page, 'late:go-back-to-page-6', () => (
+            requireWorkspaceCommand(session.page, 'handleGoToPage', [6])
         ));
-        expect(backNavigation.called).toBe(true);
         await runPdfDiagnosticStage(session.page, 'late:wait-toolbar-page-6', () => (
             waitForWorkspaceToolbarSnapshot(
                 session.page,
@@ -1583,10 +1577,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         );
         expect(revisitedPageSixCanvas).toEqual(firstPageSixCanvas);
 
-        const restorePageSeven = await runPdfDiagnosticStage(session.page, 'late:restore-page-7', () => (
-            callWorkspaceCommand(session.page, 'handleGoToPage', [7])
+        await runPdfDiagnosticStage(session.page, 'late:restore-page-7', () => (
+            requireWorkspaceCommand(session.page, 'handleGoToPage', [7])
         ));
-        expect(restorePageSeven.called).toBe(true);
         await runPdfDiagnosticStage(session.page, 'late:wait-restored-page-7', () => (
             waitForVisuallyPresentedPdfPage(session.page, 7)
         ));
@@ -1613,10 +1606,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             await runPdfDiagnosticStage(session.page, 'late:settle-before-zoom', () => (
                 waitForAnimationFrames(session.page, 2)
             ));
-            const zoomResult = await runPdfDiagnosticStage(session.page, 'late:set-custom-zoom', () => (
-                callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03])
+            await runPdfDiagnosticStage(session.page, 'late:set-custom-zoom', () => (
+                requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03])
             ));
-            expect(zoomResult.called).toBe(true);
             await runPdfDiagnosticStage(session.page, 'late:wait-custom-zoom-toolbar', () => (
                 waitForFunctionInPage(session.page, () => (
                     (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
@@ -1646,10 +1638,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             // 5.03x software rasterization, and CDP throttling can starve
             // Chromium's own automation/toolbar polling rather than expose an
             // application lifecycle transition.
-            const resetZoomResult = await runPdfDiagnosticStage(session.page, 'late:reset-zoom', () => (
-                callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1])
+            await runPdfDiagnosticStage(session.page, 'late:reset-zoom', () => (
+                requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1])
             ));
-            expect(resetZoomResult.called).toBe(true);
             await runPdfDiagnosticStage(session.page, 'late:wait-reset-zoom-toolbar', () => (
                 waitForFunctionInPage(session.page, () => {
                     const effectiveZoom = (window as IE2EWindow)
@@ -1677,10 +1668,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             await runPdfDiagnosticStage(session.page, 'late:settle-before-slow-navigation', () => (
                 waitForAnimationFrames(session.page, 2)
             ));
-            const slowNavigation = await runPdfDiagnosticStage(session.page, 'late:go-to-page-10', () => (
-                callWorkspaceCommand(session.page, 'handleGoToPage', [10])
+            await runPdfDiagnosticStage(session.page, 'late:go-to-page-10', () => (
+                requireWorkspaceCommand(session.page, 'handleGoToPage', [10])
             ));
-            expect(slowNavigation.called).toBe(true);
             await runPdfDiagnosticStage(session.page, 'late:wait-toolbar-page-10', () => (
                 waitForWorkspaceToolbarSnapshot(
                     session.page,
@@ -1786,14 +1776,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             );
             await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
-            const fitHeight = await callWorkspaceCommand(session.page, 'handleFitHeight');
-            expect(fitHeight.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleFitHeight');
             await waitForFunctionInPage(session.page, () => (
                 (window as IE2EWindow).__evbTestApi
                     ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
             ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
-            const sidebarToggle = await callWorkspaceCommand(session.page, 'handleToggleSidebar');
-            expect(sidebarToggle.called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
             await waitForWorkspaceToolbarSnapshot(
                 session.page,
                 {showSidebar: true},
@@ -2410,8 +2398,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         });
 
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'single-page-transition');
-        const toggleResult = await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-        expect(toggleResult.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         await runLargePdfInteractionWait(session.page, 1, () => (
             waitForWorkspaceToolbarSnapshot(
                 session.page,
@@ -2500,7 +2487,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 };
             }, 5.03),
         );
-        expect(zoomResult.called).toBe(true);
+        if (!zoomResult.called) {
+            throw new Error('The active workspace has no setCustomZoomFromDisplay command, so this setup did nothing');
+        }
         await runLargePdfInteractionWait(session.page, 7, () => (
             waitForWorkspaceToolbarSnapshot(
                 session.page,
@@ -2660,8 +2649,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             findCommittedSurfaceContractViolations(smallFixtureSurfaceTrace),
             JSON.stringify(smallFixtureSurfaceDiagnostic),
         ).toEqual([]);
-        const zoomResult = await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03]);
-        expect(zoomResult.called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03]);
         await goToPageViaToolbar(session.page, 7);
         await waitForFunctionInPage(session.page, () => {
             const canvas = document.querySelector<HTMLCanvasElement>(
@@ -2819,12 +2807,11 @@ runDjvuBlockingOrSkip('Electron E2E - PR Blocking DjVu Committed Surface', () =>
             // This lane owns the DjVu committed-surface/navigation contract.
             // The PDF toolbar's transient inline editor is covered separately
             // and is not a valid prerequisite for page-source navigation.
-            const navigation = await callWorkspaceCommand(
+            await requireWorkspaceCommand(
                 session.page,
                 'handleGoToPage',
                 [targetPage],
             );
-            expect(navigation.called).toBe(true);
             await waitForFunctionInPage(session.page, (pageNumber: number) => {
                 const host = document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',

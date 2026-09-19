@@ -18,8 +18,8 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import { createLargeScannedFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
+    requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
 import {
@@ -248,8 +248,7 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
 
     const goToPageForSetup = async (page: Page, pageNumber: number) => {
         // Setup only. The action under test is always trusted input.
-        const jump = await callWorkspaceCommand(page, 'handleGoToPage', [pageNumber]);
-        expect(jump.called).toBe(true);
+        await requireWorkspaceCommand(page, 'handleGoToPage', [pageNumber]);
         await waitForViewportQuiet(page);
     };
 
@@ -267,9 +266,9 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         // answer. Both switches are setup, not the behavior under test.
         const toolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (toolbar?.continuousScroll !== true) {
-            expect((await callWorkspaceCommand(session.page, 'handleToggleContinuousScroll')).called).toBe(true);
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
-        expect((await callWorkspaceCommand(session.page, 'handleFitWidth')).called).toBe(true);
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
         await session.page.waitForFunction(() => {
             const api = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
                 continuousScroll?: boolean;
