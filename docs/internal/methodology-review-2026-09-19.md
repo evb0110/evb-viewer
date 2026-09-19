@@ -12,9 +12,10 @@ done programmatically?
 
 Programmatic validation can work here, and the owner should not become the QA
 department. It failed for reasons that can be named and fixed. Until they are
-fixed the owner is the only bug detector: every owner-observed product bug in
-the last 60 days of agent histories came from hands-on use, and none came from a
-test, a gate, an audit, or CI.
+fixed the owner's hands remain the main source of product bug reports: in 60
+days of agent histories, no session that began from a product bug report began
+from a test, a gate, an audit, or CI. That statement is narrower than it sounds;
+see [Limits of this evidence](#limits-of-this-evidence).
 
 ## Method
 
@@ -116,23 +117,57 @@ week, oldest to newest: 15, 5, 19, 3, 1, 6, 52, 146, 75, 78.
 | `main` runs that ended red | 152 of 232 (66%) |
 | Hours without a green `main` | 46%, longest stretch 33.9 h |
 | Longest red streaks | 36, 26, 25 consecutive commits |
-| Reruns that changed a verdict | 0 of 232 |
+| Reruns that changed a verdict | 0 of 232 SHAs, but only 8 had a rerun |
 | Sampled `main` failures that were a user-visible regression | 0 of 21 |
 | Median push to verdict | 30 to 34 min, p90 41 to 44 |
 | Commits that touch only tests, CI or scripts | 26% |
 | Median wall-clock of a small owner-reported fix | 11 min in May, 52 min in September |
 
-The checks are deterministic and measure things no user would notice. A recent
-ten-run red streak came from one stylelint blank-line rule and one 0.2 px scale
-assertion. About 28 pushes a day land on `main` from concurrent agents, so a
-failure cannot be pinned on one change and every agent pays a turn to prove a red
-was inherited.
+Most sampled failures were style, policy, measurement or packaging tooling, not a
+regression a user would meet. A recent ten-run red streak came from one stylelint
+blank-line rule and one assertion that a comment preview was 2.1996 line heights
+instead of 2. That second failure looked like measurement noise and was not:
+traced afterwards, it was a fixed `3px` of padding in a component that scales
+with the UI, and the component was repaired instead of the tolerance. So the
+check was right and its placement was wrong: it was part of the verdict every
+agent waits for. About 28 pushes a day land on `main` from concurrent agents, so
+a failure cannot be pinned on one change and every agent pays a turn to prove a
+red was inherited.
 
 ### Not the problem
 
 Try/catch density is ordinary. The written rules already forbid coverage and
-test-count quotas. The cross-worktree heavy-build lock recorded zero waits. CI is
-not flaky.
+test-count quotas. The cross-worktree heavy-build lock recorded zero waits. No
+verdict flip was observed in the sample, which suggests the red runs were mostly
+deterministic; with 8 reruns among 232 SHAs that does not establish that CI is
+free of flakiness.
+
+## Limits of this evidence
+
+- **Selected by definition.** "Owner-observed bug" is a category of session, so
+  saying all of them came from hands-on use is close to a tautology. It does not
+  show that tests and audits found no product bugs. They did: the forensics
+  sample includes a click-placement bug that the real-app gate caught before the
+  owner, and the stress runner found an annotation-save crash, dense-annotation
+  stalls and missing note icons. Bugs a test caught never became a bug-report
+  session, so they are invisible in this count.
+- **Overlapping histories.** The three session stores are not independent
+  samples. A thread in one tool also writes a transcript in another, and its
+  delegated workers appear in the third. The per-tool ranges are reported side
+  by side and must not be added together.
+- **Small, selected samples.** The 35 fixes are recent user-facing viewer fixes,
+  chosen because they were visible. The reproduction-first comparison has between
+  3 and 12 cases per group, and "resolved" often means only that the owner
+  stopped replying in that thread.
+- **Faster required CI is not cheaper verification.** The required verdict fell
+  from a median of 30 to 34 minutes to about 12 because lanes moved out of it,
+  not because they stopped running. Total machine time is roughly unchanged, the
+  extended tier is superseded by the next push and so often finishes without a
+  verdict, and real-app coverage did not grow by moving it. A release still needs
+  both tiers green on one commit.
+- **Synthetic input.** The pilot's wheel stream is trusted input through the
+  debugging protocol. It carries no native momentum phase, so macOS trackpad
+  inertia remains unproven by automation and needs the owner's hands.
 
 ## Decisions
 
