@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    getPackagedDiagnosticsSessionEnvironment,
     parseExecutableArgument,
     parseReceiptArgument,
 } from '@scripts/release/verifyPackagedDiagnosticsSmoke';
@@ -26,6 +27,38 @@ describe('packaged diagnostics smoke arguments', () => {
             '.devkit/receipt.json',
         ])).toBe('.devkit/receipt.json');
         expect(parseReceiptArgument(['--receipt'])).toBeNull();
+    });
+});
+
+describe('packaged diagnostics smoke session environment', () => {
+    it('forces local-only sessions through the no-op adapter', () => {
+        const environment = getPackagedDiagnosticsSessionEnvironment({
+            EVB_SENTRY_RUNTIME_PROBE: 'packaged-smoke',
+            SENTRY_DESKTOP_DSN: 'https://public@example.invalid/1',
+        }, {
+            auditPath: '/tmp/diagnostics-audit.jsonl',
+            localOnly: true,
+            name: 'granted',
+            userDataPath: '/tmp/diagnostics-granted',
+        });
+
+        expect(environment).toMatchObject({
+            EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER: '1',
+            SENTRY_DESKTOP_DSN: 'https://public@example.invalid/1',
+        });
+        expect(environment).not.toHaveProperty('EVB_SENTRY_RUNTIME_PROBE');
+    });
+
+    it('keeps remote probe sessions isolated without disabling transport', () => {
+        const environment = getPackagedDiagnosticsSessionEnvironment({}, {
+            auditPath: '/tmp/diagnostics-audit.jsonl',
+            localOnly: false,
+            name: 'granted',
+            userDataPath: '/tmp/diagnostics-granted',
+        });
+
+        expect(environment).toMatchObject({EVB_SENTRY_RUNTIME_PROBE: 'packaged-smoke'});
+        expect(environment).not.toHaveProperty('EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER');
     });
 });
 

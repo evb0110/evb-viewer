@@ -87,6 +87,11 @@ interface IRunningSession {
     userDataPath: string;
 }
 
+interface ICanaryAdapterOptions {
+    disableAdapter?: boolean;
+    noopAdapter?: boolean;
+}
+
 type TPackagedAutomationLaunch = ReturnType<typeof preparePackagedAutomationLaunch>;
 
 const activeSessions = new Set<IRunningSession>();
@@ -99,6 +104,36 @@ export function parseExecutableArgument(args: string[]) {
 export function parseReceiptArgument(args: string[]) {
     const index = args.indexOf('--receipt');
     return index < 0 ? null : args[index + 1] ?? null;
+}
+
+export function getPackagedDiagnosticsSessionEnvironment(
+    launchEnv: NodeJS.ProcessEnv,
+    options: ICanaryAdapterOptions & {
+        auditPath: string;
+        localOnly: boolean;
+        name: string;
+        userDataPath: string;
+    },
+) {
+    const environment: NodeJS.ProcessEnv = {
+        ...launchEnv,
+        EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
+        EVB_AUTOMATION_SESSION_NAME: `packaged-diagnostics-${options.name}`,
+        EVB_AUTOMATION_USER_DATA_DIR: options.userDataPath,
+        EVB_DIAGNOSTICS_CANARY_AUDIT_FILE: options.auditPath,
+    };
+    delete environment.EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER;
+    delete environment.EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER;
+    delete environment.EVB_SENTRY_RUNTIME_PROBE;
+    if (options.disableAdapter) {
+        environment.EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER = '1';
+    }
+    if (options.localOnly || options.noopAdapter) {
+        environment.EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER = '1';
+    } else {
+        environment.EVB_SENTRY_RUNTIME_PROBE = 'packaged-smoke';
+    }
+    return environment;
 }
 
 async function walk(root: string): Promise<string[]> {
@@ -183,10 +218,7 @@ async function startSession(
     root: string,
     name: string,
     preference: TClientDiagnosticsPreference,
-    options: {
-        disableAdapter?: boolean;
-        noopAdapter?: boolean
-    } = {},
+    options: ICanaryAdapterOptions = {},
 ): Promise<IRunningSession> {
     const userDataPath = path.join(root, name);
     const auditPath = path.join(userDataPath, 'diagnostics-audit.jsonl');
@@ -198,16 +230,13 @@ async function startSession(
         `--remote-debugging-port=${cdpPort}`,
         `--user-data-dir=${userDataPath}`,
     ], {
-        env: {
-            ...launch.env,
-            EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_SESSION_NAME: `packaged-diagnostics-${name}`,
-            EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
-            EVB_DIAGNOSTICS_CANARY_AUDIT_FILE: auditPath,
-            ...(options.disableAdapter ? {EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER: '1'} : {}),
-            ...(options.noopAdapter ? {EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER: '1'} : {}),
-            ...(LOCAL_ONLY ? {} : {EVB_SENTRY_RUNTIME_PROBE: 'packaged-smoke'}),
-        },
+        env: getPackagedDiagnosticsSessionEnvironment(launch.env, {
+            ...options,
+            auditPath,
+            localOnly: LOCAL_ONLY,
+            name,
+            userDataPath,
+        }),
         stdio: [
             'ignore',
             'pipe',
@@ -319,10 +348,9 @@ async function runGrantedMatrix(session: IRunningSession) {
     }
     await session.page.$eval(grantSelector, element => (element as HTMLButtonElement).click());
     if (!LOCAL_ONLY) {
-        // A diagnostics-disabled artifact ships no DSN, so no real transport can
-        // become ready. The granted matrix still proves local consent and
-        // Error-ID rendering below; only the remote transport and audit checks
-        // are skipped.
+        // Remote probe sessions must become ready after consent. Local-only
+        // sessions use the explicit no-op adapter and intentionally skip these
+        // transport and audit assertions.
         await waitForMainTransportReady(session);
         await waitForAudit(session.auditPath, entries => Boolean(deliveredEntryFor(entries, firstReceipt)));
     }
