@@ -1,0 +1,27 @@
+tests/e2e/electron/helpers/viewerInvariants.ts
+  s_ecea10291e4b09::t_3bbd72f09436cf 53-62
+  s_ecea10291e4b09::t_1454ce6b51ec1d 108-123,127-131
+  s_ecea10291e4b09::t_f1ab1b8c8f4317 15-16,19,27-32
+tests/e2e/electron/viewerInvariantJourney.e2e.test.ts
+  s_ecea10291e4b09::t_f652b46f36cf1c 214
+  s_ecea10291e4b09::t_f27bb6d8f2c689 51-55,57-58,65-72
+  s_ecea10291e4b09::t_7568f2a6bd017b 153-159
+  s_ecea10291e4b09::t_c8bccdf1707835 170,173,191
+  s_ecea10291e4b09::t_7a0b616b2fd20c 49-50,56,60-64,73-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "422789039095e9cbba9edb9faec4b53999a81929",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
