@@ -213,8 +213,8 @@ function recordWheel(event: WheelEvent, now: number) {
     }
     closeOpenEntries();
     const delta = {
-        x: event.deltaX,
-        y: event.deltaY,
+        x: event.deltaX ?? 0,
+        y: event.deltaY ?? 0,
     };
     // The single rect read a gesture costs, on its first packet only.
     openGesture = {
@@ -223,7 +223,7 @@ function recordWheel(event: WheelEvent, now: number) {
         firstDelta: delta,
         lastDelta: delta,
         packets: 1,
-        startPoint: pointInViewport(event.clientX, event.clientY),
+        startPoint: pointInViewport(event.clientX ?? 0, event.clientY ?? 0),
         startedAt: now,
         summedDelta: {...delta},
         target: describeTarget(event.target),
@@ -236,15 +236,17 @@ function recordPointer(event: PointerEvent, now: number) {
     closeOpenEntries();
     const control = event.target instanceof Element ? event.target : null;
     const rect = control?.getBoundingClientRect() ?? null;
+    const clientX = event.clientX ?? 0;
+    const clientY = event.clientY ?? 0;
     pushAction({
-        button: event.button,
+        button: event.button ?? 0,
         pointInTarget: rect && rect.width > 0 && rect.height > 0
             ? {
-                x: Number(((event.clientX - rect.left) / rect.width).toFixed(3)),
-                y: Number(((event.clientY - rect.top) / rect.height).toFixed(3)),
+                x: Number(((clientX - rect.left) / rect.width).toFixed(3)),
+                y: Number(((clientY - rect.top) / rect.height).toFixed(3)),
             }
             : null,
-        pointInViewport: pointInViewport(event.clientX, event.clientY),
+        pointInViewport: pointInViewport(clientX, clientY),
         startedAt: now,
         target: describeTarget(event.target),
         type: event.type === 'pointerup' ? 'pointerup' : 'pointerdown',
@@ -258,7 +260,7 @@ function recordPointer(event: PointerEvent, now: number) {
  * function key, and its `code` is what makes a sequence reproducible.
  */
 function isTypedCharacter(event: KeyboardEvent) {
-    return event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+    return (event.key ?? '').length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
 }
 
 function recordKey(event: KeyboardEvent, now: number) {
@@ -284,7 +286,7 @@ function recordKey(event: KeyboardEvent, now: number) {
     closeOpenEntries();
     pushAction({
         altKey: event.altKey,
-        code: event.code,
+        code: event.code ?? '',
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
         shiftKey: event.shiftKey,
@@ -295,19 +297,23 @@ function recordKey(event: KeyboardEvent, now: number) {
     });
 }
 
+/**
+ * Dispatch on the event's own type, not on its constructor. A trusted pointer
+ * event is a `PointerEvent`, but automation and some hosts deliver a
+ * `MouseEvent` under a pointer type, and dropping it would lose exactly the
+ * click a bug report needs.
+ */
 function recordAction(event: Event) {
     lastInputAt = Date.now();
-    if (event instanceof WheelEvent) {
-        recordWheel(event, lastInputAt);
+    if (event.type === 'wheel') {
+        recordWheel(event as WheelEvent, lastInputAt);
         return;
     }
-    if (event instanceof KeyboardEvent) {
-        recordKey(event, lastInputAt);
+    if (event.type === 'keydown') {
+        recordKey(event as KeyboardEvent, lastInputAt);
         return;
     }
-    if (event instanceof PointerEvent) {
-        recordPointer(event, lastInputAt);
-    }
+    recordPointer(event as PointerEvent, lastInputAt);
 }
 
 export function installViewerActionLog() {
