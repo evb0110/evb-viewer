@@ -74,8 +74,23 @@ not see errors the product logs itself.
 The extended tier went red on three lanes. A bisect put the break at `db0444657`
 (a sidebar layout change from another thread): a control in the annotation
 inspector is no longer hit-testable after a tool is selected, filed as issue 820.
-That is a real-app test catching a regression a user would meet, within hours,
-without the owner.
+
+This ledger first called that a regression a user would meet. It was not. The
+change made the properties a bounded, scrollable footer on purpose. Measured in
+the hidden app at the 900x668 test window, the footer shows 139 px of a 184 to
+212 px editor, the colour swatches stayed clickable, and the draw presets and
+the fill colour sit below the fold, one wheel notch away. The click helper never
+scrolled, so it timed out on controls a user can reach. `2e780e0cd` makes the
+helper wheel to a control with real input, which still fails for a control the
+wheel cannot reach, and the extended tier went green on all 14 jobs. What is
+left is a product choice the owner has not made: whether that footer is tall
+enough at a small window.
+
+The bisect and the tier did their job, since they named the commit within
+hours. The reading of the failure was the weak step, for the second time in one
+day (issue 819 was the first): a helper timeout was reported as a user-visible
+defect without looking at the app. A timeout in a test helper says the helper
+could not act, not that a user could not.
 
 It also exposed two faults in this work. The attribution tool blamed the newest
 commit, because five extended runs in a row had been superseded and carried no
@@ -102,6 +117,30 @@ So a test written during this review measured a quantity the author had chosen
 (room for the wave) instead of the outcome (what is painted in the row), in real
 Chromium, with real layout. Moving a test to a layer with a layout engine does
 not by itself make it assert the right thing.
+
+## Three other red mails on the same day
+
+- **Release build, Windows.** A dependency update moved Electron from 43.4.1 to
+  44.3.0, which no longer ships `libEGL.dll` and `libGLESv2.dll` on Windows. The
+  installed-app step used five file names as its signal that extraction had
+  finished, waited fifteen minutes for two that could not arrive, and failed on
+  x64 and ARM64 while the packaged-app smoke on the same build passed. Nothing
+  caught it at the update because installers build only on a schedule or a
+  dispatch. `59e00cfd5` names files both versions ship; the dispatched build on
+  `2e780e0cd` passed on every platform, the installed journey in 43 s on x64 and
+  62 s on ARM64.
+- **Required tier, three pushes.** The two-line assertion from `266ab8f5d`
+  counted blue-dominant glyph edges from Linux font smoothing as a third
+  underline band. It had been run on macOS only. Fixed by its author in
+  `2de57be03` on the second attempt.
+- **Dependency audit.** Not a failure. The audit passed, and the workflow
+  commented on an issue titled "found advisories" after every clean run, so the
+  mail read as an alarm. `7bb1faf80` comments on a clean run only when the
+  previous report was not clean.
+
+Two of these are the pattern from the section above: a check that encodes a
+stand-in (a list of DLL names, a colour threshold) for an outcome it could
+observe directly, and breaks when the environment changes.
 
 ## Adoption
 
