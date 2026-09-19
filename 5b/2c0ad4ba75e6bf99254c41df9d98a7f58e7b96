@@ -1,0 +1,21 @@
+scripts/test-electron-e2e-headless.sh
+  s_ecea10291e4b09::t_90256250a2645c 38
+tests/e2e/electron/calibration/shapePastPageEdgeSaveCalibration.e2e.test.ts
+  s_ecea10291e4b09::t_1a9f593a953114 212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5b2c0ad4ba75e6bf99254c41df9d98a7f58e7b96",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
