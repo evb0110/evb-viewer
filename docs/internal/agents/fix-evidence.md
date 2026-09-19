@@ -36,7 +36,10 @@ running app but no fabricated pre-existing failure. The reasons are in the
 7. Name the statement of the
    [behavior contract](../../architecture/behavior-contract.md) the bug violated.
    If none fits, propose one with its applicability condition. List sibling
-   scenarios that share the cause and say which ones you checked.
+   scenarios that share the cause and say which ones you checked. When the
+   report came from the owner's hands-on use, record it as an issue labelled
+   `owner-observed` with its `family:` label, as
+   [triage labels](triage-labels.md#origin-and-defect-family) describes.
 
 ## When reproduction fails
 
