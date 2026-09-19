@@ -931,7 +931,8 @@ const COMMAND_HANDLERS: Record<Exclude<TElectronRunCommand, 'recording'>, TSessi
             throw new Error(
                 `The window content area did not reach ${String(size.width)}x${String(size.height)}; `
                 + `it settled at ${String(result.after.contentSize.width)}x${String(result.after.contentSize.height)}. `
-                + 'An active viewport emulation overrides the reported size.',
+                + 'Either the display is too small for that window plus its frame '
+                + '(on Linux see EVB_XVFB_SCREEN), or an active viewport emulation overrides the reported size.',
             );
         }
         return result;

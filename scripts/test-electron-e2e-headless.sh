@@ -53,8 +53,11 @@ if [ "$host_display_isolation" = "xvfb" ]; then
     echo "xvfb-run is required for headless Linux Electron E2E. Run bash scripts/setup-linux-dev-host.sh." >&2
     exit 1
   fi
+  # xvfb-run defaults to a 1280x1024 screen, which caps the real window a test
+  # can ask for at about 1279x996 once the frame is counted. Give tests a
+  # display an ordinary desktop window fits on.
   exec node scripts/validation-gates.mjs heavy --id="electron-${target_id//:/-}" --weight=2 -- \
-    xvfb-run -a "${test_command[@]}"
+    xvfb-run -a -s "-screen 0 ${EVB_XVFB_SCREEN:-1920x1200x24}" "${test_command[@]}"
 fi
 
 exec node scripts/validation-gates.mjs heavy --id="electron-${target_id//:/-}" --weight=2 -- \
