@@ -1,5 +1,3 @@
-import { readViewerSurface } from '@app/modules/viewer-invariants/readViewerSurface';
-
 const MAX_RETAINED_ACTIONS = 40;
 const OBSERVED_EVENT_TYPES = [
     'keydown',
@@ -7,6 +5,7 @@ const OBSERVED_EVENT_TYPES = [
     'pointerup',
     'wheel',
 ] as const;
+const PAGE_TRACK_SELECTOR = '[data-pdf-page-track]';
 
 /**
  * A short description of what the user acted on. Control identity only: never
@@ -18,15 +17,11 @@ export interface IViewerUserAction {
     timestamp: number;
     type: string;
     viewerState: IViewerActionViewerState;
-    viewportSize: {
-        height: number;
-        width: number;
-    };
 }
 
+/** The presentation modes the viewer publishes on its own page track. */
 export interface IViewerActionViewerState {
     continuousScroll: boolean | null;
-    currentPage: number | null;
     viewMode: string | null;
     zoomMode: string | null;
 }
@@ -63,13 +58,25 @@ function describeTarget(target: EventTarget | null) {
     return identity.trim().slice(0, CONTROL_DESCRIPTOR_LIMIT);
 }
 
+/**
+ * Attribute reads on one element. This runs inside every wheel, pointer and
+ * key event, so it must not measure: a rect read or a viewport size read here
+ * forces layout on the gesture the monitor is trying to observe, and can
+ * manufacture the very settle failure it would then report.
+ */
 function readViewerState(): IViewerActionViewerState {
-    const {surface} = readViewerSurface();
+    const pageTrack = document.querySelector<HTMLElement>(PAGE_TRACK_SELECTOR);
+    if (!pageTrack) {
+        return {
+            continuousScroll: null,
+            viewMode: null,
+            zoomMode: null,
+        };
+    }
     return {
-        continuousScroll: surface?.continuousScroll ?? null,
-        currentPage: surface?.toolbarPageNumber ?? null,
-        viewMode: surface?.viewMode ?? null,
-        zoomMode: surface?.zoomMode ?? null,
+        continuousScroll: pageTrack.dataset.pdfContinuousScroll !== 'false',
+        viewMode: pageTrack.dataset.pdfViewMode ?? null,
+        zoomMode: pageTrack.dataset.pdfZoomMode ?? null,
     };
 }
 
@@ -80,10 +87,6 @@ function recordAction(event: Event) {
         timestamp: lastInputAt,
         type: event.type,
         viewerState: readViewerState(),
-        viewportSize: {
-            height: window.innerHeight,
-            width: window.innerWidth,
-        },
     });
     if (actions.length > MAX_RETAINED_ACTIONS) {
         actions.splice(0, actions.length - MAX_RETAINED_ACTIONS);

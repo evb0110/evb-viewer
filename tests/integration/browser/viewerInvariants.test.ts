@@ -500,6 +500,73 @@ describe('viewer invariant checker against real Chromium layout', () => {
         }
     }, BROWSER_TEST_TIMEOUT_MS);
 
+    it('records a wheel gesture without measuring the viewer it is observing', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                height: 700,
+                width: 900,
+            }});
+            await loadFixture(page, buildFixtureMarkup({
+                toolbarPageNumber: 1,
+                zoomMode: 'fit-width',
+            }));
+
+            // The external contract: recording what the user did costs no
+            // layout. A recorder that measures perturbs the scroll and zoom
+            // behavior the monitor reports on, so the counters are the proof.
+            await page.evaluate(() => {
+                const counters = {
+                    computedStyle: 0,
+                    rect: 0,
+                };
+                Reflect.set(globalThis, '__evbLayoutReadCounters', counters);
+                const originalRect = Element.prototype.getBoundingClientRect;
+                const originalStyle = window.getComputedStyle.bind(window);
+                Element.prototype.getBoundingClientRect = function countedRect(this: Element) {
+                    counters.rect += 1;
+                    return originalRect.call(this);
+                };
+                window.getComputedStyle = (element: Element, pseudoElement?: string | null) => {
+                    counters.computedStyle += 1;
+                    return originalStyle(element, pseudoElement);
+                };
+                globalThis.__evbInstallViewerActionLog();
+            });
+
+            await page.mouse.move(300, 300);
+            for (let step = 0; step < 10; step += 1) {
+                await page.mouse.wheel(0, 120);
+            }
+            await page.keyboard.press('ArrowDown');
+
+            const observed = await page.evaluate(() => {
+                const actions = globalThis.__evbReadViewerUserActions();
+                globalThis.__evbDisposeViewerActionLog();
+                return {
+                    counters: Reflect.get(globalThis, '__evbLayoutReadCounters') as {
+                        computedStyle: number;
+                        rect: number;
+                    },
+                    recordedTypes: [...new Set(actions.map(action => action.type))].sort(),
+                    zoomModes: [...new Set(actions.map(action => action.viewerState.zoomMode))],
+                };
+            });
+
+            expect(observed.recordedTypes).toStrictEqual([
+                'keydown',
+                'wheel',
+            ]);
+            expect(observed.zoomModes).toStrictEqual(['fit-width']);
+            expect(observed.counters).toStrictEqual({
+                computedStyle: 0,
+                rect: 0,
+            });
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
     it('reports a renderer diagnostic only for a well-formed document and honours a reasoned allowlist', async () => {
         const browser = await chromium.launch({headless: true});
         try {
