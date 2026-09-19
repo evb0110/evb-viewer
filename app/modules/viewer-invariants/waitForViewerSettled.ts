@@ -88,9 +88,32 @@ function findPageRenderPending() {
 }
 
 /**
+ * Where the reader's document currently is on screen. A pane that is still
+ * widening after a sidebar toggle, or a page that is still being re-fitted,
+ * moves this between two frames. An observation taken then records a position
+ * the layout has not finished choosing, and the next observation reads the
+ * difference as a defect.
+ */
+function sampleViewerGeometry() {
+    const viewport = document.querySelector<HTMLElement>(VIEWPORT_SELECTOR);
+    if (!viewport) {
+        return null;
+    }
+    const describe = (element: Element) => {
+        const rect = element.getBoundingClientRect();
+        return `${rect.left.toFixed(2)},${rect.top.toFixed(2)},${rect.width.toFixed(2)},${rect.height.toFixed(2)}`;
+    };
+    return [
+        describe(viewport),
+        ...[...document.querySelectorAll<HTMLElement>(VISIBLE_PAGE_SELECTOR)].map(describe),
+    ].join('|');
+}
+
+/**
  * Waits until the viewer is settled: no input for the quiet window, no page
- * still laying out, and, when the automation event stream is publishing, a
- * `navigation-idle` observed since the wait began.
+ * still laying out, the document geometry unchanged from the previous frame,
+ * and, when the automation event stream is publishing, a `navigation-idle`
+ * observed since the wait began.
  *
  * The timeout is independent of the caller. Failing to settle is reported as
  * an outcome so it can be raised as a violation, never as a reason to skip a
@@ -103,6 +126,7 @@ export async function waitForViewerSettled(
     const requireNavigationIdle = options.requireNavigationIdle ?? false;
     const startedAt = Date.now();
     let lastPending = 'the wait never sampled a frame';
+    let previousGeometry: string | null = null;
 
     while (Date.now() - startedAt < timeoutMs) {
         await nextAnimationFrame();
@@ -114,6 +138,12 @@ export async function waitForViewerSettled(
         const pageRenderPending = findPageRenderPending();
         if (pageRenderPending) {
             lastPending = pageRenderPending;
+            continue;
+        }
+        const geometry = sampleViewerGeometry();
+        if (geometry === null || geometry !== previousGeometry) {
+            previousGeometry = geometry;
+            lastPending = 'the document geometry was still moving between frames';
             continue;
         }
         if (requireNavigationIdle && !hasNavigationIdleSinceLastInput()) {
