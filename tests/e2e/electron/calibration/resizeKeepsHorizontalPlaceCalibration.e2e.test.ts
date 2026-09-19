@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import type { Page } from 'puppeteer-core';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
@@ -19,7 +20,9 @@ import {
     evaluateViewerInvariantCheckpoint,
     readViewerInvariantReport,
 } from '@tests/e2e/electron/helpers/viewerInvariants';
+import { callWorkspaceCommand } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
+    findCalibrationPage,
     readCalibrationGeometry,
     recordCalibrationObservation,
 } from '@tests/e2e/electron/calibration/calibrationEvidence';
@@ -27,34 +30,31 @@ import {
 /**
  * Calibration case 2 for 12647dbc9 "retain horizontal page padding during
  * resize", held out from the design of the invariant checker. The user-visible
- * symptom was a zoomed page jumping sideways when the window was resized, so
- * the question this run answers is whether anything the project already runs
- * notices that jump.
+ * symptom was a zoomed page jumping sideways when the window was resized.
  *
- * The zoom and the resize are driven through the real UI and the real window.
- * The horizontal pan is setup: a real horizontal wheel when the viewer takes
- * one, and a scroller write when it does not, recorded either way.
+ * The reverted geometry loses the page track's inline padding, so the model's
+ * page origin can differ from the painted one only while the viewport is
+ * narrower than the page plus its margins. The run therefore resizes the real
+ * window three times: with the page already overflowing the pane, across the
+ * boundary where a fitting page starts to overflow, and in paged mode, and
+ * records what moved on screen and what the existing checks said each time.
  */
 const CASE_NAME = 'case2-resize-keeps-horizontal-place';
 const FIXTURE_PAGE_COUNT = 6;
 const OPEN_TIMEOUT_MS = 60_000;
-const START_WIDTH_PX = 1_180;
+const WIDE_WIDTH_PX = 1_180;
 const START_HEIGHT_PX = 820;
-const RESIZED_WIDTH_PX = 900;
-const MAX_ZOOM_CLICKS = 8;
-const REQUIRED_HORIZONTAL_RANGE_PX = 120;
-const HORIZONTAL_PAN_PX = 160;
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: 'e2e-calibration-resize'});
 
-async function readContentSize(page: Parameters<typeof evaluateInPage>[0]) {
+async function readContentSize(page: Page) {
     return evaluateInPage(page, () => ({
         height: window.innerHeight,
         width: window.innerWidth,
     }));
 }
 
-async function readToolbarPageFromScreen(page: Parameters<typeof evaluateInPage>[0]) {
+async function readToolbarPageFromScreen(page: Page) {
     return evaluateInPage(page, () => {
         const controls = document.querySelector('#editor-global-toolbar-host .page-controls');
         const secondary = controls?.querySelector('.page-controls-current-secondary')?.textContent?.trim() ?? '';
@@ -67,6 +67,92 @@ async function readToolbarPageFromScreen(page: Parameters<typeof evaluateInPage>
     });
 }
 
+async function resizeWindowTo(
+    session: ReturnType<typeof sessionFixture.getSession>,
+    width: number,
+    height: number,
+) {
+    await session.command('windowResize', [
+        width,
+        height,
+    ]);
+    await waitForFunctionInPage(session.page, (expectedWidth: number) => (
+        Math.abs(window.innerWidth - expectedWidth) < 2
+    ), {timeout: 20_000}, width);
+}
+
+/**
+ * One resize of the real window, with the screen position of the reading page
+ * read before and after, and the verdict of the checks the project already runs
+ * at such a checkpoint.
+ */
+async function observeResize(
+    session: ReturnType<typeof sessionFixture.getSession>,
+    label: string,
+    targetWidth: number,
+) {
+    const { page } = session;
+    const before = await readViewerInvariantReport(page, {documentWellFormed: true});
+    const geometryBefore = await readCalibrationGeometry(page);
+    const toolbarPageBefore = await readToolbarPageFromScreen(page);
+
+    await resizeWindowTo(session, targetWidth, START_HEIGHT_PX);
+
+    const after = await readViewerInvariantReport(page, {documentWellFormed: true});
+    const geometryAfter = await readCalibrationGeometry(page);
+    const toolbarPageAfter = await readToolbarPageFromScreen(page);
+
+    const pageBefore = findCalibrationPage(geometryBefore, 1);
+    const pageAfter = findCalibrationPage(geometryAfter, 1);
+    const options = {
+        checkpoint: `after a real window resize: ${label}`,
+        documentWellFormed: true,
+        requirePresent: {pageIndicator: true as const},
+        requireRan: ['R1-toolbar-page-visible' as const],
+    };
+    let invariantVerdict: {
+        failure: string | null;
+        violationIds: string[];
+    };
+    try {
+        evaluateViewerInvariantCheckpoint(after, options);
+        invariantVerdict = {
+            failure: null,
+            violationIds: after.violations.map(violation => violation.id),
+        };
+    } catch (error) {
+        invariantVerdict = {
+            failure: getErrorMessage(error),
+            violationIds: after.violations.map(violation => violation.id),
+        };
+    }
+
+    return {
+        existingChecks: {
+            invariantVerdict,
+            toolbarPageAfter,
+            toolbarPageBefore,
+            toolbarPageUnchanged: toolbarPageAfter === toolbarPageBefore,
+        },
+        groundTruth: {
+            // What a reader sees move: the page's own position on screen.
+            pageLeftAfter: pageAfter?.rect.left ?? null,
+            pageLeftBefore: pageBefore?.rect.left ?? null,
+            pageScreenShiftPx: pageBefore && pageAfter ? pageAfter.rect.left - pageBefore.rect.left : null,
+            pageWidthAfter: pageAfter?.rect.width ?? null,
+            pageWidthBefore: pageBefore?.rect.width ?? null,
+            scrollLeftAfter: geometryAfter.scrollLeft,
+            scrollLeftBefore: geometryBefore.scrollLeft,
+            viewportWidthAfter: geometryAfter.viewportRect.width,
+            viewportWidthBefore: geometryBefore.viewportRect.width,
+        },
+        label,
+        reportAfter: after,
+        reportBefore: before,
+        zoomText: geometryAfter.zoomText,
+    };
+}
+
 describe('calibration: a window resize keeps the place of a zoomed page', () => {
     it('records what the existing checks say about a horizontal jump on resize', async () => {
         const session = sessionFixture.getSession();
@@ -77,133 +163,58 @@ describe('calibration: a window resize keeps the place of a zoomed page', () => 
         await waitForViewerInteractive(page, OPEN_TIMEOUT_MS);
 
         const originalSize = await readContentSize(page);
-        await session.command('windowResize', [
-            START_WIDTH_PX,
-            START_HEIGHT_PX,
-        ]);
-        await waitForFunctionInPage(page, (expectedWidth: number) => (
-            Math.abs(window.innerWidth - expectedWidth) < 2
-        ), {timeout: 20_000}, START_WIDTH_PX);
+        await resizeWindowTo(session, WIDE_WIDTH_PX, START_HEIGHT_PX);
 
-        // Zoom through the real toolbar until the page is wider than the pane.
-        let zoomClicks = 0;
-        let geometry = await readCalibrationGeometry(page);
-        while (geometry.horizontalScrollRange < REQUIRED_HORIZONTAL_RANGE_PX && zoomClicks < MAX_ZOOM_CLICKS) {
-            await clickVisibleToolbarButton(page, 'Zoom In');
-            zoomClicks += 1;
-            await readViewerInvariantReport(page, {documentWellFormed: true});
-            geometry = await readCalibrationGeometry(page);
-        }
-        if (geometry.horizontalScrollRange < REQUIRED_HORIZONTAL_RANGE_PX) {
-            throw new Error(`The zoomed page never overflowed the pane: range ${geometry.horizontalScrollRange}px`);
-        }
-
-        // Pan sideways so the reading position is not at a horizontal edge,
-        // where a clamp would hide the projection error.
-        const viewportCentre = {
-            x: Math.round(geometry.viewportRect.left + geometry.viewportRect.width / 2),
-            y: Math.round(geometry.viewportRect.top + geometry.viewportRect.height / 2),
-        };
-        await page.mouse.move(viewportCentre.x, viewportCentre.y);
-        await page.mouse.wheel({deltaX: HORIZONTAL_PAN_PX});
+        // One toolbar zoom, then a narrowing that crosses the boundary where
+        // the page stops fitting the pane.
+        await clickVisibleToolbarButton(page, 'Zoom In');
         await readViewerInvariantReport(page, {documentWellFormed: true});
-        let panned = await readCalibrationGeometry(page);
-        const panPath = panned.scrollLeft > 4 ? 'trusted-wheel' : 'scroller-write';
-        if (panPath === 'scroller-write') {
-            await evaluateInPage(page, (offset: number) => {
-                const viewport = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host [data-document-viewer-chassis-viewport],'
-                    + ' .editor-pane.is-active .workspace-host .pdfViewer',
-                );
-                if (viewport) {
-                    viewport.scrollLeft = offset;
-                }
-            }, HORIZONTAL_PAN_PX);
-            await readViewerInvariantReport(page, {documentWellFormed: true});
-            panned = await readCalibrationGeometry(page);
-        }
+        const fitting = await readCalibrationGeometry(page);
+        const crossing = await observeResize(session, 'a zoomed page is narrowed to 760', 760);
 
-        const before = await readViewerInvariantReport(page, {documentWellFormed: true});
-        const geometryBefore = await readCalibrationGeometry(page);
-        const toolbarPageBefore = await readToolbarPageFromScreen(page);
+        await resizeWindowTo(session, WIDE_WIDTH_PX, START_HEIGHT_PX);
+        await clickVisibleToolbarButton(page, 'Zoom In');
+        await readViewerInvariantReport(page, {documentWellFormed: true});
+        const overflowing = await observeResize(session, 'an already overflowing page is narrowed to 900', 900);
 
-        // The operation under test: a real window resize, as a person dragging
-        // the window edge produces.
-        await session.command('windowResize', [
-            RESIZED_WIDTH_PX,
-            START_HEIGHT_PX,
-        ]);
-        await waitForFunctionInPage(page, (expectedWidth: number) => (
-            Math.abs(window.innerWidth - expectedWidth) < 2
-        ), {timeout: 20_000}, RESIZED_WIDTH_PX);
-
-        const after = await readViewerInvariantReport(page, {documentWellFormed: true});
-        const geometryAfter = await readCalibrationGeometry(page);
-        const toolbarPageAfter = await readToolbarPageFromScreen(page);
-
-        const pageWidth = geometryAfter.pages[0]?.rect.width ?? 0;
-        const documentXBefore = geometryBefore.documentXAtViewportCentre;
-        const documentXAfter = geometryAfter.documentXAtViewportCentre;
-        const horizontalJumpPx = documentXBefore !== null && documentXAfter !== null
-            ? (documentXAfter - documentXBefore) * pageWidth
-            : null;
-
-        const options = {
-            checkpoint: 'after a real window resize of a zoomed page',
-            documentWellFormed: true,
-            requirePresent: {pageIndicator: true as const},
-            requireRan: ['R1-toolbar-page-visible' as const],
-        };
-        let verdict: {
-            failure: string | null;
-            violationIds: string[];
-        };
-        try {
-            evaluateViewerInvariantCheckpoint(after, options);
-            verdict = {
-                failure: null,
-                violationIds: after.violations.map(violation => violation.id),
-            };
-        } catch (error) {
-            verdict = {
-                failure: getErrorMessage(error),
-                violationIds: after.violations.map(violation => violation.id),
-            };
-        }
+        // The geometry the fix repaired also serves the paged viewport, which
+        // resolves its scroll through the page track's inline padding. Paged
+        // mode is setup for the resize under test, so it is switched through
+        // the workspace command rather than the overflow menu.
+        await resizeWindowTo(session, WIDE_WIDTH_PX, START_HEIGHT_PX);
+        const pagedModeSet = await callWorkspaceCommand(page, 'handleToggleContinuousScroll');
+        await readViewerInvariantReport(page, {documentWellFormed: true});
+        const pagedGeometry = await readCalibrationGeometry(page);
+        const paged = await observeResize(session, 'a paged zoomed page is narrowed to 860', 860);
 
         recordCalibrationObservation(CASE_NAME, {
-            existingChecks: {
-                invariantVerdict: verdict,
-                toolbarPageAfter,
-                toolbarPageBefore,
-                toolbarPageUnchanged: toolbarPageAfter === toolbarPageBefore,
+            fitting: {
+                horizontalScrollRange: fitting.horizontalScrollRange,
+                pageWidth: findCalibrationPage(fitting, 1)?.rect.width ?? null,
+                viewportWidth: fitting.viewportRect.width,
+                zoomText: fitting.zoomText,
             },
-            geometryAfter,
-            geometryBefore,
-            groundTruth: {
-                documentXAfter,
-                documentXBefore,
-                horizontalJumpPx,
-                pageWidth,
-                scrollLeftAfter: geometryAfter.scrollLeft,
-                scrollLeftBefore: geometryBefore.scrollLeft,
+            operations: [
+                crossing,
+                overflowing,
+                paged,
+            ],
+            paged: {
+                commandCalled: pagedModeSet.called,
+                horizontalScrollRange: pagedGeometry.horizontalScrollRange,
+                pageWidth: findCalibrationPage(pagedGeometry, 1)?.rect.width ?? null,
+                viewportWidth: pagedGeometry.viewportRect.width,
+                zoomText: pagedGeometry.zoomText,
             },
-            panPath,
-            reportAfter: after,
-            reportBefore: before,
-            zoomClicks,
-            zoomText: geometryAfter.zoomText,
         });
 
-        await session.command('windowResize', [
-            originalSize.width,
-            originalSize.height,
-        ]);
+        await resizeWindowTo(session, originalSize.width, originalSize.height);
 
-        // What the project already checks after a resize, and nothing more:
-        // whether a horizontal jump is observed at all is the finding this run
+        // What the project already checks after a resize, and nothing more.
+        // Whether a horizontal jump is observed at all is the finding this run
         // records rather than asserts.
-        expect(verdict.failure).toBeNull();
-        expect(toolbarPageAfter).toBe(toolbarPageBefore);
+        expect(crossing.existingChecks.invariantVerdict.failure).toBeNull();
+        expect(overflowing.existingChecks.invariantVerdict.failure).toBeNull();
+        expect(paged.existingChecks.invariantVerdict.failure).toBeNull();
     });
 });
