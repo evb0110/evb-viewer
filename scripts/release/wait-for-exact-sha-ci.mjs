@@ -5,6 +5,10 @@
 // longer contains. Pass --required-only to wait for the required tier alone,
 // which is what an agent wants after its own push.
 //
+// Usage: wait-for-exact-sha-ci.mjs [<commit-ish>] [--required-only]
+//        The target defaults to HEAD and may be any revision this checkout
+//        resolves: HEAD, a short SHA, a branch name, or a full SHA.
+//
 // Dependency-free on purpose: the release workflow's prepare job runs this
 // before any dependency install, from the trusted dispatch-ref checkout.
 // Issue #109: the previous inline loop gave CI a fixed 45-minute budget that
@@ -384,17 +388,62 @@ export async function waitForExactShaCiGates(targetSha, {
     return requiredResult;
 }
 
+/**
+ * Agents run this after every push with whatever they have at hand: HEAD, a
+ * short SHA, a branch name. Resolve that to the full commit SHA the Actions
+ * API indexes runs by, and say plainly when it does not resolve, instead of
+ * rejecting the spelling. A full SHA is passed through without asking git,
+ * because the release workflow calls this from a checkout that need not
+ * contain the object yet.
+ */
+/** @param {string} argument @param {TCommandRunner} [runCommand] @returns {string} */
+export function resolveTargetSha(argument, runCommand = defaultCommandRunner) {
+    if (/^[0-9a-f]{40}$/u.test(argument)) {
+        return argument;
+    }
+
+    let resolved;
+    try {
+        resolved = runCommand('git', [
+            'rev-parse',
+            '--verify',
+            `${argument}^{commit}`,
+        ]);
+    } catch (error) {
+        throw new Error(
+            `Could not resolve '${argument}' to a commit: ${getCliErrorMessage(error).split('\n')[0]}. `
+            + 'Pass a commit this checkout contains, such as HEAD or a short SHA.',
+        );
+    }
+
+    const sha = String(resolved ?? '').trim();
+    if (!/^[0-9a-f]{40}$/u.test(sha)) {
+        throw new Error(
+            `Resolving '${argument}' produced '${sha}', which is not a commit SHA. `
+            + 'Pass a commit this checkout contains, such as HEAD or a short SHA.',
+        );
+    }
+    return sha;
+}
+
 const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     const argv = process.argv.slice(2);
     const requiredOnly = argv.includes('--required-only');
-    const targetSha = argv.find(argument => !argument.startsWith('--'));
-    if (typeof targetSha !== 'string' || !/^[0-9a-f]{40}$/u.test(targetSha)) {
-        process.stderr.write('Usage: wait-for-exact-sha-ci.mjs <40-char target sha> [--required-only]\n');
-        process.exit(1);
-    }
+    const requestedTarget = argv.find(argument => !argument.startsWith('--')) ?? 'HEAD';
+    /** @param {string} argument @returns {string} */
+    const resolveCliTarget = (argument) => {
+        try {
+            return resolveTargetSha(argument);
+        } catch (error) {
+            process.stderr.write(`${getCliErrorMessage(error)}\n`);
+            process.stderr.write('Usage: wait-for-exact-sha-ci.mjs [<commit-ish>] [--required-only]\n');
+            return process.exit(1);
+        }
+    };
+    const targetSha = resolveCliTarget(requestedTarget);
     waitForExactShaCiGates(targetSha, requiredOnly ? {tiers: REQUIRED_CI_TIERS} : {})
         .then(({id}) => {
             process.stdout.write(`::notice::Release target ${targetSha} passed exact-SHA CI run ${id}.\n`);

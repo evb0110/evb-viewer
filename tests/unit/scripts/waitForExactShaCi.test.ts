@@ -10,6 +10,7 @@ import {
     findLatestMatchingRun,
     listSuccessfulMainPushRuns,
     REQUIRED_CI_TIERS,
+    resolveTargetSha,
     waitForExactShaCiGates,
 } from '@scripts/release/wait-for-exact-sha-ci.mjs';
 
@@ -510,6 +511,34 @@ describe('waitForExactShaCiGates', () => {
         ]});
 
         expect(findLatestMatchingRun(TARGET_SHA, () => runs)?.id).toBe(3);
+    });
+
+    // Agents run this after every push with whatever they have at hand, so the
+    // argument is a revision, not a spelling rule.
+    it('resolves a commit-ish target to the full sha the Actions API indexes', () => {
+        const commands: string[] = [];
+        const resolved = resolveTargetSha('HEAD', (command: string, args: string[]) => {
+            commands.push(`${command} ${args.join(' ')}`);
+            return TARGET_SHA;
+        });
+
+        expect(resolved).toBe(TARGET_SHA);
+        expect(commands).toEqual(['git rev-parse --verify HEAD^{commit}']);
+    });
+
+    it('passes a full sha through without asking a possibly shallow checkout', () => {
+        expect(resolveTargetSha(TARGET_SHA, () => {
+            throw new Error('git must not be consulted for a full sha');
+        })).toBe(TARGET_SHA);
+    });
+
+    it('says what did not resolve instead of rejecting the spelling', () => {
+        expect(() => resolveTargetSha('not-a-ref', () => {
+            throw new Error('fatal: Needed a single revision');
+        })).toThrow(/Could not resolve 'not-a-ref' to a commit.*Needed a single revision/su);
+
+        expect(() => resolveTargetSha('weird-tag', () => 'refs/tags/weird-tag'))
+            .toThrow(/produced 'refs\/tags\/weird-tag', which is not a commit SHA/u);
     });
 
     it('binds the default command runner to the same (command, args) contract as the harness', () => {

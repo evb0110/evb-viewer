@@ -130,13 +130,15 @@ rerun keeps the candidate's head SHA, so it is the repair that qualifies it.
 `release.yml` waits on both tiers for its exact target:
 
 ```
-node scripts/release/wait-for-exact-sha-ci.mjs <sha>                  # both tiers, the release default
-node scripts/release/wait-for-exact-sha-ci.mjs <sha> --required-only  # ci.yml and gates_ok only
+node scripts/release/wait-for-exact-sha-ci.mjs [<commit-ish>]                  # both tiers, the release default
+node scripts/release/wait-for-exact-sha-ci.mjs [<commit-ish>] --required-only  # ci.yml and gates_ok only
 ```
 
-Use `--required-only` when you only want the verdict for a commit you just
-pushed. A version-only release commit carries `[skip ci]` and has no run of its
-own in either tier; its parent's runs vouch for it in both.
+The target defaults to `HEAD` and may be any revision this checkout resolves: a
+short SHA, a branch name, or a full SHA. Use `--required-only` when you only
+want the verdict for a commit you just pushed. A version-only release commit
+carries `[skip ci]` and has no run of its own in either tier; its parent's runs
+vouch for it in both.
 
 The classifier's path policy lives in
 [`scripts/release/policy.mjs`](../../scripts/release/policy.mjs). Its CI areas
