@@ -585,13 +585,22 @@ describe('Electron E2E - annotation controls', () => {
         await waitForViewerInteractive(page);
         await openAnnotationsTab(page);
         await setAnnotationKeepActiveWithPointer(page, false);
+        const inspector = '.editor-pane.is-active [data-annotation-inspector]';
+        // Draw has the tallest editor. At the default window and sidebar width
+        // none of its controls may sit below the footer's fold.
+        await clickAnnotationTool(page, 'Draw');
+        await page.waitForSelector(`${inspector}[data-target="defaults"]`, {visible: true});
+        expect(await page.$$eval(`${inspector} button, ${inspector} input`, controls => controls.filter((control) => {
+            const rect = control.getBoundingClientRect();
+            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            return !(hit && control.contains(hit));
+        }).map(control => control.getAttribute('aria-label') ?? control.className)), 'Draw controls hidden below the footer fold').toEqual([]);
         await clickAnnotationTool(page, 'Text');
         await expectUsableStyleSlider(page);
         await resizeSidebar(page, SIDEBAR_RESIZE_DELTA_PX);
         await expectUsableStyleSlider(page);
         await waitForAnnotationPointerReady(page);
 
-        const inspector = '.editor-pane.is-active [data-annotation-inspector]';
         await page.waitForSelector(`${inspector}[data-target="defaults"]`, {visible: true});
         const steps = await readStyleStepGeometry(page);
         expect(steps).toHaveLength(2);

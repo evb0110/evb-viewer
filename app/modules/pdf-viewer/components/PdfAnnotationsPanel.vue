@@ -187,7 +187,10 @@ function retryEnrichment() {
 }
 
 .annotation-properties-inline {
-    flex: 0 1 min(var(--app-annotation-inspector-height), 35%);
+    /* The tallest editor's height, or half the panel in a short window. The
+       card list's one-card minimum wins over both: at the default window that
+       leaves every control in reach and only the Draw editor scrolling. */
+    flex: 0 1 min(var(--app-annotation-inspector-height), 50%);
     display: flex;
     flex-direction: column;
     min-height: 0;
