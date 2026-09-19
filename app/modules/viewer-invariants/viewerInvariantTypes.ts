@@ -76,6 +76,8 @@ export interface IViewerSurface {
     viewMode: TViewerViewMode;
     /** Client box of the scroller, which excludes a classic scrollbar. */
     viewportRect: IViewerRect;
+    /** `data-workspace-tab-id` of the active workspace, null when unlabelled. */
+    workspaceTabId: string | null;
     zoomMode: TViewerZoomMode;
 }
 

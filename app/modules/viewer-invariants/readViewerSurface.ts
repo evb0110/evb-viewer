@@ -233,6 +233,7 @@ export function readViewerSurface(root: Document = document): IViewerSurfaceRead
             verticalScrollRangePx: Math.max(0, viewport.scrollHeight - viewport.clientHeight),
             viewMode: readViewMode(pageTrack.dataset.pdfViewMode),
             viewportRect: readViewportRect(viewport),
+            workspaceTabId: host.dataset.workspaceTabId ?? null,
             zoomMode: readZoomMode(pageTrack.dataset.pdfZoomMode),
         },
         unavailableReason: null,

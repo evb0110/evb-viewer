@@ -62,18 +62,38 @@ interface IRememberedNoteWindow {
 interface IViewerInvariantMemory {
     noteWindows: Map<string, IRememberedNoteWindow>;
     overlays: Map<string, IRememberedOverlay>;
+    workspaceTabId: string | null;
 }
 
 const memory: IViewerInvariantMemory = {
     noteWindows: new Map(),
     overlays: new Map(),
+    workspaceTabId: null,
 };
 
 /** Drops the two-observation memory, for a test that starts a new sequence. */
 export function resetViewerInvariantMemory() {
     memory.noteWindows.clear();
     memory.overlays.clear();
+    memory.workspaceTabId = null;
     clearViewerDiagnosticNotices();
+}
+
+/**
+ * A remembered observation belongs to the workspace it was taken in. Annotation
+ * ids are only unique inside one document, so comparing across a tab switch or
+ * a document change would invent drift out of two unrelated documents that
+ * happen to number their annotations the same way.
+ */
+function forgetOtherWorkspace(surface: IViewerSurface, remember: boolean) {
+    if (memory.workspaceTabId === surface.workspaceTabId) {
+        return;
+    }
+    memory.noteWindows.clear();
+    memory.overlays.clear();
+    if (remember) {
+        memory.workspaceTabId = surface.workspaceTabId;
+    }
 }
 
 function right(rect: IViewerRect) {
@@ -338,9 +358,11 @@ function checkOverlayDrift(
 ) {
     const edited = new Set(options.editedAnnotationIds ?? []);
     const remember = options.remember ?? true;
+    const seen = new Set<string>();
     let compared = 0;
 
     for (const overlay of surface.overlays) {
+        seen.add(overlay.annotationId);
         const page = pagesByNumber.get(overlay.pageNumber);
         if (!page || page.rect.width <= 0 || page.rect.height <= 0) {
             continue;
@@ -378,6 +400,21 @@ function checkOverlayDrift(
         }
         if (remember) {
             memory.overlays.set(overlay.annotationId, observation);
+        }
+    }
+
+    // An annotation whose page is mounted and which no longer draws an overlay
+    // was deleted or belongs to a document that is no longer open. One whose
+    // page is not mounted was only virtualized away, and its normalized
+    // position is still the one to compare against when it comes back.
+    if (remember) {
+        for (const [
+            annotationId,
+            remembered,
+        ] of [...memory.overlays]) {
+            if (!seen.has(annotationId) && pagesByNumber.has(remembered.pageNumber)) {
+                memory.overlays.delete(annotationId);
+            }
         }
     }
 
@@ -612,6 +649,7 @@ export function checkViewerInvariants(options: IViewerInvariantOptions = {}): IV
         };
     }
 
+    forgetOtherWorkspace(surface, options.remember ?? true);
     const visiblePages = findVisiblePages(surface);
     const pagesByNumber = new Map(surface.pages.map(page => [
         page.pageNumber,

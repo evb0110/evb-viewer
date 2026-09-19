@@ -84,6 +84,7 @@ interface IFixtureOptions {
     toolbarPageNumber?: number;
     toolbarTotalPages?: number;
     viewMode?: string;
+    workspaceTabId?: string;
     zoomMode?: string;
 }
 
@@ -161,7 +162,8 @@ function buildFixtureMarkup(options: IFixtureOptions = {}) {
 </div>
 <div class="editor-pane is-active"
     style="position:fixed;left:0;top:${String(TOOLBAR_HEIGHT_PX)}px;width:${String(VIEWPORT_WIDTH_PX)}px;height:${String(VIEWPORT_HEIGHT_PX)}px">
-    <div class="workspace-host" data-workspace-active="true" style="width:100%;height:100%">
+    <div class="workspace-host" data-workspace-active="true"
+        data-workspace-tab-id="${options.workspaceTabId ?? 'tab-1'}" style="width:100%;height:100%">
         <div id="pdf-viewer" data-document-viewer-chassis-viewport
             style="width:100%;height:100%;overflow-y:scroll;overflow-x:auto">
             <div data-pdf-page-track
@@ -417,6 +419,52 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 return globalThis.__evbCheckViewerInvariants();
             });
             expect(violationIds(drifted)).toEqual(['A1-annotation-normalized-drift']);
+
+            // A1 stateful applicability: a tab switch ends the sequence.
+            // Annotation ids are unique inside one document, so the same id in
+            // another workspace names a different annotation.
+            await loadFixture(page, overlayMarkup);
+            const switched = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                document.querySelector<HTMLElement>('.workspace-host')!.dataset.workspaceTabId = 'tab-2';
+                document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!.style.left = '60%';
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(switched.violations).toEqual([]);
+            expect(switched.skipped.map(skip => skip.id)).toContain('A1-annotation-normalized-drift');
+
+            // A1 stateful: a page the viewer virtualized away and mounted
+            // again has to bring its annotation back to the same place, so the
+            // memory outlives the unmount.
+            await loadFixture(page, overlayMarkup);
+            const remounted = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
+                const track = container.parentElement!;
+                container.remove();
+                globalThis.__evbCheckViewerInvariants();
+                track.prepend(container);
+                container.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!.style.left = '20%';
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(violationIds(remounted)).toEqual(['A1-annotation-normalized-drift']);
+
+            // A1 stateful applicability: the annotation went away while its
+            // own page stayed on screen, so it was deleted rather than
+            // virtualized and the next one to claim that id is not it.
+            await loadFixture(page, overlayMarkup);
+            const deleted = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                const overlay = document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!;
+                const layer = overlay.parentElement!;
+                overlay.remove();
+                globalThis.__evbCheckViewerInvariants();
+                overlay.style.left = '60%';
+                layer.append(overlay);
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(deleted.violations).toEqual([]);
+            expect(deleted.skipped.map(skip => skip.id)).toContain('A1-annotation-normalized-drift');
 
             const noteMarkup = buildFixtureMarkup({noteWindows: [{
                 annotationId: 'note-1',
