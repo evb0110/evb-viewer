@@ -94,9 +94,6 @@ async function clickFirstTabOnScreen(page: Parameters<typeof evaluateInPage>[0])
 describe('viewer invariant journey', () => {
     it('holds the user-level viewer invariants through a composed reading session', async () => {
         const session = sessionFixture.getSession();
-        if (!session) {
-            throw new Error('Electron E2E session was unavailable');
-        }
         const { page } = session;
 
         const firstPdf = await createMultiPageTextFixturePdf('invariant-journey.pdf', JOURNEY_PAGE_COUNT);
