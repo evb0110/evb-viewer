@@ -20,6 +20,7 @@ import {
 import type {
     IViewerInvariantOptions,
     IViewerInvariantReport,
+    IViewerInvariantUnresolved,
     IViewerInvariantViolation,
 } from '@app/modules/viewer-invariants/viewerInvariantTypes';
 
@@ -33,6 +34,7 @@ export interface IViewerInvariantMonitorHandle {
     captureBugReport: () => Promise<void>;
     checkNow: (options?: IViewerInvariantOptions) => IViewerInvariantReport;
     dispose: () => void;
+    readUnresolved: () => readonly IViewerInvariantUnresolved[];
     readViolations: () => readonly IViewerInvariantViolation[];
     resetMemory: () => void;
     waitForSettled: (options?: IViewerSettleOptions) => Promise<IViewerSettleOutcome>;
@@ -66,6 +68,7 @@ export function installViewerInvariantMonitor(
     }
 
     const violations: IViewerInvariantViolation[] = [];
+    const unresolved: IViewerInvariantUnresolved[] = [];
     let lastCheckAt = 0;
     let checkInFlight = false;
     let disposed = false;
@@ -83,6 +86,19 @@ export function installViewerInvariantMonitor(
         }
         if (violations.length > MAX_RETAINED_VIOLATIONS) {
             violations.splice(0, violations.length - MAX_RETAINED_VIOLATIONS);
+        }
+
+        // An undecided rule cannot fail anything, so these are recorded and
+        // reported at info level. They travel in the bug bundle unchanged.
+        for (const observation of report.unresolved) {
+            unresolved.push(observation);
+            BrowserLogger.info('viewer-invariants', observation.question, {
+                evidence: observation.evidence,
+                id: observation.id,
+            });
+        }
+        if (unresolved.length > MAX_RETAINED_VIOLATIONS) {
+            unresolved.splice(0, unresolved.length - MAX_RETAINED_VIOLATIONS);
         }
     }
 
@@ -168,9 +184,11 @@ export function installViewerInvariantMonitor(
             }
             installed = null;
         },
+        readUnresolved: () => unresolved,
         readViolations: () => violations,
         resetMemory: () => {
             violations.length = 0;
+            unresolved.length = 0;
             resetViewerInvariantMemory();
         },
         waitForSettled: settleOptions => waitForViewerSettled(settleOptions),

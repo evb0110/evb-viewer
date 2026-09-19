@@ -89,11 +89,14 @@ and tab switches unless it was edited. One observation: its box intersects its
 own page's box and its center lies within that box expanded by 24 px. Strokes,
 decorations and shapes drawn past the page edge may extend outside.
 
-**A2. A note window follows its anchor.** One observation: an open note window
-lies inside the visible pane. Two observations: when the anchor is visible both
-times and the window is not clamped to a pane edge, the window moved by the same
-screen delta as its anchor, scaled by any zoom change. What happens when the
-anchor leaves the viewport is **open**.
+**A2. A note window follows its anchor.** One observation, while the anchor page
+is on screen: an open note window covers no application chrome, meaning the
+toolbar, a sidebar, the tab bar, the status bar or another pane, and it reaches
+the pane it belongs to. Two observations: when the anchor is visible both times,
+the window is not clamped to a pane edge and the reader did not move it, the
+window moved by the same screen delta as its anchor, scaled by any zoom change.
+What happens when the anchor leaves the viewport is **open**, so nothing is
+asserted about the window's placement then.
 
 **A3. Destructive actions hit only their target.** Deleting or discarding acts
 on the item the user chose, with per-type semantics: discarding a note attached

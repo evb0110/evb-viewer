@@ -361,7 +361,20 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(exempted.violations).toEqual([]);
             expect(exempted.skipped.map(skip => skip.id)).toContain('A1-annotation-page-containment');
 
-            // A2 stateless: an open note window outside the visible pane.
+            // A2 one observation, known bad: with its anchor page on screen
+            // the note window sits over the toolbar.
+            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
+                annotationId: 'note-1',
+                leftPx: 60,
+                pageNumber: 1,
+                topPx: 10,
+            }]}));
+            const overChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+            expect(violationIds(overChrome)).toEqual(['A2-note-window-over-chrome']);
+            expect(overChrome.unresolved).toEqual([]);
+
+            // A2 one observation, known bad: the window is nowhere near the
+            // pane it belongs to while that pane shows its anchor page.
             await loadFixture(page, buildFixtureMarkup({noteWindows: [{
                 annotationId: 'note-1',
                 leftPx: 60,
@@ -369,7 +382,34 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 topPx: 600,
             }]}));
             expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['A2-note-window-inside-pane']);
+                .toEqual(['A2-note-window-over-chrome']);
+
+            // A2 one observation, unresolved: the anchor page has left the
+            // viewport. Behavior contract open question 3 has not decided
+            // whether the window should hide, dock or stay, so this is
+            // recorded and is not a violation.
+            await loadFixture(page, buildFixtureMarkup({
+                noteWindows: [{
+                    annotationId: 'note-1',
+                    leftPx: 60,
+                    pageNumber: 1,
+                    topPx: 10,
+                }],
+                pages: [
+                    {pageNumber: 1},
+                    {pageNumber: 2},
+                    {pageNumber: 3},
+                    {pageNumber: 4},
+                ],
+                toolbarPageNumber: 2,
+            }));
+            const anchorOffscreen = await page.evaluate(() => {
+                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 400;
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(anchorOffscreen.violations).toEqual([]);
+            expect(anchorOffscreen.unresolved.map(entry => entry.id)).toEqual(['A2-anchor-offscreen']);
+            expect(anchorOffscreen.skipped.map(skip => skip.id)).toContain('A2-note-window-over-chrome');
         } finally {
             await browser.close();
         }

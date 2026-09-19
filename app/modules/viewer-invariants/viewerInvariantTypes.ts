@@ -12,11 +12,18 @@ export type TViewerInvariantId =
     | 'A1-annotation-normalized-drift'
     | 'A1-annotation-page-containment'
     | 'A2-note-window-follows-anchor'
-    | 'A2-note-window-inside-pane'
+    | 'A2-note-window-over-chrome'
     | 'C2-renderer-diagnostics-clean'
     | 'L1-fit-mode-scroll-range'
     | 'R1-toolbar-page-visible'
     | 'S0-viewer-settled';
+
+/**
+ * An observation the contract has not decided yet. It is reported so a reader
+ * of a bug bundle can see it, and it is never a violation: an undecided rule
+ * cannot establish a defect.
+ */
+export type TViewerUnresolvedId = 'A2-anchor-offscreen';
 
 export type TViewerViewMode = 'facing' | 'facing-first-single' | 'single';
 export type TViewerZoomMode = 'custom' | 'fit-height' | 'fit-width';
@@ -62,7 +69,15 @@ export interface IViewerInvariantNoteWindow {
     userPlacementSequence: number;
 }
 
+/** A painted application surface a document overlay must not cover. */
+export interface IViewerChromeRect {
+    name: string;
+    rect: IViewerRect;
+}
+
 export interface IViewerSurface {
+    /** Toolbars, sidebars, the tab bar, the status bar and inactive panes. */
+    chrome: IViewerChromeRect[];
     continuousScroll: boolean;
     horizontalScrollRangePx: number;
     noteWindows: IViewerInvariantNoteWindow[];
@@ -92,9 +107,19 @@ export interface IViewerInvariantSkip {
     reason: string;
 }
 
+/** A recorded observation whose expected behavior is an open product question. */
+export interface IViewerInvariantUnresolved {
+    evidence: Record<string, unknown>;
+    id: TViewerUnresolvedId;
+    /** The open question in the behavior contract this observation belongs to. */
+    question: string;
+}
+
 export interface IViewerInvariantReport {
     observedAt: number;
     skipped: IViewerInvariantSkip[];
+    /** Never a failure. Carried so a bug bundle shows what was seen. */
+    unresolved: IViewerInvariantUnresolved[];
     violations: IViewerInvariantViolation[];
 }
 

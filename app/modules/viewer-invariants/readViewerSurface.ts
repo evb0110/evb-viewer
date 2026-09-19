@@ -1,5 +1,6 @@
 import { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/public/domContracts';
 import type {
+    IViewerChromeRect,
     IViewerInvariantNoteWindow,
     IViewerInvariantOverlay,
     IViewerInvariantPage,
@@ -21,6 +22,17 @@ const NOTE_WINDOW_SELECTOR = '.note-window[data-annotation-id]';
 const PAGE_TRACK_SELECTOR = '[data-pdf-page-track]';
 const TOOLBAR_PAGE_CONTROLS_SELECTOR = '.page-controls';
 const VIEWPORT_SELECTOR = '[data-document-viewer-chassis-viewport], #pdf-viewer';
+/**
+ * The application's own surfaces. A document overlay that covers one of them
+ * is wrong whatever the viewer is showing, so they are read from the rendered
+ * shell rather than assumed from the viewport box.
+ */
+const CHROME_SELECTORS = [
+    '#editor-global-toolbar-host',
+    '.sidebar-wrapper',
+    '.tab-bar',
+    '.status-bar',
+] as const;
 
 function toRect(rect: DOMRect): IViewerRect {
     return {
@@ -148,6 +160,30 @@ function readNoteWindows(root: Document, host: HTMLElement): IViewerInvariantNot
         .filter((noteWindow): noteWindow is IViewerInvariantNoteWindow => noteWindow !== null);
 }
 
+function readChromeRects(root: Document, host: HTMLElement): IViewerChromeRect[] {
+    const activePane = host.closest<HTMLElement>('.editor-pane');
+    const surfaces: IViewerChromeRect[] = [];
+    for (const selector of CHROME_SELECTORS) {
+        for (const element of root.querySelectorAll<HTMLElement>(selector)) {
+            if (isPaintedElement(element)) {
+                surfaces.push({
+                    name: selector,
+                    rect: toRect(element.getBoundingClientRect()),
+                });
+            }
+        }
+    }
+    for (const pane of root.querySelectorAll<HTMLElement>('.editor-pane')) {
+        if (pane !== activePane && isPaintedElement(pane)) {
+            surfaces.push({
+                name: '.editor-pane (another pane)',
+                rect: toRect(pane.getBoundingClientRect()),
+            });
+        }
+    }
+    return surfaces;
+}
+
 function parsePositiveInteger(value: string | null | undefined) {
     const parsed = Number.parseInt((value ?? '').replace(/[()\s]/gu, ''), 10);
     return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -224,6 +260,7 @@ export function readViewerSurface(root: Document = document): IViewerSurfaceRead
 
     return {
         surface: {
+            chrome: readChromeRects(root, host),
             continuousScroll: pageTrack.dataset.pdfContinuousScroll !== 'false',
             horizontalScrollRangePx: Math.max(0, viewport.scrollWidth - viewport.clientWidth),
             noteWindows: readNoteWindows(root, host),

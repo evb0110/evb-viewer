@@ -40,36 +40,35 @@ const RESIZED_WIDTH_PX = 1_180;
 const RESIZED_HEIGHT_PX = 820;
 
 /**
- * Discovered by this journey, not a weakened invariant. An open note window
- * follows its anchor page and is never clamped to the pane afterwards, so a
- * wheel scroll carries it entirely off screen while it is still open, and a
- * zoom moves it over the toolbar and the sidebar.
- * `PdfAnnotationNoteWindow.clampPosition` bounds a drag; `followPage` states
- * that scroll following is deliberately unclamped, and nothing re-clamps the
- * window afterwards.
- *
- * The same cause has a second face: the window is re-placed by scroll and by a
- * page resize only, so a sidebar toggle that translates the page sideways
- * leaves the window where it was and breaks the anchor delta.
+ * Discovered by this journey, not a weakened invariant. An open note window is
+ * re-placed by a scroll and by a page resize only, so a relayout that moves
+ * the page without resizing it leaves the window where it was:
+ * `PdfAnnotationNoteWindow.followPage` runs on scroll and on a page resize
+ * observer, and `handleViewportResize` keeps the window's own viewport
+ * position instead of following the page.
  *
  * Each exception names the one window it excuses, and only the checkpoints
  * that reach the defect hold it. The checker asserts the list in both
  * directions, so the fix fails those checkpoints and a second defect, or the
  * same one on another window, fails every other checkpoint.
+ *
+ * What the window should do once its anchor page leaves the viewport is open
+ * question 3 of the behavior contract, so the journey records that case
+ * instead of asserting anything about it.
  */
-function unclampedNoteWindowDefect(annotationId: string): IViewerInvariantException[] {
-    return [{
-        annotationId,
-        id: 'A2-note-window-inside-pane',
-        reason: 'an open note window is never re-clamped to the pane after the page it follows moves',
-    }];
-}
-
 function unfollowedNoteWindowDefect(annotationId: string): IViewerInvariantException[] {
     return [{
         annotationId,
         id: 'A2-note-window-follows-anchor',
         reason: 'an open note window does not follow its page when a pane relayout moves it sideways',
+    }];
+}
+
+function noteWindowOverChromeDefect(annotationId: string): IViewerInvariantException[] {
+    return [{
+        annotationId,
+        id: 'A2-note-window-over-chrome',
+        reason: 'an open note window is never re-placed onto the document area after a zoom moves it',
     }];
 }
 
@@ -156,23 +155,30 @@ describe('viewer invariant journey', () => {
         if (noteAnnotationId === null) {
             throw new Error('The open note window carries no annotation id to name in an exception');
         }
-        const openNoteWindowExceptions = unclampedNoteWindowDefect(noteAnnotationId);
         await assertViewerInvariants(page, {
             checkpoint: 'with an open note window',
             documentWellFormed: true,
         });
 
         // A real wheel scroll several pages down: the rendered counter has to
-        // name a page the viewport actually shows, and the note window has to
-        // travel with its anchor.
+        // name a page the viewport actually shows. The anchor page leaves the
+        // viewport here, and where the window should go then is open question
+        // 3 of the behavior contract, so the journey records the diagnostic
+        // and asserts no expectation about the window's placement.
         const settlement = await wheelPdfViewportAndWaitForSettlement(page, WHEEL_DOWN_DELTA_PX, 30_000);
         expect(settlement.finalScrollTop).toBeGreaterThan(settlement.initialScrollTop);
-        await assertViewerInvariants(page, {
+        const scrolled = await assertViewerInvariants(page, {
             checkpoint: 'after a real wheel scroll down',
             documentWellFormed: true,
-            expected: openNoteWindowExceptions,
             requireNavigationIdle: true,
         });
+        expect(scrolled.unresolved.map(entry => [
+            entry.id,
+            entry.evidence.annotationId,
+        ])).toStrictEqual([[
+            'A2-anchor-offscreen',
+            noteAnnotationId,
+        ]]);
         expect(await readToolbarPageFromScreen(page)).toBeGreaterThan(1);
 
         await wheelPdfViewportAndWaitForSettlement(page, -WHEEL_DOWN_DELTA_PX, 30_000);
@@ -182,13 +188,14 @@ describe('viewer invariant journey', () => {
             requireNavigationIdle: true,
         });
 
-        // Zoom through the real toolbar and back: the highlight must keep its
-        // place on the page it belongs to.
+        // Zoom through the real toolbar and back with the anchor page on
+        // screen: the highlight must keep its place on the page it belongs to,
+        // and the note window must stay on the document area.
         await clickVisibleToolbarButton(page, 'Zoom In');
         await assertViewerInvariants(page, {
             checkpoint: 'after zooming in through the toolbar',
             documentWellFormed: true,
-            expected: openNoteWindowExceptions,
+            expected: noteWindowOverChromeDefect(noteAnnotationId),
         });
         await clickVisibleToolbarButton(page, 'Zoom Out');
         await assertViewerInvariants(page, {

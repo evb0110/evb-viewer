@@ -23,7 +23,9 @@ export type {
     IViewerInvariantOptions,
     IViewerInvariantReport,
     IViewerInvariantSkip,
+    IViewerInvariantUnresolved,
     IViewerInvariantViolation,
     IViewerSurface,
     TViewerInvariantId,
+    TViewerUnresolvedId,
 } from '@app/modules/viewer-invariants/viewerInvariantTypes';

@@ -1,6 +1,7 @@
 import type { Page } from 'puppeteer-core';
 import type {
     IViewerInvariantReport,
+    IViewerInvariantUnresolved,
     IViewerInvariantViolation,
     TViewerInvariantId,
 } from '@app/modules/viewer-invariants/viewerInvariantTypes';
@@ -44,6 +45,8 @@ export interface IViewerInvariantCheckpointResult {
     report: IViewerInvariantReport;
     /** Expected violations that actually occurred at this checkpoint. */
     tolerated: IViewerInvariantViolation[];
+    /** Observations whose expected behavior the contract leaves open. */
+    unresolved: IViewerInvariantUnresolved[];
 }
 
 function formatViolation(violation: IViewerInvariantViolation) {
@@ -65,6 +68,10 @@ function subjectOfViolation(violation: IViewerInvariantViolation) {
  * the automation handle installed next to `__evbTestApi`, and fails with the
  * violation list. A checker that cannot be reached is a failure too: a silent
  * pass would be worse than no check.
+ *
+ * The report's `unresolved` entries are returned, never failed on: they record
+ * behavior the contract has not decided, and a test cannot turn an open product
+ * question into an expectation.
  */
 export async function assertViewerInvariants(
     page: Page,
@@ -136,6 +143,7 @@ export async function assertViewerInvariants(
     return {
         report,
         tolerated,
+        unresolved: report.unresolved,
     };
 }
 

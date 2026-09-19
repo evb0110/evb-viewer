@@ -9,8 +9,8 @@ how they are checked.
 ## The checker
 
 `checkViewerInvariants()` in [`app/modules/viewer-invariants/public.ts`](../../../app/modules/viewer-invariants/public.ts)
-reads the viewer once and returns `{violations, skipped}`. Pure DOM reads,
-cheap enough to run on every settled state. Each violation id names the
+reads the viewer once and returns `{violations, skipped, unresolved}`. Pure DOM
+reads, cheap enough to run on every settled state. Each violation id names the
 contract statement it checks:
 
 | Id | Statement |
@@ -19,10 +19,19 @@ contract statement it checks:
 | `L1-fit-mode-scroll-range` | L1 |
 | `A1-annotation-page-containment` | A1, one observation |
 | `A1-annotation-normalized-drift` | A1, two observations |
-| `A2-note-window-inside-pane` | A2, one observation |
+| `A2-note-window-over-chrome` | A2, one observation, anchor on screen |
 | `A2-note-window-follows-anchor` | A2, two observations |
 | `C2-renderer-diagnostics-clean` | C2 |
 | `S0-viewer-settled` | the Settled definition |
+
+`unresolved` is a separate list and never a failure. It carries an observation
+whose expected behavior the contract has not decided, with the rects, so the
+monitor and a bug bundle still show it. An undecided rule cannot establish a
+defect, so neither the monitor nor `assertViewerInvariants` may fail on one.
+
+| Id | Open question |
+| --- | --- |
+| `A2-anchor-offscreen` | A2 and open question 3: hide, dock, or stay? |
 
 `waitForViewerSettled()` implements Settled: no input for 500ms, no visible
 page still showing a skeleton, the viewport and the mounted page boxes
@@ -87,5 +96,7 @@ module. Verify with `pnpm exec nuxi build` and a grep of
    `skipped` entry with a reason. Guessing is not allowed.
 3. Add a known-bad and a conforming fixture to the browser-integration spec. A
    two-observation statement needs a two-observation sequence.
+   If part of the statement is still open, that part goes to `unresolved` with
+   its own fixture proving it produces no violation.
 4. If the check needs a DOM hook that does not exist, add a minimal `data-*`
    attribute to the component rather than depending on a styling class.
