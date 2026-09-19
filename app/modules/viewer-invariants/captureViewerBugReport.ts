@@ -1,5 +1,8 @@
 import { getHostCapability } from '@app/utils/getHostCapability';
-import { buildViewerBugReport } from '@app/modules/viewer-invariants/buildViewerBugReport';
+import {
+    buildViewerBugReport,
+    readDocumentSourcePath,
+} from '@app/modules/viewer-invariants/buildViewerBugReport';
 
 /**
  * Writes the bundle through the host capability. The main process owns the
@@ -11,5 +14,8 @@ import { buildViewerBugReport } from '@app/modules/viewer-invariants/buildViewer
  */
 export async function captureViewerBugReport(appVersion: string) {
     const report = buildViewerBugReport(appVersion);
-    return getHostCapability().writeBugReportBundle({reportJson: JSON.stringify(report, null, 2)});
+    return getHostCapability().writeBugReportBundle({
+        reportJson: JSON.stringify(report, null, 2),
+        sourcePath: readDocumentSourcePath(),
+    });
 }

@@ -72,7 +72,15 @@ const zenMode = s.fromParser<IHostZenModeState>(decodeHostZenModeState, () => ({
 }));
 
 /** Serialized bug report. Content free by construction; see the writer. */
-export interface IHostBugReportBundle {readonly reportJson: string;}
+export interface IHostBugReportBundle {
+    readonly reportJson: string;
+    /**
+     * The open document's source path. Never written: the main process reads
+     * the file's bytes, records their hash, and discards the path, so a bundle
+     * identifies the document without naming it.
+     */
+    readonly sourcePath: string;
+}
 
 export interface IHostBugReportWriteResult {
     /** Timestamp directory the bundle landed in, never a full path. */
@@ -87,6 +95,8 @@ export interface IHostBugReportWriteResult {
  * byte size of the written file is at most four times this.
  */
 const HOST_BUG_REPORT_MAX_JSON_CHARS = 256 * 1024;
+/** Longer than any path a filesystem accepts, so a real one always fits. */
+const HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS = 4_096;
 
 function decodeHostBugReportBundle(value: unknown): IHostBugReportBundle {
     if (
@@ -94,10 +104,15 @@ function decodeHostBugReportBundle(value: unknown): IHostBugReportBundle {
         || typeof value.reportJson !== 'string'
         || value.reportJson.length === 0
         || value.reportJson.length > HOST_BUG_REPORT_MAX_JSON_CHARS
+        || typeof value.sourcePath !== 'string'
+        || value.sourcePath.length > HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS
     ) {
         throw new Error('invalid host bug report bundle');
     }
-    return {reportJson: value.reportJson};
+    return {
+        reportJson: value.reportJson,
+        sourcePath: value.sourcePath,
+    };
 }
 
 function decodeHostBugReportWriteResult(value: unknown): IHostBugReportWriteResult {
@@ -118,7 +133,10 @@ function decodeHostBugReportWriteResult(value: unknown): IHostBugReportWriteResu
 
 const bugReportBundle = s.fromParser<IHostBugReportBundle>(
     decodeHostBugReportBundle,
-    () => ({reportJson: '{}'}),
+    () => ({
+        reportJson: '{}',
+        sourcePath: '',
+    }),
 );
 const bugReportWriteResult = s.fromParser<IHostBugReportWriteResult>(
     decodeHostBugReportWriteResult,

@@ -2,14 +2,11 @@ import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
 import { checkViewerInvariants } from '@app/modules/viewer-invariants/checkViewerInvariants';
 import { readViewerSurface } from '@app/modules/viewer-invariants/readViewerSurface';
 import { readViewerUserActions } from '@app/modules/viewer-invariants/viewerActionLog';
-import type {
-    IViewerInvariantReport,
-    IViewerSurface,
-} from '@app/modules/viewer-invariants/viewerInvariantTypes';
+import type { IViewerInvariantReport } from '@app/modules/viewer-invariants/viewerInvariantTypes';
 
-const BUG_REPORT_SCHEMA_VERSION = 1;
-const FNV_OFFSET_BASIS = 0x811c_9dc5;
-const FNV_PRIME = 0x0100_0193;
+const BUG_REPORT_SCHEMA_VERSION = 2;
+const ZOOM_DISPLAY_SELECTOR = '#editor-global-toolbar-host .zoom-controls-display-value';
+const SOURCE_PATH_SELECTOR = '.status-bar-path';
 
 /**
  * The checkpoint fields that describe a session rather than its content. Tab
@@ -37,9 +34,18 @@ export interface IViewerBugReport {
     capturedAt: string;
     checkpointShape: IViewerBugReportCheckpointShape;
     devicePixelRatio: number;
+    /** Filled in by the main process, which owns the build identity. */
+    build?: {
+        dirty: boolean;
+        gitSha: string | null;
+    };
     document: {
-        /** Stable across a session, derived from page geometry only. */
-        fingerprint: string;
+        /**
+         * Filled in by the main process: the first 16 hex of the sha256 of the
+         * source file's bytes, which matches the corpus manifest's prefix and
+         * carries no content. `unavailable` when the source is not a file.
+         */
+        sourceHash?: string;
         pageCount: number | null;
     };
     invariantReport: IViewerInvariantReport;
@@ -61,29 +67,32 @@ export interface IViewerBugReport {
 }
 
 /**
- * A fingerprint of the document's page geometry: page count plus each mounted
- * page's rounded aspect ratio. It identifies a document across two bug reports
- * without carrying a byte of its content.
+ * The zoom a reader sees, read from the toolbar's own display. A percentage
+ * becomes the factor the checkpoint format stores.
  */
-function fingerprintDocument(surface: IViewerSurface | null) {
-    const parts = [
-        String(surface?.toolbarTotalPages ?? 0),
-        ...(surface?.pages ?? []).map(page => (
-            `${String(page.pageNumber)}:${(page.rect.width / Math.max(1, page.rect.height)).toFixed(3)}`
-        )),
-    ].join('|');
-    let hash = FNV_OFFSET_BASIS;
-    for (let index = 0; index < parts.length; index += 1) {
-        hash ^= parts.charCodeAt(index);
-        hash = Math.imul(hash, FNV_PRIME) >>> 0;
+function readRenderedZoom(root: Document) {
+    const text = root.querySelector(ZOOM_DISPLAY_SELECTOR)?.textContent?.trim() ?? '';
+    const parsed = Number.parseFloat(text.replace('%', '').replace(',', '.'));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return null;
     }
-    return hash.toString(16).padStart(8, '0');
+    return text.includes('%') ? Number((parsed / 100).toFixed(4)) : parsed;
+}
+
+/**
+ * The path the status bar shows for the open document. It never enters the
+ * report: the caller hands it to the main process, which turns it into a
+ * content hash of the file's bytes and discards it.
+ */
+export function readDocumentSourcePath(root: Document = document) {
+    return root.querySelector(SOURCE_PATH_SELECTOR)?.textContent?.trim() ?? '';
 }
 
 function readCheckpointShape(root: Document): IViewerBugReportCheckpointShape {
     const panes = [...root.querySelectorAll<HTMLElement>('.editor-pane')];
     const tabElements = [...root.querySelectorAll<HTMLElement>('[data-tab-id]')];
     const {surface} = readViewerSurface(root);
+    const zoom = readRenderedZoom(root);
     return {
         activeTabIndex: tabElements.findIndex(tab => tab.classList.contains('is-active')),
         paneCount: panes.length,
@@ -95,7 +104,7 @@ function readCheckpointShape(root: Document): IViewerBugReportCheckpointShape {
                 isActive,
                 isDirty: tab.classList.contains('is-dirty'),
                 paneIndex: panes.findIndex(pane => pane.contains(tab)),
-                zoom: null,
+                zoom: isActive ? zoom : null,
                 zoomMode: isActive ? surface?.zoomMode ?? null : null,
             };
         }),
@@ -110,10 +119,7 @@ export function buildViewerBugReport(appVersion: string, root: Document = docume
         capturedAt: new Date().toISOString(),
         checkpointShape: readCheckpointShape(root),
         devicePixelRatio: window.devicePixelRatio,
-        document: {
-            fingerprint: fingerprintDocument(surface),
-            pageCount: surface?.toolbarTotalPages ?? null,
-        },
+        document: {pageCount: surface?.toolbarTotalPages ?? null},
         invariantReport: checkViewerInvariants({remember: false}),
         recentActions: readViewerUserActions(),
         schemaVersion: BUG_REPORT_SCHEMA_VERSION,

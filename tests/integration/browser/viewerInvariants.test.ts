@@ -696,7 +696,7 @@ describe('viewer invariant checker against real Chromium layout', () => {
             });
 
             await page.mouse.move(300, 300);
-            for (let step = 0; step < 10; step += 1) {
+            for (let step = 0; step < 60; step += 1) {
                 await page.mouse.wheel(0, 120);
             }
             await page.keyboard.press('ArrowDown');
@@ -710,19 +710,78 @@ describe('viewer invariant checker against real Chromium layout', () => {
                         rect: number;
                     },
                     recordedTypes: [...new Set(actions.map(action => action.type))].sort(),
+                    wheelPackets: actions
+                        .filter(action => action.type === 'wheel-gesture')
+                        .map(action => action.packets),
                     zoomModes: [...new Set(actions.map(action => action.viewerState.zoomMode))],
                 };
             });
 
             expect(observed.recordedTypes).toStrictEqual([
-                'keydown',
-                'wheel',
+                'key',
+                'wheel-gesture',
             ]);
             expect(observed.zoomModes).toStrictEqual(['fit-width']);
-            expect(observed.counters).toStrictEqual({
-                computedStyle: 0,
-                rect: 0,
+            // One gesture, one rect read for its start point. The cost does
+            // not grow with the packet count, which is what keeps the recorder
+            // out of the gesture it is observing.
+            expect(observed.wheelPackets).toStrictEqual([60]);
+            expect(observed.counters.computedStyle).toBe(0);
+            expect(observed.counters.rect).toBe(1);
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
+    it('keeps the action that caused a gesture when the gesture floods the log', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                height: 700,
+                width: 900,
+            }});
+            await loadFixture(page, buildFixtureMarkup({
+                tabFileName: DISTINCTIVE_FILE_NAME,
+                toolbarPageNumber: 1,
+            }));
+            await page.evaluate(() => {
+                globalThis.__evbInstallViewerActionLog();
             });
+
+            // The reviewer's probe: one pointer action, then 200 wheel packets.
+            // Raw retention left 40 wheel entries and lost the click.
+            await page.click('.tab-label');
+            await page.mouse.move(400, 300);
+            for (let step = 0; step < 200; step += 1) {
+                await page.mouse.wheel(0, 100);
+            }
+            await page.mouse.wheel(0, -100);
+            // The reversal has to reach the recorder before it can be judged.
+            await page.waitForFunction(() => (
+                globalThis.__evbReadViewerUserActions()
+                    .filter(action => action.type === 'wheel-gesture').length === 2
+            ));
+
+            const recorded = await page.evaluate(() => {
+                const actions = globalThis.__evbReadViewerUserActions();
+                globalThis.__evbDisposeViewerActionLog();
+                return actions;
+            });
+
+            const pointerActions = recorded.filter(action => action.type === 'pointerdown');
+            expect(pointerActions).toHaveLength(1);
+            expect(pointerActions[0]?.target).toBe('tab');
+            const wheelGestures = recorded.filter(action => action.type === 'wheel-gesture');
+            // Two gestures: the 200 packets down, then the reversal.
+            expect(wheelGestures.map(gesture => gesture.packets)).toStrictEqual([
+                200,
+                1,
+            ]);
+            expect(wheelGestures[0]?.summedDelta.y).toBe(20_000);
+            expect(wheelGestures[0]?.startPoint).not.toBeNull();
+            expect(recorded.map(action => action.startedAt))
+                .toStrictEqual([...recorded.map(action => action.startedAt)].sort((left, right) => left - right));
+            expect(JSON.stringify(recorded)).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
         } finally {
             await browser.close();
         }

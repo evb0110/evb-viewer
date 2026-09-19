@@ -1,9 +1,11 @@
 import {
     mkdir,
     readdir,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
     app,
@@ -22,6 +24,9 @@ const BUG_REPORT_ROOT_DIRECTORY = 'bug-reports';
 const BUG_REPORT_RETAINED_BUNDLES = 20;
 /** The directory name this writer produces: an ISO timestamp with safe colons. */
 const BUNDLE_DIRECTORY_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z$/u;
+/** Enough to match a corpus manifest's sha256 prefix without being the file. */
+const SOURCE_HASH_HEX_LENGTH = 16;
+const UNAVAILABLE = 'unavailable';
 
 const REFUSED: IHostBugReportWriteResult = {
     directoryName: '',
@@ -32,6 +37,61 @@ const REFUSED: IHostBugReportWriteResult = {
 /** A directory name a filesystem accepts on every supported platform. */
 function buildBundleDirectoryName(now: Date) {
     return now.toISOString().replaceAll(':', '-');
+}
+
+/**
+ * The document's identity as its bytes, not as its layout. A geometry
+ * fingerprint changed when the same document scrolled to another page and
+ * collided between documents of the same shape; a content hash matches the
+ * private corpus manifest's sha256 prefix, which is what lets a reader find
+ * the fixture a bundle came from. The path is used here and discarded.
+ */
+async function hashDocumentSource(sourcePath: string) {
+    if (sourcePath.length === 0) {
+        return UNAVAILABLE;
+    }
+    try {
+        const bytes = await readFile(sourcePath);
+        return createHash('sha256').update(bytes).digest('hex').slice(0, SOURCE_HASH_HEX_LENGTH);
+    } catch {
+        // A web build, an unsaved document, or a path the status bar shortened.
+        return UNAVAILABLE;
+    }
+}
+
+/**
+ * The build the report came from. The electron build records its commit only
+ * when the tree was clean, so a missing sha is itself the dirty flag.
+ */
+function describeBuild() {
+    const gitSha = process.env.EVB_BUILD_GIT_SHA?.trim() ?? '';
+    return {
+        dirty: gitSha.length === 0,
+        gitSha: gitSha.length > 0 ? gitSha : null,
+    };
+}
+
+/** Merges what only the main process knows into the renderer's report. */
+function completeReportJson(reportJson: string, sourceHash: string) {
+    try {
+        const report: unknown = JSON.parse(reportJson);
+        if (typeof report !== 'object' || report === null) {
+            return reportJson;
+        }
+        const record = report as Record<string, unknown>;
+        const document = typeof record.document === 'object' && record.document !== null
+            ? record.document as Record<string, unknown>
+            : {};
+        record.build = describeBuild();
+        record.document = {
+            ...document,
+            sourceHash,
+        };
+        return JSON.stringify(record, null, 2);
+    } catch {
+        // A report this process cannot parse is still the renderer's evidence.
+        return reportJson;
+    }
 }
 
 /**
@@ -78,7 +138,12 @@ export async function writeHostBugReportBundle(
     const root = join(app.getPath('userData'), BUG_REPORT_ROOT_DIRECTORY);
     const directory = join(root, directoryName);
     await mkdir(directory, {recursive: true});
-    await writeFile(join(directory, 'report.json'), bundle.reportJson, 'utf-8');
+    const sourceHash = await hashDocumentSource(bundle.sourcePath);
+    await writeFile(
+        join(directory, 'report.json'),
+        completeReportJson(bundle.reportJson, sourceHash),
+        'utf-8',
+    );
 
     let screenshotWritten = false;
     try {
