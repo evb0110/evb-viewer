@@ -81,15 +81,19 @@ export interface IHostBugReportWriteResult {
     readonly written: boolean;
 }
 
-/** A bug report is a development aid, so the payload stays small on purpose. */
-const HOST_BUG_REPORT_MAX_JSON_BYTES = 256 * 1024;
+/**
+ * A bug report is a development aid, so the payload stays small on purpose.
+ * Counted in UTF-16 code units, which is what `String.length` measures; the
+ * byte size of the written file is at most four times this.
+ */
+const HOST_BUG_REPORT_MAX_JSON_CHARS = 256 * 1024;
 
 function decodeHostBugReportBundle(value: unknown): IHostBugReportBundle {
     if (
         !isRecord(value)
         || typeof value.reportJson !== 'string'
         || value.reportJson.length === 0
-        || value.reportJson.length > HOST_BUG_REPORT_MAX_JSON_BYTES
+        || value.reportJson.length > HOST_BUG_REPORT_MAX_JSON_CHARS
     ) {
         throw new Error('invalid host bug report bundle');
     }
