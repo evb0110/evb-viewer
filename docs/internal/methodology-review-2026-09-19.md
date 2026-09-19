@@ -61,8 +61,12 @@ backdoors that skip the path where the bugs live:
 
 - The default scroll helper writes `scrollTop` and dispatches a synthetic scroll
   event. No gesture runs.
-- 80 assertions have the form `callWorkspaceCommand(...).called === true`, which
-  proves that a command exists.
+- About 88 assertions have the form `callWorkspaceCommand(...).called === true`,
+  which proves that a command exists. When they were removed one by one, every
+  one turned out to be setup in a test that also had a separate outcome check,
+  so the original reading ("these tests prove only that a command exists") was
+  overstated. The real weakness was narrower: a missing command made setup
+  silently do nothing. The helper now throws instead.
 - The current page is read from an internal test API snapshot, never from the
   rendered indicator.
 - No real-app spec resizes the real window. Two cases drag a split divider.
