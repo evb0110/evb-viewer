@@ -856,15 +856,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         focusAnnotationComment,
         deleteAnnotationComment,
     } = usePdfAnnotationCommentActions({
-        numPages: documentSession.numPages,
-        activeCommentStableKey,
         annotationCommentsCache,
         annotationCommentModel,
         shapeTool,
-        shapeComposable,
         selectedShapeCommands,
         commentCrud,
-        scrollToPage: (pageNumber, scrollOptions) => viewport.singlePageScroll.scrollToPage(pageNumber, scrollOptions),
         emitForcedAnnotationMutation,
     });
     function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {

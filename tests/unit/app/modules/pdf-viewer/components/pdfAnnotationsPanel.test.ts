@@ -140,18 +140,18 @@ afterEach(() => {
 });
 
 describe('PdfAnnotationsPanel inline inspector', () => {
-    it('offers Keep active for repeatable tools but not one-shot notes', async () => {
+    it('keeps the repeat control in place but disables it for one-shot notes', async () => {
         const {
             host,
             state,
         } = mountPanel();
-        expect(host.querySelector('.annotation-tool-options')).not.toBeNull();
+        expect(host.querySelector<HTMLInputElement>('.annotation-tool-options input')?.disabled).toBe(false);
         state.tool = 'note';
         await nextTick();
-        expect(host.querySelector('.annotation-tool-options')).toBeNull();
+        expect(host.querySelector<HTMLInputElement>('.annotation-tool-options input')?.disabled).toBe(true);
         state.tool = 'draw';
         await nextTick();
-        expect(host.querySelector('.annotation-tool-options')).not.toBeNull();
+        expect(host.querySelector<HTMLInputElement>('.annotation-tool-options input')?.disabled).toBe(false);
     });
 
     it('renders exactly one live inspector within the panel and removes hidden controls', async () => {

@@ -10,7 +10,9 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
-import {createBlankFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createBlankFixturePdf, createAnnotationSidebarFixturePdf,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAnnotationTool,
@@ -443,6 +445,66 @@ describe('Electron E2E - annotation controls', () => {
         extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         sessionName: () => `e2e-annotation-controls-${Date.now()}`,
     });
+
+    it('keeps annotation cards stationary and visibly selects every annotation kind', async () => {
+        // Owner report: selecting a rectangle lost feedback, and switching types
+        // moved the whole list. A6/R2/I1: visible row activation selects its mark.
+        const session = sessionFixture.getSession();
+        const {page} = session;
+        await session.command('windowResize', [
+            1280,
+            1000,
+        ]);
+        const fixturePath = await createAnnotationSidebarFixturePdf(`sidebar-selection-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await page.waitForFunction(() => document.querySelectorAll('.note-item').length === 4);
+        const ids = await page.$$eval('.note-item', rows => rows.map(row => row.getAttribute('data-annotation-id')!));
+        for (let pass = 0; pass < 2; pass += 1) {
+            for (const id of ids) {
+                const before = await page.$$eval('.note-item', rows => rows.map(row => ({
+                    id: row.getAttribute('data-annotation-id'),
+                    top: row.getBoundingClientRect().top,
+                })));
+                const observation = page.evaluate(async (original) => {
+                    const end = performance.now() + 1500;
+                    let maxShift = 0;
+                    let minRowCount = original.length;
+                    while (performance.now() < end) {
+                        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                        const rows = [...document.querySelectorAll('.note-item')];
+                        minRowCount = Math.min(minRowCount, rows.length);
+                        for (const row of rows) {
+                            const previous = original.find(item => item.id === row.getAttribute('data-annotation-id'));
+                            if (previous) maxShift = Math.max(maxShift, Math.abs(row.getBoundingClientRect().top - previous.top));
+                        }
+                    }
+                    return {
+                        maxShift,
+                        minRowCount,
+                    };
+                }, before);
+                await clickVisibleAnnotationControl(page, `.note-item[data-annotation-id="${id}"] .note-item-content`);
+                const motion = await observation;
+                expect.soft(motion.maxShift, `card ${id}, pass ${pass}`).toBeLessThanOrEqual(1);
+                expect.soft(motion.minRowCount).toBe(4);
+                const selected = await page.$$eval('.note-item.is-active', rows => rows.map(row => ({
+                    id: row.getAttribute('data-annotation-id'),
+                    background: getComputedStyle(row).backgroundColor,
+                    border: getComputedStyle(row).borderLeftColor,
+                })));
+                expect.soft(selected.map(row => row.id), `card ${id}, pass ${pass}`).toEqual([id]);
+                const inactiveBackground = await page.$eval('.note-item:not(.is-active)', row => getComputedStyle(row).backgroundColor);
+                expect.soft(selected[0]?.background).not.toBe(inactiveBackground);
+                await page.waitForFunction(annotationId => Boolean(document.querySelector(
+                    `.pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+                )), {}, id);
+            }
+        }
+    }, 90_000);
 
     it('keeps one inline inspector stable and separates selected properties from tool defaults', async () => {
         const session = sessionFixture.getSession();

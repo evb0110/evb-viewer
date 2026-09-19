@@ -1991,6 +1991,126 @@ export async function createLinkOnlyFixturePdf(filename: string) {
     return filePath;
 }
 
+/** Mirrors the owner's sidebar report: note, two marks and an empty rectangle. */
+export async function createAnnotationSidebarFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const document = await PDFDocument.create();
+    for (let index = 0; index < 3; index += 1) {
+        const page = document.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`Sidebar selection, page ${index + 1}`, {
+            x: 70,
+            y: 700,
+            size: 22,
+        });
+        page.drawText('Text for squiggly annotation', {
+            x: 70,
+            y: 650,
+            size: 15,
+        });
+    }
+    const specs = [
+        {
+            page: 0,
+            subtype: 'Squiggly',
+            id: 'sidebar-squiggly',
+            text: 'Title squiggly',
+            rect: [
+                70,
+                640,
+                240,
+                668,
+            ],
+        },
+        {
+            page: 0,
+            subtype: 'Text',
+            id: 'sidebar-note',
+            text: 'A note to review',
+            rect: [
+                250,
+                640,
+                278,
+                668,
+            ],
+        },
+        {
+            page: 0,
+            subtype: 'Square',
+            id: 'evb-shape:sidebar-square',
+            text: '',
+            rect: [
+                300,
+                440,
+                430,
+                565,
+            ],
+        },
+        {
+            page: 2,
+            subtype: 'Squiggly',
+            id: 'sidebar-distant',
+            text: 'Distant squiggly',
+            rect: [
+                70,
+                640,
+                240,
+                668,
+            ],
+        },
+    ];
+    const context = document.context;
+    for (const spec of specs) {
+        const page = document.getPage(spec.page);
+        const annotation = context.register(context.obj({
+            Type: PDFName.of('Annot'),
+            P: page.ref,
+            F: 4,
+            Subtype: PDFName.of(spec.subtype),
+            NM: PDFHexString.fromText(spec.id),
+            Contents: PDFHexString.fromText(spec.text),
+            T: PDFHexString.fromText('Sidebar fixture'),
+            M: PDFString.of('D:20260919000000Z'),
+            Rect: spec.rect,
+            C: spec.page === 2 ? [
+                0.2,
+                0.45,
+                1,
+            ] : [
+                1,
+                0.8,
+                0,
+            ],
+            ...(spec.subtype === 'Squiggly' ? {QuadPoints: [
+                70,
+                668,
+                240,
+                668,
+                70,
+                640,
+                240,
+                640,
+            ]} : {}),
+            ...(spec.subtype === 'Square' ? {
+                EVBShapeKey: PDFHexString.fromText(spec.id),
+                Border: [
+                    0,
+                    0,
+                    2,
+                ],
+            } : {}),
+        }));
+        const annotations = page.node.Annots() ?? context.obj([]);
+        annotations.push(annotation);
+        page.node.set(PDFName.of('Annots'), annotations);
+    }
+    writeFileSync(filePath, await document.save({useObjectStreams: false}));
+    return filePath;
+}
+
 const ANNOTATION_SURFACE_STAMP_JPEG = Uint8Array.from(Buffer.from(
     '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
     'base64',

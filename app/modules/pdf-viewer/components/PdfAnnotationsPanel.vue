@@ -1,40 +1,20 @@
 <template>
     <div class="notes-panel">
-        <PdfAnnotationToolbar
-            :tool="tool"
-            @set-tool="setTool"
-        />
-
-        <div v-if="tool !== 'note'" class="annotation-tool-options">
-            <UCheckbox
-                v-model="keepActiveModel"
-                color="neutral"
-                size="xs"
-                :label="t('annotations.keepActive')"
-            />
-        </div>
-
-        <div class="notes-panel-divider" />
-
-        <section
-            v-if="isVisible"
-            class="annotation-properties-inline"
-            :aria-label="propertiesLabel"
-            data-annotation-inspector
-            data-testid="annotation-inspector"
-            :data-target="propertySelection.length > 0 ? 'selection' : 'defaults'"
-        >
-            <h3 class="annotation-properties-title">{{ propertiesLabel }}</h3>
-            <PdfAnnotationStyleEditor
+        <div class="annotation-tools">
+            <PdfAnnotationToolbar
                 :tool="tool"
-                :settings="settings"
-                :selected-annotations="propertySelection"
-                :can-rotate="canRotateAnnotations"
-                :has-annotations="comments.length > 0"
-                @update-setting="emit('update-setting', $event)"
-                @update-properties="emit('update-properties', $event)"
+                @set-tool="setTool"
             />
-        </section>
+            <div class="annotation-tool-options">
+                <UCheckbox
+                    v-model="keepActiveModel"
+                    color="neutral"
+                    size="xs"
+                    :disabled="tool === 'note'"
+                    :label="t('annotations.keepActive')"
+                />
+            </div>
+        </div>
 
         <PdfAnnotationCommentsList
             :comments="comments"
@@ -50,6 +30,28 @@
             @set-tool="setTool"
             @retry-enrichment="retryEnrichment"
         />
+
+        <section
+            v-if="isVisible"
+            class="annotation-properties-inline"
+            :aria-label="propertiesLabel"
+            data-annotation-inspector
+            data-testid="annotation-inspector"
+            :data-target="propertySelection.length > 0 ? 'selection' : 'defaults'"
+        >
+            <h3 class="annotation-properties-title">{{ propertiesLabel }}</h3>
+            <div class="annotation-properties-body app-scrollbar">
+                <PdfAnnotationStyleEditor
+                    :tool="tool"
+                    :settings="settings"
+                    :selected-annotations="propertySelection"
+                    :can-rotate="canRotateAnnotations"
+                    :has-annotations="comments.length > 0"
+                    @update-setting="emit('update-setting', $event)"
+                    @update-properties="emit('update-properties', $event)"
+                />
+            </div>
+        </section>
     </div>
 </template>
 
@@ -164,14 +166,18 @@ function retryEnrichment() {
     padding: var(--app-sidebar-content-padding);
     min-height: 0;
     height: 100%;
-    overflow: visible;
+    overflow: hidden;
     box-sizing: border-box;
     position: relative;
 }
 
-.notes-panel-divider {
-    border-top: 1px solid var(--ui-border);
-    margin: 0 -0.25rem;
+.annotation-tools {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-sidebar-row-gap);
+    padding-bottom: var(--app-sidebar-content-padding);
+    border-bottom: 1px solid var(--ui-border);
 }
 
 .annotation-tool-options {
@@ -181,14 +187,25 @@ function retryEnrichment() {
 }
 
 .annotation-properties-inline {
+    flex: 0 1 min(var(--app-annotation-inspector-height), 35%);
     display: flex;
     flex-direction: column;
+    min-height: 0;
     gap: var(--app-sidebar-row-gap);
-    padding-block: var(--app-sidebar-content-padding);
-    border-bottom: 1px solid var(--ui-border);
+    padding-top: var(--app-sidebar-content-padding);
+    border-top: 1px solid var(--ui-border);
+    overflow: hidden;
+}
+
+.annotation-properties-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--app-space-sm);
 }
 
 .annotation-properties-title {
+    flex: 0 0 auto;
     margin: 0;
     color: var(--ui-text-muted);
     font-size: var(--app-sidebar-caption-font-size);

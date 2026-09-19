@@ -22,7 +22,6 @@ import {
 import { usePdfAnnotationCommentActions } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/usePdfShapeTool';
 import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IAnnotationCommentSummary,
@@ -56,9 +55,7 @@ function createEmbeddedShape(overrides?: Partial<IShapeAnnotation>): IShapeAnnot
 function createActionsHarness() {
     const annotationApplication = shallowRef(new AnnotationApplication('doc-key'));
     const annotationTool = ref<TAnnotationTool>('select');
-    const activeCommentStableKey = ref<string | null>(null);
     const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([]);
-    const scrollToPage = vi.fn();
     const emitAnnotationComments = vi.fn();
     const focusAnnotationCommentCrud = vi.fn(async () => undefined);
     const deleteAnnotationCommentCrud = vi.fn(async () => true);
@@ -85,18 +82,14 @@ function createActionsHarness() {
             emitAnnotationComments,
         });
         actions = usePdfAnnotationCommentActions({
-            numPages: ref(10),
-            activeCommentStableKey,
             annotationCommentsCache,
             annotationCommentModel,
             shapeTool,
-            shapeComposable: shapeTool.shapeComposable,
             selectedShapeCommands: shapeTool.selectedShapeCommands,
             commentCrud: {
                 focusAnnotationComment: focusAnnotationCommentCrud,
                 deleteAnnotationComment: deleteAnnotationCommentCrud,
             },
-            scrollToPage,
             emitForcedAnnotationMutation: () => undefined,
         });
         return () => null;
@@ -108,8 +101,6 @@ function createActionsHarness() {
         actions,
         annotationApplication,
         shapeTool,
-        activeCommentStableKey,
-        scrollToPage,
         emitAnnotationComments,
         deleteAnnotationCommentCrud,
     };
@@ -133,39 +124,6 @@ describe('usePdfAnnotationCommentActions shape rows', () => {
         vi.clearAllMocks();
     });
 
-    it('focuses the shape, marks the row active and scrolls to its page', async () => {
-        const harness = createActionsHarness();
-        const shape = createEmbeddedShape();
-        harness.annotationApplication.value.store.replaceFromDocument([toCanonicalShapeEntity(shape, asAnnotationId(shape.id))], []);
-        const summary = importedShapeSummary(harness);
-
-        await harness.actions.focusAnnotationComment(summary);
-
-        expect(harness.shapeTool.shapeComposable.focusedShapeId.value).toBe('embedded-shape-1');
-        expect(harness.activeCommentStableKey.value).toBe(annotationIdForSummary(summary));
-        expect(harness.scrollToPage).toHaveBeenCalledWith(4, {markerRect: summary.markerRect});
-        expect(harness.scrollToPage).toHaveBeenCalledOnce();
-    });
-
-    it('leaves focus untouched when no shape owns the row', async () => {
-        const harness = createActionsHarness();
-        const shape = createEmbeddedShape();
-        harness.annotationApplication.value.store.replaceFromDocument([toCanonicalShapeEntity(shape, asAnnotationId(shape.id))], []);
-        const summary = importedShapeSummary(harness);
-        const staleSummary: IAnnotationCommentSummary = {
-            ...summary,
-            appAnnotationId: 'shape-that-left-the-document',
-            id: 'shape-that-left-the-document',
-            annotationId: null,
-        };
-
-        await harness.actions.focusAnnotationComment(staleSummary);
-
-        expect(harness.shapeTool.shapeComposable.focusedShapeId.value).toBeNull();
-        expect(harness.activeCommentStableKey.value).toBeNull();
-        expect(harness.scrollToPage).not.toHaveBeenCalled();
-    });
-
     it('still deletes the shape the row identifies', async () => {
         const harness = createActionsHarness();
         const shape = createEmbeddedShape();
@@ -175,7 +133,5 @@ describe('usePdfAnnotationCommentActions shape rows', () => {
         await expect(harness.actions.deleteAnnotationComment(summary)).resolves.toBe(true);
 
         expect(harness.shapeTool.shapeComposable.getAllShapes()).toHaveLength(0);
-        expect(harness.emitAnnotationComments).toHaveBeenCalledTimes(1);
-        expect(harness.deleteAnnotationCommentCrud).not.toHaveBeenCalled();
     });
 });

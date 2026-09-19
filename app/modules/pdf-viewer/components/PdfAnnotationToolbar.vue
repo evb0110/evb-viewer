@@ -118,9 +118,9 @@ function setTool(toolId: TAnnotationTool) {
 }
 
 .tool-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--app-sidebar-row-gap);
 }
 
 .tool-button {
@@ -132,9 +132,9 @@ function setTool(toolId: TAnnotationTool) {
     border-radius: var(--app-radius-md);
     background: transparent;
     color: var(--ui-text-muted);
-    flex: 0 0 var(--app-control-height-lg);
-    width: var(--app-control-height-lg);
-    height: var(--app-control-height-lg);
+    min-width: 0;
+    width: 100%;
+    height: var(--app-control-height-md);
     cursor: pointer;
     transition:
         background-color 0.12s ease,

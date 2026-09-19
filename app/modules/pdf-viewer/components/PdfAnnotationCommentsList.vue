@@ -1,5 +1,8 @@
 <template>
-    <div class="notes-list-section flex flex-col gap-2">
+    <div
+        class="notes-list-section flex flex-col gap-2"
+        :style="{ '--annotation-card-height': `${rowMetrics.rowHeightPx}px` }"
+    >
         <div class="notes-list-header">
             <span class="notes-list-title">{{ t('annotations.annotations') }}</span>
             <span class="notes-count">({{ filteredComments.length }})</span>
@@ -88,13 +91,13 @@
 
         <div
             v-bind="commentsContainerProps"
-            class="notes-list app-scrollbar app-scroll-region--balanced"
+            class="notes-list app-scrollbar"
         >
             <div v-bind="commentsWrapperProps">
                 <div
                 v-for="virtualComment in virtualComments"
                 :key="annotationIdForSummary(virtualComment.data)"
-                class="note-item flex flex-col"
+                class="note-item"
                 :data-annotation-id="annotationIdForSummary(virtualComment.data)"
                 :data-annotation-kind="virtualComment.data.annotationKind"
                 :class="{ 'is-active': activeCommentStableKey === annotationIdForSummary(virtualComment.data) }"
@@ -102,7 +105,8 @@
             >
                 <button
                     type="button"
-                    class="note-item-content flex flex-col"
+                    class="note-item-content"
+                    :aria-pressed="activeCommentStableKey === annotationIdForSummary(virtualComment.data)"
                     @click="focusComment(virtualComment.data)"
                                 @dblclick.prevent.stop="openComment(virtualComment.data)"
                                 @keydown.enter.stop.prevent="openComment(virtualComment.data)"
@@ -651,7 +655,7 @@ function setTool(tool: TAnnotationTool) {
 <style lang="scss" scoped>
 .notes-list-section {
     flex: 1 1 0;
-    min-height: 0;
+    min-height: auto;
 }
 
 .notes-list-header {
@@ -706,10 +710,11 @@ function setTool(tool: TAnnotationTool) {
 
 .notes-list {
     flex: 1 1 0;
-    min-height: var(--app-annotation-list-min-height);
+    min-height: var(--annotation-card-height);
     overflow: auto;
     gap: var(--app-sidebar-row-gap);
-    padding-right: 0.1rem;
+    padding-inline: var(--app-space-sm);
+    scrollbar-gutter: stable;
 }
 
 .note-item {
@@ -718,7 +723,7 @@ function setTool(tool: TAnnotationTool) {
     align-items: stretch;
     position: relative;
     border: 1px solid var(--app-sidebar-border);
-    border-radius: 0.55rem;
+    border-radius: var(--app-radius-2xl);
     background: color-mix(in oklab, var(--ui-bg) 70%, var(--ui-bg-muted) 30%);
     color: var(--ui-text-highlighted);
     text-align: left;
@@ -742,6 +747,8 @@ function setTool(tool: TAnnotationTool) {
 }
 
 .note-item-content {
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-width: 0;
     border: 0;
@@ -751,6 +758,12 @@ function setTool(tool: TAnnotationTool) {
     padding: 0;
     gap: var(--app-sidebar-row-gap);
     cursor: pointer;
+}
+
+.note-item-content:focus-visible {
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: var(--app-space-2xs);
+    border-radius: var(--app-radius-sm);
 }
 
 .note-item:hover {
@@ -771,6 +784,7 @@ function setTool(tool: TAnnotationTool) {
     flex-shrink: 0;
     align-items: center;
     gap: var(--app-sidebar-row-gap);
+    padding-right: var(--app-sidebar-action-size);
     white-space: nowrap;
     font-size: var(--app-sidebar-caption-font-size);
 }
@@ -789,6 +803,9 @@ function setTool(tool: TAnnotationTool) {
 }
 
 .note-item-delete {
+    position: absolute;
+    top: var(--app-space-sm);
+    right: var(--app-space-sm);
     flex-shrink: 0;
     margin-left: auto;
     display: inline-flex;
@@ -815,7 +832,8 @@ function setTool(tool: TAnnotationTool) {
     opacity: 1;
 }
 
-.note-item:hover .note-item-delete {
+.note-item:hover .note-item-delete,
+.note-item:focus-within .note-item-delete {
     opacity: 1;
 }
 
@@ -843,6 +861,10 @@ function setTool(tool: TAnnotationTool) {
     display: flex;
     align-items: center;
     min-width: 0;
+    min-height: 2.3lh;
+    flex-shrink: 0;
+    font-size: var(--app-sidebar-row-font-size);
+    line-height: 1.35;
     gap: var(--app-sidebar-row-gap);
     color: var(--ui-text-highlighted);
 }
