@@ -1,0 +1,21 @@
+scripts/test-electron-e2e-headless.sh
+  s_ecea10291e4b09::t_e435ee1baebf03 56-58,60
+scripts/electron-run/createCommandHandler.ts
+  s_ecea10291e4b09::t_129de67c5f5830 934-935
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f0f92779871094ecd62ac822bf3992338d4b728e",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
