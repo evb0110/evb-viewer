@@ -1,94 +1,140 @@
 /**
- * Packets closer together than this belong to one gesture. Wheel input has no
- * end event, and an inertial tail keeps its packet cadence until it stops, so a
- * quiet gap is the only way to see a gesture end.
+ * The quiet gap that separates two gestures where nothing better can. Timing is
+ * the fallback here, not the rule; see `createWheelGestureStream`.
  */
 export const WHEEL_GESTURE_IDLE_MS = 200;
 
+/**
+ * The stream keeps a reference to the latest packet, because whether a
+ * cancelable packet was prevented is only final once its dispatch is over, and
+ * that is what the next packet is judged against.
+ */
 export interface IWheelGesturePacket {
     readonly timeStamp: number;
     readonly deltaX: number;
     readonly deltaY: number;
     readonly cancelable: boolean;
+    readonly defaultPrevented?: boolean;
+}
+
+export interface IWheelGestureObservation {
+    /** The user's intent. Changes with the sequence, and on a reversal inside one. */
+    readonly gestureId: number;
+    /** The browser's scroll sequence, which is what a host boundary refers to. */
+    readonly sequenceId: number;
+    readonly startsSequence: boolean;
+    /**
+     * True when a cancelable packet was joined to the sequence by timing alone.
+     * Such a local sequence spans several browser sequences, so a host boundary
+     * for one of them says nothing about the gesture.
+     */
+    readonly joinedByTiming: boolean;
 }
 
 /**
- * How stale a sequence may be before a non-cancelable packet stops counting as
- * its continuation. Generous on purpose: under load one fling arrives as a few
- * packets several hundred milliseconds apart.
- */
-const WHEEL_SEQUENCE_STALL_MS = 1500;
-
-/**
- * Groups wheel packets into gestures, so a consumer can ask when the user
- * expressed an intent instead of when its packets happened to arrive.
+ * Groups wheel packets into sequences and gestures, so a consumer can ask when
+ * the user expressed an intent instead of when its packets happened to arrive.
  *
  * A fling is expressed once, at finger lift. The platform then keeps emitting
  * packets for a second or more, and none of them carries a new decision.
  *
- * Chromium marks where a gesture begins. It sends the first wheel event of a
- * scroll sequence as cancelable and streams the rest as non-cancelable. So a
- * non-cancelable packet can only belong to the sequence already in progress,
- * and a cancelable packet after a non-cancelable one begins a new sequence.
- * Neither conclusion involves timing, which matters because timing is the
- * first thing a slow machine distorts: a busy main thread makes Chromium
- * coalesce packets, and one fling then arrives as a handful of packets several
- * hundred milliseconds apart. Delta size is no better, since coalescing
- * inflates a tail packet exactly when the viewer is under load.
+ * Identity is structural. Chromium sends the first wheel event of a scroll
+ * sequence as cancelable and streams the rest as non-cancelable, unless a
+ * handler prevented the first, in which case every later packet stays
+ * cancelable. Therefore:
  *
- * The flag says nothing between two cancelable packets, which is what a
- * sequence looks like once a handler prevented it, so there a quiet gap
- * decides. A reversal always starts a new gesture, because inertia never
- * reverses. A reversal is a packet pointing against the previous one; a
+ * - a non-cancelable packet belongs to the sequence in progress, however far
+ *   apart the packets are and however late they are delivered;
+ * - a cancelable packet after a non-cancelable one begins a new sequence;
+ * - a cancelable packet after a cancelable one is ambiguous, and there a quiet
+ *   gap decides.
+ *
+ * The last case is a prevented sequence, or a run of one-packet sequences. The
+ * DevTools input path produces the latter: `Input.dispatchMouseEvent` sends
+ * each wheel event as a complete sequence of its own, all cancelable and none
+ * prevented, which is how the E2E suite and automation agents drive a fling.
+ * Hardware cannot produce that run fast enough to matter. A person would have
+ * to scroll one packet, issue a command and start a new gesture inside the
+ * quiet gap, and a notched wheel stays latched in one sequence for longer than
+ * that. So joining by timing is never wrong for a person and is required for
+ * automation.
+ *
+ * Neither of the first two involves timing, neither the spacing of timestamps
+ * nor the delay of delivery. Both are what a slow machine distorts first: a
+ * busy main thread makes Chromium coalesce packets, so one fling arrives as a
+ * handful of packets hundreds of milliseconds apart, and it delivers them late.
+ * Delta size is no better, since coalescing inflates a tail packet exactly when
+ * the viewer is under load.
+ *
+ * A reversal is new intent, because inertia never reverses, but it stays inside
+ * its sequence. A reversal is a packet pointing against the previous one; a
  * diagonal tail whose larger axis alternates is still travelling the same way.
  */
 export function createWheelGestureStream() {
     let gestureId = 0;
-    let lastPacketAtMs: number | null = null;
+    let sequenceId = 0;
+    let lastPacket: IWheelGesturePacket | null = null;
     let lastDelta: {
         x: number;
         y: number
     } | null = null;
-    let lastPacketCancelable = true;
     // With no non-passive wheel listener every packet is non-cancelable and
     // the flag carries no information, so timing has to decide instead.
     let cancelableSeen = false;
 
-    function isWithin(nowMs: number, windowMs: number) {
-        if (lastPacketAtMs === null) {
+    function isWithinIdleGap(nowMs: number) {
+        if (lastPacket === null) {
             return false;
         }
-        const sinceLastPacketMs = nowMs - lastPacketAtMs;
-        return sinceLastPacketMs >= 0 && sinceLastPacketMs < windowMs;
+        const sinceLastPacketMs = nowMs - lastPacket.timeStamp;
+        return sinceLastPacketMs >= 0 && sinceLastPacketMs < WHEEL_GESTURE_IDLE_MS;
+    }
+
+    function continuesSequence(packet: IWheelGesturePacket) {
+        if (lastPacket === null) {
+            return false;
+        }
+        if (!packet.cancelable) {
+            return cancelableSeen || isWithinIdleGap(packet.timeStamp);
+        }
+        return lastPacket.cancelable && isWithinIdleGap(packet.timeStamp);
     }
 
     return {
         /** Whether packet timing alone suggests the gesture is still going. */
-        isLive: (nowMs: number) => isWithin(nowMs, WHEEL_GESTURE_IDLE_MS),
+        isLive: isWithinIdleGap,
+        hasPackets: () => lastPacket !== null,
         getGestureId: () => gestureId,
-        /** Records a packet and returns the id of the gesture it belongs to. */
-        observe(packet: IWheelGesturePacket) {
+        getSequenceId: () => sequenceId,
+        observe(packet: IWheelGesturePacket): IWheelGestureObservation {
             const hasDelta = packet.deltaX !== 0 || packet.deltaY !== 0;
-            const reverses = hasDelta
+            const startsSequence = !continuesSequence(packet);
+            const joinedByTiming = !startsSequence && packet.cancelable;
+            const reverses = !startsSequence
+                && hasDelta
                 && lastDelta !== null
                 && packet.deltaX * lastDelta.x + packet.deltaY * lastDelta.y < 0;
-            const continuesSequence = packet.cancelable
-                ? lastPacketCancelable && isWithin(packet.timeStamp, WHEEL_GESTURE_IDLE_MS)
-                : isWithin(packet.timeStamp, cancelableSeen ? WHEEL_SEQUENCE_STALL_MS : WHEEL_GESTURE_IDLE_MS);
-            cancelableSeen ||= packet.cancelable;
-            if (!continuesSequence || reverses) {
-                gestureId += 1;
+            if (startsSequence) {
+                sequenceId += 1;
                 lastDelta = null;
             }
-            lastPacketCancelable = packet.cancelable;
+            if (startsSequence || reverses) {
+                gestureId += 1;
+            }
+            cancelableSeen ||= packet.cancelable;
             if (hasDelta) {
                 lastDelta = {
                     x: packet.deltaX,
                     y: packet.deltaY,
                 };
             }
-            lastPacketAtMs = packet.timeStamp;
-            return gestureId;
+            lastPacket = packet;
+            return {
+                gestureId,
+                sequenceId,
+                startsSequence,
+                joinedByTiming,
+            };
         },
     };
 }

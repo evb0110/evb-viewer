@@ -97,34 +97,75 @@ emits inertial wheel packets for a second or more. A toolbar, sidebar or
 keyboard command issued during that tail is the newer intent, even though tail
 packets keep arriving after it.
 
-`createWheelGestureStream.ts` groups packets into gestures. Chromium sends the
-first wheel event of a scroll sequence as cancelable and the rest as
-non-cancelable. So a non-cancelable packet can only belong to the sequence
-already in progress, and a cancelable packet after a non-cancelable one begins a
-new sequence. Neither conclusion involves timing. A quiet gap of
-`WHEEL_GESTURE_IDLE_MS` decides only between two cancelable packets, which is
-what a sequence looks like once a handler prevented it, and on a page where no
-cancelable packet has ever been seen. A reversal always starts a new gesture.
+`createWheelGestureStream.ts` derives identity from structure, not timing.
+Chromium sends the first wheel event of a scroll sequence as cancelable and the
+rest as non-cancelable, unless a handler prevented the first, in which case
+every later packet stays cancelable. So:
 
-Timing is avoided because a slow machine distorts it first. Under a 6x CPU
-slowdown one fling that normally arrives as 69 packets at a 17 ms median gap
-arrived as 10 packets at a 192 ms median gap, with four gaps over 200 ms. A
-quiet-gap rule splits that into five gestures and the fence never holds. Delta
-size is no better, since the same coalescing inflates a tail packet.
+- a non-cancelable packet belongs to the sequence in progress, however far apart
+  the timestamps are and however late the packet is delivered;
+- a cancelable packet after a non-cancelable one begins a new sequence;
+- a cancelable packet after a cancelable one is ambiguous, and there a quiet gap
+  of `WHEEL_GESTURE_IDLE_MS` decides. The same gap decides on a page where no
+  cancelable packet has ever been seen.
 
-Packets also cannot say whether a sequence is still live at the moment a command
-arrives, because the last packet of a live fling can be several hundred
-milliseconds old. The browser process owns the sequence, including its inertial
-tail, so `electron/hostEnvironment.ts` forwards `gestureScrollBegin` and
-`gestureScrollEnd` as the host event `onWheelScrollSequenceChange`, and the
-chassis hands them to the write port. An `end` restores scrolling at once,
-instead of waiting for an idle timer that a busy main thread delays, but it
-keeps the ownership fence: the signal can overtake the gesture's last packets,
-and those must still read as residue or they would cancel a command that has not
-landed. Such late packets cannot reopen the sequence, since only packets after a
-cancelable one can. `begin` repairs the opposite race, where the next gesture's
-first packet overtakes a delayed `end`. A hosted browser has no such signal and
-falls back to packet timing.
+The ambiguous case is a prevented sequence, or a run of one-packet sequences.
+The DevTools input path produces the latter: `Input.dispatchMouseEvent` sends
+each wheel event as a complete sequence of its own, all cancelable and none
+prevented, and that is how the E2E suite and automation agents drive a fling. A
+new cancelable packet right after a genuine one-packet sequence has the same
+flags and the same host boundaries around it, so nothing but the gap separates
+the two. Hardware cannot produce that run fast enough to matter: a person would
+have to scroll one packet, issue a command and start a new gesture inside the
+gap, and a notched wheel stays latched in one sequence for longer than that.
+
+The stream reports two ids. The sequence is the browser's scroll sequence, which
+host boundaries refer to. The gesture is the user's intent, which also changes on
+a reversal inside one sequence, because inertia never reverses.
+
+Timestamp spacing and delivery delay are separate distortions and a slow machine
+produces both. Under a 6x CPU slowdown one fling that normally arrives as 69
+packets at a 17 ms median gap arrived as 10 packets at a 192 ms median gap, with
+four gaps over 200 ms, and packets wait behind long tasks before they are
+handled. Any cutoff on either axis eventually releases a live gesture, so
+ownership has none. Delta size is no better, since coalescing inflates a tail
+packet.
+
+Packets cannot say whether a sequence is still live when a command arrives,
+because the last packet of a live fling can be hundreds of milliseconds old. The
+browser process owns the sequence, including its inertial tail, so
+`electron/hostEnvironment.ts` forwards `gestureScrollBegin` and
+`gestureScrollEnd` as the host event `onWheelScrollSequenceChange`. That event
+is window-wide, while identity is local, so a boundary only annotates a sequence
+this viewport saw start. Both streams are ordered and a `begin` cannot exist
+before the renderer has handled its sequence's first packet, so a `begin` claims
+the oldest local sequence start still owed one, skipping prevented starts, which
+never reach the host. A viewport with nothing owed declines the `begin` and the
+`end` that follows: a fling in a sidebar or another pane is not a live gesture
+here. An `end` closes the sequence its `begin` claimed, not the current one, so
+the next gesture's first packet may overtake it. An `end` with no `begin` at all
+means the viewport started listening mid-sequence and closes the current one.
+
+A local sequence joined by timing spans several browser sequences, so the host's
+boundaries for its members are not the gesture's. The port ignores them for such
+a sequence and lets packet timing speak. Without that, the `end` of the first
+one-packet sequence of a DevTools fling marked the whole gesture over, the
+command was fenced without suppression, and the stream scrolled it away.
+
+An `end` restores scrolling at once and keeps the ownership fence. Ownership
+ends only when a packet of another gesture arrives. The idle timer merely
+restores scrolling where no host reports boundaries, and a residue packet that
+arrives afterwards suppresses it again. A hosted browser has no host signal and
+uses packet timing for liveness only.
+
+Known limits. Inside a prevented sequence or a run of one-packet sequences,
+neither structure nor host says anything, so a quiet gap still decides and a
+slow machine can split it. A notched wheel has no inertia, yet its ticks share
+one latched sequence, so ticks that follow a command without a pause read as
+residue until the sequence ends; this is unverified on hardware. If IPC is starved so long that another
+scroller's `begin` and `end` are handled after this viewport's next first packet,
+they are misattributed to it and liveness falls back to packet timing until the
+following sequence.
 
 The viewport write port owns the rule. `queueNavigationRequest` calls
 `fenceCommandAgainstLiveGesture` for every source except `wheel`. Packets of

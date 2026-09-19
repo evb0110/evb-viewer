@@ -36,13 +36,17 @@ function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSou
 }
 
 function wheelPacket(timeStamp: number, deltaY = 40, deltaX = 0, cancelable = false) {
-    return {
+    const packet = {
         timeStamp,
         deltaX,
         deltaY,
         cancelable,
-        preventDefault: vi.fn(),
+        defaultPrevented: false,
+        preventDefault: vi.fn(() => {
+            packet.defaultPrevented = packet.cancelable;
+        }),
     };
+    return packet;
 }
 
 function scrollInteraction(timeStamp: number, deltaY = 40, deltaX = 0, cancelable = false) {
@@ -219,7 +223,7 @@ describe('document viewer chassis authority', () => {
             // Chromium coalesces packets under load, so a tail packet can be
             // larger than the one before it without being a new gesture.
             expect(scrollPacket(port, 96, 140)).toBe('command-residue');
-            expect(port.isCommandResidueLive(100)).toBe(true);
+            expect(port.isCommandResidueLive()).toBe(true);
             expect(port.apply(container, {
                 intent: navigation,
                 reason: 'navigation',
@@ -238,7 +242,7 @@ describe('document viewer chassis authority', () => {
 
             expect(scrollPacket(port, 400)).toBe('user-input');
             expect(port.userScrollSuppressed.value).toBe(false);
-            expect(port.isCommandResidueLive(400)).toBe(false);
+            expect(port.isCommandResidueLive()).toBe(false);
             expect(port.apply(container, {
                 intent: navigation,
                 reason: 'navigation',
@@ -338,12 +342,16 @@ describe('document viewer chassis authority', () => {
             vi.restoreAllMocks();
         });
 
-        it('falls back to the quiet gap when a prevented sequence keeps every packet cancelable', () => {
+        it('falls back to the quiet gap only inside a prevented sequence, where every packet stays cancelable', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-            const packet = (timeStamp: number) => (
-                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, true))
-            );
+            const packet = (timeStamp: number) => {
+                const interaction = scrollInteraction(timeStamp, 40, 0, true);
+                const owner = observeDocumentViewportWheelInteraction(port, interaction);
+                // A renderer handler prevents the packet, as a paged flip does.
+                interaction.event.preventDefault();
+                return owner;
+            };
 
             packet(0);
             packet(16);
@@ -368,6 +376,7 @@ describe('document viewer chassis authority', () => {
             );
 
             send(0, true);
+            port.observeWheelScrollSequence('begin');
             send(16, false);
             port.fenceCommandAgainstLiveGesture(20);
             const navigation = port.beginIntent('navigate:734');
@@ -404,6 +413,7 @@ describe('document viewer chassis authority', () => {
             );
 
             send(0, true);
+            port.observeWheelScrollSequence('begin');
             send(16, false);
             port.fenceCommandAgainstLiveGesture(20);
             port.observeWheelScrollSequence('end');
@@ -425,6 +435,7 @@ describe('document viewer chassis authority', () => {
             };
 
             send(0, true);
+            port.observeWheelScrollSequence('begin');
             send(16, false);
             port.fenceCommandAgainstLiveGesture(20);
             port.observeWheelScrollSequence('end');
@@ -490,6 +501,294 @@ describe('document viewer chassis authority', () => {
             // scrolling for a sequence that is already over.
             port.fenceCommandAgainstLiveGesture(5_000);
             expect(port.userScrollSuppressed.value).toBe(false);
+        });
+
+        describe('ownership of late and sparse packets', () => {
+            function fencedFling() {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const container = createViewportContainer();
+                const send = (timeStamp: number, cancelable: boolean) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
+                );
+                send(0, true);
+                port.observeWheelScrollSequence('begin');
+                send(16, false);
+                port.fenceCommandAgainstLiveGesture(20);
+                const navigation = port.beginIntent('navigate:1');
+                const lands = () => port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 700,
+                });
+                return {
+                    port,
+                    send,
+                    lands,
+                };
+            }
+
+            // Two independent distortions of a slow machine. Timestamps say
+            // when the hardware produced a packet; the clock says when the
+            // renderer got round to it.
+            const distortions = [
+                {
+                    name: 'sparse timestamps, prompt delivery',
+                    timestampGapMs: 1_601,
+                    deliveryDelayMs: 0,
+                },
+                {
+                    name: 'close timestamps, late delivery',
+                    timestampGapMs: 16,
+                    deliveryDelayMs: 5_000,
+                },
+                {
+                    name: 'sparse timestamps and late delivery',
+                    timestampGapMs: 12_000,
+                    deliveryDelayMs: 5_000,
+                },
+            ];
+
+            it.each(distortions)('keeps residue while the host sequence is open: $name', ({
+                timestampGapMs,
+                deliveryDelayMs,
+            }) => {
+                const fling = fencedFling();
+                vi.advanceTimersByTime(deliveryDelayMs);
+
+                expect(fling.send(16 + timestampGapMs, false)).toBe('command-residue');
+                expect(fling.port.userScrollSuppressed.value).toBe(true);
+                expect(fling.lands()).toBe(true);
+            });
+
+            it.each(distortions)('keeps residue after the host ended the sequence: $name', ({
+                timestampGapMs,
+                deliveryDelayMs,
+            }) => {
+                const fling = fencedFling();
+                fling.port.observeWheelScrollSequence('end');
+                vi.advanceTimersByTime(deliveryDelayMs);
+
+                expect(fling.send(16 + timestampGapMs, false)).toBe('command-residue');
+                // The sequence is over, so a late packet is only late: it must
+                // not take scrolling away again.
+                expect(fling.port.userScrollSuppressed.value).toBe(false);
+                expect(fling.lands()).toBe(true);
+            });
+        });
+
+        describe('a genuine next sequence', () => {
+            function commandDuringOnePacketSequence() {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const container = createViewportContainer();
+                const send = (timeStamp: number, cancelable: boolean) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
+                );
+                send(0, true);
+                port.observeWheelScrollSequence('begin');
+                port.fenceCommandAgainstLiveGesture(10);
+                const staleNavigation = port.beginIntent('navigate:734');
+                const staleNavigationLands = () => port.apply(container, {
+                    intent: staleNavigation,
+                    reason: 'navigation',
+                    top: 700,
+                });
+                return {
+                    port,
+                    send,
+                    staleNavigationLands,
+                };
+            }
+
+            // A cancelable packet right after a one-packet sequence is
+            // structurally identical to the next member of a run of one-packet
+            // sequences, which is how the DevTools input path delivers a
+            // fling: same flags, same host boundaries in between. Nothing but
+            // the gap separates them, so the quiet gap decides. A person
+            // cannot scroll one packet, issue a command and start a new
+            // gesture inside that gap.
+            it('is joined to a one-packet sequence it follows within the quiet gap', () => {
+                const run = commandDuringOnePacketSequence();
+                run.port.observeWheelScrollSequence('end');
+
+                expect(run.send(40, true)).toBe('command-residue');
+                expect(run.staleNavigationLands()).toBe(true);
+            });
+
+            it('is the user taking the viewport once the quiet gap has passed, whatever the host order', () => {
+                const run = commandDuringOnePacketSequence();
+                run.port.observeWheelScrollSequence('end');
+                vi.advanceTimersByTime(260);
+
+                expect(run.send(260, true)).toBe('user-input');
+                run.port.observeWheelScrollSequence('begin');
+                expect(run.staleNavigationLands()).toBe(false);
+                expect(run.send(276, false)).toBe('user-input');
+            });
+
+            it('needs no quiet gap after a sequence that produced a non-cancelable packet', () => {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const container = createViewportContainer();
+                const send = (timeStamp: number, cancelable: boolean) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
+                );
+                send(0, true);
+                port.observeWheelScrollSequence('begin');
+                send(16, false);
+                port.fenceCommandAgainstLiveGesture(20);
+                const staleNavigation = port.beginIntent('navigate:734');
+
+                // 8 ms after the tail's last packet, before its `end` arrives.
+                expect(send(24, true)).toBe('adopted-user-input');
+                expect(port.apply(container, {
+                    intent: staleNavigation,
+                    reason: 'navigation',
+                    top: 700,
+                })).toBe(false);
+            });
+
+            it('is not closed by the old sequence\'s end arriving after its first packet', () => {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const send = (timeStamp: number, cancelable: boolean) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable))
+                );
+                send(0, true);
+                port.observeWheelScrollSequence('begin');
+                send(16, false);
+
+                // Input outranks IPC on a busy main thread, so the next
+                // sequence's first packet can be handled before the old `end`.
+                expect(send(40, true)).toBe('user-input');
+                port.observeWheelScrollSequence('end');
+                port.observeWheelScrollSequence('begin');
+                send(56, false);
+
+                // The new sequence is still open long after its last packet.
+                port.fenceCommandAgainstLiveGesture(3_000);
+                expect(port.userScrollSuppressed.value).toBe(true);
+                expect(send(3_100, false)).toBe('command-residue');
+                port.observeWheelScrollSequence('end');
+                expect(port.userScrollSuppressed.value).toBe(false);
+            });
+
+            it('starts on a reversal, which inertia never produces, without leaving its sequence', () => {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const send = (timeStamp: number, deltaY: number, cancelable: boolean) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, cancelable))
+                );
+                send(0, 60, true);
+                port.observeWheelScrollSequence('begin');
+                send(16, 55, false);
+                port.fenceCommandAgainstLiveGesture(20);
+
+                expect(send(32, -20, false)).toBe('user-input');
+                expect(port.userScrollSuppressed.value).toBe(false);
+
+                // Still the host's same sequence: a later command fences it
+                // without any recent packet, and its end is still recognised.
+                port.fenceCommandAgainstLiveGesture(2_000);
+                expect(port.userScrollSuppressed.value).toBe(true);
+                port.observeWheelScrollSequence('end');
+                expect(port.userScrollSuppressed.value).toBe(false);
+            });
+        });
+
+        describe('a scroll sequence that belongs to another scroller', () => {
+            it('is not a live gesture for a viewport that never received a wheel packet', () => {
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+
+                port.observeWheelScrollSequence('begin');
+                port.fenceCommandAgainstLiveGesture(10);
+
+                expect(port.userScrollSuppressed.value).toBe(false);
+            });
+
+            it('neither reopens nor ends a sequence this viewport finished earlier', () => {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const send = (timeStamp: number, cancelable: boolean) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable))
+                );
+                send(0, true);
+                port.observeWheelScrollSequence('begin');
+                send(16, false);
+                port.observeWheelScrollSequence('end');
+
+                // A fling in the sidebar, then a row click that navigates here.
+                port.observeWheelScrollSequence('begin');
+                port.fenceCommandAgainstLiveGesture(4_000);
+                expect(port.userScrollSuppressed.value).toBe(false);
+                port.observeWheelScrollSequence('end');
+
+                // The viewport's own next gesture is unaffected.
+                expect(send(5_000, true)).toBe('user-input');
+                port.observeWheelScrollSequence('begin');
+                send(5_016, false);
+                port.fenceCommandAgainstLiveGesture(6_000);
+                expect(port.userScrollSuppressed.value).toBe(true);
+            });
+
+            it('still ends its own sequence when it started listening mid-sequence and saw no begin', () => {
+                vi.useFakeTimers();
+                const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+                const send = (timeStamp: number, cancelable: boolean) => (
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable))
+                );
+                // An earlier sequence elsewhere taught the viewport that the
+                // host reports boundaries.
+                port.observeWheelScrollSequence('begin');
+                port.observeWheelScrollSequence('end');
+                send(0, true);
+                send(16, false);
+                port.fenceCommandAgainstLiveGesture(900);
+                expect(port.userScrollSuppressed.value).toBe(true);
+
+                port.observeWheelScrollSequence('end');
+                expect(port.userScrollSuppressed.value).toBe(false);
+            });
+        });
+
+        it('holds a command through a run of one-packet sequences, as the DevTools input path delivers a fling', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+            // `Input.dispatchMouseEvent` sends each wheel event as a complete
+            // sequence: cancelable, not prevented, with its own begin and end.
+            const sendOnePacketSequence = (timeStamp: number) => {
+                const owner = observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, true), container);
+                port.observeWheelScrollSequence('begin');
+                port.observeWheelScrollSequence('end');
+                return owner;
+            };
+
+            sendOnePacketSequence(0);
+            sendOnePacketSequence(16);
+            sendOnePacketSequence(32);
+            // The host has ended every member so far, yet the gesture is live.
+            port.fenceCommandAgainstLiveGesture(40);
+            const navigation = port.beginIntent('navigate:1');
+            expect(port.userScrollSuppressed.value).toBe(true);
+
+            expect(sendOnePacketSequence(48)).toBe('command-residue');
+            expect(sendOnePacketSequence(64)).toBe('command-residue');
+            expect(port.userScrollSuppressed.value).toBe(true);
+            expect(port.isCommandResidueLive()).toBe(true);
+            expect(port.apply(container, {
+                intent: navigation,
+                reason: 'navigation',
+                top: 0,
+            })).toBe(true);
+
+            // Quiet: scrolling comes back, and once the restored style has
+            // settled the next gesture is Chromium's to scroll.
+            vi.advanceTimersByTime(260);
+            expect(port.userScrollSuppressed.value).toBe(false);
+            vi.advanceTimersByTime(400);
+            expect(sendOnePacketSequence(700)).toBe('user-input');
         });
 
         it('restores scrolling once the tail goes quiet', () => {
