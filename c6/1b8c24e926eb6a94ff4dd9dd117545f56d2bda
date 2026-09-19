@@ -1,0 +1,27 @@
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_7ebf6a06a0e02d 204-206,242
+docs/architecture/adr/0006-fit-width-fits-the-widest-page.md
+  s_ecea10291e4b09::t_603b7a50b49c5e 1-34
+docs/architecture/behavior-contract.md
+  s_ecea10291e4b09::t_a71e87df46a157 64-69
+docs/internal/methodology-review-2026-09-19-implementation-ledger.md
+  s_ecea10291e4b09::t_88949d901063da 185-194
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_9ebc9e83599242 314-316,327-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c61b8c24e926eb6a94ff4dd9dd117545f56d2bda",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
