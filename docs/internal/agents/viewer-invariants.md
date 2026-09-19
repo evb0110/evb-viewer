@@ -25,9 +25,17 @@ contract statement it checks:
 | `S0-viewer-settled` | the Settled definition |
 
 `waitForViewerSettled()` implements Settled: no input for 500ms, no visible
-page still showing a skeleton, and, for a caller that just drove a navigation,
-a `navigation-idle` no older than the last input. Its 10s bound is its own;
-failing to settle is reported as `S0`, never as a reason to skip a check.
+page still showing a skeleton, the viewport and the mounted page boxes
+identical to the previous frame, and, for a caller that just drove a
+navigation, a `navigation-idle` no older than the last input. Its 10s bound is
+its own; failing to settle is reported as `S0`, never as a reason to skip a
+check.
+
+Two-observation statements compare against the previous observation of the same
+workspace. The memory is dropped when the active workspace tab changes, and an
+annotation that stops drawing while its own page is still mounted is forgotten;
+a page the viewer virtualized away keeps its memory, because bringing an
+annotation back in the wrong place is the defect the comparison exists for.
 
 The unobscured viewport is the scroller's client box, which already excludes
 the toolbar, the sidebar and a classic scrollbar. C2 is fed by the renderer
@@ -37,16 +45,21 @@ error guard's own notices, so there is no second global handler.
 
 A dev-only Nuxt plugin installs the monitor, which runs the checker on each
 settled state (throttled), keeps a content-free ring buffer of recent actions
-and violations, and logs one structured `console.warn` per violation.
+and violations, and logs one structured `console.warn` per violation. An action
+records its type, its timestamp, the page track's presentation modes and the
+control's authored identity: test id, role, element id, tag name. No free-text
+attribute is read, because a tab's `aria-label` is the open document's file
+name. Recording measures nothing, so it cannot perturb the gesture it observes.
 
 **Cmd/Ctrl+Alt+B** writes `<userData>/bug-reports/<ISO timestamp>/` with
 `report.json` and `screenshot.png`, and confirms with a small toast. The main
-process owns the timestamp, the directory and the screenshot; a packaged build
-refuses the call. `report.json` carries recent actions, violations, the toolbar
-snapshot, a redacted workspace-checkpoint shape, window size, DPR, app version,
-page count and a geometry-only document fingerprint, and never document text,
-file names or annotation content. The screenshot is a picture of the window and
-therefore shows whatever is on screen.
+process owns the timestamp, the directory and the screenshot, and keeps the
+newest twenty bundles; a packaged build refuses the call. `report.json` carries
+recent actions, violations, the toolbar snapshot, a redacted
+workspace-checkpoint shape, window size, DPR, app version, page count and a
+geometry-only document fingerprint, and never document text, file names or
+annotation content. The screenshot is a picture of the window and therefore
+shows whatever is on screen.
 
 Production exclusion works like the dev-only agent widget: the plugin reaches
 its implementation through an `import.meta.dev` ternary, so rollup drops the
@@ -59,7 +72,11 @@ module. Verify with `pnpm exec nuxi build` and a grep of
   per statement plus a conforming one, laid out by real Chromium. This is the
   guard against a weakened checker.
 - `tests/e2e/electron/helpers/viewerInvariants.ts` exposes
-  `assertViewerInvariants(page, {checkpoint, expected})`.
+  `assertViewerInvariants(page, {checkpoint, expected})`. `expected` is the
+  exact list of tolerated violations, each naming its statement, the annotation
+  it is about and a written reason. The list is matched in both directions, so
+  a fix cannot leave a stale exception behind and a second defect cannot hide
+  behind one.
 - `tests/e2e/electron/viewerInvariantJourney.e2e.test.ts` drives one composed
   reading session with trusted input.
 
