@@ -1,0 +1,45 @@
+tests/e2e/electron/helpers/startTrustedWheelFling.ts
+  s_ecea10291e4b09::t_799bb47db2ff06 17
+  s_ecea10291e4b09::t_4793b17399f060 69-73
+  s_ecea10291e4b09::t_6bb2af430444f1 90
+  s_ecea10291e4b09::t_1e88aeadcad21d 36-40,42-46
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_ecea10291e4b09::t_13de05d6caaf78 1194-1210,1213
+tests/e2e/electron/helpers/viewerCore.ts
+  s_ecea10291e4b09::t_97bc6691b4c4f0 1301-1365
+  s_ecea10291e4b09::t_2c0729709ad8ec 74-100
+  s_ecea10291e4b09::t_a35c1ad0ca6c89 25-29
+  s_ecea10291e4b09::t_e6a305b67dc8bc 1242-1249
+scripts/stress/stressDeterministicDriver.ts
+  s_ecea10291e4b09::t_9142fdc673e86f 17,268,278,347
+tests/e2e/electron/annotationTextInteraction.e2e.test.ts
+  s_ecea10291e4b09::t_f0f82ae0a34a60 40,406,493,585
+tests/e2e/electron/inactivePdfTabs.e2e.test.ts
+  s_ecea10291e4b09::t_3a57d84b55eae6 16,165,170
+tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts
+  s_ecea10291e4b09::t_ed1807969a1fc8 48,501,516,534
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_ecea10291e4b09::t_52e8b1249f3668 64,3482,4468,4624
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_ecea10291e4b09::t_d49c83ccabf773 49,564,1129,1328,1345,1397,1424,1474,1501,1521
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_ecea10291e4b09::t_acfbfe7efddf2c 53,992
+tests/unit/scripts/stress/stressDeterministicDriver.test.ts
+  s_ecea10291e4b09::t_8b06c6050e0739 22,36,141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5876ec88cdda27e6db231c1c45b2008b29ddc837",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
