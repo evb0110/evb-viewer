@@ -1,0 +1,19 @@
+tests/e2e/electron/annotationControls.e2e.test.ts
+  s_1e007b198ae212::t_f2abccf5472acd 63-64,68-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ebc1188edb28e5ca8d833a9d9663dfef32b9e1d6",
+  "prompts": {},
+  "sessions": {
+    "s_1e007b198ae212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b867-726f-7f52-afea-ebaae570d8e3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
