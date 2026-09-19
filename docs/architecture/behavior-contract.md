@@ -89,7 +89,8 @@ and tab switches unless it was edited. One observation: its box intersects its
 own page's box and its center lies within that box expanded by 24 px. Strokes,
 decorations and shapes drawn past the page edge may extend outside.
 
-**A2. A note window follows its anchor.** One observation, while the anchor page
+**A2. A note window follows its anchor.** The anchor is the annotation's own
+marker where one is drawn, otherwise its page. One observation, while the anchor
 is on screen: an open note window covers no application chrome, meaning the
 toolbar, a sidebar, the tab bar, the status bar or another pane, and it reaches
 the pane it belongs to. Two observations: when the anchor is visible both times,
@@ -164,7 +165,14 @@ need not succeed.
    facing mode?
 2. R3: confirm the anchors: viewport center for toolbar zoom, pointer for wheel
    and pinch zoom, and what resize and sidebar toggles should hold still.
-3. A2: when the anchor page leaves the viewport, should the note window hide,
-   dock to the pane edge, or stay?
+3. A2: when the anchor leaves the viewport, should the note window hide, dock
+   to the pane edge, or stay? On a page taller than the viewport the marker can
+   scroll out while its page stays on screen; today the window follows it out
+   and is clipped away completely.
 4. L2 and R2: acceptable time bounds on a 2,000-page scanned book.
 5. L4: the supported minimum window size and UI scale range.
+6. L1: in fit width, a wider page anywhere in the document, not only one
+   intersecting the viewport, leaves a horizontal scroll range on a narrower
+   current page that itself fits. Six of 28 real PDFs in a discovery run showed
+   it, by 69 to 1,199 px. Other continuous viewers behave the same way. Accept
+   it and narrow L1, or make the scroll range follow the visible pages?

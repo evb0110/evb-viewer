@@ -451,6 +451,38 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(anchorOffscreen.violations).toEqual([]);
             expect(anchorOffscreen.unresolved.map(entry => entry.id)).toEqual(['A2-anchor-offscreen']);
             expect(anchorOffscreen.skipped.map(skip => skip.id)).toContain('A2-note-window-over-chrome');
+
+            // The same open question on a page taller than the viewport: the
+            // page is still on screen, and the note's own marker, with the
+            // window that follows it, has scrolled out above the pane. Found
+            // on one-page documents read zoomed in.
+            await loadFixture(page, buildFixtureMarkup({
+                noteWindows: [{
+                    annotationId: 'note-1',
+                    leftPx: 60,
+                    pageNumber: 1,
+                    topPx: -400,
+                }],
+                pages: [{
+                    heightPx: 2_400,
+                    overlays: [{
+                        annotationId: 'note-1',
+                        height: 0,
+                        kind: 'note',
+                        screenSizedPx: 22,
+                        width: 0,
+                        x: 0.4,
+                        y: 0.05,
+                    }],
+                    pageNumber: 1,
+                }],
+            }));
+            const markerOffscreen = await page.evaluate(() => {
+                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 900;
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(markerOffscreen.violations).toEqual([]);
+            expect(markerOffscreen.unresolved.map(entry => entry.id)).toEqual(['A2-anchor-offscreen']);
         } finally {
             await browser.close();
         }

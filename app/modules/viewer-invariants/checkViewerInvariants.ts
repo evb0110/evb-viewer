@@ -493,11 +493,18 @@ function checkNoteWindowPlacement(
 
     let applicable = 0;
     for (const noteWindow of surface.noteWindows) {
+        // The anchor is the annotation's own marker, not its page: a page
+        // taller than the viewport stays on screen while the marker, and the
+        // window that follows it, scroll out of the pane.
+        const marker = surface.overlays.find(overlay => overlay.annotationId === noteWindow.annotationId) ?? null;
+        const markerOffscreen = marker !== null && !intersects(marker.rect, surface.viewportRect);
         const anchorVisible = noteWindow.anchorRect !== null
-            && intersects(noteWindow.anchorRect, surface.viewportRect);
+            && intersects(noteWindow.anchorRect, surface.viewportRect)
+            && !markerOffscreen;
         if (!anchorVisible) {
             unresolved.push({
                 evidence: {
+                    anchorMarkerRect: marker ? roundRect(marker.rect) : null,
                     anchorPageNumber: noteWindow.anchorPageNumber,
                     anchorRect: noteWindow.anchorRect ? roundRect(noteWindow.anchorRect) : null,
                     annotationId: noteWindow.annotationId,
@@ -505,7 +512,7 @@ function checkNoteWindowPlacement(
                     viewportRect: roundRect(surface.viewportRect),
                 },
                 id: 'A2-anchor-offscreen',
-                question: 'behavior contract A2 and open question 3: when the anchor page leaves the'
+                question: 'behavior contract A2 and open question 3: when the anchor leaves the'
                     + ' viewport, should the note window hide, dock to the pane edge, or stay?',
             });
             continue;
