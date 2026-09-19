@@ -19,6 +19,8 @@ import {
     expect,
     it,
 } from 'vitest';
+import type { IViewerBugReport } from '@app/modules/viewer-invariants/buildViewerBugReport';
+import type { IViewerUserAction } from '@app/modules/viewer-invariants/viewerActionLog';
 import type {
     IViewerInvariantOptions,
     IViewerInvariantReport,
@@ -40,6 +42,12 @@ const TOOLBAR_HEIGHT_PX = 40;
 const PAGE_WIDTH_PX = 500;
 const PAGE_HEIGHT_PX = 300;
 const PAGE_GAP_PX = 20;
+/** Below the editor pane, so the tab bar never covers the document viewport. */
+const TAB_BAR_TOP_PX = TOOLBAR_HEIGHT_PX + VIEWPORT_HEIGHT_PX + 20;
+/** A file name no identifier, class or role in the fixture can contain. */
+const DISTINCTIVE_FILE_NAME = 'Zhukovsky-Memoirs-1917-private-draft.pdf';
+const DISTINCTIVE_FILE_NAME_TOKEN = 'Zhukovsky';
+const FIXTURE_APP_VERSION = '0.0.0-fixture';
 
 interface IFixturePage {
     heightPx?: number;
@@ -70,11 +78,32 @@ interface IFixtureOptions {
     continuousScroll?: boolean;
     noteWindows?: IFixtureNoteWindow[];
     pages?: IFixturePage[];
+    /** Renders a tab bar labelled the way `TabBar.vue` labels a real tab. */
+    tabFileName?: string;
     toolbarPageLabel?: string;
     toolbarPageNumber?: number;
     toolbarTotalPages?: number;
     viewMode?: string;
     zoomMode?: string;
+}
+
+/**
+ * The tab bar as the app renders it: the open document's file name reaches the
+ * DOM through the tab's `aria-label`, its tooltip `title`, and its own text.
+ * The search field carries the name in a `placeholder` for the same reason.
+ */
+function renderTabBar(fileName: string) {
+    return `<div class="tab-list" role="tablist" aria-label="Open documents" data-tab-list
+    style="position:fixed;left:0;top:${String(TAB_BAR_TOP_PX)}px;height:${String(TOOLBAR_HEIGHT_PX)}px">
+    <div class="tab is-active" data-tab-id="tab-1" role="tab" aria-label="${fileName}" title="${fileName}"
+        style="display:inline-block;width:220px;height:100%">
+        <span class="tab-label">${fileName}</span>
+        <button type="button" class="tab-close" aria-label="Close tab"
+            style="width:20px;height:20px"><span>x</span></button>
+    </div>
+    <input class="tab-search" type="search" placeholder="${fileName}" title="${fileName}"
+        style="width:120px;height:20px">
+</div>`;
 }
 
 function renderOverlay(overlay: IFixtureOverlay) {
@@ -145,12 +174,17 @@ function buildFixtureMarkup(options: IFixtureOptions = {}) {
     </div>
 </div>
 ${(options.noteWindows ?? []).map(renderNoteWindow).join('')}
+${options.tabFileName ? renderTabBar(options.tabFileName) : ''}
 </body></html>`;
 }
 
 declare global {
     /* The bundled entry installs these on the page. */
+    var __evbBuildViewerBugReport: (appVersion: string) => IViewerBugReport;
     var __evbCheckViewerInvariants: (options?: IViewerInvariantOptions) => IViewerInvariantReport;
+    var __evbDisposeViewerActionLog: () => void;
+    var __evbInstallViewerActionLog: () => void;
+    var __evbReadViewerUserActions: () => readonly IViewerUserAction[];
     var __evbResetViewerInvariantMemory: () => void;
     var __evbNotifyRendererDiagnosticNotice: (notice: {
         occurredAt: number;
@@ -410,6 +444,57 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 return globalThis.__evbCheckViewerInvariants();
             });
             expect(violationIds(stranded)).toEqual(['A2-note-window-follows-anchor']);
+        } finally {
+            await browser.close();
+        }
+    }, BROWSER_TEST_TIMEOUT_MS);
+
+    it('names the control a real click hit without carrying the document file name', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                height: 700,
+                width: 900,
+            }});
+            await loadFixture(page, buildFixtureMarkup({
+                tabFileName: DISTINCTIVE_FILE_NAME,
+                toolbarPageNumber: 1,
+            }));
+            await page.evaluate(() => {
+                globalThis.__evbInstallViewerActionLog();
+            });
+
+            await page.click('.tab-label');
+            await page.click('.tab-close');
+            await page.click('.tab-search');
+            await page.keyboard.press('KeyK');
+
+            const observed = await page.evaluate((appVersion: string) => {
+                const actions = globalThis.__evbReadViewerUserActions();
+                return {
+                    actionsJson: JSON.stringify(actions),
+                    reportJson: JSON.stringify(globalThis.__evbBuildViewerBugReport(appVersion)),
+                    targets: actions.map(action => action.target),
+                };
+            }, FIXTURE_APP_VERSION);
+            await page.evaluate(() => {
+                globalThis.__evbDisposeViewerActionLog();
+            });
+
+            // The recorded identity still names what the user hit, so a
+            // descriptor reduced to a constant fails here too.
+            expect([...new Set(observed.targets)].sort()).toStrictEqual([
+                'button',
+                'input',
+                'tab',
+            ]);
+            for (const serialized of [
+                observed.actionsJson,
+                observed.reportJson,
+            ]) {
+                expect(serialized).not.toContain(DISTINCTIVE_FILE_NAME);
+                expect(serialized).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
+            }
         } finally {
             await browser.close();
         }

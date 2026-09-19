@@ -1,4 +1,3 @@
-import { getAutomationEvents } from '@app/modules/workspace-shell/public';
 import { readViewerSurface } from '@app/modules/viewer-invariants/readViewerSurface';
 
 const MAX_RETAINED_ACTIONS = 40;
@@ -14,7 +13,7 @@ const OBSERVED_EVENT_TYPES = [
  * document text, a file path, or annotation content.
  */
 export interface IViewerUserAction {
-    /** Best available control identity: test id, aria-label, role, or tag. */
+    /** Best available control identity: test id, role, id, or tag name. */
     target: string;
     timestamp: number;
     type: string;
@@ -38,19 +37,25 @@ let disposeListeners: (() => void) | null = null;
 
 const CONTROL_DESCRIPTOR_LIMIT = 48;
 
+/**
+ * Names the control the user acted on from authored identifiers only. Every
+ * free-text source is excluded on purpose: an `aria-label`, a `title`, an
+ * `alt`, a `placeholder` and the element's text all carry user content. A tab
+ * is labelled with the open document's file name, so reading a label here
+ * would put that name into a bug report and into the console.
+ */
 function describeTarget(target: EventTarget | null) {
     if (!(target instanceof Element)) {
         return 'window';
     }
     const control = target.closest<HTMLElement>(
-        '[data-testid], [aria-label], button, [role], input, textarea, a',
+        '[data-testid], [role], button, input, textarea, a',
     ) ?? (target instanceof HTMLElement ? target : null);
     if (!control) {
         return target.tagName.toLowerCase();
     }
     const identity = [
         control.dataset.testid,
-        control.getAttribute('aria-label'),
         control.getAttribute('role'),
         control.id,
         control.tagName.toLowerCase(),
@@ -115,13 +120,4 @@ export function readViewerUserActions(): readonly IViewerUserAction[] {
 
 export function readLastViewerInputAt() {
     return lastInputAt;
-}
-
-/**
- * True when the app's own automation event stream is publishing. It is gated
- * by the automation preload bridge, so a plain dev session has no
- * `navigation-idle` to wait for and settle falls back to screen quiet.
- */
-export function isAutomationEventStreamActive() {
-    return getAutomationEvents().length > 0;
 }
