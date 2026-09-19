@@ -1,0 +1,19 @@
+tests/e2e/electron/calibration/resizeKeepsHorizontalPlaceCalibration.e2e.test.ts
+  s_ecea10291e4b09::t_0c94659f840e45 6,23,25,33,35-40,45,50,57,70-155,166-170,172-188,191-195,197-207,211,213-214,216-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9d917e6ae53e00d90a68d4f1de25ab2087052ea0",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
