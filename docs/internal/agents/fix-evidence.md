@@ -41,6 +41,16 @@ running app but no fabricated pre-existing failure. The reasons are in the
    `owner-observed` with its `family:` label, as
    [triage labels](triage-labels.md#origin-and-defect-family) describes.
 
+## A family that keeps returning
+
+When the report belongs to a defect family that was repaired before (see
+[triage labels](triage-labels.md#origin-and-defect-family)), do not add another
+repair first. In the failing run, trace the user's intent, the owner of the state
+involved, the stale completion, and the point where the wrong value was
+committed. Prefer deleting a redundant state or lifecycle path when the trace
+supports it. The viewer already has one viewport write port; another authority
+layer is not the answer, and neither is a broad rewrite justified by counts.
+
 ## When reproduction fails
 
 Attempting is mandatory. Succeeding is not. Legitimate reasons: a private
@@ -95,6 +105,12 @@ real-app step to a verifier that can.
   keep it and say so.
 - A replacement test must first fail on the original defect.
 - A test that did not run reports skipped with a reason. It never reports passed.
+- A scenario states the outcome it requires: which checks must have run and which
+  things it created must still be there. A skipped check is not a passed check,
+  and the positions of the elements that remain say nothing about one that
+  vanished.
+- A settled-state check says nothing about the transition. When the report is
+  about blanking, ignored input or jerky motion, observe during the interaction.
 
 ## Red `main`
 

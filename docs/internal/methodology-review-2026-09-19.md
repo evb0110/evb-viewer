@@ -169,6 +169,21 @@ free of flakiness.
   debugging protocol. It carries no native momentum phase, so macOS trackpad
   inertia remains unproven by automation and needs the owner's hands.
 
+## Three different jobs
+
+The measures below serve three jobs that must not be confused.
+
+1. **Prevent a known bug from returning**: a focused regression that fails on the
+   old code and passes on the fix. The pilot does this.
+2. **Find failures nobody specified**: bounded exploration across meaningful
+   states, documents and timings, with someone who processes what it finds.
+3. **Reduce the source of recurring failures**: simplify the ownership or
+   lifecycle problem that a failing run demonstrates.
+
+Better verification makes defects observable. It does not make competing
+asynchronous decisions disappear. No share of real-app tests, number of corpus
+documents, or size of an invariant set establishes product quality.
+
 ## Decisions
 
 Stage 0, rules only:
@@ -212,6 +227,19 @@ stop supervising CI, reviewer and release progress. Backlog order: owner-blockin
 failures, recurring defect families, failures from a fixed set of ordinary tasks
 on varied documents.
 
+## What a checker can and cannot establish
+
+Checking the DOM that survives after settlement does not show that a user's task
+succeeded. An annotation that vanished is no violation of any rule about the
+annotations that remain, and a check that was skipped looks the same as a check
+that passed. So a scenario states what it requires: which checks must have run
+and which created things must still be there, and where the task is survival,
+tab isolation or saved output, that outcome is what gets asserted. A settled
+check also removes the timing in which transient blanking, ignored input and
+jerky resize exist; those need an observation during the transition. Known-bad
+DOM fixtures validate a checker's logic, not the path from a real interaction to
+an actionable finding.
+
 ## Metrics for three weeks
 
 1. Reappearance rate of owner-reported defect families within 14 days, with
@@ -219,6 +247,13 @@ on varied documents.
 2. Median and p90 time from a fix-ready candidate to a trustworthy verdict,
    timestamps derived automatically.
 3. Detection on a fixed panel of known-bad revisions plus one held-out case.
+
+Judge the work by serious failures found before the owner, false alarms and the
+time spent triaging them, recurrence of repaired failures, and total time from a
+report to a trustworthy fix. Counts of tests, rules, invariants or documents are
+not results. A discovery run with zero findings and no exercised, discriminating
+checks is inconclusive, and a green run that carries expected known defects
+means no unexpected failures, not a clean experience.
 
 ## Corrections from the second opinion
 
