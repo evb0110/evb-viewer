@@ -61,10 +61,12 @@ restore.
 
 ## Layout
 
-**L1. Fit modes fit the current page.** Settled. Fit-width: no horizontal scroll
-range when no page intersecting the viewport is wider than the current page or
-spread; in a mixed-size document a wider neighbor may overflow. Fit-height and
-fit-page: in paged mode the current page or spread has no vertical scroll range.
+**L1. Fit modes.** Settled. Fit-width in continuous scroll: one scale for the
+whole document, at which its widest page or spread fits, so there is no
+horizontal scroll range on any page and the scale does not change while
+scrolling ([ADR 0006](adr/0006-fit-width-fits-the-widest-page.md)). Fit-width in
+paged mode: the current page or spread fits. Fit-height and fit-page: in paged
+mode the current page or spread has no vertical scroll range.
 Margins and a classic scrollbar's width are part of the available area.
 
 **L2. No unexplained blank surface.** Settled: every page intersecting the
@@ -171,8 +173,3 @@ need not succeed.
    and is clipped away completely.
 4. L2 and R2: acceptable time bounds on a 2,000-page scanned book.
 5. L4: the supported minimum window size and UI scale range.
-6. L1: in fit width, a wider page anywhere in the document, not only one
-   intersecting the viewport, leaves a horizontal scroll range on a narrower
-   current page that itself fits. Six of 28 real PDFs in a discovery run showed
-   it, by 69 to 1,199 px. Other continuous viewers behave the same way. Accept
-   it and narrow L1, or make the scroll range follow the visible pages?

@@ -182,10 +182,16 @@ None of the three was reachable by an existing test. Every PDF fixture has
 uniform, unrotated pages; the DjVu restore test sets a custom zoom first, which
 is the one condition under which the place survives.
 
-One expectation the owner has to decide, now open question 6 of the contract:
-in six documents of mixed page widths, fit width left 69 to 1,199 px of
-horizontal scroll range on a page that itself fit, because a wider page
-elsewhere sets the track width. One known defect seen again: issue 819 face B,
+One expectation that was undecided: in six documents of mixed page widths, fit
+width left 69 to 1,199 px of horizontal scroll range on a page that itself fit,
+because a wider page elsewhere sets the track width. The owner chose to follow
+the established convention. Read from their source, Chrome, Evince and
+SumatraPDF fit the document's widest page, as Apple's PDFKit is reported to;
+pdf.js, which this viewer followed, fits the current page. ADR 0006 and contract
+L1 now state the widest-page rule, and issue 826 carries the sources and the
+design. It is not implemented: the viewer learns page sizes page by page, which
+is also the likely root of issue 822, and reading all of them at open costs
+0.16 s for 15,605 pages. One known defect seen again: issue 819 face B,
 on two documents. One pathological document (a page 56,842 px wide at the zoom
 floor) had frame gaps over one second while scrolling; every other document
 stayed under 150 ms.

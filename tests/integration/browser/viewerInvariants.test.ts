@@ -311,7 +311,9 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
                 .toEqual(['L1-fit-mode-scroll-range']);
 
-            // L1 applicability: a wider visible page explains the range.
+            // L1, mixed widths: fit-width fits the widest page of the
+            // document (ADR 0006), so a wider visible page does not explain a
+            // horizontal range. It used to excuse one.
             await loadFixture(page, buildFixtureMarkup({
                 pages: [
                     {pageNumber: 1},
@@ -322,9 +324,8 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 ],
                 toolbarPageNumber: 1,
             }));
-            const mixedWidths = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(mixedWidths.violations).toEqual([]);
-            expect(mixedWidths.skipped.map(skip => skip.id)).toContain('L1-fit-mode-scroll-range');
+            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
+                .toEqual(['L1-fit-mode-scroll-range']);
 
             // L1: fit-height in paged mode leaves a vertical range.
             await loadFixture(page, buildFixtureMarkup({

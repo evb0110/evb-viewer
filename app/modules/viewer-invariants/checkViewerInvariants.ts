@@ -201,10 +201,9 @@ function resolveCurrentUnit(
 }
 
 /**
- * L1: fit-width constrains the current page or spread, not the document. A
- * mixed-width document may legitimately need a horizontal range for a wider
- * page elsewhere, so the invariant only applies when nothing visible is wider
- * than the current unit. Fit-height applies to the current page in paged mode.
+ * L1: fit-width fits the widest page of the document (ADR 0006), so it leaves
+ * no horizontal range on any page, mixed widths included. Fit-height applies to
+ * the current page in paged mode.
  */
 function checkFitModeScrollRange(
     surface: IViewerSurface,
@@ -230,17 +229,6 @@ function checkFitModeScrollRange(
 
     if (surface.zoomMode === 'fit-width') {
         const currentWidth = (currentPage.rowRect ?? currentPage.rect).width;
-        const widerPage = visiblePages.find(page => (
-            (page.rowRect ?? page.rect).width > currentWidth + GEOMETRY_TOLERANCE_PX
-        ));
-        if (widerPage) {
-            skipped.push({
-                id: 'L1-fit-mode-scroll-range',
-                reason: `page ${String(widerPage.pageNumber)} is wider than the current page,`
-                    + ' so a horizontal range is expected',
-            });
-            return;
-        }
         if (surface.horizontalScrollRangePx > HORIZONTAL_SCROLL_CLAMP_EPSILON_PX) {
             violations.push({
                 evidence: {
@@ -251,7 +239,7 @@ function checkFitModeScrollRange(
                 },
                 id: 'L1-fit-mode-scroll-range',
                 message: `fit-width left ${surface.horizontalScrollRangePx.toFixed(1)}px of horizontal`
-                    + ' scroll range while no visible page is wider than the current one',
+                    + ' scroll range',
             });
         }
         return;
