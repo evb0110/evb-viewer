@@ -1,0 +1,21 @@
+tests/unit/scripts/ciHealthAttribution.test.ts
+  s_ecea10291e4b09::t_39c643e635885d 137-188
+scripts/ci/ci-health.mjs
+  s_ecea10291e4b09::t_9e933ca8753867 43,451-455,507-513,516,518-529,551-552,564-573,586-596,599,975-977
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c34354ff56a01bd8421d8c15532e786bc7a4e47b",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
