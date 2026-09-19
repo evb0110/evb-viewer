@@ -1,0 +1,34 @@
+app/modules/viewer-invariants/viewerInvariantTypes.ts
+  s_ecea10291e4b09::t_445b68814453ea 79-80
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_c4a92492b4e57a 88,94-96,419
+  s_ecea10291e4b09::t_625fb645619af8 97-98
+  s_ecea10291e4b09::t_4052fbe731e2da 406-417
+  s_ecea10291e4b09::t_dacca90f9e3739 361,365
+  s_ecea10291e4b09::t_9cdc0e1c6ab416 65,71,78,82-87,89-93
+  s_ecea10291e4b09::t_0ff6996b6d7d7d 652
+  s_ecea10291e4b09::t_1925f6c9883580 418,420
+app/modules/viewer-invariants/readViewerSurface.ts
+  s_ecea10291e4b09::t_55be246b63597d 236
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_035e5e1d320c5c 165-166
+  s_ecea10291e4b09::t_ba88c947b9ccf9 87
+  s_ecea10291e4b09::t_3bc34a23253584 423-467
+  s_ecea10291e4b09::t_9ad548c541b705 468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9be5d639473af64957f00799a9e26d976a6798e2",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
