@@ -40,7 +40,7 @@ import {parseArgs} from 'node:util';
 /** @typedef {{name: string, state: 'streak' | 'flapping', firstRed: {sha: string, subject: string, runNumber: number, date: string}, olderThanWindow: boolean, redRuns: number, greenRuns: number, evidence: {lines: string[], more: number, unavailable: boolean}}} IAttribution */
 /** @typedef {IAttribution & {firstRedRunId: number, firstRedJobId: number}} IRawAttribution */
 /** @typedef {{sha: string, subject: string, runNumber: number, date: string}} IFirstBad */
-/** @typedef {{name: string, conclusion: string | null | undefined, attribution: 'NEW' | 'INHERITED' | null, firstBad: IFirstBad | null, olderThanWindow: boolean}} IShaJobVerdict */
+/** @typedef {{name: string, conclusion: string | null | undefined, attribution: 'NEW' | 'INHERITED' | 'UNDETERMINED' | null, firstBad: IFirstBad | null, olderThanWindow: boolean, candidates?: string[], lastGood?: string | null}} IShaJobVerdict */
 /** @typedef {{tier: string, workflow: string, found: boolean, run: IRun | null, jobs: IShaJobVerdict[]}} IShaTier */
 
 // The tiers a commit is judged by. The required tier is the verdict branch
@@ -448,7 +448,11 @@ export function summarizeAttribution(inspected) {
  * One commit's verdict in one tier. `INHERITED` means the job was already
  * failing on the previous run of that tier that produced a verdict for it, so
  * this commit did not cause it. `firstBad` walks the consecutive red streak
- * back to the run that started it.
+ * back to the run that started it. `NEW` needs a green verdict on the run
+ * directly before this one. When runs in between were superseded or skipped the
+ * job, the break is somewhere in that range and the answer is `UNDETERMINED`
+ * with its candidates: naming this commit would blame whichever push happened
+ * to finish first.
  *
  * @param {{run: IRun, jobs: IJob[]}[]} inspected
  * @param {string} sha
@@ -500,11 +504,29 @@ export function classifyShaJobs(inspected, sha) {
                     firstBad = history[index].entry;
                     index -= 1;
                 }
+                const lastVerdict = history.at(-1);
+                const inherited = lastVerdict?.verdict === 'failure';
+                // Runs after the last verdict that never judged this job.
+                const unjudged = lastVerdict
+                    ? earlier.slice(earlier.indexOf(lastVerdict.entry) + 1)
+                    : earlier;
+                const undetermined = !inherited && unjudged.length > 0;
 
                 return {
-                    attribution: history.length > 0 && history[history.length - 1].verdict === 'failure'
+                    attribution: inherited
                         ? 'INHERITED'
-                        : 'NEW',
+                        : undetermined
+                            ? 'UNDETERMINED'
+                            : 'NEW',
+                    ...(undetermined
+                        ? {
+                            candidates: [
+                                ...unjudged.map(entry => entry.run.head_sha.slice(0, 10)),
+                                target.run.head_sha.slice(0, 10),
+                            ],
+                            lastGood: lastVerdict ? lastVerdict.entry.run.head_sha.slice(0, 10) : null,
+                        }
+                        : {}),
                     conclusion: job.conclusion,
                     firstBad: {
                         date: runDate(firstBad.run.created_at),
@@ -526,6 +548,8 @@ export function formatShaReport(tiers, sha) {
     const newFailures = [];
     /** @type {string[]} */
     const inheritedFailures = [];
+    /** @type {string[]} */
+    const undeterminedFailures = [];
 
     for (const tier of tiers) {
         if (!tier.found || !tier.run) {
@@ -537,6 +561,16 @@ export function formatShaReport(tiers, sha) {
         lines.push(`  ${tier.tier} (${tier.workflow}) run ${tier.run.id}: ${state}${superseded}`);
         const failed = tier.jobs.filter(job => job.conclusion === 'failure');
         for (const job of failed) {
+            if (job.attribution === 'UNDETERMINED') {
+                undeterminedFailures.push(job.name);
+                const candidates = job.candidates ?? [];
+                lines.push(
+                    `    UNDETERMINED ${job.name}: last green ${job.lastGood ?? 'not in the inspected window'}; `
+                    + `${candidates.length - 1} run(s) in between gave no verdict for it; `
+                    + `the break is in one of ${candidates.join(', ')}`,
+                );
+                continue;
+            }
             (job.attribution === 'NEW' ? newFailures : inheritedFailures).push(job.name);
             const since = job.olderThanWindow ? 'first bad at or before' : 'first bad';
             lines.push(
@@ -549,11 +583,20 @@ export function formatShaReport(tiers, sha) {
         lines.push(`    ${passed} passed, ${failed.length} failed, ${other} skipped or cancelled`);
     }
 
-    lines.push(newFailures.length > 0
-        ? `verdict: this commit broke ${newFailures.join(', ')}`
-        : inheritedFailures.length > 0
+    if (newFailures.length > 0) {
+        lines.push(`verdict: this commit broke ${newFailures.join(', ')}`);
+    }
+    if (undeterminedFailures.length > 0) {
+        lines.push(
+            `verdict: ${undeterminedFailures.join(', ')} broke somewhere in the listed range; `
+            + 'earlier runs were superseded, so bisect the candidates before blaming this commit',
+        );
+    }
+    if (newFailures.length === 0 && undeterminedFailures.length === 0) {
+        lines.push(inheritedFailures.length > 0
             ? `verdict: every failure is inherited; do not re-diagnose ${inheritedFailures.join(', ')}`
             : 'verdict: no failing job attributable to this commit');
+    }
     return `${lines.join('\n')}\n`;
 }
 
@@ -928,6 +971,9 @@ function reportSha() {
                 .map(job => job.name)),
             inheritedFailures: tiers.flatMap(tier => tier.jobs
                 .filter(job => job.attribution === 'INHERITED')
+                .map(job => job.name)),
+            undeterminedFailures: tiers.flatMap(tier => tier.jobs
+                .filter(job => job.attribution === 'UNDETERMINED')
                 .map(job => job.name)),
         }, null, 2)}\n`);
         return;

@@ -134,6 +134,58 @@ describe('ci-health commit attribution', () => {
         expect(smoke.firstBad?.sha).toBe('a'.repeat(10));
     });
 
+    it('reports a range when superseded runs separate the last green from the failure', () => {
+        const superseded = {
+            'Electron E2E Regression': 'cancelled',
+            'Tree Lint': 'success',
+        };
+        const inspected = [
+            recordRun(1, 'a'.repeat(40), 'success', {
+                'Electron E2E Regression': 'success',
+                'Tree Lint': 'success',
+            }),
+            recordRun(2, 'b'.repeat(40), 'cancelled', superseded),
+            recordRun(3, 'c'.repeat(40), 'cancelled', superseded),
+            recordRun(4, 'd'.repeat(40), 'failure', {
+                'Electron E2E Regression': 'failure',
+                'Tree Lint': 'success',
+            }),
+        ];
+
+        const report = classifyShaJobs(inspected, 'd'.repeat(40));
+        const regression = requireJob(report, 'Electron E2E Regression');
+
+        expect(regression.attribution).toBe('UNDETERMINED');
+        expect(regression.lastGood).toBe('a'.repeat(10));
+        expect(regression.candidates).toEqual([
+            'b'.repeat(10),
+            'c'.repeat(10),
+            'd'.repeat(10),
+        ]);
+
+        const text = formatShaReport([{
+            ...report,
+            tier: 'extended',
+            workflow: 'ci-extended.yml',
+        }], 'd'.repeat(40));
+        expect(text).toContain('UNDETERMINED Electron E2E Regression: last green aaaaaaaaaa');
+        expect(text).not.toContain('this commit broke');
+        expect(text).toContain('bisect the candidates before blaming this commit');
+    });
+
+    it('still names the commit when the run directly before it was green', () => {
+        const inspected = [
+            recordRun(1, 'a'.repeat(40), 'cancelled', {'Electron E2E Regression': 'cancelled'}),
+            recordRun(2, 'b'.repeat(40), 'success', {'Electron E2E Regression': 'success'}),
+            recordRun(3, 'c'.repeat(40), 'failure', {'Electron E2E Regression': 'failure'}),
+        ];
+
+        const regression = requireJob(classifyShaJobs(inspected, 'c'.repeat(40)), 'Electron E2E Regression');
+
+        expect(regression.attribution).toBe('NEW');
+        expect(regression.candidates).toBeUndefined();
+    });
+
     it('reports a streak that reaches the oldest run it can see as unbounded', () => {
         const inspected = [
             recordRun(1, 'a'.repeat(40), 'failure', {
