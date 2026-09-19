@@ -287,27 +287,41 @@ async function waitForTierRun(targetSha, tier, {
                     `${tier.label} ${describeRun(knownRun)} for ${targetSha} concluded '${knownRun.conclusion}'.`,
                 );
             }
+            // The run's verdict is final, so a failed gates_ok read is the same
+            // transient API failure as a failed run lookup: keep polling inside
+            // the completion deadline, which still fails closed.
+            let gatesLookupError = null;
             if (tier.requiresGatesOk) {
                 let gatesConclusion;
                 try {
                     gatesConclusion = readGatesOkConclusion(knownRun.id, runCommand);
                 } catch (error) {
-                    throw new Error(
-                        `${tier.label} ${describeRun(knownRun)} succeeded but the gates_ok lookup failed: ${
-                            error instanceof Error ? getCliErrorMessage(error).split('\n')[0] : String(error)}`,
-                    );
+                    gatesLookupError = error instanceof Error
+                        ? getCliErrorMessage(error).split('\n')[0]
+                        : String(error);
                 }
-                if (gatesConclusion !== 'success') {
+                if (gatesLookupError === null && gatesConclusion !== 'success') {
                     throw new Error(
                         `${tier.label} ${describeRun(knownRun)} did not contain a successful gates_ok aggregate `
                         + `(saw '${gatesConclusion ?? 'no gates_ok job'}').`,
                     );
                 }
             }
-            return {
-                id: knownRun.id,
-                url: knownRun.html_url ?? '',
-            };
+            if (gatesLookupError === null) {
+                return {
+                    id: knownRun.id,
+                    url: knownRun.html_url ?? '',
+                };
+            }
+            if (nowFn() - startedAt >= completionTimeoutMs) {
+                throw new Error(
+                    `${tier.label} ${describeRun(knownRun)} succeeded but the gates_ok lookup kept failing: `
+                    + gatesLookupError,
+                );
+            }
+            stderr.write(`Transient gates_ok lookup failure for ${describeRun(knownRun)}; retrying: ${gatesLookupError}\n`);
+            await sleepFn(pollIntervalMs);
+            continue;
         }
 
         const elapsedMs = nowFn() - startedAt;

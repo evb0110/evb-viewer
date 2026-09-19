@@ -96,17 +96,47 @@ const {values: options} = parseArgs({options: {
     },
 }});
 
+// A read of the Actions API that dies in the network is worth asking again; a
+// read the API answered with an error is not. This is a reporting client, not
+// a check, so a bounded re-read hides no defect.
+const NETWORK_FAILURE = /TLS handshake timeout|connection reset|i\/o timeout|EOF|timeout awaiting|temporary failure|could not resolve host|HTTP 50[234]/iu;
+const NETWORK_ATTEMPTS = 4;
+
+/** @param {unknown} error @returns {string} */
+export function describeGhFailure(error) {
+    const stderr = error && typeof error === 'object' && 'stderr' in error ? String(error.stderr ?? '') : '';
+    const message = error instanceof Error ? error.message : String(error);
+    return (stderr.trim() || message).split('\n')[0];
+}
+
+/** @param {unknown} error @returns {boolean} */
+export function isNetworkFailure(error) {
+    return NETWORK_FAILURE.test(describeGhFailure(error));
+}
+
 /** @param {string[]} args @param {boolean} [quiet=false] @returns {string} */
 function gh(args, quiet = false) {
-    return execFileSync('gh', args, {
-        encoding: 'utf8',
-        maxBuffer: 256 * 1024 * 1024,
-        stdio: [
-            'ignore',
-            'pipe',
-            quiet ? 'pipe' : 'inherit',
-        ],
-    });
+    for (let attempt = 1; ; attempt += 1) {
+        try {
+            return execFileSync('gh', args, {
+                encoding: 'utf8',
+                maxBuffer: 256 * 1024 * 1024,
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'pipe',
+                ],
+            });
+        } catch (error) {
+            if (attempt >= NETWORK_ATTEMPTS || !isNetworkFailure(error)) {
+                if (!quiet) {
+                    process.stderr.write(`${describeGhFailure(error)}\n`);
+                }
+                throw error;
+            }
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_500 * attempt);
+        }
+    }
 }
 
 /** @param {string[]} args @returns {string | null} */
@@ -968,5 +998,14 @@ function main() {
 // The classification helpers are unit tested against recorded API shapes, so
 // importing this module must not reach the network.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-    main();
+    try {
+        main();
+    } catch (error) {
+        // An agent reads this output to decide what to do next; one line it can
+        // act on beats a stack trace through the API wrapper.
+        process.stderr.write(isNetworkFailure(error)
+            ? `ci-health: the GitHub API was unreachable after ${NETWORK_ATTEMPTS} attempts; nothing was read. Run it again.\n`
+            : `ci-health: ${describeGhFailure(error)}\n`);
+        process.exitCode = 2;
+    }
 }

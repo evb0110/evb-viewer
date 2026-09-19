@@ -485,6 +485,49 @@ describe('waitForExactShaCiGates', () => {
         })).resolves.toMatchObject({id: 424242});
     });
 
+    it('reads gates_ok again after a transient lookup failure on a finished run', async () => {
+        let jobLookups = 0;
+        const base = createHarness(() => ({
+            conclusion: 'success',
+            gatesOk: 'success',
+            status: 'completed',
+        }));
+        const flakyRunCommand = (command: string, args: string[]) => {
+            if (args.join(' ').includes('/jobs?per_page=100')) {
+                jobLookups += 1;
+                if (jobLookups === 1) {
+                    throw new Error('TLS handshake timeout');
+                }
+            }
+            return base.runCommand(command, args);
+        };
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, {
+            ...base,
+            runCommand: flakyRunCommand,
+        })).resolves.toMatchObject({id: 424242});
+        expect(jobLookups).toBe(2);
+    });
+
+    it('fails closed when the gates_ok lookup never recovers', async () => {
+        const base = createHarness(() => ({
+            conclusion: 'success',
+            gatesOk: 'success',
+            status: 'completed',
+        }));
+        const brokenRunCommand = (command: string, args: string[]) => {
+            if (args.join(' ').includes('/jobs?per_page=100')) {
+                throw new Error('TLS handshake timeout');
+            }
+            return base.runCommand(command, args);
+        };
+
+        await expect(waitForExactShaCiGates(TARGET_SHA, {
+            ...base,
+            runCommand: brokenRunCommand,
+        })).rejects.toThrow(/succeeded but the gates_ok lookup kept failing: .*TLS handshake timeout/u);
+    });
+
     it('filters CI runs to main push events', () => {
         const runs = JSON.stringify({workflow_runs: [
             {
