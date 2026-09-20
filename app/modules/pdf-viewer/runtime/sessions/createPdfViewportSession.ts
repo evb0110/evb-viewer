@@ -493,6 +493,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pageMetrics,
         pageMetricsVersion,
         effectiveScale: scale.layoutScale,
+        doesFitHeightSpreadFitWidth: scale.doesFitHeightSpreadFitWidth,
         scaledMargin: scale.scaledMargin,
         visibleRange,
         navigationAnchorPage: singlePageScroll.navigationAnchorPage,

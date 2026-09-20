@@ -837,6 +837,106 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
     }, 20_000);
 
+    it('recovers facing fit-height rendering after accelerated wheel input at the scrollbar boundary', async () => {
+        const session = sessionFixture.getSession();
+        const originalViewport = session.page.viewport();
+        const originalToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        try {
+            // Setup a cover followed by spreads. At this width the cover fits;
+            // a spread crosses the classic horizontal-scrollbar boundary.
+            await session.page.setViewport({
+                width: 1600,
+                height: 1000,
+            });
+            await requireWorkspaceCommand(session.page, 'handleViewModeFacingFirstSingle');
+            await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1]);
+            await requireWorkspaceCommand(session.page, 'handleFitHeight');
+            await jumpToPageAndWaitForCanvas(session, 1);
+            const dimensions = await session.page.evaluate(() => {
+                const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+                const cover = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]');
+                if (!viewer || !cover) throw new Error('Missing cover or viewport');
+                const rect = cover.getBoundingClientRect();
+                const track = viewer.querySelector<HTMLElement>('[data-pdf-page-track]');
+                if (!track) throw new Error('Missing page track');
+                const gap = Number.parseFloat(getComputedStyle(track).columnGap);
+                const scrollbar = viewer.offsetWidth - viewer.clientWidth;
+                // The old policy hides the bar once the shrunken spread fits,
+                // then enlarges it again. Choose the middle of that interval.
+                return {
+                    width: Math.round(innerWidth - viewer.clientWidth
+                        + rect.width * 2 + gap - rect.width / rect.height * scrollbar),
+                    scrollbar,
+                };
+            });
+            expect(dimensions.scrollbar).toBeGreaterThan(0);
+            await session.page.setViewport({
+                width: dimensions.width,
+                height: 1000,
+            });
+            await waitForVisiblePageCanvas(session, 1);
+            const point = await session.page.$eval('#pdf-viewer', (viewer) => {
+                const rect = viewer.getBoundingClientRect();
+                return {
+                    x: rect.x + rect.width * 0.6,
+                    y: rect.y + rect.height * 0.5,
+                };
+            });
+            const client = await session.page.createCDPSession();
+            try {
+                const pending: Array<Promise<unknown>> = [];
+                for (let packet = 0; packet < 60; packet += 1) {
+                    pending.push(client.send('Input.dispatchMouseEvent', {
+                        type: 'mouseWheel',
+                        ...point,
+                        deltaX: 0,
+                        deltaY: 4000 * Math.exp(-packet / 25),
+                        pointerType: 'mouse',
+                    }));
+                    await delay(8);
+                }
+                await Promise.all(pending);
+            } finally {
+                await client.detach();
+            }
+            await delay(1000);
+            // L2: painted visible pages must recover within the settled deadline.
+            // A transient canvas between two resize invalidations is not recovery.
+            await session.page.waitForFunction(() => {
+                const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+                if (!viewer || viewer.querySelector('.pdfViewer--resize-transition')) return false;
+                const bounds = viewer.getBoundingClientRect();
+                const visible = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'))
+                    .filter((page) => {
+                        const rect = page.getBoundingClientRect();
+                        return rect.bottom > bounds.top && rect.top < bounds.bottom;
+                    });
+                return visible.length > 0 && visible.every(page => page.dataset.pageVisual === 'ready'
+                    && page.querySelector('canvas'));
+            }, { timeout: 10_000 });
+            const observation = await session.page.evaluate(() => {
+                const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+                if (!viewer) throw new Error('Missing viewer');
+                return {
+                    scrollTop: viewer.scrollTop,
+                    clientHeight: viewer.clientHeight,
+                };
+            });
+            expect(observation.scrollTop).toBeGreaterThan(1000);
+            await delay(600);
+            expect(await session.page.$eval('#pdf-viewer', viewer => viewer.clientHeight))
+                .toBe(observation.clientHeight);
+        } finally {
+            await session.page.setViewport(originalViewport);
+            const restoreViewMode = originalToolbar?.viewMode === 'facing'
+                ? 'handleViewModeFacing'
+                : originalToolbar?.viewMode === 'facing-first-single'
+                    ? 'handleViewModeFacingFirstSingle'
+                    : 'handleViewModeSingle';
+            await requireWorkspaceCommand(session.page, restoreViewMode);
+        }
+    }, 60_000);
+
     it('keeps the toolbar on the final page after Last Page navigation settles', async () => {
         const session = sessionFixture.getSession();
         if (!pageJumpReady) {

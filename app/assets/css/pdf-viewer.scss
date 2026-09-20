@@ -737,6 +737,13 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
         overflow-x: auto;
     }
 
+    // Fit-height decides admission before subtracting the scrollbar's height.
+    // Keep that gutter even when the resulting smaller spread fits, so native
+    // auto overflow cannot restart the fit/resize/render cycle indefinitely.
+    &.pdfViewer--fit-height-overflow {
+        overflow-x: scroll;
+    }
+
     // During fit-width animation the previous frame's page can briefly be
     // wider than its host. A transient horizontal scrollbar changes the
     // vertical anchor by half its height and triggers another resize.

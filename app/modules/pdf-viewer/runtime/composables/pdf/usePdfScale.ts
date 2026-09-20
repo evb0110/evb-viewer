@@ -154,6 +154,25 @@ export const usePdfScale = (
         return rawSize - DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
     }
 
+    function doesFitHeightSpreadFitWidth(container: HTMLElement, page: TPageNumber) {
+        const metrics = getNormalizedPageMetrics();
+        const height = resolveDocumentBaseMetric(metrics, 'height');
+        const width = resolveCurrentSpreadBaseWidth(
+            metrics, toValue(viewMode), toValue(numPages), page,
+        );
+        if (!height || !width) return false;
+
+        // Decide scrollbar admission from the unobstructed viewport, never
+        // from the scale already reduced by that scrollbar. Otherwise hiding
+        // the bar enlarges the spread and immediately admits the bar again.
+        const availableHeight = getFitAvailableSize(
+            Math.floor(container.getBoundingClientRect().height), 'height', page,
+        );
+        const scale = clampFitScale(availableHeight
+            / resolveFitHeightBaseDimension(metrics, height, page));
+        return width * scale <= getFitAvailableSize(container.clientWidth, 'width', page);
+    }
+
     let widthRowsCacheKey = '';
     let widthRows = new Map<number, number>();
 
@@ -478,6 +497,7 @@ export const usePdfScale = (
         containerStyle,
         scaledMargin,
         computeFitWidthScale,
+        doesFitHeightSpreadFitWidth,
         settlePreviewFitScale,
         isFitWidthScaleCurrent,
         invalidateScaleCache,

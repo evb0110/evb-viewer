@@ -93,6 +93,7 @@ describe('usePdfViewportViewModel', () => {
                 height: 800,
             }]),
             pageMetricsVersion: ref(0),
+            doesFitHeightSpreadFitWidth: () => false,
             effectiveScale: ref(1),
             scaledMargin: ref(20),
             visibleRange: ref({
@@ -179,6 +180,7 @@ describe('usePdfViewportViewModel', () => {
                 },
             ]),
             pageMetricsVersion: ref(0),
+            doesFitHeightSpreadFitWidth: () => false,
             effectiveScale: ref(0.7),
             scaledMargin: ref(20),
             visibleRange: ref({
@@ -251,6 +253,7 @@ describe('usePdfViewportViewModel', () => {
                 height: 800,
             }]),
             pageMetricsVersion: ref(0),
+            doesFitHeightSpreadFitWidth: () => false,
             effectiveScale: ref(1),
             scaledMargin: ref(20),
             visibleRange: ref({

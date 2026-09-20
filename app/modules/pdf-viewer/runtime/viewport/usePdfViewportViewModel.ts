@@ -35,6 +35,7 @@ interface IUsePdfViewportViewModelOptions {
     pageMetrics: Ref<IPdfPageMetric[]>;
     pageMetricsVersion: Ref<number>;
     effectiveScale: Ref<number>;
+    doesFitHeightSpreadFitWidth: (container: HTMLElement, page: TPageNumber) => boolean;
     scaledMargin: Ref<number>;
     visibleRange: Ref<{
         start: number;
@@ -140,6 +141,10 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             return false;
         }
 
+        if (options.classState.zoomMode.value === 'fit-height') {
+            return options.doesFitHeightSpreadFitWidth(container, currentPage);
+        }
+
         const renderedSpreadBounds = getCurrentSpreadRenderedBoundsFromMetrics({
             container,
             basePageWidth: options.basePageWidth.value,
@@ -172,6 +177,8 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         'pdfViewer--fit-width': options.classState.zoomMode.value === 'fit-width',
         'pdfViewer--fit-width-page-fits': fitWidthHorizontalScrollLocked.value,
         'pdfViewer--fit-height': options.classState.fitMode.value === 'height',
+        'pdfViewer--fit-height-overflow': options.classState.zoomMode.value === 'fit-height'
+            && !isActiveSpreadHorizontalScrollLocked.value,
         'pdfViewer--active-spread-fits-width': isActiveSpreadHorizontalScrollLocked.value,
         'pdfViewer--resize-transition': options.classState.resizeTransitionVisible.value,
         'pdfViewer--zoom-snap-suppressed': options.classState.zoomSnapSuppressed.value,

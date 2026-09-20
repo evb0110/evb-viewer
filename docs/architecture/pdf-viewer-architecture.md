@@ -67,6 +67,12 @@ target, waits for its text layer, and applies the final viewport position once.
 Request-scoped text readiness is published as soon as text rendering succeeds;
 annotation readiness remains a separate, later layer-hydration state.
 
+Fit-height admits the horizontal scrollbar from the active spread's fit in the
+unobstructed viewport, including page gutters. The scale owner calculates this
+geometry; the viewport reserves the scrollbar while that spread requires it.
+Do not infer admission from the already scrollbar-reduced scale: that circular
+decision alternates the viewport height and continually invalidates rendering.
+
 A resize that arrives during navigation inherits the pending semantic target,
 including its exact text range and readiness requirement. Its sampled outgoing
 anchor cannot replace that target. Resize previews defer to pending navigation;
