@@ -130,6 +130,7 @@ function createOcrMock() {
     const progress = ref(createProgress());
     const results = ref(createResults());
     const error = ref<string | null>(null);
+    const lastRunOutcome = ref<'no-pages-to-process' | null>(null);
     const languages = ref(createLanguages());
     const clearResults = vi.fn(() => {
         results.value = createResults();
@@ -149,6 +150,7 @@ function createOcrMock() {
         progress,
         results,
         error,
+        lastRunOutcome,
         isExporting: ref(false),
         hasResults: computed(() => results.value.searchablePdfResult !== null),
         progressPercent: computed(() => 0),
@@ -366,6 +368,27 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.ocr.settings.value.selectedLanguages).toEqual(['rus']);
             harness.presenter.selectedLanguagesModel.value = [];
             expect(harness.presenter.canRunOcr.value).toBe(false);
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('treats an expected no-pages outcome as a handled agent run', async () => {
+        const harness = createPresenterHarness();
+        harness.ocr.runOcr.mockImplementation(async () => {
+            harness.ocr.lastRunOutcome.value = 'no-pages-to-process';
+        });
+
+        try {
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({
+                ok: true,
+                warning: 'ocr.noPagesToProcess',
+                ocr: {
+                    outcome: 'no-pages-to-process',
+                    hasResults: false,
+                    error: null,
+                },
+            });
         } finally {
             stopHarness(harness.scope);
         }

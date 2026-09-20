@@ -929,6 +929,7 @@ export default {
         'processingPage': 'Elaborazione pagina {page} ({processed}/{total})',
         'complete': 'OCR completato – il PDF è ora ricercabile',
         'partialComplete': 'OCR completato con avvisi',
+        'noPagesToProcess': 'Nessuna pagina richiedeva l’OCR',
         'exportDocx': 'Esporta DOCX',
         'start': 'Avvia OCR',
         'cancel': 'Annulla OCR',

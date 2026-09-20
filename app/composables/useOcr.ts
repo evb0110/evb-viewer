@@ -12,6 +12,7 @@ import type {
     IOcrErrorEnvelope,
     IOcrSearchablePdfOptions,
     IOcrDiagnostic,
+    TOcrCompletionOutcome,
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
 import { DEFAULT_OCR_RECOGNITION_OPTIONS } from '@contracts/electronApiOcr';
@@ -91,6 +92,7 @@ export const useOcr = () => {
         searchablePdfResult: null,
     });
     const error = ref<string | null>(null);
+    const lastRunOutcome = ref<TOcrCompletionOutcome | null>(null);
     const isExporting = ref(false);
 
     const activeRunSettings = ref<IOcrSettings | null>(null);
@@ -536,6 +538,25 @@ export const useOcr = () => {
     }
 
     function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: TRequestId) {
+        if (response.outcome === 'no-pages-to-process') {
+            const descriptions = uniq(
+                (response.diagnostics ?? [])
+                    .filter(diagnostic => diagnostic.severity === 'info')
+                    .map(localizeOcrDiagnostic)
+                    .filter((message): message is string => Boolean(message)),
+            );
+            BrowserLogger.info('ocr', 'OCR skipped; existing text was preserved', {
+                requestId,
+                outcome: response.outcome,
+            });
+            toast.add({
+                color: 'info',
+                title: t('ocr.noPagesToProcess'),
+                ...(descriptions.length > 0 ? {description: descriptions.join('; ')} : {}),
+            });
+            return;
+        }
+
         const diagnosticWarnings = response.diagnostics?.filter(diagnostic => diagnostic.severity === 'warning') ?? [];
         if (response.errors.length === 0 && response.errorEnvelope === undefined && diagnosticWarnings.length === 0) {
             return;
@@ -705,7 +726,12 @@ export const useOcr = () => {
         ensureRunActive: TOcrRunGuard | null,
         runSettings: IOcrSettings,
     ) {
+        lastRunOutcome.value = response.outcome ?? null;
         applyOcrResponseErrors(response, requestId);
+
+        if (response.outcome === 'no-pages-to-process') {
+            return;
+        }
 
         if (response.pdfPath) {
             ensureRunActive?.();
@@ -791,6 +817,7 @@ export const useOcr = () => {
         }
 
         error.value = null;
+        lastRunOutcome.value = null;
         const runSettings = createRunSettingsSnapshot(settings.value);
         const selection = getSelectedOcrPages(currentPage, totalPages, runSettings);
         clearResults();
@@ -981,6 +1008,7 @@ export const useOcr = () => {
         progress,
         results,
         error,
+        lastRunOutcome,
         isExporting,
         hasResults,
         progressPercent,

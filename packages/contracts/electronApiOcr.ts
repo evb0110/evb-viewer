@@ -62,6 +62,10 @@ export interface IOcrDiagnostic {
     readonly pageNumber?: TPageNumber;
 }
 
+export const OCR_COMPLETION_OUTCOMES = ['no-pages-to-process'] as const;
+
+export type TOcrCompletionOutcome = typeof OCR_COMPLETION_OUTCOMES[number];
+
 export interface IOcrRecognizeRequest {
     pageNumber: TPageNumber;
     imageData: Uint8Array;
@@ -232,6 +236,8 @@ export interface IOcrRecognizeBatchResult extends IOcrErrorEnvelopeCarrier {
 export interface IOcrCompleteResult extends IOcrErrorEnvelopeCarrier {
     readonly requestId: TRequestId;
     readonly success: boolean;
+    /** A non-error terminal result where the selected policy intentionally did no work. */
+    readonly outcome?: TOcrCompletionOutcome;
     readonly pdfPath?: TDocumentRef;
     readonly sourceDocumentRevisionToken?: TDocumentRevisionToken;
     readonly resultSha256?: string;
