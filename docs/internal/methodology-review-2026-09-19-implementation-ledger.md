@@ -298,8 +298,12 @@ hidden viewport dimensions alone was insufficient. The page-source activation
 path now retains a semantic page anchor, restores it after visible layout through
 the existing viewport write port, and fences it against newer document state or
 interaction. The existing tab-return regression includes both fit modes as well
-as custom zoom. Native macOS confirmation remains separate from this Linux
-reproduction and replay.
+as custom zoom. The follow-up Fit Height replay exposed a second cause: metric
+publication could overwrite the pending mode-change anchor using geometry that
+had already resized. Coalesced layout changes now retain the first pending
+anchor for the same restore generation and epoch; newer pointer input or a
+changed epoch still supersedes it. Native macOS confirmation remains separate
+from this Linux reproduction and replay.
 
 ## Platform gaps
 

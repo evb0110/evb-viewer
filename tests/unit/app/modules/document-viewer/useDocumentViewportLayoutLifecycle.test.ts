@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     effectScope,
     nextTick,
     ref,
@@ -116,6 +117,65 @@ describe('useDocumentViewportLayoutLifecycle', () => {
 
         expect(viewport.scrollTop).toBe(240);
         expect(writes.at(-1)).toBe(240);
+        scope.stop();
+    });
+
+    it('keeps the first mode-change anchor when metric publication coalesces before the restore frame', async () => {
+        const frames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(216_250);
+        Object.defineProperties(viewport, {
+            clientHeight: {value: 550},
+            clientWidth: {value: 885},
+        });
+        const mode = ref<'fit-width' | 'fit-height'>('fit-width');
+        const metricRevision = ref(0);
+        const pageLayouts = computed(() => {
+            // Metric publication can invalidate the same geometry collection
+            // while the fit-mode restore is waiting for its frame.
+            void metricRevision.value;
+            const pageHeight = mode.value === 'fit-width' ? 845 : 510;
+            const pageWidth = pageHeight;
+            return Array.from({length: 501}, (_, index) => ({
+                top: 20 + index * (pageHeight + 20),
+                width: pageWidth,
+                height: pageHeight,
+            }));
+        });
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            captureRestoreEpoch: () => 1,
+            canRestore: () => true,
+            applyRestoredScroll: restored => {
+                viewport.scrollLeft = restored.left;
+                viewport.scrollTop = restored.top;
+                return true;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+
+        // The mode watcher captures page 251 from the previous fit-width
+        // geometry while the raw browser offset still belongs to that layout.
+        void pageLayouts.value;
+        mode.value = 'fit-height';
+        await nextTick();
+        await nextTick();
+
+        // This is the metric-publication caller. Its immediate capture sees
+        // page 409 in the already-resized geometry, but must not replace the
+        // earlier normal anchor queued for the same frame and epoch.
+        lifecycle.preserveLayoutMutation(() => {
+            metricRevision.value += 1;
+        });
+        expect(viewport.scrollTop).toBe(216_250);
+        frames.splice(0).forEach(callback => callback(0));
+
+        expect(viewport.scrollTop).toBeCloseTo(132_398.9, 1);
         scope.stop();
     });
 

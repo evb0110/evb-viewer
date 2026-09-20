@@ -656,7 +656,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             {minEffectiveZoom: restoredZoom - 0.005},
             {timeoutMs: DJVU_E2E_TIMEOUT_MS},
         );
-        await waitForActiveDjvuCommittedPage(session, loadedSnapshot.currentPage);
+        await waitForActiveDjvuCommittedPage(session, restoredPage);
 
         await installDjvuActivationOccupancyProbe(session);
         await goToPageViaToolbar(session.page, restoredPage);
