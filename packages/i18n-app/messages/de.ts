@@ -929,6 +929,7 @@ export default {
         'processingPage': 'Seite {page} wird verarbeitet ({processed}/{total})',
         'complete': 'OCR abgeschlossen - PDF ist jetzt durchsuchbar',
         'partialComplete': 'OCR mit Warnungen abgeschlossen',
+        'noPagesToProcess': 'Für keine Seite war OCR erforderlich',
         'exportDocx': 'DOCX exportieren',
         'start': 'OCR starten',
         'cancel': 'OCR abbrechen',

@@ -972,6 +972,60 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         );
     });
 
+    it('forwards expected no-pages outcomes without adding a failure envelope', async () => {
+        mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
+
+        const { handleOcrCreateSearchablePdfAsync } = await import('@electron/features/ocr/main/jobManager');
+
+        const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(78), 'job-78');
+
+        expect(result).toMatchObject({
+            started: true,
+            jobId: 'job-78',
+        });
+        const worker = mocks.workerInstances[0];
+        expect(worker).toBeDefined();
+        mocks.sendPlatformEvent.mockClear();
+
+        worker?.emit('message', {
+            type: 'complete',
+            jobId: 'job-78',
+            result: {
+                success: false,
+                errors: [],
+                outcome: 'no-pages-to-process',
+                diagnostics: [{
+                    code: 'OCR_EXISTING_TEXT_SKIPPED',
+                    severity: 'info',
+                    message: 'Existing text was preserved',
+                    pageNumber: 1,
+                }],
+            },
+        });
+        worker?.emit('message', {
+            type: 'cleanup-complete',
+            jobId: 'job-78',
+        });
+
+        expect(mocks.sendPlatformEvent).toHaveBeenCalledWith(
+            undefined,
+            'ocr:complete',
+            {
+                requestId: 'job-78',
+                success: false,
+                errors: [],
+                outcome: 'no-pages-to-process',
+                diagnostics: [{
+                    code: 'OCR_EXISTING_TEXT_SKIPPED',
+                    severity: 'info',
+                    message: 'Existing text was preserved',
+                    pageNumber: 1,
+                }],
+            },
+            expect.any(Function),
+        );
+    });
+
     it('adds typed envelopes when forwarding worker failure completions', async () => {
         mocks.ensureTessdataLanguages.mockResolvedValueOnce(undefined);
 

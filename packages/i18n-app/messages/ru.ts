@@ -445,6 +445,7 @@ export default {
         'processingPage': 'Обработка страницы {page} ({processed}/{total})',
         'complete': 'OCR завершён — PDF теперь доступен для поиска',
         'partialComplete': 'OCR завершён с предупреждениями',
+        'noPagesToProcess': 'OCR не требуется ни для одной страницы',
         'exportDocx': 'Экспорт DOCX',
         'start': 'Запустить OCR',
         'cancel': 'Отменить OCR',

@@ -318,6 +318,7 @@ export const useOcrPopupPresenter = ({
         progress,
         results,
         error,
+        lastRunOutcome,
         hasResults,
         progressPercent,
         availableLanguages,
@@ -585,6 +586,7 @@ export const useOcrPopupPresenter = ({
             replaceAllAcknowledged: settings.value.replaceAllAcknowledged,
             hasWorkingCopy: Boolean(workingCopyPath.value),
             error: effectiveError.value,
+            outcome: lastRunOutcome.value,
             hasResults: hasResults.value,
             needsReOcr: needsReOcr.value,
         };
@@ -746,6 +748,13 @@ export const useOcrPopupPresenter = ({
         await nextTick();
 
         const agentSnapshot = createAgentOcrSnapshot();
+        if (lastRunOutcome.value === 'no-pages-to-process') {
+            return {
+                ok: true,
+                warning: t('ocr.noPagesToProcess'),
+                ocr: agentSnapshot,
+            };
+        }
         if (hasResults.value) {
             return {
                 ok: true,

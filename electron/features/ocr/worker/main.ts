@@ -896,6 +896,19 @@ function sendEmptyOcrResultFailure(
     });
 }
 
+function sendNoPagesOcrResult(
+    jobId: TJobId,
+    diagnostics: IOcrDiagnostic[],
+) {
+    log('debug', 'OCR skipped: no pages require OCR under the selected text supersession policy');
+    sendComplete(jobId, {
+        success: false,
+        errors: [],
+        outcome: 'no-pages-to-process',
+        ...(diagnostics.length === 0 ? {} : {diagnostics}),
+    });
+}
+
 async function assembleMergedOcrPdf(
     jobId: TJobId,
     sourcePdfPath: string,
@@ -1202,7 +1215,8 @@ async function processOcrJob(
 
         if (successfulPageCount === 0) {
             if (!hadTargetPages) {
-                appendMessages(completionMessages, ['No pages require OCR under the selected text supersession policy']);
+                sendNoPagesOcrResult(jobId, jobDiagnostics);
+                return;
             }
             sendEmptyOcrResultFailure(jobId, completionMessages);
             return;
