@@ -92,6 +92,7 @@ import {
 export interface IAgentAssistantPanelControllerProps {
     activeDocumentName?: string | null;
     chatScope?: IAgentAssistantChatScope | null;
+    isChatScopePending?: boolean;
     hasActiveDocument?: boolean;
     hasAnyDocument?: boolean;
     width?: number | undefined;
@@ -99,7 +100,26 @@ export interface IAgentAssistantPanelControllerProps {
 }
 export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistantPanelControllerProps>) => {
     const activeDocumentName = computed(() => props.activeDocumentName ?? null);
-    const chatScope = computed(() => props.chatScope ?? null);
+    const requestedChatScope = computed(() => props.chatScope ?? null);
+    const isChatScopePending = computed(() => props.isChatScopePending ?? false);
+    // A document tab can become active a frame before its workspace session
+    // commits the new identity. Keep the last committed scope visible during
+    // that hand-off so a loaded conversation cannot flash its empty state.
+    const committedChatScope = shallowRef<IAgentAssistantChatScope | null>(
+        isChatScopePending.value ? null : requestedChatScope.value,
+    );
+    watch([
+        requestedChatScope,
+        isChatScopePending,
+    ], ([
+        nextScope,
+        pending,
+    ]) => {
+        if (!pending) {
+            committedChatScope.value = nextScope;
+        }
+    });
+    const chatScope = computed(() => committedChatScope.value);
     const hasActiveDocument = computed(() => props.hasActiveDocument ?? false);
     const hasAnyDocument = computed(() => props.hasAnyDocument ?? false);
     const isResizing = computed(() => props.isResizing ?? false);

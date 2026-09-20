@@ -151,6 +151,7 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
     });
     const panelProps = reactive({
         chatScope: scope,
+        isChatScopePending: false,
         activeDocumentName: 'Document A',
         hasActiveDocument: true,
         hasAnyDocument: true,
@@ -233,6 +234,9 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
         setScope(nextScope: IAgentAssistantChatScope) {
             panelProps.chatScope = nextScope;
         },
+        setScopePending(pending: boolean) {
+            panelProps.isChatScopePending = pending;
+        },
         unmount() {
             app.unmount();
             host.remove();
@@ -276,6 +280,36 @@ describe('mounted assistant panel lifecycle', () => {
             expect(harness.host.querySelector('.messages')?.textContent).toContain('Document B response');
         });
         expect(harness.host.querySelector('.is-refreshing')?.textContent).toBe('false');
+        harness.unmount();
+    });
+
+    it('keeps the rendered chat mounted while the next document session is pending', async () => {
+        const initialState = createReadyState('idle');
+        const nextState = createReadyState('idle', secondScope);
+        nextState.messages[0]!.text = 'Document B response';
+        const harness = await mountHarness(initialState);
+        mocks.getAssistantState.mockClear();
+        let resolveRefresh: ((state: IAgentAssistantState) => void) | undefined;
+        mocks.getAssistantState.mockReturnValueOnce(new Promise(resolve => {
+            resolveRefresh = resolve;
+        }));
+
+        harness.setScopePending(true);
+        harness.setScope(secondScope);
+        await nextTick();
+
+        expect(harness.host.querySelector('.messages')?.textContent).toContain('Initial');
+        expect(harness.host.querySelector('.is-refreshing')?.textContent).toBe('false');
+        expect(mocks.getAssistantState).not.toHaveBeenCalled();
+
+        harness.setScopePending(false);
+        await nextTick();
+        expect(harness.host.querySelector('.is-refreshing')?.textContent).toBe('true');
+
+        resolveRefresh?.(nextState);
+        await vi.waitFor(() => {
+            expect(harness.host.querySelector('.messages')?.textContent).toContain('Document B response');
+        });
         harness.unmount();
     });
 

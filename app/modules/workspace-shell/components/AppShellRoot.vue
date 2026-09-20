@@ -104,6 +104,7 @@
             <AgentAssistantPanel
                 v-if="assistantPanelEnabled && assistantPanelOpen && !isFullscreen"
                 :chat-scope="assistantChatScope"
+                :is-chat-scope-pending="assistantChatScopePending"
                 :has-active-document="assistantHasActiveDocument"
                 :has-any-document="assistantHasAnyDocument"
                 :active-document-name="assistantActiveDocumentName"
@@ -693,6 +694,25 @@ const assistantHasAnyDocument = computed(() => tabs.value.some(tab => !isTabEmpt
 const assistantActiveDocumentName = computed(() => assistantHasActiveDocument.value
     ? activeTab.value?.fileName ?? null
     : null);
+const assistantChatScopePending = computed(() => {
+    const tab = activeTab.value;
+    if (!tab || !tabHasDocumentHint(tab)) {
+        return false;
+    }
+
+    const session = documentSessionsByTabId.value[tab.id] ?? null;
+    if (!session) {
+        return true;
+    }
+
+    const snapshot = unref(session.snapshot);
+    return snapshot.activeTransaction !== null
+        || snapshot.toolbarSnapshot.isOpeningDocument
+        || snapshot.phase === 'opening'
+        || snapshot.phase === 'restoring'
+        || snapshot.phase === 'reloading'
+        || snapshot.phase === 'closing';
+});
 const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
     const tab = activeTab.value;
     if (!tab || !assistantHasActiveDocument.value) {
