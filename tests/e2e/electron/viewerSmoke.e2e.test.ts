@@ -3182,21 +3182,24 @@ describe('Electron E2E - Viewer Smoke', () => {
                 && fourth?.dataset.thumbnailRendered === 'true';
         }, {timeout: 15_000});
 
+        // ADR 0006/L1 uses one continuous scale set by the widest page, so
+        // this first page is expected to be narrower than page 2.
         await waitForFunctionInPage(session.page, () => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
-            const pageTrack = viewer?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
-            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
+            const page = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"]',
+            );
             const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas') ?? null;
-            if (!pageTrack || !page || !canvas || canvas.width <= 0 || canvas.height <= 0) {
-                return false;
-            }
-            const pageTrackStyle = getComputedStyle(pageTrack);
-            const pageTrackContentWidth = pageTrack.clientWidth
-                - (Number.parseFloat(pageTrackStyle.paddingInlineStart) || 0)
-                - (Number.parseFloat(pageTrackStyle.paddingInlineEnd) || 0);
-            return pageTrackContentWidth > 0
-                && Math.abs(page.getBoundingClientRect().width - pageTrackContentWidth) <= 2;
+            return Boolean(page && canvas && canvas.width > 0 && canvas.height > 0);
         }, {timeout: 15_000});
+        const pageOneWidth = await session.page.evaluate(() => {
+            const page = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"]',
+            );
+            if (!page) {
+                throw new Error('Mixed-size page 1 is not mounted after rendering');
+            }
+            return page.getBoundingClientRect().width;
+        });
         const pageOneSnapshot = await waitForWorkspaceToolbarSnapshot(
             session.page,
             {
@@ -3246,13 +3249,32 @@ describe('Electron E2E - Viewer Smoke', () => {
             return pageTrackContentWidth > 0
                 && Math.abs(page.getBoundingClientRect().width - pageTrackContentWidth) <= 2;
         }, {timeout: 15_000});
+        const pageTwoGeometry = await session.page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const pageTrack = viewer?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
+            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="2"]') ?? null;
+            if (!pageTrack || !page) {
+                throw new Error('Mixed-size page 2 geometry is unavailable after navigation');
+            }
+            const pageTrackStyle = getComputedStyle(pageTrack);
+            const pageTrackContentWidth = pageTrack.clientWidth
+                - (Number.parseFloat(pageTrackStyle.paddingInlineStart) || 0)
+                - (Number.parseFloat(pageTrackStyle.paddingInlineEnd) || 0);
+            return {
+                pageTrackContentWidth,
+                pageWidth: page.getBoundingClientRect().width,
+            };
+        });
+        expect(Math.abs(pageTwoGeometry.pageWidth - pageTwoGeometry.pageTrackContentWidth)).toBeLessThanOrEqual(2);
+        expect(pageOneWidth).toBeLessThan(pageTwoGeometry.pageWidth);
+        expect(Math.abs(pageOneWidth - pageTwoGeometry.pageWidth * (612 / 920))).toBeLessThanOrEqual(2);
         const pageTwoSnapshotDeadline = Date.now() + 15_000;
         let pageTwoSnapshot = await getWorkspaceToolbarSnapshot(session.page);
         while (
             !pageTwoSnapshot
             || pageTwoSnapshot.currentPage !== 2
             || pageTwoSnapshot.zoomMode !== 'fit-width'
-            || Math.abs(pageTwoSnapshot.effectiveZoom - pageOneSnapshot.effectiveZoom) <= 0.2
+            || pageTwoSnapshot.effectiveZoom !== pageOneSnapshot.effectiveZoom
         ) {
             if (Date.now() >= pageTwoSnapshotDeadline) {
                 throw new Error(`Mixed-size page 2 fit-width snapshot did not settle: ${JSON.stringify({
@@ -3266,7 +3288,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         expect(pageOneSnapshot.zoomMode).toBe('fit-width');
         expect(pageTwoSnapshot.zoomMode).toBe('fit-width');
-        expect(Math.abs(pageTwoSnapshot.effectiveZoom - pageOneSnapshot.effectiveZoom)).toBeGreaterThan(0.2);
+        expect(pageTwoSnapshot.effectiveZoom).toBe(pageOneSnapshot.effectiveZoom);
     });
 
     it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {
