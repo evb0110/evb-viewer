@@ -1107,7 +1107,8 @@ describe('createElectronApi', () => {
     });
 
     it('chunks large renderer file-open authorization without widening the IPC grant bound', async () => {
-        const paths = Array.from({length: 129}, (_, index) => requireDocumentRef(`/tmp/large-batch-${index}.pdf`));
+        const filePaths = Array.from({length: 129}, (_, index) => `/tmp/large-batch-${index}.pdf`);
+        const paths = filePaths.map(path => requireDocumentRef(path));
         const randomUUID = vi.fn((() => {
             let index = 0;
             return () => `00000000-0000-4000-8000-${String(index++).padStart(12, '0')}`;
@@ -1129,7 +1130,7 @@ describe('createElectronApi', () => {
         const getPathForFile = vi.fn((file: File) => (file as File & {path: string}).path);
         const {createElectronApi} = await import('@electron/preload/createElectronApi');
         const api = createElectronApi(ipcRenderer as never, {getPathForFile});
-        const files = paths.map(path => ({path} as File & {path: string}));
+        const files = filePaths.map(path => ({path} as File & {path: string}));
 
         expect(api.documentPicker.getPathsForFiles(files)).toEqual(paths);
         await expect(api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('large-batch-open')))
