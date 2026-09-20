@@ -507,6 +507,14 @@ describe('Electron E2E - annotation controls', () => {
         await waitForViewerInteractive(page);
         await openAnnotationsTab(page);
         await page.waitForFunction(() => document.querySelectorAll('.note-item').length === 4);
+        // Owner report: the color chip trailed each type label, so the chips
+        // formed a ragged column. They must share one right edge.
+        const chipRights = await page.$$eval(
+            '.note-item .note-item-color-chip',
+            chips => chips.map(chip => chip.getBoundingClientRect().right),
+        );
+        expect(chipRights.length).toBeGreaterThanOrEqual(3);
+        expect(Math.max(...chipRights) - Math.min(...chipRights), 'annotation card color chips align').toBeLessThanOrEqual(1);
         const ids = await page.$$eval('.note-item', rows => rows.map(row => row.getAttribute('data-annotation-id')!));
         for (let pass = 0; pass < 2; pass += 1) {
             for (const id of ids) {

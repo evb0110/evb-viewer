@@ -897,7 +897,7 @@ function setTool(tool: TAnnotationTool) {
 
     display: inline-block;
     flex: 0 0 auto;
-    margin-left: 0.1rem;
+    margin-left: auto;
 }
 
 .note-item-color-chip--solid {
