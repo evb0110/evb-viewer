@@ -60,6 +60,7 @@ import {
     cancelMainOperationsForOwner,
     type TMainOperationOwnerEndEvent,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
 interface IDocumentsIpcEventRegistrar {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;}
@@ -69,7 +70,6 @@ type TDocumentsIpcChannel = Extract<keyof IDocumentsInvokeMap, string>;
 type TDocumentsIpcArgs<TChannel extends TDocumentsIpcChannel> = IDocumentsInvokeMap[TChannel]['args'];
 
 const RENDERER_FILE_OPEN_TOKEN_TTL_MS = 5 * 60 * 1000;
-const MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER = 128;
 const RENDERER_FILE_OPEN_PATH_CHECK_TIMEOUT_MS = 5_000;
 const RENDERER_FILE_OPEN_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const logger = createLogger('documents-ipc-adapter');

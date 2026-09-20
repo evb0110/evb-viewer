@@ -538,7 +538,12 @@ export async function createPdfFileFromInputPaths(
         ...(options ?? {}),
         failureMode: 'capability-error' as const,
     };
-    const staged = await stageNativeCombineInputs(normalizedPaths, options?.signal);
+    const staged = await stageNativeCombineInputs(
+        normalizedPaths,
+        options?.signal,
+        undefined,
+        {resourceMode: 'file-backed'},
+    );
     let retainStagedInputs = false;
     try {
         const nativeWrote = await tryWritePdfFromInputPathsNative(

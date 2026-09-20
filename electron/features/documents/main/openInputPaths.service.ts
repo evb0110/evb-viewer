@@ -38,7 +38,10 @@ import type { TOpenPathOwner } from '@electron/features/documents/main/openPathO
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
-import { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
+import {
+    assertOpenInputPathCount,
+    MAX_COMBINE_INPUT_PATHS,
+} from '@electron/features/documents/public/assertOpenInputPathCount';
 import {
     isScanCleanupGeneratedOutputPath,
     touchScanCleanupGeneratedOutput,
@@ -190,7 +193,10 @@ export async function openInputPaths(
     if (normalizedPaths.length === 0) {
         return null;
     }
-    assertOpenInputPathCount(normalizedPaths);
+    assertOpenInputPathCount(
+        normalizedPaths,
+        options.forceCombine ? MAX_COMBINE_INPUT_PATHS : undefined,
+    );
 
     if (normalizedPaths.some(path => !existsSync(path))) {
         throw new Error(te('errors.file.invalid'));

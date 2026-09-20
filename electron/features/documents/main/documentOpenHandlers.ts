@@ -47,9 +47,12 @@ import type {
     IDocumentsWebContentsContext,
 } from '@electron/features/documents/documentsService';
 import {isPdfDecryptPassword} from '@contracts/pdfDecryptSchemas';
+import {
+    MAX_COMBINE_INPUT_PATHS,
+    MAX_OPEN_INPUT_PATHS,
+} from '@electron/features/documents/public/assertOpenInputPathCount';
 
 const logger = createLogger('documents-dialogs');
-const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
 const E2E_OPEN_IMAGE_PATH_ENV = 'EVB_E2E_OPEN_IMAGE_PATH';
 /**
  * The direct batch open requests this main process can still cancel, keyed by
@@ -94,8 +97,8 @@ export async function collectSupportedFolderPaths(folderPath: string) {
             continue;
         }
         supportedPaths.push(path);
-        if (supportedPaths.length > MAX_DIRECT_OPEN_BATCH_PATHS) {
-            throw new Error(`Open batch exceeds maximum size (${MAX_DIRECT_OPEN_BATCH_PATHS})`);
+        if (supportedPaths.length > MAX_OPEN_INPUT_PATHS) {
+            throw new Error(`Open batch exceeds maximum size (${MAX_OPEN_INPUT_PATHS})`);
         }
     }
     return supportedPaths
@@ -247,8 +250,11 @@ export async function handleOpenPdfDirectBatch(
     if (!Array.isArray(filePaths) || filePaths.length === 0) {
         return null;
     }
-    if (filePaths.length > MAX_DIRECT_OPEN_BATCH_PATHS) {
-        throw new Error(`Open batch exceeds maximum size (${MAX_DIRECT_OPEN_BATCH_PATHS})`);
+    const maxBatchPaths = batchOptions?.forceCombine === true
+        ? MAX_COMBINE_INPUT_PATHS
+        : MAX_OPEN_INPUT_PATHS;
+    if (filePaths.length > maxBatchPaths) {
+        throw new Error(`Open batch exceeds maximum size (${maxBatchPaths})`);
     }
 
     try {

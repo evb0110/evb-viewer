@@ -113,7 +113,10 @@ vi.mock('electron', () => ({
     nativeImage: {createFromPath: mocks.nativeImageCreateFromPath},
 }));
 
-const { createCombinedPdf } = await import('@electron/image/pdfCombineShared');
+const {
+    createCombinedPdf,
+    stageNativeCombineInputs,
+} = await import('@electron/image/pdfCombineShared');
 
 describe('createCombinedPdf native image fast path', () => {
     beforeEach(() => {
@@ -133,6 +136,17 @@ describe('createCombinedPdf native image fast path', () => {
             9,
             9,
         ]));
+    });
+
+    it('keeps strict file-backed image staging above the in-memory page cap', async () => {
+        const inputPaths = Array.from({length: 501}, (_, index) => `/tmp/page-${index}.jpg`);
+
+        await expect(stageNativeCombineInputs(
+            inputPaths,
+            undefined,
+            undefined,
+            {resourceMode: 'file-backed'},
+        )).resolves.toMatchObject({inputPaths});
     });
 
     it('returns the native image PDF output without creating a pdf-lib document', async () => {

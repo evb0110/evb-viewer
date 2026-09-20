@@ -350,6 +350,20 @@ describe('openInputPaths', () => {
         expect(mocks.createWorkingCopy).not.toHaveBeenCalled();
     });
 
+    it('keeps large forced combines on the generated PDF path', async () => {
+        const owner = {id: 42};
+        const {openInputPaths} = await import('@electron/features/documents/main/openInputPaths.service');
+        const paths = Array.from({length: 513}, (_, index) => `/tmp/input-${index}.png`);
+
+        await expect(openInputPaths(paths, {forceCombine: true}, owner as never)).resolves.toMatchObject({
+            kind: 'pdf',
+            isGenerated: true,
+            workingPath: '/tmp/working/combined.pdf',
+        });
+
+        expect(mocks.createPdfFileFromInputPaths).toHaveBeenCalledOnce();
+    });
+
     it('keeps adding single DjVu opens to recents', async () => {
         const owner = { id: 42 };
         const { openInputPaths } = await import('@electron/features/documents/main/openInputPaths.service');
