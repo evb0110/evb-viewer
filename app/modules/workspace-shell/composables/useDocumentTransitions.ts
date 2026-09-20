@@ -10,6 +10,7 @@ import type { TPdfSidebarTab } from '@app/modules/workspace-shell/types/workspac
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
+import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 
 export interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
@@ -44,8 +45,7 @@ export interface IDocumentTransitionDeps {
     closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
     loadRecentFiles: () => void;
     consumePreservedSourceReloadMetadata?: (() => boolean) | undefined;
-    hasPendingProgrammaticPageNavigation?: (() => boolean) | undefined;
-    clearProgrammaticPageNavigation?: (() => void) | undefined;
+    navigationTicket?: Readonly<Ref<IDocumentNavigationTicket | null>> | undefined;
 }
 
 interface IDestroyablePdfDocument { destroy?: () => Promise<void> }
@@ -95,8 +95,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         closeAllAnnotationNotes,
         loadRecentFiles,
         consumePreservedSourceReloadMetadata,
-        hasPendingProgrammaticPageNavigation,
-        clearProgrammaticPageNavigation,
+        navigationTicket,
     } = deps;
 
     watch(
@@ -126,7 +125,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     watch(pdfSrc, (newSrc, oldSrc) => {
         if (newSrc && newSrc !== oldSrc) {
             const isReload = Boolean(oldSrc);
-            const pendingProgrammaticNavigation = hasPendingProgrammaticPageNavigation?.() === true;
+            const pendingProgrammaticNavigation = Boolean(navigationTicket?.value);
             logPdfRenderTrace('workspace-document-transition-source-changed', {
                 isReload,
                 pendingProgrammaticNavigation,
@@ -155,7 +154,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         }
         if (!newSrc) {
             const previousDocument = isDestroyablePdfDocument(pdfDocument.value) ? pdfDocument.value : null;
-            clearProgrammaticPageNavigation?.();
             currentPage.value = 1;
             totalPages.value = 0;
             pdfDocument.value = null;

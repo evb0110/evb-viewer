@@ -1,5 +1,6 @@
 import {createViewportAuthority} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
-import {createPageNavigationRequest} from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
+import type {IDocumentNavigationTicket} from '@app/modules/document-viewer/public';
 import type {IPdfViewportIntent} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {
     describe,
@@ -669,6 +670,60 @@ describe('ViewportAuthority', () => {
             .toMatchObject({outcome: 'settled'});
         expect(writes).toEqual(['hydrate-metrics']);
         expect(authority.currentPage.value).toBe(2);
+    });
+
+    it('fails a ticket after bounded geometry retries instead of looping forever', async () => {
+        let geometryRevision = 1;
+        let visualAttempts = 0;
+        const navigationTicket: IDocumentNavigationTicket = {
+            generation: 1,
+            documentRevision: 'revision-1',
+            id: 'ticket-unstable-geometry',
+            request: createPageNavigationRequest(2, 'toolbar'),
+            signal: new AbortController().signal,
+            finished: Promise.resolve({
+                kind: 'arrived',
+                page: 2,
+            }),
+        };
+        const reportNavigation = vi.fn(() => true);
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => geometryRevision,
+            reportNavigation,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 2,
+                },
+                left: 0,
+                top: 10,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            apply: () => {},
+            awaitVisual: async () => {
+                visualAttempts += 1;
+                geometryRevision += 1;
+                throw new Error('visual geometry changed');
+            },
+        });
+
+        await expect(authority.submit({
+            ...intent('unstable-geometry', 2),
+            navigationTicket,
+        })).resolves.toMatchObject({outcome: 'cancelled'});
+
+        expect(visualAttempts).toBe(9);
+        expect(reportNavigation).toHaveBeenCalledOnce();
+        expect(reportNavigation).toHaveBeenCalledWith(
+            navigationTicket,
+            expect.objectContaining({
+                kind: 'failed',
+                reason: 'Viewport geometry did not stabilize after 8 retries',
+            }),
+        );
+        expect(authority.getTerminalOutcome('unstable-geometry')).toBe('cancelled');
     });
 
     it('generation-fences stale post-arrival effects', async () => {

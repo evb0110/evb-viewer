@@ -394,7 +394,7 @@ describe('DocumentViewportSession', () => {
             lifecycle: 'transitioning',
             requestedPage: 12,
             committedPage: 1,
-            observedPage: null,
+            observedPage: 6,
         });
         expect(harness.state.committedRenderFence?.pageNumber).toBe(1);
         expect(harness.state.committedViewportFence?.pageNumber).toBe(1);
@@ -421,7 +421,7 @@ describe('DocumentViewportSession', () => {
             requestedPage: 1,
             committedPage: 1,
             observedPage: 8,
-            viewportIntent: null,
+            viewportIntent: {pageNumber: 1},
             renderFence: null,
             stagedRenderFence: null,
             stagedViewportFence: null,

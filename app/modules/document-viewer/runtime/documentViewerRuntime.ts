@@ -1,4 +1,8 @@
 import type {
+    IDocumentNavigationRequest,
+    IDocumentNavigationTicket,
+} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+import type {
     HTMLAttributes,
     Ref,
     ShallowRef,
@@ -29,7 +33,9 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 export interface IDocumentViewerRuntime {
     readonly instanceId: string;
-    readonly currentPage: Ref<number>;
+    readonly currentPage: Readonly<Ref<number>>;
+    readonly navigationPage: Readonly<Ref<number>>;
+    readonly navigationTicket: Readonly<Ref<IDocumentNavigationTicket | null>>;
     readonly pageCount: Ref<number>;
     readonly pageSlots: IDocumentPageSlotRegistry;
     readonly renderCoordinator: ReturnType<typeof createDocumentViewerRenderCoordinator>;
@@ -54,7 +60,7 @@ export interface IDocumentViewerRuntime {
     bindViewportFeature(binding: IDocumentViewportFeatureBinding): () => void;
     dispatchViewportWheel(interaction: IDocumentWheelInteraction): void;
     dispatchViewportEvent(type: TDocumentViewportEventType, event?: Event): void;
-    navigate(pageNumber: number): number;
+    navigate(request: IDocumentNavigationRequest): IDocumentNavigationTicket | null;
     observePage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }
 
@@ -74,18 +80,6 @@ export const documentViewerRuntimeKey = Symbol('document-viewer-runtime') as Inj
 >;
 
 let nextDocumentViewerChassisInstanceId = 0;
-
-export function shouldApplyExternalRuntimePage(
-    session: IDocumentViewportSessionState,
-    pageNumber: number,
-) {
-    const normalizedPage = Math.max(1, Math.trunc(pageNumber));
-    // Once a session owns an identity, currentPage is a committed projection,
-    // not an alternate command channel. Real navigation enters through
-    // openSurface.requestNavigation; accepting a mismatched projected prop
-    // here would supersede a newer session intent during mount/update races.
-    return session.identity === null || session.requestedPage === normalizedPage;
-}
 
 export function shouldAcceptFeaturePackRuntimePage(
     session: IDocumentViewportSessionState,
@@ -111,20 +105,19 @@ export function shouldAcceptFeaturePackRuntimePage(
 
 export function createDocumentViewerRuntime(
     sourceKind: Ref<TDocumentPageSourceKind>,
-    initialPage = 1,
+    _initialPage = 1,
     sharedOpenSurface?: IDocumentOpenSurfaceSession | undefined,
 ): IDocumentViewerRuntime {
-    const currentPage = ref(Math.max(
-        1,
-        Math.trunc(sharedOpenSurface
-            ? resolveDocumentViewportCurrentPage(sharedOpenSurface.viewportSession.value)
-            : initialPage),
-    ));
     const instanceId = `document-viewer-runtime-${String(++nextDocumentViewerChassisInstanceId)}`;
     const pageCount = ref(0);
     const pageSlots = createDocumentPageSlotRegistry();
     const renderCoordinator = createDocumentViewerRenderCoordinator(pageSlots);
     const openSurface = sharedOpenSurface ?? createDocumentOpenSurfaceSession();
+    const currentPage = computed(() => resolveDocumentViewportCurrentPage(openSurface.viewportSession.value));
+    const navigationTicket = openSurface.navigationTicket;
+    const navigationPage = computed(() => navigationTicket.value
+        ? openSurface.viewportSession.value.viewportIntent?.pageNumber ?? currentPage.value
+        : currentPage.value);
     const openingPageElement = shallowRef<HTMLElement | null>(null);
     const openingPageVisual = ref<TDocumentOpeningPageVisual>('none');
     const source = shallowRef<IDocumentPageSource | null>(null);
@@ -133,6 +126,27 @@ export function createDocumentViewerRuntime(
     const viewportFeature = shallowRef<IDocumentViewportFeatureBinding | null>(null);
     const viewportClass = computed(() => viewportFeature.value?.getClass() ?? '');
     const viewportStyle = computed(() => viewportFeature.value?.getStyle() ?? {});
+    // Surface actions may enter through the shared session while the runtime
+    // is still being mounted (for example a restored/full-target command).
+    // Fence once per accepted ticket identity here so those actions invalidate
+    // a live gesture just like runtime.navigate, without making navigate a
+    // second fence point. Ticket refinements retain their id and therefore do
+    // not restart the gesture fence.
+    let lastFencedNavigationTicketId: string | null = null;
+    watch(
+        () => openSurface.navigationTicket.value?.id ?? null,
+        (ticketId) => {
+            if (ticketId === null || ticketId === lastFencedNavigationTicketId) {
+                return;
+            }
+            lastFencedNavigationTicketId = ticketId;
+            viewportWritePort.fenceCommandAgainstLiveGesture();
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
     watch(
         () => openSurface.viewportSession.value.visual,
         (visual) => {
@@ -146,17 +160,6 @@ export function createDocumentViewerRuntime(
             flush: 'sync',
             immediate: true,
         },
-    );
-    watch(
-        () => openSurface.viewportSession.value,
-        (session) => {
-            // Identity acquisition is itself an authority boundary even when
-            // both the empty and opening sessions request page 1. Observing
-            // only the numeric page would leave local pre-source state in
-            // place when that number did not change.
-            currentPage.value = resolveDocumentViewportCurrentPage(session);
-        },
-        {flush: 'sync'},
     );
     let resetOpeningViewportGeneration = 0;
     watch(
@@ -208,6 +211,8 @@ export function createDocumentViewerRuntime(
     return {
         instanceId,
         currentPage,
+        navigationPage,
+        navigationTicket,
         pageCount,
         pageSlots,
         renderCoordinator,
@@ -273,27 +278,11 @@ export function createDocumentViewerRuntime(
         dispatchViewportEvent(type, event) {
             viewportFeature.value?.events[type]?.(event);
         },
-        navigate(pageNumber) {
-            const normalizedPage = Math.max(1, Math.trunc(pageNumber));
-            const boundedPage = pageCount.value > 0
-                ? Math.min(pageCount.value, normalizedPage)
-                : normalizedPage;
-            if (openSurface.viewportSession.value.identity === null) {
-                // Local chassis state may still be prepared before a source is
-                // claimed (for example while swapping feature kinds), but it
-                // is not a durable command for a future document.
-                currentPage.value = boundedPage;
-                return currentPage.value;
-            }
-            // The open-surface session owns lifecycle-aware command dedupe.
-            // requestedPage can intentionally lag the visible observed page
-            // after free scrolling, so it is not a valid duplicate key here.
-            currentPage.value = openSurface.requestNavigation(boundedPage);
-            return currentPage.value;
+        navigate(request) {
+            return openSurface.navigate(request);
         },
         observePage(pageNumber, options) {
-            currentPage.value = openSurface.observeViewportPage(pageNumber, options);
-            return currentPage.value;
+            return openSurface.observeViewportPage(pageNumber, options);
         },
     };
 }

@@ -1,12 +1,20 @@
 import type { Ref } from 'vue';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+import type {
+    IDocumentNavigationRequest,
+    IDocumentOpenSurfaceSession,
+} from '@app/modules/document-viewer/public';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IWorkspacePageUpdateOutcome } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { bucketPageCount } from '@app/utils/analytics';
 import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
+
+export interface IWorkspacePageUpdateOutcome {
+    accepted: boolean;
+    navigationSource: IDocumentNavigationRequest['source'] | null;
+}
 
 interface IWorkspaceViewerUpdateOptions {
     analytics: IAnalyticsDocumentScope;
@@ -22,12 +30,7 @@ interface IWorkspaceViewerUpdateOptions {
     viewMode: Ref<TPdfViewMode>;
     zoom: Ref<number>;
     viewerRef: Ref<IDocumentViewerExpose | null>;
-    /**
-     * Judges an observed viewer page and, when it accepts it, commits it to
-     * `currentPage` and reports the navigation source that produced it. One call
-     * settles page and attribution together, so neither can be read stale.
-     */
-    consumePageUpdate: (page: number) => IWorkspacePageUpdateOutcome;
+    openSurface?: IDocumentOpenSurfaceSession | undefined;
 }
 
 export function createWorkspaceViewerUpdateHandlers(options: IWorkspaceViewerUpdateOptions) {
@@ -58,22 +61,21 @@ export function createWorkspaceViewerUpdateHandlers(options: IWorkspaceViewerUpd
             viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
             viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
         };
-        const outcome = options.consumePageUpdate(page);
-        if (!outcome.accepted) {
-            BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] ignored stale viewer page ${previousPage}->${page}`, {
-                ...shared,
-                ignoredPage: page,
-            });
-            return;
-        }
+        const ticket = options.openSurface?.navigationTicket.value ?? null;
+        const observedPage = options.openSurface?.observeViewportPage(page) ?? page;
+        const outcome: IWorkspacePageUpdateOutcome = {
+            accepted: true,
+            navigationSource: ticket?.request.source ?? null,
+        };
+        options.currentPage.value = observedPage;
         BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] viewer->workspace ${previousPage}->${page}`, {
             ...shared,
-            nextPage: page,
-            changed: page !== previousPage,
+            nextPage: observedPage,
+            changed: observedPage !== previousPage,
         });
         void nextTick().then(() => emitAutomationEvent('navigation-idle', {
             navigationSource: outcome.navigationSource,
-            page,
+            page: observedPage,
             previousPage,
             tabId: options.tabId,
             totalPages: options.totalPages.value,

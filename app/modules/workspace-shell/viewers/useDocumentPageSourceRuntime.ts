@@ -1,5 +1,8 @@
 import { useResizeObserver } from '@vueuse/core';
-import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+import {
+    createPdfPageNavigationRequest,
+    type IDocumentViewerExpose,
+} from '@app/modules/pdf-viewer/public';
 import {
     createDocumentWheelZoomHandler,
     createLazyIndexedCollection,
@@ -910,7 +913,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 && viewportSession.requestedPage === viewportSession.committedPage
                 && viewportSession.requestedPage === props.value.currentPage;
             if (!hasStableCommittedPage) {
-                syncCurrentPageFromViewport(false);
+                syncCurrentPageFromViewport();
             }
             return;
         }
@@ -930,10 +933,16 @@ export const useDocumentPageSourceRuntime = (options: {
         layoutLifecycle.cancelPendingRestore();
         viewportWritePort.observeUserScroll(viewerContainer.value);
         layoutLifecycle.refreshLayoutTransactionAnchor();
-        syncCurrentPageFromViewport(true);
+        const navigationTicket = chassisAuthority?.navigationTicket.value;
+        if (navigationTicket) {
+            chassisAuthority.openSurface.reportNavigation(navigationTicket, {
+                kind: 'abandoned',
+                by: 'user-input',
+            });
+        }
+        syncCurrentPageFromViewport();
     }
     function syncCurrentPageFromViewport(
-        supersedeNavigation: boolean,
         forceProjection = false,
     ) {
         const container = viewerContainer.value;
@@ -955,7 +964,7 @@ export const useDocumentPageSourceRuntime = (options: {
             viewportHeight: container.clientHeight,
         });
         if (nearestPage && (forceProjection || nearestPage !== props.value.currentPage)) {
-            const observedPage = chassisAuthority?.observePage(nearestPage, {supersedeNavigation}) ?? nearestPage;
+            const observedPage = chassisAuthority?.observePage(nearestPage) ?? nearestPage;
             emit('update:currentPage', observedPage);
         }
     }
@@ -990,7 +999,7 @@ export const useDocumentPageSourceRuntime = (options: {
                     emit('update:currentPage', semanticPage);
                     return;
                 }
-                syncCurrentPageFromViewport(false, true);
+                syncCurrentPageFromViewport(true);
             }
         },
         {
@@ -1012,34 +1021,66 @@ export const useDocumentPageSourceRuntime = (options: {
         });
         if (target !== null) scrollToPage(target, 'wheel');
     }
+    function positionPage(pageNumber: number) {
+        const normalized = Math.max(1, Math.min(
+            source.value?.pageCount ?? 1,
+            Math.trunc(pageNumber),
+        ));
+        void nextTick(() => {
+            const container = viewerContainer.value;
+            if (!container) {
+                return;
+            }
+            const intent = viewportWritePort.beginIntent(
+                `page-source-initial-position:${String(normalized)}:${String(transitions.loadGeneration.value)}`,
+            );
+            viewportWritePort.apply(container, {
+                intent,
+                reason: 'source-initial-page-position',
+                top: props.value.continuousScroll
+                    ? Math.max(
+                        0,
+                        (pageTops.value[normalized - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
+                            - DOCUMENT_PAGE_GUTTER_PX,
+                    )
+                    : 0,
+            });
+            layoutLifecycle.refreshLayoutTransactionAnchor();
+        });
+    }
     function scrollToPage(
         pageNumber: number,
         navigationSource: Parameters<IDocumentViewerExpose['scrollToPage']>[1] | 'wheel' = undefined,
     ) {
-        if (navigationSource !== 'wheel') {
+        const options = typeof navigationSource === 'object'
+            ? navigationSource
+            : {navigationSource};
+        const navigationSourceValue = options.navigationSource ?? 'toolbar';
+        if (navigationSourceValue !== 'wheel') {
             pagedWheelNavigation.reset();
-            // An explicit command is newer than a fling still emitting inertial
-            // packets, so that gesture can no longer cancel or displace it.
-            chassisAuthority?.viewportWritePort.fenceCommandAgainstLiveGesture();
         }
-        const normalized = chassisAuthority?.navigate(pageNumber)
-            ?? Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
+        const normalized = Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
+        const request = createPdfPageNavigationRequest(normalized, options);
+        const ticket = chassisAuthority?.navigate(request) ?? null;
+        const requestedTargetPage = ticket?.request.target && 'page' in ticket.request.target
+            ? ticket.request.target.page
+            : normalized;
+        const targetPage = Math.max(1, Math.min(
+            source.value?.pageCount ?? normalized,
+            Math.trunc(requestedTargetPage),
+        ));
         const readyState = presentation.pageStates.get(normalized);
-        if (readyState?.ready) {
-            void nextTick(() => presentation.commitReady(normalized, readyState));
-        }
-        emit('update:currentPage', normalized);
         const intent = chassisAuthority?.viewportWritePort.beginIntent(
-            `page-source-navigation:${String(normalized)}:${String(transitions.loadGeneration.value)}`,
+            `page-source-navigation:${String(targetPage)}:${String(transitions.loadGeneration.value)}`,
         );
         const activeSource = source.value;
         const signal = loadController?.signal;
         const metricFence = transitions.readFence();
-        if (activeSource && signal && !exactPageMetricNumbers.has(normalized)) {
+        if (activeSource && signal && !exactPageMetricNumbers.has(targetPage)) {
             void ensureExactPageMetric(
                 activeSource,
                 metricFence.loadGeneration,
-                normalized,
+                targetPage,
                 signal,
                 () => transitions.isCurrent(metricFence),
             ).then(() => scheduleRender.schedule()).catch((error: unknown) => {
@@ -1050,11 +1091,11 @@ export const useDocumentPageSourceRuntime = (options: {
                     && !signal.aborted
                     && !(error instanceof DOMException && error.name === 'AbortError')
                 ) {
-                    const message = presentation.commitTerminalError(normalized, error);
-                    if (normalized === props.value.currentPage) {
+                    const message = presentation.commitTerminalError(targetPage, error);
+                    if (targetPage === props.value.currentPage) {
                         emit('loadError', error instanceof Error
                             ? error
-                            : presentation.createFailureError(normalized, message));
+                            : presentation.createFailureError(targetPage, message));
                     }
                 }
             });
@@ -1064,18 +1105,27 @@ export const useDocumentPageSourceRuntime = (options: {
                 if (!intent) {
                     return;
                 }
+                if (ticket && !chassisAuthority?.openSurface.isNavigationCurrent(ticket)) {
+                    return;
+                }
                 chassisAuthority?.viewportWritePort.apply(viewerContainer.value, {
                     intent,
                     reason: 'source-neutral-page-navigation',
                     top: props.value.continuousScroll
                         ? Math.max(
                             0,
-                            (pageTops.value[normalized - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
+                            (pageTops.value[targetPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
                                 - DOCUMENT_PAGE_GUTTER_PX,
                         )
                         : 0,
                 });
                 layoutLifecycle.refreshLayoutTransactionAnchor();
+            }
+            // Place the physical viewport before publishing an already-painted
+            // target. Otherwise the ready callback can report arrival first,
+            // retire the ticket, and cause this write to be discarded as stale.
+            if (readyState?.ready && (!ticket || chassisAuthority?.openSurface.isNavigationCurrent(ticket))) {
+                presentation.commitReady(normalized, readyState);
             }
             scheduleRender.schedule();
         });
@@ -1190,7 +1240,7 @@ export const useDocumentPageSourceRuntime = (options: {
             renderPage,
             resetMetricPublication: metricPublication.clear,
             scheduleRender: scheduleRender.schedule,
-            scrollToPage,
+            positionPage,
             setSource: (nextSource) => {
                 source.value = nextSource;
             },

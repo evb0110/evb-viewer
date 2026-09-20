@@ -6,9 +6,9 @@ import type {
     IPdfViewportGeometry,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type {
-    IPdfNavigationRequest,
-    TPdfNavigationTarget,
-} from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+    IDocumentNavigationRequest,
+    TDocumentNavigationTarget,
+} from '@app/modules/document-viewer/public';
 import {
     createTextLayerRangeForSearchMatch,
     createTextLayerRangeForSearchOccurrence,
@@ -41,7 +41,7 @@ function normalizedPointRect(top: number): IAnnotationMarkerRect {
 }
 
 export async function resolvePdfNavigationTarget(
-    target: TPdfNavigationTarget,
+    target: TDocumentNavigationTarget,
     pdfDocument: IPdfDocument | null,
     signal?: AbortSignal,
 ): Promise<IResolvedPdfNavigationTarget> {
@@ -81,7 +81,7 @@ export async function resolvePdfNavigationTarget(
 }
 
 export function resolvePdfNavigationAnchor(
-    request: IPdfNavigationRequest,
+    request: IDocumentNavigationRequest,
     target: IResolvedPdfNavigationTarget,
     geometry?: IPdfViewportGeometry | null,
 ): IPdfSemanticAnchor {
@@ -111,7 +111,7 @@ export function resolvePdfNavigationAnchor(
 
 export function resolveTextAnchorRect(
     container: HTMLElement,
-    target: Extract<TPdfNavigationTarget, {kind: 'text-anchor'}>,
+    target: Extract<TDocumentNavigationTarget, {kind: 'text-anchor'}>,
 ): IAnnotationMarkerRect | null {
     const page = container.querySelector<HTMLElement>(`.page_container[data-page="${target.page}"]`);
     const textLayer = page?.querySelector<HTMLElement>('.text-layer, .textLayer');
@@ -189,7 +189,7 @@ export function resolveTextAnchorRect(
 export function isPdfNavigationReady(
     container: HTMLElement,
     page: number,
-    readiness: IPdfNavigationRequest['readiness'],
+    readiness: IDocumentNavigationRequest['readiness'],
     isCanvasFresh: (page: number) => boolean,
 ) {
     if (readiness === 'metrics') {

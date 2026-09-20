@@ -1044,8 +1044,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 : String(options.documentRevisionToken.value);
             return activeOpenSurfaceGeneration;
         }
+        // Capture the host generation before any source-load await. The
+        // source may refine or reinstall only the generation it observed;
+        // a stale loader cannot silently construct a new surface.
+        const expectedGeneration = activeOpenSurfaceGeneration;
         const documentRevision = String(options.documentRevisionToken?.value ?? `load:${String(loadToken)}`);
-        activeOpenSurfaceGeneration = surface.claim({
+        activeOpenSurfaceGeneration = surface.acquireSource({
             // The host's provisional identity is the stable logical document
             // id. Paths inside the feature pack may already point at a managed
             // working copy and must only refine the revision, never replace the
@@ -1054,8 +1058,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 ?? options.openSurfaceDocumentId?.()
                 ?? `pdf-open-${String(loadToken)}`,
             documentRevision,
-        });
-        activeDocumentRevision = surface.snapshot.value.identity?.documentRevision ?? documentRevision;
+        }, expectedGeneration) ?? 0;
+        activeDocumentRevision = activeOpenSurfaceGeneration === 0
+            ? null
+            : surface.snapshot.value.identity?.documentRevision ?? documentRevision;
         return activeOpenSurfaceGeneration;
     }
 
@@ -1074,6 +1080,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         activePlan = computeLoadPlan(isReload);
         beginLoadSettle();
         claimOpenSurfaceGeneration(activeLoadToken);
+        if (options.chassisAuthority?.openSurface && activeOpenSurfaceGeneration === 0) {
+            // A source that lost its expected surface generation is stale.
+            // Keep its PDF proxy out of the shared viewport rather than
+            // falling back to constructing a competing open transaction.
+            isLoadFromSourceActive = false;
+            resolveLoadSettle();
+            return;
+        }
         options.emitInitialVisualPending?.();
         const loadingFence = captureFence();
         await emitTransition('loading', isReload ? 'reload' : 'open', loadingFence);

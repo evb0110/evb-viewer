@@ -1,7 +1,7 @@
-import type { IPdfNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import type { IDocumentNavigationRequest } from '@app/modules/document-viewer/public';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 
-export function getRequestPage(request: IPdfNavigationRequest | undefined, fallback: number) {
+export function getRequestPage(request: IDocumentNavigationRequest | undefined, fallback: number) {
     const target = request?.target;
     return target && 'page' in target ? target.page : fallback;
 }
@@ -13,7 +13,7 @@ export function getRequestPage(request: IPdfNavigationRequest | undefined, fallb
  * describing anything once every row's height is rewritten.
  */
 export function getRequestAnchor(
-    request: IPdfNavigationRequest | undefined,
+    request: IDocumentNavigationRequest | undefined,
     fallbackPage: number,
 ): IPdfSemanticAnchor {
     const target = request?.target;

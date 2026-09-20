@@ -1,3 +1,6 @@
+export {
+    createPageNavigationRequest, type IDocumentNavigationRequest, type IDocumentNavigationTicket, type IDocumentTextAnchorNavigationOptions, type TDocumentNavigationOutcome, type TDocumentNavigationReport, type TDocumentNavigationTarget,
+} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 export { default as DocumentViewportHost } from '@app/modules/document-viewer/runtime/DocumentViewportHost.vue';
 export * from '@app/modules/document-viewer/thumbnails/documentThumbnailRenderMetrics';
 export {
@@ -20,11 +23,8 @@ export {
     clampKeyboardSelection, createKeyboardSelection, updateKeyboardSelection,
 } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
-    commitDocumentOpenSurfaceViewport, createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportCommitPage, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfacePageGeometrySeed, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
+    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfacePageGeometrySeed, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-export {
-    captureDocumentOpenSurfaceViewportIntent, isDocumentOpenSurfaceViewportIntentCurrent, type IDocumentOpenSurfaceViewportIntentIdentity,
-} from '@app/modules/document-viewer/runtime/documentOpenSurfaceProjection';
 export {
     createAnchorPageWindow, createLazyIndexedCollection, expandVirtualWindowForAnchor, isLazyIndexedCollection, type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
@@ -48,7 +48,7 @@ export {
 } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
 export { createDocumentViewerActivationRunGuard } from '@app/modules/document-viewer/lifecycle/createDocumentViewerActivationRunGuard';
 export {
-    createDocumentViewerRuntime, documentViewerRuntimeKey, injectDocumentViewerRuntime, shouldAcceptFeaturePackRuntimePage, shouldApplyExternalRuntimePage, type IDocumentViewerRuntime,
+    createDocumentViewerRuntime, documentViewerRuntimeKey, injectDocumentViewerRuntime, shouldAcceptFeaturePackRuntimePage, type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 export {
     createDocumentViewportNavigationMachineState, type IDocumentViewportNavigationState,

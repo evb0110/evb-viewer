@@ -110,6 +110,18 @@ const CTRL_WHEEL_FIRST_PAGE_TRACE_OUTPUT_PATH = resolve(
     'scroll-overhaul',
     'repro-real-app-ctrl-wheel-first-page-authority.json',
 );
+const CTRL_WHEEL_FIRST_PAGE_FAILURE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'scroll-overhaul',
+    'repro-real-app-ctrl-wheel-first-page-authority-failure.json',
+);
+const CTRL_WHEEL_FIRST_PAGE_FAILURE_SCREENSHOT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'scroll-overhaul',
+    'repro-real-app-ctrl-wheel-first-page-authority-failure.png',
+);
 interface IVisiblePageState {
     page: number | null;
     renderedClass: boolean;
@@ -1940,15 +1952,71 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             await delay(8);
             await dispatchTrustedClick(firstControl);
             await tail;
-            await session.page.waitForFunction(() => (
-                (() => {
+            try {
+                await session.page.waitForFunction(() => (
+                    (() => {
+                        const toolbar = (window as IRapidNavigationProbeWindow)
+                            .__evbTestApi?.getActiveToolbarSnapshot?.();
+                        const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                        return toolbar?.currentPage === 1
+                            && chassis?.dataset.viewportRequestedPage === '1';
+                    })()
+                ), {timeout: 5_000});
+            } catch (error) {
+                const failure = await session.page.evaluate((clickPoint) => {
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
                     const toolbar = (window as IRapidNavigationProbeWindow)
                         .__evbTestApi?.getActiveToolbarSnapshot?.();
-                    const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-                    return toolbar?.currentPage === 1
-                        && chassis?.dataset.viewportRequestedPage === '1';
-                })()
-            ), {timeout: 5_000});
+                    const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
+                        '.page-controls button[aria-label="First Page"]',
+                    )).find(candidate => {
+                        const rect = candidate.getBoundingClientRect();
+                        return rect.width > 8 && rect.height > 8;
+                    });
+                    const pointTarget = clickPoint
+                        ? document.elementFromPoint(clickPoint.x, clickPoint.y)
+                        : null;
+                    return {
+                        activeElement: document.activeElement?.outerHTML?.slice(0, 500) ?? null,
+                        button: button ? {
+                            ariaDisabled: button.getAttribute('aria-disabled'),
+                            disabled: button.disabled,
+                            label: button.getAttribute('aria-label'),
+                            rect: (() => {
+                                const rect = button.getBoundingClientRect();
+                                return {
+                                    bottom: rect.bottom,
+                                    height: rect.height,
+                                    left: rect.left,
+                                    right: rect.right,
+                                    top: rect.top,
+                                    width: rect.width,
+                                };
+                            })(),
+                        } : null,
+                        chassis: {...chassis?.dataset},
+                        clickPoint,
+                        elementAtClickPoint: pointTarget?.outerHTML?.slice(0, 500) ?? null,
+                        scrollTop: viewport?.scrollTop ?? -1,
+                        toolbar: toolbar ?? null,
+                        viewport: viewport ? {
+                            clientHeight: viewport.clientHeight,
+                            scrollHeight: viewport.scrollHeight,
+                        } : null,
+                    };
+                }, firstControl);
+                const failureTrace = await collectTrace(session);
+                writeTraceArtifact({
+                    before,
+                    error: getErrorMessage(error),
+                    failure,
+                    scenario: 'ctrl-wheel-tail-first-page-owner-geometry-wait-failure',
+                    trace: failureTrace,
+                }, CTRL_WHEEL_FIRST_PAGE_FAILURE_OUTPUT_PATH);
+                await session.page.screenshot({path: CTRL_WHEEL_FIRST_PAGE_FAILURE_SCREENSHOT_PATH});
+                throw error;
+            }
             await session.page.waitForFunction(() => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
                 const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
@@ -2013,6 +2081,18 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 before,
                 after,
             })).toBe(1);
+            expect(after.chassis.openSurfaceDocumentId, JSON.stringify({
+                before,
+                after,
+            })).toBe(before.chassis.openSurfaceDocumentId);
+            expect(after.chassis.openSurfaceDocumentRevision, JSON.stringify({
+                before,
+                after,
+            })).toBe(before.chassis.openSurfaceDocumentRevision);
+            expect(after.chassis.openSurfaceGeneration, JSON.stringify({
+                before,
+                after,
+            })).toBe(before.chassis.openSurfaceGeneration);
             expect(after.chassis.viewportRequestedPage, JSON.stringify({
                 before,
                 after,
@@ -2035,7 +2115,9 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 await client.send('Emulation.setCPUThrottlingRate', {rate: 1}).catch(() => undefined);
                 await client.detach().catch(() => undefined);
             }
-            await session.page.setViewport(originalViewport);
+            if (originalViewport) {
+                await session.page.setViewport(originalViewport);
+            }
         }
     }, 90_000);
 

@@ -20,8 +20,8 @@
                 :controls-disabled="toolbarControlsDisabled"
                 :page-dropdown-total-pages="documentMetadataReady ? toolbarTotalPages : 0"
                 :page-labels="toolbarPageLabels"
-                :navigation-feedback-page="navigationFeedbackPage"
-                :navigation-command="navigationCommand"
+                :navigation-ticket="documentOpenSurface.navigationTicket.value"
+                :physical-page="physicalToolbarPage"
                 :ocr-pdf-document="pdfDocument"
                 :ocr-working-copy-path="workingCopyPath"
                 :ocr-document-revision="documentRevisionToken"
@@ -420,7 +420,6 @@ import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/
 import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
 import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
-import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle';
 import { useDocumentWorkspacePageOperationHandlers } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageOperationHandlers';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import { useDocumentSourceSidebarSession } from '@app/modules/workspace-shell/composables/useDocumentSourceSidebarSession';
@@ -441,6 +440,7 @@ import type {
     IScrollToPageOptions,
 } from '@app/modules/pdf-viewer/public';
 import {
+    createPageNavigationRequest,
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/public';
@@ -462,6 +462,11 @@ if (!injectedDocumentOpenSurface) {
 }
 const documentOpenSurface = injectedDocumentOpenSurface;
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
+const physicalToolbarPage = computed(() => (
+    documentOpenSurface.viewportSession.value.observedPage
+    ?? documentOpenSurface.viewportSession.value.committedPage
+    ?? 1
+));
 const openingPreviewReady = computed(() => {
     const snapshot = documentOpenSurface.snapshot.value;
     return [
@@ -871,7 +876,6 @@ const {
     handleFitMode,
     enableDragMode,
     handleGoToPage,
-    navigationCommand,
 } = viewNavigation;
 const handleGoToResult = createWorkspacePdfSearchResultNavigation({
     results,
@@ -1015,16 +1019,8 @@ const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
     openSurfaceSnapshot: documentOpenSurface.snapshot,
     openingPreviewReady,
 });
-const {
-    handleDocumentInitialVisualPending,
-    handleDocumentInitialVisualReady,
-} = useDocumentOpenSurfaceLifecycle({
-    openSurface: documentOpenSurface,
-    onInitialVisualPending: handlePdfInitialVisualPending,
-    onInitialVisualReady: handlePdfInitialVisualReady,
-    pendingDocumentOpen,
-    pendingDocumentIdentity: computed(() => String(pendingDocumentPath ?? tabId)),
-});
+const handleDocumentInitialVisualPending = handlePdfInitialVisualPending;
+const handleDocumentInitialVisualReady = handlePdfInitialVisualReady;
 const {
     handleInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEventBase,
     handleSave: handleSaveWithAutomationEvent,
@@ -1069,7 +1065,10 @@ function handlePreviewAwareGoToPage(pageNumber: number, options?: IScrollToPageO
         handleGoToPage(boundedPage, options);
         return;
     }
-    documentOpenSurface.requestNavigation(boundedPage);
+    documentOpenSurface.navigate(createPageNavigationRequest(
+        boundedPage,
+        'toolbar',
+    ));
 }
 const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
 const openingPageSource = documentOpenSurface.openingPageSource;

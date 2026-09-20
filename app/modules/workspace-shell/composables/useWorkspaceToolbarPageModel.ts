@@ -1,139 +1,38 @@
 import type { MaybeRefOrGetter } from 'vue';
+import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IUseWorkspaceToolbarPageModelOptions {
+    /** The physical page projection shown in the page indicator. */
     sourcePage: MaybeRefOrGetter<number>;
-    feedbackPage?: MaybeRefOrGetter<number | null | undefined>;
-    authoritativeCommand?: MaybeRefOrGetter<{
-        page: number;
-        revision: number;
-    } | null | undefined>;
-    sessionActive?: MaybeRefOrGetter<boolean>;
+    /** Direct shared-surface physical projection used by the toolbar. */
+    physicalPage?: MaybeRefOrGetter<number> | undefined;
+    /** The shared command cursor; it is never copied into the physical indicator. */
+    navigationTicket: MaybeRefOrGetter<IDocumentNavigationTicket | null>;
     goToPage: (page: number) => void;
 }
 
 export const useWorkspaceToolbarPageModel = (options: IUseWorkspaceToolbarPageModelOptions) => {
-    const pendingNavigationPage = ref<number | null>(null);
-    let pendingNavigationSourcePage: number | null = null;
-
-    watch(
-        () => toValue(options.sourcePage),
-        (page) => {
-            if (pendingNavigationPage.value !== null) {
-                if (page === pendingNavigationPage.value) {
-                    logPdfRenderTrace('workspace-toolbar-page-source-caught-up', {
-                        page,
-                        pendingNavigationPage: pendingNavigationPage.value,
-                        pendingNavigationSourcePage,
-                    });
-                    clearPendingNavigation('source-caught-up');
-                    return;
-                }
-
-                logPdfRenderTrace('workspace-toolbar-page-source-observed-pending-target', {
-                    page,
-                    pendingNavigationPage: pendingNavigationPage.value,
-                    pendingNavigationSourcePage,
-                });
-                return;
-            }
-
-            logPdfRenderTrace('workspace-toolbar-page-source-sync', { page });
-        },
-    );
-
-    if (options.sessionActive !== undefined) {
-        watch(
-            () => toValue(options.sessionActive),
-            (active) => {
-                if (!active) {
-                    clearPendingNavigation('session-ended');
-                }
-            },
-            { flush: 'sync' },
-        );
-    }
-
-    if (options.authoritativeCommand !== undefined) {
-        watch(
-            () => toValue(options.authoritativeCommand),
-            (command) => {
-                if (
-                    command
-                    && pendingNavigationPage.value !== null
-                    && command.page !== pendingNavigationPage.value
-                ) clearPendingNavigation('authoritative-command-superseded');
-            },
-            {flush: 'sync'},
-        );
-    }
-
-    function commitNavigation(page: number) {
-        logPdfRenderTrace('workspace-toolbar-page-commit-navigation', {
-            page,
-            sourcePage: toValue(options.sourcePage),
-        });
-        options.goToPage(page);
-    }
-
-    function clearPendingNavigation(reason: string) {
-        if (pendingNavigationPage.value === null && pendingNavigationSourcePage === null) {
-            return;
-        }
-
-        logPdfRenderTrace('workspace-toolbar-page-pending-cleared', {
-            pendingNavigationPage: pendingNavigationPage.value,
-            pendingNavigationSourcePage,
-            reason,
-            sourcePage: toValue(options.sourcePage),
-        });
-        pendingNavigationPage.value = null;
-        pendingNavigationSourcePage = null;
-    }
-
-    onScopeDispose(() => {
-        clearPendingNavigation('scope-dispose');
+    const currentPage = computed(() => options.physicalPage
+        ? toValue(options.physicalPage)
+        : toValue(options.sourcePage));
+    const navigationPage = computed(() => {
+        const ticket = options.navigationTicket ? toValue(options.navigationTicket) : null;
+        const target = ticket?.request.target;
+        return target && 'page' in target ? target.page : currentPage.value;
     });
-
-    const feedbackPage = computed(() => {
-        const page = toValue(options.feedbackPage);
-        return typeof page === 'number' && Number.isFinite(page)
-            ? Math.max(1, Math.trunc(page))
-            : null;
-    });
-    // Feedback is the command cursor used to compose rapid Next/Previous
-    // requests. It is not a presentation commit: displaying it as the current
-    // page lets the toolbar outrun the live viewport while a far target is
-    // still mounting or rendering.
-    const currentPage = computed(() => toValue(options.sourcePage));
-    const navigationPage = computed(() => (
-        pendingNavigationPage.value
-        ?? feedbackPage.value
-        ?? currentPage.value
-    ));
 
     function handleGoToPage(page: number) {
-        if (pendingNavigationPage.value === null) {
-            pendingNavigationSourcePage = toValue(options.sourcePage);
-        }
-
-        logPdfRenderTrace('workspace-toolbar-page-navigation-target-set', {
+        logPdfRenderTrace('workspace-toolbar-page-commit-navigation', {
             page,
-            pendingNavigationPage: pendingNavigationPage.value,
-            pendingNavigationSourcePage,
-            sourcePage: toValue(options.sourcePage),
+            sourcePage: currentPage.value,
         });
-        pendingNavigationPage.value = page;
-        commitNavigation(page);
-        if (page === toValue(options.sourcePage)) {
-            clearPendingNavigation('already-at-target');
-        }
+        options.goToPage(page);
     }
 
     return {
         currentPage,
         navigationPage,
         handleGoToPage,
-        cancelPendingNavigation: () => clearPendingNavigation('explicit-cancel'),
     };
 };

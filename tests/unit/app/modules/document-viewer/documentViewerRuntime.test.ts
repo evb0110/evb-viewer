@@ -11,9 +11,9 @@ import { ref } from 'vue';
 import {
     createDocumentViewerRuntime,
     shouldAcceptFeaturePackRuntimePage,
-    shouldApplyExternalRuntimePage,
 } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
 import { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -134,16 +134,27 @@ describe('document viewer chassis authority', () => {
 
     it('keeps one navigation, page-slot, and surface-budget authority across PDF and DjVu sources', async () => {
         const sourceKind = ref<'pdf' | 'djvu'>('pdf');
-        const authority = createDocumentViewerRuntime(sourceKind, 2);
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-1',
+        });
+        const authority = createDocumentViewerRuntime(sourceKind, 2, openSurface);
         const originalSlots = authority.pageSlots;
         const originalBudget = authority.surfaceBudget;
         const originalViewportWritePort = authority.viewportWritePort;
         authority.bindSource(createSource('pdf', 12));
 
-        expect(authority.navigate(7)).toBe(7);
+        const request = createPageNavigationRequest(7, 'toolbar');
+        const ticket = authority.navigate(request);
+        expect(ticket).not.toBeNull();
+        expect(ticket?.request).toEqual(request);
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(7);
         const mounted = authority.pageSlots.whenMounted(7, new AbortController().signal);
         authority.pageSlots.markMounted(7);
         await expect(mounted).resolves.toBeUndefined();
+        authority.observePage(7);
 
         sourceKind.value = 'djvu';
         authority.bindSource(createSource('djvu', 12));
@@ -935,80 +946,143 @@ describe('document viewer chassis authority', () => {
         );
     });
 
-    it('clamps navigation only after the source page count is known', () => {
-        const authority = createDocumentViewerRuntime(ref('djvu'));
+    it('clamps the physical navigation cursor after the source page count is known', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: 'scan.djvu',
+            documentRevision: 'revision-1',
+        });
+        const authority = createDocumentViewerRuntime(ref('djvu'), 1, openSurface);
 
-        expect(authority.navigate(20)).toBe(20);
-        authority.pageCount.value = 8;
-        expect(authority.navigate(20)).toBe(8);
-        expect(authority.navigate(-4)).toBe(1);
+        const pending = authority.navigate(createPageNavigationRequest(20, 'toolbar'));
+        expect(pending).not.toBeNull();
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(20);
+
+        authority.bindSource(createSource('djvu', 8));
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(8);
+        expect(pending?.request.target).toEqual({
+            kind: 'page',
+            page: 20,
+        });
+        expect(openSurface.navigationTicket.value?.signal).toBe(pending?.signal);
+        expect(openSurface.navigationTicket.value?.request.target).toEqual({
+            kind: 'page',
+            page: 8,
+        });
+        expect(openSurface.isNavigationCurrent(pending!)).toBe(true);
+
+        expect(authority.navigate(createPageNavigationRequest(-4, 'toolbar'))).toBeNull();
+        expect(authority.navigationPage.value).toBe(8);
+        authority.observePage(8);
+        expect(authority.currentPage.value).toBe(8);
     });
 
     it('delegates navigation dedupe to the owned open-surface session', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: 'scan.pdf',
-            documentRevision: 'open-intent:1',
+            documentRevision: 'revision-1',
         });
-        const requestNavigation = vi.spyOn(openSurface, 'requestNavigation');
+        const requestNavigation = vi.spyOn(openSurface, 'navigate');
         const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const request = createPageNavigationRequest(1, 'toolbar');
 
-        expect(authority.navigate(1)).toBe(1);
+        const ticket = authority.navigate(request);
+        expect(ticket).toBe(openSurface.navigationTicket.value);
+        expect(ticket?.request).toEqual(request);
         expect(requestNavigation).toHaveBeenCalledOnce();
-        expect(requestNavigation).toHaveBeenCalledWith(1);
+        expect(requestNavigation).toHaveBeenCalledWith(request);
     });
 
-    it('mounts on the latest opening-session intent instead of the stale initial page', () => {
+    it('mounts on the latest opening-session intent while keeping physical page separate', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: 'scan.pdf',
-            documentRevision: 'open-intent:1',
+            documentRevision: 'revision-1',
         });
         for (let page = 2; page <= 6; page += 1) {
-            openSurface.requestNavigation(page);
+            openSurface.navigate(createPageNavigationRequest(page, 'toolbar'));
         }
 
         const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
 
         expect(openSurface.viewportSession.value.requestedPage).toBe(6);
-        expect(authority.currentPage.value).toBe(6);
-        expect(shouldApplyExternalRuntimePage(openSurface.viewportSession.value, 1)).toBe(false);
-        expect(shouldApplyExternalRuntimePage(openSurface.viewportSession.value, 6)).toBe(true);
-        expect(shouldApplyExternalRuntimePage({
-            ...openSurface.viewportSession.value,
-            lifecycle: 'transitioning',
-        }, 1)).toBe(false);
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(6);
+        expect(authority.navigationTicket.value?.request.target).toEqual({
+            kind: 'page',
+            page: 6,
+        });
+        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 1)).toBe(true);
+        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 6)).toBe(false);
+        authority.observePage(6);
         expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 1)).toBe(false);
         expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 6)).toBe(true);
-        expect(shouldAcceptFeaturePackRuntimePage({
-            ...openSurface.viewportSession.value,
-            committedPage: 6,
-        }, 7)).toBe(false);
-        expect(shouldAcceptFeaturePackRuntimePage({
-            ...openSurface.viewportSession.value,
-            requestedPage: 7,
-            committedPage: 6,
-        }, 7)).toBe(true);
+    });
+
+    it('replays the full target through a renderer bind without replacing the visible page', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-1',
+        });
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const request = {
+            ...createPageNavigationRequest(1, 'bookmark'),
+            target: {
+                kind: 'named-dest' as const,
+                destination: 'chapter',
+            },
+            readiness: 'metrics' as const,
+            postArrival: 'search-highlight' as const,
+            searchNavigationId: 17,
+        };
+
+        const ticket = authority.navigate(request);
+        expect(ticket).not.toBeNull();
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(1);
+        expect(authority.navigationTicket.value).toBe(ticket);
+        expect(authority.navigationTicket.value?.request).toEqual(request);
+
+        const rebound = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        expect(rebound.navigationTicket.value).toBe(ticket);
+        expect(rebound.navigationTicket.value?.request.target).toEqual(request.target);
+        expect(rebound.currentPage.value).toBe(1);
+        expect(rebound.navigationPage.value).toBe(1);
+
+        expect(openSurface.reportNavigation(ticket!, {
+            kind: 'resolved',
+            page: 8,
+        })).toBe(true);
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(8);
+        expect(rebound.currentPage.value).toBe(1);
+        expect(rebound.navigationPage.value).toBe(8);
+        expect(authority.navigationTicket.value?.request.target).toEqual(request.target);
     });
 
     it('rejects navigation without a document owner instead of leaking it into the next open', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
 
-        expect(shouldAcceptFeaturePackRuntimePage(openSurface.viewportSession.value, 6)).toBe(false);
-
         for (let page = 2; page <= 6; page += 1) {
-            authority.navigate(page);
+            expect(authority.navigate(createPageNavigationRequest(page, 'toolbar'))).toBeNull();
         }
-        expect(authority.currentPage.value).toBe(6);
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(1);
+        expect(authority.navigationTicket.value).toBeNull();
         expect(openSurface.viewportSession.value.identity).toBeNull();
 
         openSurface.begin({
             documentId: 'scan.pdf',
-            documentRevision: 'open-intent:1',
+            documentRevision: 'revision-1',
         });
 
         expect(openSurface.viewportSession.value.requestedPage).toBe(1);
         expect(authority.currentPage.value).toBe(1);
+        expect(authority.navigationPage.value).toBe(1);
     });
 });

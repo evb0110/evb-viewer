@@ -1,3 +1,6 @@
+import type {
+    IDocumentNavigationRequest, IDocumentNavigationTicket, TDocumentNavigationReport,
+} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import type { Ref } from 'vue';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
 import type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
@@ -16,6 +19,7 @@ export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed
 export interface IDocumentOpenSurfaceIdentity {
     readonly documentId: string;
     readonly documentRevision: string;
+    readonly provisional?: boolean;
 }
 
 export interface IDocumentOpenSurfacePreparedPageFrame {
@@ -76,6 +80,10 @@ export interface IDocumentOpenSurfaceSnapshot {
 }
 
 export interface IDocumentOpenSurfaceSession {
+    readonly navigationTicket: Readonly<Ref<IDocumentNavigationTicket | null>>;
+    navigate(request: IDocumentNavigationRequest): IDocumentNavigationTicket | null;
+    isNavigationCurrent(ticket: IDocumentNavigationTicket): boolean;
+    reportNavigation(ticket: IDocumentNavigationTicket, report: TDocumentNavigationReport): boolean;
     readonly snapshot: Readonly<Ref<IDocumentOpenSurfaceSnapshot>>;
     readonly viewportSession: Readonly<Ref<IDocumentViewportSessionState>>;
     readonly readyAuthorizationRevision: Readonly<Ref<number>>;
@@ -94,8 +102,7 @@ export interface IDocumentOpenSurfaceSession {
         generation: number,
         geometry: IDocumentOpenSurfacePageGeometry,
     ): boolean;
-    claim(identity: IDocumentOpenSurfaceIdentity): number;
-    supersede(): number | null;
+    acquireSource(identity: IDocumentOpenSurfaceIdentity, expectedGeneration: number): number | null;
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
     commitOpeningPagePreview(generation: number, preview: IDocumentOpenSurfacePagePreview): boolean;
     clearOpeningPagePreview(generation: number, objectUrl: string): boolean;

@@ -14,9 +14,9 @@ import {
     resolvePdfNavigationTarget,
     resolveTextAnchorRect,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
-import type { IPdfNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import type { IDocumentNavigationRequest } from '@app/modules/document-viewer/public';
 
-function request(overrides: Partial<IPdfNavigationRequest> = {}): IPdfNavigationRequest {
+function request(overrides: Partial<IDocumentNavigationRequest> = {}): IDocumentNavigationRequest {
     return {
         target: {
             kind: 'page',

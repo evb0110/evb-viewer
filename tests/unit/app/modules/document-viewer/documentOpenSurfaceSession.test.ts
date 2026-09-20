@@ -1,3 +1,4 @@
+import {createPageNavigationRequest} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import {
     describe,
     expect,
@@ -28,6 +29,7 @@ function beginSurface(
     return session.begin({
         documentId,
         documentRevision,
+        ...(documentRevision.startsWith('open-intent:') ? {provisional: true} : {}),
     });
 }
 
@@ -308,7 +310,7 @@ describe('document open surface session', () => {
             lifecycle: 'ready',
             requestedPage: 7,
             committedPage: 7,
-            viewportIntent: null,
+            viewportIntent: {pageNumber: 7},
         });
 
         expect(() => session.metadataReady(3)).not.toThrow();
@@ -365,7 +367,7 @@ describe('document open surface session', () => {
         });
     });
 
-    it('mints a new navigation edge when metadata shrink invalidates an active intent', () => {
+    it('clamps the paint target without manufacturing a new command when metadata shrinks', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'edited.pdf', 'pdfjs:1');
         session.metadataReady(12);
@@ -373,6 +375,8 @@ describe('document open surface session', () => {
         const openingFence = createRenderFence(session, generation, 'pdfjs:1');
         commitReadySurface(session, openingFence);
         session.requestNavigation(7, 0);
+        const navigationTicket = session.navigationTicket.value;
+        expect(navigationTicket).not.toBeNull();
         const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
             renderVersion: 1,
             requestId: 2,
@@ -389,7 +393,17 @@ describe('document open surface session', () => {
             committedPage: null,
             viewportIntent: {pageNumber: 3},
         });
-        expect(session.viewportSession.value.viewportIntent?.id).not.toBe(priorIntentId);
+        expect(session.viewportSession.value.viewportIntent?.id).toBe(priorIntentId);
+        expect(session.navigationTicket.value?.signal).toBe(navigationTicket?.signal);
+        expect(session.isNavigationCurrent(navigationTicket!)).toBe(true);
+        expect(session.reportNavigation(navigationTicket!, {
+            kind: 'placed',
+            page: 3,
+            left: 0,
+            top: 0,
+            geometryRevision: 1,
+            interactionEpoch: 0,
+        })).toBe(true);
         expect(session.snapshot.value).toMatchObject({
             phase: 'geometry-committed',
             presentation: 'page-shell',
@@ -419,7 +433,7 @@ describe('document open surface session', () => {
             lifecycle: 'transitioning',
             requestedPage: 1,
             committedPage: 1,
-            observedPage: null,
+            observedPage: 20,
             visual: {
                 kind: 'page',
                 pageNumber: 1,
@@ -525,46 +539,149 @@ describe('document open surface session', () => {
         vi.useRealTimers();
     });
 
-    it('keeps the current intent and fences when a viewport commit repeats the requested page', () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(3_000);
+    it('orders same-page commands by ticket and rejects the earlier placement', async () => {
         const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'scan.pdf', 'revision-1');
-        expect(session.commitOpeningPageGeometry(generation, openingGeometry('scan.pdf', 10, {
-            pageNumber: 1,
-            width: 612,
-            height: 792,
-            rotation: 0,
-        }))).toBe(true);
-        expect(session.commitGeometry(generation, {
-            width: 612,
-            height: 792,
-            margin: 20,
-        })).toBe(true);
-        session.requestNavigation(7, 120);
-        const intentId = session.viewportSession.value.viewportIntent?.id;
-        const fence = createRenderFence(session, generation, 'revision-1', {
-            renderVersion: 2,
-            requestId: 7,
-            pageNumber: 7,
-        });
-
-        expect(session.requestNavigation(7, 120)).toBe(7);
-        expect(session.viewportSession.value.viewportIntent?.id).toBe(intentId);
-        expect(session.commitCanvas(fence)).toBe(true);
-        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
-        expect(session.markReady(fence)).toBe(true);
-
-        vi.advanceTimersByTime(1_000);
-        expect(session.viewportSession.value).toMatchObject({
-            committedPage: 7,
-            requestedPage: 7,
-            visual: {
-                pageNumber: 7,
-                presentation: 'canvas',
+        beginSurface(session);
+        session.metadataReady(10);
+        const first = session.navigate({
+            ...createPageNavigationRequest(7, 'search'),
+            target: {
+                kind: 'text-anchor',
+                page: 7,
+                text: 'first passage',
             },
+        })!;
+        const second = session.navigate({
+            ...createPageNavigationRequest(7, 'search'),
+            target: {
+                kind: 'text-anchor',
+                page: 7,
+                text: 'second passage',
+            },
+        })!;
+        await expect(first.finished).resolves.toEqual({
+            kind: 'superseded',
+            by: 'command',
         });
-        vi.useRealTimers();
+        expect(first.signal.aborted).toBe(true);
+        expect(session.navigationTicket.value?.request.target).toEqual(second.request.target);
+        expect(session.reportNavigation(first, {
+            kind: 'placed',
+            page: 7,
+            left: 0,
+            top: 700,
+            geometryRevision: 1,
+            interactionEpoch: 0,
+        })).toBe(false);
+        expect(session.reportNavigation(second, {
+            kind: 'placed',
+            page: 7,
+            left: 0,
+            top: 770,
+            geometryRevision: 1,
+            interactionEpoch: 0,
+        })).toBe(true);
+        expect(session.viewportSession.value.observedPage).toBe(7);
+        expect(session.snapshot.value.committedViewport?.top).toBe(770);
+        expect(session.snapshot.value.phase).not.toBe('ready');
+    });
+
+    it('owns unresolved destinations before resolution and ends pending work on close', async () => {
+        const session = createDocumentOpenSurfaceSession();
+        beginSurface(session);
+        const named = session.navigate({
+            ...createPageNavigationRequest(1, 'bookmark'),
+            target: {
+                kind: 'named-dest',
+                destination: 'chapter',
+            },
+        })!;
+        expect(session.viewportSession.value.viewportIntent?.pageNumber).toBeNull();
+        const replacement = session.navigate(createPageNavigationRequest(9, 'toolbar'))!;
+        expect(session.reportNavigation(named, {
+            kind: 'resolved',
+            page: 3,
+        })).toBe(false);
+        expect(session.navigationTicket.value?.id).toBe(replacement.id);
+        session.reset();
+        await expect(replacement.finished).resolves.toEqual({kind: 'document-ended'});
+        expect(session.reportNavigation(replacement, {
+            kind: 'arrived',
+            page: 9,
+        })).toBe(false);
+        expect(session.navigationTicket.value).toBeNull();
+        expect(session.viewportSession.value.lifecycle).toBe('empty');
+    });
+
+    it('resolves a named destination without replacing its semantic request', () => {
+        const session = createDocumentOpenSurfaceSession();
+        beginSurface(session);
+        const ticket = session.navigate({
+            ...createPageNavigationRequest(1, 'bookmark'),
+            target: {
+                kind: 'named-dest',
+                destination: 'chapter',
+            },
+        })!;
+        expect(session.reportNavigation(ticket, {
+            kind: 'resolved',
+            page: 8,
+        })).toBe(true);
+        expect(session.navigationTicket.value).toBe(ticket);
+        expect(session.viewportSession.value.requestedPage).toBe(8);
+        expect(session.viewportSession.value.observedPage).toBeNull();
+        expect(session.reportNavigation(ticket, {
+            kind: 'resolved',
+            page: 9,
+        })).toBe(false);
+    });
+
+    it('keeps a newer command when placement publishes synchronously to an observer', async () => {
+        const session = createDocumentOpenSurfaceSession();
+        beginSurface(session);
+        const first = session.navigate(createPageNavigationRequest(7, 'toolbar'))!;
+        const stop = watch(() => session.viewportSession.value.observedPage, page => {
+            if (page === 7) session.navigate(createPageNavigationRequest(9, 'toolbar'));
+        }, {flush: 'sync'});
+        expect(session.reportNavigation(first, {
+            kind: 'placed',
+            page: 7,
+            left: 0,
+            top: 700,
+            geometryRevision: 1,
+            interactionEpoch: 0,
+        })).toBe(false);
+        stop();
+        await expect(first.finished).resolves.toEqual({
+            kind: 'superseded',
+            by: 'command',
+        });
+        expect(session.navigationTicket.value?.request.target).toEqual({
+            kind: 'page',
+            page: 9,
+        });
+        expect(session.viewportSession.value.observedPage).toBe(7);
+    });
+
+    it('finishes a failed page request and accepts navigation to another page', async () => {
+        const session = createDocumentOpenSurfaceSession();
+        beginSurface(session);
+        const failed = session.navigate(createPageNavigationRequest(7, 'toolbar'))!;
+        expect(session.reportNavigation(failed, {
+            kind: 'failed',
+            reason: 'raster-failed',
+        })).toBe(true);
+        await expect(failed.finished).resolves.toEqual({
+            kind: 'failed',
+            reason: 'raster-failed',
+        });
+        expect(session.navigationTicket.value).toBeNull();
+        const retry = session.navigate(createPageNavigationRequest(9, 'toolbar'));
+        expect(retry?.request.target).toEqual({
+            kind: 'page',
+            page: 9,
+        });
+        expect(session.viewportSession.value.lifecycle).toBe('transitioning');
     });
 
     it('retargets empty-surface ownership without resizing its measured opening shell', () => {
@@ -572,6 +689,7 @@ describe('document open surface session', () => {
         const generation = session.beginPrepared({
             documentId: 'scan.pdf',
             documentRevision: 'open-intent:1',
+            provisional: true,
         }, {
             documentId: 'scan.pdf',
             ownerId: 'opening-frame-owner',
@@ -751,7 +869,7 @@ describe('document open surface session', () => {
         geometry.width = 1;
         expect(session.snapshot.value.openingPageGeometry?.width).toBe(612);
 
-        const nextGeneration = session.supersede()!;
+        const nextGeneration = session.begin({...session.snapshot.value.identity!});
         expect(session.commitOpeningPageGeometry(generation, geometry)).toBe(false);
         expect(nextGeneration).toBe(generation + 1);
     });
@@ -795,10 +913,10 @@ describe('document open surface session', () => {
         });
         const provisionalViewport = createViewportCommit(provisionalFence);
 
-        const claimedGeneration = session.claim({
+        const claimedGeneration = session.acquireSource({
             documentId: 'pending.pdf',
             documentRevision: 'canonical-revision',
-        });
+        }, session.snapshot.value.generation);
 
         expect(claimedGeneration).toBe(generation);
         expect(session.snapshot.value.identity?.documentRevision).toBe('canonical-revision');
@@ -812,13 +930,13 @@ describe('document open surface session', () => {
         });
         expect(session.createRenderFence({
             ...provisionalFence,
-            generation: claimedGeneration,
+            generation: claimedGeneration!,
         })).toBeNull();
         expect(session.commitCanvas(provisionalFence)).toBe(false);
         expect(session.commitViewport(provisionalViewport)).toBe(false);
         expect(session.createRenderFence({
             ...provisionalFence,
-            generation: claimedGeneration,
+            generation: claimedGeneration!,
             documentRevision: 'canonical-revision',
         })?.documentRevision).toBe('canonical-revision');
     });
@@ -832,10 +950,10 @@ describe('document open surface session', () => {
             margin: 20,
         })).toBe(true);
 
-        const claimedGeneration = session.claim({
+        const claimedGeneration = session.acquireSource({
             documentId: 'pending.pdf',
             documentRevision: 'load:1',
-        });
+        }, session.snapshot.value.generation);
         expect(claimedGeneration).toBe(generation);
         expect(session.snapshot.value).toMatchObject({
             generation: claimedGeneration,
@@ -878,60 +996,42 @@ describe('document open surface session', () => {
         });
     });
 
-    it('supersedes committed fences instead of relabelling them when identity is refined late', () => {
+    it('rejects late provisional refinement instead of turning it into a new open', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'pending.pdf', 'open-intent:1');
         commitDefaultGeometry(session, generation);
         const fence = createRenderFence(session, generation, 'open-intent:1');
         expect(session.commitCanvas(fence)).toBe(true);
         expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
-
-        const claimedGeneration = session.claim({
+        expect(session.acquireSource({
             documentId: 'pending.pdf',
             documentRevision: 'load:1',
-        });
-        expect(claimedGeneration).toBe(generation + 1);
-        expect(session.snapshot.value).toMatchObject({
-            generation: generation + 1,
-            phase: 'pending',
-            identity: {
-                documentId: 'pending.pdf',
-                documentRevision: 'load:1',
-            },
-            committedRender: null,
-            committedViewport: null,
-        });
-        expect(session.markReady(fence)).toBe(false);
+        }, generation)).toBeNull();
+        expect(session.snapshot.value.generation).toBe(generation);
+        expect(session.snapshot.value.identity?.documentRevision).toBe('open-intent:1');
+        expect(session.markReady(fence)).toBe(true);
     });
 
-    it('starts a clean generation when a rapid second document claims an active open', () => {
+    it('rejects a stale source acquisition after another document owns the surface', () => {
         const session = createDocumentOpenSurfaceSession();
-        const firstGeneration = session.begin({
+        const first = session.begin({
             documentId: 'a.pdf',
-            documentRevision: 'open-intent:a',
+            documentRevision: 'rev-a',
         });
-        commitDefaultGeometry(session, firstGeneration);
-        const staleFence = createRenderFence(session, firstGeneration, 'open-intent:a');
-        session.commitCanvas(staleFence);
-
-        expect(session.claim({
+        const second = session.begin({
             documentId: 'b.pdf',
-            documentRevision: 'open-intent:b',
-        })).toBe(firstGeneration + 1);
-        expect(session.snapshot.value).toMatchObject({
-            generation: firstGeneration + 1,
-            phase: 'pending',
-            identity: {
-                documentId: 'b.pdf',
-                documentRevision: 'open-intent:b',
-            },
-            geometry: null,
-            openingPageGeometry: null,
-            openingPageFrame: null,
-            committedRender: null,
-            committedViewport: null,
+            documentRevision: 'rev-b',
         });
-        expect(session.commitCanvas(staleFence)).toBe(false);
+        expect(session.acquireSource({
+            documentId: 'a.pdf',
+            documentRevision: 'late-a',
+        }, first)).toBeNull();
+        expect(session.acquireSource({
+            documentId: 'a.pdf',
+            documentRevision: 'late-a',
+        }, second)).toBeNull();
+        expect(session.snapshot.value.generation).toBe(second);
+        expect(session.snapshot.value.identity?.documentId).toBe('b.pdf');
     });
 
     it('rejects canvas commits from a superseded open generation', () => {
@@ -1269,7 +1369,7 @@ describe('document open surface session', () => {
         }))).toBe(true);
         expect(session.snapshot.value.presentation).toBe('page-shell');
 
-        const supersededGeneration = session.supersede()!;
+        const supersededGeneration = session.begin({...session.snapshot.value.identity!});
         expect(session.snapshot.value.presentation).toBe('idle');
         expect(session.snapshot.value.openingPageFrame).toBeNull();
         session.commitGeometry(supersededGeneration, {
@@ -1356,6 +1456,7 @@ describe('document open surface session', () => {
         const generation = session.beginPrepared({
             documentId: 'scan.pdf',
             documentRevision: 'open-intent:prepared',
+            provisional: true,
         }, {
             documentId: 'scan.pdf',
             ownerId: 'document-viewer-runtime:1',
@@ -1401,6 +1502,7 @@ describe('document open surface session', () => {
         const generation = session.beginPrepared({
             documentId: 'scan.pdf',
             documentRevision: 'open-intent:prepared',
+            provisional: true,
         }, {
             documentId: 'scan.pdf',
             ownerId: 'document-viewer-runtime:1',
@@ -1423,10 +1525,10 @@ describe('document open surface session', () => {
             },
         })!;
 
-        expect(session.claim({
+        expect(session.acquireSource({
             documentId: 'scan.pdf',
             documentRevision: 'pdf-source:42',
-        })).toBe(generation);
+        }, session.snapshot.value.generation)).toBe(generation);
         expect(session.snapshot.value).toMatchObject({
             generation,
             presentation: 'page-shell',
@@ -1448,6 +1550,7 @@ describe('document open surface session', () => {
         expect(session.beginPrepared({
             documentId: 'scan.pdf',
             documentRevision: 'open-intent:prepared',
+            provisional: true,
         }, {
             documentId: 'other.pdf',
             ownerId: 'document-viewer-runtime:1',
@@ -1554,7 +1657,7 @@ describe('document open surface session', () => {
             },
         });
 
-        const nextGeneration = session.supersede()!;
+        const nextGeneration = session.begin({...session.snapshot.value.identity!});
         expect(session.snapshot.value.openingPageFrame).toBeNull();
         expect(session.commitOpeningPageFrame(generation, {
             generation,
@@ -1928,12 +2031,15 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.failure).toBeNull();
     });
 
-    it('supersedes an in-flight render when viewport intent changes', () => {
+    it('rejects an old render after an explicit source reload', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'a.pdf', 'rev-a');
         const fence = createRenderFence(session, generation, 'rev-a');
 
-        expect(session.supersede()).toBe(2);
+        expect(session.acquireSource({
+            documentId: 'a.pdf',
+            documentRevision: 'rev-b',
+        }, generation)).toBe(2);
         expect(session.commitCanvas(fence)).toBe(false);
         expect(session.snapshot.value.phase).toBe('pending');
     });

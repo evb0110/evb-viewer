@@ -78,27 +78,40 @@ including its exact text range and readiness requirement. Its sampled outgoing
 anchor cannot replace that target. Resize previews defer to pending navigation;
 the rerender coordinator must not turn that deferral into a page-only fallback.
 
-The navigation controller owns one desired destination until a matching
-position commits or the request is explicitly abandoned. Geometry intents may
-carry that destination without taking it out of the controller. If another
-layout intent replaces them, the desired request remains available to the
-existing authority once it is idle. Committed page geometry comes from the
-authority's anchor; there is no separate retained destination after arrival.
+The shared `DocumentOpenSurfaceSession` owns the full navigation request and its
+lifetime. An explicit action creates a ticket before any asynchronous resolution,
+including named destinations. Another command, accepted physical input, or file
+closure retires that ticket. A second destination on the same page is a distinct
+command. Geometry, canvas eviction, page observations, and readiness changes do
+not create commands.
 
-Every asynchronous viewport operation captures the PDF proxy and its load
-revision. Cleanup can retire the proxy without advancing the load revision,
-so continuations must validate both before publishing geometry, readiness, or
-position. Page numbers are validated against the captured document before
-waiting. Authority cancellation releases its waits immediately; dependencies
-also guard their own post-await side effects because aborting a wait cannot
-stop already-running PDF work. Position publication rechecks ownership after
-the physical write and after synchronous callbacks.
+The ticket carries the page, rectangle, text anchor, or named destination through
+renderer replacement. A renderer executes that ticket and reports placement and
+arrival against its captured identity. Placement uses measured page slots before
+waiting for raster readiness; text refinement uses the same ticket. A geometry
+change invalidates the measurement attempt, not the semantic request. Reapplying
+an already achieved offset is a no-op, so fit and scrollbar changes cannot create
+an unbounded write/layout cycle.
 
-PDF operations also capture the shared surface's generation, document
-revision, and viewport intent id. A commit to the same page under a newer
-intent is still stale. Cancelling a navigation restores an already committed
-surface, or retargets the initial opening without claiming that a canvas is
-ready. The shared surface retains ownership of that loading lifecycle.
+The toolbar indicator derives from the physical viewport. A separate derived
+command cursor supports rapid Next/Previous while a destination is pending. A
+focused page field retains its local edit buffer. Requested page numbers cannot
+feed back through props or render completion to create another command.
+
+Every asynchronous PDF operation captures the proxy and its load revision.
+`loadToken` remains the loader's resource lifetime; it is not another navigation
+sequence. Cleanup can retire the proxy without advancing that token, so both are
+checked before publishing geometry, readiness, or position. Page numbers are
+validated against the captured document before waiting. Aborting an outer wait
+does not stop dependency work: dependencies also guard their post-await effects.
+Position publication rechecks ownership after the physical write and synchronous
+callbacks. An old completion for the same page is still stale.
+
+Only an actual host open transaction or source installation can acquire document
+identity. Source acquisition requires the expected generation. Provisional host
+identity is explicitly marked and may be refined to the source revision without
+reopening the document. Failed refinement never falls back to a new open. Visual
+readiness has no document-open capability; repainting cannot replace identity.
 
 Search highlighting preserves page-local occurrence identity when native results are ordered and
 rendered match counts agree, even when their text offsets differ. See
@@ -126,7 +139,8 @@ emits inertial wheel packets for a second or more. A toolbar, sidebar or
 keyboard command issued during that tail is the newer intent, even though tail
 packets keep arriving after it.
 
-`createWheelGestureStream.ts` derives identity from structure, not timing.
+`createWheelGestureStream.ts` uses sequence structure with a timing fallback for
+ambiguous packets. These are browser delivery signals, not a hardware classifier.
 Chromium sends the first wheel event of a scroll sequence as cancelable and the
 rest as non-cancelable, unless a handler prevented the first, in which case
 every later packet stays cancelable. So:
@@ -144,9 +158,9 @@ each wheel event as a complete sequence of its own, all cancelable and none
 prevented, and that is how the E2E suite and automation agents drive a fling. A
 new cancelable packet right after a genuine one-packet sequence has the same
 flags and the same host boundaries around it, so nothing but the gap separates
-the two. Hardware cannot produce that run fast enough to matter: a person would
-have to scroll one packet, issue a command and start a new gesture inside the
-gap, and a notched wheel stays latched in one sequence for longer than that.
+the two. Accelerated mouse wheels can also produce rapid packets. Neither this
+pattern nor cancelability proves trackpad inertia, so synthetic input coverage
+must not be presented as proof of a particular hardware acceleration path.
 
 The stream reports two ids. The sequence is the browser's scroll sequence, which
 host boundaries refer to. The gesture is the user's intent, which also changes on
@@ -203,8 +217,10 @@ behind a toolbar click. Liveness decides whether to suppress native scrolling,
 not whether those queued packets may supersede the command. The next genuine
 gesture still releases ownership through the existing stream boundary.
 
-The viewport write port owns the rule. `queueNavigationRequest` calls
-`fenceCommandAgainstLiveGesture` for every source except `wheel`. Packets of
+The viewport write port owns the rule. The runtime fences the live gesture once
+when the shared session accepts an explicit command. All renderer routes consume
+the resulting input decision; modifier routes cannot independently cancel the
+command again. Packets of
 the fenced gesture are `command-residue`: `observeDocumentViewportWheelInteraction`
 does not advance the interaction epoch for them and the chassis dispatches them
 to no renderer, so they cannot cancel the command. Chromium makes wheel events
@@ -256,14 +272,12 @@ Consequences worth knowing before touching any of them:
   neither looks at the horizontal axis.
 - Only the page-source stack can report a page that is barely visible: the
   nearest-center rule ignores how much of the page is on screen.
-- All three are projections. The workspace navigation fence
-  (`createWorkspacePageNavigationFence.ts`) still decides whether an observed
-  page is accepted, so a disagreement during programmatic navigation is
-  rejected rather than shown. `consumePageUpdate` is that decision: it judges
-  the page, commits an accepted one to `currentPage`, releases the target, and
-  returns the arming navigation source, all in one call, so no caller can read
-  a released fence beside an uncommitted page or credit a superseded page to
-  the surface that armed the abandoned target.
+- All three are projections. `createWorkspaceViewerUpdateHandlers` sends every
+  viewer page update to `openSurface.observeViewportPage`, which owns the
+  physical-page interpretation and commits the observed result. The workspace
+  navigation fence remains only as a compatibility receipt for callers that
+  have not minted a shared ticket; a shared ticket is released through the
+  surface report path and never through a second page-acceptance authority.
 
 ## Safety Targets
 

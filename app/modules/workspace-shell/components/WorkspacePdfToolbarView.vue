@@ -277,7 +277,10 @@ import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IReaderCommandSurface } from '@app/utils/readerCommandSurface';
-import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
+import type {
+    IDocumentNavigationTicket,
+    TDocumentPageLabelLookup,
+} from '@app/modules/document-viewer/public';
 import {
     formatScanCleanupProgress,
     isScanCleanupRunning,
@@ -317,8 +320,8 @@ const {
     pageDropdownOpen,
     pageDropdownTotalPages: pageDropdownTotalPagesProp = undefined,
     pageLabels = null,
-    navigationFeedbackPage = null,
-    navigationCommand = null,
+    navigationTicket = null,
+    physicalPage = undefined,
     snapshot,
     surface,
     zoomDropdownOpen,
@@ -340,11 +343,8 @@ const {
     controlsDisabled?: boolean | undefined;
     pageDropdownTotalPages?: number | undefined;
     pageLabels?: TDocumentPageLabelLookup | undefined;
-    navigationFeedbackPage?: number | null | undefined;
-    navigationCommand?: {
-        page: number;
-        revision: number
-    } | null | undefined;
+    navigationTicket?: IDocumentNavigationTicket | null | undefined;
+    physicalPage?: number | undefined;
     ocrPdfDocument?: IPdfDocument | null | undefined;
     ocrWorkingCopyPath?: TDocumentRef | null | undefined;
     ocrDocumentRevision?: TDocumentRevisionToken | null | undefined;
@@ -482,9 +482,8 @@ const {
     handleGoToPage: handleToolbarGoToPage,
 } = useWorkspaceToolbarPageModel({
     sourcePage: () => snapshot.currentPage,
-    feedbackPage: () => navigationFeedbackPage,
-    authoritativeCommand: () => navigationCommand,
-    sessionActive: () => toolbarHasPdf.value || toolbarDocumentBusy.value,
+    physicalPage: () => physicalPage ?? snapshot.currentPage,
+    navigationTicket: () => navigationTicket,
     goToPage: page => emit('go-to-page', page),
 });
 

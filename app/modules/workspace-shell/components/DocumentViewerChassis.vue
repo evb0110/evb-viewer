@@ -102,7 +102,7 @@ import {
     createDocumentViewerRuntime,
     documentViewerRuntimeKey,
     shouldAcceptFeaturePackRuntimePage,
-    shouldApplyExternalRuntimePage, DocumentViewportHost ,
+    DocumentViewportHost ,
     injectDocumentOpenSurfaceSession,
     resolveDocumentOpenSurfaceViewportPolicy,
     createDocumentOpeningPageFrame,
@@ -118,7 +118,10 @@ import type {
     IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
-import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
+import {
+    createPdfPageNavigationRequest,
+    readPrevalidatedTrustedPdfOpenGeometry,
+} from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
@@ -622,18 +625,6 @@ watch(
     },
 );
 
-watch(() => props.currentPage, (pageNumber) => {
-    if (
-        pageNumber !== undefined
-        && shouldApplyExternalRuntimePage(
-            chassisAuthority.openSurface.viewportSession.value,
-            pageNumber,
-        )
-    ) {
-        chassisAuthority.navigate(pageNumber);
-    }
-}, {immediate: true});
-
 function handleCurrentPageUpdate(pageNumber: number) {
     if (shouldAcceptFeaturePackRuntimePage(
         chassisAuthority.openSurface.viewportSession.value,
@@ -648,7 +639,6 @@ function handleTotalPagesUpdate(pageCount: number) {
     if (chassisAuthority.pageCount.value > 0) {
         chassisAuthority.openSurface.metadataReady(chassisAuthority.pageCount.value);
     }
-    chassisAuthority.navigate(chassisAuthority.currentPage.value);
     emit('update:total-pages', chassisAuthority.pageCount.value);
 }
 
@@ -702,15 +692,13 @@ watch(() => [
 defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     getCurrentPage: () => chassisAuthority.currentPage.value,
     getPendingNavigationTargetPage: () => {
-        const session = chassisAuthority.openSurface.viewportSession.value;
-        return session.identity !== null && session.requestedPage !== session.committedPage
-            ? session.requestedPage
-            : null;
+        const ticket = chassisAuthority.navigationTicket.value;
+        const target = ticket?.request.target;
+        return target && 'page' in target ? target.page : null;
     },
     scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => {
-        const normalizedPage = chassisAuthority.navigate(pageNumber);
-        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number, options?: IScrollToPageOptions) => void;} | null;
-        viewer?.scrollToPage?.(normalizedPage, options);
+        const request = createPdfPageNavigationRequest(pageNumber, options);
+        chassisAuthority.navigate(request);
     },
 }));
 </script>

@@ -8,6 +8,7 @@ import {
     ref,
     watch,
 } from 'vue';
+import {createPageNavigationRequest} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import {
     createDocumentOpenSurfaceSession,
@@ -120,6 +121,39 @@ describe('createWorkspacePageNavigationFence', () => {
             navigationSource: null,
         });
         expect(navigationFence.targetPage.value).toBeNull();
+    });
+
+    it('keeps semantic page targets fenced while named destinations resolve', () => {
+        const openSurface = createTrackedOpenSurface();
+        openSurface.begin({
+            documentId: 'document',
+            documentRevision: 'revision',
+        });
+        const navigationFence = createWorkspacePageNavigationFence({
+            currentPage: ref(1),
+            openSurface,
+        });
+
+        openSurface.navigate({
+            ...createPageNavigationRequest(4, 'search'),
+            target: {
+                kind: 'text-anchor',
+                page: 4,
+                text: 'target',
+            },
+        });
+        expect(navigationFence.targetPage.value).toBe(4);
+
+        openSurface.navigate({
+            ...createPageNavigationRequest(1, 'bookmark'),
+            target: {
+                kind: 'named-dest',
+                destination: 'chapter',
+            },
+        });
+        // A named destination keeps the requested page as its provisional
+        // fence until the resolver reports its actual page.
+        expect(navigationFence.targetPage.value).toBe(4);
     });
 
     it('releases a replay target when a ready surface later moves away from it', () => {

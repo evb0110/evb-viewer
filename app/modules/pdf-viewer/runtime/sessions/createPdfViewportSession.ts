@@ -24,7 +24,7 @@ import {
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import { createPageNavigationRequest } from '@app/modules/document-viewer/public';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
@@ -365,6 +365,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     );
     const singlePageScroll = usePdfSinglePageNavigationController({
         viewerContainer: options.viewerContainer,
+        chassisAuthority,
         numPages,
         currentPage,
         scaledMargin: scale.scaledMargin,
@@ -396,7 +397,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         getGeometryRevision: () => pageMetricsVersion.value + 1,
         beginLayoutGeometryReplacement: navigationEpochs.beginLayoutGeometryReplacement,
         pageSlots,
-        requestedCurrentPage: options.requestedCurrentPage,
         cancelPendingSearchScroll: () => {
             cancelPendingSearchRevision.value += 1;
         },
