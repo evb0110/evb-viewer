@@ -256,6 +256,10 @@ reads for Blob sources up to 20,000 pages. Continuous Fit Width uses the widest
 page row, including its gutter count, and keeps one scale while scrolling.
 The native table includes crop, rotation and `UserUnit`; visible PDF.js pages
 reconcile the opening snapshot through the existing session geometry owner.
+The workspace preserves the revision prepared for the same working copy instead
+of clearing it during the source handoff. A 17 MiB path-backed replay confirms
+the native reader runs during opening and still lands on painted page 33 with
+zero horizontal range in Fit Width.
 
 The recorded Linux replay of the 66-page mixed-size fixture failed before the
 change with toolbar page 33 while pages 42/43 were visible, and passed after it
@@ -287,11 +291,15 @@ restores its text and controls. The existing A2 checker now retains hidden
 notes and checks full containment whenever their page is visible, replacing
 its obsolete unresolved outcome with the accepted policy.
 
-Issue 824 has a guarded hidden-viewport measurement change: an inactive DjVu
-tab retains its last nonzero fit dimensions and scroll projection. The original
-macOS failure has not been reproduced on Linux. This is a mitigation applied,
-not a confirmed fix; the app matrix and native macOS coverage remain distinct
-from the unit checks.
+A frozen Linux replay subsequently reproduced issue 824's lost-position family:
+Fit Width showed page 251 before switching tabs, but returning left the toolbar
+at 251 while the viewport was at the top and page 251 was offscreen. Retaining
+hidden viewport dimensions alone was insufficient. The page-source activation
+path now retains a semantic page anchor, restores it after visible layout through
+the existing viewport write port, and fences it against newer document state or
+interaction. The existing tab-return regression includes both fit modes as well
+as custom zoom. Native macOS confirmation remains separate from this Linux
+reproduction and replay.
 
 ## Platform gaps
 

@@ -102,7 +102,12 @@ export {
     type IDocumentViewportDocumentRef, type IDocumentViewportRenderRequest, type IDocumentViewportTransactionAdvanceEvent, type IDocumentViewportTransactionBase, type IDocumentViewportTransactionBeginEvent, type IDocumentViewportTransactionCancelEvent, type IDocumentViewportTransactionCancellation, type IDocumentViewportTransactionConsumeFitRenderHandoffEvent, type IDocumentViewportTransactionMachineState, type TDocumentViewportTransactionState,
 } from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
 export { type IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
-export { type IDocumentZoomPageLayout } from '@app/modules/document-viewer/zoomAnchor';
+export {
+    captureDocumentZoomAnchor,
+    resolveDocumentZoomAnchorScroll,
+    type IDocumentZoomAnchor,
+    type IDocumentZoomPageLayout,
+} from '@app/modules/document-viewer/zoomAnchor';
 export { intersectClientRects } from '@app/modules/document-viewer/region-geometry/intersectClientRects';
 export {
     normalizeMemoryPressureLevel, resolveInactiveViewerResidencyState, resolvePostReclaimResidencyState, selectViewerReclaimCandidates, shouldReclaimViewerResidencyState, type IRuntimeMemoryPressureSignal, type IViewerReclaimCandidate, type TMemoryPressureLevel, type TViewerResidencyState,

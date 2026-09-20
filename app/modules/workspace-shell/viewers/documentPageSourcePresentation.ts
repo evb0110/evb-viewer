@@ -676,6 +676,7 @@ export function createDocumentPageSourcePresentation(options: {
         restoreOptions: {
             measureViewport: () => void;
             renderMountedPages: () => Promise<void>;
+            restoreViewport?: () => void;
         },
     ) {
         const isCurrent = transition.isCurrent;
@@ -687,6 +688,10 @@ export function createDocumentPageSourcePresentation(options: {
             ),
             measure: restoreOptions.measureViewport,
             reconcile: async () => {
+                if (!isCurrent()) {
+                    return;
+                }
+                restoreOptions.restoreViewport?.();
                 const currentPage = options.readCurrentPage();
                 for (const pageNumber of new Set([
                     currentPage,

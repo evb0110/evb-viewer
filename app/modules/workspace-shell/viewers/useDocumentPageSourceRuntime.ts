@@ -3,25 +3,32 @@ import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import {
     createDocumentWheelZoomHandler,
     createLazyIndexedCollection,
+    captureDocumentZoomAnchor,
+    createDocumentViewportWritePort,
     isLazyIndexedCollection,
+    resolveDocumentContinuousScrollWindow,
     resolveDocumentPageDisplayLayouts,
     resolveDocumentPageDisplayScale,
+    resolveDocumentZoomAnchorScroll,
+    resolveNearestDocumentPageToViewportCenter,
+    shouldProjectDocumentViewportScroll,
+    useDocumentViewportLayoutLifecycle,
+    useDocumentWheelZoomSessionBoundaries,
+    DOCUMENT_PAGE_GUTTER_PX,
+    injectDocumentViewerRuntime,
+    clampDocumentManualZoom,
     type IDocumentPageDisplayLayout,
     type IDocumentPageMetrics,
     type IDocumentPageSource,
     type IDocumentViewportSessionState,
     type IDocumentWheelInteraction,
+    type IDocumentZoomAnchor,
     type IDocumentZoomPageLayout,
     type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/public';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import {
-    injectDocumentViewerRuntime, shouldProjectDocumentViewportScroll , createDocumentViewportWritePort , clampDocumentManualZoom ,
-    resolveNearestDocumentPageToViewportCenter,
-    resolveDocumentContinuousScrollWindow, DOCUMENT_PAGE_GUTTER_PX , useDocumentViewportLayoutLifecycle , useDocumentWheelZoomSessionBoundaries,  
-} from '@app/modules/document-viewer/public';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
@@ -59,6 +66,11 @@ export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
 interface IDocumentPageSourceCollectionMetadata<T> {
     readonly estimateValue?: (index: number) => T | undefined;
     readonly getKnownIndices?: () => readonly number[];
+}
+interface ISuspendedViewportRestore {
+    readonly anchor: IDocumentZoomAnchor;
+    readonly epoch: string;
+    readonly fence: IDocumentPageSourceTransition['fence'];
 }
 type TDocumentPageSourceLazyCollection<T> = ILazyIndexedCollection<T> & IDocumentPageSourceCollectionMetadata<T>;
 type TDocumentPageSourceCollection<T> = T[] | TDocumentPageSourceLazyCollection<T>;
@@ -413,6 +425,7 @@ export const useDocumentPageSourceRuntime = (options: {
     const containerWidth = ref(0);
     const containerHeight = ref(0);
     const viewportScrollTop = ref(0);
+    const viewportScrollLeft = ref(0);
     const viewportScrollDirection = ref<-1 | 0 | 1>(0);
     const pagedWheelNavigation = createPageSourcePagedWheelNavigation(DOCUMENT_PAGE_GUTTER_PX);
     const chassisAuthority = injectDocumentViewerRuntime();
@@ -433,6 +446,7 @@ export const useDocumentPageSourceRuntime = (options: {
     let loadController: AbortController | null = null;
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+    let suspendedViewportRestore: ISuspendedViewportRestore | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
         if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
@@ -440,6 +454,7 @@ export const useDocumentPageSourceRuntime = (options: {
         // fit mode cannot collapse the document and clamp its scroll offset.
         containerWidth.value = container.clientWidth;
         containerHeight.value = container.clientHeight;
+        viewportScrollLeft.value = container.scrollLeft;
         viewportScrollTop.value = container.scrollTop;
     }
     useResizeObserver(viewerContainer, measureViewport);
@@ -801,6 +816,78 @@ export const useDocumentPageSourceRuntime = (options: {
         },
         onResizeSettled: () => scheduleRender.schedule(),
     });
+    function clearSuspendedViewportAnchor() {
+        suspendedViewportRestore = null;
+    }
+    function captureSuspendedViewportAnchor() {
+        if (containerWidth.value <= 0 || containerHeight.value <= 0) {
+            return null;
+        }
+        return captureDocumentZoomAnchor(
+            {
+                clientHeight: containerHeight.value,
+                clientWidth: containerWidth.value,
+                scrollLeft: viewportScrollLeft.value,
+                scrollTop: viewportScrollTop.value,
+            },
+            zoomAnchorPageLayouts.value,
+            undefined,
+            props.value.continuousScroll ? null : Math.max(0, props.value.currentPage - 1),
+        );
+    }
+    function restoreSuspendedViewport(
+        transition: IDocumentPageSourceTransition,
+        snapshot: ISuspendedViewportRestore | null,
+        intent: ReturnType<typeof viewportWritePort.beginIntent> | null,
+    ) {
+        const clearIfRetained = () => {
+            if (suspendedViewportRestore === snapshot) {
+                clearSuspendedViewportAnchor();
+            }
+        };
+        if (
+            !snapshot
+            || suspendedViewportRestore !== snapshot
+            || !intent
+            || !transitions.isCurrent(snapshot.fence)
+            || !transition.isCurrent()
+            || snapshot.epoch !== captureLayoutRestoreEpoch()
+        ) {
+            clearIfRetained();
+            return;
+        }
+        const container = viewerContainer.value;
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) {
+            clearIfRetained();
+            return;
+        }
+        const restored = resolveDocumentZoomAnchorScroll(
+            container,
+            zoomAnchorPageLayouts.value,
+            snapshot.anchor,
+        );
+        if (
+            !restored
+        ) {
+            clearIfRetained();
+            return;
+        }
+        const applied = viewportWritePort.apply(container, {
+            intent,
+            reason: 'page-source-activation-restore',
+            left: props.value.continuousScroll && props.value.zoomMode === 'fit-width'
+                ? container.scrollLeft
+                : restored.left,
+            top: restored.top,
+        });
+        if (applied) {
+            viewportScrollLeft.value = container.scrollLeft;
+            viewportScrollTop.value = container.scrollTop;
+            layoutLifecycle.cancelPendingRestore();
+            layoutLifecycle.refreshLayoutTransactionAnchor();
+        }
+        clearIfRetained();
+    }
     function handleScroll(event?: Event) {
         if (!viewerContainer.value || viewerContainer.value.clientWidth <= 0
             || viewerContainer.value.clientHeight <= 0
@@ -812,6 +899,7 @@ export const useDocumentPageSourceRuntime = (options: {
         if (Math.abs(scrollDelta) > 1) {
             viewportScrollDirection.value = scrollDelta > 0 ? 1 : -1;
         }
+        viewportScrollLeft.value = viewerContainer.value.scrollLeft;
         viewportScrollTop.value = nextScrollTop;
         scheduleRender.schedule();
         const consumedAuthorityScroll = viewportWritePort.consumeAuthorityScroll(viewerContainer.value);
@@ -1038,6 +1126,7 @@ export const useDocumentPageSourceRuntime = (options: {
     }
     function applyOpenTransition(transition: IDocumentPageSourceTransition) {
         const documentRef = transition.fence.src;
+        clearSuspendedViewportAnchor();
         pagedWheelNavigation.reset();
         loadController?.abort();
         const activeLoadController = new AbortController();
@@ -1116,7 +1205,15 @@ export const useDocumentPageSourceRuntime = (options: {
             return false;
         }).then(() => undefined);
     }
-    function applySuspendTransition() {
+    function applySuspendTransition(transition: IDocumentPageSourceTransition) {
+        const anchor = captureSuspendedViewportAnchor();
+        suspendedViewportRestore = anchor
+            ? {
+                anchor,
+                epoch: captureLayoutRestoreEpoch(),
+                fence: transition.fence,
+            }
+            : null;
         scheduleRender.cancel();
         presentation.renderControllers.forEach(controller => controller.abort());
         presentation.renderControllers.clear();
@@ -1132,9 +1229,16 @@ export const useDocumentPageSourceRuntime = (options: {
         if (retainedState?.lease) {
             retainedState.priority = 'navigation';
         }
+        const restoreSnapshot = suspendedViewportRestore;
+        const restoreIntent = restoreSnapshot
+            ? viewportWritePort.beginIntent(
+                `page-source-activation-restore:${String(transitions.loadGeneration.value)}`,
+            )
+            : null;
         void presentation.restore(transition, {
             measureViewport,
             renderMountedPages,
+            restoreViewport: () => restoreSuspendedViewport(transition, restoreSnapshot, restoreIntent),
         });
     }
     watch(
@@ -1155,7 +1259,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 applyOpenTransition(transition);
                 return;
             case 'invalidate':
-                applySuspendTransition();
+                applySuspendTransition(transition);
                 return;
             case 'restore':
                 applyRestoreTransition(transition);
