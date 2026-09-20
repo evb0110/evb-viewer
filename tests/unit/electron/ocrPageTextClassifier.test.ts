@@ -52,7 +52,7 @@ describe('OCR page text classification and supersession', () => {
         });
     });
 
-    it('keeps native text under every policy and makes foreign replacement explicit', () => {
+    it('keeps native text under every policy and repairs hidden OCR with no visible text', () => {
         const classifications = [
             'native-text',
             'foreign-hidden-ocr',
@@ -61,9 +61,13 @@ describe('OCR page text classification and supersession', () => {
         ] as const;
 
         expect(classifications.filter(value => shouldOcrClassifiedPage(value, 'missing-only')))
-            .toEqual(['no-text']);
+            .toEqual([
+                'foreign-hidden-ocr',
+                'no-text',
+            ]);
         expect(classifications.filter(value => shouldOcrClassifiedPage(value, 'replace-evb')))
             .toEqual([
+                'foreign-hidden-ocr',
                 'evb-current-generation',
                 'no-text',
             ]);
