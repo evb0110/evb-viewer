@@ -8,6 +8,7 @@ import type {
     IOcrDiagnostic,
     IOcrSearchablePdfOptions,
     TOcrSearchablePdfPages,
+    TOcrCompletionOutcome,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
 import type {
@@ -188,6 +189,7 @@ export type TOcrWorkerCompleteResult =
     | {
         success: false;
         errors: string[];
+        outcome?: TOcrCompletionOutcome;
         diagnostics?: IOcrDiagnostic[];
         errorEnvelope?: IOcrErrorEnvelope;
         terminationUnproven?: string;

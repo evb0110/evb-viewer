@@ -48,6 +48,8 @@ interface IPdfCombineResourceLimits {
     maxOutputBytes: number;
 }
 
+interface IStageNativeCombineInputsOptions {resourceMode?: 'memory' | 'file-backed';}
+
 interface IImageDecoderModule {
     createCanvas: (width: number, height: number) => {
         getContext: (context: '2d') => {drawImage: (image: IImageDecoderBitmap, x: number, y: number) => void};
@@ -116,8 +118,13 @@ function loadImageDecoderModule() {
     }
 }
 
-function getDefaultResourceLimits(): IPdfCombineResourceLimits {
-    return { ...DEFAULT_RESOURCE_LIMITS };
+function getResourceLimits(resourceMode: IStageNativeCombineInputsOptions['resourceMode'] = 'memory') {
+    return resourceMode === 'file-backed'
+        ? {
+            ...DEFAULT_RESOURCE_LIMITS,
+            maxPages: Number.MAX_SAFE_INTEGER,
+        }
+        : { ...DEFAULT_RESOURCE_LIMITS };
 }
 
 function assertPageLimit(nextPageCount: number, limits: IPdfCombineResourceLimits) {
@@ -540,8 +547,9 @@ export async function stageNativeCombineInputs(
     inputPaths: string[],
     signal?: AbortSignal,
     unsupportedFileError?: (sourcePath: string) => string,
+    options?: IStageNativeCombineInputsOptions,
 ) {
-    const limits = getDefaultResourceLimits();
+    const limits = getResourceLimits(options?.resourceMode);
     assertPageLimit(inputPaths.length, limits);
     await preflightCombineInputs(
         inputPaths,
@@ -610,7 +618,7 @@ export async function createCombinedPdf(
         throw new Error('No input files were provided');
     }
 
-    const limits = getDefaultResourceLimits();
+    const limits = getResourceLimits();
     assertPageLimit(normalizedPaths.length, limits);
 
     throwIfAborted(options.signal);

@@ -443,6 +443,7 @@ export default {
         'processingPage': 'Processing page {page} ({processed}/{total})',
         'complete': 'OCR complete - PDF is now searchable',
         'partialComplete': 'OCR complete with warnings',
+        'noPagesToProcess': 'No pages needed OCR',
         'exportDocx': 'Export DOCX',
         'start': 'Start OCR',
         'cancel': 'Cancel OCR',

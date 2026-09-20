@@ -13,6 +13,7 @@ import type {
 } from '@contracts/electronApiOcr';
 import {
     OCR_COMPLETE_EVENT_CHANNEL,
+    OCR_COMPLETION_OUTCOMES,
     OCR_DIAGNOSTIC_CODES,
     OCR_ERROR_CODES,
     OCR_PROGRESS_EVENT_CHANNEL,
@@ -552,6 +553,14 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
     ) {
         return buildMalformedCompleteResult(requestId);
     }
+    const outcome = payload.outcome === undefined
+        ? undefined
+        : isOneOf(OCR_COMPLETION_OUTCOMES, payload.outcome)
+            ? payload.outcome
+            : null;
+    if (outcome === null || (payload.success && outcome !== undefined)) {
+        return buildMalformedCompleteResult(requestId);
+    }
     let errorEnvelope: IOcrErrorEnvelope | null = null;
     if (payload.errorEnvelope !== undefined) {
         try {
@@ -576,6 +585,7 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
         requestId,
         success: payload.success,
         errors,
+        ...(outcome === undefined ? {} : {outcome}),
         ...(diagnostics === undefined ? {} : {diagnostics}),
         ...(pdfPath === undefined ? {} : {pdfPath}),
         ...(sourceDocumentRevisionToken === undefined ? {} : {sourceDocumentRevisionToken}),

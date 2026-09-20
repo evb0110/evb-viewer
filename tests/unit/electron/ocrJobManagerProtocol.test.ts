@@ -60,6 +60,35 @@ describe('parseWorkerMessage', () => {
         });
     });
 
+    it('preserves expected no-pages outcomes without turning them into failures', () => {
+        const diagnostics = [{
+            code: 'OCR_EXISTING_TEXT_SKIPPED' as const,
+            severity: 'info' as const,
+            message: 'Existing text was preserved',
+            pageNumber: 1,
+        }];
+
+        expect(parseWorkerMessage({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: false,
+                errors: [],
+                outcome: 'no-pages-to-process',
+                diagnostics,
+            },
+        })).toEqual({
+            type: 'complete',
+            jobId: 'job-1',
+            result: {
+                success: false,
+                errors: [],
+                outcome: 'no-pages-to-process',
+                diagnostics,
+            },
+        });
+    });
+
     it('rejects successful completion messages without a source revision token', () => {
         expect(parseWorkerMessage({
             type: 'complete',

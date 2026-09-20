@@ -1013,6 +1013,66 @@ describe('useOcr', () => {
         }
     });
 
+    it('treats an expected no-pages OCR outcome as an informational toast', async () => {
+        interface IOcrCompleteTestResult {
+            requestId: string;
+            success: boolean;
+            errors: string[];
+            outcome?: 'no-pages-to-process';
+            diagnostics?: Array<{
+                code: 'OCR_EXISTING_TEXT_SKIPPED';
+                severity: 'info';
+                message: string;
+                pageNumber: number;
+            }>;
+        }
+        let completeHandler: ((result: IOcrCompleteTestResult) => void) | null = null;
+        mockOcr.onComplete.mockImplementation((handler) => {
+            completeHandler = handler;
+            return vi.fn();
+        });
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
+
+            await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
+            const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
+            const registeredCompleteHandler = mockOcr.onComplete.mock.calls[0]?.[0] ?? completeHandler;
+            if (!registeredCompleteHandler) {
+                throw new Error('OCR completion handler was not registered');
+            }
+            registeredCompleteHandler({
+                requestId,
+                success: false,
+                errors: [],
+                outcome: 'no-pages-to-process',
+                diagnostics: [{
+                    code: 'OCR_EXISTING_TEXT_SKIPPED',
+                    severity: 'info',
+                    message: 'Skipped page 1 because existing text was preserved',
+                    pageNumber: 1,
+                }],
+            });
+            await runPromise;
+
+            expect(ocr.error.value).toBeNull();
+            expect(loggerErrorMock).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith({
+                color: 'info',
+                title: 'ocr.noPagesToProcess',
+                description: 'ocr.diagnostic.existingTextSkipped',
+            });
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('opens the DOCX save dialog before gathering canonical catalog text for export', async () => {
         const callOrder: string[] = [];
         mockDocuments.saveDocxAs.mockImplementationOnce(async () => {

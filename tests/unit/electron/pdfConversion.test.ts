@@ -453,7 +453,12 @@ describe('createPdfFromInputPaths worker fallback', () => {
             '/tmp/output.pdf',
         )).resolves.toBe('/tmp/output.pdf');
 
-        expect(mocks.stageNativeCombineInputs).toHaveBeenCalledWith([sourcePath], undefined);
+        expect(mocks.stageNativeCombineInputs).toHaveBeenCalledWith(
+            [sourcePath],
+            undefined,
+            undefined,
+            {resourceMode: 'file-backed'},
+        );
         expect(mocks.nativeFileAssembler).toHaveBeenCalledWith(
             ['/tmp/photo.png'],
             '/tmp/output.pdf',

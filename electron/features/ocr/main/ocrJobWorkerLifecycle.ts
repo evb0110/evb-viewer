@@ -617,14 +617,16 @@ export function createOcrJobWorkerLifecycleController(
                 requestId: job.requestId,
                 success: false,
                 errors: result.errors,
+                ...(result.outcome === undefined ? {} : {outcome: result.outcome}),
                 ...(result.diagnostics === undefined ? {} : {diagnostics: result.diagnostics}),
-                errorEnvelope: result.errorEnvelope
-                    ?? createTerminalOcrErrorEnvelope(
+                ...(result.outcome === undefined
+                    ? {errorEnvelope: result.errorEnvelope ?? createTerminalOcrErrorEnvelope(
                         result.errors[0] ?? 'OCR worker failed without an error message',
-                    ),
+                    )}
+                    : result.errorEnvelope === undefined ? {} : {errorEnvelope: result.errorEnvelope}),
             };
         job.terminalResult = completeResult;
-        if (completeResult.success) {
+        if (completeResult.success || completeResult.outcome !== undefined) {
             job.registry.terminal.complete(completeResult);
         } else {
             job.registry.terminal.fail(

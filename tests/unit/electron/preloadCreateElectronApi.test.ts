@@ -1106,6 +1106,59 @@ describe('createElectronApi', () => {
         expect(documentsClientMock.openDocumentDirectBatch).toHaveBeenCalledWith(paths, 'batch-open-1');
     });
 
+    it('chunks large renderer file-open authorization without widening the IPC grant bound', async () => {
+        const filePaths = Array.from({length: 129}, (_, index) => `/tmp/large-batch-${index}.pdf`);
+        const paths = filePaths.map(path => requireDocumentRef(path));
+        const randomUUID = vi.fn((() => {
+            let index = 0;
+            return () => `00000000-0000-4000-8000-${String(index++).padStart(12, '0')}`;
+        })());
+        vi.stubGlobal('crypto', {randomUUID});
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string, _payload?: unknown) => {
+                if (
+                    channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens
+                    || channel === DOCUMENTS_CHANNELS.allowRendererFileOpenBatch
+                ) {
+                    return true;
+                }
+                return undefined;
+            }),
+            on: vi.fn(),
+            send: vi.fn(),
+        };
+        const getPathForFile = vi.fn((file: File) => (file as File & {path: string}).path);
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile});
+        const files = filePaths.map(path => ({path} as File & {path: string}));
+
+        expect(api.documentPicker.getPathsForFiles(files)).toEqual(paths);
+        await expect(api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('large-batch-open')))
+            .resolves.toEqual(paths);
+
+        const registerCalls = ipcRenderer.invoke.mock.calls.filter(([channel]) => (
+            channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens
+        ));
+        const allowCalls = ipcRenderer.invoke.mock.calls.filter(([channel]) => (
+            channel === DOCUMENTS_CHANNELS.allowRendererFileOpenBatch
+        ));
+        expect(registerCalls).toHaveLength(2);
+        expect(allowCalls).toHaveLength(2);
+        expect(registerCalls.map(call => (
+            (call[1] as string[]).length
+        ))).toEqual([
+            128,
+            1,
+        ]);
+        expect(allowCalls.map(call => (
+            (call[1] as unknown[]).length
+        ))).toEqual([
+            128,
+            1,
+        ]);
+        expect(documentsClientMock.openDocumentDirectBatch).toHaveBeenCalledWith(paths, 'large-batch-open');
+    });
+
     it('does not batch direct-open picked files when renderer file-open batch authorization is denied', async () => {
         const randomUUID = vi.fn()
             .mockReturnValueOnce('00000000-0000-4000-8000-000000000007')

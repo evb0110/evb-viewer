@@ -51,6 +51,7 @@ import {
 } from '@contracts/documentsPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
+import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
     DOCUMENTS_CHANNELS,
@@ -234,11 +235,22 @@ export function createElectronApi(
             filePath,
             token: globalThis.crypto.randomUUID(),
         }));
-        const allowPromise = invokeDocuments(
-            DOCUMENTS_CHANNELS.registerRendererFileOpenTokens,
-            requests.map(request => request.token),
-        )
-            .then(registered => registered && invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, requests))
+        const allowPromise = (async () => {
+            for (let offset = 0; offset < requests.length; offset += MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER) {
+                const batch = requests.slice(offset, offset + MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER);
+                const registered = await invokeDocuments(
+                    DOCUMENTS_CHANNELS.registerRendererFileOpenTokens,
+                    batch.map(request => request.token),
+                );
+                if (!registered) {
+                    return false;
+                }
+                if (!await invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, batch)) {
+                    return false;
+                }
+            }
+            return true;
+        })()
             .finally(() => {
                 for (const request of requests) {
                     const pending = pendingRendererFileOpenAllows.get(request.filePath);

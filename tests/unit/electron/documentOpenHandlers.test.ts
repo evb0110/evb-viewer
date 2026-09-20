@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
     opendir: vi.fn(),
     openInputPaths: vi.fn(async (
         _paths: string[],
-        _options?: {signal?: AbortSignal},
+        _options?: {
+            signal?: AbortSignal;
+            forceCombine?: boolean;
+        },
         _owner?: unknown,
     ): Promise<unknown> => null),
     realpath: vi.fn(),
@@ -27,7 +30,10 @@ vi.mock('fs/promises', () => ({
 vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: (path: string) => mocks.isSupportedOpenPath(path)}));
 vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({openInputPaths: (
     paths: string[],
-    options?: {signal?: AbortSignal},
+    options?: {
+        signal?: AbortSignal;
+        forceCombine?: boolean;
+    },
     owner?: unknown,
 ) => mocks.openInputPaths(paths, options, owner)}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
@@ -164,6 +170,32 @@ describe('direct batch open cancellation', () => {
 
         expect(options.signal).toBeUndefined();
         expect(handlers.handleCancelOpenDocumentDirectBatch(handlerContext(context), '')).toBe(false);
+    });
+
+    it('allows a forced combine batch above the ordinary direct-open limit', async () => {
+        const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
+        const context = senderContext(7);
+        const paths = Array.from({length: 513}, (_, index) => `/tmp/input-${index}.png`);
+        const result = {
+            kind: 'pdf' as const,
+            workingPath: '/tmp/work/combined.pdf',
+            originalPath: '/tmp/combined.pdf',
+            isGenerated: true as const,
+        };
+        mocks.openInputPaths.mockResolvedValueOnce(result);
+
+        await expect(handlers.handleOpenPdfDirectBatch(
+            handlerContext(context),
+            paths,
+            'combine-1',
+            {forceCombine: true},
+        )).resolves.toEqual(result);
+
+        expect(mocks.openInputPaths).toHaveBeenCalledWith(
+            paths,
+            expect.objectContaining({forceCombine: true}),
+            context.sender,
+        );
     });
 
     it('rejects a supported-extension symlink whose target extension is unsupported', async () => {

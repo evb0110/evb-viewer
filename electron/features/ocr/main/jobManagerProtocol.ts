@@ -4,6 +4,7 @@ import type {
     IOcrErrorEnvelope,
 } from '@contracts/electronApiOcr';
 import {
+    OCR_COMPLETION_OUTCOMES,
     OCR_DIAGNOSTIC_CODES,
     OCR_ERROR_CODES,
     OCR_PROGRESS_PHASES,
@@ -193,10 +194,18 @@ function parseOcrDiagnostics(value: unknown): IOcrDiagnostic[] | null | undefine
         : diagnostics.flatMap(diagnostic => diagnostic === null ? [] : [diagnostic]);
 }
 
+function parseOcrCompletionOutcome(value: unknown) {
+    if (value === undefined) {
+        return undefined;
+    }
+    return isOneOf(OCR_COMPLETION_OUTCOMES, value) ? value : null;
+}
+
 function parseFailedCompleteResult(
     result: Record<string, unknown>,
     errors: string[],
     diagnostics: IOcrDiagnostic[] | undefined,
+    outcome: typeof OCR_COMPLETION_OUTCOMES[number] | undefined,
 ) {
     const errorEnvelope = parseOcrErrorEnvelope(result.errorEnvelope);
     const terminationUnproven = typeof result.terminationUnproven === 'string'
@@ -206,6 +215,7 @@ function parseFailedCompleteResult(
     return {
         success: false as const,
         errors,
+        ...(outcome === undefined ? {} : {outcome}),
         ...(diagnostics === undefined ? {} : {diagnostics}),
         ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
         ...(terminationUnproven === undefined ? {} : {terminationUnproven}),
@@ -224,10 +234,14 @@ function parseWorkerCompleteResult(result: unknown) {
     if (diagnostics === null) {
         return null;
     }
+    const outcome = parseOcrCompletionOutcome(result.outcome);
+    if (outcome === null || (result.success && outcome !== undefined)) {
+        return null;
+    }
 
     return result.success
         ? parseSuccessfulCompleteResult(result, errors, diagnostics)
-        : parseFailedCompleteResult(result, errors, diagnostics);
+        : parseFailedCompleteResult(result, errors, diagnostics, outcome);
 }
 
 function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
