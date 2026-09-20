@@ -483,9 +483,15 @@ jobs:
                     gh release delete-asset "$RELEASE_TAG" "$existing_name" --yes
                   fi
                 done <<< "$existing_assets"
-                for source in artifacts/*; do
+                source_count=0
+                while IFS= read -r -d '' source; do
+                  source_count=$((source_count + 1))
                   gh release upload "$RELEASE_TAG" "$source"
-                done
+                done < <(find artifacts -type f -print0)
+                if [ "$source_count" -eq 0 ]; then
+                  echo '::error::No release files were downloaded for upload.'
+                  exit 1
+                fi
               fi
             fi
           elif grep -Fq 'release not found' "$release_view_error"; then
@@ -494,7 +500,12 @@ jobs:
             # target here would rerun the workflows-scope check against the
             # main tip and fail with HTTP 403 whenever a workflow change
             # landed on main after the cut.
-            gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes
+            mapfile -d '' release_sources < <(find artifacts -type f -print0)
+            if [ "${#release_sources[@]}" -eq 0 ]; then
+              echo '::error::No release files were downloaded for upload.'
+              exit 1
+            fi
+            gh release create "$RELEASE_TAG" "${release_sources[@]}" --draft --generate-notes
           else
             cat "$release_view_error" >&2
             exit 1
@@ -521,7 +532,9 @@ jobs:
             node scripts/release/release-checksums.mjs verify downloaded-assets "$RELEASE_VERSION"
           fi
 
-          for source in artifacts/*; do
+          source_count=0
+          while IFS= read -r -d '' source; do
+            source_count=$((source_count + 1))
             name="$(basename "$source")"
             downloaded="downloaded-assets/$name"
             if [ ! -f "$downloaded" ]; then
@@ -533,7 +546,11 @@ jobs:
               echo "::error::Uploaded release asset hash mismatch: $name"
               exit 1
             fi
-          done
+          done < <(find artifacts -type f -print0)
+          if [ "$source_count" -eq 0 ]; then
+            echo '::error::No release files were downloaded for verification.'
+            exit 1
+          fi
 
           if [ "$FINALIZED_DRAFT" = "true" ]; then
             for downloaded in downloaded-assets/*; do
