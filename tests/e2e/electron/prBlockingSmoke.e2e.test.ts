@@ -1424,12 +1424,14 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             return {
                 activePageBottom: pageRect.bottom,
                 viewportBottom: viewportRect.bottom,
+                overflowY: getComputedStyle(viewport).overflowY,
                 scrollRange: viewport.scrollHeight - viewport.clientHeight,
                 scrollTop: viewport.scrollTop,
             };
         });
 
         expect(observation, JSON.stringify(observation)).toMatchObject({
+            overflowY: 'hidden',
             scrollRange: 0,
             scrollTop: 0,
         });

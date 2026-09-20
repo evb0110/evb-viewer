@@ -848,6 +848,14 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
     overflow: hidden;
 }
 
+/* Paged fit-height advances through pages from wheel/navigation intents rather
+ * than by scrolling the viewport. Hide the unused block-axis scrollbar so a
+ * zero-range viewer does not still paint a full-height thumb. Continuous
+ * fit-height keeps its vertical scroll affordance through the base rule. */
+.pdfViewer.pdfViewer--single-page.pdfViewer--fit-height {
+    overflow-y: hidden;
+}
+
 /* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
 
 .pdfViewer.drag-mode {
