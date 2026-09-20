@@ -43,6 +43,8 @@ export interface IPdfPageSize {
     widthPoints: number;
     heightPoints: number;
     rotation: number;
+    /** PDF page UserUnit; omitted by legacy geometry producers. */
+    userUnit?: number;
     /**
      * The page's physical MediaBox, when a PDF tool exposed it separately
      * from the CropBox view. Most consumers should use the effective
@@ -323,8 +325,11 @@ export interface IReadPdfPageSizesOptions {
     pdfinfoBinary?: string;
     tempDir: string;
     signal?: AbortSignal;
+    cancelGroup?: string;
     log: TScanCleanupLog;
     runCommand: TScanCleanupRunCommand;
+    /** Skip dominant-image inspection when the sidecar is an exact geometry snapshot. */
+    nativeMetadataOnly?: boolean;
     /** Detection reads raw CropBoxes so its native retry can test MediaBox. */
     resolveSuspiciousCropBoxFallback?: boolean;
 }

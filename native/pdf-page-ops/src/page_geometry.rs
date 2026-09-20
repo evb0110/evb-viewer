@@ -229,6 +229,33 @@ pub(crate) fn resolve_page_rotation(
     Ok(0)
 }
 
+/// Resolve the page's direct `/UserUnit` value.
+///
+/// PDF.js reads this entry from the leaf page dictionary. It is not an
+/// inheritable page-tree attribute, and malformed values have the PDF.js
+/// default of one user-space unit. Keep this helper beside rotation so every
+/// native page-geometry operation applies the same rule.
+pub(crate) fn resolve_page_user_unit(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+) -> Result<f64> {
+    let dict = document.dictionary(page_id)?;
+    let Some(object) = dict.get(b"UserUnit").ok() else {
+        return Ok(1.0);
+    };
+    let resolved = document.resolved(object)?;
+    let value = match resolved {
+        Object::Integer(value) => *value as f64,
+        Object::Real(value) => f64::from(*value),
+        _ => return Ok(1.0),
+    };
+    if value.is_finite() && value > 0.0 {
+        Ok(value)
+    } else {
+        Ok(1.0)
+    }
+}
+
 pub(crate) fn intersect_rect(left: PdfRect, right: PdfRect) -> Option<PdfRect> {
     let rect = PdfRect {
         x1: left.x1.max(right.x1),

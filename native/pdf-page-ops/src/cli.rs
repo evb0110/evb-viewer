@@ -27,6 +27,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut qpdf_path = None;
     let mut append = false;
     let mut append_in_place = false;
+    let mut metadata_only = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -119,8 +120,15 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--append-in-place" => {
                 append_in_place = true;
             }
+            "--metadata-only" => {
+                metadata_only = true;
+            }
             _ => return Err(format!("Unknown argument: {arg}").into()),
         }
+    }
+
+    if metadata_only && command != "page-sizes" {
+        return Err("--metadata-only is only valid for page-sizes".into());
     }
 
     if append_in_place && !append {
@@ -192,7 +200,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         "page-geometry" | "get-page-geometry" => Operation::PageGeometry {
             page_number: page_number.ok_or("Missing --page value")?,
         },
-        "page-sizes" => Operation::PageSizes,
+        "page-sizes" => Operation::PageSizes { metadata_only },
         "read-catalog" => Operation::ReadCatalog,
         _ => return Err(format!("Unknown command: {command}").into()),
     };

@@ -341,6 +341,15 @@ function decodePageSizeRecord(
     if (widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
         throw new Error(`evb-pdf-page-ops returned invalid geometry for page ${String(pageNumber)}`);
     }
+    const rawUserUnit = page.userUnit;
+    let userUnit: number | undefined;
+    if (rawUserUnit !== undefined) {
+        const decodedUserUnit = decodeFinite(rawUserUnit);
+        if (decodedUserUnit === null || decodedUserUnit <= 0) {
+            throw new Error(`evb-pdf-page-ops returned invalid UserUnit for page ${String(pageNumber)}`);
+        }
+        userUnit = decodedUserUnit;
+    }
     const dominantImageWidthPx = decodeFinite(page.dominantImageWidthPx);
     const dominantImageHeightPx = decodeFinite(page.dominantImageHeightPx);
     const dominantImageWidthPoints = decodeFinite(page.dominantImageWidthPoints);
@@ -367,6 +376,7 @@ function decodePageSizeRecord(
         widthPoints,
         heightPoints,
         rotation: decodeFinite(page.rotation) ?? 0,
+        ...(userUnit === undefined ? {} : {userUnit}),
         ...(media ?? {}),
         ...(crop ?? {}),
         ...(renderBox === undefined ? {} : {renderBox}),
@@ -923,12 +933,16 @@ async function* readNativePageSizeChunks(
         if (options.qpdfBinary !== undefined) {
             args.push('--qpdf', options.qpdfBinary);
         }
+        if (options.nativeMetadataOnly) {
+            args.push('--metadata-only');
+        }
         await options.runCommand(binary, args, {
             timeoutMs: PAGE_SIZES_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(page-sizes)',
             maxStdoutBytes: PDF_PAGE_OPS_STDOUT_BYTES,
             rejectOnStdoutTruncation: true,
             ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
             log: options.log,
         });
         if (options.signal?.aborted) {

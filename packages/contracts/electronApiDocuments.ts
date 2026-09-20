@@ -571,6 +571,42 @@ export interface IPdfNativePageSizes {
 
 export type TPdfNativePageSizes = readonly IPdfNativePageSize[] | IPdfNativePageSizes;
 
+export interface IPdfNativePageSizesOptions {
+    readonly mode?: 'preview' | 'exact';
+    readonly expectedDocumentRevisionToken?: TDocumentRevisionToken;
+}
+
+export interface IPdfNativePageSizesExactOptions extends IPdfNativePageSizesOptions {
+    readonly mode: 'exact';
+    readonly expectedDocumentRevisionToken: TDocumentRevisionToken;
+}
+
+export interface IPdfNativePageGeometryPage {
+    readonly pageNumber: TPageNumber;
+    readonly xPoints: number;
+    readonly yPoints: number;
+    readonly widthPoints: number;
+    readonly heightPoints: number;
+    readonly rotation: 0 | 90 | 180 | 270;
+    readonly userUnit: number;
+}
+
+export interface IPdfNativePageGeometry {
+    readonly kind: 'exact';
+    readonly documentRef: TDocumentRef;
+    readonly documentRevisionToken: TDocumentRevisionToken;
+    readonly pageCount: number;
+    readonly pages: readonly IPdfNativePageGeometryPage[];
+}
+
+export type TPdfNativePageSizesResult = TPdfNativePageSizes | IPdfNativePageGeometry;
+
+export interface IPdfNativePageSizesCapability {
+    (path: TDocumentRef): Promise<TPdfNativePageSizes>;
+    (path: TDocumentRef, options: IPdfNativePageSizesExactOptions): Promise<IPdfNativePageGeometry>;
+    (path: TDocumentRef, options?: IPdfNativePageSizesOptions): Promise<TPdfNativePageSizesResult>;
+}
+
 export interface IPdfOpeningGeometry {
     readonly pageNumber: TPageNumber;
     readonly pageCount: number;
@@ -976,7 +1012,7 @@ export interface IDocumentsFileCapability {
     releaseManagedTempFileHandle?: (leaseId: TLeaseId) => Promise<boolean>;
     parsePdfAnnotations: PdfAnnotationParse.TPdfAnnotationParse;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
-    getPdfNativePageSizes?: (path: TDocumentRef) => Promise<TPdfNativePageSizes>;
+    getPdfNativePageSizes?: IPdfNativePageSizesCapability;
     cancelPdfNativePagePreview?: (requestId: TRequestId) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview?: (
         path: TDocumentRef,

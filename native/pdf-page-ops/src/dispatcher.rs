@@ -80,11 +80,12 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             )
         }
-        Operation::PageSizes => {
+        Operation::PageSizes { metadata_only } => {
             return write_page_sizes_path(
                 &config.input_path,
                 &config.output_path,
                 config.qpdf_path.as_deref(),
+                *metadata_only,
             )
         }
         Operation::PdfConformance => {

@@ -62,10 +62,12 @@
 
 <script setup lang="ts">
 import type { TPageNumber } from '@contracts/pageNumbers';
+import type { CSSProperties } from 'vue';
 
 
 import {
     useEventListener,
+    useMutationObserver,
     useResizeObserver,
 } from '@vueuse/core';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
@@ -75,6 +77,7 @@ import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engin
 import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
 import {
     captureAnnotationNoteWindowPageAnchor,
+    isAnnotationNoteWindowPageVisible,
     resolveAnnotationNoteWindowClipPath,
     resolveAnnotationNoteWindowPagePosition,
     type IAnnotationNoteWindowPageAnchor,
@@ -146,8 +149,8 @@ let initialFocusRepairFrame: number | null = null;
 const dragWindowTarget = shallowRef<Window | undefined>();
 const pageElement = shallowRef<HTMLElement | null>(null);
 const clipPath = ref<string | undefined>();
+const isPageOffscreen = ref(false);
 let pageAnchor: IAnnotationNoteWindowPageAnchor | null = null;
-let isScrolledOut = false;
 
 function focusNote() {
     emit('focus');
@@ -188,7 +191,7 @@ const timestampText = computed(() => {
     return timeFormatter.format(new Date(timestamp));
 });
 
-const windowStyle = computed(() => ({
+const windowStyle = computed<CSSProperties>(() => ({
     '--annotation-note-color': color ?? 'var(--ui-warning)',
     left: `${offsetX.value}px`,
     top: `${offsetY.value}px`,
@@ -198,6 +201,8 @@ const windowStyle = computed(() => ({
     minHeight: `${Math.min(NOTE_WINDOW.MIN_HEIGHT, height.value)}px`,
     zIndex: String(zIndex),
     clipPath: clipPath.value,
+    visibility: isPageOffscreen.value ? 'hidden' : undefined,
+    pointerEvents: isPageOffscreen.value ? 'none' : undefined,
 }));
 const isPaneSizedPresentation = computed(() => (
     width.value < NOTE_WINDOW.MIN_WIDTH
@@ -247,6 +252,9 @@ function scheduleInitialFocusRepair() {
     });
 }
 
+// Position is the overlay's UI-only projection. Its parent writer is the
+// update emitted below, so a prop sync after the first capture must retain the
+// page anchor instead of treating feedback as a new placement.
 function syncPosition(position: IAnnotationNotePosition | null) {
     const previous = {
         x: offsetX.value,
@@ -266,6 +274,7 @@ function syncPosition(position: IAnnotationNotePosition | null) {
         position?.y ?? offsetY.value,
         nextSize.width,
         nextSize.height,
+        pageAnchor === null,
     );
     return (
         previous.x !== offsetX.value
@@ -355,32 +364,59 @@ function refreshClipPath() {
 
 // Every user-driven placement lands inside the viewer and becomes the spot the
 // window keeps on its page.
-function placeClamped(x: number, y: number, nextWidth: number, nextHeight: number) {
+function placeClamped(
+    x: number,
+    y: number,
+    nextWidth: number,
+    nextHeight: number,
+    captureAnchor = true,
+) {
     const clamped = clampPosition(x, y, nextWidth, nextHeight);
     offsetX.value = clamped.x;
     offsetY.value = clamped.y;
-    isScrolledOut = false;
-    const pageRect = resolvePageRect();
-    pageAnchor = pageRect ? captureAnnotationNoteWindowPageAnchor(clamped.x, clamped.y, pageRect) : null;
+    if (captureAnchor) {
+        isPageOffscreen.value = false;
+        const pageRect = resolvePageRect();
+        if (pageRect) {
+            pageAnchor = captureAnnotationNoteWindowPageAnchor(clamped.x, clamped.y, pageRect);
+        } else if (!pageAnchor) {
+            isPageOffscreen.value = true;
+        }
+    }
     refreshClipPath();
+    if (!isDragging.value) {
+        followPage();
+    }
 }
 
-// Scroll and zoom move the page, and the window goes with it, unclamped. The
-// stored position stays where the user left it, so restoring a note reopens it in view.
+// Scroll and zoom move the page, and the window follows its normalized page
+// anchor. A visible page keeps the whole note inside the pane; an offscreen
+// page hides the note without discarding its open state or anchor.
 function followPage() {
     if (isDragging.value) {
         return;
     }
-    const pageRect = pageAnchor ? resolvePageRect() : null;
-    if (!pageAnchor || !pageRect) {
+    const pageRect = resolvePageRect();
+    const bounds = getWindowBounds();
+    if (!pageRect || !bounds) {
+        isPageOffscreen.value = true;
+        clipPath.value = undefined;
         return;
     }
+
+    pageAnchor ??= captureAnnotationNoteWindowPageAnchor(offsetX.value, offsetY.value, pageRect);
+    if (!isAnnotationNoteWindowPageVisible(pageRect, bounds)) {
+        isPageOffscreen.value = true;
+        clipPath.value = undefined;
+        return;
+    }
+
     const next = resolveAnnotationNoteWindowPagePosition(pageAnchor, pageRect);
     const clamped = clampPosition(next.x, next.y, width.value, height.value);
-    isScrolledOut = clamped.x !== next.x || clamped.y !== next.y;
-    offsetX.value = next.x;
-    offsetY.value = next.y;
-    refreshClipPath();
+    isPageOffscreen.value = false;
+    offsetX.value = clamped.x;
+    offsetY.value = clamped.y;
+    clipPath.value = undefined;
 }
 
 function handlePointerMove(event: MouseEvent) {
@@ -433,11 +469,11 @@ function handleViewportResize() {
     const clampedSize = clampSize(width.value, height.value);
     width.value = clampedSize.width;
     height.value = clampedSize.height;
-    if (isScrolledOut) {
+    if (pageAnchor) {
         followPage();
-        return;
+    } else {
+        placeClamped(offsetX.value, offsetY.value, clampedSize.width, clampedSize.height);
     }
-    placeClamped(offsetX.value, offsetY.value, clampedSize.width, clampedSize.height);
     if (positionChanged(previous)) {
         emitPositionUpdate();
     }
@@ -469,6 +505,10 @@ useEventListener(
 useEventListener(dragWindowTarget, 'mousemove', noteDragMove.schedule);
 useEventListener(dragWindowTarget, 'mouseup', stopDrag);
 useEventListener(boundsRootElement, 'scroll', followPage, { passive: true });
+useMutationObserver(boundsRootElement, followPage, {
+    childList: true,
+    subtree: true,
+});
 useResizeObserver(pageElement, followPage);
 
 useResizeObserver(noteWindowRef, (entries) => {
@@ -484,11 +524,11 @@ useResizeObserver(noteWindowRef, (entries) => {
     const previous = getCurrentPosition();
     width.value = nextSize.width;
     height.value = nextSize.height;
-    if (isScrolledOut) {
-        refreshClipPath();
-        return;
+    if (pageAnchor) {
+        followPage();
+    } else {
+        placeClamped(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
     }
-    placeClamped(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
     if (positionChanged(previous)) {
         emitPositionUpdate();
     }
@@ -530,6 +570,7 @@ watch(
 watch(
     () => annotationId,
     () => {
+        pageAnchor = null;
         if (syncPosition(position)) {
             emitPositionUpdate();
         }

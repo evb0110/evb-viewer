@@ -79,6 +79,7 @@ const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
 const {createDocumentViewerRuntime} = await import('@app/modules/document-viewer/runtime/documentViewerRuntime');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
+const {PDF_PAGE_METRICS_DENSE_LIMIT} = await import('@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics');
 const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
 
 // This test copies two 1 MiB ranges and runs alongside the complete six-project
@@ -87,6 +88,8 @@ const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/e
 const rangePreloadTestTimeoutMs = 30_000;
 
 describe('PdfDocumentSession range loading', () => {
+    const sparsePageCount = PDF_PAGE_METRICS_DENSE_LIMIT + 1;
+
     beforeEach(() => {
         vi.clearAllMocks();
         loggerError.mockReturnValue(rangeReadFailureReceipt);
@@ -357,7 +360,7 @@ describe('PdfDocumentSession range loading', () => {
         });
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
-                numPages: 3,
+                numPages: sparsePageCount,
                 getPage,
                 destroy: vi.fn(),
             }),
@@ -560,16 +563,6 @@ describe('PdfDocumentSession range loading', () => {
         });
 
         expect(result).not.toBeNull();
-        expect(documentState.basePageWidth.value).toBe(180);
-        expect(documentState.basePageHeight.value).toBe(240);
-        expect(documentState.pageMetrics.value).toEqual([{
-            width: 180,
-            height: 240,
-        }]);
-        expect(getPage).toHaveBeenCalledTimes(1);
-
-        await expect(documentState.ensurePageMetricsInRange(2, 3)).resolves.toBe(true);
-
         expect(documentState.basePageWidth.value).toBe(612);
         expect(documentState.basePageHeight.value).toBe(792);
         expect(documentState.pageMetrics.value).toEqual([
@@ -587,9 +580,11 @@ describe('PdfDocumentSession range loading', () => {
             },
         ]);
         expect(getPage).toHaveBeenCalledTimes(3);
+        await expect(documentState.ensurePageMetricsInRange(2, 3)).resolves.toBe(false);
+        expect(getPage).toHaveBeenCalledTimes(3);
     });
 
-    it('hydrates only the requested metric range after the initial page', async () => {
+    it('publishes dense page metrics at open and reuses them for later range requests', async () => {
         const getPage = vi.fn(async (pageNumber: number) => ({ getViewport: vi.fn(() => ({
             width: 200 + pageNumber,
             height: 400 + pageNumber,
@@ -616,16 +611,11 @@ describe('PdfDocumentSession range loading', () => {
             size: 2048,
         });
 
-        expect(getPage).toHaveBeenCalledTimes(1);
+        expect(getPage).toHaveBeenCalledTimes(5);
         expect(documentState.pageMetrics.value[0]).toEqual({
             width: 201,
             height: 401,
         });
-        expect(documentState.pageMetrics.value[3]).toBeUndefined();
-
-        await expect(documentState.ensurePageMetricsInRange(4, 5)).resolves.toBe(true);
-
-        expect(getPage).toHaveBeenCalledTimes(3);
         expect(documentState.pageMetrics.value[3]).toEqual({
             width: 204,
             height: 404,
@@ -634,7 +624,14 @@ describe('PdfDocumentSession range loading', () => {
             width: 205,
             height: 405,
         });
-        expect(documentState.pageMetrics.value[1]).toBeUndefined();
+
+        await expect(documentState.ensurePageMetricsInRange(4, 5)).resolves.toBe(false);
+
+        expect(getPage).toHaveBeenCalledTimes(5);
+        expect(documentState.pageMetrics.value[1]).toEqual({
+            width: 202,
+            height: 402,
+        });
     });
 
     it('keeps metric-loaded page proxies cached for the later render path', async () => {
@@ -685,11 +682,12 @@ describe('PdfDocumentSession range loading', () => {
             size: 2048,
         });
 
-        await expect(documentState.ensurePageMetricsInRange(2, 2)).resolves.toBe(true);
+        getPage.mockClear();
+        await expect(documentState.ensurePageMetricsInRange(2, 2)).resolves.toBe(false);
         await expect(documentState.getPage(requirePageNumber(2))).resolves.toBe(page2);
 
         expect(pageCleanup).not.toHaveBeenCalled();
-        expect(getPage).toHaveBeenCalledTimes(2);
+        expect(getPage).not.toHaveBeenCalled();
     });
 
     it('routes page-source metric hydration through the bounded PDF page cache', async () => {
@@ -1840,7 +1838,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentDestroy = vi.fn(() => Promise.resolve());
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
-                numPages: 2,
+                numPages: sparsePageCount,
                 getPage,
                 destroy: documentDestroy,
             }),
@@ -2023,7 +2021,7 @@ describe('PdfDocumentSession range loading', () => {
         });
         pdfjsState.getDocument.mockReturnValue({
             promise: Promise.resolve({
-                numPages: maxCachedPdfPages + 5,
+                numPages: sparsePageCount,
                 getPage,
                 destroy: vi.fn(),
             }),
@@ -2103,6 +2101,7 @@ describe('PdfDocumentSession range loading', () => {
             path: requireDocumentRef('/tmp/deferred-lease-cleanup.pdf'),
             size: 2048,
         });
+        getPage.mockClear();
         const pageLease = await documentState.leasePage(requirePageNumber(1));
         documentState.cleanupPageCache();
 
@@ -2114,7 +2113,7 @@ describe('PdfDocumentSession range loading', () => {
 
         await documentState.getPage(requirePageNumber(1));
 
-        expect(getPage).toHaveBeenCalledTimes(2);
+        expect(getPage).toHaveBeenCalledOnce();
         expect(loadedPages.get(1)?.[1]?.cleanup).not.toHaveBeenCalled();
     });
 
@@ -2140,7 +2139,7 @@ describe('PdfDocumentSession range loading', () => {
             return page;
         });
         const pdfDocument = {
-            numPages: 2,
+            numPages: sparsePageCount,
             getPage,
             destroy: vi.fn(),
         };

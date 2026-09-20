@@ -182,6 +182,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         basePageWidth,
         basePageHeight,
         scroll.currentPage,
+        options.continuousScroll,
     );
     const reloadTransition = usePdfViewerReloadTransition({
         emitEffectiveZoom: options.emitEffectiveZoom,
@@ -201,7 +202,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     const viewportLayoutMetrics = shallowRef<IPdfPageLayoutMetrics | null>(null);
     const pageLayoutScaleResolver = shallowRef<((pageNumber: TPageNumber) => number) | null>(null);
     function seedPreparedOpeningFitScale() {
-        if (!chassisAuthority) {
+        // The host frame only seeds the shell. Once document metrics exist,
+        // fitting belongs to the viewport and includes every known spread.
+        if (!chassisAuthority || (pdfDocument.value && pageMetrics.value.length > 0)) {
             return false;
         }
         const preparedScale = resolvePdfPreparedOpeningFitScale(chassisAuthority.openSurface.snapshot.value, options.zoomMode.value === 'custom');

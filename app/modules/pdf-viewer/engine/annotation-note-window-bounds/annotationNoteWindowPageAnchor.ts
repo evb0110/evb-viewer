@@ -31,6 +31,17 @@ export function resolveAnnotationNoteWindowPagePosition(
     };
 }
 
+/** A note remains available while any part of its anchor page intersects the viewer pane. */
+export function isAnnotationNoteWindowPageVisible(
+    pageRect: TPageRect,
+    bounds: IAnnotationNoteWindowBounds,
+) {
+    return pageRect.left < bounds.right
+        && pageRect.left + pageRect.width > bounds.left
+        && pageRect.top < bounds.bottom
+        && pageRect.top + pageRect.height > bounds.top;
+}
+
 /** The window is fixed-positioned, so a window scrolled past the viewer edge must not paint over the surrounding chrome. */
 export function resolveAnnotationNoteWindowClipPath(
     x: number,

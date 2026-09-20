@@ -42,6 +42,7 @@ function createScaleComposable(options: {
     viewMode?: TPdfViewMode;
     viewRotation?: TPdfViewRotation;
     currentPage?: number;
+    continuousScroll?: boolean;
 }) {
     const zoom = ref(options.zoom ?? 1);
     const fitMode = ref<TFitMode>(options.mode ?? 'width');
@@ -77,6 +78,7 @@ function createScaleComposable(options: {
             baseWidth,
             baseHeight,
             currentPage,
+            options.continuousScroll ?? false,
         ),
     };
 }
@@ -416,6 +418,90 @@ describe('usePdfScale', () => {
         expect(scale.fitWidthScale.value).toBe(ZOOM.FIT_MIN);
         expect(scale.fitWidthScale.value).toBeLessThan(ZOOM.MIN);
         expect(scale.isFitWidthScaleCurrent(container)).toBe(true);
+    });
+
+    it('keeps continuous fit-width stable across mixed-width pages', () => {
+        const {
+            scale, currentPage,
+        } = createScaleComposable({
+            width: 300,
+            height: 500,
+            continuousScroll: true,
+            pageMetrics: [
+                {
+                    width: 300,
+                    height: 500,
+                },
+                {
+                    width: 1200,
+                    height: 800,
+                },
+                {
+                    width: 600,
+                    height: 500,
+                },
+            ],
+        });
+        const container = createContainer(1000, 900);
+        scale.computeFitWidthScale(container);
+        expect(scale.effectiveScale.value * 1200).toBeCloseTo(960, 6);
+        const openingScale = scale.effectiveScale.value;
+        currentPage.value = 3;
+        scale.computeFitWidthScale(container);
+        expect(scale.effectiveScale.value).toBe(openingScale);
+        expect(scale.isFitWidthScaleCurrent(container)).toBe(true);
+    });
+
+    it('includes the extra gutter when a facing spread is narrower than the cover', () => {
+        const {scale} = createScaleComposable({
+            width: 1000,
+            height: 500,
+            continuousScroll: true,
+            viewMode: 'facing-first-single',
+            pageMetrics: [
+                {
+                    width: 1000,
+                    height: 500,
+                },
+                {
+                    width: 495,
+                    height: 500,
+                },
+                {
+                    width: 495,
+                    height: 500,
+                },
+            ],
+        });
+        scale.computeFitWidthScale(createContainer(1000, 900));
+        expect(scale.effectiveScale.value * 990 + 60).toBeCloseTo(1000, 6);
+        expect(scale.effectiveScale.value * 1000 + 40).toBeLessThan(1000);
+
+        // Only the cover has usable content width in an extremely narrow pane.
+        const narrowContainer = createContainer(50, 900);
+        expect(scale.computeFitWidthScale(narrowContainer)).toBe(true);
+        expect(scale.effectiveScale.value).toBe(ZOOM.FIT_MIN);
+        expect(scale.isFitWidthScaleCurrent(narrowContainer)).toBe(true);
+    });
+
+    it('fits the widest estimated row without materializing a million pages', () => {
+        const pageMetrics: IPdfPageMetric[] = [];
+        pageMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+        pageMetrics[999_999] = {
+            width: 1200,
+            height: 800,
+        };
+        const {scale} = createScaleComposable({
+            width: 300,
+            height: 500,
+            pageMetrics,
+            continuousScroll: true,
+        });
+        scale.computeFitWidthScale(createContainer(1000, 900));
+        expect(scale.effectiveScale.value * 1200).toBeCloseTo(960, 6);
     });
 
     it('computes fit scale from sparse million-page metrics without iterating them', () => {

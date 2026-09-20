@@ -9,6 +9,7 @@ import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engin
 import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
 import {
     captureAnnotationNoteWindowPageAnchor,
+    isAnnotationNoteWindowPageVisible,
     resolveAnnotationNoteWindowClipPath,
     resolveAnnotationNoteWindowPagePosition,
 } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowPageAnchor';
@@ -100,6 +101,27 @@ describe('annotationNoteWindowBounds', () => {
             x: 450,
             y: 350,
         });
+    });
+
+    it('keeps the note available while any part of its page intersects the viewer pane', () => {
+        expect(isAnnotationNoteWindowPageVisible({
+            left: -200,
+            top: 250,
+            width: 300,
+            height: 500,
+        }, PDF_VIEWER_BOUNDS)).toBe(true);
+        expect(isAnnotationNoteWindowPageVisible({
+            left: -260,
+            top: 250,
+            width: 300,
+            height: 500,
+        }, PDF_VIEWER_BOUNDS)).toBe(false);
+        expect(isAnnotationNoteWindowPageVisible({
+            left: 200,
+            top: PDF_VIEWER_BOUNDS.bottom,
+            width: 300,
+            height: 200,
+        }, PDF_VIEWER_BOUNDS)).toBe(false);
     });
 
     it('clips a floating note scrolled past the PDF viewer top edge', () => {

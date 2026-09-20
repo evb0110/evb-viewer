@@ -6,7 +6,9 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 
-const STORAGE_KEY = 'evb:pdf-trusted-open-geometry:v1';
+// v1 mixed unrotated native boxes with PDF.js viewport dimensions.
+// Those entries cannot be migrated without reopening the source.
+const STORAGE_KEY = 'evb:pdf-trusted-open-geometry:v2';
 const MAX_ENTRIES = 24;
 const validatedEntries = new Map<string, IPdfTrustedOpenGeometry>();
 const validationTasks = new Map<string, Promise<IPdfTrustedOpenGeometry | null>>();

@@ -66,6 +66,8 @@ export interface IViewerInvariantNoteWindow {
     anchorPageNumber: number | null;
     anchorRect: IViewerRect | null;
     annotationId: string;
+    /** The open note remains mounted but paints no pixels in its current state. */
+    hidden: boolean;
     /**
      * The layout box narrowed to what the window's own `inset()` clip path
      * paints. The window clips itself to its pane, so its layout box reaches

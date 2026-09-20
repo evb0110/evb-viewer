@@ -434,9 +434,13 @@ export const useDocumentPageSourceRuntime = (options: {
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     function measureViewport() {
-        containerWidth.value = viewerContainer.value?.clientWidth ?? 0;
-        containerHeight.value = viewerContainer.value?.clientHeight ?? 0;
-        viewportScrollTop.value = viewerContainer.value?.scrollTop ?? 0;
+        const container = viewerContainer.value;
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+        // A hidden tab has no measurable viewport. Retain its last layout so
+        // fit mode cannot collapse the document and clamp its scroll offset.
+        containerWidth.value = container.clientWidth;
+        containerHeight.value = container.clientHeight;
+        viewportScrollTop.value = container.scrollTop;
     }
     useResizeObserver(viewerContainer, measureViewport);
     const pageDisplayLayouts = computed(() => resolveDocumentPageDisplayLayoutsBounded(
@@ -798,7 +802,9 @@ export const useDocumentPageSourceRuntime = (options: {
         onResizeSettled: () => scheduleRender.schedule(),
     });
     function handleScroll(event?: Event) {
-        if (!viewerContainer.value || props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
+        if (!viewerContainer.value || viewerContainer.value.clientWidth <= 0
+            || viewerContainer.value.clientHeight <= 0
+            || props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
         const nextScrollTop = viewerContainer.value.scrollTop;
@@ -843,7 +849,8 @@ export const useDocumentPageSourceRuntime = (options: {
         forceProjection = false,
     ) {
         const container = viewerContainer.value;
-        if (!container || !props.value.continuousScroll) {
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0
+            || !props.value.continuousScroll) {
             return;
         }
         const totalPages = source.value?.pageCount

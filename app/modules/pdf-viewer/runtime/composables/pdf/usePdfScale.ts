@@ -12,7 +12,10 @@ import type {
 } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import {
+    isSparsePageMetricCollection,
+    normalizePageMetrics,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import {
@@ -38,6 +41,7 @@ export const usePdfScale = (
     basePageWidth: MaybeRefOrGetter<number | null>,
     basePageHeight: MaybeRefOrGetter<number | null>,
     currentPage: MaybeRefOrGetter<number>,
+    continuousScroll: MaybeRefOrGetter<boolean> = false,
 ) => {
     const fitWidthScale = ref(1);
     const previewFitScale = ref<number | null>(null);
@@ -150,6 +154,88 @@ export const usePdfScale = (
         return rawSize - DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
     }
 
+    let widthRowsCacheKey = '';
+    let widthRows = new Map<number, number>();
+
+    function resolveFitWidthDimensions(
+        metrics: IPdfPageMetric[],
+        rawSize: number,
+        page: TPageNumber,
+        currentWidth: number,
+    ) {
+        if (!toValue(continuousScroll)) {
+            return {
+                availableSize: getFitAvailableSize(rawSize, 'width', page),
+                baseDimension: currentWidth,
+            };
+        }
+        const cacheKey = `${normalizedMetricsCacheKey}|${toValue(viewMode)}`;
+        if (widthRowsCacheKey !== cacheKey) {
+            widthRowsCacheKey = cacheKey;
+            widthRows = new Map();
+            const totalPages = toValue(numPages);
+            const candidates = new Set<number>([
+                1,
+                totalPages,
+            ]);
+            if (isSparsePageMetricCollection(metrics)) {
+                // Nearest-page estimates only change at measured pages and
+                // halfway between them. Inspect neighboring rows at those
+                // boundaries without walking every virtual page.
+                let previousIndex: number | undefined;
+                for (const index of metrics.knownIndices) {
+                    candidates.add(index + 1);
+                    if (previousIndex !== undefined) {
+                        const boundary = Math.floor((previousIndex + index) / 2) + 1;
+                        for (let offset = -2; offset <= 2; offset += 1) {
+                            candidates.add(boundary + offset);
+                        }
+                    }
+                    previousIndex = index;
+                }
+            } else {
+                for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+                    candidates.add(pageNumber);
+                }
+            }
+            const visited = new Set<number>();
+            for (const candidate of candidates) {
+                if (candidate < 1 || candidate > totalPages) continue;
+                const row = getPageRowBoundsForViewMode({
+                    pageNumber: requirePageNumber(candidate),
+                    viewMode: toValue(viewMode),
+                    totalPages,
+                });
+                if (visited.has(row.start)) continue;
+                visited.add(row.start);
+                const columns = row.end - row.start + 1;
+                const width = resolveCurrentSpreadBaseWidth(
+                    metrics, toValue(viewMode), totalPages, row.start,
+                );
+                if (width) widthRows.set(columns, Math.max(widthRows.get(columns) ?? 0, width));
+            }
+        }
+        let result = {
+            availableSize: getFitAvailableSize(rawSize, 'width', page),
+            baseDimension: currentWidth,
+        };
+        for (const [
+            columns,
+            width,
+        ] of widthRows) {
+            const availableSize = rawSize - DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
+            if (availableSize <= 0) continue;
+            if (result.availableSize <= 0
+                || availableSize / width < result.availableSize / result.baseDimension) {
+                result = {
+                    availableSize,
+                    baseDimension: width,
+                };
+            }
+        }
+        return result;
+    }
+
     function buildFitScaleSignature(options: {
         mode: TFitMode;
         rawSize: number;
@@ -219,7 +305,16 @@ export const usePdfScale = (
             return false;
         }
 
-        const availableSize = getFitAvailableSize(rawSize, mode, scalePage);
+        const dimensions = mode === 'height'
+            ? {
+                availableSize: getFitAvailableSize(rawSize, mode, scalePage),
+                baseDimension: resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage),
+            }
+            : resolveFitWidthDimensions(normalizedPageMetrics, rawSize, scalePage, width);
+        const {
+            availableSize,
+            baseDimension,
+        } = dimensions;
         if (availableSize <= 0) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
                 rawSize,
@@ -228,15 +323,12 @@ export const usePdfScale = (
             });
             return false;
         }
-        const baseDimension = mode === 'height'
-            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage)
-            : width;
         const fitScaleSignature = buildFitScaleSignature({
             mode,
             rawSize,
             availableSize,
             baseDimension,
-            scalePage,
+            scalePage: mode === 'width' && toValue(continuousScroll) ? 0 : scalePage,
             totalPages,
         });
 
@@ -259,16 +351,14 @@ export const usePdfScale = (
 
         const targetScale = options?.preview ? previewFitScale : fitWidthScale;
         const currentScale = targetScale.value ?? fitWidthScale.value;
-        const scaleIsCurrent = mode === 'height'
-            ? newScale === currentScale
-            : Math.abs(newScale - currentScale) < 0.001;
+        const scaleIsCurrent = newScale === currentScale;
         if (scaleIsCurrent) {
-            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: scale unchanged within fit tolerance mode=${mode}`, {
+            BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: scale unchanged mode=${mode}`, {
                 currentScale,
                 newScale,
                 availableSize,
                 baseDimension,
-                epsilon: mode === 'height' ? 0 : 0.001,
+                epsilon: 0,
             });
             return false;
         }
@@ -336,19 +426,23 @@ export const usePdfScale = (
             return true;
         }
 
-        const availableSize = getFitAvailableSize(rawSize, mode, scalePage);
+        const dimensions = mode === 'height'
+            ? {
+                availableSize: getFitAvailableSize(rawSize, mode, scalePage),
+                baseDimension: resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage),
+            }
+            : resolveFitWidthDimensions(normalizedPageMetrics, rawSize, scalePage, width);
+        const {
+            availableSize,
+            baseDimension,
+        } = dimensions;
         if (availableSize <= 0) {
             return true;
         }
 
-        const baseDimension = mode === 'height'
-            ? resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage)
-            : width;
         const expectedScale = clampFitScale(availableSize / baseDimension);
 
-        return mode === 'height'
-            ? expectedScale === fitWidthScale.value
-            : Math.abs(expectedScale - fitWidthScale.value) < 0.001;
+        return expectedScale === fitWidthScale.value;
     }
 
     function invalidateScaleCache() {

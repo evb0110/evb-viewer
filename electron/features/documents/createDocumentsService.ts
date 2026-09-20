@@ -273,8 +273,7 @@ export function createDocumentsService(): IDocumentsService {
             releaseManagedTempFileHandle(...args),
         getPdfOpeningGeometry: (...args: TDocumentsServiceArgs<'getPdfOpeningGeometry'>) =>
             handlePdfOpeningGeometry(...args),
-        getPdfNativePageSizes: (...args: TDocumentsServiceArgs<'getPdfNativePageSizes'>) =>
-            handlePdfNativePageSizes(...args),
+        getPdfNativePageSizes: handlePdfNativePageSizes,
         cancelPdfNativePagePreview: (...args: TDocumentsServiceArgs<'cancelPdfNativePagePreview'>) =>
             handleCancelPdfNativePagePreview(...args),
         renderPdfNativePagePreview: (...args: TDocumentsServiceArgs<'renderPdfNativePagePreview'>) =>

@@ -10,6 +10,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireRequestId} from '@contracts/shared';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 
@@ -26,6 +27,11 @@ const mocks = vi.hoisted(() => ({
     getRecentFiles: vi.fn(),
     allowOpenPath: vi.fn(),
     resolveOriginalBackedReadTransport: vi.fn(),
+    resolveNativePageOpsPath: vi.fn(),
+    getWorkingCopyRevision: vi.fn(),
+    assertWorkingCopyRevisionCurrent: vi.fn(),
+    getAppTempDir: vi.fn(),
+    readPdfNativePageGeometry: vi.fn(),
 }));
 
 vi.mock('fs/promises', () => ({
@@ -49,6 +55,13 @@ vi.mock('@electron/recentFiles', () => ({getRecentFiles: (...args: unknown[]) =>
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: (...args: unknown[]) => mocks.allowOpenPath(...args)}));
 vi.mock('@electron/features/documents/main/documentFileReadHandlers', () => ({resolveOriginalBackedReadTransport: (...args: unknown[]) =>
     mocks.resolveOriginalBackedReadTransport(...args)}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args)}));
+vi.mock('@electron/file-access/documentRevisionStore', () => ({
+    assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
+    getWorkingCopyRevision: (...args: unknown[]) => mocks.getWorkingCopyRevision(...args),
+}));
+vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: (...args: unknown[]) => mocks.getAppTempDir(...args)}));
+vi.mock('@electron/pdf/pdfPageSizes', () => ({readPdfNativePageGeometry: (...args: unknown[]) => mocks.readPdfNativePageGeometry(...args)}));
 
 class FakeSender extends EventEmitter {
     destroyed = false;
@@ -104,7 +117,21 @@ describe('native PDF preview lifecycle', () => {
         mocks.getPdfNativeToolPaths.mockReturnValue({
             pdfinfo: '/mock/pdfinfo',
             pdftoppm: '/mock/pdftoppm',
+            qpdf: '/mock/qpdf',
         });
+        mocks.resolveNativePageOpsPath.mockReturnValue('/mock/evb-pdf-page-ops');
+        mocks.getWorkingCopyRevision.mockResolvedValue({token: 'drt1:test:exact-lazy'});
+        mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
+        mocks.getAppTempDir.mockReturnValue('/tmp/app-temp');
+        mocks.readPdfNativePageGeometry.mockResolvedValue([{
+            heightPoints: 792,
+            pageNumber: 1,
+            rotation: 0,
+            userUnit: 1,
+            widthPoints: 612,
+            xPoints: 0,
+            yPoints: 0,
+        }]);
         mocks.runNativeToolCommand.mockResolvedValue({
             exitCode: 0,
             stdout: '',
@@ -293,8 +320,8 @@ describe('native PDF preview lifecycle', () => {
         }, '/tmp/input.pdf')).resolves.toEqual({
             pageNumber: 1,
             pageCount: 431,
-            width: 612,
-            height: 792,
+            width: 792,
+            height: 612,
             rotation: 90,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
@@ -611,6 +638,65 @@ describe('native PDF preview lifecycle', () => {
                 commandLabel: 'pdfinfo',
                 env: {POPPLER: '1'},
                 rejectOnStdoutTruncation: true,
+            }),
+        );
+    });
+
+    it('reads exact lazy-original page geometry through the witnessed source', async () => {
+        const sender = new FakeSender();
+        const revision = requireDocumentRevisionToken('drt1:test:exact-lazy');
+        const read = vi.fn(async (reader: (physicalPath: string) => Promise<unknown>) =>
+            reader('/Users/alice/Documents/input.pdf'));
+        mocks.resolveExistingReadablePdfPath.mockResolvedValueOnce('/tmp/pdf-work/input.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValueOnce({
+            identity: {
+                size: 28_000_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read,
+        });
+        mocks.getWorkingCopyRevision.mockResolvedValueOnce({token: revision});
+        mocks.readPdfNativePageGeometry.mockResolvedValueOnce([{
+            heightPoints: 792,
+            pageNumber: 1,
+            rotation: 0,
+            userUnit: 1,
+            widthPoints: 612,
+            xPoints: 0,
+            yPoints: 0,
+        }]);
+        const {handlePdfNativePageSizes} = await import('@electron/features/documents/main/nativePdfPreview');
+
+        await expect(handlePdfNativePageSizes({
+            sender: sender as never,
+            senderId: sender.id,
+        }, '/tmp/pdf-work/input.pdf', {
+            expectedDocumentRevisionToken: revision,
+            mode: 'exact',
+        })).resolves.toEqual({
+            documentRef: '/tmp/pdf-work/input.pdf',
+            documentRevisionToken: revision,
+            kind: 'exact',
+            pageCount: 1,
+            pages: [{
+                heightPoints: 792,
+                pageNumber: 1,
+                rotation: 0,
+                userUnit: 1,
+                widthPoints: 612,
+                xPoints: 0,
+                yPoints: 0,
+            }],
+        });
+
+        expect(mocks.resolveOriginalBackedReadTransport)
+            .toHaveBeenCalledWith('/tmp/pdf-work/input.pdf', sender.id);
+        expect(mocks.readPdfNativePageGeometry).toHaveBeenCalledWith(
+            '/Users/alice/Documents/input.pdf',
+            expect.objectContaining({
+                pdfPageOpsBinary: '/mock/evb-pdf-page-ops',
+                qpdfBinary: '/mock/qpdf',
+                tempDir: '/tmp/app-temp',
             }),
         );
     });

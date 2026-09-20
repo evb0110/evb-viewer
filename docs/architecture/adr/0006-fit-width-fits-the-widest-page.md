@@ -13,22 +13,35 @@ run on real documents found a horizontal scroll range in fit width on six of 28
 PDFs, and the owner chose to follow the established convention. Issue #826 holds
 the sources.
 
-The rule needs the size of every page before the first fit. The document
-session knows page 1 at open and assumes that size for every page it has not
-visited, which is also why a typed page jump into an unvisited region of a
-mixed-size document lands on the wrong page (issue #822). Reading every page's
-size is cheap, 0.16 s for 15,605 pages through the Poppler call that
-`getPdfNativePageSizes` already wraps, so the session should learn the whole
-document's geometry at open instead of page by page.
+The rule needs the size of every page before the first fit. Previously the
+session knew page 1 at open and estimated unvisited pages, so a first typed
+jump into a mixed-size document could land on the wrong page (issue #822).
+The existing Poppler preview reader samples large documents and omits
+`UserUnit`; its timing is not evidence for a complete geometry table.
 
-Page geometry keeps one owner. A bulk source has to agree with the pdf.js
-viewport on crop box, `/Rotate` and `UserUnit`, or the layout shifts when a
-hydrated metric replaces a seeded one. Documents without a path hydrate through
-pdf.js in the background.
+The implementation now loads a revision-checked, metadata-only native page
+geometry table for path-backed documents. It includes the effective crop box,
+`/Rotate` and direct-page `UserUnit`. The document session converts that opening
+snapshot to viewport dimensions, then reconciles entries with PDF.js as their
+pages are loaded. PDF.js remains the session's geometry authority.
+
+Blob sources and unavailable-native fallbacks collect PDF.js metrics in bounded
+parallel batches and publish them once before first navigation, up to the
+existing 20,000-page dense-layout limit. Above that limit, sources without a
+native snapshot still use progressive sparse geometry. That remains an
+implementation gap against L1: a later wider page can change the fit. A
+15,605-page synthetic Blob took about 16 s to enumerate in the local probe;
+large path-backed documents avoid that per-page renderer roundtrip cost.
+
+Continuous fitting considers every page row and its gutter count, so a facing
+spread can constrain the scale even when a single cover is slightly wider.
+Paged mode still fits the current row.
 
 Consequence accepted with the convention: in a document whose page widths differ
 greatly, the narrow pages are small in fit width. Fit page and manual zoom
 remain.
 
-Not implemented yet. Until issue #826 lands, the behavior contract's L1 states
-the decided rule and the viewer violates it on documents of mixed page widths.
+The takeover's recorded Linux replay shows the mixed-size 66-page fixture
+landing on page 33 on the first typed jump, with zero horizontal scroll range
+and unchanged displayed zoom across scrolling. Native macOS timing and the
+large sparse fallback above are separate coverage limits.

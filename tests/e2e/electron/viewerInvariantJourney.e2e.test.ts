@@ -19,10 +19,7 @@ import {
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
 import { wheelPdfViewportAndWaitForSettlement } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
-import {
-    assertViewerInvariants,
-    type IViewerInvariantException,
-} from '@tests/e2e/electron/helpers/viewerInvariants';
+import {assertViewerInvariants} from '@tests/e2e/electron/helpers/viewerInvariants';
 
 /**
  * One composed reading session, driven by trusted input for every action under
@@ -38,31 +35,6 @@ const OPEN_TIMEOUT_MS = 60_000;
 const WHEEL_DOWN_DELTA_PX = 2_400;
 const RESIZED_WIDTH_PX = 1_180;
 const RESIZED_HEIGHT_PX = 820;
-
-/**
- * Discovered by this journey, not a weakened invariant. An open note window is
- * re-placed by a scroll and by a page resize only, so a relayout that moves
- * the page without resizing it leaves the window where it was:
- * `PdfAnnotationNoteWindow.followPage` runs on scroll and on a page resize
- * observer, and `handleViewportResize` keeps the window's own viewport
- * position instead of following the page.
- *
- * Each exception names the one window it excuses, and only the checkpoints
- * that reach the defect hold it. The checker asserts the list in both
- * directions, so the fix fails those checkpoints and a second defect, or the
- * same one on another window, fails every other checkpoint.
- *
- * What the window should do once its anchor page leaves the viewport is open
- * question 3 of the behavior contract, so the journey records that case
- * instead of asserting anything about it.
- */
-function unfollowedNoteWindowDefect(annotationId: string): IViewerInvariantException[] {
-    return [{
-        annotationId,
-        id: 'A2-note-window-follows-anchor',
-        reason: 'an open note window does not follow its page when a pane relayout moves it sideways',
-    }];
-}
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: 'e2e-viewer-invariants'});
 
@@ -200,10 +172,9 @@ describe('viewer invariant journey', () => {
         });
 
         // A real wheel scroll several pages down: the rendered counter has to
-        // name a page the viewport actually shows. The anchor page leaves the
-        // viewport here, and where the window should go then is open question
-        // 3 of the behavior contract, so the journey records the diagnostic
-        // and asserts no expectation about the window's placement.
+        // name a page the viewport actually shows. Once the note's anchor page
+        // leaves the viewport, the connected note remains open but hidden per
+        // ADR 0007; the placement check still runs at this checkpoint.
         const settlement = await wheelPdfViewportAndWaitForSettlement(page, WHEEL_DOWN_DELTA_PX, 30_000);
         expect(settlement.finalScrollTop).toBeGreaterThan(settlement.initialScrollTop);
         // No `requirePresent` for the annotations here: their page is
@@ -213,15 +184,12 @@ describe('viewer invariant journey', () => {
             documentWellFormed: true,
             requireNavigationIdle: true,
             requirePresent: {pageIndicator: true},
-            requireRan: ['R1-toolbar-page-visible'],
+            requireRan: [
+                'R1-toolbar-page-visible',
+                'A2-note-window-over-chrome',
+            ],
         });
-        expect(scrolled.unresolved.map(entry => [
-            entry.id,
-            entry.evidence.annotationId,
-        ])).toStrictEqual([[
-            'A2-anchor-offscreen',
-            noteAnnotationId,
-        ]]);
+        expect(scrolled.unresolved).toEqual([]);
         expect(await readToolbarPageFromScreen(page)).toBeGreaterThan(1);
 
         await wheelPdfViewportAndWaitForSettlement(page, -WHEEL_DOWN_DELTA_PX, 30_000);
@@ -284,7 +252,6 @@ describe('viewer invariant journey', () => {
         await assertViewerInvariants(page, {
             checkpoint: 'after toggling the sidebar',
             documentWellFormed: true,
-            expected: unfollowedNoteWindowDefect(noteAnnotationId),
             requirePresent: createdWork,
             requireRan: [
                 'A1-annotation-normalized-drift',

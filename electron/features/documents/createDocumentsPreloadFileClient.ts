@@ -11,6 +11,9 @@ import type {
     IDocumentsWindowCapability,
     IDocumentChunkReadOptions,
     IPdfDataPrintOptions,
+    IPdfNativePageGeometry,
+    IPdfNativePageSizesExactOptions,
+    IPdfNativePageSizesOptions,
     IWorkingCopyBackingStatus,
     IPdfNativePagePreviewOptions,
     IPdfNativeStagedCommitOptions,
@@ -19,7 +22,11 @@ import type {
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
     IPdfSerializedCommitCallbacks,
+    TPdfNativePageSizes,
+    TPdfNativePageSizesResult,
 } from '@contracts/electronApiDocuments';
+import {decodeNativePageSizesOptions} from '@contracts/documentsPlatformFeatureNativePageSchemas';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     requireLeaseId,
@@ -700,6 +707,33 @@ export function createDocumentsPreloadFileClient(
         DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs,
         {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL},
     );
+    function getPdfNativePageSizes(path: TDocumentRef): Promise<TPdfNativePageSizes>;
+    function getPdfNativePageSizes(
+        path: TDocumentRef,
+        options: IPdfNativePageSizesExactOptions,
+    ): Promise<IPdfNativePageGeometry>;
+    function getPdfNativePageSizes(
+        path: TDocumentRef,
+        options?: IPdfNativePageSizesOptions,
+    ): Promise<TPdfNativePageSizesResult>;
+    function getPdfNativePageSizes(
+        path: TDocumentRef,
+        options?: IPdfNativePageSizesOptions,
+    ): Promise<TPdfNativePageSizesResult> {
+        const checkedPath = assertAbsolutePath(path, 'getPdfNativePageSizes.path');
+        const checkedOptions = decodeNativePageSizesOptions(options);
+        if (checkedOptions === undefined) {
+            return invokeFiles(
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
+                checkedPath,
+            );
+        }
+        return invokeFiles(
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
+            checkedPath,
+            checkedOptions,
+        );
+    }
     const invokePdf = createCodecIpcInvoker<IDocumentPdfInvokeMap>(
         ipcRenderer,
         DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs,
@@ -855,11 +889,7 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry,
                 assertAbsolutePath(path, 'getPdfOpeningGeometry.path'),
             ),
-        getPdfNativePageSizes: (path) =>
-            invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
-                assertAbsolutePath(path, 'getPdfNativePageSizes.path'),
-            ),
+        getPdfNativePageSizes,
         cancelPdfNativePagePreview: (requestId) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfNativePagePreview,

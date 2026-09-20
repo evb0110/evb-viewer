@@ -5,10 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    IDocumentsFileIoCapability,
-    IPdfNativePagePreview,
-} from '@contracts/electronApiDocuments';
+import type { IPdfNativePagePreview } from '@contracts/electronApiDocuments';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
@@ -23,10 +20,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
     it('cancels active native preview renders when the source terminates', async () => {
         const rejectByRequestId = new Map<string, (error: Error) => void>();
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async (requestId: string) => {
                 rejectByRequestId.get(requestId)?.(new Error('Native PDF preview canceled'));
                 return {canceled: true};
@@ -63,10 +57,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
     it('cancels the active request for a page when that page is reset', async () => {
         const rejectByRequestId = new Map<string, (error: Error) => void>();
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async (requestId: string) => {
                 rejectByRequestId.get(requestId)?.(new Error('Native PDF preview canceled'));
                 return {canceled: true};
@@ -103,10 +94,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
     it('never reuses request IDs across two sources for the same path and page', async () => {
         const seenRequestIds: string[] = [];
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
             getPdfNativePageSizes: vi.fn(async () => []),
             renderPdfNativePagePreview: vi.fn(async (
@@ -139,10 +127,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
     });
 
     it('keeps a same-path source budgeted when the other source terminates', async () => {
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
             getPdfNativePageSizes: vi.fn(async () => []),
             renderPdfNativePagePreview: vi.fn(async () => ({
@@ -178,10 +163,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
     it('cancels one page consumer without canceling a concurrent consumer', async () => {
         const pending = new Map<string, PromiseWithResolvers<IPdfNativePagePreview>>();
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async (requestId: string) => {
                 pending.get(requestId)?.reject(new Error('Native PDF preview canceled'));
                 return {canceled: true};
@@ -226,10 +208,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
     });
 
     it('leases decoded native preview surfaces until their object URLs are released', async () => {
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
             getPdfNativePageSizes: vi.fn(async () => []),
             renderPdfNativePagePreview: vi.fn(async () => ({
@@ -263,10 +242,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
     });
 
     it('forwards a learned raster width ceiling with the rendered object URL', async () => {
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
             getPdfNativePageSizes: vi.fn(async () => []),
             renderPdfNativePagePreview: vi.fn(async () => ({
@@ -291,10 +267,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
     });
 
     it('notifies the viewer when later pressure revokes a native preview URL', async () => {
-        const documentFiles: Pick<
-            IDocumentsFileIoCapability,
-            'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-        > = {
+        const documentFiles: Parameters<typeof createNativePdfPreviewSourceFromPath>[1] = {
             cancelPdfNativePagePreview: vi.fn(async () => ({canceled: false})),
             getPdfNativePageSizes: vi.fn(async () => []),
             renderPdfNativePagePreview: vi.fn(async () => ({

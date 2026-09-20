@@ -38,6 +38,7 @@ import {
 } from '@contracts/documentsPersistenceSchemas';
 import {
     decodeOpeningGeometry,
+    decodeNativePageSizesOptions,
     decodePagePreviewResult,
     decodePageSizesResult,
     decodeSafeIntegerValue,
@@ -811,7 +812,11 @@ const openingGeometryArgs = documentArgs<'getPdfOpeningGeometry'>(
     () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const pageSizesArgs = documentArgs<'getPdfNativePageSizes'>(
-    value => decodeSingleDocumentRefArgs(value, 'path'),
+    value => {
+        const args = decodeArgumentArray(value, 1, 2);
+        return appendOptional([decodeDocumentRefValue(args[0], 'path')], decodeNativePageSizesOptions(args[1])) as
+            TDocumentMethodArgs<'getPdfNativePageSizes'>;
+    },
     () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const cancelRequestArgs = documentArgs<'cancelPdfNativePagePreview'>(

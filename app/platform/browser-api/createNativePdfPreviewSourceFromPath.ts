@@ -8,6 +8,7 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
     IDocumentsFileIoCapability,
     IPdfNativePagePreviewOptions,
+    TPdfNativePageSizes,
 } from '@contracts/electronApiDocuments';
 import {
     requireWorkspaceSurfaceBudgetPort,
@@ -25,8 +26,8 @@ export function createNativePdfPreviewSourceFromPath(
     pdfPath: TDocumentRef,
     documentFiles: Pick<
         IDocumentsFileIoCapability,
-        'cancelPdfNativePagePreview' | 'getPdfNativePageSizes' | 'renderPdfNativePagePreview'
-    >,
+        'cancelPdfNativePagePreview' | 'renderPdfNativePagePreview'
+    > & {getPdfNativePageSizes?: (path: TDocumentRef) => Promise<TPdfNativePageSizes>},
 ) {
     const cancelPdfNativePagePreview = documentFiles.cancelPdfNativePagePreview;
     const getPdfNativePageSizes = documentFiles.getPdfNativePageSizes;

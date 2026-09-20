@@ -428,8 +428,8 @@ export function registerDocumentsIpcAdapter(
             service.releaseManagedTempFileHandle(context, leaseId),
         getPdfOpeningGeometry: (context, filePath) =>
             service.getPdfOpeningGeometry(context, filePath),
-        getPdfNativePageSizes: (context, filePath) =>
-            service.getPdfNativePageSizes(context, filePath),
+        getPdfNativePageSizes: (context, filePath, options) =>
+            service.getPdfNativePageSizes(context, filePath, options),
         cancelPdfNativePagePreview: (context, requestId) =>
             service.cancelPdfNativePagePreview(context, requestId),
         renderPdfNativePagePreview: (context, filePath, pageNumber, previewOptions) =>

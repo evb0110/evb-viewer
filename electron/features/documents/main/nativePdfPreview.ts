@@ -12,6 +12,9 @@ import {
 import { tmpdir } from 'os';
 import {
     PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX,
+    type IPdfNativePageGeometry,
+    type IPdfNativePageSizesExactOptions,
+    type IPdfNativePageSizesOptions,
     type IPdfNativePagePreview,
     type IPdfNativePagePreviewOptions,
     type IPdfNativePageSize,
@@ -19,7 +22,14 @@ import {
     type IPdfNativePageSizes,
     type IPdfOpeningGeometry,
     type TPdfNativePageSizes,
+    type TPdfNativePageSizesResult,
 } from '@contracts/electronApiDocuments';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     PDF_PAGE_LABEL_STYLE_VALUES,
     type IPdfPageLabelRange,
@@ -53,6 +63,12 @@ import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDir
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
+import {
+    assertWorkingCopyRevisionCurrent,
+    getWorkingCopyRevision,
+} from '@electron/file-access/documentRevisionStore';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import { readPdfNativePageGeometry } from '@electron/pdf/pdfPageSizes';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -255,13 +271,15 @@ export function parsePdfOpeningGeometryMetadata(
             break;
         }
     }
+    const rotation = normalizeRightAngleRotation(firstPageRotationMatch?.[2]);
+    const isQuarterTurn = rotation === 90 || rotation === 270;
     const optimized = OPTIMIZED_RE.exec(pdfInfoOutput)?.[1]?.toLowerCase();
     return {
         pageNumber: requirePageNumber(1, pageCount),
         pageCount,
-        width,
-        height,
-        rotation: normalizeRightAngleRotation(firstPageRotationMatch?.[2]),
+        width: isQuarterTurn ? height : width,
+        height: isQuarterTurn ? width : height,
+        rotation,
         size: identity.size,
         modifiedAt: identity.modifiedAt,
         ...(optimized === undefined ? {} : {linearized: optimized === 'yes'}),
@@ -474,10 +492,157 @@ function createNativePdfPreviewRequestLifecycle(
     };
 }
 
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
+}
+
+async function handlePdfNativePageGeometry(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+    options: IPdfNativePageSizesExactOptions,
+): Promise<IPdfNativePageGeometry> {
+    const expectedRevisionToken = parseDocumentRevisionToken(
+        options.expectedDocumentRevisionToken,
+    );
+    if (expectedRevisionToken === null) {
+        throw new Error('Document revision token is required for exact PDF geometry');
+    }
+    const resolvedPath = await resolvePdfPath(context, filePath);
+    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
+    const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
+    if (revision.token !== expectedRevisionToken) {
+        throw createStaleRevisionError({
+            documentRef: requireDocumentRef(resolvedPath),
+            expectedRevision: expectedRevisionToken,
+            actualRevision: revision.token,
+        });
+    }
+    await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
+
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) {
+        throw new Error('Native page operations are required for exact PDF geometry');
+    }
+    const tools = getPdfNativeToolPaths();
+    const abortController = new AbortController();
+    let cancelGroup = '';
+    const cancelPageGeometry = (reason: string) => {
+        abortPreviewController(abortController, reason);
+        if (cancelGroup) {
+            cancelNativeCommandGroup(cancelGroup);
+        }
+    };
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: resolvedPath,
+        cancel: cancelPageGeometry,
+    });
+    cancelGroup = `pdf-native-page-geometry:${mainOperation.id}`;
+    const handleMainAbort = () => {
+        cancelPageGeometry('Native PDF exact page geometry canceled');
+    };
+    const unregisterSenderCleanup = registerNativePdfSenderCleanup(
+        context.sender,
+        cancelPageGeometry,
+        'Renderer navigation canceled native PDF exact page geometry',
+    );
+    mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
+
+    try {
+        const readGeometry = (physicalPath: string) => readPdfNativePageGeometry(physicalPath, {
+            pdfPageOpsBinary: binaryPath,
+            qpdfBinary: tools.qpdf,
+            tempDir: getAppTempDir(),
+            signal: abortController.signal,
+            cancelGroup,
+            log: (level, message) => {
+                if (level === 'debug') {
+                    logger.debug(message);
+                } else {
+                    logger.warn(message);
+                }
+            },
+        });
+        const pages = originalBackedRead
+            ? await originalBackedRead.read(readGeometry)
+            : await readGeometry(resolvedPath);
+        throwIfAborted(abortController.signal);
+        await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
+        if (pages.length < 1) {
+            throw new Error('Native exact geometry returned no pages');
+        }
+        const geometryPages = pages.map(page => {
+            const rotation: 0 | 90 | 180 | 270 = page.rotation === 0
+                ? 0
+                : page.rotation === 90
+                    ? 90
+                    : page.rotation === 180
+                        ? 180
+                        : page.rotation === 270
+                            ? 270
+                            : (() => {
+                                throw new Error(
+                                    `Native exact geometry returned invalid page ${String(page.pageNumber)}`,
+                                );
+                            })();
+            if (page.userUnit === undefined) {
+                throw new Error(`Native exact geometry returned invalid page ${String(page.pageNumber)}`);
+            }
+            return {
+                pageNumber: requirePageNumber(page.pageNumber, pages.length),
+                xPoints: page.xPoints,
+                yPoints: page.yPoints,
+                widthPoints: page.widthPoints,
+                heightPoints: page.heightPoints,
+                rotation,
+                userUnit: page.userUnit,
+            };
+        });
+        return {
+            kind: 'exact',
+            documentRef: requireDocumentRef(filePath),
+            documentRevisionToken: expectedRevisionToken,
+            pageCount: geometryPages.length,
+            pages: geometryPages,
+        };
+    } finally {
+        mainOperation.signal.removeEventListener('abort', handleMainAbort);
+        unregisterSenderCleanup();
+        mainOperation.complete();
+    }
+}
+
+export function handlePdfNativePageSizes(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+): Promise<TPdfNativePageSizes>;
+export function handlePdfNativePageSizes(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+    options: IPdfNativePageSizesExactOptions,
+): Promise<IPdfNativePageGeometry>;
+export function handlePdfNativePageSizes(
+    context: IDocumentsSenderIdContext,
+    filePath: unknown,
+    options?: IPdfNativePageSizesOptions,
+): Promise<TPdfNativePageSizesResult>;
 export async function handlePdfNativePageSizes(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
-): Promise<TPdfNativePageSizes> {
+    options?: IPdfNativePageSizesOptions,
+): Promise<TPdfNativePageSizesResult> {
+    if (options?.mode === 'exact') {
+        return handlePdfNativePageGeometry(
+            context,
+            filePath,
+            options as IPdfNativePageSizesExactOptions,
+        );
+    }
     const resolvedPath = await resolvePdfPath(context, filePath);
     const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
     const tools = getPdfNativeToolPaths();

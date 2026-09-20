@@ -19,7 +19,7 @@ contract statement it checks:
 | `L1-fit-mode-scroll-range` | L1 |
 | `A1-annotation-page-containment` | A1, one observation |
 | `A1-annotation-normalized-drift` | A1, two observations |
-| `A2-note-window-over-chrome` | A2, one observation, anchor on screen |
+| `A2-note-window-over-chrome` | A2, one observation: show, contain and hide note windows |
 | `A2-note-window-follows-anchor` | A2, two observations |
 | `C2-renderer-diagnostics-clean` | C2 |
 | `S0-viewer-settled` | the Settled definition |
@@ -28,14 +28,15 @@ contract statement it checks:
 whose expected behavior the contract has not decided, with the rects, so the
 monitor and a bug bundle still show it. An undecided rule cannot establish a
 defect, so neither the monitor nor `assertViewerInvariants` may fail on one.
+The current A2 behavior is decided by ADR 0007, so the checker emits no A2
+unresolved entry; the legacy report id remains readable for older bundles.
 
-| Id | Open question |
-| --- | --- |
-| `A2-anchor-offscreen` | A2 and open question 3: hide, dock, or stay? |
-
-The anchor is the annotation's own marker, not its page. A page taller than the
-viewport stays on screen while the marker, and the window that follows it,
-scroll out of the pane, which is the open question and not a lost window. When
+The anchor is the annotation's own marker, not its page. While the page is
+visible, an open note must be visible; if its marker is offscreen but the page
+remains visible, the note must be fully inside the active pane. The checker
+does not infer which pane edge is the intended docking edge from rectangles
+alone. Once the page leaves the viewport, the connected note must be hidden so
+that reopening it retains the user's note without leaving a stray window. When
 no marker is drawn for the annotation, the page stands in for it.
 
 The checker reads the PDF page track only. On a DjVu document every statement
@@ -51,9 +52,9 @@ check.
 
 Two-observation statements compare against the previous observation of the same
 workspace. The memory is dropped when the active workspace tab changes, and an
-annotation that stops drawing while its own page is still mounted is forgotten;
-a page the viewer virtualized away keeps its memory, because bringing an
-annotation back in the wrong place is the defect the comparison exists for.
+offscreen, hidden or otherwise non-comparable note interval breaks the memory;
+a page the viewer virtualized away keeps a non-comparable entry so that bringing
+an annotation back cannot compare across the interval.
 
 The unobscured viewport is the scroller's client box, which already excludes
 the toolbar, the sidebar and a classic scrollbar. C2 is fed by the renderer
@@ -66,8 +67,9 @@ toolbar while nothing of it is painted there. `A2-note-window-over-chrome`
 therefore compares the window's painted rect, which is its layout box narrowed
 by its own `inset()` clip path; the two-observation comparison still uses the
 layout box, because that is what follows the anchor. A window clipped so far
-that its title bar and close button are gone is a real defect, and no statement
-of the contract covers it yet.
+that its title bar and close button are gone is observed as hidden while its
+page is offscreen; if its page is visible, the checker reports the missing
+window as an A2 violation.
 
 ## The monitor and the bug-report shortcut
 

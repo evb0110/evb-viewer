@@ -74,6 +74,8 @@ interface IFixtureNoteWindow {
     annotationId: string;
     /** The window's own clip path, as `PdfAnnotationNoteWindow` sets it. */
     clipPath?: string;
+    /** Keeps the connected note mounted while making it paint no pixels. */
+    hidden?: boolean;
     leftPx: number;
     pageNumber: number;
     topPx: number;
@@ -148,6 +150,8 @@ function renderNoteWindow(noteWindow: IFixtureNoteWindow) {
         data-user-placement="0"
         style="position:fixed;left:${String(noteWindow.leftPx)}px;top:${String(noteWindow.topPx)}px;width:200px;height:150px;background:#fff${
             noteWindow.clipPath ? `;clip-path:${noteWindow.clipPath}` : ''
+        }${
+            noteWindow.hidden ? ';display:none' : ''
         }"></div>`;
 }
 
@@ -188,10 +192,10 @@ function buildFixtureMarkup(options: IFixtureOptions = {}) {
                 style="position:relative;width:${String(trackWidth)}px;height:${String(trackHeight)}px">
                 ${pages.map(renderPage).join('')}
             </div>
+            ${(options.noteWindows ?? []).map(renderNoteWindow).join('')}
         </div>
     </div>
 </div>
-${(options.noteWindows ?? []).map(renderNoteWindow).join('')}
 ${options.tabFileName ? renderTabBar(options.tabFileName) : ''}
 </body></html>`;
 }
@@ -389,9 +393,8 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(violationIds(overChrome)).toEqual(['A2-note-window-over-chrome']);
             expect(overChrome.unresolved).toEqual([]);
 
-            // A2 one observation, conforming: the same layout box, clipped to
-            // its pane the way the note window clips itself. Nothing of it is
-            // painted over the toolbar, so nothing is reported.
+            // A2 one observation, known bad: clipping the painted rect to the
+            // pane does not make the note's layout box fully contained.
             await loadFixture(page, buildFixtureMarkup({noteWindows: [{
                 annotationId: 'note-1',
                 clipPath: 'inset(30px -24px -24px -24px)',
@@ -400,8 +403,21 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 topPx: 10,
             }]}));
             const clippedOffChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(clippedOffChrome.violations).toEqual([]);
-            expect(clippedOffChrome.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
+            expect(violationIds(clippedOffChrome)).toEqual(['A2-note-window-over-chrome']);
+            expect(clippedOffChrome.unresolved).toEqual([]);
+
+            // A2 one observation, conforming: a visible note fully contained
+            // by the active pane does not cover any chrome.
+            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
+                annotationId: 'note-1',
+                leftPx: 60,
+                pageNumber: 1,
+                topPx: 60,
+            }]}));
+            const contained = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+            expect(contained.violations).toEqual([]);
+            expect(contained.unresolved).toEqual([]);
+            expect(contained.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
 
             // A2 one observation, known bad: a clip that still leaves part of
             // the window on the toolbar is still a window over the chrome.
@@ -426,10 +442,8 @@ describe('viewer invariant checker against real Chromium layout', () => {
             expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
                 .toEqual(['A2-note-window-over-chrome']);
 
-            // A2 one observation, unresolved: the anchor page has left the
-            // viewport. Behavior contract open question 3 has not decided
-            // whether the window should hide, dock or stay, so this is
-            // recorded and is not a violation.
+            // A2 one observation, known bad: the open note remains visible
+            // after its anchor page leaves the viewport.
             await loadFixture(page, buildFixtureMarkup({
                 noteWindows: [{
                     annotationId: 'note-1',
@@ -449,14 +463,39 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 400;
                 return globalThis.__evbCheckViewerInvariants();
             });
-            expect(anchorOffscreen.violations).toEqual([]);
-            expect(anchorOffscreen.unresolved.map(entry => entry.id)).toEqual(['A2-anchor-offscreen']);
-            expect(anchorOffscreen.skipped.map(skip => skip.id)).toContain('A2-note-window-over-chrome');
+            expect(violationIds(anchorOffscreen)).toEqual(['A2-note-window-over-chrome']);
+            expect(anchorOffscreen.unresolved).toEqual([]);
+            expect(anchorOffscreen.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
 
-            // The same open question on a page taller than the viewport: the
-            // page is still on screen, and the note's own marker, with the
-            // window that follows it, has scrolled out above the pane. Found
-            // on one-page documents read zoomed in.
+            // A2 one observation, conforming: a page that left the viewport
+            // retains its connected note, but the note is hidden.
+            await loadFixture(page, buildFixtureMarkup({
+                noteWindows: [{
+                    annotationId: 'note-1',
+                    hidden: true,
+                    leftPx: 60,
+                    pageNumber: 1,
+                    topPx: 10,
+                }],
+                pages: [
+                    {pageNumber: 1},
+                    {pageNumber: 2},
+                    {pageNumber: 3},
+                    {pageNumber: 4},
+                ],
+                toolbarPageNumber: 2,
+            }));
+            const hiddenOffscreen = await page.evaluate(() => {
+                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 400;
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(hiddenOffscreen.violations).toEqual([]);
+            expect(hiddenOffscreen.unresolved).toEqual([]);
+            expect(hiddenOffscreen.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
+
+            // A2 one observation, known bad: the page is still on screen but
+            // its screen-sized marker has scrolled out above the pane and the
+            // note has followed it out instead of docking inside the pane.
             await loadFixture(page, buildFixtureMarkup({
                 noteWindows: [{
                     annotationId: 'note-1',
@@ -482,8 +521,38 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 900;
                 return globalThis.__evbCheckViewerInvariants();
             });
-            expect(markerOffscreen.violations).toEqual([]);
-            expect(markerOffscreen.unresolved.map(entry => entry.id)).toEqual(['A2-anchor-offscreen']);
+            expect(violationIds(markerOffscreen)).toEqual(['A2-note-window-over-chrome']);
+            expect(markerOffscreen.unresolved).toEqual([]);
+
+            // A2 one observation, conforming: the marker is still offscreen,
+            // but the visible note is fully contained by the active pane.
+            await loadFixture(page, buildFixtureMarkup({
+                noteWindows: [{
+                    annotationId: 'note-1',
+                    leftPx: 60,
+                    pageNumber: 1,
+                    topPx: 40,
+                }],
+                pages: [{
+                    heightPx: 2_400,
+                    overlays: [{
+                        annotationId: 'note-1',
+                        height: 0,
+                        kind: 'note',
+                        screenSizedPx: 22,
+                        width: 0,
+                        x: 0.4,
+                        y: 0.05,
+                    }],
+                    pageNumber: 1,
+                }],
+            }));
+            const dockedMarkerOffscreen = await page.evaluate(() => {
+                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 900;
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(dockedMarkerOffscreen.violations).toEqual([]);
+            expect(dockedMarkerOffscreen.unresolved).toEqual([]);
         } finally {
             await browser.close();
         }
@@ -646,6 +715,22 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 return globalThis.__evbCheckViewerInvariants();
             });
             expect(violationIds(stranded)).toEqual(['A2-note-window-follows-anchor']);
+
+            // A2 stateful applicability: a connected hidden note while its
+            // page is virtualized away breaks comparability when it returns.
+            await loadFixture(page, noteMarkup);
+            const hiddenInterval = await page.evaluate(() => {
+                globalThis.__evbCheckViewerInvariants();
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer')!;
+                const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
+                viewport.scrollTop = 400;
+                noteWindow.style.display = 'none';
+                globalThis.__evbCheckViewerInvariants();
+                viewport.scrollTop = 80;
+                noteWindow.style.display = '';
+                return globalThis.__evbCheckViewerInvariants();
+            });
+            expect(hiddenInterval.violations).toEqual([]);
 
             // A2 stateful applicability: the reader dragged the window between
             // the two observations, so the anchor delta is broken on purpose

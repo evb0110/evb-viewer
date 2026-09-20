@@ -186,8 +186,8 @@ Page    1 rot:   -90
         })).toEqual({
             pageNumber: 1,
             pageCount: 431,
-            width: 612,
-            height: 792,
+            width: 792,
+            height: 612,
             rotation: 270,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,

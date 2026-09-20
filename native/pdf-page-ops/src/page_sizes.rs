@@ -14,8 +14,9 @@ use std::{
 use crate::{
     assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect,
     load_annotation_index_pdf_path, load_pdf_path, reclassify_domain_error, resolve_inherited_box,
-    resolve_page_rotation, resolve_page_view, AppendedRevision, NativeErrorCode, PageTreeResolver,
-    PdfObjectSource, PdfRect, Result, MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
+    resolve_page_rotation, resolve_page_user_unit, resolve_page_view, AppendedRevision,
+    NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, Result,
+    MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
 };
 
 pub(crate) const PAGE_SIZES_SIDECAR_FORMAT: &str = "evb-pdf-page-sizes";
@@ -60,6 +61,7 @@ struct PageSizeEntry {
     width_inches: f64,
     height_inches: f64,
     rotation: i64,
+    user_unit: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     media_x_points: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -387,6 +389,7 @@ fn page_size_entry(
         width_inches: page_view.width() / 72.0,
         height_inches: page_view.height() / 72.0,
         rotation,
+        user_unit: resolve_page_user_unit(document, page_id)?,
         media_x_points: Some(media_box.x1),
         media_y_points: Some(media_box.y1),
         media_width_points: Some(media_box.width()),
@@ -517,6 +520,7 @@ pub(crate) fn write_page_sizes_path(
     input_path: &Path,
     output_path: &Path,
     qpdf_path: Option<&Path>,
+    metadata_only: bool,
 ) -> Result<()> {
     if page_sizes_paths_alias(input_path, output_path)? {
         return Err(domain_error(
@@ -534,7 +538,11 @@ pub(crate) fn write_page_sizes_path(
             &document,
             "Encrypted PDFs are not supported by native page ops",
         )?;
-        return write_page_sizes_sidecar_document(&document, output_path);
+        return if metadata_only {
+            write_page_sizes_sidecar(&document, output_path)
+        } else {
+            write_page_sizes_sidecar_document(&document, output_path)
+        };
     }
 
     let qpdf_path = qpdf_path.ok_or_else(|| {

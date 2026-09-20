@@ -9,7 +9,9 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import {
     createBlankFixturePdf,
     createCorruptPdfFixture,
+    createMixedSize66FixturePdf,
     createMultiPageTextFixturePdf,
+    createRotated90FixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
@@ -25,6 +27,8 @@ import {
     evaluateInPage,
     waitForFunctionInPage,
 } from '@tests/e2e/electron/helpers/pageRuntime';
+import { readToolbarPageIndicator } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import { readViewportPageObservation } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     getWorkspaceToolbarSnapshot,
     requireWorkspaceCommand,
@@ -898,6 +902,118 @@ async function alternateFitAndAssertConvergence(
     return observations;
 }
 
+interface IMixedGeometryObservation {
+    viewport: {
+        clientWidth: number;
+        scrollWidth: number;
+        scrollTop: number;
+    } | null;
+    zoom: string | null;
+}
+
+/** Reads the rendered surface used by the mixed-size geometry replay. */
+async function readMixedGeometry(session: IElectronE2ESession): Promise<IMixedGeometryObservation> {
+    return evaluateInPage(session.page, () => {
+        const activeHost = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = activeHost?.querySelector<HTMLElement>(
+            '[data-document-viewer-chassis-viewport], .document-viewer-viewport, #pdf-viewer',
+        ) ?? null;
+        const zoom = Array.from(document.querySelectorAll<HTMLElement>(
+            '.zoom-controls-display-value, .zoom-controls-display',
+        )).find((element) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        })?.textContent?.trim() ?? null;
+
+        return {
+            viewport: viewport
+                ? {
+                    clientWidth: viewport.clientWidth,
+                    scrollWidth: viewport.scrollWidth,
+                    scrollTop: viewport.scrollTop,
+                }
+                : null,
+            zoom,
+        };
+    });
+}
+
+async function clickFitWidthWithTrustedInput(session: IElectronE2ESession) {
+    const displayPoint = await evaluateInPage(session.page, () => {
+        const display = Array.from(document.querySelectorAll<HTMLElement>(
+            '.zoom-controls-display',
+        )).find((element) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        });
+        if (!display) {
+            return null;
+        }
+        const rect = display.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + (rect.width / 2)),
+            y: Math.round(rect.top + (rect.height / 2)),
+        };
+    });
+    if (!displayPoint) {
+        throw new Error('Visible zoom display was not found before Fit Width input');
+    }
+
+    await session.page.mouse.click(displayPoint.x, displayPoint.y);
+    await waitForFunctionInPage(session.page, () => Array.from(
+        document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'),
+    ).some((button) => {
+        const rect = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        return /Fit Width/iu.test(button.textContent ?? '')
+            && rect.width > 0
+            && rect.height > 0
+            && style.display !== 'none'
+            && style.visibility !== 'hidden';
+    }), {timeout: SETTLE_TIMEOUT_MS});
+
+    const fitPoint = await evaluateInPage(session.page, () => {
+        const fitButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
+            .find((button) => {
+                const rect = button.getBoundingClientRect();
+                const style = window.getComputedStyle(button);
+                return /Fit Width/iu.test(button.textContent ?? '')
+                    && rect.width > 0
+                    && rect.height > 0
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+        if (!fitButton) {
+            return null;
+        }
+        const rect = fitButton.getBoundingClientRect();
+        return {
+            x: Math.round(rect.left + (rect.width / 2)),
+            y: Math.round(rect.top + (rect.height / 2)),
+        };
+    });
+    if (!fitPoint) {
+        throw new Error('Visible Fit Width option was not found after opening the zoom menu');
+    }
+
+    await session.page.mouse.click(fitPoint.x, fitPoint.y);
+    await waitForFunctionInPage(session.page, () => (
+        (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
+            .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
+    ), {timeout: SETTLE_TIMEOUT_MS});
+    await waitForAnimationFrames(session.page, 4);
+}
+
 describe('standard PDF.js fit-mode continuity', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-standard-pdf-fit-${Date.now()}`,
@@ -1490,4 +1606,114 @@ describe('standard PDF.js fit-mode continuity', () => {
             toolbarPage: DEEP_PAGE + 1,
         });
     }, 300_000);
+
+    it('keeps mixed-size jumps and continuous Fit Width geometry user-visible', async () => {
+        const session = sessionFixture.getSession();
+        const mixedPdfPath = await createMixedSize66FixturePdf(
+            `standard-pdf-fit-mixed-66-${Date.now()}.pdf`,
+        );
+        const rotatedPdfPath = await createRotated90FixturePdf(
+            `standard-pdf-fit-rotated-90-${Date.now()}.pdf`,
+        );
+
+        await openPdfInApp(session.page, mixedPdfPath, OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
+
+        // This is a real page-field click, keyboard entry, and Enter. The
+        // visible page is checked separately from the toolbar so a stale
+        // counter cannot make the jump appear to pass.
+        await goToPageViaToolbar(session.page, 33);
+        await waitForToolbarCurrentPage(session.page, 33, SETTLE_TIMEOUT_MS);
+
+        const jumpVisiblePages = await readViewportPageObservation(session.page);
+        const jumpIndicator = await readToolbarPageIndicator(session.page);
+        expect(jumpVisiblePages.pages, JSON.stringify(jumpVisiblePages)).toEqual(
+            expect.arrayContaining([expect.objectContaining({page: 33})]),
+        );
+        expect(jumpIndicator.renderedPage, JSON.stringify(jumpIndicator)).toBe(33);
+
+        // Fit Width is selected through the visible zoom menu. The wheel
+        // below is sent only after the menu action has settled, matching the
+        // user sequence that exposed the mixed-width overflow.
+        await goToPageViaToolbar(session.page, 1);
+        await waitForToolbarCurrentPage(session.page, 1, SETTLE_TIMEOUT_MS);
+        await clickFitWidthWithTrustedInput(session);
+        const beforeScroll = await readMixedGeometry(session);
+        const beforeVisiblePages = await readViewportPageObservation(session.page);
+        expect(beforeVisiblePages.pages.length, JSON.stringify(beforeVisiblePages)).toBeGreaterThan(0);
+        expect(beforeScroll.viewport, JSON.stringify(beforeScroll)).not.toBeNull();
+        expect(beforeScroll.zoom, JSON.stringify(beforeScroll)).not.toBeNull();
+        if (!beforeScroll.viewport) {
+            return;
+        }
+        expect(
+            Math.max(0, beforeScroll.viewport.scrollWidth - beforeScroll.viewport.clientWidth),
+            JSON.stringify(beforeScroll),
+        ).toBeLessThanOrEqual(1);
+
+        const viewportPoint = await evaluateInPage(session.page, () => {
+            const activeHost = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const viewport = activeHost?.querySelector<HTMLElement>(
+                '[data-document-viewer-chassis-viewport], .document-viewer-viewport, #pdf-viewer',
+            ) ?? null;
+            if (!viewport) {
+                return null;
+            }
+            const rect = viewport.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + (rect.width / 2)),
+                y: Math.round(rect.top + (rect.height / 2)),
+            };
+        });
+        expect(viewportPoint).not.toBeNull();
+        if (!viewportPoint) {
+            return;
+        }
+        await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
+        await session.page.mouse.wheel({deltaY: 12_000});
+        await delay(2_500);
+
+        const afterScroll = await readMixedGeometry(session);
+        const afterVisiblePages = await readViewportPageObservation(session.page);
+        expect(afterVisiblePages.pages.length, JSON.stringify(afterVisiblePages)).toBeGreaterThan(0);
+        expect(afterScroll.viewport, JSON.stringify(afterScroll)).not.toBeNull();
+        expect(afterScroll.zoom, JSON.stringify(afterScroll)).toBe(beforeScroll.zoom);
+        if (!afterScroll.viewport) {
+            return;
+        }
+        expect(
+            afterScroll.viewport.scrollTop,
+            JSON.stringify({
+                afterScroll,
+                beforeScroll,
+            }),
+        ).toBeGreaterThan(beforeScroll.viewport.scrollTop);
+        expect(
+            Math.max(0, afterScroll.viewport.scrollWidth - afterScroll.viewport.clientWidth),
+            JSON.stringify(afterScroll),
+        ).toBeLessThanOrEqual(1);
+
+        // Fit Width remains active while opening the rotated document. Its
+        // first committed geometry must already have no horizontal range.
+        await openPdfInApp(session.page, rotatedPdfPath, OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
+        await waitForFunctionInPage(session.page, () => (
+            (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
+                .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
+        ), {timeout: SETTLE_TIMEOUT_MS});
+        await waitForAnimationFrames(session.page, 4);
+        const rotatedGeometry = await readMixedGeometry(session);
+        const rotatedVisiblePages = await readViewportPageObservation(session.page);
+        expect(rotatedVisiblePages.pages.length, JSON.stringify(rotatedVisiblePages)).toBeGreaterThan(0);
+        expect(rotatedGeometry.viewport, JSON.stringify(rotatedGeometry)).not.toBeNull();
+        if (!rotatedGeometry.viewport) {
+            return;
+        }
+        expect(
+            Math.max(0, rotatedGeometry.viewport.scrollWidth - rotatedGeometry.viewport.clientWidth),
+            JSON.stringify(rotatedGeometry),
+        ).toBeLessThanOrEqual(1);
+    }, 180_000);
 });

@@ -734,7 +734,9 @@ pub(crate) enum Operation {
     PageGeometry {
         page_number: u32,
     },
-    PageSizes,
+    PageSizes {
+        metadata_only: bool,
+    },
     ReadCatalog,
 }
 

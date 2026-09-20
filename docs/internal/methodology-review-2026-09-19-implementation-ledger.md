@@ -1,7 +1,7 @@
 # Methodology review, implementation ledger
 
 Companion to the [methodology review](methodology-review-2026-09-19.md). Status
-as of 2026-09-19. Each row says what landed, the evidence, and what it does not
+as of 2026-09-20. Each row says what landed, the evidence, and what it does not
 prove. Counts of tests or rules are not results; see the review's closing
 measures.
 
@@ -9,7 +9,7 @@ measures.
 
 | Item | Commits | Evidence | Limit |
 | --- | --- | --- | --- |
-| Evidence standard, behavior contract, rule changes | `197b67269`, `c5aa26e1d`, `60c8d8bc6`, `0870b853c` | Reviewed twice by a second model; overclaims corrected after an independent review | The contract is a draft until the owner approves it; five questions are open |
+| Evidence standard, behavior contract, rule changes | `197b67269`, `c5aa26e1d`, `60c8d8bc6`, `0870b853c` | Reviewed twice by a second model; overclaims corrected after an independent review | Initially left five product questions open; the delegated takeover decisions below now accept those policies |
 | CI tiers: required, extended, nightly | `b95900ff8`, `ae9e77f21` | First required verdict 11 min 46 s against a 30 to 34 min median before | Total machine time is about the same; lanes moved, they did not disappear |
 | Repair of the red `main` | `e79539e5c` | The failing scale assertion was a real fixed-padding defect; the padding was made to scale and the tolerance left alone | The repair kept a wrong design and made its visible symptom larger; see "A repair from this work that asserted the wrong thing" |
 | Failure attribution and verdict-time metric | `460769519`, `40978e199`, `47d9ab52a` | `ci-health.mjs --sha` and `--verdict-times`; baseline 5 to 12 Sep: 86% red, longest streak 238 commits | Reads the Actions API; re-reads a dropped request, reports one line when unreachable |
@@ -37,9 +37,10 @@ on zoom, and the over-chrome check firing on a window that is only clipped. The
 lesson is the review's own: a rectangle says nothing about what is painted or
 reachable.
 
-One case is deliberately not a finding: what a note window should do when its
-anchor page leaves the viewport is an open product question, so the checker
-reports it as unresolved and no test fails on it.
+One case was deliberately not a finding in that run: what a note window should
+do when its anchor page leaves the viewport was an open product question, so
+the checker reported it as unresolved and no test failed on it. The takeover
+decisions below now specify that behavior.
 
 ## Capture
 
@@ -221,23 +222,76 @@ dialog, any document that needs a password, and everything on DjVu beyond the
 page the toolbar shows.
 
 ## Not done
-- **Nightly lane.** `ci-nightly.yml` runs native jobs; no scheduled real-app
-  discovery run exists, and none should until someone is named to process its
-  findings through the `robot-found` label.
-- **Merge queue.** Viewer-core integration is serialized by rule, not by
-  mechanism.
+- **Nightly lane.** `ci-nightly.yml` runs native jobs. Keep local real-app
+  discovery manual during the defect-repair pass: the last calibration still
+  contained false alarms, so scheduling unattended findings is deferred until
+  the revised oracle is calibrated. The agent running discovery owns triage of
+  that run through the existing `robot-found` issues before starting another.
+- **Merge queue.** Viewer-core integration remains serialized by rule. The
+  repository API identifies `evb0110/evb-viewer` as personally owned, while
+  [GitHub merge queues require an organization-owned repository](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/merging-a-pull-request-with-a-merge-queue).
+  Transferring the repository or introducing an external merge service is
+  outside this repair.
 - **Completed extended verdicts.** Seven of nine extended runs during this work
   ended cancelled because another push landed within half an hour, which is also
   what hid the commit that broke the inspector. A release is
   protected by the two-tier rule; ordinary pushes often finish without an
   extended verdict. Dispatch `ci-extended.yml` for a commit that needs one.
 
-## Owner decisions
+## Takeover decisions (2026-09-20)
 
-1. Approve or amend the behavior contract, and answer its five open questions.
-   Question 3 blocks issue 819.
-2. Decide who processes findings from a non-blocking discovery run.
-3. Decide whether to schedule a local nightly run on the Mac.
+The owner delegated the remaining product decisions. [ADR 0007](../architecture/adr/0007-viewer-anchors-popups-and-surface-budgets.md)
+accepts the five behavior-contract policies, including docking a note within
+its pane while its page is visible and hiding it without closing when that page
+leaves the pane. Issue 819 no longer waits for a product decision.
+
+Discovery stays manual with run-owner triage as described above. Native merge
+queue availability is a platform gap, not an unanswered product question.
+
+## Takeover implementation and evidence
+
+The PDF session now collects complete opening geometry before first navigation:
+a revision-checked native metadata table for path sources, or bounded PDF.js
+reads for Blob sources up to 20,000 pages. Continuous Fit Width uses the widest
+page row, including its gutter count, and keeps one scale while scrolling.
+The native table includes crop, rotation and `UserUnit`; visible PDF.js pages
+reconcile the opening snapshot through the existing session geometry owner.
+
+The recorded Linux replay of the 66-page mixed-size fixture failed before the
+change with toolbar page 33 while pages 42/43 were visible, and passed after it
+with painted page 33 and toolbar 33 agreeing. Fit Width previously left 2,252 px
+of horizontal range at opening and changed scale while scrolling; the same
+replay now has zero horizontal range before and after scrolling, with 49% zoom
+unchanged. This covers issues 822 and 826 on Linux. A rotated fixture also
+passes at opening, but the original issue 823 failure was not reproduced on
+Linux, so that issue remains unconfirmed.
+
+For sources above 20,000 pages without native geometry, progressive sparse
+metrics remain a gap against L1. Native crop/rotation/`UserUnit` parity and the
+existing Rust and Electron checks pass; those checks do not substitute for the
+recorded viewer outcomes.
+
+The two reported CI Extended emails have different signatures. On `c61b8c24e`
+the required tier passed and the extended run timed out during renderer reset,
+before its thumbnail assertion. On `29c0f9321` the first thumbnail run measured
+an 8 px shift against the unchanged 1 px limit, then the same-SHA rerun passed.
+Neither root cause is confirmed; no retry or tolerance was weakened.
+
+Issue 819 has a recorded Linux before/after pair. Before the change, zoom
+clipped away the title bar and its close button could not be hit; a sidebar
+toggle moved the page 140 px but left the note stationary. After the change,
+the whole note remains inside the pane with hit-testable controls, and both
+page and note move 140 px together. A separate trusted wheel journey confirms
+that scrolling the page away hides the still-mounted note, then returning
+restores its text and controls. The existing A2 checker now retains hidden
+notes and checks full containment whenever their page is visible, replacing
+its obsolete unresolved outcome with the accepted policy.
+
+Issue 824 has a guarded hidden-viewport measurement change: an inactive DjVu
+tab retains its last nonzero fit dimensions and scroll projection. The original
+macOS failure has not been reproduced on Linux. This is a mitigation applied,
+not a confirmed fix; the app matrix and native macOS coverage remain distinct
+from the unit checks.
 
 ## Platform gaps
 

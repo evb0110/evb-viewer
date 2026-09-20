@@ -1,10 +1,9 @@
 # Viewer behavior contract
 
-Status: draft, awaiting owner approval. A statement marked **open** depends on a
-product decision listed at the end; it is not a blocking expectation until the
-owner decides. Agents treat the other statements as working expectations and
-report disagreement instead of editing them. After approval, a change to a
-statement, an exception, or a tolerance needs the owner.
+Status: accepted under the owner's delegated decisions, 2026-09-20. Agents use
+these statements as expectations and report implementation or evidence gaps.
+A later change to a statement, an exception, or a tolerance needs owner
+authorization; routine fixes must not rewrite the oracle to match the code.
 
 This is the list of things that must be true for a person using the viewer. It
 is written in user terms so it can be checked without reading the
@@ -32,8 +31,10 @@ their expectations from here. See [fix evidence](../internal/agents/fix-evidence
 **R1. The page indicator names a visible page.** Settled: the page number
 rendered in the toolbar is a page that intersects the viewport by at least a
 quarter of the smaller of page height and viewport height. In facing mode either
-page of a visible spread qualifies. Which of two visible pages it names is
-**open**.
+page of a visible spread qualifies. When the current indicator page remains
+fully visible, retain it to prevent counter jitter. Otherwise choose the
+qualifying page with the greatest visible-area fraction; equal fractions,
+including an equal facing spread, choose the lower document page number.
 
 **R2. A deliberate navigation wins.** A click or key press on a navigation
 target (toolbar page controls, a thumbnail, an outline or bookmark row, an
@@ -43,16 +44,23 @@ before the navigation cannot move the viewport afterwards, including the
 inertial tail of a wheel gesture. A new deliberate gesture after the navigation
 may move it. Latency bounds are stated per fixture and environment. Synthetic
 wheel events do not prove coverage of native macOS inertia; that needs a
-recorded hands-on check.
+recorded hands-on check. On a designated 2,000-page scanned-book acceptance
+fixture, the acknowledgement includes a destination page shell or explicit
+loading/error feedback within 1 s; the destination is visible and aligned by
+the existing 10-second settled deadline. These are EVB product targets, not a
+PDF-rendering service-level guarantee.
 
 **R3. Zoom, resize and sidebars keep the place.** Two observations. Across a
 toolbar zoom, a window or pane resize, a sidebar open or close, and a split, the
 document point at the operation's anchor stays at the anchor, within the
 measured rounding tolerance of that operation. Toolbar zoom anchors the viewport
 center; pointer zoom anchors the pointer; rotation maps the anchor through the
-page transform. Exceptions: the anchor is clamped at a document boundary; a fit
-mode re-fits and keeps the same page. The anchor for each operation is **open**
-until confirmed.
+page transform. Window and pane resize, sidebar open or close, and split changes
+anchor at the unobscured viewport center before the operation: preserve the
+nearest page and the normalized page point at that center after relayout. If no
+page point can be captured, clamp to the nearest document boundary. A fit
+mode re-fits and keeps the same page and center-relative point where the geometry
+permits.
 
 **R4. Reopening restores the place.** When restoration is enabled and the
 document identity is unchanged, reopening a document or restoring a workspace
@@ -72,16 +80,22 @@ Margins and a classic scrollbar's width are part of the available area.
 **L2. No unexplained blank surface.** Settled: every page intersecting the
 viewport is rendered, or shows explicit loading or error feedback. A genuinely
 blank page is valid, so this asserts render readiness, not pixel content. Time
-bounds are **open** until measured on large scanned books.
+bounds use a designated 2,000-page scanned-book acceptance fixture: by the
+existing 10-second settled deadline, every intersecting page is rendered or shows
+explicit loading or error feedback. The deadline is an EVB product target, not
+an industry guarantee.
 
 **L3. Layout corrections keep the reading anchor.** Page geometry may be
 discovered progressively, so document height may change. While it does, the
 visible reading anchor of R3 does not move.
 
-**L4. Chrome stays reachable.** At any supported window size and UI scale:
-essential controls are reachable directly or through an overflow menu, text may
-truncate with an ellipsis but is not cut mid-glyph, and a resize sash is
-reachable while its panel is open.
+**L4. Chrome stays reachable.** At the supported 900 x 700 app-window
+baseline and at effective UI scales from 0.85 through 1.25 (auto is 0.85–1.00;
+the named presets are 0.90, 1.00, 1.10 and 1.25), essential controls are
+reachable directly or through an overflow menu, text may truncate with an
+ellipsis but is not cut mid-glyph, and a resize sash is reachable while its panel
+is open. A smaller window is outside the supported contract until the runtime
+declares and enforces a minimum for it.
 
 ## Annotations
 
@@ -98,8 +112,12 @@ toolbar, a sidebar, the tab bar, the status bar or another pane, and it reaches
 the pane it belongs to. Two observations: when the anchor is visible both times,
 the window is not clamped to a pane edge and the reader did not move it, the
 window moved by the same screen delta as its anchor, scaled by any zoom change.
-What happens when the anchor leaves the viewport is **open**, so nothing is
-asserted about the window's placement then.
+While the anchor page intersects the pane, keep the whole note inside that
+pane with its controls usable. Follow its page-relative position and clamp it
+to the nearest pane edge when that position would leave the pane, including
+when the marker scrolls offscreen. When the anchor page leaves the pane, hide
+the note while retaining its open state; show it again when that page returns. A hidden note
+does not appear over an unrelated page.
 
 **A3. Destructive actions hit only their target.** Deleting or discarding acts
 on the item the user chose, with per-type semantics: discarding a note attached
@@ -161,15 +179,8 @@ diagnostics. An allowlist entry matches a narrow signature and states its reason
 known-good document in it or in a new tab works. Reopening the corrupt document
 need not succeed.
 
-## Open questions for the owner
+## Resolved contract questions
 
-1. R1: which page should the indicator name when two pages are visible, and in
-   facing mode?
-2. R3: confirm the anchors: viewport center for toolbar zoom, pointer for wheel
-   and pinch zoom, and what resize and sidebar toggles should hold still.
-3. A2: when the anchor leaves the viewport, should the note window hide, dock
-   to the pane edge, or stay? On a page taller than the viewport the marker can
-   scroll out while its page stays on screen; today the window follows it out
-   and is clipped away completely.
-4. L2 and R2: acceptable time bounds on a 2,000-page scanned book.
-5. L4: the supported minimum window size and UI scale range.
+The former R1, R3, A2, L2/R2 and L4 questions are settled by the statements
+above. A future change to one of those behaviors is a contract change and needs
+owner approval.

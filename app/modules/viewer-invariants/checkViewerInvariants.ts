@@ -53,11 +53,12 @@ interface IRememberedOverlay {
 interface IRememberedNoteWindow {
     anchorHeight: number;
     anchorLeft: number;
-    anchorPageNumber: number;
+    anchorPageNumber: number | null;
     anchorTop: number;
     anchorVisible: boolean;
     anchorWidth: number;
     clamped: boolean;
+    hidden: boolean;
     left: number;
     top: number;
     userPlacementSequence: number;
@@ -454,22 +455,36 @@ function overlapsWithTolerance(first: IViewerRect, second: IViewerRect) {
         && first.top < bottom(second) - GEOMETRY_TOLERANCE_PX;
 }
 
+function resolveNoteAnchorVisibility(surface: IViewerSurface, noteWindow: IViewerInvariantNoteWindow) {
+    const marker = surface.overlays.find(overlay => overlay.annotationId === noteWindow.annotationId) ?? null;
+    const pageVisible = noteWindow.anchorRect !== null
+        && intersects(noteWindow.anchorRect, surface.viewportRect);
+    const markerVisible = marker === null || intersects(marker.rect, surface.viewportRect);
+    return {
+        marker,
+        pageVisible,
+        anchorVisible: pageVisible && markerVisible,
+    };
+}
+
+function isFullyInsidePane(rect: IViewerRect, viewport: IViewerRect) {
+    return rect.left >= viewport.left - GEOMETRY_TOLERANCE_PX
+        && right(rect) <= right(viewport) + GEOMETRY_TOLERANCE_PX
+        && rect.top >= viewport.top - GEOMETRY_TOLERANCE_PX
+        && bottom(rect) <= bottom(viewport) + GEOMETRY_TOLERANCE_PX;
+}
+
 /**
- * A2 one observation, the part the contract has settled: while the anchor page
- * is on screen the note window belongs to the document area. It may not cover
- * the toolbar, a sidebar, the tab bar, the status bar or another pane, and it
- * has to reach the pane it belongs to.
- *
- * What should happen once the anchor leaves the viewport is open question 3 of
- * the behavior contract: hide, dock to the pane edge, or stay. That case is
- * reported as unresolved, never as a violation, so the checker does not decide
- * a product rule the owner has not decided.
+ * A2 one observation: an open note is visible and fully inside its pane while
+ * its anchor page is on screen, even when the marker has scrolled out. Once
+ * the page leaves the viewport, the connected note is retained but must be hidden. The checker
+ * deliberately does not infer which pane edge a docked note should use from
+ * rectangles alone.
  */
 function checkNoteWindowPlacement(
     surface: IViewerSurface,
     violations: IViewerInvariantViolation[],
     skipped: IViewerInvariantSkip[],
-    unresolved: IViewerInvariantUnresolved[],
 ) {
     if (surface.noteWindows.length === 0) {
         skipped.push({
@@ -479,34 +494,73 @@ function checkNoteWindowPlacement(
         return;
     }
 
-    let applicable = 0;
     for (const noteWindow of surface.noteWindows) {
-        // The anchor is the annotation's own marker, not its page: a page
-        // taller than the viewport stays on screen while the marker, and the
-        // window that follows it, scroll out of the pane.
-        const marker = surface.overlays.find(overlay => overlay.annotationId === noteWindow.annotationId) ?? null;
-        const markerOffscreen = marker !== null && !intersects(marker.rect, surface.viewportRect);
-        const anchorVisible = noteWindow.anchorRect !== null
-            && intersects(noteWindow.anchorRect, surface.viewportRect)
-            && !markerOffscreen;
-        if (!anchorVisible) {
-            unresolved.push({
+        // Every connected note is checkable, including one retained while its
+        // anchor page is virtualized away; only an empty set is inapplicable.
+        const {
+            anchorVisible,
+            marker,
+            pageVisible,
+        } = resolveNoteAnchorVisibility(surface, noteWindow);
+        if (!pageVisible) {
+            if (!noteWindow.hidden) {
+                violations.push({
+                    evidence: {
+                        anchorMarkerRect: marker ? roundRect(marker.rect) : null,
+                        anchorPageNumber: noteWindow.anchorPageNumber,
+                        anchorRect: noteWindow.anchorRect ? roundRect(noteWindow.anchorRect) : null,
+                        annotationId: noteWindow.annotationId,
+                        hidden: noteWindow.hidden,
+                        noteWindowRect: roundRect(noteWindow.rect),
+                        state: 'must-hide',
+                        viewportRect: roundRect(surface.viewportRect),
+                    },
+                    id: 'A2-note-window-over-chrome',
+                    message: `the note window for ${noteWindow.annotationId} remains visible`
+                        + ' after its anchor page left the viewport',
+                });
+            }
+            continue;
+        }
+
+        if (noteWindow.hidden) {
+            violations.push({
                 evidence: {
                     anchorMarkerRect: marker ? roundRect(marker.rect) : null,
                     anchorPageNumber: noteWindow.anchorPageNumber,
                     anchorRect: noteWindow.anchorRect ? roundRect(noteWindow.anchorRect) : null,
                     annotationId: noteWindow.annotationId,
+                    hidden: noteWindow.hidden,
                     noteWindowRect: roundRect(noteWindow.rect),
+                    state: anchorVisible ? 'must-show' : 'must-dock',
                     viewportRect: roundRect(surface.viewportRect),
                 },
-                id: 'A2-anchor-offscreen',
-                question: 'behavior contract A2 and open question 3: when the anchor leaves the'
-                    + ' viewport, should the note window hide, dock to the pane edge, or stay?',
+                id: 'A2-note-window-over-chrome',
+                message: `the note window for ${noteWindow.annotationId} is hidden while its`
+                    + (anchorVisible ? ' anchor is on screen' : ' page is on screen and marker is offscreen'),
             });
             continue;
         }
 
-        applicable += 1;
+        if (!isFullyInsidePane(noteWindow.rect, surface.viewportRect)) {
+            violations.push({
+                evidence: {
+                    anchorMarkerRect: marker ? roundRect(marker.rect) : null,
+                    anchorPageNumber: noteWindow.anchorPageNumber,
+                    anchorRect: noteWindow.anchorRect ? roundRect(noteWindow.anchorRect) : null,
+                    annotationId: noteWindow.annotationId,
+                    hidden: noteWindow.hidden,
+                    noteWindowRect: roundRect(noteWindow.rect),
+                    state: 'must-contain',
+                    viewportRect: roundRect(surface.viewportRect),
+                },
+                id: 'A2-note-window-over-chrome',
+                message: `the note window for ${noteWindow.annotationId} is not fully inside its pane`
+                    + ' while its anchor page is on screen',
+            });
+            continue;
+        }
+
         // What covers the chrome is what is painted: the window clips itself
         // to its pane, so a layout box that reaches over the toolbar is not by
         // itself something a reader can see.
@@ -528,25 +582,6 @@ function checkNoteWindowPlacement(
             });
             continue;
         }
-        if (!intersects(noteWindow.rect, surface.viewportRect)) {
-            violations.push({
-                evidence: {
-                    annotationId: noteWindow.annotationId,
-                    noteWindowRect: roundRect(noteWindow.rect),
-                    viewportRect: roundRect(surface.viewportRect),
-                },
-                id: 'A2-note-window-over-chrome',
-                message: `the note window for ${noteWindow.annotationId} does not reach its pane`
-                    + ' while its anchor page is on screen',
-            });
-        }
-    }
-
-    if (applicable === 0) {
-        skipped.push({
-            id: 'A2-note-window-over-chrome',
-            reason: 'no open note window has its anchor page on screen',
-        });
     }
 }
 
@@ -575,17 +610,19 @@ function checkNoteWindowFollowsAnchor(
         seen.add(noteWindow.annotationId);
         const anchorRect = noteWindow.anchorRect;
         const anchorPageNumber = noteWindow.anchorPageNumber;
-        if (!anchorRect || anchorPageNumber === null) {
-            continue;
-        }
+        const {anchorVisible: geometricallyVisible} = resolveNoteAnchorVisibility(surface, noteWindow);
+        const anchorVisible = geometricallyVisible && !noteWindow.hidden;
         const clamped = isClampedToPane(noteWindow, surface.viewportRect);
-        const anchorVisible = intersects(anchorRect, surface.viewportRect);
         const previous = memory.noteWindows.get(noteWindow.annotationId);
         const comparable = previous !== undefined
+            && anchorRect !== null
+            && anchorPageNumber !== null
             && !previous.clamped
             && !clamped
             && previous.anchorVisible
             && anchorVisible
+            && !previous.hidden
+            && !noteWindow.hidden
             && previous.userPlacementSequence === noteWindow.userPlacementSequence
             && previous.anchorPageNumber === anchorPageNumber
             && Math.abs(previous.anchorWidth - anchorRect.width) <= GEOMETRY_TOLERANCE_PX
@@ -621,13 +658,14 @@ function checkNoteWindowFollowsAnchor(
         }
         if (remember) {
             memory.noteWindows.set(noteWindow.annotationId, {
-                anchorHeight: anchorRect.height,
-                anchorLeft: anchorRect.left,
+                anchorHeight: anchorRect?.height ?? 0,
+                anchorLeft: anchorRect?.left ?? 0,
                 anchorPageNumber,
-                anchorTop: anchorRect.top,
+                anchorTop: anchorRect?.top ?? 0,
                 anchorVisible,
-                anchorWidth: anchorRect.width,
+                anchorWidth: anchorRect?.width ?? 0,
                 clamped,
+                hidden: noteWindow.hidden,
                 left: noteWindow.rect.left,
                 top: noteWindow.rect.top,
                 userPlacementSequence: noteWindow.userPlacementSequence,
@@ -765,7 +803,7 @@ export function checkViewerInvariants(options: IViewerInvariantOptions = {}): IV
     checkFitModeScrollRange(surface, visiblePages, violations, skipped);
     checkOverlayContainment(surface, pagesByNumber, violations, skipped);
     checkOverlayDrift(surface, pagesByNumber, options, violations, skipped);
-    checkNoteWindowPlacement(surface, violations, skipped, unresolved);
+    checkNoteWindowPlacement(surface, violations, skipped);
     checkNoteWindowFollowsAnchor(surface, options, violations, skipped);
     checkRendererDiagnostics(options, violations, skipped);
 

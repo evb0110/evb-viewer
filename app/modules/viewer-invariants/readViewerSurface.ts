@@ -124,6 +124,23 @@ function isPaintedElement(element: Element | null): element is HTMLElement {
     return rect.width > 0 && rect.height > 0;
 }
 
+function isHiddenNoteWindow(
+    noteWindow: HTMLElement,
+    rect: IViewerRect,
+    paintedRect: IViewerRect,
+) {
+    const style = noteWindow.ownerDocument.defaultView?.getComputedStyle(noteWindow);
+    const opacity = Number(style?.opacity ?? '1');
+    return !style
+        || style.display === 'none'
+        || style.visibility === 'hidden'
+        || opacity === 0
+        || rect.width <= 0
+        || rect.height <= 0
+        || paintedRect.width <= 0
+        || paintedRect.height <= 0;
+}
+
 function findActiveWorkspaceHost(root: Document) {
     for (const selector of ACTIVE_WORKSPACE_HOST_SELECTORS) {
         const host = root.querySelector<HTMLElement>(selector);
@@ -204,9 +221,8 @@ function readOverlays(host: HTMLElement): IViewerInvariantOverlay[] {
         .filter((overlay): overlay is IViewerInvariantOverlay => overlay !== null);
 }
 
-function readNoteWindows(root: Document, host: HTMLElement): IViewerInvariantNoteWindow[] {
-    return [...root.querySelectorAll<HTMLElement>(NOTE_WINDOW_SELECTOR)]
-        .filter(isPaintedElement)
+function readNoteWindows(host: HTMLElement): IViewerInvariantNoteWindow[] {
+    return [...host.querySelectorAll<HTMLElement>(NOTE_WINDOW_SELECTOR)]
         .map((noteWindow): IViewerInvariantNoteWindow | null => {
             const annotationId = noteWindow.dataset.annotationId ?? '';
             if (!annotationId) {
@@ -221,11 +237,13 @@ function readNoteWindows(root: Document, host: HTMLElement): IViewerInvariantNot
                 : null;
             const rect = toRect(noteWindow.getBoundingClientRect());
             const style = noteWindow.ownerDocument.defaultView?.getComputedStyle(noteWindow);
+            const paintedRect = resolvePaintedRect(rect, style?.clipPath);
             return {
                 anchorPageNumber: hasAnchorPage ? anchorPageNumber : null,
                 anchorRect: anchorContainer ? toRect(anchorContainer.getBoundingClientRect()) : null,
                 annotationId,
-                paintedRect: resolvePaintedRect(rect, style?.clipPath),
+                hidden: isHiddenNoteWindow(noteWindow, rect, paintedRect),
+                paintedRect,
                 rect,
                 userPlacementSequence: Number.parseInt(noteWindow.dataset.userPlacement ?? '0', 10) || 0,
             };
@@ -336,7 +354,7 @@ export function readViewerSurface(root: Document = document): IViewerSurfaceRead
             chrome: readChromeRects(root, host),
             continuousScroll: pageTrack.dataset.pdfContinuousScroll !== 'false',
             horizontalScrollRangePx: Math.max(0, viewport.scrollWidth - viewport.clientWidth),
-            noteWindows: readNoteWindows(root, host),
+            noteWindows: readNoteWindows(host),
             overlays: readOverlays(host),
             pages: readPages(host),
             ...readToolbarPage(root),

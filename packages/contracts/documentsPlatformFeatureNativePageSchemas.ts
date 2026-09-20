@@ -1,10 +1,15 @@
 import type {
+    IPdfNativePageGeometry,
+    IPdfNativePageGeometryPage,
     IPdfNativePagePreview,
     IPdfNativePageSize,
     IPdfNativePageSizes,
+    IPdfNativePageSizesOptions,
     TPdfNativePageSizes,
 } from '@contracts/electronApiDocuments';
 import {PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT} from '@contracts/electronApiDocuments';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     isFiniteNumber,
@@ -83,7 +88,103 @@ function decodePageSize(value: unknown, fieldName: string): IPdfNativePageSize {
     };
 }
 
-function decodePageSizesResult(value: unknown): TPdfNativePageSizes {
+function decodeNativePageSizesOptions(value: unknown): IPdfNativePageSizesOptions | undefined {
+    if (value === undefined || value === null) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        fail('invalid native page sizes options');
+    }
+    if (value.mode !== undefined && value.mode !== 'preview' && value.mode !== 'exact') {
+        fail('native page sizes options.mode must be preview or exact');
+    }
+    const expectedDocumentRevisionToken = value.expectedDocumentRevisionToken === undefined
+        ? undefined
+        : parseDocumentRevisionToken(value.expectedDocumentRevisionToken);
+    if (expectedDocumentRevisionToken === null) {
+        fail('native page sizes options.expectedDocumentRevisionToken is invalid');
+    }
+    if (value.mode === 'exact' && expectedDocumentRevisionToken === undefined) {
+        fail('exact native page sizes require expectedDocumentRevisionToken');
+    }
+    return {
+        ...(value.mode === undefined ? {} : {mode: value.mode}),
+        ...(expectedDocumentRevisionToken === undefined ? {} : {expectedDocumentRevisionToken}),
+    };
+}
+
+function decodeNativePageGeometryPage(
+    value: unknown,
+    index: number,
+    pageCount: number,
+): IPdfNativePageGeometryPage {
+    if (!isRecord(value)) {
+        fail(`invalid exact native page geometry ${String(index)}`);
+    }
+    const pageNumber = decodeSafeIntegerValue(
+        value.pageNumber,
+        `exact native page geometry ${String(index)}.pageNumber`,
+        1,
+    );
+    if (pageNumber > pageCount || pageNumber !== index + 1) {
+        fail(`exact native page geometry ${String(index)}.pageNumber is out of order`);
+    }
+    const xPoints = value.xPoints;
+    const yPoints = value.yPoints;
+    const widthPoints = value.widthPoints;
+    const heightPoints = value.heightPoints;
+    const userUnit = value.userUnit;
+    if (
+        !isFiniteNumber(xPoints)
+        || !isFiniteNumber(yPoints)
+        || !isFiniteNumber(widthPoints)
+        || widthPoints <= 0
+        || !isFiniteNumber(heightPoints)
+        || heightPoints <= 0
+        || !isPdfRotation(value.rotation)
+        || !isFiniteNumber(userUnit)
+        || userUnit <= 0
+    ) {
+        fail(`invalid exact native page geometry ${String(index)}`);
+    }
+    return {
+        pageNumber: requirePageNumber(pageNumber, pageCount),
+        xPoints,
+        yPoints,
+        widthPoints,
+        heightPoints,
+        rotation: value.rotation,
+        userUnit,
+    };
+}
+
+function decodeNativePageGeometry(value: unknown): IPdfNativePageGeometry {
+    if (
+        !isRecord(value)
+        || value.kind !== 'exact'
+        || parseDocumentRef(value.documentRef) === null
+        || parseDocumentRevisionToken(value.documentRevisionToken) === null
+    ) {
+        fail('invalid exact native page geometry result');
+    }
+    const pageCount = decodeSafeIntegerValue(value.pageCount, 'exact native page geometry pageCount', 1);
+    if (!Array.isArray(value.pages) || value.pages.length !== pageCount) {
+        fail('exact native page geometry pages must cover the document');
+    }
+    return {
+        kind: 'exact',
+        documentRef: parseDocumentRef(value.documentRef) ?? fail('invalid exact native documentRef'),
+        documentRevisionToken: parseDocumentRevisionToken(value.documentRevisionToken)
+            ?? fail('invalid exact native documentRevisionToken'),
+        pageCount,
+        pages: value.pages.map((page, index) => decodeNativePageGeometryPage(page, index, pageCount)),
+    };
+}
+
+function decodePageSizesResult(value: unknown): TPdfNativePageSizes | IPdfNativePageGeometry {
+    if (isRecord(value) && value.kind === 'exact') {
+        return decodeNativePageGeometry(value);
+    }
     if (Array.isArray(value)) {
         return value.map((item, index) => decodePageSize(item, `native page size ${String(index)}`));
     }
@@ -139,6 +240,7 @@ function decodePagePreviewResult(value: unknown): IPdfNativePagePreview {
 
 export {
     decodeOpeningGeometry,
+    decodeNativePageSizesOptions,
     decodePagePreviewResult,
     decodePageSizesResult,
     decodeSafeIntegerValue,

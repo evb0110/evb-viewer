@@ -21,7 +21,11 @@ import type {
     IPdfCommittedSaveAsResult,
     IPdfNativePagePreview,
     IPdfNativePagePreviewOptions,
+    IPdfNativePageGeometry,
+    IPdfNativePageSizesExactOptions,
+    IPdfNativePageSizesOptions,
     TPdfNativePageSizes,
+    TPdfNativePageSizesResult,
     IPdfOpeningGeometry,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
@@ -155,10 +159,19 @@ export interface IDocumentsService {
         context: IDocumentsSenderIdContext,
         filePath: string,
     ) => Promise<IPdfOpeningGeometry | null>;
-    getPdfNativePageSizes: (
-        context: IDocumentsSenderIdContext,
-        filePath: string,
-    ) => Promise<TPdfNativePageSizes>;
+    getPdfNativePageSizes: {
+        (context: IDocumentsSenderIdContext, filePath: string): Promise<TPdfNativePageSizes>;
+        (
+            context: IDocumentsSenderIdContext,
+            filePath: string,
+            options: IPdfNativePageSizesExactOptions,
+        ): Promise<IPdfNativePageGeometry>;
+        (
+            context: IDocumentsSenderIdContext,
+            filePath: string,
+            options?: IPdfNativePageSizesOptions,
+        ): Promise<TPdfNativePageSizesResult>;
+    };
     cancelPdfNativePagePreview: (
         context: IDocumentsSenderIdContext,
         requestId: string,

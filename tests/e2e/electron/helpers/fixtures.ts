@@ -663,6 +663,70 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
 }
 
 /**
+ * Creates the mixed-size PDF used by the continuous fit and deep-jump
+ * regression. Keep the geometry deterministic: the page-width sequence is
+ * the input that exposed both wrong-page estimates and fit-width overflow.
+ */
+export async function createMixedSize66FixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let index = 0; index < 66; index += 1) {
+        const scale = 0.24 + (((index * 37) % 100) / 100) * 0.76;
+        const width = Math.round(1736 * scale);
+        const height = Math.round(2456 * scale);
+        const page = doc.addPage([
+            width,
+            height,
+        ]);
+        for (const fraction of [
+            0.06,
+            0.28,
+            0.5,
+            0.72,
+            0.92,
+        ]) {
+            page.drawText(`Page ${index + 1}`, {
+                font,
+                size: Math.max(8, Math.round(width / 9)),
+                x: width * 0.1,
+                y: height * fraction,
+            });
+        }
+    }
+
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
+/** Creates a small PDF whose every page carries a 90-degree rotation flag. */
+export async function createRotated90FixturePdf(filename: string, pageCount = 3) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let index = 0; index < pageCount; index += 1) {
+        const page = doc.addPage([
+            680,
+            963,
+        ]);
+        page.setRotation(degrees(90));
+        page.drawText(`Rotated page ${index + 1}`, {
+            font,
+            size: 48,
+            x: 80,
+            y: 320,
+        });
+    }
+
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
+/**
  * Creates a small multi-page PDF whose fifth page has both a link and a
  * persisted annotation. The close-tab regression opens that page so the
  * viewer has populated its page-scoped link cache before teardown.
