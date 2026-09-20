@@ -92,6 +92,7 @@ import {
 export interface IAgentAssistantPanelControllerProps {
     activeDocumentName?: string | null;
     chatScope?: IAgentAssistantChatScope | null;
+    isChatScopePending?: boolean;
     hasActiveDocument?: boolean;
     hasAnyDocument?: boolean;
     width?: number | undefined;
@@ -99,7 +100,26 @@ export interface IAgentAssistantPanelControllerProps {
 }
 export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistantPanelControllerProps>) => {
     const activeDocumentName = computed(() => props.activeDocumentName ?? null);
-    const chatScope = computed(() => props.chatScope ?? null);
+    const requestedChatScope = computed(() => props.chatScope ?? null);
+    const isChatScopePending = computed(() => props.isChatScopePending ?? false);
+    // A document tab can become active a frame before its workspace session
+    // commits the new identity. Keep the last committed scope visible during
+    // that hand-off so a loaded conversation cannot flash its empty state.
+    const committedChatScope = shallowRef<IAgentAssistantChatScope | null>(
+        isChatScopePending.value ? null : requestedChatScope.value,
+    );
+    watch([
+        requestedChatScope,
+        isChatScopePending,
+    ], ([
+        nextScope,
+        pending,
+    ]) => {
+        if (!pending) {
+            committedChatScope.value = nextScope;
+        }
+    });
+    const chatScope = computed(() => committedChatScope.value);
     const hasActiveDocument = computed(() => props.hasActiveDocument ?? false);
     const hasAnyDocument = computed(() => props.hasAnyDocument ?? false);
     const isResizing = computed(() => props.isResizing ?? false);
@@ -123,6 +143,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const turnClockNowMs = ref(Date.now());
     const isResetting = ref(false);
     const hasLoadedState = ref(false);
+    const isRefreshingScope = ref(false);
     const installProgress = ref('');
     const deviceCode = ref('');
     const draft = ref('');
@@ -141,6 +162,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const isSwitchingAssistant = ref(false);
     let sendGeneration = 0;
     let stateGeneration = 0;
+    let scopeRefreshGeneration = 0;
     let assistantSwitchGeneration = 0;
     let lastRefreshStartedAt = 0;
     const acceptAssistantEvent = createAssistantEventFence();
@@ -199,7 +221,8 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         && hasComposerPayload.value
     ));
     const canSend = computed(() => (
-        Boolean(chatScope.value)
+        !isRefreshingScope.value
+        && Boolean(chatScope.value)
         && !hasQueuedSteer.value
         && !queuedSteerSendInFlight.value
         && !isImageIngestionPending.value
@@ -212,6 +235,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     ));
     const canResetChat = computed(() => (
         hasLoadedState.value
+        && !isRefreshingScope.value
         && Boolean(chatScope.value)
         && !isResetting.value
         && (
@@ -261,7 +285,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const turnToolActivity = computed(() => status.value.turn.toolActivity);
     const turnUsage = computed(() => status.value.turn.usage);
     const isTurnStalled = computed(() => status.value.turn.phase === 'stalled');
-    const assistantSelectionLocked = computed(() => isAssistantSelectionLocked({
+    const assistantSelectionLocked = computed(() => isRefreshingScope.value || isAssistantSelectionLocked({
         isSending: isSending.value,
         runtimeState: status.value.runtimeState,
         turn: status.value.turn,
@@ -1055,14 +1079,21 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         interruptAssistantStateBestEffort(state.value, 'Failed to interrupt assistant turn before switching scope');
         stateGeneration += 1;
         sendGeneration += 1;
-        state.value = null;
-        hasLoadedState.value = false;
         draft.value = '';
         clearComposerImages();
         queuedSteer.value = null;
         queuedSteerSendInFlight.value = false;
         isSending.value = false;
-        runAssistantAction(refreshState(), createAssistantActionOptions('scope-refresh', 'Failed to refresh assistant state for document'));
+        const refreshGeneration = ++scopeRefreshGeneration;
+        isRefreshingScope.value = true;
+        runAssistantAction(
+            refreshState().finally(() => {
+                if (refreshGeneration === scopeRefreshGeneration) {
+                    isRefreshingScope.value = false;
+                }
+            }),
+            createAssistantActionOptions('scope-refresh', 'Failed to refresh assistant state for document'),
+        );
     });
     let unsubscribe: (() => void) | null = null;
     useAssistantComposerAutofocus(composerInputRef, canFocusComposerInput);
@@ -1141,6 +1172,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         isResetting,
         isResizing,
         isSending,
+        isRefreshingScope,
         isSwitchingAssistant,
         isTurnActive,
         isTurnStalled,

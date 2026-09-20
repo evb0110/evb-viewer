@@ -18,6 +18,7 @@ import {
 import {
     cleanupRunFixtures,
     createLargeScannedFixturePdf,
+    createMixedPageSizeTextFixturePdf,
     createMultiPageTextFixturePdf,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
@@ -1372,6 +1373,69 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(facing.pages).toHaveLength(1);
         expect(Math.abs((facing.pages[0]!.right - facing.pages[0]!.left)
             - (single.pages[0]!.right - single.pages[0]!.left))).toBeLessThanOrEqual(1);
+    });
+
+    blockingIt('keeps buffered neighbors out of the paged fit-height scroll extent', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: 'e2e-pr-blocking-paged-fit-height-buffered-scroll',
+        });
+        const fixturePath = await createMixedPageSizeTextFixturePdf(
+            'paged-fit-height-buffered-scroll.pdf',
+        );
+        await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+        await requireWorkspaceCommand(session.page, 'handleFitHeight');
+        await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+        await waitForWorkspaceToolbarSnapshot(session.page, {
+            continuousScroll: false,
+            currentPage: 1,
+        });
+        await waitForCommittedFitHeightGeometry(session.page, 1);
+
+        const viewportPoint = await evaluateInPage(session.page, () => {
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
+            if (!viewport) {
+                throw new Error('Active PDF viewport is missing');
+            }
+            const rect = viewport.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        await session.page.mouse.move(viewportPoint.x, viewportPoint.y);
+        await session.page.mouse.wheel({deltaY: 708});
+        await waitForToolbarCurrentPage(session.page, 2);
+        await waitForCommittedFitHeightGeometry(session.page, 2);
+
+        const observation = await evaluateInPage(session.page, () => {
+            const viewport = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
+            const activePage = viewport?.querySelector<HTMLElement>('.page_container[data-page="2"]');
+            if (!viewport || !activePage) {
+                throw new Error('Paged fit-height observation target is missing');
+            }
+            const viewportRect = viewport.getBoundingClientRect();
+            const pageRect = activePage.getBoundingClientRect();
+            return {
+                activePageBottom: pageRect.bottom,
+                viewportBottom: viewportRect.bottom,
+                overflowY: getComputedStyle(viewport).overflowY,
+                scrollRange: viewport.scrollHeight - viewport.clientHeight,
+                scrollTop: viewport.scrollTop,
+            };
+        });
+
+        expect(observation, JSON.stringify(observation)).toMatchObject({
+            overflowY: 'hidden',
+            scrollRange: 0,
+            scrollTop: 0,
+        });
+        expect(observation.activePageBottom).toBeLessThanOrEqual(observation.viewportBottom + 1);
     });
 
     blockingIt('keeps fit-height geometry stable across continuous and paged modes', async () => {

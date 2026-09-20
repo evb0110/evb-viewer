@@ -683,6 +683,7 @@ import { getAssistantImagePreviewUrl } from '@app/modules/agent-panel/utils/assi
 const {
     activeDocumentName = null,
     chatScope = null,
+    isChatScopePending = false,
     hasActiveDocument = false,
     hasAnyDocument = false,
     width = undefined,
@@ -697,6 +698,7 @@ const emit = defineEmits<{
 const props = {
     get activeDocumentName() { return activeDocumentName ?? null; },
     get chatScope() { return chatScope ?? null; },
+    get isChatScopePending() { return isChatScopePending; },
     get hasActiveDocument() { return hasActiveDocument; },
     get hasAnyDocument() { return hasAnyDocument; },
     get width() { return width; },
