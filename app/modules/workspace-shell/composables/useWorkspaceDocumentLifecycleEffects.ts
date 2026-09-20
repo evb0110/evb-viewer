@@ -123,6 +123,13 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
 
     watch(workingCopyPath, (path) => {
         revisionRefreshRequestId += 1;
+        const preparedRevision = documentRevisionInfo.value;
+        const preservesPreparedRevision = path !== null
+            && preparedRevision?.documentRef === path
+            && documentRevisionToken.value === preparedRevision.token;
+        if (preservesPreparedRevision) {
+            return;
+        }
         documentRevisionInfo.value = null;
         documentRevisionToken.value = null;
         if (path) {

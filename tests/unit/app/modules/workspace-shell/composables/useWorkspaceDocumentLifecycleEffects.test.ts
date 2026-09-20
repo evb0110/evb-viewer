@@ -7,14 +7,24 @@ import {
 } from 'vitest';
 import {
     effectScope,
+    nextTick,
     ref,
     shallowRef,
 } from 'vue';
+import type {Ref} from 'vue';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { requireRequestId } from '@contracts/shared';
-import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {
+    requireDocumentRevisionToken,
+    type IDocumentRevisionInfo,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
@@ -42,14 +52,29 @@ const platformApi = createElectronPlatformApiFixture({
 });
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
-function createLifecycle(overrides: Record<string, unknown> = {}) {
+interface IRevisionStateOverrides {
+    documentRevisionInfo?: Ref<IDocumentRevisionInfo | null>;
+    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
+    workingCopyPath?: Ref<TDocumentRef | null>;
+}
+
+function createLifecycle(
+    overrides: Record<string, unknown> = {},
+    stateOverrides: IRevisionStateOverrides = {},
+) {
     const scope = effectScope();
+    const documentRevisionInfo = stateOverrides.documentRevisionInfo
+        ?? ref<IDocumentRevisionInfo | null>(null);
+    const documentRevisionToken = stateOverrides.documentRevisionToken
+        ?? ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('revision-token'));
+    const workingCopyPath = stateOverrides.workingCopyPath
+        ?? ref<TDocumentRef | null>(requireDocumentRef('/tmp/work.pdf'));
     const result = scope.run(() => useWorkspaceDocumentLifecycleEffects(cast({
-        documentRevisionInfo: ref(null),
-        documentRevisionToken: ref(requireDocumentRevisionToken('revision-token')),
+        documentRevisionInfo,
+        documentRevisionToken,
         currentPage: ref(7),
         totalPages: ref(12),
-        workingCopyPath: ref('/tmp/work.pdf'),
+        workingCopyPath,
         pdfViewerRef: ref(null),
         showSettings: ref(false),
         emitOpenSettings: vi.fn(),
@@ -92,6 +117,20 @@ function createLifecycle(overrides: Record<string, unknown> = {}) {
     return {
         ...result!,
         scope,
+        documentRevisionInfo,
+        documentRevisionToken,
+        workingCopyPath,
+    };
+}
+
+function revisionInfo(path: string, token: string, contentRevision = 1): IDocumentRevisionInfo {
+    return {
+        version: 1,
+        documentRef: requireDocumentRef(path),
+        authority: 'electron-working-copy',
+        contentRevision,
+        mintedAt: requireEpochMs(1),
+        token: requireDocumentRevisionToken(token),
     };
 }
 
@@ -104,6 +143,83 @@ function ocrPayload(requiresCleanupAck = true) {
         sourceWorkingCopyPath: requireDocumentRef('/tmp/work.pdf'),
     };
 }
+
+describe('useWorkspaceDocumentLifecycleEffects document revision state', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+        vi.stubGlobal('useToast', () => ({add: mocks.toastAdd}));
+    });
+
+    it('preserves a prepared revision when the opening path is committed', async () => {
+        const prepared = revisionInfo('/tmp/open.pdf', 'prepared-token');
+        const lifecycle = createLifecycle({}, {
+            documentRevisionInfo: ref<IDocumentRevisionInfo | null>(null),
+            documentRevisionToken: ref<TDocumentRevisionToken | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        });
+        mocks.getDocumentRevision.mockResolvedValue(
+            revisionInfo('/tmp/open.pdf', 'unexpected-refetch-token', 2),
+        );
+
+        lifecycle.documentRevisionInfo.value = prepared;
+        lifecycle.documentRevisionToken.value = prepared.token;
+        lifecycle.workingCopyPath.value = prepared.documentRef;
+        await nextTick();
+        await Promise.resolve();
+
+        expect(lifecycle.documentRevisionInfo.value).toEqual(prepared);
+        expect(lifecycle.documentRevisionToken.value).toBe(prepared.token);
+        lifecycle.scope.stop();
+    });
+
+    it('replaces a prepared revision for a different working-copy path', async () => {
+        const previous = revisionInfo('/tmp/previous.pdf', 'previous-token');
+        const replacement = revisionInfo('/tmp/replacement.pdf', 'replacement-token', 2);
+        mocks.getDocumentRevision.mockResolvedValue(replacement);
+        const lifecycle = createLifecycle({}, {
+            documentRevisionInfo: ref<IDocumentRevisionInfo | null>(previous),
+            documentRevisionToken: ref<TDocumentRevisionToken | null>(previous.token),
+            workingCopyPath: ref<TDocumentRef | null>(previous.documentRef),
+        });
+
+        lifecycle.workingCopyPath.value = replacement.documentRef;
+        await vi.waitFor(() => {
+            expect(lifecycle.documentRevisionInfo.value).toEqual(replacement);
+        });
+
+        expect(lifecycle.documentRevisionToken.value).toBe(replacement.token);
+        lifecycle.scope.stop();
+    });
+
+    it('does not let an older revision refresh overwrite a newer prepared revision', async () => {
+        const stalePath = requireDocumentRef('/tmp/stale.pdf');
+        let resolveStaleRefresh!: (value: IDocumentRevisionInfo) => void;
+        const staleRefresh = new Promise<IDocumentRevisionInfo>(resolve => {
+            resolveStaleRefresh = resolve;
+        });
+        mocks.getDocumentRevision.mockReturnValue(staleRefresh);
+        const lifecycle = createLifecycle({}, {
+            documentRevisionInfo: ref<IDocumentRevisionInfo | null>(null),
+            documentRevisionToken: ref<TDocumentRevisionToken | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(stalePath),
+        });
+        const prepared = revisionInfo('/tmp/current.pdf', 'current-token');
+
+        lifecycle.documentRevisionInfo.value = prepared;
+        lifecycle.documentRevisionToken.value = prepared.token;
+        lifecycle.workingCopyPath.value = prepared.documentRef;
+        await nextTick();
+
+        resolveStaleRefresh(revisionInfo('/tmp/stale.pdf', 'stale-token'));
+        await staleRefresh;
+        await nextTick();
+
+        expect(lifecycle.documentRevisionInfo.value).toEqual(prepared);
+        expect(lifecycle.documentRevisionToken.value).toBe(prepared.token);
+        lifecycle.scope.stop();
+    });
+});
 
 describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
     beforeEach(() => {
