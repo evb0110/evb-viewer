@@ -838,6 +838,16 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
     transform: translateX(-200vw);
 }
 
+/* Paged fit-height navigation owns the vertical page transition. Buffered
+ * neighbors stay mounted for a fast paint, but their absolute page boxes must
+ * not become a second scroll extent when their paper is taller than the active
+ * page. The active page is never buffered, so this does not clip the page the
+ * reader is viewing. */
+.pdfViewer.pdfViewer--single-page.pdfViewer--fit-height .page_container--buffered {
+    max-height: 0;
+    overflow: hidden;
+}
+
 /* ── Drag Mode Cursor Overrides ────────────────────────────────────── */
 
 .pdfViewer.drag-mode {

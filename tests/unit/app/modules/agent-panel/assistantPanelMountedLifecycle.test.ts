@@ -7,6 +7,7 @@ import {
     defineComponent,
     h,
     nextTick,
+    reactive,
 } from 'vue';
 import {
     beforeEach,
@@ -61,6 +62,12 @@ const scope: IAgentAssistantChatScope = {
     title: 'Document A',
     tabId: requireTabId('tab-a'),
 };
+const secondScope: IAgentAssistantChatScope = {
+    kind: 'document',
+    key: 'document-b',
+    title: 'Document B',
+    tabId: requireTabId('tab-b'),
+};
 
 const steerImage = {
     type: 'image' as const,
@@ -72,9 +79,12 @@ const steerImage = {
     previewDataUrl: 'data:image/png;base64,cHJldmlldw==',
 };
 
-function createReadyState(phase: IAgentAssistantState['status']['turn']['phase'] = 'streaming') {
+function createReadyState(
+    phase: IAgentAssistantState['status']['turn']['phase'] = 'streaming',
+    stateScope: IAgentAssistantChatScope = scope,
+) {
     const state = createEmptyAssistantState({
-        chatScope: scope,
+        chatScope: stateScope,
         selectedProvider: 'codex',
         selectedModel: 'gpt-5.4',
         selectedEffort: 'medium',
@@ -139,15 +149,16 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
         ok: true,
         state: createReadyState('queued'),
     });
+    const panelProps = reactive({
+        chatScope: scope,
+        activeDocumentName: 'Document A',
+        hasActiveDocument: true,
+        hasAnyDocument: true,
+    });
     const host = document.createElement('div');
     document.body.append(host);
     const Harness = defineComponent({setup() {
-        const controller = useAgentAssistantPanelController({
-            chatScope: scope,
-            activeDocumentName: 'Document A',
-            hasActiveDocument: true,
-            hasAnyDocument: true,
-        });
+        const controller = useAgentAssistantPanelController(panelProps);
         return () => h('section', [
             h('output', {class: 'phase'}, controller.status.value.turn.phase),
             h('output', {class: 'reasoning'}, controller.turnReasoning.value),
@@ -156,6 +167,7 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
             h('output', {class: 'install-error'}, controller.status.value.error),
             h('output', {class: 'installing'}, String(controller.isInstalling.value)),
             h('output', {class: 'can-send'}, String(controller.canSend.value)),
+            h('output', {class: 'is-refreshing'}, String(controller.isRefreshingScope.value)),
             h('output', {class: 'model'}, controller.selectedModel.value),
             h('button', {
                 class: 'set-draft',
@@ -218,6 +230,9 @@ async function mountHarness(initialState: IAgentAssistantState | null) {
     return {
         app,
         host,
+        setScope(nextScope: IAgentAssistantChatScope) {
+            panelProps.chatScope = nextScope;
+        },
         unmount() {
             app.unmount();
             host.remove();
@@ -237,6 +252,30 @@ describe('mounted assistant panel lifecycle', () => {
         const harness = await mountHarness(null);
 
         expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
+        harness.unmount();
+    });
+
+    it('keeps the rendered chat mounted while a tab scope refreshes', async () => {
+        const initialState = createReadyState('idle');
+        const nextState = createReadyState('idle', secondScope);
+        nextState.messages[0]!.text = 'Document B response';
+        const harness = await mountHarness(initialState);
+        let resolveRefresh: ((state: IAgentAssistantState) => void) | undefined;
+        mocks.getAssistantState.mockReturnValueOnce(new Promise(resolve => {
+            resolveRefresh = resolve;
+        }));
+
+        harness.setScope(secondScope);
+        await nextTick();
+
+        expect(harness.host.querySelector('.messages')?.textContent).toContain('Initial');
+        expect(harness.host.querySelector('.is-refreshing')?.textContent).toBe('true');
+
+        resolveRefresh?.(nextState);
+        await vi.waitFor(() => {
+            expect(harness.host.querySelector('.messages')?.textContent).toContain('Document B response');
+        });
+        expect(harness.host.querySelector('.is-refreshing')?.textContent).toBe('false');
         harness.unmount();
     });
 

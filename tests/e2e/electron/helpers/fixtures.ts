@@ -662,6 +662,55 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+export async function createMixedPageSizeTextFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const pageSizes = [
+        [
+            612,
+            900,
+        ],
+        [
+            612,
+            792,
+        ],
+        [
+            612,
+            820,
+        ],
+    ] as const;
+
+    pageSizes.forEach((pageSize, index) => {
+        const [
+            width,
+            height,
+        ] = pageSize;
+        const page = doc.addPage([
+            width,
+            height,
+        ]);
+        page.drawText(`E2E Mixed Page Fixture ${index + 1}/${pageSizes.length}`, {
+            x: 70,
+            y: height - 72,
+            size: 24,
+            font,
+            color: rgb(0.13, 0.13, 0.13),
+        });
+        page.drawText(`Page ${index + 1} has a deterministic paper height`, {
+            x: 70,
+            y: height - 122,
+            size: 16,
+            font,
+            color: rgb(0.22, 0.22, 0.22),
+        });
+    });
+
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
 /**
  * Creates the mixed-size PDF used by the continuous fit and deep-jump
  * regression. Keep the geometry deterministic: the page-width sequence is
