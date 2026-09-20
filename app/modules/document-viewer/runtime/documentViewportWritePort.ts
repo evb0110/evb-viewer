@@ -399,20 +399,18 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
                 return;
             }
             const sequenceId = wheelGestures.getSequenceId();
-            // Nothing of this viewport's is in flight unless the host still
-            // has its sequence open or its packets are recent. Recency alone
-            // also covers a sequence the host already ended, whose last
-            // packets can still be in delivery.
-            if (!isSequenceOpen(sequenceId) && !wheelGestures.isLive(nowMs)) {
-                return;
-            }
+            // Command ordering does not depend on delivery latency. Even an
+            // ended or apparently idle gesture may still have packets queued
+            // in the renderer. Retain ownership of that gesture; only a new
+            // gesture can supersede this command.
             const knownEnded = isSequenceKnownEnded(sequenceId);
             fencedGestureId = wheelGestures.getGestureId();
             fencedSequenceId = sequenceId;
             lastWheelActivityAtMs = performance.now();
-            if (knownEnded) {
-                // Over already: late packets must still not cancel the
-                // command, but no delta can displace it any more.
+            if (knownEnded || (!isSequenceOpen(sequenceId) && !wheelGestures.isLive(nowMs))) {
+                // Liveness decides whether to suppress native scrolling now,
+                // never whether queued packets may cancel the command. If an
+                // unended tail arrives later, observeWheelPacket suppresses it.
                 return;
             }
             suppressUserScroll();

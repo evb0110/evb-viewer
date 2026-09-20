@@ -1,5 +1,6 @@
 import {
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
@@ -22,12 +23,15 @@ import {
     requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
+import { assertViewerInvariants } from '@tests/e2e/electron/helpers/viewerInvariants';
 import {
     installViewportPageSampler,
     isToolbarPageVisible,
     readViewportPageObservation,
+    VISIBLE_PAGE_MIN_COVERAGE_RATIO,
     waitForViewportQuiet,
 } from '@tests/e2e/electron/helpers/viewportPageObservation';
+import { waitForVisibleMountedPdfCanvases } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import type { IViewportPageSample } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     dismissRuntimeErrorReports,
@@ -64,7 +68,27 @@ const FOLLOW_UP_RESPONSE_DEADLINE_MS = 500;
 const FOLLOW_UP_MIN_SCROLL_PX = 8;
 const NAVIGATION_DEADLINE_MS = 2_000;
 const HOLD_AFTER_BURST_MS = 2_000;
+const FACING_FLING_EVENT_COUNT = 200;
+const FACING_FLING_CLICK_PACKET_INDEX = 65;
+const FACING_FLING_INTERVAL_MS = 16;
+const FACING_FLING_INITIAL_DELTA_Y = 3_000;
+const FACING_FLING_DECAY_TICKS = 85;
+const FACING_FLING_MIN_PRECLICK_SCROLL_PX = 500;
+const FACING_FLING_SAMPLE_MARGIN_MS = 64;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'fling-navigation-handoff');
+
+const FACING_FLING_MODES = [
+    {
+        command: 'handleViewModeFacing',
+        mode: 'facing',
+        viewMode: 'facing',
+    },
+    {
+        command: 'handleViewModeFacingFirstSingle',
+        mode: 'facing-first-single',
+        viewMode: 'facing-first-single',
+    },
+] as const;
 
 interface IPoint {
     x: number;
@@ -235,6 +259,132 @@ function summarizeSamples(samples: IViewportPageSample[]) {
     };
 }
 
+interface IPipelinedFacingFlingRun {
+    clickElapsedMs: number;
+    dispatchedWheelEvents: number;
+    initialScrollTop: number;
+    wheelDurationMs: number;
+}
+
+function isPageVisible(sample: IViewportPageSample | undefined, pageNumber: number) {
+    if (!sample) {
+        return false;
+    }
+    const coverage = sample.pages.find(page => page.page === pageNumber);
+    return Boolean(
+        coverage
+        && coverage.coveredHeight
+            >= VISIBLE_PAGE_MIN_COVERAGE_RATIO * Math.min(coverage.height, sample.viewportHeight),
+    );
+}
+
+/**
+ * Sends a wheel burst at the browser's 60 Hz cadence without awaiting any
+ * individual CDP acknowledgement. The click is queued at packet 65 and both
+ * click packets are awaited only after the wheel producer has finished.
+ */
+async function runPipelinedFacingFlingWithFirstPageClick(
+    page: Page,
+    wheelPoint: IPoint,
+    firstPagePoint: IPoint,
+): Promise<IPipelinedFacingFlingRun> {
+    const client = await page.createCDPSession();
+    const initialScrollTop = await page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = host?.querySelector<HTMLElement>(
+            '[data-document-viewer-chassis-viewport], #pdf-viewer',
+        );
+        return viewport?.scrollTop ?? -1;
+    });
+    const startedAt = Date.now();
+    const pending: Array<Promise<void>> = [];
+    const failures: unknown[] = [];
+    let clickElapsedMs: number | null = null;
+
+    const enqueue = (task: Promise<unknown>) => {
+        const completion = task.then(
+            () => undefined,
+            (error: unknown) => {
+                failures.push(error);
+            },
+        );
+        pending.push(completion);
+    };
+
+    let dispatchedWheelEvents = 0;
+    let wheelDurationMs = 0;
+    try {
+        await new Promise<void>((resolve) => {
+            let packetIndex = 0;
+            const timer = setInterval(() => {
+                try {
+                    if (packetIndex === FACING_FLING_CLICK_PACKET_INDEX) {
+                        clickElapsedMs = Date.now() - startedAt;
+                        enqueue(client.send('Input.dispatchMouseEvent', {
+                            type: 'mousePressed',
+                            x: firstPagePoint.x,
+                            y: firstPagePoint.y,
+                            button: 'left',
+                            clickCount: 1,
+                        }));
+                        enqueue(client.send('Input.dispatchMouseEvent', {
+                            type: 'mouseReleased',
+                            x: firstPagePoint.x,
+                            y: firstPagePoint.y,
+                            button: 'left',
+                            clickCount: 1,
+                        }));
+                    }
+
+                    enqueue(client.send('Input.dispatchMouseEvent', {
+                        type: 'mouseWheel',
+                        x: wheelPoint.x,
+                        y: wheelPoint.y,
+                        deltaX: 0,
+                        deltaY: FACING_FLING_INITIAL_DELTA_Y
+                            * Math.exp(-packetIndex / FACING_FLING_DECAY_TICKS),
+                        pointerType: 'mouse',
+                    }));
+                    dispatchedWheelEvents += 1;
+                    packetIndex += 1;
+                    if (packetIndex >= FACING_FLING_EVENT_COUNT) {
+                        clearInterval(timer);
+                        resolve();
+                    }
+                } catch (error) {
+                    failures.push(error);
+                    clearInterval(timer);
+                    resolve();
+                }
+            }, FACING_FLING_INTERVAL_MS);
+        });
+        wheelDurationMs = Date.now() - startedAt;
+        await Promise.all(pending);
+    } finally {
+        try {
+            await client.detach();
+        } catch {
+            // The renderer may close before the final protocol acknowledgement.
+        }
+    }
+
+    if (failures.length > 0) {
+        throw failures[0];
+    }
+    if (clickElapsedMs === null) {
+        throw new Error('The pipelined fling did not dispatch its First Page click');
+    }
+
+    return {
+        clickElapsedMs,
+        dispatchedWheelEvents,
+        initialScrollTop,
+        wheelDurationMs,
+    };
+}
+
 describe('Electron E2E - navigation and tab close during a trackpad fling', () => {
     let pdfPath: string | null = null;
     let totalPages = 0;
@@ -287,6 +437,11 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         suiteErrors = await observeRendererErrors(session.page);
     }, 240_000);
 
+    beforeEach(async () => {
+        // Keep the original single-page scenarios independent of the facing cases.
+        await requireWorkspaceCommand(sessionFixture.getSession().page, 'handleViewModeSingle');
+    });
+
     const collectSuiteErrorEvidence = async (page: Page) => ({
         openErrorSurfaces,
         report: await suiteErrors?.collect() ?? null,
@@ -329,6 +484,100 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         expect(settled.viewportPage, artifact).toBeGreaterThan(FLING_START_PAGE);
         expect(isToolbarPageVisible(settled), artifact).toBe(true);
     }, 180_000);
+
+    it.each(FACING_FLING_MODES)(
+        'keeps First Page visible after a pipelined continuous $mode fling',
+        async ({
+            command,
+            mode,
+            viewMode,
+        }) => {
+            const session = sessionFixture.getSession();
+            await requireWorkspaceCommand(session.page, command);
+            await session.page.waitForFunction((expectedMode: string) => {
+                const snapshot = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {viewMode?: string;} | null;};}).__evbTestApi?.getActiveToolbarSnapshot?.();
+                return snapshot?.viewMode === expectedMode;
+            }, {timeout: 20_000}, viewMode);
+            await goToPageForSetup(session.page, FLING_START_PAGE);
+
+            const before = await readViewportPageObservation(session.page);
+            const wheelPoint = await resolveViewportCentre(session.page);
+            // Resolve the enabled visible control once before the producer
+            // starts. Querying during the burst can pause the producer long
+            // enough to create a different browser gesture.
+            const firstPagePoint = await resolveClickablePoint(
+                session.page,
+                '.page-controls button[aria-label]',
+                'First Page',
+            );
+            const sampler = await installViewportPageSampler(session.page);
+            let run: IPipelinedFacingFlingRun | null = null;
+            let samples: IViewportPageSample[] = [];
+            try {
+                run = await runPipelinedFacingFlingWithFirstPageClick(
+                    session.page,
+                    wheelPoint,
+                    firstPagePoint,
+                );
+                await waitForViewportQuiet(session.page);
+                samples = await sampler.read();
+            } finally {
+                await sampler.stop();
+            }
+            if (!run) {
+                throw new Error('The pipelined facing fling did not complete');
+            }
+            const settled = await readViewportPageObservation(session.page);
+            const tailSample = samples.at(-1);
+            const preClickSamples = samples.filter(sample => (
+                sample.elapsedMs <= run.clickElapsedMs - FACING_FLING_SAMPLE_MARGIN_MS
+            ));
+            const maxPreClickScrollTop = Math.max(
+                before.scrollTop,
+                ...preClickSamples.map(sample => sample.scrollTop),
+            );
+            const targetAfterClick = samples.find(sample => (
+                sample.elapsedMs >= run.clickElapsedMs - FACING_FLING_SAMPLE_MARGIN_MS
+                && isPageVisible(sample, 1)
+            ));
+            await waitForVisibleMountedPdfCanvases(session.page, 10_000);
+            const invariantCheckpoint = await assertViewerInvariants(session.page, {
+                checkpoint: `pipelined-${mode}-first-page`,
+                requirePresent: {pageIndicator: true},
+                requireRan: ['R1-toolbar-page-visible'],
+            });
+            const artifact = writeArtifact(`facing-${mode}-first-page-pipelined.json`, {
+                before,
+                errorEvidence: await collectSuiteErrorEvidence(session.page),
+                invariantReport: invariantCheckpoint.report,
+                maxPreClickScrollTop,
+                mode,
+                run,
+                settled,
+                summary: summarizeSamples(samples),
+                tailSample,
+                targetAfterClick,
+            });
+
+            expect(run.dispatchedWheelEvents, artifact).toBe(FACING_FLING_EVENT_COUNT);
+            expect(run.initialScrollTop, artifact).toBeGreaterThanOrEqual(0);
+            expect(run.clickElapsedMs, artifact).toBeGreaterThan(0);
+            expect(run.clickElapsedMs, artifact).toBeLessThan(run.wheelDurationMs);
+            expect(
+                maxPreClickScrollTop,
+                artifact,
+            ).toBeGreaterThanOrEqual(
+                run.initialScrollTop + Math.max(
+                    FACING_FLING_MIN_PRECLICK_SCROLL_PX,
+                    before.viewportHeight * 0.5,
+                ),
+            );
+            expect(targetAfterClick, artifact).toBeDefined();
+            expect(isPageVisible(tailSample, 1), artifact).toBe(true);
+            expect(isPageVisible(settled, 1), artifact).toBe(true);
+            expect(isToolbarPageVisible(settled), artifact).toBe(true);
+        },
+    );
 
     // P1 and P2. The click is delivered by page.mouse.click on the real toolbar
     // control while the wheel burst is still running, and the burst is never

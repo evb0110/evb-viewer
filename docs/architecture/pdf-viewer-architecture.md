@@ -167,6 +167,13 @@ scroller's `begin` and `end` are handled after this viewport's next first packet
 they are misattributed to it and liveness falls back to packet timing until the
 following sequence.
 
+A command fences the last observed gesture even if its last packet is old or
+the host already ended the sequence. Neither condition proves the renderer has
+drained its input queue: a fast facing-layout fling can leave wheel packets
+behind a toolbar click. Liveness decides whether to suppress native scrolling,
+not whether those queued packets may supersede the command. The next genuine
+gesture still releases ownership through the existing stream boundary.
+
 The viewport write port owns the rule. `queueNavigationRequest` calls
 `fenceCommandAgainstLiveGesture` for every source except `wheel`. Packets of
 the fenced gesture are `command-residue`: `observeDocumentViewportWheelInteraction`

@@ -501,6 +501,16 @@ describe('document viewer chassis authority', () => {
             // scrolling for a sequence that is already over.
             port.fenceCommandAgainstLiveGesture(5_000);
             expect(port.userScrollSuppressed.value).toBe(false);
+            const container = createViewportContainer();
+            const navigation = port.beginIntent('navigate:1');
+            observeDocumentViewportWheelInteraction(port, scrollInteraction(48, 40, 0, false), container);
+            expect(port.apply(container, {
+                intent: navigation,
+                reason: 'navigation',
+                top: 700,
+            })).toBe(true);
+            expect(container.scrollTop).toBe(700);
+            expect(port.userScrollSuppressed.value).toBe(false);
         });
 
         describe('ownership of late and sparse packets', () => {
@@ -752,7 +762,10 @@ describe('document viewer chassis authority', () => {
             });
         });
 
-        it('holds a command through a run of one-packet sequences, as the DevTools input path delivers a fling', () => {
+        it.each([
+            40,
+            5_000,
+        ])('holds a command at %i ms through queued one-packet wheel sequences', (commandAtMs) => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
@@ -769,9 +782,11 @@ describe('document viewer chassis authority', () => {
             sendOnePacketSequence(16);
             sendOnePacketSequence(32);
             // The host has ended every member so far, yet the gesture is live.
-            port.fenceCommandAgainstLiveGesture(40);
+            // The renderer can handle the click after the packet timestamps
+            // have gone stale while more of the same burst is still queued.
+            port.fenceCommandAgainstLiveGesture(commandAtMs);
             const navigation = port.beginIntent('navigate:1');
-            expect(port.userScrollSuppressed.value).toBe(true);
+            expect(port.userScrollSuppressed.value).toBe(commandAtMs === 40);
 
             expect(sendOnePacketSequence(48)).toBe('command-residue');
             expect(sendOnePacketSequence(64)).toBe('command-residue');
