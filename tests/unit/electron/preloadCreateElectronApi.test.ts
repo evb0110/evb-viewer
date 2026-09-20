@@ -1107,14 +1107,14 @@ describe('createElectronApi', () => {
     });
 
     it('chunks large renderer file-open authorization without widening the IPC grant bound', async () => {
-        const paths = Array.from({length: 129}, (_, index) => `/tmp/large-batch-${index}.pdf`);
+        const paths = Array.from({length: 129}, (_, index) => requireDocumentRef(`/tmp/large-batch-${index}.pdf`));
         const randomUUID = vi.fn((() => {
             let index = 0;
             return () => `00000000-0000-4000-8000-${String(index++).padStart(12, '0')}`;
         })());
         vi.stubGlobal('crypto', {randomUUID});
         const ipcRenderer = {
-            invoke: vi.fn(async (channel: string) => {
+            invoke: vi.fn(async (channel: string, _payload?: unknown) => {
                 if (
                     channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens
                     || channel === DOCUMENTS_CHANNELS.allowRendererFileOpenBatch
