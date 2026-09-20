@@ -74,6 +74,29 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Normalize downloaded release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          downloaded_artifacts='downloaded-artifacts'
+          mv artifacts "$downloaded_artifacts"
+          mkdir artifacts
+          source_count=0
+          while IFS= read -r -d '' source; do
+            name="$(basename "$source")"
+            destination="artifacts/$name"
+            if [ -e "$destination" ]; then
+              echo "::error::Duplicate release artifact basename: $name"
+              exit 1
+            fi
+            cp "$source" "$destination"
+            source_count=$((source_count + 1))
+          done < <(find "$downloaded_artifacts" -type f -print0)
+          if [ "$source_count" -eq 0 ]; then
+            echo '::error::No release files were downloaded for checksum finalization.'
+            exit 1
+          fi
+
       - name: Publish or verify immutable release checksums
         env:
           GH_TOKEN: ${{ github.token }}
