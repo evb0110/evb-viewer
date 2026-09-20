@@ -513,16 +513,17 @@ async function run() {
     });
     let passed = false;
     const cleanupErrors: Error[] = [];
+    const localOnlyAdapterOptions = LOCAL_ONLY ? {disableAdapter: true} : {};
     try {
-        const unknown = await startSession(launch, root, 'unknown', 'unknown');
+        const unknown = await startSession(launch, root, 'unknown', 'unknown', localOnlyAdapterOptions);
         await assertNoDelivery(unknown, 'Unknown preference');
         await stopSession(unknown);
 
-        const denied = await startSession(launch, root, 'denied', 'denied');
+        const denied = await startSession(launch, root, 'denied', 'denied', localOnlyAdapterOptions);
         await assertNoDelivery(denied, 'Denied preference');
         await stopSession(denied);
 
-        const granted = await startSession(launch, root, 'granted', 'unknown');
+        const granted = await startSession(launch, root, 'granted', 'unknown', localOnlyAdapterOptions);
         await runGrantedMatrix(granted);
         const entriesBeforeClose = (await readAudit(granted.auditPath)).length;
         await stopSession(granted);

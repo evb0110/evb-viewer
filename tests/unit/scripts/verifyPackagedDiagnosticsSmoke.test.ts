@@ -37,12 +37,14 @@ describe('packaged diagnostics smoke session environment', () => {
             SENTRY_DESKTOP_DSN: 'https://public@example.invalid/1',
         }, {
             auditPath: '/tmp/diagnostics-audit.jsonl',
+            disableAdapter: true,
             localOnly: true,
             name: 'granted',
             userDataPath: '/tmp/diagnostics-granted',
         });
 
         expect(environment).toMatchObject({
+            EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER: '1',
             EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER: '1',
             SENTRY_DESKTOP_DSN: 'https://public@example.invalid/1',
         });
