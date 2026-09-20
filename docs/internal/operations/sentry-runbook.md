@@ -36,9 +36,9 @@ Automatic GitHub issue creation and automatic Sentry resolution stay off.
 
 | Alert class | Project and filter | Trigger | Exclusions |
 | --- | --- | --- | --- |
-| New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress, and events tagged `evb_canary` |
-| New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior, and events tagged `evb_canary` |
-| Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, client-suppressed repeats, and events tagged `evb_canary` |
+| New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress, and events tagged `evb_canary` or `evb_probe` |
+| New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior, and events tagged `evb_canary` or `evb_probe` |
+| Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, client-suppressed repeats, and events tagged `evb_canary` or `evb_probe` |
 | Quota | Organization usage | Personal error-quota notification at the platform-supported 80 and 100 percent points | No pay-as-you-go continuation; Sentry exposes no custom 50, 70, 75, or 90 percent points for this account |
 
 The three project issue alerts must apply this account-side action filter to
@@ -59,6 +59,12 @@ alert actions; the organization quota alert has no event-level filter and
 remains subject to the account's normal usage accounting. The repository has
 no alert-rule declarations, so the repository owner must apply this filter in
 Sentry for both projects.
+
+The three project issue builders also require the event's `evb_probe` tag to
+be not set. This is a rule condition, separate from the shared
+`evb_canary` action filter, and excludes the explicitly marked packaged-smoke
+runtime probe from issue, fatal, and rate notifications without hiding
+ordinary production diagnostics.
 
 ## Routine CLI issue triage
 
@@ -144,6 +150,24 @@ high-priority trigger rows in the opposite order after save; no trigger was
 added, removed, or changed.
 The organization quota alert was not opened or changed. No event was sent and
 no paid capacity was enabled.
+
+### 2026-09-20 packaged-smoke noise control
+
+The owner-browser triage of the 2026-09-20 `0.1.458` burst found six
+diagnostic-code issue groups across the macOS and Windows desktop builds and
+one later unclassified-console issue. Each was a zero-user, production smoke
+outcome with the packaged diagnostics direct-console canary frame; no user
+fault was established. The events were not consistently marked with
+`evb_probe`, so the alert change alone was not treated as a fix for the
+source of the noise.
+
+The three project issue alerts (new diagnostic `802859`, fatal `802861`, and
+rate `804624`) now also require `evb_probe` to be absent, while preserving
+their existing triggers, production condition, `evb_canary` exclusion,
+actions, throttle, projects, and owner. The Store AppX workflow was corrected
+so routine builds run packaged diagnostics with the local no-op adapter; only
+an explicitly requested Sentry canary runs the remote smoke and sets
+`EVB_SENTRY_RUNTIME_PROBE=packaged-smoke`.
 
 ## Weekly and post-release triage
 
