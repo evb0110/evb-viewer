@@ -122,7 +122,6 @@ function getResourceLimits(resourceMode: IStageNativeCombineInputsOptions['resou
     return resourceMode === 'file-backed'
         ? {
             ...DEFAULT_RESOURCE_LIMITS,
-            maxInputBytes: Number.MAX_SAFE_INTEGER,
             maxPages: Number.MAX_SAFE_INTEGER,
         }
         : { ...DEFAULT_RESOURCE_LIMITS };
