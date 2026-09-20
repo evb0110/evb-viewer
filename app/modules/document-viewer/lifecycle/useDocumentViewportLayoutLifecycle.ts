@@ -296,11 +296,25 @@ export const useDocumentViewportLayoutLifecycle = (
         ) {
             return;
         }
+        const retainedRestore = activePointerAnchor === null
+            && pendingRestore
+            && pendingRestore.generation === restoreGeneration
+            && pendingRestore.epoch === epoch
+            ? pendingRestore
+            : null;
         const anchor = activePointerAnchor
+            ?? retainedRestore?.anchor
             ?? layoutTransactionAnchor
             ?? dragAnchor
             ?? (isResizeTransitionActive.value ? retainedAnchor : null)
             ?? captureAnchor(container, previousLayouts);
+        // Project the semantic point before the DOM adopts the new geometry.
+        // A large scale decrease can otherwise let the browser clamp the old
+        // raw offset and emit a trusted scroll before the queued restore runs.
+        // The queued pass remains necessary for the post-patch layout.
+        if (activePointerAnchor === null && retainedRestore?.pointerAuthored !== true) {
+            applyAnchor(anchor, epoch, layouts);
+        }
         scheduleAnchorRestore(anchor, epoch);
     }, {flush: 'pre'});
 

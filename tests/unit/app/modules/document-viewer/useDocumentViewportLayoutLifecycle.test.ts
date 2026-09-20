@@ -160,22 +160,75 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
 
         // The mode watcher captures page 251 from the previous fit-width
-        // geometry while the raw browser offset still belongs to that layout.
+        // geometry and projects it before the DOM adopts the new layout.
         void pageLayouts.value;
         mode.value = 'fit-height';
         await nextTick();
         await nextTick();
 
-        // This is the metric-publication caller. Its immediate capture sees
-        // page 409 in the already-resized geometry, but must not replace the
-        // earlier normal anchor queued for the same frame and epoch.
+        // Metric publication must preserve that semantic position while the
+        // queued post-patch restore remains pending.
         lifecycle.preserveLayoutMutation(() => {
             metricRevision.value += 1;
         });
-        expect(viewport.scrollTop).toBe(216_250);
+        expect(viewport.scrollTop).toBeCloseTo(132_398.9, 1);
         frames.splice(0).forEach(callback => callback(0));
 
         expect(viewport.scrollTop).toBeCloseTo(132_398.9, 1);
+        scope.stop();
+    });
+
+    it('projects a shrinking layout before native clamp can cancel its semantic restore', async () => {
+        const frames: FrameRequestCallback[] = [];
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frames.push(callback);
+            return frames.length;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(132_399);
+        Object.defineProperties(viewport, {
+            clientHeight: {value: 550},
+            clientWidth: {value: 885},
+            scrollHeight: {
+                value: 265_550,
+                writable: true,
+            },
+        });
+        const mode = ref<'fit-height' | 'custom'>('fit-height');
+        const pageLayouts = computed(() => {
+            const pageHeight = mode.value === 'fit-height' ? 510 : 123;
+            return Array.from({length: 501}, (_, index) => ({
+                top: 20 + index * (pageHeight + 20),
+                width: pageHeight,
+                height: pageHeight,
+            }));
+        });
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            captureRestoreEpoch: () => 1,
+            canRestore: () => true,
+            applyRestoredScroll: restored => {
+                viewport.scrollLeft = restored.left;
+                viewport.scrollTop = restored.top;
+                return true;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+
+        void pageLayouts.value;
+        mode.value = 'custom';
+        await nextTick();
+
+        // The real browser now adopts the smaller document and clamps only
+        // when the stale raw offset is still present. The synchronous semantic
+        // projection keeps page 251 in range, so this clamp leaves it there.
+        Object.defineProperty(viewport, 'scrollHeight', {value: 71_663});
+        viewport.scrollTop = Math.min(viewport.scrollTop, viewport.scrollHeight - viewport.clientHeight);
+        lifecycle.cancelPendingRestore();
+        frames.splice(0).forEach(callback => callback(0));
+
+        expect(viewport.scrollTop).toBeCloseTo(35_532.1, 1);
         scope.stop();
     });
 

@@ -646,6 +646,56 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(afterFitHeight.pageHeight, JSON.stringify(afterFitHeight)).toBeCloseTo(beforeFitHeight.pageHeight, 0);
         expect(afterFitHeight.pageWidth, JSON.stringify(afterFitHeight)).toBeCloseTo(beforeFitHeight.pageWidth, 0);
 
+        const customZoomDisplayPoint = await session.page.evaluate(() => {
+            const display = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
+                .find(element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return rect.width > 0
+                        && rect.height > 0
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden';
+                });
+            if (!display) {
+                return null;
+            }
+            const rect = display.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        if (!customZoomDisplayPoint) {
+            throw new Error('Visible zoom display was not found before custom zoom-out');
+        }
+        await session.page.mouse.click(customZoomDisplayPoint.x, customZoomDisplayPoint.y);
+        const customZoomInput = await session.page.waitForSelector('.zoom-chip-custom-input', {visible: true});
+        if (!customZoomInput) {
+            throw new Error('Custom zoom input was not found before zoom-out');
+        }
+        await customZoomInput.click({count: 3});
+        await session.page.waitForFunction(() => {
+            const active = document.activeElement;
+            return active instanceof HTMLInputElement
+                && active.selectionStart === 0
+                && active.selectionEnd === active.value.length;
+        });
+        await session.page.keyboard.type('100');
+        await session.page.keyboard.press('Enter');
+        await waitForWorkspaceToolbarSnapshot(
+            session.page,
+            {
+                currentPage: restoredPage,
+                effectiveZoom: 1,
+                zoomMode: 'custom',
+            },
+            {timeoutMs: DJVU_E2E_TIMEOUT_MS},
+        );
+        await waitForActiveDjvuCommittedPage(session, restoredPage);
+        await waitForActiveDjvuAuthorityConvergence(session, restoredPage);
+        const afterCustomZoomOut = await readActiveDjvuPagePresentationGeometry(session, restoredPage);
+        expect(afterCustomZoomOut).not.toBeNull();
+
         await requireWorkspaceCommand(
             session.page,
             'setCustomZoomFromDisplay',

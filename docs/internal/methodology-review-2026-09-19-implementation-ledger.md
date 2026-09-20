@@ -302,8 +302,12 @@ as custom zoom. The follow-up Fit Height replay exposed a second cause: metric
 publication could overwrite the pending mode-change anchor using geometry that
 had already resized. Coalesced layout changes now retain the first pending
 anchor for the same restore generation and epoch; newer pointer input or a
-changed epoch still supersedes it. Native macOS confirmation remains separate
-from this Linux reproduction and replay.
+changed epoch still supersedes it. A further custom-zoom replay exposed browser
+scroll clamping when the new document height fell below the old offset. The
+layout watcher now applies the semantic anchor before the DOM shrinks and keeps
+the existing after-layout correction. The regression includes trusted input for
+this 100% zoom-out case. Native macOS confirmation remains separate from these
+Linux reproductions and replays.
 
 ## Platform gaps
 
