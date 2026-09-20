@@ -3,10 +3,14 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Page} from 'puppeteer-core';
+import {
+    PDFDocument, PDFHexString, PDFName,
+} from 'pdf-lib';
 import {
     createCanvas,
     loadImage,
@@ -377,6 +381,120 @@ describe('Electron E2E - text interaction contract', () => {
         extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         sessionName: () => `e2e-text-interaction-${Date.now()}`,
     });
+
+    it('reveals the whole multiline annotation on sidebar navigation and keeps it stable on pointer entry', async () => {
+        const session = sessions.getSession();
+        const {page} = session;
+        await session.command('windowResize', [
+            1280,
+            900,
+        ]);
+        onTestFinished(async () => { await session.command('windowResize', [
+            900,
+            668,
+        ]); });
+        const directory = mkdtempSync(join(tmpdir(), 'evb-annotation-navigation-'));
+        onTestFinished(() => rmSync(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const path = join(directory, 'multiline.pdf');
+        const pdf = await PDFDocument.create();
+        pdf.addPage([
+            425,
+            648,
+        ]);
+        const target = pdf.addPage([
+            425,
+            648,
+        ]);
+        pdf.addPage([
+            425,
+            648,
+        ]);
+        const quads: number[] = [];
+        for (let line = 0; line < 36; line += 1) {
+            const y = 540 - line * 13;
+            target.drawText(`Marked passage line ${line + 1}`, {
+                x: 50,
+                y,
+                size: 10,
+            });
+            quads.push(50, y + 10, 350, y + 10, 50, y - 2, 350, y - 2);
+        }
+        const annotation = pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Squiggly',
+            Rect: [
+                50,
+                83,
+                350,
+                550,
+            ],
+            QuadPoints: quads,
+            C: [
+                0.1,
+                0.7,
+                0.2,
+            ],
+            F: 4,
+            NM: PDFHexString.fromText('multiline-navigation'),
+        }));
+        target.node.set(PDFName.of('Annots'), pdf.context.obj([annotation]));
+        writeFileSync(path, await pdf.save());
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        const row = '.editor-pane.is-active .note-item-content';
+        await page.waitForSelector(row, {visible: true});
+        const bounds = () => {
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .pdfViewer');
+            const mark = document.querySelector<SVGElement>('.editor-pane.is-active g[data-annotation-kind="text-markup"]');
+            if (!viewer || !mark) throw new Error('Rendered annotation and viewport are required');
+            const rect = mark.getBoundingClientRect();
+            const viewport = viewer.getBoundingClientRect();
+            return {
+                top: rect.top,
+                bottom: rect.bottom,
+                height: rect.height,
+                viewportTop: viewport.top,
+                viewportBottom: viewport.top + viewer.clientHeight,
+                viewportHeight: viewer.clientHeight,
+                scrollTop: viewer.scrollTop,
+            };
+        };
+        for (const zoom of [
+            1.32,
+            2.5,
+        ]) {
+            await callWorkspaceCommand(page, 'setCustomZoomFromDisplay', [zoom]);
+            await waitForViewerInteractive(page);
+            await page.click(row);
+            await page.waitForFunction(() => {
+                const mark = document.querySelector('.editor-pane.is-active g[data-annotation-kind="text-markup"]');
+                return mark && mark.getBoundingClientRect().height > 100;
+            });
+            await waitForViewerInteractive(page);
+            // Observe the actual rendered region through the settled interval;
+            // the old first-line target leaves the bottom outside this viewport.
+            await expect.poll(async () => {
+                const current = await page.evaluate(bounds);
+                return current.height <= current.viewportHeight
+                    ? current.top >= current.viewportTop - 1 && current.bottom <= current.viewportBottom + 1
+                    : current.top >= current.viewportTop - 1
+                        && current.top < current.viewportTop + current.height / 36;
+            }, {timeout: 10_000}).toBe(true);
+            const before = await page.evaluate(bounds);
+            await page.mouse.move(850, 400, {steps: 15});
+            const until = Date.now() + 600;
+            while (Date.now() < until) {
+                await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+                const sample = await page.evaluate(bounds);
+                expect(Math.abs(sample.top - before.top)).toBeLessThanOrEqual(1);
+                expect(Math.abs(sample.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
+            }
+        }
+    }, 120_000);
 
     async function openFixture(keepActive = false, zoom = 2.62, source?: string) {
         const session = sessions.getSession();

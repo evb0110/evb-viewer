@@ -1,7 +1,10 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
+import type {
+    IPdfSemanticAnchor,
+    IPdfViewportGeometry,
+} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type {
     IPdfNavigationRequest,
     TPdfNavigationTarget,
@@ -80,16 +83,20 @@ export async function resolvePdfNavigationTarget(
 export function resolvePdfNavigationAnchor(
     request: IPdfNavigationRequest,
     target: IResolvedPdfNavigationTarget,
+    geometry?: IPdfViewportGeometry | null,
 ): IPdfSemanticAnchor {
     const rect = target.rect;
     if (request.alignment === 'rect-center' && rect) {
+        const pageHeight = geometry?.pageRects[target.page - 1]?.height ?? 0;
+        const revealStart = request.source === 'annotation' && geometry
+            && rect.height * pageHeight > geometry.viewportHeight;
         return {
             page: target.page,
             pageXFraction: clamp(rect.left + rect.width / 2, 0, 1),
-            pageYFraction: clamp(rect.top + rect.height / 2, 0, 1),
+            pageYFraction: clamp(rect.top + (revealStart ? 0 : rect.height / 2), 0, 1),
             viewportXFraction: 0.5,
-            viewportYFraction: 0.5,
-            affinity: 'center',
+            viewportYFraction: revealStart ? 0 : 0.5,
+            affinity: revealStart ? 'start' : 'center',
         };
     }
     return {

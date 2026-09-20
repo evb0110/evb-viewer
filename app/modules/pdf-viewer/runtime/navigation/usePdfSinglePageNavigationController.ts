@@ -222,7 +222,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             const snapshot = geometry ?? refreshGeometry();
             const resolved = resolvedTargets.get(intent.id);
             const anchor = intent.navigation && resolved
-                ? resolvePdfNavigationAnchor(intent.navigation, resolved)
+                ? resolvePdfNavigationAnchor(intent.navigation, resolved, snapshot)
                 : intent.anchor ?? getRequestAnchor(intent.navigation, options.currentPage.value);
             if (!container || !snapshot) {
                 throw new DOMException('PDF viewport geometry unavailable', 'AbortError');
@@ -713,7 +713,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const anchor = (absorbedNavigation ? undefined : state.anchor) ?? (container && snapshot && state.viewportPoint
             ? captureCurrentSemanticAnchor(state.viewportPoint) ?? getRequestAnchor(undefined, viewportAuthority.currentPage.value)
             : absorbedNavigation && inheritedResolvedTarget
-                ? resolvePdfNavigationAnchor(absorbedNavigation, inheritedResolvedTarget)
+                ? resolvePdfNavigationAnchor(absorbedNavigation, inheritedResolvedTarget, snapshot)
                 : absorbedNavigation
                     ? getRequestAnchor(
                         absorbedNavigation,

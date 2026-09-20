@@ -75,7 +75,7 @@ export function createPdfNavigationCommitRefiner(
                 };
             });
         }
-        const anchor = resolvePdfNavigationAnchor(request, resolved);
+        const anchor = resolvePdfNavigationAnchor(request, resolved, snapshot);
         // Navigation layout estimates are enough to mount the target row.
         // Once that row exists, its physical position is the authority.
         // Long scanned PDFs can accumulate several pages of error between

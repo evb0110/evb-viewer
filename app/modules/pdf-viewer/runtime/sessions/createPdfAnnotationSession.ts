@@ -752,9 +752,23 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 annotationEditorSurface.select([id]);
             }
             setActiveSummary(comment);
+            // The marker anchors a note to the first line. Navigation must
+            // reveal the entire marked passage, not center that first line.
+            const quads = comment.markupGeometry;
+            let navigationRect = comment.markerRect;
+            if (quads?.length) {
+                const left = Math.min(...quads.map(rect => rect.left));
+                const top = Math.min(...quads.map(rect => rect.top));
+                navigationRect = {
+                    left,
+                    top,
+                    width: Math.max(...quads.map(rect => rect.left + rect.width)) - left,
+                    height: Math.max(...quads.map(rect => rect.top + rect.height)) - top,
+                };
+            }
             viewport.singlePageScroll.scrollToPage(
                 requirePageNumber(comment.pageNumber),
-                {markerRect: comment.markerRect},
+                {markerRect: navigationRect},
             );
             await nextTick();
         },
