@@ -77,6 +77,29 @@ A resize that arrives during navigation inherits the pending semantic target,
 including its exact text range and readiness requirement. Its sampled outgoing
 anchor cannot replace that target. Resize previews defer to pending navigation;
 the rerender coordinator must not turn that deferral into a page-only fallback.
+
+The navigation controller owns one desired destination until a matching
+position commits or the request is explicitly abandoned. Geometry intents may
+carry that destination without taking it out of the controller. If another
+layout intent replaces them, the desired request remains available to the
+existing authority once it is idle. Committed page geometry comes from the
+authority's anchor; there is no separate retained destination after arrival.
+
+Every asynchronous viewport operation captures the PDF proxy and its load
+revision. Cleanup can retire the proxy without advancing the load revision,
+so continuations must validate both before publishing geometry, readiness, or
+position. Page numbers are validated against the captured document before
+waiting. Authority cancellation releases its waits immediately; dependencies
+also guard their own post-await side effects because aborting a wait cannot
+stop already-running PDF work. Position publication rechecks ownership after
+the physical write and after synchronous callbacks.
+
+PDF operations also capture the shared surface's generation, document
+revision, and viewport intent id. A commit to the same page under a newer
+intent is still stale. Cancelling a navigation restores an already committed
+surface, or retargets the initial opening without claiming that a canvas is
+ready. The shared surface retains ownership of that loading lifecycle.
+
 Search highlighting preserves page-local occurrence identity when native results are ordered and
 rendered match counts agree, even when their text offsets differ. See
 `docs/internal/research/search-match-navigation-2026-09-05.md` for the reproduced failures.

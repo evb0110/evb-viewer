@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {watch} from 'vue';
 
 const anchor = {
     page: 1,
@@ -23,8 +24,6 @@ function intent(id: string, page: number): Omit<IPdfViewportIntent, 'interaction
         kind: 'navigate',
         documentRevision: 1,
         geometryRevision: 1,
-        priority: 10,
-        supersessionKey: 'navigation',
         navigation: createPageNavigationRequest(page, 'toolbar'),
     };
 }
@@ -53,8 +52,6 @@ describe('ViewportAuthority', () => {
             kind: 'fit',
             documentRevision: 1,
             geometryRevision: 1,
-            priority: 5,
-            supersessionKey: 'viewport-state',
             anchor: {
                 ...anchor,
                 page: 2,
@@ -211,6 +208,55 @@ describe('ViewportAuthority', () => {
         expect(events).toEqual(['before-apply']);
         expect(authority.currentPage.value).toBe(1);
         expect(authority.getTerminalOutcome('suspended-before-apply')).toBe('cancelled');
+    });
+
+    it('completes cancellation while a dependency ignores the abort signal', async () => {
+        let releaseVisual!: () => void;
+        let completed = false;
+        const heldVisual = new Promise<void>(resolve => {
+            releaseVisual = resolve;
+        });
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: request.anchor ?? anchor,
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            awaitVisual: async () => {
+                await heldVisual;
+            },
+            apply: () => {},
+        });
+
+        const pending = authority.submit({
+            id: 'held-visual',
+            kind: 'fit',
+            documentRevision: 1,
+            geometryRevision: 1,
+            anchor: {
+                ...anchor,
+                page: 2,
+            },
+        });
+        pending.then(() => {
+            completed = true;
+        });
+        await vi.waitFor(() => expect(authority.phase.value).toBe('awaiting-visual'));
+
+        authority.suspend();
+        try {
+            for (let index = 0; index < 8; index += 1) {
+                await Promise.resolve();
+            }
+            expect(completed).toBe(true);
+        } finally {
+            releaseVisual();
+        }
+        await expect(pending).resolves.toMatchObject({outcome: 'cancelled'});
     });
 
     it('re-arms one-frame geometry ownership when delayed target layout arrives', async () => {
@@ -472,6 +518,73 @@ describe('ViewportAuthority', () => {
         await expect(pending).resolves.toMatchObject({outcome: 'cancelled'});
         expect(writes).toEqual([]);
         expect(authority.currentPage.value).toBe(3);
+    });
+
+    it('retains newer input when a viewport write synchronously changes ownership', async () => {
+        // R2: publishing layout during a write may synchronously deliver a
+        // newer interaction. The cancelled command must not publish its page.
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor,
+                left: 0,
+                top: 0,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            awaitVisual: async () => {},
+            apply: () => {
+                authority.observeUserScroll({
+                    ...anchor,
+                    page: 380,
+                });
+                return {
+                    left: 0,
+                    top: 300_000,
+                };
+            },
+        });
+
+        await expect(authority.submit(intent('first-page', 1)))
+            .resolves.toMatchObject({ outcome: 'cancelled' });
+        expect(authority.currentPage.value).toBe(380);
+    });
+
+    it('does not clobber a successor installed by an active-intent watcher', async () => {
+        let reentered = false;
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: {
+                    ...anchor,
+                    page: request.id === 'successor' ? 2 : 1,
+                },
+                left: 0,
+                top: 0,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            awaitVisual: async () => {},
+            apply: () => {},
+        });
+        let successor!: ReturnType<typeof authority.submit>;
+        const stop = watch(authority.activeIntent, active => {
+            if (active?.id === 'first' && !reentered) {
+                reentered = true;
+                successor = authority.submit(intent('successor', 2));
+            }
+        }, {flush: 'sync'});
+
+        try {
+            await expect(authority.submit(intent('first', 1)))
+                .resolves.toMatchObject({outcome: 'cancelled'});
+            await expect(successor).resolves.toMatchObject({outcome: 'settled'});
+            expect(authority.currentPage.value).toBe(2);
+        } finally {
+            stop();
+        }
     });
 
     it('rejects a continuation when the document revision changes', async () => {

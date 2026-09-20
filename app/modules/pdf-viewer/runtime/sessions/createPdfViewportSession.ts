@@ -23,6 +23,7 @@ import {
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import { runGuardedTask } from '@app/utils/asyncGuard';
 import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
@@ -399,7 +400,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         cancelPendingSearchScroll: () => {
             cancelPendingSearchRevision.value += 1;
         },
-        requestSurfacePageNavigation: page => chassisAuthority?.navigate(page) ?? page,
         onPageVisualReady: page => {
             visualReadySignal.value = {
                 revision: visualReadySignal.value.revision + 1,
@@ -1027,7 +1027,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening') {
             return;
         }
-        void singlePageScroll.submitViewportStateIntent(kind, state);
+        runGuardedTask(() => singlePageScroll.submitViewportStateIntent(kind, state), {
+            category: 'background-diagnostic',
+            scope: 'pdf-navigation',
+            message: `PDF viewport ${kind} transition failed`,
+        });
     }
     const openingViewportStallDiagnostic = createPdfOpeningViewportStallDiagnostic({
         getSurface: () => chassisAuthority?.openSurface ?? null,

@@ -23,6 +23,9 @@ export {
     commitDocumentOpenSurfaceViewport, createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportCommitPage, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfacePageGeometrySeed, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export {
+    captureDocumentOpenSurfaceViewportIntent, isDocumentOpenSurfaceViewportIntentCurrent, type IDocumentOpenSurfaceViewportIntentIdentity,
+} from '@app/modules/document-viewer/runtime/documentOpenSurfaceProjection';
+export {
     createAnchorPageWindow, createLazyIndexedCollection, expandVirtualWindowForAnchor, isLazyIndexedCollection, type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { createBoundedLruCache } from '@app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache';

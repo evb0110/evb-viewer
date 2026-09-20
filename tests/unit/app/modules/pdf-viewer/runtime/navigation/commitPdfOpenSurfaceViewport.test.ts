@@ -9,6 +9,7 @@ import {
     createDocumentOpenSurfaceSession,
     shouldProjectDocumentViewportCommitPage,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {captureDocumentOpenSurfaceViewportIntent} from '@app/modules/document-viewer/runtime/documentOpenSurfaceProjection';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 describe('commitPdfOpenSurfaceViewport', () => {
@@ -204,6 +205,139 @@ describe('commitPdfOpenSurfaceViewport', () => {
         expect(surface.viewportSession.value.viewportIntent?.id).toBe(liveIntentId);
         expect(emittedPages).toEqual([]);
         expect(completedPages).toEqual([]);
+    });
+
+    it('rejects a stale same-page surface identity without changing the committed viewport', () => {
+        const surface = createReadySurface(2);
+        const expected = captureDocumentOpenSurfaceViewportIntent(surface);
+        expect(expected).toMatchObject({pageNumber: 1});
+        const committedBefore = surface.snapshot.value.committedViewport;
+        surface.requestNavigation(1, 0);
+
+        expect(commitDocumentOpenSurfaceViewport(surface, {
+            geometryRevision: 8,
+            interactionEpoch: 0,
+            page: 1,
+            left: 10,
+            top: 20,
+        }, expected)).toBe(false);
+        expect(surface.snapshot.value.committedViewport).toEqual(committedBefore);
+    });
+
+    it('does not fall back to settled-page observation for a stale explicit identity', () => {
+        const surface = createReadySurface(2);
+        const expected = captureDocumentOpenSurfaceViewportIntent(surface);
+        expect(expected).not.toBeNull();
+        surface.requestNavigation(1, 0);
+        const emittedPages: number[] = [];
+        const completedPages: number[] = [];
+        const authority = {
+            openSurface: surface,
+            observePage: (page: number) => surface.observeViewportPage(page),
+        } as IDocumentViewerRuntime;
+        const callbacks = createPdfOpenSurfaceViewportCallbacks(
+            authority,
+            page => emittedPages.push(page),
+            page => completedPages.push(page),
+        );
+        const committedBefore = surface.snapshot.value.committedViewport;
+
+        expect(callbacks.onViewportPositionCommitted({
+            intentId: 'late-same-page-commit',
+            intentKind: 'navigate',
+            documentRevision: 1,
+            geometryRevision: 8,
+            interactionEpoch: 0,
+            page: 1,
+            left: 10,
+            top: 20,
+        }, expected)).toBe(false);
+        expect(emittedPages).toEqual([]);
+        expect(completedPages).toEqual([]);
+        expect(surface.snapshot.value.committedViewport).toEqual(committedBefore);
+    });
+
+    it('retargets an abandoned opening intent without manufacturing readiness', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'load:1',
+        });
+        const expected = captureDocumentOpenSurfaceViewportIntent(surface);
+        expect(expected).not.toBeNull();
+        const emittedPages: number[] = [];
+        const authority = {
+            openSurface: surface,
+            observePage: (page: number) => surface.observeViewportPage(page),
+        } as IDocumentViewerRuntime;
+        const callbacks = createPdfOpenSurfaceViewportCallbacks(
+            authority,
+            page => emittedPages.push(page),
+            () => undefined,
+        );
+
+        expect(callbacks.onSurfaceNavigationAbandoned(expected!, 2)).toBe(true);
+        expect(surface.viewportSession.value).toMatchObject({
+            lifecycle: 'opening',
+            requestedPage: 2,
+            committedPage: null,
+            committedRenderFence: null,
+            committedViewportFence: null,
+        });
+        expect(emittedPages).toEqual([]);
+    });
+
+    it('supersedes a cancelled transition only when its committed recovery fences exist', () => {
+        const surface = createReadySurface(2);
+        surface.requestNavigation(3, 0);
+        const expected = captureDocumentOpenSurfaceViewportIntent(surface);
+        expect(expected).toMatchObject({pageNumber: 3});
+        const emittedPages: number[] = [];
+        const authority = {
+            openSurface: surface,
+            observePage: (page: number, options?: {supersedeNavigation?: boolean}) => (
+                surface.observeViewportPage(page, options)
+            ),
+        } as IDocumentViewerRuntime;
+        const callbacks = createPdfOpenSurfaceViewportCallbacks(
+            authority,
+            page => emittedPages.push(page),
+            () => undefined,
+        );
+
+        expect(callbacks.onSurfaceNavigationAbandoned(expected!, 2)).toBe(true);
+        expect(surface.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            observedPage: 2,
+        });
+        expect(emittedPages).toEqual([2]);
+    });
+
+    it('does not let an old cancellation identity mutate a newer same-page transition', () => {
+        const surface = createReadySurface(2);
+        surface.requestNavigation(3, 0);
+        const stale = captureDocumentOpenSurfaceViewportIntent(surface);
+        surface.requestNavigation(2, 0);
+        const currentIntent = surface.viewportSession.value.viewportIntent?.id;
+        const emittedPages: number[] = [];
+        const authority = {
+            openSurface: surface,
+            observePage: (page: number, options?: {supersedeNavigation?: boolean}) => (
+                surface.observeViewportPage(page, options)
+            ),
+        } as IDocumentViewerRuntime;
+        const callbacks = createPdfOpenSurfaceViewportCallbacks(
+            authority,
+            page => emittedPages.push(page),
+            () => undefined,
+        );
+
+        expect(callbacks.onSurfaceNavigationAbandoned(stale!, 2)).toBe(false);
+        expect(surface.viewportSession.value.viewportIntent?.id).toBe(currentIntent);
+        expect(surface.viewportSession.value.lifecycle).toBe('transitioning');
+        expect(emittedPages).toEqual([]);
     });
 
     it('does not mint an unsettled shared transition for geometry at an observed page', () => {

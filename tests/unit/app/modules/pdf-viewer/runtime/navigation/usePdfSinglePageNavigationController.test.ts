@@ -214,9 +214,21 @@ describe('usePdfSinglePageNavigationController', () => {
     });
 
     it.each([
-        'resize',
-        'zoom',
-    ] as const)('keeps a page jump absorbed by %s when page metrics cancel it', async (kind) => {
+        {
+            kind: 'resize',
+            anchoredSuccessor: false,
+        },
+        {
+            kind: 'zoom',
+            anchoredSuccessor: false,
+        },
+        {
+            kind: 'resize',
+            anchoredSuccessor: true,
+        },
+    ] as const)('keeps a page jump through $kind (anchored successor: $anchoredSuccessor)', async ({
+        kind, anchoredSuccessor,
+    }) => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -246,6 +258,7 @@ describe('usePdfSinglePageNavigationController', () => {
             paddingTop: 20,
             paddingBottom: 20,
         });
+        if (!layout) throw new Error('Expected navigation layout');
         const geometryRevision = ref(1);
         const freshPages = new Set([1]);
         const viewportWrites = createTestPdfViewportWritePort();
@@ -309,11 +322,25 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportYFraction: 0.5,
                 affinity: 'center',
             }});
+            if (anchoredSuccessor) {
+                // Layout notifications can follow each other before raster
+                // readiness. A local fit anchor must not erase the user's
+                // outstanding page destination.
+                await controller.submitViewportStateIntent('fit', {anchor: {
+                    page: 1,
+                    pageXFraction: 0.5,
+                    pageYFraction: 0.5,
+                    viewportXFraction: 0.5,
+                    viewportYFraction: 0.5,
+                    affinity: 'center',
+                }});
+            }
             await expect(resize).resolves.toMatchObject({outcome: 'cancelled'});
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(3);
             });
-            expect(viewportWrites.writes).toHaveLength(1);
+            // The destination starts below the viewer's 20px page margin.
+            expect(requireLayoutPageTop(layout, 2) - viewer.scrollTop).toBe(20);
         } finally {
             pageSlots.dispose();
             scope.stop();
@@ -992,7 +1019,7 @@ describe('usePdfSinglePageNavigationController', () => {
         const preparation = createDeferred();
         const viewportWrites = createTestPdfViewportWritePort();
         const preventDefault = vi.fn();
-        const requestSurfacePageNavigation = vi.fn((page: number) => page);
+        const captureSurfaceNavigation = vi.fn((_page: number) => null);
 
         try {
             const controller = scope.run(() => usePdfSinglePageNavigationController({
@@ -1020,7 +1047,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 getPageLayoutMetrics: () => layout,
                 requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
-                requestSurfacePageNavigation,
+                captureSurfaceNavigation,
                 pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
@@ -1045,7 +1072,7 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(controller.navigationVisualHandoffTargetPage.value).toBe(4);
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
             expect(preventDefault).toHaveBeenCalledTimes(3);
-            expect(requestSurfacePageNavigation.mock.calls).toEqual([
+            expect(captureSurfaceNavigation.mock.calls).toEqual([
                 [2],
                 [3],
                 [4],
@@ -1065,7 +1092,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 preventDefault,
                 timeStamp: 1_600,
             })).toBe(false);
-            expect(requestSurfacePageNavigation).toHaveBeenCalledTimes(3);
+            expect(captureSurfaceNavigation).toHaveBeenCalledTimes(3);
         } finally {
             pageSlots.dispose();
             scope.stop();
@@ -1154,15 +1181,12 @@ describe('usePdfSinglePageNavigationController', () => {
                 expect(controller.navigationVisualHandoffTargetPage.value).toBe(4);
             });
 
-            // A geometry-only intent can own the authority while the detached
-            // toolbar task is still blocked. Cancelling only that toolbar
-            // destination must leave the handoff with the active intent.
+            // A layout notification during loading has no live document to
+            // own it. It must not replace the pending user destination.
             isLoading.value = true;
             const fit = controller.submitViewportStateIntent('fit');
-            expect(controller.viewportAuthority.activeIntent.value?.kind).toBe('fit');
-            controller.cancelDestinationNavigationTarget('toolbar');
-            expect(controller.viewportAuthority.activeIntent.value?.kind).toBe('fit');
-            expect(controller.navigationVisualHandoffTargetPage.value).toBe(4);
+            await expect(fit).resolves.toMatchObject({outcome: 'cancelled'});
+            expect(controller.navigationAnchorPage.value).toBe(4);
 
             controller.cancelProgrammaticNavigation('trusted-scroll');
 
@@ -1958,7 +1982,10 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
-    it('cancels instead of throwing when the document closes while a viewport raster is pending', async () => {
+    it.each([
+        'during-raster',
+        'after-write',
+    ] as const)('cancels cleanly when the document closes %s', async (closeAt) => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -2000,6 +2027,12 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const numPages = ref(3);
+        const pdfDocument = shallowRef<IPdfDocument | null>({numPages: 3} as IPdfDocument);
+        let ambient = false;
+        const closeDocument = () => {
+            numPages.value = 0;
+            pdfDocument.value = null;
+        };
         const documentRevision = ref(1);
         const freshPages = new Set([1]);
         const isPageFreshlyRenderedForNavigation = vi.fn((pageNumber: number) => freshPages.has(pageNumber));
@@ -2014,8 +2047,10 @@ describe('usePdfSinglePageNavigationController', () => {
             }
             // Closing the file tears the document down while the target
             // raster is still awaited: no live page range remains.
-            numPages.value = 0;
-            documentRevision.value += 1;
+            if (closeAt === 'during-raster') {
+                closeDocument();
+                documentRevision.value += 1;
+            }
         });
         const unhandledRejections: unknown[] = [];
         const onUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -2032,10 +2067,12 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 3} as IPdfDocument),
+                pdfDocument,
                 getMostVisiblePage: vi.fn(() => 2),
                 scrollToPageInternal: vi.fn(),
-                updateVisibleRange: vi.fn(),
+                updateVisibleRange: () => {
+                    if (ambient && closeAt === 'after-write') closeDocument();
+                },
                 updateCurrentPage: vi.fn(() => 2),
                 renderVisiblePages,
                 isPageFreshlyRenderedForNavigation,
@@ -2064,11 +2101,12 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(renderVisiblePages).toHaveBeenCalledTimes(1);
             // A zoom change invalidates the committed raster of page 2.
             freshPages.delete(2);
+            ambient = true;
 
             // Ambient zoom/fit/activation intents are fire-and-forget: a
             // rejection here surfaces as an unhandled promise rejection.
             await expect(controller.submitViewportStateIntent('zoom', {zoom: 2})).resolves.toMatchObject({outcome: 'cancelled'});
-            expect(renderVisiblePages).toHaveBeenCalledTimes(2);
+            expect(renderVisiblePages).toHaveBeenCalledTimes(closeAt === 'during-raster' ? 2 : 1);
             await nextTick();
 
             expect(controller.viewportAuthority.phase.value).toBe('cancelled');

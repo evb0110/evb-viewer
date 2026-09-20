@@ -66,8 +66,6 @@ function createSearchIntent(
         kind: 'search' as const,
         documentRevision: 1,
         geometryRevision: 1,
-        priority: 100,
-        supersessionKey: 'search-navigation',
         navigation: {
             target: {
                 kind: 'text-anchor' as const,
