@@ -412,6 +412,32 @@ jobs:
             fi
           done
 
+      - name: Normalize downloaded Windows ARM64 assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d artifacts ]; then
+            echo '::error::Windows ARM64 artifact directory was not created.'
+            exit 1
+          fi
+          mv artifacts downloaded-windows-arm64-artifacts
+          mkdir artifacts
+          copied=0
+          while IFS= read -r -d '' source; do
+            name="$(basename "$source")"
+            destination="artifacts/$name"
+            if [ -e "$destination" ]; then
+              echo "::error::Duplicate Windows ARM64 artifact basename: $name"
+              exit 1
+            fi
+            cp "$source" "$destination"
+            copied=$((copied + 1))
+          done < <(find downloaded-windows-arm64-artifacts -type f -print0)
+          if [ "$copied" -eq 0 ]; then
+            echo '::error::Windows ARM64 artifact did not contain any files.'
+            exit 1
+          fi
+
       - name: Validate Windows ARM64 assets
         id: win_arm64_assets
         env:
