@@ -78,6 +78,7 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
 const {createDocumentViewerRuntime} = await import('@app/modules/document-viewer/runtime/documentViewerRuntime');
+const {createDocumentOpenSurfaceSession} = await import('@app/modules/document-viewer/runtime/documentOpenSurfaceSession');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {PDF_PAGE_METRICS_DENSE_LIMIT} = await import('@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics');
 const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
@@ -165,6 +166,34 @@ describe('PdfDocumentSession range loading', () => {
         } finally {
             scope.stop();
             await documentState?.dispose();
+        }
+    });
+
+    it('joins the host generation created after the PDF session was constructed', async () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const source = shallowRef<Blob | null>(new Blob(['pdf'], {type: 'application/pdf'}));
+        const documentState = createPdfDocumentSession({
+            chassisAuthority: authority,
+            src: computed(() => source.value),
+        });
+        const generation = openSurface.begin({
+            documentId: '/tmp/opened-after-session.pdf',
+            documentRevision: 'open-intent:1',
+            provisional: true,
+        });
+
+        try {
+            await expect(documentState.load())
+                .resolves
+                .not.toBeNull();
+            expect(documentState.openSurfaceGeneration).toBe(generation);
+            expect(openSurface.snapshot.value.identity).toMatchObject({
+                documentId: '/tmp/opened-after-session.pdf',
+                documentRevision: 'load:1',
+            });
+        } finally {
+            await documentState.dispose();
         }
     });
 

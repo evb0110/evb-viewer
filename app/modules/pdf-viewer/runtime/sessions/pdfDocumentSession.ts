@@ -1044,10 +1044,15 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 : String(options.documentRevisionToken.value);
             return activeOpenSurfaceGeneration;
         }
-        // Capture the host generation before any source-load await. The
-        // source may refine or reinstall only the generation it observed;
-        // a stale loader cannot silently construct a new surface.
-        const expectedGeneration = activeOpenSurfaceGeneration;
+        // Join the generation that the host has already opened for this load.
+        // The session is created before the host mints its first generation,
+        // and a later document can replace the previous generation before the
+        // PDF watcher runs. Reusing the session's old generation here would
+        // make acquireSource reject the legitimate open and leave the PDF
+        // document permanently absent. acquireSource still validates this
+        // snapshot synchronously, so an old asynchronous continuation cannot
+        // install a competing surface.
+        const expectedGeneration = surface.snapshot.value.generation;
         const documentRevision = String(options.documentRevisionToken?.value ?? `load:${String(loadToken)}`);
         activeOpenSurfaceGeneration = surface.acquireSource({
             // The host's provisional identity is the stable logical document

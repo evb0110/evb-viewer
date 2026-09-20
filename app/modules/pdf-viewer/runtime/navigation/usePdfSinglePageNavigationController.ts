@@ -254,6 +254,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         getDocumentRevision: options.getDocumentRevision,
         getGeometryRevision: options.getGeometryRevision,
         isIntentCurrent: isIntentDocumentCurrent,
+        shouldStageNavigationVisual: intent => isUnplacedOpeningNavigation(intent.navigationTicket),
         reportNavigation,
         beginLayoutGeometryReplacement: options.beginLayoutGeometryReplacement,
         awaitMetrics: async (intent, signal) => {
@@ -559,6 +560,22 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             && render.documentRevision === ticket.documentRevision
             && render.viewportIntentId === ticket.id
             && render.pageNumber === page;
+    }
+
+    function isUnplacedOpeningNavigation(ticket: IDocumentNavigationTicket | undefined) {
+        if (!ticket) {
+            return false;
+        }
+        const surface = navigationRuntime?.openSurface;
+        const viewport = surface?.viewportSession.value;
+        return Boolean(
+            surface
+            && viewport?.lifecycle === 'opening'
+            && viewport.stagedRenderFence === null
+            && viewport.committedRenderFence === null
+            && viewport.committedViewportFence === null
+            && surface.isNavigationCurrent(ticket),
+        );
     }
 
     async function submitNavigationIntent(

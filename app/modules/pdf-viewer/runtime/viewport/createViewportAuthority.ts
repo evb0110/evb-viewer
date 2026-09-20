@@ -74,6 +74,7 @@ interface IViewportAuthorityDependencies {
     getDocumentRevision(): number;
     getGeometryRevision(): number;
     isIntentCurrent?(intent: IPdfViewportIntent): boolean;
+    shouldStageNavigationVisual?(intent: IPdfViewportIntent): boolean;
     reportNavigation?(
         ticket: IDocumentNavigationTicket,
         report: TDocumentNavigationReport,
@@ -370,21 +371,30 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 commit = await awaitWithAbort(deps.refine(next, commit, signal), signal);
                 assertCurrent(next, signal, expectedGeometryRevision);
             }
-            // Legacy direct authority callers without a shared ticket retain
-            // their staged visual contract. Production PDF navigation always
-            // carries a ticket and takes the place-first branch below.
+            // Established-document navigation uses place-before-raster so a
+            // fast command has an owned physical destination before old pixels
+            // are retired. The first opening page is different: its page
+            // shell and geometry are created by the initial raster mount, so
+            // staging that canvas first avoids a circular wait for geometry
+            // that the canvas callback itself commits.
+            const stagedOpeningNavigation = next.navigation !== undefined
+                && next.navigationTicket !== undefined
+                && deps.shouldStageNavigationVisual?.(next) === true;
             const stagedNavigationVisual = next.navigation !== undefined
-                && next.navigationTicket === undefined;
+                && (next.navigationTicket === undefined || stagedOpeningNavigation);
+            let visualReadyBeforePlacement = false;
             if (stagedNavigationVisual) {
                 phase.value = 'awaiting-visual';
                 try {
                     await awaitWithAbort(deps.awaitVisual(next, signal), signal);
                     assertCurrentIntent(next, signal);
+                    visualReadyBeforePlacement = true;
                 } catch (error) {
                     if (signal.aborted) throw error;
-                    // The compatibility path has no shared ticket to fail;
-                    // keep its historical placement fallback. Ticketed PDF
-                    // execution never enters this branch.
+                    // A direct compatibility intent keeps its historical
+                    // placement fallback. An opening ticket may still place
+                    // after an aborted visual wait; its terminal report below
+                    // remains the single owner of failure.
                     if (!(error instanceof DOMException && error.name === 'AbortError')) {
                         throw error;
                     }
@@ -433,7 +443,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             });
             deps.onPositionCommitted?.(positionCommit);
             assertCurrentIntent(next, signal);
-            if (next.navigationTicket) {
+            if (next.navigationTicket && !visualReadyBeforePlacement) {
                 phase.value = 'awaiting-visual';
                 try {
                     await awaitWithAbort(deps.awaitVisual(next, signal), signal);
