@@ -20,6 +20,8 @@ import {
 import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
 import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
 import {DESKTOP_EDITOR_READER_COMMAND_SURFACE} from '@app/utils/readerCommandSurface';
+import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 const toolbarRenders: Array<Record<string, unknown>> = [];
 const pageRenders: Array<Record<string, unknown>> = [];
@@ -128,7 +130,14 @@ function latestRender(renders: Array<Record<string, unknown>>, label: string) {
 async function mountToolbarPresenter() {
     const host = document.createElement('div');
     document.body.append(host);
-    const onGoToPage = vi.fn();
+    const openSurface = createDocumentOpenSurfaceSession();
+    openSurface.begin({
+        documentId: 'toolbar-preview.pdf',
+        documentRevision: 'revision:toolbar-preview',
+    });
+    const onGoToPage = vi.fn((page: number) => {
+        openSurface.navigate(createPageNavigationRequest(page, 'toolbar'));
+    });
     const onToggleSidebar = vi.fn();
     const snapshot = reactive(createDefaultWorkspaceToolbarSnapshot());
     Object.assign(snapshot, {
@@ -154,6 +163,7 @@ async function mountToolbarPresenter() {
         isFullscreen: false,
         fullscreenSupported: true,
         pageDropdownTotalPages: 882,
+        navigationTicket: openSurface.navigationTicket.value,
         ocrPopupOpen: false,
         zoomDropdownOpen: false,
         pageDropdownOpen: false,

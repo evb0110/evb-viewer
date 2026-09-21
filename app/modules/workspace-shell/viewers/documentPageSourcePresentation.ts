@@ -299,6 +299,7 @@ export function createDocumentPageSourcePresentation(options: {
         const viewportState = openSurface?.viewportSession.value;
         const image = getConnectedImage(pageNumber, state);
         const navigationTicket = openSurface?.navigationTicket.value ?? null;
+        const requiresOpeningLayout = snapshot?.committedRender === null;
         if (
             !state.ready
             || !image
@@ -314,6 +315,11 @@ export function createDocumentPageSourcePresentation(options: {
                 'opening',
                 'transitioning',
             ].includes(viewportState.lifecycle)
+            || requiresOpeningLayout && (
+                snapshot.geometry === null
+                || snapshot.openingPageFrame?.generation !== lifecycleFence.openSurfaceGeneration
+                || snapshot.openingPageFrame.pageNumber !== pageNumber
+            )
             || navigationTicket !== null && !openSurface.isNavigationCurrent(navigationTicket)
         ) {
             return false;

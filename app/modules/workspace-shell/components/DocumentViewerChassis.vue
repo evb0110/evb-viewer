@@ -46,8 +46,7 @@
                 v-if="chassisOpeningPageShell
                     && shouldRenderChassisOpeningPageShell
                     && (chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview
-                        || !shouldDeferLargePdfOpeningSkeleton
-                        && chassisAuthority.openingPageVisual.value !== 'fresh')"
+                        || shouldShowChassisOpeningPageSkeleton)"
                 class="document-viewer-chassis__opening-layer"
             >
                 <section
@@ -72,7 +71,7 @@
                         data-testid="document-opening-native-preview"
                     >
                     <DocumentPageSkeleton
-                        v-else-if="chassisAuthority.openingPageVisual.value !== 'fresh'"
+                        v-else-if="shouldShowChassisOpeningPageSkeleton"
                         :content-height="chassisOpeningPageShell.height"
                     />
                 </section>
@@ -505,10 +504,12 @@ const chassisOpeningPageShell = computed(() => {
     };
 });
 // A large path-backed PDF is opened through the native preview lane. Its
-// document-wide Fit Width is not knowable from page 1, so do not expose the
-// page-local provisional shell while that lane is loading its page table. The
+// document-wide Fit Width is not knowable from page 1, so keep PDF.js's
+// page-local provisional shell hidden while that lane loads its page table.
+// Do not expose a second chassis-owned shell while that lane is loading: its
+// page-local dimensions are provisional for the same reason. The native
 // preview is committed with the settled document-wide width and becomes the
-// first visible opening shell.
+// first page visual.
 const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const isOpening = snapshot.phase === 'pending'
@@ -518,13 +519,16 @@ const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     return shouldDeferNativePdfOpeningSkeleton({
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
-        hasPreview: snapshot.openingPageFrame?.preview !== undefined,
         isOpening,
         rendererKind: rendererKind.value,
         source: attrs.src as TPdfSource | null | undefined,
         sourceKind: sourceKind.value,
     });
 });
+const shouldShowChassisOpeningPageSkeleton = computed(() => (
+    !shouldDeferLargePdfOpeningSkeleton.value
+    && chassisAuthority.openingPageVisual.value !== 'fresh'
+));
 const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
 
 watch(
