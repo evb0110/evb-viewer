@@ -96,7 +96,6 @@ import type {
     Component,
     ComponentPublicInstance,
 } from 'vue';
-import { isNativeLegacyDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
@@ -122,8 +121,8 @@ import type {
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import {
     createPdfPageNavigationRequest,
-    PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
     readPrevalidatedTrustedPdfOpenGeometry,
+    shouldDeferNativePdfOpeningSkeleton,
 } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
@@ -511,13 +510,13 @@ const chassisOpeningPageShell = computed(() => {
 // first visible opening shell.
 const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
-    const geometry = snapshot.openingPageGeometry;
-    return sourceKind.value === 'pdf'
-        && rendererKind.value === 'pdfjs'
-        && geometry?.size !== undefined
-        && geometry.size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
-        && isNativeLegacyDocumentRef(snapshot.identity?.documentId)
-        && snapshot.openingPageFrame?.preview === undefined;
+    return shouldDeferNativePdfOpeningSkeleton({
+        documentId: snapshot.identity?.documentId,
+        geometry: snapshot.openingPageGeometry,
+        hasPreview: snapshot.openingPageFrame?.preview !== undefined,
+        rendererKind: rendererKind.value,
+        sourceKind: sourceKind.value,
+    });
 });
 const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
 

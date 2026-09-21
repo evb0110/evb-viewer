@@ -70,6 +70,7 @@ export { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/
 export {
     isPathPdfSource,
     PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
+    shouldDeferNativePdfOpeningSkeleton,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 export type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';

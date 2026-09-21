@@ -9,6 +9,7 @@ import {
 import {
     PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
     isPathPdfSource,
+    shouldDeferNativePdfOpeningSkeleton,
     shouldStageNativePdfOpeningPreview,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 
@@ -94,6 +95,38 @@ describe('pdfNativePreviewRouting', () => {
             ...openingGeometry,
             linearized: true,
             size: belowThreshold.size,
+        })).toBe(false);
+    });
+
+    it('defers only the provisional shell for oversized native PDF.js opens', () => {
+        const input = {
+            documentId: '/tmp/native-dictionary.pdf',
+            geometry: { size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES },
+            hasPreview: false,
+            rendererKind: 'pdfjs',
+            sourceKind: 'pdf',
+        };
+
+        expect(shouldDeferNativePdfOpeningSkeleton(input)).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            hasPreview: true,
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            rendererKind: 'native-pdf',
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            sourceKind: 'djvu',
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            documentId: 'browser://documents/native-dictionary.pdf',
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            geometry: { size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES - 1 },
         })).toBe(false);
     });
 });

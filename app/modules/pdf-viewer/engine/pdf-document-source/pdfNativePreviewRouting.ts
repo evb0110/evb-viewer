@@ -2,6 +2,7 @@ import type {
     IPdfPathSource,
     TPdfSource,
 } from '@app/types/pdfUi';
+import { isNativeLegacyDocumentRef } from '@contracts/documentRef';
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 
@@ -31,4 +32,19 @@ export function shouldStageNativePdfOpeningPreview(
                 && geometry.pageCount >= STAGED_NATIVE_OPENING_PREVIEW_MIN_PAGES
         ),
     );
+}
+
+export function shouldDeferNativePdfOpeningSkeleton(input: {
+    documentId: string | null | undefined;
+    geometry: { readonly size?: number } | null | undefined;
+    hasPreview: boolean;
+    rendererKind: string | null | undefined;
+    sourceKind: string | null | undefined;
+}) {
+    return input.sourceKind === 'pdf'
+        && input.rendererKind === 'pdfjs'
+        && input.geometry?.size !== undefined
+        && input.geometry.size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
+        && isNativeLegacyDocumentRef(input.documentId)
+        && !input.hasPreview;
 }
