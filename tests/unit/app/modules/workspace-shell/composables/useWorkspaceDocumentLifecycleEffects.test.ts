@@ -265,7 +265,10 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
             {expectedDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token')},
         );
         expect(waitForPdfReload).toHaveBeenCalledWith(7);
-        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({markDirty: true});
+        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({
+            markDirty: true,
+            resetSourceBeforeCommit: true,
+        });
         expect(mocks.acknowledgeResultFile).toHaveBeenCalledWith(
             'ocr-1',
             '/tmp/ocr-1-merged.pdf',

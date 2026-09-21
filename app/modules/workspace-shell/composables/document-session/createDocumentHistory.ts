@@ -576,7 +576,10 @@ export function createDocumentHistory(
         }
     }
 
-    async function reloadWorkingCopyIntoHistory(opts?: { markDirty?: boolean }) {
+    async function reloadWorkingCopyIntoHistory(opts?: {
+        markDirty?: boolean;
+        resetSourceBeforeCommit?: boolean;
+    }) {
         const path = state.workingCopyPath.value;
         if (!path) {
             return false;
@@ -585,6 +588,15 @@ export function createDocumentHistory(
         const nextState = await deps.readPdfStateFromPath(path);
         if (!state.isActiveWorkingCopy(path)) {
             return false;
+        }
+
+        if (opts?.resetSourceBeforeCommit) {
+            state.pdfSrc.value = null;
+            state.pdfReloadSrc.value = null;
+            await nextTick();
+            if (!state.isActiveWorkingCopy(path)) {
+                return false;
+            }
         }
 
         let didAppendHistory = false;
