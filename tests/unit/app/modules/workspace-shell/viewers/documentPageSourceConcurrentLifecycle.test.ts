@@ -167,6 +167,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         surface.begin({
             documentId: documentRef,
             documentRevision: 'open-intent:large',
+            provisional: true,
         }, {
             documentId: documentRef,
             height: 800,
@@ -230,6 +231,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const firstGeneration = firstSurface.begin({
             documentId: firstDocumentRef,
             documentRevision: 'open-intent:first',
+            provisional: true,
         }, {
             documentId: firstDocumentRef,
             height: 800,
@@ -241,6 +243,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         const secondGeneration = secondSurface.begin({
             documentId: secondDocumentRef,
             documentRevision: 'open-intent:second',
+            provisional: true,
         });
         const secondGeometryCommit = vi.spyOn(secondSurface, 'commitGeometry');
         const firstLoadErrors = ref<unknown[]>([]);
@@ -370,11 +373,13 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         predecessorSurface.begin({
             documentId: predecessorRef,
             documentRevision: 'open-intent:predecessor',
+            provisional: true,
         });
         const successorSurface = createDocumentOpenSurfaceSession();
         successorSurface.begin({
             documentId: successorRef,
             documentRevision: 'open-intent:successor',
+            provisional: true,
         });
         const predecessorErrors = ref<unknown[]>([]);
         const successorErrors = ref<unknown[]>([]);

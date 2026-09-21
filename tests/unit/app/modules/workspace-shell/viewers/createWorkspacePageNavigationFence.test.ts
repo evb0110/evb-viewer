@@ -291,6 +291,24 @@ describe('createWorkspacePageNavigationFence', () => {
         });
         expect(navigationFence.targetPage.value).toBe(1);
         expect(currentPage.value).toBe(1);
+
+        const ticket = openSurface.navigationTicket.value;
+        expect(ticket).not.toBeNull();
+        expect(openSurface.reportNavigation(ticket!, {
+            geometryRevision: 1,
+            interactionEpoch: 0,
+            kind: 'placed',
+            left: 0,
+            page: 1,
+            top: 0,
+        })).toBe(true);
+        expect(navigationFence.consumePageUpdate(1)).toEqual({
+            accepted: true,
+            navigationSource: 'toolbar',
+        });
+        expect(navigationFence.targetPage.value).toBe(1);
+        expect(currentPage.value).toBe(1);
+        expect(ticket!.signal.aborted).toBe(false);
     });
 
     it('retains strict stale-page rejection for a genuine target', () => {

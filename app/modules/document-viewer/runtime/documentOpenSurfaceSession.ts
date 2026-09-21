@@ -803,7 +803,16 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (current.generation !== expectedGeneration) return null;
             if (current.identity === null) return this.begin(identity);
             if (current.identity.documentId !== identity.documentId) return null;
-            if (current.identity.documentRevision === identity.documentRevision) return current.generation;
+            if (current.identity.documentRevision === identity.documentRevision) {
+                // A feature-pack remount has disposed the old source while the
+                // shared surface still retains its ready visual. Give the new
+                // owner a fresh opening transaction; reusing the ready
+                // generation would make its first frame commit impossible.
+                if (current.phase === 'ready') {
+                    return this.begin(identity, null, resolveDocumentViewportCurrentPage(sessionState.value.viewport));
+                }
+                return current.generation;
+            }
             if (isTransitionPhase(current.phase)) {
                 const currentIdentity = current.identity;
                 const sameDocument = currentIdentity?.documentId === identity.documentId;
