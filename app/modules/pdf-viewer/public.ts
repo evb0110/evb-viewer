@@ -23,6 +23,11 @@ export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePd
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 export { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
+export { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
+export {
+    resolvePdfFitWidthDimensions,
+    resolvePdfFitWidthRowWidths,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfFitWidthDimensions';
 export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';

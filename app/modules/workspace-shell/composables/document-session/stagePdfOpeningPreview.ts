@@ -14,20 +14,20 @@ import type {
     IDocumentOpenSurfaceSnapshot,
     IDocumentPageSource,
 } from '@app/modules/document-viewer/public';
-import { clampDocumentFitScale } from '@app/modules/document-viewer/zoomPolicy';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 import { getViewColumnCount } from '@app/utils/pdfViewMode';
-import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
 import {
+    resolveCurrentSpreadBaseWidth,
     resolvePdfFitWidthDimensions,
     resolvePdfFitWidthRowWidths,
-} from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfFitWidthDimensions';
+} from '@app/modules/pdf-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getErrorMessage } from '@app/utils/error';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import {
     createLazyIndexedCollection,
+    clampDocumentFitScale,
     createPagePreviewDocumentSource,
+    DOCUMENT_PAGE_GUTTER_PX,
 } from '@app/modules/document-viewer/public';
 import { shouldStageNativePdfOpeningPreview } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import type { IPdfValidationSourceRevision } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
