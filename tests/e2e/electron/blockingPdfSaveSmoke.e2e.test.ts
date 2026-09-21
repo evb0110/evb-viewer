@@ -339,6 +339,48 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         });
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
+    it('keeps a 700-file combine queue virtualized before native work starts', async () => {
+        const imagePaths = Array.from({length: 700}, (_, index) => join(
+            process.cwd(),
+            '.devkit',
+            `blocking-combine-virtual-${process.pid}-${Date.now()}-${index + 1}.jpg`,
+        ));
+        onTestFinished(() => imagePaths.forEach(imagePath => rmSync(imagePath, {force: true})));
+        imagePaths.forEach(imagePath => writeFileSync(imagePath, COMBINE_IMAGE_JPEG));
+
+        session = await startElectronE2ESession(`e2e-blocking-combine-virtual-${Date.now()}`, {clean: true});
+        const {page} = session;
+
+        await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+        await page.click('nav[aria-label="File"] button.rail-item');
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        const fileInput = await page.$('input[type="file"]');
+        expect(fileInput).not.toBeNull();
+        await fileInput!.uploadFile(...imagePaths);
+        await page.waitForFunction(
+            expectedCount => {
+                const queueMeta = document.querySelector<HTMLElement>('.combine-list-meta')?.textContent ?? '';
+                return document.querySelectorAll('[data-combine-row]').length > 0
+                    && queueMeta.includes(String(expectedCount));
+            },
+            {timeout: 30_000},
+            imagePaths.length,
+        );
+
+        const queueState = await page.evaluate(() => {
+            const list = document.querySelector<HTMLElement>('.combine-file-list');
+            return {
+                mountedRowCount: document.querySelectorAll('[data-combine-row]').length,
+                scrollHeight: list?.scrollHeight ?? 0,
+                firstRowIndex: document.querySelector<HTMLElement>('[data-combine-row]')
+                    ?.dataset.combineRowIndex ?? null,
+            };
+        });
+        expect(queueState.mountedRowCount).toBeLessThan(100);
+        expect(queueState.scrollHeight).toBeGreaterThan(30_000);
+        expect(queueState.firstRowIndex).toBe('0');
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
     it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
         const runOwner = `blocking-pressure-save-${Date.now()}`;
         const pdfPath = await createLargeScannedFixturePdf(
