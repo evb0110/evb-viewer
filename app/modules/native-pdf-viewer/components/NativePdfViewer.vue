@@ -80,6 +80,7 @@ import {
 import { revokeNativePdfPageObjectUrl } from '@app/modules/native-pdf-viewer/runtime/revokeNativePdfPageObjectUrl';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import {
+    createPageNavigationRequest,
     createPagePreviewDocumentSource, injectDocumentViewerRuntime, createDocumentViewportWritePort, clampDocumentManualZoom, DOCUMENT_PAGE_GUTTER_PX, useDocumentViewportLayoutLifecycle, createDocumentWheelZoomHandler, useDocumentWheelZoomSessionBoundaries,
     getPagePreviewSizesWithDeadline,
 } from '@app/modules/document-viewer/public';
@@ -340,6 +341,7 @@ function commitPageVisualToViewportSession(generation: number, pageNumber: numbe
     const viewport = viewerContainer.value;
     const pageState = pageStates.get(pageNumber);
     const viewportSession = openSurface.viewportSession.value;
+    const navigationTicket = openSurface.navigationTicket.value;
     if (
         generation !== loadGeneration
         || !snapshot.identity
@@ -349,6 +351,7 @@ function commitPageVisualToViewportSession(generation: number, pageNumber: numbe
         || paintedPageObjectUrls.get(pageNumber) !== pageState.objectUrl
         || viewportSession.requestedPage !== pageNumber
         || !viewportSession.viewportIntent
+        || navigationTicket !== null && !openSurface.isNavigationCurrent(navigationTicket)
     ) {
         return false;
     }
@@ -378,16 +381,34 @@ function commitPageVisualToViewportSession(generation: number, pageNumber: numbe
     })) {
         return false;
     }
-    return openSurface.commitViewport({
-        generation: snapshot.generation,
-        documentRevision: snapshot.identity.documentRevision,
-        viewportIntentId: viewportSession.viewportIntent.id,
-        documentGeometryRevision: viewportIntent.documentRevision,
-        interactionEpoch: viewportIntent.interactionEpoch,
-        pageNumber,
-        left: viewport.scrollLeft,
-        top: viewport.scrollTop,
-    }) && openSurface.markReady(fence);
+    const placed = navigationTicket
+        ? openSurface.reportNavigation(navigationTicket, {
+            kind: 'placed',
+            page: pageNumber,
+            left: viewport.scrollLeft,
+            top: viewport.scrollTop,
+            geometryRevision: viewportIntent.documentRevision,
+            interactionEpoch: viewportIntent.interactionEpoch,
+        })
+        : openSurface.commitViewport({
+            generation: snapshot.generation,
+            documentRevision: snapshot.identity.documentRevision,
+            viewportIntentId: viewportSession.viewportIntent.id,
+            documentGeometryRevision: viewportIntent.documentRevision,
+            interactionEpoch: viewportIntent.interactionEpoch,
+            pageNumber,
+            left: viewport.scrollLeft,
+            top: viewport.scrollTop,
+        });
+    if (!placed || !openSurface.markReady(fence)) {
+        return false;
+    }
+    return navigationTicket
+        ? openSurface.reportNavigation(navigationTicket, {
+            kind: 'arrived',
+            page: pageNumber,
+        })
+        : true;
 }
 function markInitialVisualReady(generation: number, pageNumber: number) {
     if (
@@ -585,12 +606,12 @@ function getVisiblePageNumber() {
     }
     return pageLayoutGeometry.value.resolveMostVisiblePage(container.scrollTop, container.clientHeight);
 }
-function syncCurrentPageFromViewport(options: {supersedeNavigation: boolean}) {
+function syncCurrentPageFromViewport() {
     const nextPage = getVisiblePageNumber();
     if (nextPage === activePage.value) {
         return;
     }
-    const observedPage = chassisAuthority?.observePage(nextPage, options) ?? nextPage;
+    const observedPage = chassisAuthority?.observePage(nextPage) ?? nextPage;
     activePage.value = observedPage;
     emit('update:currentPage', observedPage);
 }
@@ -961,7 +982,7 @@ function handleViewerScroll(event?: Event) {
     }
     if (viewportWritePort.consumeAuthorityScroll(container)) {
         scrollTop.value = Math.max(0, container.scrollTop);
-        syncCurrentPageFromViewport({supersedeNavigation: false});
+        syncCurrentPageFromViewport();
         syncLoadedPages();
         return;
     }
@@ -976,7 +997,7 @@ function handleViewerScroll(event?: Event) {
     viewportLayoutLifecycle.cancelPendingRestore();
     viewportWritePort.observeUserScroll(container);
     scrollTop.value = Math.max(0, container.scrollTop);
-    syncCurrentPageFromViewport({supersedeNavigation: true});
+    syncCurrentPageFromViewport();
     syncLoadedPages();
 }
 function handleContainerResize() {
@@ -1046,6 +1067,7 @@ function handlePageVisualError(payload: {
 async function projectViewportSessionNavigation(options: {commitVisual?: boolean} = {}) {
     const session = chassisAuthority?.openSurface.viewportSession.value;
     const intent = session?.viewportIntent;
+    const navigationTicket = chassisAuthority?.openSurface.navigationTicket.value ?? null;
     if (!session?.identity || !intent || totalPages.value === 0) {
         return;
     }
@@ -1054,15 +1076,17 @@ async function projectViewportSessionNavigation(options: {commitVisual?: boolean
     const expectedIntentId = intent.id;
     if (activePage.value !== normalizedPage) {
         activePage.value = normalizedPage;
-        emit('update:currentPage', normalizedPage);
     }
     await nextTick();
     const currentSession = chassisAuthority?.openSurface.viewportSession.value;
+    const currentTicket = chassisAuthority?.openSurface.navigationTicket.value ?? null;
     const container = viewerContainer.value;
     const layout = getPageLayout(normalizedPage);
     if (
         currentSession?.viewportIntent?.id !== expectedIntentId
         || currentSession.requestedPage !== normalizedPage
+        || navigationTicket !== currentTicket
+        || navigationTicket !== null && !chassisAuthority?.openSurface.isNavigationCurrent(navigationTicket)
         || !container
         || !layout
     ) {
@@ -1087,7 +1111,7 @@ async function projectViewportSessionNavigation(options: {commitVisual?: boolean
 function scrollToPage(pageNumber: number) {
     const normalizedPage = clamp(pageNumber, 1, totalPages.value || 1);
     if (chassisAuthority) {
-        chassisAuthority.navigate(normalizedPage);
+        chassisAuthority.navigate(createPageNavigationRequest(normalizedPage, 'toolbar'));
         void projectViewportSessionNavigation();
         return;
     }
@@ -1095,8 +1119,13 @@ function scrollToPage(pageNumber: number) {
     emit('update:currentPage', normalizedPage);
 }
 watch(
-    () => chassisAuthority?.openSurface.viewportSession.value.viewportIntent?.id ?? null,
-    () => void projectViewportSessionNavigation(),
+    () => chassisAuthority?.openSurface.navigationTicket.value?.id ?? null,
+    () => {
+        if (!chassisAuthority?.openSurface.navigationTicket.value) {
+            return;
+        }
+        void projectViewportSessionNavigation();
+    },
     {flush: 'post'},
 );
 watch(effectiveZoom, (value) => {
@@ -1166,11 +1195,12 @@ watch(
                 Math.max(1, totalPages.value),
             );
             activePage.value = restoredPage;
-            chassisAuthority?.navigate(restoredPage);
             viewerError.value = null;
             emit('update:document', null);
             emit('update:totalPages', totalPages.value);
-            emit('update:currentPage', restoredPage);
+            if (!chassisAuthority) {
+                emit('update:currentPage', restoredPage);
+            }
             if (totalPages.value === 0) {
                 throw new Error(t('errors.file.noPages'));
             }

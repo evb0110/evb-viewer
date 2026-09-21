@@ -30,12 +30,6 @@ export interface IDocumentPageSourceFence {
     readonly src: TDocumentRef | null;
 }
 export interface IDocumentPageSourceTransition extends IDocumentTransition<IDocumentPageSourceFence> {readonly kind: 'open' | 'settle' | 'invalidate' | 'restore';}
-const SUPERSEDABLE_OPEN_PHASES = new Set([
-    'pending',
-    'geometry-committed',
-    'canvas-committed',
-    'viewport-committed',
-]);
 export function createDocumentPageSourceLifecycle(options: {
     chassisAuthority: IDocumentViewerRuntime | null;
     readIsActive: () => boolean;
@@ -64,18 +58,10 @@ export function createDocumentPageSourceLifecycle(options: {
         IDocumentPageSourceTransition
     >(isFenceCurrent);
     function supersede() {
-        const openSurface = options.chassisAuthority?.openSurface;
-        const snapshot = openSurface?.snapshot.value;
-        if (
-            openSurface
-            && snapshot
-            && openSurfaceGeneration.value !== null
-            && snapshot.generation === openSurfaceGeneration.value
-            && snapshot.openingPageFrame !== null
-            && SUPERSEDABLE_OPEN_PHASES.has(snapshot.phase)
-        ) {
-            openSurface.supersede();
-        }
+        // Source changes invalidate this loader's own work fence. The shared
+        // surface owns document replacement; calling supersede here would
+        // create a second generation from an observational source watcher and
+        // could revoke a host transaction that is still opening.
         openSurfaceGeneration.value = null;
         documentRevision.value = null;
     }
@@ -95,11 +81,11 @@ export function createDocumentPageSourceLifecycle(options: {
                     : null;
                 const chassisAuthority = options.chassisAuthority;
                 openSurfaceGeneration.value = src && chassisAuthority
-                    ? chassisAuthority.openSurface.claim({
+                    ? chassisAuthority.openSurface.acquireSource({
                         documentId: chassisAuthority.openSurface.snapshot.value.identity?.documentId
                             ?? String(src),
                         documentRevision: documentRevision.value ?? '',
-                    })
+                    }, chassisAuthority.openSurface.snapshot.value.generation)
                     : null;
                 void channel.publish({
                     kind: 'open',
@@ -234,7 +220,7 @@ export async function openDocumentPageSource(
         renderPage: (pageNumber: number) => Promise<void>;
         resetMetricPublication: () => void;
         scheduleRender: () => void;
-        scrollToPage: (pageNumber: number) => void;
+        positionPage: (pageNumber: number) => void;
         setSource: (source: IDocumentPageSource | null) => void;
         surfaceBudget: typeof workspaceSurfaceBudgetController;
     },
@@ -308,7 +294,7 @@ export async function openDocumentPageSource(
             return false;
         }
         context.emit('loading', false);
-        context.scrollToPage(initialPage);
+        context.positionPage(initialPage);
         if (!transition.isCurrent()) {
             return false;
         }

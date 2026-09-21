@@ -271,7 +271,10 @@ export function shouldOcrClassifiedPage(
         return policy === 'replace-evb' || policy === 'replace-all';
     }
     if (classification === 'foreign-hidden-ocr') {
-        return policy === 'replace-all';
+        // A hidden-only text layer is not a usable selectable layer in the
+        // viewer. Treat it like missing text so the default OCR flows can
+        // repair documents that were given an unusable foreign OCR layer.
+        return true;
     }
     return false;
 }

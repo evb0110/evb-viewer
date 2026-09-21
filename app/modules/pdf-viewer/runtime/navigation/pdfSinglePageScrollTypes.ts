@@ -9,7 +9,7 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import type { IPdfNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import type { IDocumentNavigationRequest } from '@app/modules/document-viewer/public';
 
 export interface ITransactionVisibleRangeCommitOptions { transactionId?: number | undefined }
 
@@ -67,5 +67,5 @@ export interface IUsePdfSinglePageScrollOptions {
     viewportWritePort: IPdfViewportWritePort;
     getPhysicalScrollOrigin?: (() => number) | undefined;
     getPageLayoutMetrics?: (() => IPdfPageLayoutMetrics | null) | undefined;
-    onNavigationPostArrival?: ((request: IPdfNavigationRequest, signal: AbortSignal) => Promise<void> | void) | undefined;
+    onNavigationPostArrival?: ((request: IDocumentNavigationRequest, signal: AbortSignal) => Promise<void> | void) | undefined;
 }

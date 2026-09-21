@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     TFitMode,
@@ -14,8 +13,14 @@ import type {
     IScrollToPageOptions,
     TPdfSidebarTab,
 } from '@app/modules/pdf-viewer/public';
-import type { TWorkspacePageNavigationSource } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
-import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/public';
+import type {
+    IDocumentNavigationRequest,
+    IDocumentNavigationTicket,
+} from '@app/modules/document-viewer/public';
+import {
+    createPdfPageNavigationRequest,
+    isAuthoringAnnotationTool,
+} from '@app/modules/pdf-viewer/public';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IWorkspaceViewStateDeps {
@@ -34,11 +39,7 @@ interface IWorkspaceViewStateDeps {
     currentPage: Ref<number>;
     totalPages: Ref<number>;
     invalidateBookmarkNavigationRequests?: (() => void) | undefined;
-    beginProgrammaticPageNavigation?: ((
-        page: number,
-        navigationSource: TWorkspacePageNavigationSource | null,
-    ) => void) | undefined;
-    requestPageNavigation?: ((page: number) => number) | undefined;
+    requestPageNavigation?: ((request: IDocumentNavigationRequest) => IDocumentNavigationTicket | null) | undefined;
     documentViewerRef: Ref<(
         IDocumentViewerExpose & {applyFitWidthToCurrentPage?: (
             options?: {page?: number | null | undefined},
@@ -47,10 +48,6 @@ interface IWorkspaceViewStateDeps {
 }
 
 export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
-    let queuedPageNavigation: {
-        options?: IScrollToPageOptions | undefined;
-        page: number;
-    } | null = null;
     const isFitWidthActive = computed(
         () => deps.zoomMode.value === 'fit-width',
     );
@@ -135,17 +132,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         return Math.min(positivePage, Math.max(1, Math.trunc(deps.totalPages.value)));
     }
 
-    function forwardQueuedPageNavigation() {
-        const queued = queuedPageNavigation;
-        const viewer = deps.documentViewerRef.value;
-        if (!queued || !viewer) {
-            return false;
-        }
-        queuedPageNavigation = null;
-        viewer.scrollToPage(normalizeNavigationPage(queued.page), queued.options);
-        return true;
-    }
-
     function handleGoToPage(page: number, options?: IScrollToPageOptions) {
         const targetPage = normalizeNavigationPage(page);
         const wasAlreadyCurrentPage = deps.currentPage.value === targetPage;
@@ -183,24 +169,16 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         if (options?.navigationSource !== 'bookmark') {
             deps.invalidateBookmarkNavigationRequests?.();
         }
-        deps.beginProgrammaticPageNavigation?.(targetPage, options?.navigationSource ?? null);
         // The host-owned viewport session exists before the async viewer ref.
         // Persist intent there so chassis mounting cannot replace it with a
         // stale page prop while the document is still opening.
-        if (!options) {
-            deps.requestPageNavigation?.(targetPage);
+        const request = createPdfPageNavigationRequest(targetPage, options);
+        if (deps.requestPageNavigation) {
+            deps.requestPageNavigation(request);
+        } else {
+            deps.documentViewerRef.value?.scrollToPage(targetPage, options);
         }
-        queuedPageNavigation = {
-            page: targetPage,
-            ...(options ? {options} : {}),
-        };
-        forwardQueuedPageNavigation();
     }
-
-    watch(deps.documentViewerRef, () => forwardQueuedPageNavigation(), {flush: 'sync'});
-    tryOnScopeDispose(() => {
-        queuedPageNavigation = null;
-    });
 
     return {
         isFitWidthActive,

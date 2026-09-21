@@ -1,3 +1,9 @@
+import {
+    createPageNavigationRequest,
+    type IDocumentNavigationRequest,
+    type IDocumentNavigationTicket,
+    type TDocumentNavigationOutcome,
+} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
 import type {
@@ -67,12 +73,7 @@ export type {
     TDocumentOpenSurfacePresentation,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
-export {
-    commitDocumentOpenSurfaceViewport,
-    shouldProjectDocumentViewportCommitPage,
-    shouldProjectDocumentViewportScroll,
-    type IDocumentViewportPositionProjection,
-} from '@app/modules/document-viewer/runtime/documentOpenSurfaceProjection';
+export { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewer/runtime/shouldProjectDocumentViewportScroll';
 
 export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
     const isTransitioning = snapshot.phase === 'pending'
@@ -191,6 +192,7 @@ function projectDocumentOpenSurfaceSnapshot(
         : {
             documentId: viewport.identity.documentId,
             documentRevision: viewport.identity.revision,
+            ...(viewport.identity.provisional ? {provisional: true} : {}),
         };
     const projectedRenderFence = viewport.stagedRenderFence ?? viewport.committedRenderFence;
     const committedRender = projectedRenderFence === null
@@ -251,9 +253,53 @@ function projectDocumentOpenSurfaceSnapshot(
 }
 export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession {
     const sessionState = shallowRef({
+        ticket: null as IDocumentNavigationTicket | null,
         viewport: createEmptyDocumentViewportSession(),
         visual: idleVisualState(),
     });
+    const navigationTicket = computed(() => sessionState.value.ticket);
+    const receipts = new WeakMap<AbortSignal, {
+        controller: AbortController;
+        finish: (outcome: TDocumentNavigationOutcome) => void;
+    }>();
+    function makeTicket(request: IDocumentNavigationRequest, generation: number, documentRevision: string, id: string) {
+        const controller = new AbortController();
+        let finish!: (outcome: TDocumentNavigationOutcome) => void;
+        const finished = new Promise<TDocumentNavigationOutcome>(resolve => { finish = resolve; });
+        const ticket: IDocumentNavigationTicket = Object.freeze({
+            generation,
+            documentRevision,
+            id,
+            request: Object.freeze({
+                ...request,
+                target: Object.freeze({...request.target}),
+            }),
+            signal: controller.signal,
+            finished,
+        });
+        receipts.set(ticket.signal, {
+            controller,
+            finish,
+        });
+        return ticket;
+    }
+    function retire(ticket: IDocumentNavigationTicket | null, outcome: TDocumentNavigationOutcome) {
+        if (!ticket) return;
+        const receipt = receipts.get(ticket.signal);
+        if (!receipt) return;
+        receipts.delete(ticket.signal);
+        receipt.finish(outcome);
+        receipt.controller.abort(outcome);
+    }
+    function isNavigationCurrent(ticket: IDocumentNavigationTicket) {
+        const current = sessionState.value;
+        const activeTicket = current.ticket;
+        return !ticket.signal.aborted
+            && activeTicket?.signal === ticket.signal
+            && activeTicket.generation === ticket.generation
+            && current.viewport.generation === activeTicket.generation
+            && current.viewport.identity?.revision === activeTicket.documentRevision;
+    }
     const viewportSession = computed(() => sessionState.value.viewport);
     const snapshot = computed(() => projectDocumentOpenSurfaceSnapshot(
         sessionState.value.visual,
@@ -292,6 +338,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             cancelSkeletonTimer(effect.token);
             return;
         }
+        if (sessionState.value.viewport.skeletonDelay?.token !== effect.token) return;
         cancelSkeletonTimer(effect.token);
         const timer = setTimeout(() => {
             skeletonTimers.delete(effect.token);
@@ -309,6 +356,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             current: IDocumentOpenSurfaceVisualState,
             viewport: IDocumentViewportSessionState,
         ) => IDocumentOpenSurfaceVisualState,
+        nextTicket?: IDocumentNavigationTicket | null,
     ) {
         let viewport = sessionState.value.viewport;
         const effects: TDocumentViewportSessionEffect[] = [];
@@ -321,10 +369,41 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             viewport = transition.state;
             effects.push(...transition.effects);
         }
+        const previousTicket = sessionState.value.ticket;
+        let publishedTicket = viewport.lifecycle === 'failed' ? null
+            : nextTicket === undefined ? previousTicket : nextTicket;
+        // Metadata may bound a restore requested before the page count existed.
+        // Refinement keeps the receipt and ordering identity; it is not another command.
+        if (publishedTicket && viewport.pageCount !== null && publishedTicket.request.target.kind !== 'named-dest'
+            && publishedTicket.request.target.page > viewport.pageCount) {
+            publishedTicket = Object.freeze({
+                ...publishedTicket,
+                request: Object.freeze({
+                    ...publishedTicket.request,
+                    target: Object.freeze({
+                        ...publishedTicket.request.target,
+                        page: viewport.pageCount,
+                    }),
+                }),
+            });
+        }
         sessionState.value = {
+            ticket: publishedTicket,
             viewport,
             visual: updateVisual?.(sessionState.value.visual, viewport) ?? sessionState.value.visual,
         };
+        if (previousTicket?.signal !== publishedTicket?.signal) {
+            retire(previousTicket, viewport.lifecycle === 'failed'
+                ? {
+                    kind: 'failed',
+                    reason: viewport.failure ?? 'render-failed',
+                }
+                : viewport.identity === null || viewport.generation !== previousTicket?.generation
+                    ? {kind: 'document-ended'} : {
+                        kind: 'superseded',
+                        by: 'command',
+                    });
+        }
         for (const effect of effects) applyViewportEffect(effect);
         for (const event of events) diagnostics.record(event.type, true);
         return true;
@@ -336,14 +415,16 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             current: IDocumentOpenSurfaceVisualState,
             viewport: IDocumentViewportSessionState,
         ) => IDocumentOpenSurfaceVisualState,
+        nextTicket?: IDocumentNavigationTicket | null,
     ) {
-        return transitionViewport([event], updateVisual);
+        return transitionViewport([event], updateVisual, nextTicket);
     }
 
     function commitVisual(
         update: (current: IDocumentOpenSurfaceVisualState) => IDocumentOpenSurfaceVisualState,
     ) {
         sessionState.value = {
+            ...sessionState.value,
             viewport: sessionState.value.viewport,
             visual: update(sessionState.value.visual),
         };
@@ -380,13 +461,17 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     ) {
         retireOpeningPageSource();
         openingPreviewGate.reset();
+        const id = createViewportIntentId('open');
+        const ticket = makeTicket(createPageNavigationRequest(initialPage, 'restore'),
+            sessionState.value.viewport.generation + 1, identity.documentRevision, id);
         const opened = dispatchViewport({
             type: 'open-requested',
             identity: {
                 documentId: identity.documentId,
                 revision: identity.documentRevision,
+                ...(identity.provisional ? {provisional: true} : {}),
             },
-            viewportIntentId: createViewportIntentId('open'),
+            viewportIntentId: id,
             initialPage: Math.max(1, Math.trunc(initialPage)),
             skeletonDelay: {
                 token: createViewportIntentId('skeleton'),
@@ -397,7 +482,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 pageCount: preparedFrame.geometry.pageCount,
                 frameKey: preparedFrame.sourceRevisionKey ?? preparedFrame.intentKey,
             }} : {}),
-        }, updateVisual);
+        }, updateVisual, ticket);
         logPdfRenderTrace('viewport-session-open-requested', {
             documentId: identity.documentId,
             opened,
@@ -406,22 +491,30 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         return opened;
     }
 
-    function dispatchNavigation(
-        pageNumber: number,
-        skeletonDelayMs: number,
-        updateVisual?: (current: IDocumentOpenSurfaceVisualState) => IDocumentOpenSurfaceVisualState,
-    ) {
-        const intentId = createViewportIntentId('navigation');
+    function navigate(request: IDocumentNavigationRequest, skeletonDelayMs = 120) {
+        const state = sessionState.value.viewport;
+        if (!state.identity || state.lifecycle === 'closing'
+            || state.lifecycle === 'failed' && state.visual.kind !== 'page') return null;
+        const page = request.target.kind === 'named-dest' ? null : request.target.page;
+        if (page !== null && (!Number.isSafeInteger(page) || page < 1)) return null;
+        const id = createViewportIntentId('navigation');
+        const ticket = makeTicket(request, state.generation, state.identity.revision, id);
         const token = createViewportIntentId('skeleton');
-        return dispatchViewport({
+        const accepted = dispatchViewport({
             type: 'navigation-requested',
-            pageNumber,
-            viewportIntentId: intentId,
+            pageNumber: page,
+            viewportIntentId: id,
             ...(skeletonDelayMs > 0 ? {skeletonDelay: {
                 token,
                 deadline: Date.now() + skeletonDelayMs,
             }} : {}),
-        }, updateVisual);
+        }, page !== null && shouldRetargetOwnedOpeningPageShell(page)
+            ? visual => retargetDocumentOpeningShell(visual, page) : undefined, ticket);
+        if (!accepted) retire(ticket, {
+            kind: 'failed',
+            reason: 'navigation-rejected',
+        });
+        return accepted ? sessionState.value.ticket?.signal === ticket.signal ? sessionState.value.ticket : ticket : null;
     }
 
     function isCurrentFence(fence: IDocumentOpenSurfaceRenderFence) {
@@ -504,7 +597,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     function markReady(fence: IDocumentOpenSurfaceRenderFence) {
         const viewportState = sessionState.value.viewport;
         if (viewportState.lifecycle === 'ready') {
-            return viewportState.committedPage === fence.pageNumber;
+            const committed = snapshot.value.committedRender;
+            return committed !== null && fencesMatch(committed, fence)
+                && viewportState.committedPage === fence.pageNumber;
         }
         const committed = snapshot.value.committedRender;
         const viewport = snapshot.value.committedViewport;
@@ -550,6 +645,70 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     }
 
     return {
+        navigationTicket,
+        navigate,
+        isNavigationCurrent,
+        reportNavigation(ticket, report) {
+            if (!isNavigationCurrent(ticket)) return false;
+            const state = sessionState.value.viewport;
+            const activeTicket = sessionState.value.ticket;
+            if (!activeTicket || activeTicket.signal !== ticket.signal) return false;
+            if (report.kind === 'resolved') return dispatchViewport({
+                type: 'navigation-resolved',
+                generation: activeTicket.generation,
+                viewportIntentId: activeTicket.id,
+                pageNumber: report.page,
+            });
+            if (report.kind === 'placed') return this.commitViewport({
+                generation: activeTicket.generation,
+                documentRevision: activeTicket.documentRevision,
+                viewportIntentId: activeTicket.id,
+                pageNumber: report.page,
+                documentGeometryRevision: report.geometryRevision,
+                interactionEpoch: report.interactionEpoch,
+                left: report.left,
+                top: report.top,
+            }) && isNavigationCurrent(ticket);
+            if (report.kind === 'arrived') {
+                const placement = state.stagedViewportFence ?? state.committedViewportFence;
+                if (state.requestedPage !== report.page || placement?.viewportIntentId !== ticket.id
+                    || placement.pageNumber !== report.page) return false;
+                const openingPlacementReady = (state.lifecycle === 'opening'
+                    || state.lifecycle === 'transitioning')
+                    && (state.stagedRenderFence?.pageNumber === report.page
+                        || state.committedRenderFence?.pageNumber === report.page)
+                    && state.stagedViewportFence?.pageNumber === report.page;
+                if (
+                    ticket.request.readiness !== 'metrics'
+                    && state.lifecycle !== 'ready'
+                    && !openingPlacementReady
+                ) return false;
+            }
+            if (report.kind === 'failed') this.failPageTransition(state.requestedPage, report.reason);
+            if (report.kind === 'abandoned') {
+                dispatchViewport({
+                    type: 'navigation-superseded-by-user',
+                    generation: ticket.generation,
+                    pageNumber: resolveDocumentViewportCurrentPage(state),
+                }, visual => ({
+                    ...visual,
+                    presentation: 'committed',
+                }));
+            }
+            // Publication can synchronously issue another command; retire only our receipt.
+            if (sessionState.value.ticket?.signal === ticket.signal) {
+                sessionState.value = {
+                    ...sessionState.value,
+                    ticket: null,
+                };
+            }
+            retire(ticket, report.kind === 'arrived' ? report
+                : report.kind === 'failed' ? report : {
+                    kind: 'superseded',
+                    by: report.by,
+                });
+            return true;
+        },
         snapshot: readonly(snapshot),
         viewportSession,
         readyAuthorizationRevision: openingPreviewGate.readyAuthorizationRevision,
@@ -639,8 +798,12 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 }),
             }));
         },
-        claim(identity) {
+        acquireSource(identity, expectedGeneration) {
             const current = snapshot.value;
+            if (current.generation !== expectedGeneration) return null;
+            if (current.identity === null) return this.begin(identity);
+            if (current.identity.documentId !== identity.documentId) return null;
+            if (current.identity.documentRevision === identity.documentRevision) return current.generation;
             if (isTransitionPhase(current.phase)) {
                 const currentIdentity = current.identity;
                 const sameDocument = currentIdentity?.documentId === identity.documentId;
@@ -656,10 +819,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 // switches atomically here.
                 if (
                     sameDocument
-                    && currentIdentity.documentRevision.startsWith('open-intent:')
+                    && currentIdentity.provisional === true
                     && current.committedRender === null
                     && current.committedViewport === null
                 ) {
+                    const ticket = sessionState.value.ticket;
                     const refined = dispatchViewport({
                         type: 'identity-refined',
                         generation: sessionState.value.viewport.generation,
@@ -675,26 +839,16 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                                 identity.documentRevision,
                             ),
                         }
-                        : visual);
-                    return refined ? snapshot.value.generation : this.begin(identity);
+                        : visual, ticket ? Object.freeze({
+                        ...ticket,
+                        documentRevision: identity.documentRevision,
+                    }) : null);
+                    return refined ? snapshot.value.generation : null;
                 }
-                return this.begin(identity);
+                // A provisional host transaction cannot be replaced by a loader that failed refinement.
+                if (currentIdentity?.provisional) return null;
             }
-            return this.begin(identity);
-        },
-        supersede() {
-            const current = snapshot.value;
-            if (current.identity === null || current.phase === 'idle' || current.phase === 'failed') {
-                return null;
-            }
-            const opened = beginViewportSession(current.identity, current.openingPageGeometry, undefined, () => ({
-                presentation: 'idle',
-                geometry: current.geometry,
-                openingPageGeometry: current.openingPageGeometry,
-                openingPageFrame: null,
-                committedViewportPosition: null,
-            }), sessionState.value.viewport.requestedPage);
-            return opened ? sessionState.value.viewport.generation : null;
+            return this.begin(identity, null, resolveDocumentViewportCurrentPage(sessionState.value.viewport));
         },
         commitOpeningPageFrame(generation, frame) {
             const current = snapshot.value;
@@ -1026,7 +1180,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     type: 'close-committed',
                     generation: closingGeneration,
                 },
-            ], () => idleVisualState())) {
+            ], () => idleVisualState(), null)) {
                 commitVisual(() => idleVisualState());
             }
         },
@@ -1050,13 +1204,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (!accepted) {
                 return false;
             }
-            const updated = sessionState.value.viewport;
-            if (
-                invalidatesCommittedVisual
-                && updated.lifecycle === 'transitioning'
-            ) {
-                return dispatchNavigation(updated.requestedPage, 0);
-            }
             return true;
         },
         invalidateResidentVisual(pageNumber) {
@@ -1074,63 +1221,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             ) {
                 return false;
             }
-            return dispatchNavigation(normalized, 0);
+            return dispatchViewport({
+                type: 'resident-visual-invalidated',
+                generation: viewport.generation,
+                pageNumber: normalized,
+            });
         },
         requestNavigation(pageNumber, skeletonDelayMs = 120) {
-            const normalized = Math.max(1, Math.trunc(pageNumber));
-            if (!Number.isSafeInteger(normalized)) {
-                return sessionState.value.viewport.requestedPage;
-            }
-            if (sessionState.value.viewport.identity === null) {
-                // Navigation without a document identity has no semantic
-                // owner. The host begins an open session synchronously before
-                // exposing page commands, so retaining this value would only
-                // allow a late projection from the closed document to target
-                // the next file.
-                logPdfRenderTrace('viewport-session-navigation-rejected-without-owner', {pageNumber: normalized});
-                return sessionState.value.viewport.requestedPage;
-            }
-            const current = sessionState.value.viewport;
-            const semanticCurrentPage = resolveDocumentViewportCurrentPage(current);
-            const retargetOpeningShell = shouldRetargetOwnedOpeningPageShell(normalized);
-            if (
-                current.requestedPage === normalized
-                && semanticCurrentPage === normalized
-                && !retargetOpeningShell
-            ) {
-                // Page projection and viewport commit callbacks may repeat the
-                // already-authoritative semantic page. While a navigation is
-                // in flight, requestedPage is the semantic page; once ready,
-                // observedPage can diverge after free scrolling and an explicit
-                // command back to the same requested page must mint a new intent.
-                // Replacing a genuinely live intent here would invalidate the
-                // render/viewport fences and let a fresh skeleton timer outlive
-                // the canvas it was meant to guard.
-                logPdfRenderTrace('viewport-session-navigation-already-requested', {
-                    pageNumber: normalized,
-                    committedPage: current.committedPage,
-                    observedPage: current.observedPage,
-                    visual: current.visual.kind === 'page'
-                        ? current.visual.presentation
-                        : current.visual.kind,
-                });
-                return current.requestedPage;
-            }
-            dispatchNavigation(normalized, skeletonDelayMs, retargetOpeningShell
-                ? visual => {
-                    // A saved-page restore can arrive after preflight already
-                    // measured page 1. Retarget semantic ownership without
-                    // replacing the visible shell: changing to provisional
-                    // geometry here would create a third, resizing loading
-                    // stage before the destination raster commits.
-                    return retargetDocumentOpeningShell(visual, normalized);
-                }
-                : undefined);
-            logPdfRenderTrace('viewport-session-navigation-dispatched', {
-                pageNumber: normalized,
-                requestedPage: sessionState.value.viewport.requestedPage,
-                documentId: sessionState.value.viewport.identity.documentId,
-            });
+            navigate(createPageNavigationRequest(pageNumber, 'toolbar'), skeletonDelayMs);
             return sessionState.value.viewport.requestedPage;
         },
         observeViewportPage(pageNumber, options = {}) {
@@ -1141,14 +1239,34 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }
             const supersede = options.supersedeNavigation === true
                 && current.lifecycle === 'transitioning';
+            if (supersede) {
+                const ticket = sessionState.value.ticket;
+                if (ticket) {
+                    dispatchViewport({
+                        type: 'navigation-superseded-by-user',
+                        generation: ticket.generation,
+                        pageNumber: resolveDocumentViewportCurrentPage(current),
+                    }, visual => ({
+                        ...visual,
+                        presentation: 'committed',
+                    }));
+                    if (sessionState.value.ticket?.signal === ticket.signal) {
+                        sessionState.value = {
+                            ...sessionState.value,
+                            ticket: null,
+                        };
+                    }
+                    retire(ticket, {
+                        kind: 'superseded',
+                        by: 'user-input',
+                    });
+                }
+            }
             dispatchViewport({
-                type: supersede ? 'navigation-superseded-by-user' : 'page-observed',
+                type: 'page-observed',
                 generation: current.generation,
                 pageNumber: normalized,
-            }, supersede ? visual => ({
-                ...visual,
-                presentation: 'committed',
-            }) : undefined);
+            });
             return resolveDocumentViewportCurrentPage(sessionState.value.viewport);
         },
     };

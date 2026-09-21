@@ -2,7 +2,6 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
@@ -29,7 +28,6 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
-import { useWorkspacePageNavigationCommand } from '@app/modules/workspace-shell/composables/useWorkspacePageNavigationCommand';
 import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/useWorkspaceViewState';
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
@@ -67,7 +65,6 @@ import {
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope: IAnalyticsDocumentScope;
@@ -547,41 +544,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const { handleExportImages } = exportControls;
 
     const bookmarkNavigationIntentVersion = ref(0);
-    const {
-        begin: beginProgrammaticPageNavigation,
-        clampTo: clampProgrammaticPageNavigationTarget,
-        clear: clearProgrammaticPageNavigationTarget,
-        consumePageUpdate: consumeViewerCurrentPageUpdate,
-        navigationPage,
-        targetPage: programmaticPageNavigationTarget,
-    } = createWorkspacePageNavigationFence({
-        currentPage,
-        openSurface: deps.openSurface,
+    const navigationTicket = computed(() => deps.openSurface?.navigationTicket.value ?? null);
+    const navigationPage = computed(() => {
+        const target = navigationTicket.value?.request.target;
+        return target && 'page' in target ? target.page : currentPage.value;
     });
-
-    watch(totalPages, (pageCount) => {
-        clampProgrammaticPageNavigationTarget(pageCount);
-    }, {flush: 'sync'});
 
     function invalidateBookmarkNavigationRequests() {
         bookmarkNavigationIntentVersion.value += 1;
         logPdfRenderTrace('workspace-bookmark-navigation-invalidated', {
             version: bookmarkNavigationIntentVersion.value,
             currentPage: currentPage.value,
-            pendingProgrammaticPage: programmaticPageNavigationTarget.value,
+            pendingNavigationPage: navigationPage.value,
         });
     }
-
-    // A failed open never reaches the pdfSrc transition that normally resets
-    // navigation state, so a target set by early commands would contaminate
-    // the next document and reject its legitimate page updates.
-    watch(pdfError, (error) => {
-        if (error && programmaticPageNavigationTarget.value !== null) {
-            clearProgrammaticPageNavigationTarget('open-error');
-        }
-    });
-
-    tryOnScopeDispose(clearProgrammaticPageNavigationTarget);
 
     const viewState = useWorkspaceViewState({
         fitMode,
@@ -599,22 +575,14 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         currentPage,
         totalPages,
         invalidateBookmarkNavigationRequests,
-        beginProgrammaticPageNavigation,
-        requestPageNavigation: page => deps.openSurface?.requestNavigation(page) ?? page,
+        requestPageNavigation: request => deps.openSurface?.navigate(request) ?? null,
         documentViewerRef,
     });
     const {
         canUndo,
         canRedo,
     } = viewState;
-    // Every navigation source publishes through one command, including toolbar,
-    // keyboard paging, sidebar, and restore. Toolbar-local intent therefore
-    // cannot outlive a newer command from another source.
-    const {
-        handleGoToPage,
-        navigationCommand,
-    } = useWorkspacePageNavigationCommand(viewState.handleGoToPage);
-
+    const handleGoToPage = viewState.handleGoToPage;
     const pdfHistory = usePdfHistory({
         pdfDocument,
         pdfViewerRef,
@@ -940,8 +908,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarksDirty,
         bookmarkEditMode,
         consumePreservedSourceReloadMetadata,
-        hasPendingProgrammaticPageNavigation: () => programmaticPageNavigationTarget.value !== null,
-        clearProgrammaticPageNavigation: () => clearProgrammaticPageNavigationTarget('document-closed'),
+        navigationTicket,
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
@@ -989,7 +956,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             viewMode,
             zoom,
             viewerRef: documentViewerRef,
-            consumePageUpdate: consumeViewerCurrentPageUpdate,
+            openSurface: deps.openSurface,
         });
         function handleLoadError(error: unknown) {
             if (error === null || error === undefined) {
@@ -1099,7 +1066,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             onLoading: value => { sidebarSearch.isLoading.value = value; },
             onNavigationFeedbackPageUpdate: (value) => {
                 options.navigationFeedbackPage.value = value;
-                if (value !== null) beginProgrammaticPageNavigation(value);
             },
             onShapeContextMenu: annotationActions.handleShapeContextMenu,
             onSourceCapabilitiesUpdate: (capabilities) => {
@@ -1183,9 +1149,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             ...viewState,
             ...pdfHistory,
             handleGoToPage,
-            navigationCommand,
+            navigationTicket,
             handleUndo,
-            beginProgrammaticPageNavigation,
         },
         saveWorkflow: {
             ...pageSaveOrchestration,

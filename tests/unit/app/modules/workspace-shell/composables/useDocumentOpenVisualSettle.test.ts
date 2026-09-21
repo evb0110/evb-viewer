@@ -13,7 +13,6 @@ import {
     vi,
 } from 'vitest';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
-import { useDocumentOpenSurfaceLifecycle } from '@app/modules/workspace-shell/composables/useDocumentOpenSurfaceLifecycle';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSnapshot,
@@ -181,13 +180,6 @@ describe('useDocumentOpenVisualSettle', () => {
         const initialGeneration = harness.surfaceSession.snapshot.value.generation;
         const pendingDocumentOpen = computed(() => !harness.settle.initialDocumentVisualReady.value);
         const scope = effectScope();
-        scope.run(() => useDocumentOpenSurfaceLifecycle({
-            openSurface: harness.surfaceSession,
-            onInitialVisualPending: vi.fn(),
-            onInitialVisualReady: vi.fn(),
-            pendingDocumentOpen,
-            pendingDocumentIdentity: ref('fixture.pdf'),
-        }));
 
         harness.surfaceSession.metadataReady(3);
         harness.surfaceSession.requestNavigation(2);

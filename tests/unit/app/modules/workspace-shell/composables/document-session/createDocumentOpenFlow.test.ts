@@ -1665,8 +1665,11 @@ describe('createDocumentOpenFlow', () => {
             originalPath,
             workingPath: requireDocumentRef('/tmp/late-working.pdf'),
         })).resolves.toMatchObject({status: 'opened'});
-        const supersededGeneration = openSurface.supersede();
-        expect(supersededGeneration).not.toBeNull();
+        const supersededGeneration = openSurface.begin({
+            documentId: originalPath,
+            documentRevision: 'late-replacement',
+        });
+        expect(supersededGeneration).toBeGreaterThan(0);
 
         geometryGate.resolve({
             pageNumber: requirePageNumber(1),

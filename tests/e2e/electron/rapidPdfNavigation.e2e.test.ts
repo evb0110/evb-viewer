@@ -104,6 +104,24 @@ const PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH = resolve(
     '.devkit',
     'pdf-paged-fit-height-backward-wheel-trace.json',
 );
+const CTRL_WHEEL_FIRST_PAGE_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'scroll-overhaul',
+    'repro-real-app-ctrl-wheel-first-page-authority.json',
+);
+const CTRL_WHEEL_FIRST_PAGE_FAILURE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'scroll-overhaul',
+    'repro-real-app-ctrl-wheel-first-page-authority-failure.json',
+);
+const CTRL_WHEEL_FIRST_PAGE_FAILURE_SCREENSHOT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'scroll-overhaul',
+    'repro-real-app-ctrl-wheel-first-page-authority-failure.png',
+);
 interface IVisiblePageState {
     page: number | null;
     renderedClass: boolean;
@@ -1797,6 +1815,310 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(afterFirst.visiblePages, JSON.stringify(afterFirst)).toContain(1);
         expect(afterFirst.scrollTop, JSON.stringify(afterFirst)).toBeLessThan(afterFirst.clientHeight);
         expect(await waitForVisiblePageCanvas(session, 1, 20_000)).toBe(true);
+    }, 90_000);
+
+    it('keeps First Page authoritative after a Control-wheel tail at owner geometry', async () => {
+        const session = sessionFixture.getSession();
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
+        }
+
+        const originalViewport = session.page.viewport();
+        let client: Awaited<ReturnType<typeof session.page.createCDPSession>> | null = null;
+        try {
+            await session.page.setViewport({
+                width: 1200,
+                height: 1000,
+            });
+            await requireWorkspaceCommand(session.page, 'handleViewModeFacingFirstSingle');
+            await requireWorkspaceCommand(session.page, 'handleFitHeight');
+            const toolbar = await getWorkspaceToolbarSnapshot(session.page);
+            if (toolbar?.showSidebar !== true) {
+                await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
+            }
+            await jumpToPageAndWaitForCanvas(session, 1);
+            await waitForToolbarCurrentPage(session, 1);
+
+            const point = await session.page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const rect = viewport?.getBoundingClientRect();
+                return rect ? {
+                    x: Math.round(rect.left + (rect.width / 2)),
+                    y: Math.round(rect.top + (rect.height / 2)),
+                } : null;
+            });
+            expect(point).not.toBeNull();
+            if (!point) {
+                return;
+            }
+            await session.page.mouse.move(point.x, point.y);
+
+            client = await session.page.createCDPSession();
+            await client.send('Emulation.setCPUThrottlingRate', {rate: 6});
+            const dispatchControlWheel = async (count: number) => {
+                const packets: Array<Promise<unknown>> = [];
+                for (let index = 0; index < count; index += 1) {
+                    packets.push(client!.send('Input.dispatchMouseEvent', {
+                        type: 'mouseWheel',
+                        x: point.x,
+                        y: point.y,
+                        deltaX: 0,
+                        deltaY: Math.round(100_000 * Math.exp(-index / 40)),
+                        modifiers: 2,
+                        pointerType: 'mouse',
+                    }));
+                }
+                return Promise.allSettled(packets);
+            };
+            const dispatchTrustedClick = async (clickPoint: {
+                x: number;
+                y: number
+            }) => {
+                for (const type of [
+                    'mouseMoved',
+                    'mousePressed',
+                    'mouseReleased',
+                ] as const) {
+                    await client!.send('Input.dispatchMouseEvent', {
+                        type,
+                        x: clickPoint.x,
+                        y: clickPoint.y,
+                        button: type === 'mouseMoved' ? 'none' : 'left',
+                        clickCount: type === 'mouseMoved' ? 0 : 1,
+                        pointerType: 'mouse',
+                    });
+                }
+            };
+
+            await dispatchControlWheel(12);
+            await session.page.waitForFunction(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const toolbarPage = (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+                return Boolean(viewport && toolbarPage > 20 && viewport.scrollTop > viewport.clientHeight * 4);
+            }, {timeout: 15_000});
+            const before = await session.page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
+                const toolbar = (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.();
+                return {
+                    chassis: {...chassis?.dataset},
+                    scrollTop: viewport?.scrollTop ?? -1,
+                    clientHeight: viewport?.clientHeight ?? -1,
+                    toolbarPage: toolbar?.currentPage ?? 0,
+                };
+            });
+
+            await session.page.evaluate(() => {
+                const traceWindow = window as IE2EWindow & {__clearPdfRenderTrace?: () => void};
+                traceWindow.__clearPdfRenderTrace?.();
+            });
+            const firstControl = await session.page.evaluate(() => {
+                const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
+                    '.page-controls button[aria-label="First Page"]',
+                )).find(candidate => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return !candidate.disabled
+                        && candidate.getAttribute('aria-disabled') !== 'true'
+                        && rect.width > 8
+                        && rect.height > 8
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden';
+                });
+                if (!button) return null;
+                const rect = button.getBoundingClientRect();
+                return {
+                    ariaDisabled: button.getAttribute('aria-disabled'),
+                    disabled: button.disabled,
+                    label: button.getAttribute('aria-label'),
+                    x: Math.round(rect.left + (rect.width / 2)),
+                    y: Math.round(rect.top + (rect.height / 2)),
+                };
+            });
+            expect(firstControl).toMatchObject({
+                ariaDisabled: null,
+                disabled: false,
+                label: 'First Page',
+            });
+            if (!firstControl) {
+                return;
+            }
+
+            // Keep the tail live while the deliberate First Page pointer is
+            // delivered through the same trusted CDP input channel.
+            const tail = dispatchControlWheel(72);
+            await delay(8);
+            await dispatchTrustedClick(firstControl);
+            await tail;
+            try {
+                await session.page.waitForFunction(() => (
+                    (() => {
+                        const toolbar = (window as IRapidNavigationProbeWindow)
+                            .__evbTestApi?.getActiveToolbarSnapshot?.();
+                        const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                        return toolbar?.currentPage === 1
+                            && chassis?.dataset.viewportRequestedPage === '1';
+                    })()
+                ), {timeout: 5_000});
+            } catch (error) {
+                const failure = await session.page.evaluate((clickPoint) => {
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
+                    const toolbar = (window as IRapidNavigationProbeWindow)
+                        .__evbTestApi?.getActiveToolbarSnapshot?.();
+                    const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
+                        '.page-controls button[aria-label="First Page"]',
+                    )).find(candidate => {
+                        const rect = candidate.getBoundingClientRect();
+                        return rect.width > 8 && rect.height > 8;
+                    });
+                    const pointTarget = clickPoint
+                        ? document.elementFromPoint(clickPoint.x, clickPoint.y)
+                        : null;
+                    return {
+                        activeElement: document.activeElement?.outerHTML?.slice(0, 500) ?? null,
+                        button: button ? {
+                            ariaDisabled: button.getAttribute('aria-disabled'),
+                            disabled: button.disabled,
+                            label: button.getAttribute('aria-label'),
+                            rect: (() => {
+                                const rect = button.getBoundingClientRect();
+                                return {
+                                    bottom: rect.bottom,
+                                    height: rect.height,
+                                    left: rect.left,
+                                    right: rect.right,
+                                    top: rect.top,
+                                    width: rect.width,
+                                };
+                            })(),
+                        } : null,
+                        chassis: {...chassis?.dataset},
+                        clickPoint,
+                        elementAtClickPoint: pointTarget?.outerHTML?.slice(0, 500) ?? null,
+                        scrollTop: viewport?.scrollTop ?? -1,
+                        toolbar: toolbar ?? null,
+                        viewport: viewport ? {
+                            clientHeight: viewport.clientHeight,
+                            scrollHeight: viewport.scrollHeight,
+                        } : null,
+                    };
+                }, firstControl);
+                const failureTrace = await collectTrace(session);
+                writeTraceArtifact({
+                    before,
+                    error: getErrorMessage(error),
+                    failure,
+                    scenario: 'ctrl-wheel-tail-first-page-owner-geometry-wait-failure',
+                    trace: failureTrace,
+                }, CTRL_WHEEL_FIRST_PAGE_FAILURE_OUTPUT_PATH);
+                await session.page.screenshot({path: CTRL_WHEEL_FIRST_PAGE_FAILURE_SCREENSHOT_PATH});
+                throw error;
+            }
+            await session.page.waitForFunction(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
+                const toolbar = (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.();
+                const page = viewport?.querySelector<HTMLElement>('.page_container[data-page="1"]');
+                if (!viewport || !chassis || !toolbar || !page) {
+                    return false;
+                }
+                return toolbar.currentPage === 1
+                    && chassis.dataset.viewportRequestedPage === '1'
+                    && chassis.dataset.viewportLifecycle === 'ready'
+                    && chassis.dataset.viewportVisualPage === '1'
+                    && chassis.dataset.viewportVisualPresentation === 'canvas'
+                    && viewport.scrollTop < viewport.clientHeight
+                    && page.classList.contains('page_container--rendered')
+                    && page.querySelector<HTMLCanvasElement>('.page_canvas canvas') !== null;
+            }, {timeout: 10_000});
+            const after = await session.page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const viewportRect = viewport?.getBoundingClientRect() ?? null;
+                const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
+                const toolbar = (window as IRapidNavigationProbeWindow)
+                    .__evbTestApi?.getActiveToolbarSnapshot?.();
+                const visiblePages = viewport && viewportRect
+                    ? Array.from(viewport.querySelectorAll<HTMLElement>('.page_container[data-page]'))
+                        .filter(page => {
+                            const rect = page.getBoundingClientRect();
+                            return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+                        })
+                        .map(page => ({
+                            canvas: Boolean(page.querySelector<HTMLCanvasElement>('.page_canvas canvas')),
+                            page: Number(page.dataset.page) || null,
+                            rendered: page.classList.contains('page_container--rendered'),
+                            topmost: document.elementFromPoint(
+                                Math.max(viewportRect.left, page.getBoundingClientRect().left)
+                                    + (Math.min(viewportRect.right, page.getBoundingClientRect().right)
+                                        - Math.max(viewportRect.left, page.getBoundingClientRect().left)) / 2,
+                                Math.max(viewportRect.top, page.getBoundingClientRect().top)
+                                    + (Math.min(viewportRect.bottom, page.getBoundingClientRect().bottom)
+                                        - Math.max(viewportRect.top, page.getBoundingClientRect().top)) / 2,
+                            )?.closest('.page_container') === page,
+                        }))
+                    : [];
+                return {
+                    chassis: {...chassis?.dataset},
+                    clientHeight: viewport?.clientHeight ?? -1,
+                    scrollTop: viewport?.scrollTop ?? -1,
+                    toolbarPage: toolbar?.currentPage ?? 0,
+                    visiblePages,
+                };
+            });
+            const trace = await collectTrace(session);
+            writeTraceArtifact({
+                after,
+                before,
+                scenario: 'ctrl-wheel-tail-first-page-owner-geometry',
+                trace,
+            }, CTRL_WHEEL_FIRST_PAGE_TRACE_OUTPUT_PATH);
+
+            expect(after.toolbarPage, JSON.stringify({
+                before,
+                after,
+            })).toBe(1);
+            expect(after.chassis.openSurfaceDocumentId, JSON.stringify({
+                before,
+                after,
+            })).toBe(before.chassis.openSurfaceDocumentId);
+            expect(after.chassis.openSurfaceDocumentRevision, JSON.stringify({
+                before,
+                after,
+            })).toBe(before.chassis.openSurfaceDocumentRevision);
+            expect(after.chassis.openSurfaceGeneration, JSON.stringify({
+                before,
+                after,
+            })).toBe(before.chassis.openSurfaceGeneration);
+            expect(after.chassis.viewportRequestedPage, JSON.stringify({
+                before,
+                after,
+            })).toBe('1');
+            expect(after.scrollTop, JSON.stringify({
+                before,
+                after,
+            })).toBeLessThan(after.clientHeight);
+            expect(after.visiblePages, JSON.stringify({
+                before,
+                after,
+            })).toEqual(expect.arrayContaining([expect.objectContaining({
+                canvas: true,
+                page: 1,
+                rendered: true,
+                topmost: true,
+            })]));
+        } finally {
+            if (client) {
+                await client.send('Emulation.setCPUThrottlingRate', {rate: 1}).catch(() => undefined);
+                await client.detach().catch(() => undefined);
+            }
+            if (originalViewport) {
+                await session.page.setViewport(originalViewport);
+            }
+        }
     }, 90_000);
 
     it('recovers when trusted scroll supersedes an in-flight navigation', async () => {

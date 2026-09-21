@@ -933,7 +933,7 @@ describe('NativePdfViewer revision lifecycle', () => {
         viewport.scrollTop = 1_700;
         authority.dispatchViewportEvent('scroll', new Event('scroll'));
         await nextTick();
-        expect(authority.openSurface.viewportSession.value.observedPage).toBeNull();
+        expect(authority.openSurface.viewportSession.value.observedPage).toBe(1);
 
         authority.dispatchViewportEvent('scroll', {isTrusted: true} as Event);
         await nextTick();
@@ -1212,7 +1212,10 @@ describe('NativePdfViewer revision lifecycle', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(replacementSettled).toBe(false);
 
-        expect(authority.openSurface.supersede()).not.toBeNull();
+        expect(authority.openSurface.begin({
+            documentId: authority.openSurface.snapshot.value.identity?.documentId ?? 'native.pdf',
+            documentRevision: 'native-replacement',
+        })).toBeGreaterThan(0);
         expect(authority.openSurface.snapshot.value.phase).not.toBe('ready');
         expect(authority.openSurface.snapshot.value.presentation).toBe('idle');
         source.resolveCurrentPageReplacement();

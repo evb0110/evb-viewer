@@ -1,7 +1,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
-import { createPageNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import { createPageNavigationRequest } from '@app/modules/document-viewer/public';
 
 interface INavigateToBookmarkDestinationOptions {
     item: IBookmarkItem;

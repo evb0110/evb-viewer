@@ -1,12 +1,12 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type {
-    IPdfNavigationRequest,
-    IPdfTextAnchorNavigationOptions,
-} from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+    IDocumentNavigationRequest,
+    IDocumentTextAnchorNavigationOptions,
+} from '@app/modules/document-viewer/public';
 
 export interface IScrollToPageOptions {
     searchNavigationId?: number | undefined;
-    navigationRequest?: IPdfNavigationRequest | undefined;
+    navigationRequest?: IDocumentNavigationRequest | undefined;
     navigationSource?: 'bookmark' | 'toolbar' | 'search' | 'annotation' | 'thumbnail' | 'activation' | 'restore' | 'wheel' | undefined;
     preferExactDom?: boolean;
     /**
@@ -26,5 +26,5 @@ export interface IScrollToPageOptions {
     suppressRenderAfterSnap?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
     /** Resolve a text-layer range after the target page is visually ready. */
-    textAnchor?: IPdfTextAnchorNavigationOptions | null | undefined;
+    textAnchor?: IDocumentTextAnchorNavigationOptions | null | undefined;
 }

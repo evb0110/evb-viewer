@@ -22,41 +22,83 @@ interface IWorkspacePageNavigationFenceOptions {
 }
 
 export function createWorkspacePageNavigationFence(options: IWorkspacePageNavigationFenceOptions) {
-    const targetPage = ref<number | null>(null);
-    // The source that armed the current target, so an accepted page update can
-    // report which surface produced it.
-    const targetNavigationSource = ref<TWorkspacePageNavigationSource | null>(null);
+    // The shared surface owns accepted navigation. The local receipt exists only
+    // for callers that arm this compatibility adapter before a shared ticket has
+    // been minted; once a ticket exists, its target and source win.
+    const localTargetPage = ref<number | null>(null);
+    const localNavigationSource = ref<TWorkspacePageNavigationSource | null>(null);
+    const targetPage = computed(() => {
+        const ticket = options.openSurface?.navigationTicket.value;
+        if (ticket) {
+            const target = ticket.request.target;
+            if ('page' in target) {
+                return target.page;
+            }
+            return options.openSurface?.viewportSession.value.requestedPage ?? null;
+        }
+        return localTargetPage.value;
+    });
+
+    function sharedNavigationSource() {
+        return options.openSurface?.navigationTicket.value?.request.source
+            ?? localNavigationSource.value;
+    }
+
+    function releaseSharedNavigation(
+        page: number,
+        outcome: 'arrived' | 'abandoned',
+    ) {
+        const ticket = options.openSurface?.navigationTicket.value;
+        if (ticket) {
+            const released = options.openSurface?.reportNavigation(ticket, outcome === 'arrived'
+                ? {
+                    kind: 'arrived',
+                    page,
+                }
+                : {
+                    kind: 'abandoned',
+                    by: 'user-input',
+                });
+            if (outcome === 'arrived' && released === false) {
+                options.openSurface?.reportNavigation(ticket, {
+                    kind: 'abandoned',
+                    by: 'user-input',
+                });
+            }
+        }
+        localTargetPage.value = null;
+        localNavigationSource.value = null;
+    }
 
     function clear(reason = 'clear') {
         logPdfRenderTrace('workspace-programmatic-page-navigation-cleared', {
             reason,
             targetPage: targetPage.value,
         });
-        targetPage.value = null;
-        targetNavigationSource.value = null;
+        localTargetPage.value = null;
+        localNavigationSource.value = null;
     }
 
     function begin(page: number, navigationSource: TWorkspacePageNavigationSource | null = null) {
-        const previousTargetPage = targetPage.value;
+        const previousTargetPage = localTargetPage.value;
         const viewport = options.openSurface?.viewportSession.value;
         if (
             viewport?.lifecycle === 'ready'
             && (viewport.observedPage ?? viewport.committedPage ?? viewport.requestedPage) === page
         ) {
+            if (options.openSurface?.navigationTicket.value) {
+                releaseSharedNavigation(page, 'arrived');
+            }
             clear('navigation-already-settled');
             return;
         }
-        // Viewer feedback re-arms the target it is already travelling to without
-        // knowing which surface asked for it, so an unattributed re-arm keeps the
-        // original source instead of blanking it.
-        const resolvedSource = navigationSource
-            ?? (previousTargetPage === page ? targetNavigationSource.value : null);
-        targetPage.value = page;
-        targetNavigationSource.value = resolvedSource;
+        localTargetPage.value = page;
+        localNavigationSource.value = navigationSource
+            ?? (previousTargetPage === page ? localNavigationSource.value : null);
         logPdfRenderTrace('workspace-programmatic-page-navigation-begin', {
             page,
-            previousTargetPage,
-            navigationSource: resolvedSource,
+            navigationSource: localNavigationSource.value,
+            ticketId: options.openSurface?.navigationTicket.value?.id ?? null,
             currentPage: options.currentPage.value,
         });
     }
@@ -79,8 +121,12 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
             reason,
         });
         options.currentPage.value = page;
-        if (targetPage.value !== null) {
-            clear(reason);
+        if (options.openSurface?.navigationTicket.value) {
+            releaseSharedNavigation(page, navigationSource === null ? 'abandoned' : 'arrived');
+        }
+        if (localTargetPage.value !== null) {
+            localTargetPage.value = null;
+            localNavigationSource.value = null;
         }
         return {
             accepted: true,
@@ -98,21 +144,22 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
     function consumePageUpdate(page: number): IWorkspacePageUpdateOutcome {
         const pendingTargetPage = targetPage.value;
         if (pendingTargetPage === null) {
-            return accept(page, 'no-programmatic-target', null);
+            const observedPage = options.openSurface?.observeViewportPage(page) ?? page;
+            return accept(observedPage, 'no-programmatic-target', null);
         }
         const viewport = options.openSurface?.viewportSession.value;
+        const observedPage = options.openSurface?.observeViewportPage(page) ?? page;
         if (
             viewport?.lifecycle === 'ready'
-            && (viewport.observedPage ?? viewport.committedPage) === page
-            && page !== pendingTargetPage
+            && (viewport.observedPage ?? viewport.committedPage) === observedPage
+            && observedPage !== pendingTargetPage
         ) {
-            // The surface moved somewhere the pending target never asked for, so
-            // the armed source did not produce this page.
-            return accept(page, 'navigation-superseded-by-surface', null);
+            releaseSharedNavigation(observedPage, 'abandoned');
+            return accept(observedPage, 'navigation-superseded-by-surface', null);
         }
-        if (page !== pendingTargetPage) {
+        if (observedPage !== pendingTargetPage) {
             logPdfRenderTrace('workspace-viewer-current-page-update-rejected', {
-                page,
+                page: observedPage,
                 targetPage: pendingTargetPage,
                 currentPage: options.currentPage.value,
                 reason: 'target-pending',
@@ -123,11 +170,8 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
             };
         }
         if (viewport && viewport.lifecycle !== 'ready') {
-            // A matching page projection can arrive before the physical
-            // viewport reaches the target. Keep the fence armed until the
-            // surface authoritatively reports a ready lifecycle.
             logPdfRenderTrace('workspace-viewer-current-page-update-rejected', {
-                page,
+                page: observedPage,
                 targetPage: pendingTargetPage,
                 currentPage: options.currentPage.value,
                 lifecycle: viewport.lifecycle,
@@ -138,27 +182,15 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
                 navigationSource: null,
             };
         }
-        return accept(page, 'target-caught-up', targetNavigationSource.value);
+        return accept(observedPage, 'target-caught-up', sharedNavigationSource());
     }
 
     function clampTo(availablePages: number) {
-        const requestedPage = targetPage.value;
-        if (requestedPage === null || availablePages <= 0) {
-            return;
-        }
-        const clampedPage = Math.min(
-            Math.max(1, Math.trunc(requestedPage)),
+        if (localTargetPage.value === null || availablePages <= 0) return;
+        localTargetPage.value = Math.min(
+            Math.max(1, Math.trunc(localTargetPage.value)),
             Math.trunc(availablePages),
         );
-        if (clampedPage === requestedPage) {
-            return;
-        }
-        logPdfRenderTrace('workspace-programmatic-page-navigation-metadata-clamp', {
-            requestedPage,
-            clampedPage,
-            pageCount: availablePages,
-        });
-        targetPage.value = clampedPage;
     }
 
     // The page a new navigation command steps from: the in-flight target while

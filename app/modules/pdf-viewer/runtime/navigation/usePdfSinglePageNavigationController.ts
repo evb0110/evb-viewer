@@ -7,6 +7,8 @@ import {clamp} from 'es-toolkit/math';
 import {createPdfNavigationMachineState} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import type {IUsePdfSinglePageScrollOptions} from '@app/modules/pdf-viewer/runtime/navigation/pdfSinglePageScrollTypes';
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
 import type {IPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import {
     createPdfViewportGeometryFromLayout,
@@ -19,35 +21,33 @@ import {
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import {
     createViewportAuthority as createViewportAuthorityService,
+    type IPdfViewportIntent,
     type IPdfViewportPositionCommit,
     type TPdfViewportIntentKind,
 } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
-import {
-    createPageNavigationRequest,
-    type IPdfNavigationRequest,
-} from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
-import {
-    isPdfNavigationReady,
-    resolvePdfNavigationAnchor,
-    resolvePdfNavigationTarget,
-    type IResolvedPdfNavigationTarget,
-} from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 import {
     captureDocumentViewportResizeAnchor,
     createWheelFlipGate,
     canScrollWithinPageBounds,
     resolveWheelDirection,
     resolveWheelTargetPage,
+    type IDocumentNavigationRequest,
+    type IDocumentNavigationTicket,
+    type TDocumentNavigationReport,
+    type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/public';
+import {
+    isPdfNavigationReady,
+    resolvePdfNavigationAnchor,
+    resolvePdfNavigationTarget,
+    type IResolvedPdfNavigationTarget,
+} from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 import { getLayoutPhysicalScrollOrigin } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {getPageScrollBounds} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
 import {getCurrentSpreadRenderedBoundsFromDom} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
 import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
-import {resolveRetainedPdfNavigationAnchor} from '@app/modules/pdf-viewer/engine/pdf-navigation-anchor-retention/resolveRetainedPdfNavigationAnchor';
 import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import {runGuardedTask} from '@app/utils/asyncGuard';
-import {createLatestWinsPdfMetricHydrator} from '@app/modules/pdf-viewer/runtime/navigation/createLatestWinsPdfMetricHydrator';
-import {createPdfNavigationVisualHandoff} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationVisualHandoff';
 import {
     getRequestAnchor,
     getRequestPage,
@@ -61,16 +61,17 @@ import {yieldToBrowser} from '@app/utils/yieldToBrowser';
 import {createPdfNavigationCommitRefiner} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationCommitRefiner';
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
-    requestedCurrentPage: Ref<number | undefined>;
+    /** Retained for source compatibility; projected page changes are not commands. */
+    requestedCurrentPage?: Ref<number | undefined>;
+    chassisAuthority?: IDocumentViewerRuntime | null | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     cancelPendingSearchScroll: () => void;
     pageSlots: IPdfPageSlotRegistry;
     bindCurrentPageProjection?: ((projection: Readonly<Ref<number>>) => void) | undefined;
     getDocumentRevision: () => number;
     getGeometryRevision: () => number;
-    onViewportPositionCommitted?: ((commit: IPdfViewportPositionCommit) => void) | undefined;
+    onViewportPositionCommitted?: ((commit: IPdfViewportPositionCommit) => boolean) | undefined;
     onUserViewportPageObserved?: ((pageNumber: TPageNumber) => void) | undefined;
-    requestSurfacePageNavigation?: ((pageNumber: TPageNumber) => number) | undefined;
     onPageVisualReady?: ((pageNumber: TPageNumber) => void) | undefined;
     beginLayoutGeometryReplacement?: (() => () => void) | undefined;
 }
@@ -82,13 +83,12 @@ interface IPdfSinglePageWheelEvent {
     preventDefault: () => void;
 }
 
-export function shouldSubmitRequestedCurrentPage(
-    requestedPage: number,
-    committedPage: number,
-    pendingPage: number | null,
-) {
-    // Explicit page commands remain authoritative while the outer page model catches up.
-    return pendingPage === null && requestedPage !== committedPage;
+interface IPdfViewportIntentDocument {
+    document: NonNullable<IUsePdfSinglePageScrollOptions['pdfDocument']['value']>;
+    revision: number;
+    page: TPageNumber | null;
+    navigationTicket?: IDocumentNavigationTicket | undefined;
+    resolvedTarget?: IResolvedPdfNavigationTarget | undefined;
 }
 
 export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
@@ -110,22 +110,75 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     // settle into the shorter document.
     const toBoundedPageNumber = (page: number) => toPageNumber(clamp(Math.trunc(page), 1, pageCount()));
     let intentSequence = 0;
-    let navigationIntentSequence = 0;
     let viewportPreviewWriteSequence = 0;
-    let activeNavigationSequence: number | null = null;
-    const retainedNavigationAnchorPage = ref<number | null>(null);
-    const navigationVisualHandoff = createPdfNavigationVisualHandoff();
-    const wheelNavigationCursorPage = ref<number | null>(null);
-    let queuedNavigation: {
-        request: IPdfNavigationRequest;
-        sequence: number;
-    } | null = null;
     const wheelFlipGate = createWheelFlipGate();
     let geometry: IPdfViewportGeometry | null = null;
+    const navigationRuntime = options.chassisAuthority;
+    const navigationTicket = computed(() => navigationRuntime?.navigationTicket.value ?? null);
     const resolvedTargets = new Map<string, IResolvedPdfNavigationTarget>();
-    const metricHydrator = createLatestWinsPdfMetricHydrator(async page => (
-        await options.ensurePageMetricsInRange?.(page, page) ?? false
-    ));
+    let activeNavigationExecution: {
+        ticket: IDocumentNavigationTicket;
+        promise: Promise<unknown>;
+    } | null = null;
+    let navigationRestartRequested = false;
+    function isNavigationTicketCurrent(ticket: IDocumentNavigationTicket) {
+        return navigationRuntime?.openSurface.isNavigationCurrent(ticket) ?? false;
+    }
+    function reportNavigation(
+        ticket: IDocumentNavigationTicket,
+        report: TDocumentNavigationReport,
+    ) {
+        return navigationRuntime?.openSurface.reportNavigation(ticket, report) ?? false;
+    }
+    // A load token alone is insufficient: cleanup retires the PDF proxy before
+    // the next load begins. Every continuation belongs to this exact document.
+    function captureIntentDocument(
+        intent: Omit<IPdfViewportIntent, 'interactionEpoch'> & {interactionEpoch?: number},
+        ticket?: IDocumentNavigationTicket,
+    ) {
+        const document = options.pdfDocument.value;
+        if (!document || options.isLoading.value || options.numPages.value <= 0) {
+            return null;
+        }
+        const captured: IPdfViewportIntentDocument = {
+            document,
+            revision: options.getDocumentRevision(),
+            page: null,
+            ...(ticket ? {navigationTicket: ticket} : {}),
+        };
+        intent.documentContext = captured;
+        return captured;
+    }
+    function isIntentDocumentCurrent(intent: IPdfViewportIntent) {
+        const captured = intent.documentContext as IPdfViewportIntentDocument | undefined;
+        return captured !== undefined
+            && captured.document === options.pdfDocument.value
+            && captured.revision === options.getDocumentRevision()
+            && !options.isLoading.value
+            && options.numPages.value > 0
+            && (!captured.navigationTicket || isNavigationTicketCurrent(captured.navigationTicket));
+    }
+    function requireIntentDocument(intent: IPdfViewportIntent, signal?: AbortSignal) {
+        const captured = intent.documentContext as IPdfViewportIntentDocument | undefined;
+        if (signal?.aborted || !captured || !isIntentDocumentCurrent(intent)) {
+            throw new DOMException('PDF viewport document retired', 'AbortError');
+        }
+        return captured;
+    }
+    function requireIntentPage(intent: IPdfViewportIntent, signal?: AbortSignal) {
+        const captured = requireIntentDocument(intent, signal);
+        if (captured.page === null) {
+            throw new DOMException('PDF viewport target unresolved', 'AbortError');
+        }
+        return captured.page;
+    }
+    function livePageCount(document: IPdfDocument) {
+        // The opening ticket can run one tick before PDF.js publishes its
+        // document length. The session's reactive count is the live source at
+        // that boundary; retain a one-page provisional range so page 1 can be
+        // placed without turning a late close/open tick into a RangeError.
+        return Math.max(1, options.numPages.value, document.numPages);
+    }
     let getGeometryAnchorPage = () => options.currentPage.value;
 
     function refreshGeometry() {
@@ -200,19 +253,43 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     const viewportAuthority = createViewportAuthorityService({
         getDocumentRevision: options.getDocumentRevision,
         getGeometryRevision: options.getGeometryRevision,
+        isIntentCurrent: isIntentDocumentCurrent,
+        shouldStageNavigationVisual: intent => isUnplacedOpeningNavigation(intent.navigationTicket),
+        reportNavigation,
         beginLayoutGeometryReplacement: options.beginLayoutGeometryReplacement,
         awaitMetrics: async (intent, signal) => {
+            const captured = requireIntentDocument(intent, signal);
             const resolved = intent.navigation
-                ? await resolvePdfNavigationTarget(intent.navigation.target, options.pdfDocument.value, signal)
+                ? await resolvePdfNavigationTarget(intent.navigation.target, captured.document, signal)
                 : null;
+            requireIntentDocument(intent, signal);
             if (resolved) {
+                captured.page = requirePageNumber(
+                    clamp(Math.trunc(resolved.page), 1, livePageCount(captured.document)),
+                );
+                captured.resolvedTarget = resolved;
                 resolvedTargets.set(intent.id, resolved);
-                navigationVisualHandoff.resolveIntent(intent.id, resolved.page, signal.aborted);
+                if (intent.navigationTicket) {
+                    reportNavigation(intent.navigationTicket, {
+                        kind: 'resolved',
+                        page: captured.page,
+                    });
+                    if (!isNavigationTicketCurrent(intent.navigationTicket)) {
+                        throw new DOMException('PDF navigation was superseded', 'AbortError');
+                    }
+                }
             }
-            const page = toPageNumber(resolved?.page ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value));
-            await metricHydrator.ensure(page, signal);
+            const page = requirePageNumber(clamp(
+                Math.trunc(resolved?.page ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value)),
+                1,
+                livePageCount(captured.document),
+            ));
+            captured.page = page;
+            await options.ensurePageMetricsInRange?.(page, page);
+            requireIntentDocument(intent, signal);
             if (!options.continuousScroll.value || intent.navigation) {
                 await options.prepareNavigationLayout?.(page, signal);
+                requireIntentDocument(intent, signal);
             }
             refreshGeometry();
             return options.getGeometryRevision();
@@ -220,7 +297,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         resolve: (intent) => {
             const container = options.viewerContainer.value;
             const snapshot = geometry ?? refreshGeometry();
-            const resolved = resolvedTargets.get(intent.id);
+            const resolved = intent.documentContext?.resolvedTarget
+                ?? resolvedTargets.get(intent.id);
             const anchor = intent.navigation && resolved
                 ? resolvePdfNavigationAnchor(intent.navigation, resolved, snapshot)
                 : intent.anchor ?? getRequestAnchor(intent.navigation, options.currentPage.value);
@@ -265,20 +343,25 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 : Promise.resolve(commit)
         ),
         awaitSlots: async (intent, signal) => {
-            const page = toPageNumber(resolvedTargets.get(intent.id)?.page
-                ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value));
+            const page = requireIntentPage(intent, signal);
+            const captured = requireIntentDocument(intent, signal);
+            if (hasMatchingOpeningRenderFence(intent, page)) {
+                return;
+            }
             const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
             const start = row?.startPage ?? page;
             const end = row?.endPage ?? page;
             await nextTick();
+            requireIntentDocument(intent, signal);
             await Promise.all(Array.from({length: end - start + 1}, (_, offset) => (
-                options.pageSlots.whenMounted(toPageNumber(start + offset), signal)
+                options.pageSlots.whenMounted(requirePageNumber(start + offset, livePageCount(captured.document)), signal)
             )));
         },
         awaitLayoutGeometrySettled: async (_intent, _signal) => {
             await yieldToBrowser();
         },
         apply: (intent, commit) => {
+            requireIntentDocument(intent);
             const container = options.viewerContainer.value;
             if (!container || intent.kind === 'dpr') {
                 return;
@@ -304,6 +387,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             // virtualization transfers ownership to the target row instead of
             // collapsing back to the stale pre-navigation window for one frame.
             options.updateVisibleRange(container, options.numPages.value);
+            requireIntentDocument(intent);
             void nextTick(() => logPdfRenderTrace('navigation-viewport-authority-after-range-update', {
                 intentId: intent.id,
                 page: commit.anchor.page,
@@ -316,15 +400,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             };
         },
         onPositionCommitted: (commit) => {
-            const sequence = activeNavigationSequence;
-            if (sequence !== null && queuedNavigation?.sequence === sequence) {
-                queuedNavigation = null;
-            }
             options.onViewportPositionCommitted?.(commit);
         },
         awaitVisual: async (intent, signal) => {
-            const page = toPageNumber(resolvedTargets.get(intent.id)?.page
-                ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value));
+            const page = requireIntentPage(intent, signal);
             const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
             const container = options.viewerContainer.value;
             const readiness = intent.navigation?.readiness ?? 'page-canvas';
@@ -345,14 +424,16 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             const waitForTextLayer = readiness === 'text-layer'
                 ? options.waitForPageTextLayerReady
                 : undefined;
+            if (hasMatchingOpeningRenderFence(intent, page)) {
+                options.onPageVisualReady?.(page);
+                return;
+            }
             const ensureTextLayerReady = async () => {
                 if (!waitForTextLayer) {
                     return;
                 }
                 const ready = await waitForTextLayer(page, signal);
-                if (signal.aborted) {
-                    throw new DOMException('PDF navigation text layer readiness wait was cancelled', 'AbortError');
-                }
+                requireIntentDocument(intent, signal);
                 if (!ready) {
                     throw new DOMException('PDF navigation text layer readiness timed out', 'AbortError');
                 }
@@ -364,6 +445,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 isPageFreshForNavigation,
             )) {
                 await ensureTextLayerReady();
+                requireIntentDocument(intent, signal);
                 options.onPageVisualReady?.(page);
                 logPdfRenderTrace('navigation-await-visual-exit', {
                     intentId: intent.id,
@@ -380,10 +462,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 suppressResidentRasterDemand: false,
                 ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
             });
-            if (options.numPages.value <= 0) {
-                throw new DOMException('PDF navigation visual wait ended with the document torn down', 'AbortError');
-            }
+            requireIntentDocument(intent, signal);
             await ensureTextLayerReady();
+            requireIntentDocument(intent, signal);
             if (container && !isPdfNavigationReady(
                 container,
                 page,
@@ -409,10 +490,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             });
         },
         beforeApply: async (intent, signal) => {
-            if (signal.aborted || !navigationVisualHandoff.releaseIntent(intent.id)) {
-                return;
-            }
+            if (signal.aborted) return;
             await nextTick();
+            requireIntentDocument(intent, signal);
             refreshGeometry();
         },
         postArrival: async (request, signal) => {
@@ -430,135 +510,23 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 }}));
             }
         },
-        clearDemand: intentId => resolvedTargets.delete(intentId),
+        clearDemand: intentId => {
+            resolvedTargets.delete(intentId);
+        },
     });
     getGeometryAnchorPage = () => (
         viewportAuthority.pendingTargetPage.value
-        ?? retainedNavigationAnchorPage.value
+        ?? navigationAnchorPage.value
         ?? options.currentPage.value
     );
     options.bindCurrentPageProjection?.(viewportAuthority.currentPage);
 
     function requestFor(page: number, scrollOptions?: IScrollToPageOptions) {
-        if (scrollOptions?.navigationRequest) {
-            return scrollOptions.navigationRequest;
-        }
-        const source = scrollOptions?.navigationSource
-            ?? (scrollOptions?.markerRect ? 'annotation' : 'toolbar');
-        const request = createPageNavigationRequest(page, source);
-        if (scrollOptions?.markerRect) {
-            request.target = {
-                kind: 'rect',
-                page,
-                rect: scrollOptions.markerRect,
-            };
-            request.alignment = 'rect-center';
-        } else if (scrollOptions?.textAnchor) {
-            request.target = {
-                kind: 'text-anchor',
-                page,
-                ...scrollOptions.textAnchor,
-            };
-            request.alignment = 'rect-center';
-        } else if (typeof scrollOptions?.pageYRatio === 'number') {
-            request.target = {
-                kind: 'rect',
-                page,
-                rect: {
-                    left: 0.5,
-                    top: clamp(scrollOptions.pageYRatio, 0, 1),
-                    width: 0,
-                    height: 0,
-                },
-            };
-            request.alignment = 'page-top';
-        }
-        if (source === 'search') {
-            request.searchNavigationId = scrollOptions?.searchNavigationId;
-            request.readiness = 'text-layer';
-            request.postArrival = 'search-highlight';
-        } else if (source === 'annotation') {
-            request.readiness = 'annotation-editor';
-            request.postArrival = 'annotation-pulse';
-        } else if (source === 'bookmark') {
-            request.readiness = 'page-canvas';
-        } else if (source === 'thumbnail') {
-            request.readiness = 'page-canvas';
-        }
-        return request;
+        return createPdfPageNavigationRequest(page, scrollOptions);
     }
 
-    async function submitNavigationIntent(request: IPdfNavigationRequest, sequence: number) {
-        const submittedDocumentRevision = options.getDocumentRevision();
-        const submittedGeometryRevision = options.getGeometryRevision();
-        refreshGeometry();
-        const intentId = `viewport-navigation-${String(++navigationIntentSequence)}`;
-        navigationVisualHandoff.registerIntent(intentId, sequence);
-        try {
-            return await viewportAuthority.submit({
-                // Replays retain queue ownership but require a fresh authority ID.
-                id: intentId,
-                kind: request.source === 'search' ? 'search' : request.source === 'wheel' ? 'wheel-page' : 'navigate',
-                documentRevision: submittedDocumentRevision,
-                geometryRevision: submittedGeometryRevision,
-                priority: 10,
-                supersessionKey: 'navigation',
-                navigation: request,
-            });
-        } finally {
-            navigationVisualHandoff.finishIntent(intentId);
-        }
-    }
-
-    function submitDetachedNavigationIntent(request: IPdfNavigationRequest, sequence: number) {
-        activeNavigationSequence = sequence;
-        runGuardedTask(async () => {
-            try {
-                await submitNavigationIntent(request, sequence);
-            } finally {
-                if (activeNavigationSequence === sequence) {
-                    activeNavigationSequence = null;
-                }
-                navigationVisualHandoff.clearSequence(sequence);
-            }
-            if (queuedNavigation !== null) {
-                await nextTick();
-                replayQueuedNavigation();
-            }
-        }, {
-            category: 'background-diagnostic',
-            scope: 'pdf-navigation',
-            message: `PDF viewport navigation ${sequence} failed`,
-        });
-    }
-
-    function getNavigationRequestPage(request: IPdfNavigationRequest) {
-        return 'page' in request.target ? request.target.page : null;
-    }
-
-    function clampNavigationRequest(
-        request: IPdfNavigationRequest,
-        totalPages: number,
-    ): IPdfNavigationRequest {
-        if (!('page' in request.target)) {
-            return request;
-        }
-        const page = clamp(Math.trunc(request.target.page), 1, totalPages);
-        return {
-            ...request,
-            target: {
-                ...request.target,
-                page,
-            },
-        };
-    }
-
-    function canReplayQueuedNavigation() {
-        return Boolean(
-            queuedNavigation
-            && activeNavigationSequence === null
-            && isNavigationRuntimeReady(),
-        );
+    function getNavigationRequestPage(request: IDocumentNavigationRequest | null | undefined) {
+        return request && 'page' in request.target ? request.target.page : null;
     }
 
     function isNavigationRuntimeReady() {
@@ -574,78 +542,94 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
     const navigationRuntimeReady = computed(isNavigationRuntimeReady);
 
-    function replayQueuedNavigation() {
-        if (!canReplayQueuedNavigation()) {
-            logPdfRenderTrace('navigation-queued-replay-deferred', () => ({
-                hasQueuedNavigation: queuedNavigation !== null,
-                activeNavigationSequence,
-                hasContainer: options.viewerContainer.value !== null,
-                isLoading: options.isLoading.value,
-                hasDocument: options.pdfDocument.value !== null,
-                numPages: options.numPages.value,
-                documentRevision: options.getDocumentRevision(),
-                geometryRevision: options.getGeometryRevision(),
-                hasLayoutMetrics: options.getPageLayoutMetrics?.() !== null,
-            }));
-            return false;
-        }
-        const queued = queuedNavigation;
-        if (!queued) {
-            return false;
-        }
-        const request = clampNavigationRequest(queued.request, options.numPages.value);
-        const page = getNavigationRequestPage(request);
-        if (page !== null) {
-            options.requestSurfacePageNavigation?.(requirePageNumber(page, options.numPages.value));
-            retainedNavigationAnchorPage.value = page;
-            options.emitNavigationFeedbackPage?.(page);
-        }
-        submitDetachedNavigationIntent(request, queued.sequence);
-        logPdfRenderTrace('navigation-queued-replay-submitted', {
-            sequence: queued.sequence,
-            page,
-        });
-        return true;
+    function currentNavigationTicket() {
+        return navigationTicket.value;
     }
 
-    function queueNavigationRequest(request: IPdfNavigationRequest) {
-        if (request.source !== 'wheel') {
-            wheelNavigationCursorPage.value = null;
-            // An explicit command is newer than a fling still emitting inertial
-            // packets, so that gesture can no longer cancel or displace it.
-            options.viewportWritePort.fenceCommandAgainstLiveGesture();
+    function hasMatchingOpeningRenderFence(
+        intent: IPdfViewportIntent,
+        page: TPageNumber,
+    ) {
+        const ticket = intent.navigationTicket;
+        const surface = navigationRuntime?.openSurface;
+        if (!ticket || !surface || surface.viewportSession.value.lifecycle !== 'opening') {
+            return false;
         }
-        intentSequence += 1;
-        queuedNavigation = {
-            request,
-            sequence: intentSequence,
+        const render = surface.snapshot.value.committedRender;
+        return render?.generation === ticket.generation
+            && render.documentRevision === ticket.documentRevision
+            && render.viewportIntentId === ticket.id
+            && render.pageNumber === page;
+    }
+
+    function isUnplacedOpeningNavigation(ticket: IDocumentNavigationTicket | undefined) {
+        if (!ticket) {
+            return false;
+        }
+        const surface = navigationRuntime?.openSurface;
+        const viewport = surface?.viewportSession.value;
+        return Boolean(
+            surface
+            && viewport?.lifecycle === 'opening'
+            && viewport.stagedRenderFence === null
+            && viewport.committedRenderFence === null
+            && viewport.committedViewportFence === null
+            && surface.isNavigationCurrent(ticket),
+        );
+    }
+
+    async function submitNavigationIntent(
+        ticket: IDocumentNavigationTicket,
+        extras: Pick<IPdfViewportIntent, 'anchor' | 'zoom' | 'viewMode' | 'dpr' | 'viewportPoint'> = {},
+    ) {
+        if (!isNavigationTicketCurrent(ticket) || !isNavigationRuntimeReady()) {
+            return null;
+        }
+        const intent: Omit<IPdfViewportIntent, 'interactionEpoch'> = {
+            id: ticket.id,
+            kind: ticket.request.source === 'search'
+                ? 'search'
+                : ticket.request.source === 'wheel' ? 'wheel-page' : 'navigate',
+            documentRevision: options.getDocumentRevision(),
+            geometryRevision: options.getGeometryRevision(),
+            navigation: ticket.request,
+            navigationTicket: ticket,
+            ...extras,
         };
-        const page = getNavigationRequestPage(request);
-        if (page !== null) {
-            // Preserve the raw requested page until metadata supplies the only
-            // authoritative clamp. This makes rapid commands durable during
-            // Recent/open transitions without committing viewport state early.
-            retainedNavigationAnchorPage.value = page;
-            navigationVisualHandoff.assign(page, intentSequence);
-            options.emitNavigationFeedbackPage?.(page);
-        }
-        if (activeNavigationSequence !== null) {
-            viewportAuthority.suspend();
-            activeNavigationSequence = null;
-        }
-        replayQueuedNavigation();
-        return true;
+        const captured = captureIntentDocument(intent, ticket);
+        if (!captured) return null;
+        refreshGeometry();
+        return viewportAuthority.submit(intent);
     }
 
-    function clearQueuedNavigation() {
-        queuedNavigation = null;
-        intentSequence += 1;
-        retainedNavigationAnchorPage.value = null;
-        if (activeNavigationSequence === null) {
-            navigationVisualHandoff.clear();
+    function startNavigationTicket(ticket: IDocumentNavigationTicket) {
+        if (activeNavigationExecution?.ticket === ticket) {
+            navigationRestartRequested = true;
+            return false;
         }
-        wheelNavigationCursorPage.value = null;
-        options.emitNavigationFeedbackPage?.(null);
+        if (!isNavigationTicketCurrent(ticket)) return false;
+        if (!isNavigationRuntimeReady()) return false;
+        const execution = submitNavigationIntent(ticket).catch(error => {
+            runGuardedTask(() => { throw error; }, {
+                category: 'background-diagnostic',
+                scope: 'pdf-navigation',
+                message: `PDF viewport navigation ${ticket.id} failed`,
+            });
+        }).finally(() => {
+            if (activeNavigationExecution?.ticket !== ticket) return;
+            activeNavigationExecution = null;
+            if (navigationRestartRequested) {
+                navigationRestartRequested = false;
+                if (isNavigationTicketCurrent(ticket)) startNavigationTicket(ticket);
+            }
+        });
+        activeNavigationExecution = {
+            ticket,
+            promise: execution,
+        };
+        const page = getNavigationRequestPage(ticket.request);
+        if (page !== null) options.emitNavigationFeedbackPage?.(page);
+        return true;
     }
 
     function submitPageNavigation(pageNumber: TPageNumber, scrollOptions?: IScrollToPageOptions) {
@@ -654,11 +638,35 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }
         const page = Math.max(1, Math.trunc(pageNumber));
         const request = requestFor(page, scrollOptions);
-        return queueNavigationRequest(request);
+        return submitNavigationRequest(request);
     }
 
-    function submitNavigationRequest(request: IPdfNavigationRequest) {
-        return queueNavigationRequest(request);
+    function submitNavigationRequest(request: IDocumentNavigationRequest) {
+        viewportAuthority.suspend();
+        const ticket = navigationRuntime?.navigate(request) ?? null;
+        if (!navigationRuntime) {
+            // The chassis watcher owns this fence when a shared surface exists.
+            // Direct PDF-session callers still need to fence the live gesture
+            // before the authored viewport write can race its residue tail.
+            options.viewportWritePort.fenceCommandAgainstLiveGesture();
+            const intent: Omit<IPdfViewportIntent, 'interactionEpoch'> = {
+                id: `pdf-test-navigation:${String(++intentSequence)}`,
+                kind: request.source === 'search' ? 'search' : request.source === 'wheel' ? 'wheel-page' : 'navigate',
+                documentRevision: options.getDocumentRevision(),
+                geometryRevision: options.getGeometryRevision(),
+                navigation: request,
+            };
+            if (!captureIntentDocument(intent)) return false;
+            void viewportAuthority.submit(intent);
+            options.emitNavigationFeedbackPage?.(getNavigationRequestPage(request));
+            return true;
+        }
+        if (!ticket) return false;
+        intentSequence += 1;
+        const page = getNavigationRequestPage(request);
+        if (page !== null) options.emitNavigationFeedbackPage?.(page);
+        startNavigationTicket(ticket);
+        return true;
     }
 
     function submitViewportStateIntent(
@@ -676,7 +684,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     ) {
         const documentRevision = options.getDocumentRevision();
         const geometryRevision = options.getGeometryRevision();
-        if (documentRevision <= 0 || geometryRevision <= 0) {
+        if (!navigationRuntimeReady.value || documentRevision <= 0 || geometryRevision <= 0) {
             // ResizeObserver and reactive layout watchers can run while a PDF
             // surface is being mounted or torn down. At that boundary there
             // is deliberately no live document generation to own a viewport
@@ -697,97 +705,55 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         intentSequence += 1;
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
-        const inheritedNavigation = queuedNavigation?.request
-            ?? viewportAuthority.getActiveNavigationRequest();
-        const absorbedNavigation = navigationRuntimeReady.value
-            && (state.anchor === undefined || kind === 'resize' || kind === 'zoom')
-            && state.viewportPoint === undefined
-            ? inheritedNavigation
-            : undefined;
-        const inheritedNavigationPage = absorbedNavigation
-            ? getNavigationRequestPage(absorbedNavigation)
+        const ticket = currentNavigationTicket();
+        const ticketPage = ticket
+            ? getNavigationRequestPage(ticket.request)
+                ?? navigationRuntime?.navigationPage.value
+                ?? viewportAuthority.pendingTargetPage.value
             : null;
-        const inheritedResolvedTarget = viewportAuthority.activeIntent.value
-            ? resolvedTargets.get(viewportAuthority.activeIntent.value.id)
-            : null;
-        const anchor = (absorbedNavigation ? undefined : state.anchor) ?? (container && snapshot && state.viewportPoint
+        const anchor = state.anchor ?? (container && snapshot && state.viewportPoint
             ? captureCurrentSemanticAnchor(state.viewportPoint) ?? getRequestAnchor(undefined, viewportAuthority.currentPage.value)
-            : absorbedNavigation && inheritedResolvedTarget
-                ? resolvePdfNavigationAnchor(absorbedNavigation, inheritedResolvedTarget, snapshot)
-                : absorbedNavigation
-                    ? getRequestAnchor(
-                        absorbedNavigation,
-                        inheritedNavigationPage ?? options.currentPage.value,
-                    )
-                    : retainedNavigationAnchorPage.value !== null
-                        ? getRequestAnchor(undefined, retainedNavigationAnchorPage.value)
-                        : container && snapshot
-                            ? resolveGeometryChangeAnchor(snapshot, kind)
-                            : viewportAuthority.committedAnchor.value
-                                ?? getRequestAnchor(undefined, options.currentPage.value));
-        const absorbedNavigationSequence = queuedNavigation?.sequence ?? null;
-        if (absorbedNavigation) {
-            // A geometry-changing intent is the new owner of the pending
-            // destination. The detached navigation task must not replay its
-            // stale request and supersede this fit/zoom/view-mode transaction.
-            queuedNavigation = null;
-            activeNavigationSequence = null;
-            if (inheritedNavigationPage !== null) {
-                navigationVisualHandoff.assign(inheritedNavigationPage, intentSequence);
-            }
-        }
+            : ticket && ticketPage !== null
+                ? getRequestAnchor(undefined, ticketPage)
+                : container && snapshot
+                    ? resolveGeometryChangeAnchor(snapshot, kind)
+                    : viewportAuthority.committedAnchor.value
+                        ?? getRequestAnchor(undefined, options.currentPage.value));
         logPdfRenderTrace('navigation-viewport-state-intent-submitted', () => ({
             kind,
-            inheritedNavigationPage,
-            absorbedNavigationSequence,
-            retainedPage: retainedNavigationAnchorPage.value,
+            ticketPage,
             committedPage: viewportAuthority.currentPage.value,
             anchorPage: anchor.page,
         }));
-        const viewportStateIntentId = `viewport-state-${intentSequence}`;
-        if (absorbedNavigation) {
-            navigationVisualHandoff.registerIntent(viewportStateIntentId, intentSequence);
+        if (ticket && isNavigationTicketCurrent(ticket)) {
+            return submitNavigationIntent(ticket, {
+                anchor,
+                ...(state.zoom === undefined ? {} : {zoom: state.zoom}),
+                ...(state.viewportPoint === undefined ? {} : {viewportPoint: state.viewportPoint}),
+                ...(state.viewMode === undefined ? {} : {viewMode: state.viewMode}),
+                ...(state.dpr === undefined ? {} : {dpr: state.dpr}),
+            });
         }
-        const submission = viewportAuthority.submit({
+        const viewportStateIntentId = `viewport-state-${intentSequence}`;
+        const intent: Omit<IPdfViewportIntent, 'interactionEpoch'> = {
             id: viewportStateIntentId,
             kind,
             documentRevision,
             geometryRevision,
-            priority: 5,
-            supersessionKey: 'viewport-state',
             anchor,
-            ...(absorbedNavigation === undefined ? {} : {navigation: absorbedNavigation}),
             ...(state.zoom === undefined ? {} : {zoom: state.zoom}),
             ...(state.viewportPoint === undefined ? {} : {viewportPoint: state.viewportPoint}),
             ...(state.viewMode === undefined ? {} : {viewMode: state.viewMode}),
             ...(state.dpr === undefined ? {} : {dpr: state.dpr}),
-        });
-        if (!absorbedNavigation) {
-            return submission;
+        };
+        if (!captureIntentDocument(intent)) {
+            return Promise.resolve({
+                outcome: 'cancelled' as const,
+                intent: null,
+                positionCommit: null,
+            });
         }
-        const handoffSequence = intentSequence;
-        return submission.finally(() => {
-            navigationVisualHandoff.finishIntent(viewportStateIntentId);
-            navigationVisualHandoff.clearSequence(handoffSequence);
-        }).then((result) => {
-            // This intent took the destination away from the navigation queue.
-            // If it dies without a successor (for example, page metrics bumped
-            // the geometry revision mid-render), hand the destination back.
-            if (
-                result.outcome === 'cancelled'
-                && intentSequence === handoffSequence
-                && queuedNavigation === null
-                && viewportAuthority.activeIntent.value === null
-                && result.intent.documentRevision === options.getDocumentRevision()
-            ) {
-                queuedNavigation = {
-                    request: absorbedNavigation,
-                    sequence: handoffSequence,
-                };
-                replayQueuedNavigation();
-            }
-            return result;
-        });
+        return viewportAuthority.submit(intent);
     }
 
     // Geometry changes retain the committed page instead of reinterpreting an old pixel offset.
@@ -815,16 +781,35 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             : liveAnchor;
     }
 
+    function isUnplacedOpeningTicket(ticket: IDocumentNavigationTicket | null) {
+        const viewport = navigationRuntime?.openSurface.viewportSession.value;
+        return Boolean(
+            ticket
+            && viewport?.lifecycle === 'opening'
+            && viewport.committedRenderFence === null
+            && viewport.committedViewportFence === null,
+        );
+    }
+
     function observeNativeUserScroll(anchorOverride?: IPdfSemanticAnchor) {
-        if (queuedNavigation !== null || retainedNavigationAnchorPage.value !== null) {
-            clearQueuedNavigation();
+        const ticket = currentNavigationTicket();
+        const holdOpeningTicket = isUnplacedOpeningTicket(ticket);
+        if (ticket && isNavigationTicketCurrent(ticket) && !holdOpeningTicket) {
+            if (navigationRuntime) {
+                reportNavigation(ticket, {
+                    kind: 'abandoned',
+                    by: 'user-input',
+                });
+            }
         }
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         const anchor = anchorOverride ?? (container && snapshot
             ? resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value))
             : getRequestAnchor(undefined, options.currentPage.value));
-        viewportAuthority.observeUserScroll(anchor);
+        if (!holdOpeningTicket) {
+            viewportAuthority.observeUserScroll(anchor);
+        }
         if (container) options.viewportWritePort.observeUserScroll(container);
         return anchor.page;
     }
@@ -866,7 +851,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function applyViewportAnchorPreview(anchor: IPdfSemanticAnchor | null | undefined) {
-        if (queuedNavigation || viewportAuthority.getActiveNavigationRequest()) {
+        if (currentNavigationTicket() || viewportAuthority.getActiveNavigationRequest()) {
             return null;
         }
         const container = options.viewerContainer.value;
@@ -971,23 +956,19 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         wheelFlipGate.reset();
         logPdfRenderTrace('navigation-retained-anchor-cleared', () => ({
             reason,
-            retainedPage: retainedNavigationAnchorPage.value,
+            commandPage: navigationAnchorPage.value,
             pendingPage: viewportAuthority.pendingTargetPage.value,
             currentPage: viewportAuthority.currentPage.value,
         }));
-        clearQueuedNavigation();
-        // Trusted physical input owns the viewport immediately. Release the
-        // detached navigation's handoff here, after the shared clear path has
-        // preserved it for lifecycle and geometry callers.
-        activeNavigationSequence = null;
-        navigationVisualHandoff.clear();
         const page = observeNativeUserScroll(anchorOverride);
         // Physical input is authoritative even when the browser cannot move
         // the viewport (for example, while a programmatic scroll and canvas
         // commit are still settling). Publish the live anchor at the input
         // boundary so the shared session cannot remain transitioning merely
         // because no follow-up scroll event was emitted.
-        options.onUserViewportPageObserved?.(requirePageNumber(page));
+        if (!isUnplacedOpeningTicket(currentNavigationTicket())) {
+            options.onUserViewportPageObserved?.(requirePageNumber(page));
+        }
         return page;
     }
 
@@ -996,14 +977,15 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         observeNativeUserScroll();
     }
 
-    function cancelDestinationNavigationTarget(source?: IPdfNavigationRequest['source']) {
+    function cancelDestinationNavigationTarget(source?: IDocumentNavigationRequest['source']) {
         const activeIntent = viewportAuthority.activeIntent.value;
-        const queuedMatches = queuedNavigation !== null && (!source || queuedNavigation.request.source === source);
+        const ticket = currentNavigationTicket();
+        const ticketMatches = ticket !== null && (!source || ticket.request.source === source);
         const activeMatches = activeIntent?.navigation !== undefined && (!source || activeIntent.navigation.source === source);
-        const hasDestinationDemand = queuedMatches || activeMatches;
+        const hasDestinationDemand = ticketMatches || activeMatches;
         if (!source || hasDestinationDemand) wheelFlipGate.reset();
         logPdfRenderTrace('navigation-destination-intent-cancelled', () => ({
-            retainedPage: retainedNavigationAnchorPage.value,
+            commandPage: navigationAnchorPage.value,
             pendingPage: viewportAuthority.pendingTargetPage.value,
             currentPage: viewportAuthority.currentPage.value,
             activeIntentId: activeIntent?.id ?? null,
@@ -1014,8 +996,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         if (!hasDestinationDemand) {
             return;
         }
-        if (queuedMatches || queuedNavigation === null) clearQueuedNavigation();
-        // Preserve geometry-only transitions and destinations owned by another source.
+        if (ticketMatches && ticket && isNavigationTicketCurrent(ticket)) {
+            reportNavigation(ticket, {
+                kind: 'abandoned',
+                by: 'command',
+            });
+        }
         if (activeMatches) {
             viewportAuthority.suspend();
         }
@@ -1034,17 +1020,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             intentDocumentRevision: activeIntent.documentRevision,
             currentDocumentRevision,
         });
-        if (activeIntent.navigation !== undefined) {
-            const staleNavigationSequence = activeNavigationSequence;
-            if (
-                staleNavigationSequence !== null
-                && queuedNavigation?.sequence === staleNavigationSequence
-            ) {
-                clearQueuedNavigation();
-            }
-            // Preserve only a genuinely newer queued request for replay.
-            activeNavigationSequence = null;
-        }
         viewportAuthority.suspend();
         return true;
     }
@@ -1081,8 +1056,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             event.preventDefault();
             return true;
         }
-        const desiredPage = wheelNavigationCursorPage.value
-            ?? navigationAnchorPage.value
+        const desiredPage = navigationAnchorPage.value
             ?? viewportAuthority.currentPage.value;
         const target = resolveWheelTargetPage(
             desiredPage,
@@ -1096,7 +1070,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         event.preventDefault();
         const submitted = submitPageNavigation(toPageNumber(target), {navigationSource: 'wheel'});
         if (submitted) {
-            wheelNavigationCursorPage.value = target;
             wheelFlipGate.recordFlip(direction, event.timeStamp, event.deltaY);
         }
         return submitted;
@@ -1105,100 +1078,45 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     watch(viewportAuthority.currentPage, page => options.emitCurrentPage(page));
     watch(viewportAuthority.pendingTargetPage, page => options.emitNavigationFeedbackPage?.(page));
 
-    watch(
-        [
-            options.requestedCurrentPage,
-            options.numPages,
-            options.viewerContainer,
-        ],
-        ([
-            requested,
-            ,
-            ,
-        ]) => {
-            if (typeof requested === 'number' && Number.isFinite(requested)) {
-                const requestedPage = options.numPages.value > 0
-                    ? clamp(Math.trunc(requested), 1, options.numPages.value)
-                    : Math.max(1, Math.trunc(requested));
-                const pendingPage = queuedNavigation
-                    ? getNavigationRequestPage(queuedNavigation.request)
-                    : viewportAuthority.pendingAnchorPage.value;
-                const shouldSubmit = navigationRuntimeReady.value
-                    ? shouldSubmitRequestedCurrentPage(
-                        requestedPage,
-                        viewportAuthority.currentPage.value,
-                        pendingPage,
-                    )
-                    // Pre-ready the prop carries the open surface's initial or
-                    // restored page, but it is still an echo: explicit commands
-                    // enter through submitPageNavigation, and the open's
-                    // default page must never supersede a queued user command.
-                    : pendingPage === null
-                        && requestedPage !== viewportAuthority.currentPage.value;
-                logPdfRenderTrace('navigation-requested-page-observed', () => ({
-                    requested,
-                    requestedPage,
-                    currentPage: viewportAuthority.currentPage.value,
-                    pendingPage,
-                    shouldSubmit,
-                    runtimeReady: navigationRuntimeReady.value,
-                }));
-                if (!shouldSubmit) {
-                    return;
-                }
-                options.cancelPendingSearchScroll();
-                // Pre-ready the page count is still a placeholder, so clamping
-                // against it would reject a restored page beyond that placeholder.
-                submitPageNavigation(requirePageNumber(requestedPage));
-            }
-        },
-        {
-            flush: 'post',
-            immediate: true,
-        },
-    );
-
     tryOnScopeDispose(() => {
-        queuedNavigation = null;
         viewportAuthority.dispose();
-        metricHydrator.dispose();
     });
 
-    watch(navigationRuntimeReady, () => {
-        // Metadata and the PDF document can become ready before layout
-        // publishes its first geometry revision. Replay at the complete
-        // operational boundary instead of waiting for unrelated state.
-        replayQueuedNavigation();
+    watch([
+        navigationTicket,
+        navigationRuntimeReady,
+        () => options.getGeometryRevision(),
+        () => options.pdfDocument.value,
+        options.numPages,
+    ], ([ticket]) => {
+        // Renderer mounts and geometry publication can occur after a ticket
+        // was minted. Replaying the complete ticket is safe because the
+        // ticket id remains the sole ordering key and an active execution is
+        // coalesced until its causal cancellation has settled.
+        if (ticket) startNavigationTicket(ticket);
+        else options.emitNavigationFeedbackPage?.(null);
     }, {
         flush: 'post',
         immediate: true,
     });
-    watch(viewportAuthority.pendingTargetPage, (pendingTargetPage) => {
-        retainedNavigationAnchorPage.value = resolveRetainedPdfNavigationAnchor({
-            pendingTargetPage,
-            retainedTargetPage: retainedNavigationAnchorPage.value,
-            explicitCancel: false,
-        });
-    }, {
-        flush: 'sync',
-        immediate: true,
-    });
     const navigationAnchorPage = computed(() => (
         viewportAuthority.pendingTargetPage.value
-        ?? retainedNavigationAnchorPage.value
+        ?? getNavigationRequestPage(currentNavigationTicket()?.request)
+        ?? (currentNavigationTicket() ? navigationRuntime?.navigationPage.value ?? null : null)
     ));
     const navigationState = computed(() => {
         const activeIntent = viewportAuthority.activeIntent.value;
-        const targetPage = viewportAuthority.pendingTargetPage.value;
-        if (!activeIntent || targetPage === null) {
+        const ticket = currentNavigationTicket();
+        const targetPage = navigationAnchorPage.value;
+        if (!activeIntent && !ticket) {
             return createPdfNavigationMachineState(
                 intentSequence,
                 viewportAuthority.currentPage.value,
             );
         }
-        const source = activeIntent.kind === 'search'
+        const source = (activeIntent?.kind === 'search' || ticket?.request.source === 'search')
             ? 'search' as const
-            : activeIntent.kind === 'wheel-page'
+            : (activeIntent?.kind === 'wheel-page' || ticket?.request.source === 'wheel')
                 ? 'wheel' as const
                 : options.continuousScroll.value ? 'continuous' as const : 'paged' as const;
         const phase = viewportAuthority.phase.value;
@@ -1213,8 +1131,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             txn: intentSequence,
         };
     });
-    const searchNavigationTargetPage = computed(() => viewportAuthority.activeIntent.value?.kind === 'search'
-        ? viewportAuthority.pendingTargetPage.value
+    const searchNavigationTargetPage = computed(() => currentNavigationTicket()?.request.source === 'search'
+        ? navigationAnchorPage.value
         : null);
     const searchNavigationState = computed(() => searchNavigationTargetPage.value === null ? 'idle' : 'navigating');
     const currentPageAuthority = {
@@ -1278,7 +1196,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         commitCurrentViewportIfSettled,
         captureViewportCommitDiagnostics,
         navigationAnchorPage,
-        navigationVisualHandoffTargetPage: navigationVisualHandoff.targetPage,
+        navigationVisualHandoffTargetPage: navigationAnchorPage,
         pagedNavigationTargetPage: navigationAnchorPage,
         continuousNavigationTargetPage: computed(() => null),
         searchNavigationTargetPage,

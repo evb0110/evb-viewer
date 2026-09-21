@@ -298,6 +298,7 @@ export function createDocumentPageSourcePresentation(options: {
         const snapshot = openSurface?.snapshot.value;
         const viewportState = openSurface?.viewportSession.value;
         const image = getConnectedImage(pageNumber, state);
+        const navigationTicket = openSurface?.navigationTicket.value ?? null;
         if (
             !state.ready
             || !image
@@ -313,6 +314,7 @@ export function createDocumentPageSourcePresentation(options: {
                 'opening',
                 'transitioning',
             ].includes(viewportState.lifecycle)
+            || navigationTicket !== null && !openSurface.isNavigationCurrent(navigationTicket)
         ) {
             return false;
         }
@@ -325,22 +327,37 @@ export function createDocumentPageSourcePresentation(options: {
                 pageNumber,
             });
         const viewport = options.readViewport();
-        return Boolean(
-            fence
-            && openSurface.commitCanvas(fence)
-            && viewport
-            && openSurface.commitViewport({
+        if (!fence || !openSurface.commitCanvas(fence) || !viewport) {
+            return false;
+        }
+        const placed = navigationTicket
+            ? openSurface.reportNavigation(navigationTicket, {
+                kind: 'placed',
+                page: pageNumber,
+                left: viewport.scrollLeft,
+                top: viewport.scrollTop,
+                geometryRevision: lifecycleFence.loadGeneration,
+                interactionEpoch: options.chassisAuthority?.viewportWritePort.getInteractionEpoch() ?? 0,
+            })
+            : openSurface.commitViewport({
                 generation: lifecycleFence.openSurfaceGeneration,
                 documentRevision: fence.documentRevision,
                 viewportIntentId: viewportState.viewportIntent.id,
                 documentGeometryRevision: lifecycleFence.loadGeneration,
-                interactionEpoch: 0,
+                interactionEpoch: options.chassisAuthority?.viewportWritePort.getInteractionEpoch() ?? 0,
                 pageNumber,
                 left: viewport.scrollLeft,
                 top: viewport.scrollTop,
+            });
+        if (!placed || !openSurface.markReady(fence)) {
+            return false;
+        }
+        return navigationTicket
+            ? openSurface.reportNavigation(navigationTicket, {
+                kind: 'arrived',
+                page: pageNumber,
             })
-            && openSurface.markReady(fence),
-        );
+            : true;
     }
     function markReady(pageNumber: number, state: IDocumentPageSourceVisualState) {
         const initialOpen = options.chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening';

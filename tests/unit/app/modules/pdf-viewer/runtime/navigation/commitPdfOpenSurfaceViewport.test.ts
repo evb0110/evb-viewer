@@ -3,301 +3,126 @@ import {
     expect,
     it,
 } from 'vitest';
-import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
-import {
-    commitDocumentOpenSurfaceViewport,
-    createDocumentOpenSurfaceSession,
-    shouldProjectDocumentViewportCommitPage,
-} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {createPdfOpenSurfaceViewportCallbacks} from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
 
-describe('commitPdfOpenSurfaceViewport', () => {
-    it('settles the exact live surface intent instead of copying a PDF-local intent id', () => {
-        const surface = createDocumentOpenSurfaceSession();
-        const generation = surface.begin({
-            documentId: 'scan.pdf',
-            documentRevision: 'load:1',
-        });
-        expect(surface.commitGeometry(generation, {
-            width: 612,
-            height: 792,
-            margin: 20,
-        })).toBe(true);
-        const renderFence = surface.createRenderFence({
-            generation,
-            documentRevision: 'load:1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: 1,
-        });
-        expect(renderFence).not.toBeNull();
-        expect(surface.commitCanvas(renderFence!)).toBe(true);
+describe('PDF open-surface viewport callbacks', () => {
+    it('reports placement through the exact live navigation ticket', () => {
+        const surface = createReadySurface(1);
+        const ticket = surface.navigate(createPageNavigationRequest(2, 'toolbar'))!;
+        const emittedPages: number[] = [];
+        const completedPages: number[] = [];
+        const callbacks = createCallbacks(surface, emittedPages, completedPages);
 
-        expect(commitDocumentOpenSurfaceViewport(surface, {
-            geometryRevision: 7,
-            interactionEpoch: 0,
-            page: 1,
-            left: 0,
-            top: 0,
-        })).toBe(true);
-
-        expect(surface.snapshot.value.committedViewport).toMatchObject({
-            pageNumber: 1,
-            viewportIntentId: renderFence!.viewportIntentId,
-            documentGeometryRevision: 7,
-        });
-        expect(surface.snapshot.value.phase).toBe('viewport-committed');
-        expect(surface.markReady(renderFence!)).toBe(true);
-        expect(surface.snapshot.value.phase).toBe('ready');
-    });
-
-    it('does not relabel a stale page position with a newer surface intent', () => {
-        const surface = createDocumentOpenSurfaceSession();
-        surface.begin({
-            documentId: 'scan.pdf',
-            documentRevision: 'load:1',
-        });
-        surface.requestNavigation(2, 0);
-
-        expect(commitDocumentOpenSurfaceViewport(surface, {
-            geometryRevision: 7,
-            interactionEpoch: 0,
-            page: 1,
-            left: 0,
-            top: 0,
-        })).toBe(false);
-        expect(surface.snapshot.value.committedViewport).toBeNull();
-    });
-
-    it('commits after close and reopen under the shared generation', () => {
-        const surface = createDocumentOpenSurfaceSession();
-        surface.begin({
-            documentId: 'first.pdf',
-            documentRevision: 'load:1',
-        });
-        surface.reset();
-        const generation = surface.begin({
-            documentId: 'scan.pdf',
-            documentRevision: 'load:2',
-        });
-        expect(surface.viewportSession.value.generation).toBe(generation);
-        expect(surface.commitGeometry(generation, {
-            width: 612,
-            height: 792,
-            margin: 20,
-        })).toBe(true);
-        const renderFence = surface.createRenderFence({
-            generation,
-            documentRevision: 'load:2',
-            renderVersion: 2,
-            requestId: 2,
-            pageNumber: 1,
-        });
-        expect(renderFence).not.toBeNull();
-        expect(surface.commitCanvas(renderFence!)).toBe(true);
-
-        expect(commitDocumentOpenSurfaceViewport(surface, {
-            geometryRevision: 8,
-            interactionEpoch: 0,
-            page: 1,
-            left: 0,
-            top: 0,
-        })).toBe(true);
-        expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1);
-    });
-
-    it('requires PDF commits to match the page command already owned by the shared surface', () => {
-        const surface = createDocumentOpenSurfaceSession();
-        surface.begin({
-            documentId: 'scan.pdf',
-            documentRevision: 'load:1',
-        });
-        surface.requestNavigation(348, 0);
-        const baseCommit = {
-            intentId: 'viewport-state-1',
+        expect(callbacks.onViewportPositionCommitted({
+            intentId: ticket.id,
+            intentKind: 'navigate',
             documentRevision: 1,
             geometryRevision: 7,
             interactionEpoch: 0,
-            page: 1,
+            page: 2,
             left: 0,
-            top: 0,
-        } as const;
-
-        expect(shouldProjectDocumentViewportCommitPage(surface, baseCommit)).toBe(false);
+            top: 800,
+            navigationTicket: ticket,
+        })).toBe(true);
+        expect(surface.snapshot.value.committedViewport).toMatchObject({
+            pageNumber: 2,
+            viewportIntentId: ticket.id,
+            documentGeometryRevision: 7,
+        });
+        expect(emittedPages).toEqual([2]);
+        expect(completedPages).toEqual([2]);
     });
 
-    it('rejects a stale requested-page geometry echo after free scrolling changes the semantic page', () => {
-        const surface = createDocumentOpenSurfaceSession();
-        const generation = surface.begin({
-            documentId: 'scan.pdf',
-            documentRevision: 'load:1',
-        });
-        surface.metadataReady(20);
-        surface.commitGeometry(generation, {
-            width: 612,
-            height: 792,
-            margin: 20,
-        });
-        const openingFence = surface.createRenderFence({
-            generation,
-            documentRevision: 'load:1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: 1,
-        })!;
-        surface.commitCanvas(openingFence);
-        surface.commitViewport({
-            generation,
-            documentRevision: 'load:1',
-            viewportIntentId: openingFence.viewportIntentId,
-            documentGeometryRevision: 1,
+    it('rejects a late placement after a newer ticket replaces the command', () => {
+        const surface = createReadySurface(1);
+        const stale = surface.navigate(createPageNavigationRequest(2, 'toolbar'))!;
+        const current = surface.navigate(createPageNavigationRequest(3, 'toolbar'))!;
+        const emittedPages: number[] = [];
+        const completedPages: number[] = [];
+        const callbacks = createCallbacks(surface, emittedPages, completedPages);
+
+        expect(callbacks.onViewportPositionCommitted({
+            intentId: stale.id,
+            intentKind: 'navigate',
+            documentRevision: 1,
+            geometryRevision: 7,
             interactionEpoch: 0,
-            pageNumber: 1,
+            page: 2,
             left: 0,
-            top: 0,
-        });
-        surface.markReady(openingFence);
-        expect(surface.observeViewportPage(20)).toBe(20);
+            top: 800,
+            navigationTicket: stale,
+        })).toBe(false);
+        expect(surface.navigationTicket.value?.id).toBe(current.id);
+        expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1);
+        expect(emittedPages).toEqual([]);
+        expect(completedPages).toEqual([]);
+    });
+
+    it('keeps geometry observation separate from ticket publication', () => {
+        const surface = createReadySurface(1);
+        const emittedPages: number[] = [];
+        const callbacks = createCallbacks(surface, emittedPages, []);
+
+        expect(callbacks.onViewportPositionCommitted({
+            intentId: 'fit-observation',
+            intentKind: 'fit',
+            documentRevision: 1,
+            geometryRevision: 8,
+            interactionEpoch: 0,
+            page: 20,
+            left: 0,
+            top: 10_000,
+        })).toBe(true);
+        expect(surface.navigationTicket.value?.request.source).toBe('restore');
         expect(surface.viewportSession.value).toMatchObject({
             lifecycle: 'ready',
             requestedPage: 1,
             committedPage: 1,
             observedPage: 20,
         });
-
-        const stalePageOneCommit = {
-            intentId: 'late-fit-page-one',
-            documentRevision: 1,
-            geometryRevision: 2,
-            interactionEpoch: 0,
-            page: 1,
-            left: 0,
-            top: 0,
-        } as const;
-        expect(shouldProjectDocumentViewportCommitPage(surface, stalePageOneCommit)).toBe(false);
+        expect(emittedPages).toEqual([20]);
     });
 
-    it('does not let a late PDF navigation commit supersede a newer shared command', () => {
-        const surface = createReadySurface(348);
-        surface.requestNavigation(1, 0);
-        const liveIntentId = surface.viewportSession.value.viewportIntent?.id;
+    it('does not turn a stale ticket into a same-page observation', () => {
+        const surface = createReadySurface(1);
+        const stale = surface.navigate(createPageNavigationRequest(1, 'toolbar'))!;
+        surface.navigate(createPageNavigationRequest(2, 'toolbar'));
         const emittedPages: number[] = [];
-        const completedPages: number[] = [];
-        const callbacks = createPdfOpenSurfaceViewportCallbacks(
-            {openSurface: surface} as IDocumentViewerRuntime,
-            page => emittedPages.push(page),
-            page => completedPages.push(page),
-        );
+        const callbacks = createCallbacks(surface, emittedPages, []);
 
-        callbacks.onViewportPositionCommitted({
-            intentId: 'late-navigate-348',
+        expect(callbacks.onViewportPositionCommitted({
+            intentId: stale.id,
             intentKind: 'navigate',
             documentRevision: 1,
-            geometryRevision: 2,
+            geometryRevision: 8,
             interactionEpoch: 0,
-            page: 348,
-            left: 0,
-            top: 100_000,
-        });
-
-        expect(surface.viewportSession.value.requestedPage).toBe(1);
-        expect(surface.viewportSession.value.viewportIntent?.id).toBe(liveIntentId);
+            page: 1,
+            left: 10,
+            top: 20,
+            navigationTicket: stale,
+        })).toBe(false);
         expect(emittedPages).toEqual([]);
-        expect(completedPages).toEqual([]);
-    });
-
-    it('does not mint an unsettled shared transition for geometry at an observed page', () => {
-        const surface = createReadySurface(20);
-        const liveIntentId = surface.viewportSession.value.viewportIntent?.id;
-        const callbacks = createPdfOpenSurfaceViewportCallbacks(
-            {openSurface: surface} as IDocumentViewerRuntime,
-            () => undefined,
-            () => undefined,
-        );
-
-        callbacks.onViewportPositionCommitted({
-            intentId: 'fit-at-observed-page',
-            intentKind: 'fit',
-            documentRevision: 1,
-            geometryRevision: 2,
-            interactionEpoch: 0,
-            page: 20,
-            left: 0,
-            top: 10_000,
-        });
-
-        expect(surface.viewportSession.value).toMatchObject({
-            lifecycle: 'ready',
-            requestedPage: 1,
-            observedPage: 20,
-        });
-        expect(surface.viewportSession.value.viewportIntent?.id).toBe(liveIntentId);
-    });
-
-    it('observes a settled PDF-internal search jump only while the shared surface is ready', () => {
-        const surface = createReadySurface(1);
-        const emittedPages: number[] = [];
-        const authority = {
-            openSurface: surface,
-            observePage: (page: number) => surface.observeViewportPage(page),
-        } as IDocumentViewerRuntime;
-        const callbacks = createPdfOpenSurfaceViewportCallbacks(
-            authority,
-            page => emittedPages.push(page),
-            () => undefined,
-        );
-
-        callbacks.onViewportPositionCommitted({
-            intentId: 'pdf-internal-search-50',
-            intentKind: 'search',
-            documentRevision: 1,
-            geometryRevision: 2,
-            interactionEpoch: 0,
-            page: 50,
-            left: 0,
-            top: 25_000,
-        });
-
-        expect(surface.viewportSession.value).toMatchObject({
-            lifecycle: 'ready',
-            requestedPage: 1,
-            observedPage: 50,
-        });
-        expect(emittedPages).toEqual([50]);
-    });
-
-    it('does not observe a late PDF-internal jump across a newer shared transition', () => {
-        const surface = createReadySurface(1);
-        surface.requestNavigation(2, 0);
-        const emittedPages: number[] = [];
-        const authority = {
-            openSurface: surface,
-            observePage: (page: number) => surface.observeViewportPage(page),
-        } as IDocumentViewerRuntime;
-        const callbacks = createPdfOpenSurfaceViewportCallbacks(
-            authority,
-            page => emittedPages.push(page),
-            () => undefined,
-        );
-
-        callbacks.onViewportPositionCommitted({
-            intentId: 'late-pdf-internal-search-50',
-            intentKind: 'search',
-            documentRevision: 1,
-            geometryRevision: 2,
-            interactionEpoch: 0,
-            page: 50,
-            left: 0,
-            top: 25_000,
-        });
-
-        expect(surface.viewportSession.value).toMatchObject({
-            lifecycle: 'transitioning',
-            requestedPage: 2,
-        });
-        expect(emittedPages).toEqual([]);
+        expect(surface.viewportSession.value.requestedPage).toBe(2);
     });
 });
+
+function createCallbacks(
+    surface: ReturnType<typeof createDocumentOpenSurfaceSession>,
+    emittedPages: number[],
+    completedPages: number[],
+) {
+    const authority = {
+        openSurface: surface,
+        observePage: (page: number) => surface.observeViewportPage(page),
+    };
+    return createPdfOpenSurfaceViewportCallbacks(
+        authority,
+        page => emittedPages.push(page),
+        page => completedPages.push(page),
+    );
+}
 
 function createReadySurface(observedPage: number) {
     const surface = createDocumentOpenSurfaceSession();

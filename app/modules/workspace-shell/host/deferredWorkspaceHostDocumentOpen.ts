@@ -189,6 +189,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             const identity = {
                 documentId,
                 documentRevision: `open-intent:${transactionId}`,
+                provisional: true,
             };
             const initialViewState = openHost.getInitialViewState();
             const restoredInitialPage = intent.action.toLowerCase().includes('restore')
