@@ -338,7 +338,7 @@ export async function openDocumentPageSource(
             throw new Error('Unable to resolve the initial document page shell');
         }
         const existingFrame = snapshot.openingPageFrame;
-        if (!(existingFrame
+        const frameCommitted = existingFrame
             ? existingFrame.generation === generation && existingFrame.pageNumber === initialPage
             : surface.commitOpeningPageFrame(generation, {
                 generation,
@@ -346,7 +346,8 @@ export async function openDocumentPageSource(
                 pageNumber: initialPage,
                 intentKey: `page-source:${policy.zoomMode}:${String(policy.zoom)}:${String(policy.continuousScroll)}`,
                 style: frame.style,
-            }))) {
+            });
+        if (!frameCommitted) {
             throw new Error('Unable to commit the initial document page frame');
         }
         await nextTick();

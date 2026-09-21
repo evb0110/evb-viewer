@@ -59,6 +59,7 @@ import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMisma
 import { copyTextToClipboard } from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
+import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
@@ -583,9 +584,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
 
     const bookmarkNavigationIntentVersion = ref(0);
     const navigationTicket = computed(() => deps.openSurface?.navigationTicket.value ?? null);
-    const navigationPage = computed(() => {
-        const target = navigationTicket.value?.request.target;
-        return target && 'page' in target ? target.page : currentPage.value;
+    const {
+        consumePageUpdate: consumeViewerCurrentPageUpdate,
+        navigationPage,
+    } = createWorkspacePageNavigationFence({
+        currentPage,
+        openSurface: deps.openSurface,
     });
 
     function invalidateBookmarkNavigationRequests() {
@@ -995,7 +999,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             viewMode,
             zoom,
             viewerRef: documentViewerRef,
-            openSurface: deps.openSurface,
+            consumePageUpdate: consumeViewerCurrentPageUpdate,
         });
         function handleLoadError(error: unknown) {
             if (error === null || error === undefined) {

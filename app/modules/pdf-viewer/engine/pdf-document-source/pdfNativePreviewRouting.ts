@@ -37,7 +37,6 @@ export function shouldStageNativePdfOpeningPreview(
 export function shouldDeferNativePdfOpeningSkeleton(input: {
     documentId: string | null | undefined;
     geometry: { readonly size?: number } | null | undefined;
-    hasPreview: boolean;
     isOpening: boolean;
     rendererKind: string | null | undefined;
     source?: TPdfSource | null | undefined;
@@ -58,9 +57,12 @@ export function shouldDeferNativePdfOpeningSkeleton(input: {
         ? isNativeDocument
         : size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
             && (isNativeDocument || isNativePathSource);
+    // The native preview is the transition owner while PDF.js finishes its
+    // first real canvas. Releasing the host when the preview arrives exposes
+    // PDF.js's page-local draft before document-wide Fit Width has settled,
+    // which produces a visible wide-to-narrow jump.
     return input.sourceKind === 'pdf'
         && input.rendererKind === 'pdfjs'
         && input.isOpening
-        && isLargeOrUnresolvedNativePath
-        && !input.hasPreview;
+        && isLargeOrUnresolvedNativePath;
 }

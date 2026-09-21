@@ -24,17 +24,13 @@ import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { cast } from '@tests/helpers/cast';
-
-interface IToolbarNavigationCommand {
-    page: number;
-    revision: number;
-}
 
 const toolbarRenders: Array<Record<string, unknown>> = [];
 const surfaceRenders = vi.hoisted(() => ({
@@ -94,9 +90,9 @@ vi.mock('@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue
     setup: () => () => h('div', {class: 'scan-cleanup-workspace-loading-stub'}),
 })}));
 
-// The toolbar is the consumer of the workspace navigation command. Recording
-// what DocumentWorkspace binds to it is the only way to observe, from outside,
-// which command stream the workspace publishes.
+// The toolbar is the consumer of the shared navigation ticket. Recording what
+// DocumentWorkspace binds to it is the only way to observe, from outside, the
+// command stream the workspace publishes.
 vi.mock('@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue', () => ({default: defineComponent({
     name: 'WorkspacePdfToolbarViewStub',
     inheritAttrs: false,
@@ -153,13 +149,14 @@ function readToolbarAttrs() {
     return latest;
 }
 
-function readToolbarNavigationCommand() {
-    return cast<IToolbarNavigationCommand | null>(readToolbarAttrs()['navigation-command'] ?? null);
+function readToolbarNavigationTicket() {
+    return cast<IDocumentNavigationTicket | null>(readToolbarAttrs()['navigation-ticket'] ?? null);
 }
 
 async function mountDocumentWorkspace(options: {
     initialSurfaceMode?: 'reader' | 'scan-cleanup';
     pendingDocumentPath?: TDocumentRef;
+    openSurfaceDocument?: TDocumentRef;
 } = {}) {
     const { default: DocumentWorkspace } = await import(
         '@app/modules/workspace-shell/components/DocumentWorkspace.vue'
@@ -221,7 +218,14 @@ async function mountDocumentWorkspace(options: {
         get: () => designSystemStub,
         has: () => true,
     });
-    app.provide(documentOpenSurfaceSessionKey, createDocumentOpenSurfaceSession());
+    const openSurface = createDocumentOpenSurfaceSession();
+    if (options.openSurfaceDocument) {
+        openSurface.begin({
+            documentId: options.openSurfaceDocument,
+            documentRevision: 'revision:test-navigation',
+        });
+    }
+    app.provide(documentOpenSurfaceSessionKey, openSurface);
     // The shell teleports its toolbar into the app-owned host element, so the
     // toolbar only renders when that target exists.
     for (const hostId of [
@@ -266,27 +270,30 @@ describe('DocumentWorkspace navigation command', () => {
     }, 120_000);
 
     it('publishes every page navigation to the toolbar as one command stream', async () => {
-        const workspace = await mountDocumentWorkspace();
+        const workspace = await mountDocumentWorkspace({openSurfaceDocument: requireDocumentRef('/tmp/navigation.pdf')});
 
-        expect(readToolbarNavigationCommand()).toBeNull();
+        expect(readToolbarNavigationTicket()?.request.target).toEqual({
+            kind: 'page',
+            page: 1,
+        });
 
         workspace.expose.handleGoToPage(4);
         await nextTick();
-        expect(readToolbarNavigationCommand()).toEqual({
+        expect(readToolbarNavigationTicket()?.request.target).toEqual({
+            kind: 'page',
             page: 4,
-            revision: 1,
         });
 
         workspace.expose.handleGoToPage(7);
         await nextTick();
-        expect(readToolbarNavigationCommand()).toEqual({
+        expect(readToolbarNavigationTicket()?.request.target).toEqual({
+            kind: 'page',
             page: 7,
-            revision: 2,
         });
     }, 120_000);
 
     it('shares one revision stream between the toolbar and the rest of the workspace', async () => {
-        const workspace = await mountDocumentWorkspace();
+        const workspace = await mountDocumentWorkspace({openSurfaceDocument: requireDocumentRef('/tmp/navigation.pdf')});
         const toolbarGoToPage = cast<(page: number, options?: IScrollToPageOptions) => void>(readToolbarAttrs()['onGoToPage']);
         const navigationOptions: IScrollToPageOptions = {
             navigationSource: 'annotation',
@@ -303,11 +310,14 @@ describe('DocumentWorkspace navigation command', () => {
         toolbarGoToPage(9, navigationOptions);
         await nextTick();
 
-        // A second publisher would restart its own revisions, leaving the
-        // toolbar unable to tell that another source superseded its intent.
-        expect(readToolbarNavigationCommand()).toEqual({
-            page: 9,
-            revision: 2,
+        // The shared surface retains one current ticket, so a newer publisher
+        // replaces the toolbar's target and source atomically.
+        expect(readToolbarNavigationTicket()?.request).toMatchObject({
+            target: {
+                kind: 'rect',
+                page: 9,
+            },
+            source: 'annotation',
         });
     }, 120_000);
 });

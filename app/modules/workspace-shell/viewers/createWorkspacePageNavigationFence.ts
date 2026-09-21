@@ -113,6 +113,7 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
         page: number,
         reason: string,
         navigationSource: TWorkspacePageNavigationSource | null,
+        releaseNavigation = true,
     ): IWorkspacePageUpdateOutcome {
         logPdfRenderTrace('workspace-viewer-current-page-update-accepted', {
             page,
@@ -121,7 +122,7 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
             reason,
         });
         options.currentPage.value = page;
-        if (options.openSurface?.navigationTicket.value) {
+        if (releaseNavigation && options.openSurface?.navigationTicket.value) {
             releaseSharedNavigation(page, navigationSource === null ? 'abandoned' : 'arrived');
         }
         if (localTargetPage.value !== null) {
@@ -169,7 +170,17 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
                 navigationSource: null,
             };
         }
-        if (viewport && viewport.lifecycle !== 'ready') {
+        const navigationTicket = options.openSurface?.navigationTicket.value;
+        const targetHasPhysicalPlacement = viewport !== undefined
+            && navigationTicket !== null
+            && navigationTicket !== undefined
+            && viewport.requestedPage === observedPage
+            && (
+                viewport.stagedViewportFence?.viewportIntentId === navigationTicket.id
+                || viewport.committedViewportFence?.viewportIntentId === navigationTicket.id
+            );
+        const retainNavigationUntilReady = targetHasPhysicalPlacement && viewport.lifecycle !== 'ready';
+        if (viewport && viewport.lifecycle !== 'ready' && !targetHasPhysicalPlacement) {
             logPdfRenderTrace('workspace-viewer-current-page-update-rejected', {
                 page: observedPage,
                 targetPage: pendingTargetPage,
@@ -182,7 +193,12 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
                 navigationSource: null,
             };
         }
-        return accept(observedPage, 'target-caught-up', sharedNavigationSource());
+        return accept(
+            observedPage,
+            retainNavigationUntilReady ? 'target-physically-placed' : 'target-caught-up',
+            sharedNavigationSource(),
+            !retainNavigationUntilReady,
+        );
     }
 
     function clampTo(availablePages: number) {

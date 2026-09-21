@@ -98,21 +98,16 @@ describe('pdfNativePreviewRouting', () => {
         })).toBe(false);
     });
 
-    it('defers only the provisional shell for oversized native PDF.js opens', () => {
+    it('defers the PDF.js opening surface until an oversized native open is ready', () => {
         const input = {
             documentId: '/tmp/native-dictionary.pdf',
             geometry: { size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES },
-            hasPreview: false,
             isOpening: true,
             rendererKind: 'pdfjs',
             sourceKind: 'pdf',
         };
 
         expect(shouldDeferNativePdfOpeningSkeleton(input)).toBe(true);
-        expect(shouldDeferNativePdfOpeningSkeleton({
-            ...input,
-            hasPreview: true,
-        })).toBe(false);
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,
             isOpening: false,
