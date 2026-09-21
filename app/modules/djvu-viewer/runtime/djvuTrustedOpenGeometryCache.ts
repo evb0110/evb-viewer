@@ -1,10 +1,12 @@
 import type { IRecentFile } from '@contracts/shared';
 import type { IDjvuPageSourceInfo } from '@contracts/electronApiDjvu';
-import type { IDocumentOpenSurfacePageGeometrySeed } from '@app/modules/document-viewer/public';
+import {
+    resolveDjvuPageSizeInPoints,
+    type IDocumentOpenSurfacePageGeometrySeed,
+} from '@app/modules/document-viewer/public';
 import {
     createBoundedLruCache, settleOpeningPreviewGeometry,
 } from '@app/modules/document-viewer/public';
-import {resolveDjvuPageSizeInPoints} from '@app/modules/document-viewer/source/resolveDjvuPageSizeInPoints';
 
 interface ISourceStat {
     size: number;
