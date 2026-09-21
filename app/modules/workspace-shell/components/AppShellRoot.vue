@@ -30,7 +30,9 @@
                 v-show="showShellToolbar"
                 :snapshot="shellToolbarSnapshot"
                 :has-pdf="shellToolbarHasPdf"
+                :ocr-document-revision="shellToolbarOcrDocumentRevision"
                 :ocr-popup-open="shellToolbarOcrPopupOpen"
+                :ocr-working-copy-path="shellToolbarOcrWorkingCopyPath"
                 :zoom-dropdown-open="shellToolbarZoomDropdownOpen"
                 :page-dropdown-open="shellToolbarPageDropdownOpen"
                 :overflow-menu-open="shellToolbarOverflowMenuOpen"
@@ -576,7 +578,9 @@ const {
     shellToolbarEffectiveZoom,
     shellToolbarFitMode,
     shellToolbarHasPdf,
+    shellToolbarOcrDocumentRevision,
     shellToolbarOcrPopupOpen,
+    shellToolbarOcrWorkingCopyPath,
     shellToolbarOverflowMenuOpen,
     shellToolbarPageDropdownOpen,
     shellToolbarSnapshot,

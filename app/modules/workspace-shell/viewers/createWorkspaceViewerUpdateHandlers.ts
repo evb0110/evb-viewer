@@ -30,6 +30,7 @@ interface IWorkspaceViewerUpdateOptions {
     viewMode: Ref<TPdfViewMode>;
     zoom: Ref<number>;
     viewerRef: Ref<IDocumentViewerExpose | null>;
+    consumePageUpdate?: ((page: number) => IWorkspacePageUpdateOutcome) | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
 }
 
@@ -61,13 +62,19 @@ export function createWorkspaceViewerUpdateHandlers(options: IWorkspaceViewerUpd
             viewerScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
             viewerScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
         };
-        const ticket = options.openSurface?.navigationTicket.value ?? null;
-        const observedPage = options.openSurface?.observeViewportPage(page) ?? page;
-        const outcome: IWorkspacePageUpdateOutcome = {
-            accepted: true,
-            navigationSource: ticket?.request.source ?? null,
-        };
-        options.currentPage.value = observedPage;
+        const outcome = options.consumePageUpdate?.(page) ?? (() => {
+            const ticket = options.openSurface?.navigationTicket.value ?? null;
+            const observedPage = options.openSurface?.observeViewportPage(page) ?? page;
+            options.currentPage.value = observedPage;
+            return {
+                accepted: true,
+                navigationSource: ticket?.request.source ?? null,
+            } satisfies IWorkspacePageUpdateOutcome;
+        })();
+        if (!outcome.accepted) {
+            return;
+        }
+        const observedPage = options.currentPage.value;
         BrowserLogger.diagnostic('pdf-nav', `[workspace-page-update] viewer->workspace ${previousPage}->${page}`, {
             ...shared,
             nextPage: observedPage,

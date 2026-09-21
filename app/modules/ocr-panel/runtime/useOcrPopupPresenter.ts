@@ -337,6 +337,7 @@ export const useOcrPopupPresenter = ({
     const activeOcrSourcePage = ref<number | null>(null);
     const needsReOcr = ref(false);
     const pendingAppliedOcrRequestId = ref<string | null>(null);
+    const pendingAppliedOcrSourceDocumentRevision = ref<TDocumentRevisionToken | null>(null);
     const languageSearchQuery = ref('');
     const activeRunNeedsModelDownload = ref(false);
 
@@ -457,7 +458,6 @@ export const useOcrPopupPresenter = ({
         !disabled.value
         && !progress.value.isRunning
         && hasSelectedAvailableLanguage.value
-        && Boolean(pdfDocument.value)
         && Boolean(workingCopyPath.value)
         && (
             settings.value.supersessionPolicy !== 'replace-all'
@@ -717,7 +717,7 @@ export const useOcrPopupPresenter = ({
         await loadLanguages();
         applyAgentOcrOptions(options);
 
-        if (!pdfDocument.value || !workingCopyPath.value) {
+        if (!workingCopyPath.value) {
             return {
                 ok: false,
                 error: t('errors.ocr.noDocument'),
@@ -812,6 +812,7 @@ export const useOcrPopupPresenter = ({
         activeOcrSourcePath.value = null;
         activeOcrSourcePage.value = null;
         pendingAppliedOcrRequestId.value = null;
+        pendingAppliedOcrSourceDocumentRevision.value = null;
         clearResults();
         clearRunSettingsHistory();
     }
@@ -882,10 +883,18 @@ export const useOcrPopupPresenter = ({
         }
     });
 
-    watch(pdfDocument, (nextDocument, previousDocument) => {
+    watch([
+        pdfDocument,
+        documentRevision,
+    ], ([
+        nextDocument,
+        nextRevision,
+    ], [previousDocument]) => {
+        const documentChanged = nextDocument !== null && nextDocument !== previousDocument;
+        const revisionChangedToAppliedDocument = nextRevision !== null
+            && nextRevision !== pendingAppliedOcrSourceDocumentRevision.value;
         if (
-            !nextDocument
-            || nextDocument === previousDocument
+            (!documentChanged && !revisionChangedToAppliedDocument)
             || pendingAppliedOcrRequestId.value === null
             || progress.value.isRunning
         ) {
@@ -893,6 +902,7 @@ export const useOcrPopupPresenter = ({
         }
 
         pendingAppliedOcrRequestId.value = null;
+        pendingAppliedOcrSourceDocumentRevision.value = null;
         showSuccessState.value = true;
         stopSuccessStateReset();
         startSuccessStateReset();
@@ -901,6 +911,7 @@ export const useOcrPopupPresenter = ({
     watch(effectiveError, (nextError) => {
         if (nextError !== null && pendingAppliedOcrRequestId.value !== null) {
             pendingAppliedOcrRequestId.value = null;
+            pendingAppliedOcrSourceDocumentRevision.value = null;
         }
     });
 
@@ -909,6 +920,7 @@ export const useOcrPopupPresenter = ({
         const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage.value;
         if (searchablePdfResult && sourceWorkingCopyPath) {
             pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
+            pendingAppliedOcrSourceDocumentRevision.value = searchablePdfResult.sourceDocumentRevisionToken;
             events.onOcrComplete({
                 ...searchablePdfResult,
                 sourceWorkingCopyPath,

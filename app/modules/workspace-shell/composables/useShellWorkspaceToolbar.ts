@@ -1,4 +1,6 @@
 import type { Ref } from 'vue';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { TPdfViewMode } from '@contracts/shared';
@@ -24,6 +26,12 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
         options.activeDocumentRecord.value?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot()
     ));
     const shellToolbarHasPdf = computed(() => shellToolbarSnapshot.value.hasPdf);
+    const shellToolbarOcrWorkingCopyPath = computed<TDocumentRef | null>(() => (
+        options.activeDocumentRecord.value?.documentIdentity?.documentRef ?? null
+    ));
+    const shellToolbarOcrDocumentRevision = computed<TDocumentRevisionToken | null>(() => (
+        options.activeDocumentRecord.value?.documentIdentity?.token ?? null
+    ));
     const showShellToolbar = computed(() => !options.hasWorkspaceToolbarContent.value);
 
     function createSnapshotFieldModel<TKey extends keyof IWorkspaceToolbarSnapshot>(key: TKey) {
@@ -41,7 +49,9 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
         shellToolbarEffectiveZoom: createSnapshotFieldModel('effectiveZoom'),
         shellToolbarFitMode: createSnapshotFieldModel('fitMode'),
         shellToolbarHasPdf,
+        shellToolbarOcrDocumentRevision,
         shellToolbarOcrPopupOpen,
+        shellToolbarOcrWorkingCopyPath,
         shellToolbarOverflowMenuOpen,
         shellToolbarPageDropdownOpen,
         shellToolbarSnapshot,

@@ -88,6 +88,33 @@ describe('OCR page text classification and supersession', () => {
             .toBe('native-text');
     });
 
+    it('recognizes an EVB OCR Form XObject marker in the page stream', () => {
+        const visibility = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END']);
+
+        expect(visibility).toMatchObject({
+            hasHiddenTextOperators: true,
+            hasVisibleTextOperators: false,
+        });
+        expect(classifyOcrPageText({
+            extractedText: 'garbled hidden layer',
+            visibility,
+        }).classification).toBe('foreign-hidden-ocr');
+        expect(shouldOcrClassifiedPage('foreign-hidden-ocr', 'missing-only')).toBe(true);
+    });
+
+    it('does not treat an unrelated marker comment or incomplete block as EVB OCR', () => {
+        expect(inspectPdfTextVisibility(['% copied from EVB_VIEWER_OCR_LAYER_BEGIN in a PDF comment']))
+            .toMatchObject({
+                hasHiddenTextOperators: false,
+                hasVisibleTextOperators: false,
+            });
+        expect(inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do']))
+            .toMatchObject({
+                hasHiddenTextOperators: false,
+                hasVisibleTextOperators: false,
+            });
+    });
+
     it('inspects a real mixed PDF corpus page by page', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-ocr-classifier-'));
         const pdfPath = join(directory, 'mixed.pdf');

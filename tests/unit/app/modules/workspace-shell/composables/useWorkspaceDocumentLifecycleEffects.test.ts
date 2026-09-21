@@ -276,6 +276,32 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
         lifecycle.scope.stop();
     });
 
+    it('accepts the revision event that wins a post-replace revision read', async () => {
+        let revisionChanged: ((revision: IDocumentRevisionInfo) => void) | undefined;
+        mocks.onDocumentRevisionChanged.mockImplementationOnce((...args: unknown[]) => {
+            revisionChanged = args[0] as ((revision: IDocumentRevisionInfo) => void);
+            return vi.fn();
+        });
+        const revisionRead = Promise.withResolvers<IDocumentRevisionInfo>();
+        const reloadWorkingCopyIntoHistory = vi.fn(async () => true);
+        const lifecycle = createLifecycle({reloadWorkingCopyIntoHistory});
+        await nextTick();
+        mocks.getDocumentRevision.mockReturnValueOnce(revisionRead.promise);
+
+        const completion = lifecycle.handleOcrComplete(ocrPayload());
+        await vi.waitFor(() => {
+            expect(mocks.replaceWorkingCopyFromPath).toHaveBeenCalledOnce();
+        });
+        revisionChanged?.(revisionInfo('/tmp/work.pdf', 'event-revision-token', 2));
+        revisionRead.resolve(revisionInfo('/tmp/work.pdf', 'read-revision-token', 3));
+
+        await completion;
+
+        expect(lifecycle.documentRevisionToken.value).toBe('event-revision-token');
+        expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({markDirty: true});
+        lifecycle.scope.stop();
+    });
+
     it('releases the OCR lease before waiting for viewer reload settlement', async () => {
         let resolveReload!: () => void;
         let leaseFinished = false;

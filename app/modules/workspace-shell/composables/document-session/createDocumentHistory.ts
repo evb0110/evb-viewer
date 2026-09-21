@@ -587,21 +587,28 @@ export function createDocumentHistory(
             return false;
         }
 
+        const nextPdfSrc = isPathPdfSource(nextState.pdfSrc) && state.documentRevisionToken.value
+            ? {
+                ...nextState.pdfSrc,
+                revision: state.documentRevisionToken.value,
+            }
+            : nextState.pdfSrc;
+
         let didAppendHistory = false;
         if (nextState.pdfData) {
             state.pdfData.value = nextState.pdfData;
-            state.pdfSrc.value = nextState.pdfSrc;
-            state.pdfReloadSrc.value = nextState.pdfSrc;
+            state.pdfSrc.value = nextPdfSrc;
+            state.pdfReloadSrc.value = nextPdfSrc;
             didAppendHistory = await pushHistorySnapshot(nextState.pdfData, { reuseSnapshot: true });
         } else {
-            const snapshotEntry = await createPathHistoryEntry(path, nextState.pdfSrc.size);
+            const snapshotEntry = await createPathHistoryEntry(path, nextPdfSrc.size);
             if (!state.isActiveWorkingCopy(path)) {
                 void deps.documentWorkingCopy().cleanupFile(snapshotEntry.path);
                 return false;
             }
             state.pdfData.value = nextState.pdfData;
-            state.pdfSrc.value = nextState.pdfSrc;
-            state.pdfReloadSrc.value = nextState.pdfSrc;
+            state.pdfSrc.value = nextPdfSrc;
+            state.pdfReloadSrc.value = nextPdfSrc;
             didAppendHistory = pushHistoryEntry(snapshotEntry);
             if (!didAppendHistory) {
                 scheduleHistoryEntryCleanup([snapshotEntry]);

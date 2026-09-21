@@ -237,6 +237,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
         currentPage,
         totalPages,
         workingCopyPath,
+        documentRevision,
         pdfDocument,
         disabled,
         externalError,
@@ -368,6 +369,25 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.ocr.settings.value.selectedLanguages).toEqual(['rus']);
             harness.presenter.selectedLanguagesModel.value = [];
             expect(harness.presenter.canRunOcr.value).toBe(false);
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('can run from a working copy when the fallback toolbar has no PDF object', async () => {
+        const harness = createPresenterHarness();
+        harness.pdfDocument.value = null;
+        harness.ocr.runOcr.mockImplementation(async () => {
+            setSearchableResult(harness.ocr, 'req-no-pdf-object', '/tmp/no-pdf-object.pdf');
+        });
+
+        try {
+            expect(harness.presenter.canRunOcr.value).toBe(true);
+            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({
+                ok: true,
+                ocr: {hasResults: true},
+            });
+            expect(harness.ocr.runOcr).toHaveBeenCalledWith(3, 12, '/tmp/source.pdf');
         } finally {
             stopHarness(harness.scope);
         }
@@ -507,6 +527,49 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.presenter.viewState.value).toBe('results');
             expect(harness.ocr.clearResults).toHaveBeenCalledTimes(1);
             expect(harness.ocr.clearRunSettingsHistory).toHaveBeenCalledTimes(1);
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('recognizes OCR application when the active document only refreshes its revision token', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            harness.presenter.handleRunOcr();
+            setSearchableResult(harness.ocr, 'req-revision-applied', '/tmp/revision-applied.pdf');
+            await nextTick();
+
+            expect(harness.presenter.viewState.value).toBe('applying');
+            harness.pdfDocument.value = null;
+            harness.documentRevision.value = requireDocumentRevisionToken('drt2:ocr-presenter-test');
+            await nextTick();
+
+            expect(harness.presenter.showSuccessState.value).toBe(true);
+            expect(harness.presenter.viewState.value).toBe('results');
+        } finally {
+            stopHarness(harness.scope);
+        }
+    });
+
+    it('does not treat the source revision resolution as OCR application', async () => {
+        const harness = createPresenterHarness();
+
+        try {
+            harness.presenter.handleRunOcr();
+            setSearchableResult(harness.ocr, 'req-source-revision', '/tmp/source-revision.pdf');
+            await nextTick();
+
+            harness.documentRevision.value = requireDocumentRevisionToken('source-revision-token');
+            await nextTick();
+
+            expect(harness.presenter.viewState.value).toBe('applying');
+
+            harness.documentRevision.value = requireDocumentRevisionToken('drt2:ocr-presenter-applied');
+            await nextTick();
+
+            expect(harness.presenter.showSuccessState.value).toBe(true);
+            expect(harness.presenter.viewState.value).toBe('results');
         } finally {
             stopHarness(harness.scope);
         }
