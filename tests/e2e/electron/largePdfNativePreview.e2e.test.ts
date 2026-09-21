@@ -324,9 +324,8 @@ function assertAtomicNativeToPdfjsHandoff(
     expect(framesBeforePreview.every(frame => (
         !frame.pdfjsOpeningPageVisible
         && frame.pdfjsOpeningSurfaceDeferred
-        && frame.transitionSurfaceVisible
-        && frame.transitionSkeletonCount > 0
-        && frame.transitionCoversViewport
+        && !frame.transitionSurfaceVisible
+        && frame.transitionSkeletonCount === 0
     )), JSON.stringify(generationFrames)).toBe(true);
     expect(
         generationFrames[firstPreviewIndex]!.capturedAtMs - opening.capturedAtMs,

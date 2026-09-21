@@ -506,9 +506,10 @@ const chassisOpeningPageShell = computed(() => {
 // A large path-backed PDF is opened through the native preview lane. Its
 // document-wide Fit Width is not knowable from page 1, so keep PDF.js's
 // page-local provisional shell hidden while that lane loads its page table.
-// The chassis still owns the generic opening skeleton; the native preview is
-// committed with the settled document-wide width and becomes the first page
-// visual.
+// Do not expose a second chassis-owned shell while that lane is loading: its
+// page-local dimensions are provisional for the same reason. The native
+// preview is committed with the settled document-wide width and becomes the
+// first page visual.
 const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const isOpening = snapshot.phase === 'pending'
@@ -525,8 +526,8 @@ const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     });
 });
 const shouldShowChassisOpeningPageSkeleton = computed(() => (
-    shouldDeferLargePdfOpeningSkeleton.value
-    || chassisAuthority.openingPageVisual.value !== 'fresh'
+    !shouldDeferLargePdfOpeningSkeleton.value
+    && chassisAuthority.openingPageVisual.value !== 'fresh'
 ));
 const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
 
