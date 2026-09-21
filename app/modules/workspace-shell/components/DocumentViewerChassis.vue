@@ -46,8 +46,7 @@
                 v-if="chassisOpeningPageShell
                     && shouldRenderChassisOpeningPageShell
                     && (chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview
-                        || !shouldDeferLargePdfOpeningSkeleton
-                        && chassisAuthority.openingPageVisual.value !== 'fresh')"
+                        || shouldShowChassisOpeningPageSkeleton)"
                 class="document-viewer-chassis__opening-layer"
             >
                 <section
@@ -72,7 +71,7 @@
                         data-testid="document-opening-native-preview"
                     >
                     <DocumentPageSkeleton
-                        v-else-if="chassisAuthority.openingPageVisual.value !== 'fresh'"
+                        v-else-if="shouldShowChassisOpeningPageSkeleton"
                         :content-height="chassisOpeningPageShell.height"
                     />
                 </section>
@@ -505,10 +504,11 @@ const chassisOpeningPageShell = computed(() => {
     };
 });
 // A large path-backed PDF is opened through the native preview lane. Its
-// document-wide Fit Width is not knowable from page 1, so do not expose the
-// page-local provisional shell while that lane is loading its page table. The
-// preview is committed with the settled document-wide width and becomes the
-// first visible opening shell.
+// document-wide Fit Width is not knowable from page 1, so keep PDF.js's
+// page-local provisional shell hidden while that lane loads its page table.
+// The chassis still owns the generic opening skeleton; the native preview is
+// committed with the settled document-wide width and becomes the first page
+// visual.
 const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const isOpening = snapshot.phase === 'pending'
@@ -525,6 +525,10 @@ const shouldDeferLargePdfOpeningSkeleton = computed(() => {
         sourceKind: sourceKind.value,
     });
 });
+const shouldShowChassisOpeningPageSkeleton = computed(() => (
+    shouldDeferLargePdfOpeningSkeleton.value
+    || chassisAuthority.openingPageVisual.value !== 'fresh'
+));
 const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
 
 watch(
