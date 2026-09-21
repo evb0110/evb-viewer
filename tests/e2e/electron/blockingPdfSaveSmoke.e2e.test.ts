@@ -6,7 +6,12 @@ import {
     onTestFinished,
 } from 'vitest';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import {
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -36,6 +41,18 @@ import {
 
 const BLOCKING_SMOKE_TIMEOUT_MS = 120_000;
 const SAVE_TIMEOUT_MS = 45_000;
+const COMBINE_IMAGE_JPEG = Buffer.from(
+    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
+    'base64',
+);
+const NATIVE_PDF_IMAGE_COMBINE_PATH = join(
+    process.cwd(),
+    '.tmp',
+    'pdf-image-combine',
+    `${process.platform}-${process.arch}`,
+    'bin',
+    process.platform === 'win32' ? 'evb-pdf-image-combine.exe' : 'evb-pdf-image-combine',
+);
 
 function hashFile(filePath: string) {
     return createHash('sha256')
@@ -258,6 +275,67 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             requestedPage: 2,
             committedPage: 2,
             visualPresentation: 'canvas',
+        });
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('opens a generated combined PDF and enables Save', async () => {
+        const imagePaths = [
+            1,
+            2,
+        ].map(pageNumber => join(
+            process.cwd(),
+            '.devkit',
+            `blocking-combine-${process.pid}-${Date.now()}-${pageNumber}.jpg`,
+        ));
+        imagePaths.forEach(imagePath => writeFileSync(imagePath, COMBINE_IMAGE_JPEG));
+        onTestFinished(() => imagePaths.forEach(imagePath => rmSync(imagePath, {force: true})));
+
+        session = await startElectronE2ESession(`e2e-blocking-combine-${Date.now()}`, {
+            clean: true,
+            extraEnv: {
+                EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS: '1',
+                EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
+                EVB_PDF_IMAGE_COMBINE_PATH: NATIVE_PDF_IMAGE_COMBINE_PATH,
+                EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+                EVB_PDF_PAGE_OPS_ENABLE: '1',
+            },
+        });
+        const {page} = session;
+
+        await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+        await page.click('nav[aria-label="File"] button.rail-item');
+        await page.waitForSelector('[data-combine-page]', {visible: true});
+        const fileInput = await page.$('input[type="file"]');
+        expect(fileInput).not.toBeNull();
+        await fileInput!.uploadFile(...imagePaths);
+        await page.waitForFunction(
+            expectedCount => document.querySelectorAll('[data-combine-row]').length === expectedCount,
+            {timeout: 30_000},
+            imagePaths.length,
+        );
+
+        await page.click('footer.combine-actions button');
+        await page.waitForFunction(() => {
+            const bodyText = document.body.innerText.replace(/\s+/gu, ' ');
+            const saveButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Save"]'))
+                .find(button => {
+                    const rect = button.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                });
+            return Boolean(
+                saveButton
+                && !saveButton.disabled
+                && bodyText.includes('/ 2')
+                && !bodyText.includes('Failed to open file'),
+            );
+        }, {timeout: 60_000});
+
+        expect(await getWorkspaceToolbarSnapshot(page)).toMatchObject({
+            canSave: true,
+            hasOpenError: false,
+            hasPdf: true,
+            isOpeningDocument: false,
+            totalPages: 2,
         });
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 

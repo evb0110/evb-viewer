@@ -767,6 +767,7 @@ async function handleClearRecentFromPlaceholder() {
 async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
     return activeDocumentSession.value.open({
         action: 'openCombineResultFromPlaceholder',
+        acceptDocumentWithoutVisual: result.kind === 'pdf' && result.isGenerated === true,
         target: buildPendingTabDocumentHint(result),
     }, async signal => withWorkspace(
         'openCombineResultFromPlaceholder',
