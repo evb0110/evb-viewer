@@ -248,15 +248,6 @@ interface IStreamingEntry {
     data?: Uint8Array;
 }
 
-async function* splitBytes(bytes: Uint8Array, signal?: AbortSignal) {
-    for (let offset = 0; offset < bytes.byteLength; offset += DOCX_STREAM_CHUNK_BYTES) {
-        throwIfAborted(signal);
-        yield bytes.subarray(offset, Math.min(offset + DOCX_STREAM_CHUNK_BYTES, bytes.byteLength));
-        await yieldToBrowser();
-        throwIfAborted(signal);
-    }
-}
-
 /**
  * Stream an uncompressed DOCX ZIP. The document entry uses a data descriptor,
  * because its CRC and size are only known after all text pages have arrived.
@@ -269,13 +260,55 @@ export async function* createDocxFromTextChunks(
     throwIfAborted(signal);
     const centralDirectory: ICentralDirectoryEntry[] = [];
     let archiveOffset = 0;
+    let pendingChunks: Uint8Array[] = [];
+    let pendingByteLength = 0;
+
+    const flushPending = () => {
+        if (pendingByteLength === 0) {
+            return null;
+        }
+        if (pendingChunks.length === 1) {
+            const chunk = pendingChunks[0];
+            pendingChunks = [];
+            pendingByteLength = 0;
+            return chunk ?? null;
+        }
+        const chunk = new Uint8Array(pendingByteLength);
+        let offset = 0;
+        for (const pendingChunk of pendingChunks) {
+            chunk.set(pendingChunk, offset);
+            offset += pendingChunk.byteLength;
+        }
+        pendingChunks = [];
+        pendingByteLength = 0;
+        return chunk;
+    };
+
+    const flushPendingToBrowser = async function* (): AsyncGenerator<Uint8Array> {
+        const chunk = flushPending();
+        if (!chunk) {
+            return;
+        }
+        yield chunk;
+        await yieldToBrowser();
+        throwIfAborted(signal);
+    };
 
     const emit = async function* (bytes: Uint8Array): AsyncGenerator<Uint8Array> {
-        for await (const chunk of splitBytes(bytes, signal)) {
+        let offset = 0;
+        while (offset < bytes.byteLength) {
             throwIfAborted(signal);
-            archiveOffset += chunk.byteLength;
+            const remainingCapacity = DOCX_STREAM_CHUNK_BYTES - pendingByteLength;
+            const chunkLength = Math.min(remainingCapacity, bytes.byteLength - offset);
+            const chunk = bytes.subarray(offset, offset + chunkLength);
+            pendingChunks.push(chunk);
+            pendingByteLength += chunkLength;
+            offset += chunkLength;
+            archiveOffset += chunkLength;
             assertZip32Value(archiveOffset, 'archive size');
-            yield chunk;
+            if (pendingByteLength === DOCX_STREAM_CHUNK_BYTES) {
+                yield* flushPendingToBrowser();
+            }
         }
     };
 
@@ -393,4 +426,5 @@ export async function* createDocxFromTextChunks(
     }
     throwIfAborted(signal);
     yield* emit(makeEndOfCentralDirectory(centralDirectory.length, centralSize, centralOffset));
+    yield* flushPendingToBrowser();
 }
