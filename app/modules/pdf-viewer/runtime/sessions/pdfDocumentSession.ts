@@ -145,7 +145,8 @@ export interface ICreatePdfDocumentSessionOptions {
 function isRewriteOfSameDocument(previous: TPdfSource | null, next: TPdfSource) {
     return isPathPdfSource(previous)
         && isPathPdfSource(next)
-        && previous.path === next.path;
+        && previous.path === next.path
+        && (previous.revision ?? null) === (next.revision ?? null);
 }
 
 const IDLE_PLAN: IPdfDocumentLoadPlan = {

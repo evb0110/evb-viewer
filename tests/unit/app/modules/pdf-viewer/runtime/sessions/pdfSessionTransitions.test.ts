@@ -5,6 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    computed, ref, 
+} from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import type { IPdfDocumentTransition } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 
@@ -394,6 +398,46 @@ describe('PdfDocumentSession transitions', () => {
 
         expect(session.document.value).toBe(documentB);
         pendingA.settle();
+        await session.dispose();
+    });
+
+    it('treats a changed path revision as a new document load', async () => {
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+        pdfjsState.getDocument
+            .mockReturnValueOnce({
+                promise: Promise.resolve(createDocumentProxy('revision-a')),
+                destroy: vi.fn(async () => undefined),
+            })
+            .mockReturnValueOnce({
+                promise: Promise.resolve(createDocumentProxy('revision-b')),
+                destroy: vi.fn(async () => undefined),
+            });
+        const source = ref({
+            kind: 'path' as const,
+            path: requireDocumentRef('/tmp/revisioned.pdf'),
+            size: 2048,
+            revision: 'revision-a',
+        });
+        const loadingTransitions: IPdfDocumentTransition[] = [];
+        const session = createPdfDocumentSession({src: computed(() => source.value as never)});
+        session.subscribe((transition) => {
+            if (transition.phase === 'loading') {
+                loadingTransitions.push(transition);
+            }
+        });
+
+        await session.load();
+        source.value = {
+            ...source.value,
+            revision: 'revision-b',
+        };
+
+        await vi.waitFor(() => {
+            expect(pdfjsState.getDocument).toHaveBeenCalledTimes(2);
+        });
+
+        expect(loadingTransitions.at(-1)?.isSameDocumentRewrite).toBe(false);
+        expect(session.document.value).toMatchObject({id: 'revision-b'});
         await session.dispose();
     });
 

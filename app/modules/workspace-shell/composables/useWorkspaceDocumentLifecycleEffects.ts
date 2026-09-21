@@ -38,10 +38,7 @@ interface IWorkspaceDocumentLifecycleEffectsOptions extends IDocumentTransitionD
     emitOpenSettings: () => void;
     clearOcrCache: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
-    reloadWorkingCopyIntoHistory: (opts?: {
-        markDirty?: boolean;
-        resetSourceBeforeCommit?: boolean;
-    }) => Promise<boolean>;
+    reloadWorkingCopyIntoHistory: (opts?: {markDirty?: boolean}) => Promise<boolean>;
     waitForPdfReload: (page: number) => Promise<void>;
     runWithDocumentOperationLease?: <T>(
         kind: TDocumentOperationKind,
@@ -266,10 +263,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             restorePromise = waitForPdfReload(pageToRestore).catch((error: unknown) => {
                 restoreError = error;
             });
-            if (!await reloadWorkingCopyIntoHistory({
-                markDirty: true,
-                resetSourceBeforeCommit: true,
-            })) {
+            if (!await reloadWorkingCopyIntoHistory({markDirty: true})) {
                 void restorePromise;
                 return null;
             }
