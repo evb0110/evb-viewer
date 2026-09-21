@@ -11,7 +11,8 @@ import {
     type TDocumentRenderPriority,
 } from '@app/modules/document-viewer/source/documentPageSource';
 
-const POINTS_PER_INCH = 72;
+import {resolveDjvuPageSizeInPoints} from '@app/modules/document-viewer/source/resolveDjvuPageSizeInPoints';
+
 let nextDjvuPageSourceId = 0;
 
 interface IDjvuPointPageSize {
@@ -290,12 +291,13 @@ export async function createDjvuPageSource(
             signal?.throwIfAborted();
             const size = await getPageSize(pageNumber);
             signal?.throwIfAborted();
-            const dpi = typeof size.dpi === 'number' && Number.isFinite(size.dpi) && size.dpi > 0
-                ? size.dpi
-                : 300;
+            const {
+                widthPoints,
+                heightPoints,
+            } = resolveDjvuPageSizeInPoints(size);
             return {
-                widthPoints: size.width * POINTS_PER_INCH / dpi,
-                heightPoints: size.height * POINTS_PER_INCH / dpi,
+                widthPoints,
+                heightPoints,
                 rotation: 0,
             };
         },

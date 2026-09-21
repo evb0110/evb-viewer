@@ -4,6 +4,7 @@ import type { IDocumentOpenSurfacePageGeometrySeed } from '@app/modules/document
 import {
     createBoundedLruCache, settleOpeningPreviewGeometry,
 } from '@app/modules/document-viewer/public';
+import {resolveDjvuPageSizeInPoints} from '@app/modules/document-viewer/source/resolveDjvuPageSizeInPoints';
 
 interface ISourceStat {
     size: number;
@@ -27,15 +28,16 @@ export function readPrevalidatedTrustedDjvuOpenGeometry(
     path: string,
     pageNumber: number,
     sourceStat: ISourceStat | null,
+    options: {allowUnvalidated?: boolean} = {},
 ) {
-    if (!sourceStat) {
+    if (!sourceStat && !options.allowUnvalidated) {
         return null;
     }
     const geometry = geometryByPath.get(path);
     if (!geometry || geometry.pageNumber !== pageNumber) {
         return null;
     }
-    if (!matchesStat(geometry, sourceStat)) {
+    if (sourceStat && !matchesStat(geometry, sourceStat)) {
         geometryByPath.delete(path);
         return null;
     }
@@ -47,12 +49,16 @@ export function cacheTrustedDjvuOpenGeometry(
     sourceStat: ISourceStat,
     sourceInfo: IDjvuPageSourceInfo,
 ) {
+    const {
+        widthPoints,
+        heightPoints,
+    } = resolveDjvuPageSizeInPoints(sourceInfo.pageSize);
     const geometry: IDocumentOpenSurfacePageGeometrySeed = Object.freeze({
         documentId: path,
         pageNumber: sourceInfo.pageNumber,
         pageCount: sourceInfo.pageCount,
-        width: sourceInfo.pageSize.width,
-        height: sourceInfo.pageSize.height,
+        width: widthPoints,
+        height: heightPoints,
         rotation: 0,
         size: sourceStat.size,
         modifiedAt: sourceStat.modifiedAt ?? 0,

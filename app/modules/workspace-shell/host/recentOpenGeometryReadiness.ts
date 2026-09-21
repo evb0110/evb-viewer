@@ -32,12 +32,17 @@ function readCachedExactGeometry(path: string, sourceRevision?: {
         return readPrevalidatedTrustedPdfOpenGeometry(path, requirePageNumber(1));
     }
     if (/\.djvu?$/iu.test(path)) {
-        return sourceRevision?.size !== undefined && sourceRevision.modifiedAt !== undefined
-            ? readPrevalidatedTrustedDjvuOpenGeometry(path, 1, {
-                size: sourceRevision.size,
-                modifiedAt: sourceRevision.modifiedAt,
-            })
-            : null;
+        return readPrevalidatedTrustedDjvuOpenGeometry(
+            path,
+            1,
+            sourceRevision?.size !== undefined && sourceRevision.modifiedAt !== undefined
+                ? {
+                    size: sourceRevision.size,
+                    modifiedAt: sourceRevision.modifiedAt,
+                }
+                : null,
+            sourceRevision ? {} : {allowUnvalidated: true},
+        );
     }
     return null;
 }

@@ -23,6 +23,7 @@ import {
     type IDocumentPageDisplayLayout,
     type IDocumentPageMetrics,
     type IDocumentPageSource,
+    type IDocumentNavigationTicket,
     type IDocumentViewportSessionState,
     type IDocumentWheelInteraction,
     type IDocumentZoomAnchor,
@@ -450,6 +451,7 @@ export const useDocumentPageSourceRuntime = (options: {
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let suspendedViewportRestore: ISuspendedViewportRestore | null = null;
+    let lastProjectedNavigationSignal: AbortSignal | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
         if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
@@ -1051,6 +1053,7 @@ export const useDocumentPageSourceRuntime = (options: {
     function scrollToPage(
         pageNumber: number,
         navigationSource: Parameters<IDocumentViewerExpose['scrollToPage']>[1] | 'wheel' = undefined,
+        existingTicket?: IDocumentNavigationTicket,
     ) {
         const options = typeof navigationSource === 'object'
             ? navigationSource
@@ -1061,7 +1064,10 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         const normalized = Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
         const request = createPdfPageNavigationRequest(normalized, options);
-        const ticket = chassisAuthority?.navigate(request) ?? null;
+        const ticket = existingTicket ?? chassisAuthority?.navigate(request) ?? null;
+        if (ticket) {
+            lastProjectedNavigationSignal = ticket.signal;
+        }
         const requestedTargetPage = ticket?.request.target && 'page' in ticket.request.target
             ? ticket.request.target.page
             : normalized;
@@ -1130,6 +1136,24 @@ export const useDocumentPageSourceRuntime = (options: {
             scheduleRender.schedule();
         });
     }
+    watch(
+        () => chassisAuthority?.openSurface.navigationTicket.value ?? null,
+        (ticket) => {
+            if (
+                !ticket
+                || ticket.request.source === 'restore'
+                || lastProjectedNavigationSignal === ticket.signal
+                || !('page' in ticket.request.target)
+            ) {
+                return;
+            }
+            scrollToPage(ticket.request.target.page, undefined, ticket);
+        },
+        {
+            flush: 'post',
+            immediate: true,
+        },
+    );
     function releaseInactivePageStates() {
         if (inactiveLeaseReleaseTimer !== null) {
             clearTimeout(inactiveLeaseReleaseTimer);

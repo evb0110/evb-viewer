@@ -768,7 +768,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             }
             viewport.singlePageScroll.scrollToPage(
                 requirePageNumber(comment.pageNumber),
-                {markerRect: navigationRect},
+                {
+                    markerRect: navigationRect,
+                    navigationSource: 'annotation',
+                },
             );
             await nextTick();
         },
