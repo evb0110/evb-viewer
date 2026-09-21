@@ -15,6 +15,14 @@ export interface INativePdfOpeningFrame {
     nativeViewerVisible: boolean;
     openingPreviewPage: number | null;
     openingPreviewVisible: boolean;
+    pdfjsOpeningPageRect: {
+        height: number;
+        left: number;
+        top: number;
+        width: number;
+    } | null;
+    pdfjsOpeningPageVisible: boolean;
+    pdfjsOpeningSurfaceDeferred: boolean;
     pdfjsCanvasRects: Array<{
         bottom: number;
         left: number;
@@ -88,6 +96,10 @@ export async function installNativePdfOpeningSampler(page: Page) {
             const viewportRect = viewportHost?.getBoundingClientRect() ?? null;
             const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer') ?? null;
             const pdfjsViewer = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+            const pdfjsOpeningPage = pdfjsViewer?.querySelector<HTMLElement>(
+                '.page_container[data-page="1"]',
+            ) ?? null;
+            const pdfjsHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
             const committedRasterImages = Array.from(
                 host?.querySelectorAll<HTMLImageElement>(
                     '.native-pdf-page-content.document-page-visual--committed img',
@@ -155,6 +167,19 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 openingPreviewVisible: openingPreview !== null
                     && isVisible(openingPreview)
                     && intersects(openingPreview, viewportHost),
+                pdfjsOpeningPageRect: pdfjsOpeningPage === null ? null : (() => {
+                    const rect = pdfjsOpeningPage.getBoundingClientRect();
+                    return {
+                        height: rect.height,
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                    };
+                })(),
+                pdfjsOpeningPageVisible: pdfjsOpeningPage !== null
+                    && isVisible(pdfjsOpeningPage)
+                    && intersects(pdfjsOpeningPage, viewportHost),
+                pdfjsOpeningSurfaceDeferred: pdfjsHost?.dataset.openingSurfaceDeferred === 'true',
                 pdfjsCanvasRects,
                 pdfjsCanvasVisible: committedPdfjsCanvases.length > 0,
                 pdfjsTextLayerVisible: Array.from(

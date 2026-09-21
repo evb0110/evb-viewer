@@ -118,6 +118,7 @@ import type {
     IDocumentViewportResizeAnchor,
     IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import {
     createPdfPageNavigationRequest,
@@ -510,11 +511,17 @@ const chassisOpeningPageShell = computed(() => {
 // first visible opening shell.
 const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
+    const isOpening = snapshot.phase === 'pending'
+        || snapshot.phase === 'geometry-committed'
+        || snapshot.phase === 'canvas-committed'
+        || snapshot.phase === 'viewport-committed';
     return shouldDeferNativePdfOpeningSkeleton({
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
         hasPreview: snapshot.openingPageFrame?.preview !== undefined,
+        isOpening,
         rendererKind: rendererKind.value,
+        source: attrs.src as TPdfSource | null | undefined,
         sourceKind: sourceKind.value,
     });
 });

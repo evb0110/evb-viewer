@@ -38,13 +38,22 @@ export function shouldDeferNativePdfOpeningSkeleton(input: {
     documentId: string | null | undefined;
     geometry: { readonly size?: number } | null | undefined;
     hasPreview: boolean;
+    isOpening: boolean;
     rendererKind: string | null | undefined;
+    source?: TPdfSource | null | undefined;
     sourceKind: string | null | undefined;
 }) {
+    const sourceSize = isPathPdfSource(input.source)
+        ? input.source.size
+        : undefined;
+    const isNativePathSource = isPathPdfSource(input.source)
+        && !isBrowserDocumentRef(input.source.path);
+    const size = sourceSize ?? input.geometry?.size;
     return input.sourceKind === 'pdf'
         && input.rendererKind === 'pdfjs'
-        && input.geometry?.size !== undefined
-        && input.geometry.size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
-        && isNativeLegacyDocumentRef(input.documentId)
+        && input.isOpening
+        && size !== undefined
+        && size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
+        && (isNativeLegacyDocumentRef(input.documentId) || isNativePathSource)
         && !input.hasPreview;
 }

@@ -317,6 +317,14 @@ function assertAtomicNativeToPdfjsHandoff(
     const firstPdfjsIndex = generationFrames.findIndex(frame => frame.pdfjsCanvasVisible);
     expect(firstPreviewIndex, JSON.stringify(generationFrames)).toBeGreaterThanOrEqual(0);
     expect(firstPdfjsIndex, JSON.stringify(generationFrames)).toBeGreaterThan(firstPreviewIndex);
+    const framesBeforePreview = generationFrames
+        .slice(0, firstPreviewIndex)
+        .filter(frame => frame.pdfjsOpeningPageRect !== null);
+    expect(framesBeforePreview.length, JSON.stringify(generationFrames)).toBeGreaterThan(0);
+    expect(framesBeforePreview.every(frame => (
+        !frame.pdfjsOpeningPageVisible
+        && frame.pdfjsOpeningSurfaceDeferred
+    )), JSON.stringify(generationFrames)).toBe(true);
     expect(
         generationFrames[firstPreviewIndex]!.capturedAtMs - opening.capturedAtMs,
         JSON.stringify(generationFrames),
