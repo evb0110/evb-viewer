@@ -323,12 +323,12 @@ describe('workspace host startup visibility', () => {
         })).toBe(false);
     });
 
-    it('retains the committed empty placeholder until the opening surface owns presentation', () => {
+    it('hands the empty surface to an active opening transaction before page geometry is ready', () => {
         expect(shouldShowWorkspacePlaceholder({
             ...emptyPlaceholderSignals,
             hasPendingDocumentHint: true,
             isDocumentOpenInFlight: true,
-        })).toBe(true);
+        })).toBe(false);
         expect(shouldShowWorkspacePlaceholder({
             ...emptyPlaceholderSignals,
             hasPendingDocumentHint: true,

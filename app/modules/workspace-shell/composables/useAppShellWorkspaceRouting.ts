@@ -18,10 +18,6 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import {
-    getDocumentFilesCapability,
-    getDocumentOpenCapability,
-} from '@app/utils/platformDocuments';
 import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -68,46 +64,6 @@ interface ISeededTabDocumentHint {
 
 const DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS = 800;
 const DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS = 50;
-const COLD_OPEN_GEOMETRY_TIMEOUT_MS = 750;
-const COLD_OPEN_GEOMETRY_TIMEOUT = Symbol('cold-open-geometry-timeout');
-
-async function resolveColdOpenGeometry(result: TOpenFileResult) {
-    if (result.kind !== 'pdf' || result.openingGeometry) {
-        return result;
-    }
-    const readOpeningGeometry = getDocumentFilesCapability().getPdfOpeningGeometry;
-    if (!readOpeningGeometry) {
-        return result;
-    }
-    try {
-        const openingGeometry = await Promise.race([
-            readOpeningGeometry(result.workingPath),
-            new Promise<typeof COLD_OPEN_GEOMETRY_TIMEOUT>((resolve) => {
-                setTimeout(() => resolve(COLD_OPEN_GEOMETRY_TIMEOUT), COLD_OPEN_GEOMETRY_TIMEOUT_MS);
-            }),
-        ]);
-        if (openingGeometry === COLD_OPEN_GEOMETRY_TIMEOUT) {
-            BrowserLogger.debug('workspace-routing', 'Cold PDF opening geometry timed out', {
-                timeoutMs: COLD_OPEN_GEOMETRY_TIMEOUT_MS,
-                workingPath: result.workingPath,
-            });
-            return result;
-        }
-        return openingGeometry
-            ? {
-                ...result,
-                openingGeometry,
-            }
-            : result;
-    } catch (error) {
-        BrowserLogger.debug('workspace-routing', 'Cold PDF opening geometry unavailable', {
-            error,
-            workingPath: result.workingPath,
-        });
-        return result;
-    }
-}
-
 function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     try {
         return workspace.getToolbarSnapshot();
@@ -515,65 +471,38 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     async function openPathInAppropriateTab(path: TDocumentRef) {
-        // The origin every open phase is measured from. Everything a user waits
-        // for after picking a file happens after this point.
+        // Claim the workspace before any cold-path work. The document session
+        // owns the direct capability call and can present its skeleton while
+        // the main process admits the file and stages its working copy.
         const routeStartedAt = performance.now();
         const warmGeometry = readRecentOpenExactGeometry(path) !== null;
         logPdfRenderTrace('pdf-open-route-start', {
             path,
             warmGeometry,
+            immediateWorkspaceClaim: true,
         });
-        if (warmGeometry) {
-            // Recent/startup preparation already gave the host a validated,
-            // revision-fenced frame. Preserve the latency-sensitive immediate
-            // claim; its document flow may create the working copy in parallel.
-            // Closed here with a zero-length span so the phase ledger reports a
-            // skipped preflight rather than an unmeasured one.
+        try {
+            const opened = await openDocumentInAppropriateTab(path);
             logPdfRenderTrace('pdf-open-route-capability-end', {
                 path,
                 elapsedMs: performance.now() - routeStartedAt,
-                failed: false,
+                failed: !opened,
                 resultKind: null,
                 warmGeometry,
+                immediateWorkspaceClaim: true,
             });
-            return openDocumentInAppropriateTab(path);
-        }
-        // A cold path is resolved by the main process before the workspace
-        // claims its one opening-surface transaction. For PDFs this result
-        // carries authoritative first-page geometry discovered from the
-        // admitted working copy, so the host can begin atomically with
-        // the exact frame instead of retargeting a later viewer-local shell.
-        let result: TOpenFileResult | null;
-        try {
-            result = await getDocumentOpenCapability().openDocumentDirect(path);
-            if (result) {
-                result = await resolveColdOpenGeometry(result);
-            }
+            return opened;
         } catch (error) {
-            // A rejected preflight ends the open here. Closing the span keeps
-            // the phase ledger complete: a refused file reports as a measured
-            // failure instead of an open that was never accounted for.
             logPdfRenderTrace('pdf-open-route-capability-end', {
                 path,
                 elapsedMs: performance.now() - routeStartedAt,
                 failed: true,
                 resultKind: null,
                 warmGeometry,
+                immediateWorkspaceClaim: true,
             });
             throw error;
         }
-        // Main-process preflight: admitting the file and staging a working
-        // copy. On a large scanned PDF this is a whole-file copy, so it is the
-        // first candidate whenever an open feels slow before anything paints.
-        logPdfRenderTrace('pdf-open-route-capability-end', {
-            path,
-            elapsedMs: performance.now() - routeStartedAt,
-            failed: false,
-            hasOpeningGeometry: result?.kind === 'pdf' && result.openingGeometry !== undefined,
-            resultKind: result?.kind ?? null,
-            warmGeometry,
-        });
-        return result ? openDocumentInAppropriateTab(result) : false;
     }
 
     async function openPathInReservedTab(tabId: string, path: TWorkspaceOpenDocumentTarget) {

@@ -9,5 +9,6 @@ export interface IDocumentOpenIntent {
     preparedSourceModifiedAt?: number | undefined;
     preparedSourceSize?: number | undefined;
     preserveDirtyOnFailure?: boolean | undefined;
+    acceptDocumentWithoutVisual?: boolean | undefined;
     target?: TTabUpdate | null;
 }

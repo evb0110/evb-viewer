@@ -103,6 +103,7 @@ describe('pdfNativePreviewRouting', () => {
             documentId: '/tmp/native-dictionary.pdf',
             geometry: { size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES },
             hasPreview: false,
+            isOpening: true,
             rendererKind: 'pdfjs',
             sourceKind: 'pdf',
         };
@@ -111,6 +112,10 @@ describe('pdfNativePreviewRouting', () => {
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,
             hasPreview: true,
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            isOpening: false,
         })).toBe(false);
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,
@@ -127,6 +132,35 @@ describe('pdfNativePreviewRouting', () => {
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,
             geometry: { size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES - 1 },
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            geometry: null,
+        })).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            geometry: null,
+            documentId: 'browser://documents/native-dictionary.pdf',
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            documentId: null,
+            geometry: null,
+            source: {
+                kind: 'path' as const,
+                path: requireDocumentRef('/tmp/native-dictionary.pdf'),
+                size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
+            },
+        })).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            documentId: null,
+            geometry: null,
+            source: {
+                kind: 'path' as const,
+                path: requireDocumentRef('browser://documents/native-dictionary.pdf'),
+                size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
+            },
         })).toBe(false);
     });
 });

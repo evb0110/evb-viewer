@@ -5,7 +5,9 @@
         data-pdf-viewer-host
         :class="{
             'pdf-viewer-container--dark': props.invertColors === true,
+            'pdf-viewer-container--opening-surface-deferred': shouldDeferLargePdfOpeningSurface,
         }"
+        :data-opening-surface-deferred="shouldDeferLargePdfOpeningSurface"
     >
         <template v-if="props.mountPresentation !== false">
             <PdfViewerViewport
@@ -105,6 +107,7 @@ import {
     createDocumentViewerRuntime,
     injectDocumentViewerRuntime, createDocumentOpenGenerationErrorLatch,
 } from '@app/modules/document-viewer/public';
+import { shouldDeferNativePdfOpeningSkeleton } from '@app/modules/pdf-viewer/public';
 import { shouldShowPdfViewportPageSkeleton } from '@app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
@@ -229,6 +232,9 @@ const showCommittedInitialPageShell = computed(() => (
     && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page'
 ));
 function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
+    if (shouldDeferLargePdfOpeningSurface.value) {
+        return false;
+    }
     const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
     const visual = viewportSession?.visual;
     return shouldShowPdfViewportPageSkeleton({
@@ -254,6 +260,21 @@ const hasProjectedOpeningPageFrame = computed(() => (
     shouldApplyOpeningPageFrame.value
     && projectedOpeningPageStyle.value !== null
 ));
+const shouldDeferLargePdfOpeningSurface = computed(() => {
+    if (injectedChassisAuthority === null) {
+        return false;
+    }
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    return shouldDeferNativePdfOpeningSkeleton({
+        documentId: snapshot.identity?.documentId,
+        geometry: snapshot.openingPageGeometry,
+        hasPreview: snapshot.openingPageFrame?.preview !== undefined,
+        isOpening: isCommittedInitialPageTransition.value,
+        rendererKind: 'pdfjs',
+        source: props.src,
+        sourceKind: 'pdf',
+    });
+});
 
 watchEffect(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;

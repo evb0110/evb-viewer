@@ -42,6 +42,7 @@ interface IDocumentOpenTransactionRun {
     transactionId: string;
     action: string;
     preserveDirtyOnFailure: boolean;
+    acceptDocumentWithoutVisual: boolean;
     target: TTabUpdate | null;
     seededTabHint: boolean;
 }
@@ -135,6 +136,14 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             && hasWorkspaceViewerDocumentCapabilities(toolbarSnapshot.viewerCapabilities));
     }
 
+    function workspaceHasAcceptedDocument() {
+        const toolbarSnapshot = options.mountedWorkspace.value?.getToolbarSnapshot();
+        return Boolean(toolbarSnapshot?.hasPdf
+            && toolbarSnapshot.totalPages > 0
+            && !toolbarSnapshot.hasOpenError
+            && hasWorkspaceViewerDocumentCapabilities(toolbarSnapshot.viewerCapabilities));
+    }
+
     function beginDocumentOpenTransaction(openHost: IWorkspaceDocumentOpenHost, intent: IDocumentOpenIntent,
         transactionId: string, transactionDocumentRef: TDocumentRef | null) {
         const target = intent.target ?? null;
@@ -177,6 +186,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             transactionId,
             action: intent.action,
             preserveDirtyOnFailure: intent.preserveDirtyOnFailure === true,
+            acceptDocumentWithoutVisual: intent.acceptDocumentWithoutVisual === true,
             target,
             seededTabHint: shouldSeedPendingTabHint(
                 target,
@@ -284,7 +294,12 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 if (remainingMs > 0) {
                     try {
                         await Promise.race([
-                            workspace.waitForDocumentOpenSettled({signal}),
+                            workspace.waitForDocumentOpenSettled({
+                                ...(transaction.acceptDocumentWithoutVisual
+                                    ? {acceptDocumentWithoutVisual: true}
+                                    : {}),
+                                signal,
+                            }),
                             delay(remainingMs).then(() => {
                                 throw new Error('Document open settle timed out');
                             }),
@@ -315,6 +330,9 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 if (workspace.getToolbarSnapshot().hasOpenError) {
                     return false;
                 }
+                if (transaction.acceptDocumentWithoutVisual && workspaceHasAcceptedDocument()) {
+                    return true;
+                }
                 if (workspaceHasSuccessfulInitialVisual()) {
                     return true;
                 }
@@ -334,7 +352,10 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         ) {
             return false;
         }
-        if (!workspaceHasSuccessfulInitialVisual()) {
+        const hasTerminalDocumentState = transaction.acceptDocumentWithoutVisual
+            ? workspaceHasAcceptedDocument()
+            : workspaceHasSuccessfulInitialVisual();
+        if (!hasTerminalDocumentState) {
             BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open did not reach a terminal visible state before settle timeout', {
                 tabId: options.tabId,
                 transactionId: transaction.transactionId,
@@ -342,9 +363,10 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 target: transaction.target,
                 timeoutMs: DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS,
                 hasMountedWorkspace: options.mountedWorkspace.value !== null,
+                acceptDocumentWithoutVisual: transaction.acceptDocumentWithoutVisual,
             });
         }
-        return workspaceHasSuccessfulInitialVisual();
+        return hasTerminalDocumentState;
     }
 
     function finishDocumentOpenPresentation(openHost: IWorkspaceDocumentOpenHost,
