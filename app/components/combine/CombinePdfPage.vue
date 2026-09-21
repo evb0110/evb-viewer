@@ -143,70 +143,13 @@
 
                 <p class="sr-only" role="status" aria-live="polite">{{ reorderAnnouncement }}</p>
 
-                <ol
-                    ref="listRef"
-                    class="combine-file-list app-scrollbar app-scroll-region--balanced"
-                    :class="{ 'is-reordering': isReordering }"
-                >
-                    <li
-                        v-for="(file, index) in files"
-                        :key="file.id"
-                        class="combine-file-row"
-                        :class="{ 'is-row-dragging': reorderDragIndex === index }"
-                        data-combine-row
-                    >
-                        <AppTooltip :text="t('combinePdf.dragToReorder')" :delay-duration="600">
-                            <span
-                                class="combine-drag-handle"
-                                aria-hidden="true"
-                                @pointerdown="(event) => startReorder(event, index)"
-                            >
-                                <UIcon name="i-ph-dots-six-vertical" class="size-4" />
-                            </span>
-                        </AppTooltip>
-                        <span class="combine-file-index">{{ index + 1 }}</span>
-                        <FileTypeIcon :kind="file.kind" class="combine-file-icon" />
-                        <span class="combine-file-copy">
-                            <strong>{{ file.name }}</strong>
-                            <span>{{ formatBytes(file.size) }}</span>
-                        </span>
-                        <span class="combine-row-actions">
-                            <AppTooltip :text="t('combinePdf.moveUp')" :delay-duration="600">
-                                <UButton
-                                    color="neutral"
-                                    variant="ghost"
-                                    size="xs"
-                                    icon="i-ph-caret-up"
-                                    :aria-label="t('combinePdf.moveUp')"
-                                    :disabled="index === 0 || queueMutationLocked"
-                                    @click="moveFile(index, -1)"
-                                />
-                            </AppTooltip>
-                            <AppTooltip :text="t('combinePdf.moveDown')" :delay-duration="600">
-                                <UButton
-                                    color="neutral"
-                                    variant="ghost"
-                                    size="xs"
-                                    icon="i-ph-caret-down"
-                                    :aria-label="t('combinePdf.moveDown')"
-                                    :disabled="index === files.length - 1 || queueMutationLocked"
-                                    @click="moveFile(index, 1)"
-                                />
-                            </AppTooltip>
-                            <AppTooltip :text="t('combinePdf.removeFile')" :delay-duration="600">
-                                <UButton
-                                    color="neutral"
-                                    variant="ghost"
-                                    size="xs"
-                                    icon="i-ph-x"
-                                    :aria-label="t('combinePdf.removeFile')"
-                                    :disabled="queueMutationLocked"
-                                    @click="removeFile(index)"
-                                />
-                            </AppTooltip>
-                        </span>
-                    </li>
-                </ol>
+                <CombinePdfFileList
+                    :files="files"
+                    :queue-mutation-locked="queueMutationLocked"
+                    @move-file="moveFile"
+                    @remove-file="removeFile"
+                    @reorder="handleReorder"
+                />
 
                 <div v-if="progress" class="combine-progress" role="status" aria-live="polite">
                     <div class="combine-progress-copy">
@@ -250,23 +193,13 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
-import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
+import CombinePdfFileList from '@app/components/combine/CombinePdfFileList.vue';
+import type { ICombineFile } from '@app/modules/combine/combinePdfTypes';
 import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
 import {useCombinePdfOperation} from '@app/modules/combine/useCombinePdfOperation';
-import { formatBytes } from '@app/utils/formatters';
 import {getCombinePdfCapabilities} from '@app/services/pdf/combinePdfFiles';
 import {getDocumentKindFromPath} from '@app/utils/supportedDocumentPaths';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
-
-type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
-
-interface ICombineFile {
-    id: string;
-    file: File;
-    name: string;
-    size: number;
-    kind: TCombineFileKind;
-}
 
 const emit = defineEmits<{
     'close': [];
@@ -293,7 +226,6 @@ const {
 const { t } = useTypedI18n();
 const listTitleId = useId();
 const fileInputRef = ref<HTMLInputElement | null>(null);
-const listRef = ref<HTMLElement | null>(null);
 const files = ref<ICombineFile[]>([]);
 const reorderAnnouncement = ref('');
 const isDraggingOver = ref(false);
@@ -485,19 +417,6 @@ function handleReorder(fromIndex: number, toIndex: number) {
     announceReorder(toIndex);
 }
 
-const {
-    isDragging: isReordering,
-    dragIndex: reorderDragIndex,
-    onPointerDown: onReorderPointerDown,
-} = useListDragReorder(listRef, '[data-combine-row]', handleReorder);
-
-function startReorder(event: PointerEvent, index: number) {
-    if (queueMutationLocked.value) {
-        return;
-    }
-    onReorderPointerDown(event, index);
-}
-
 onBeforeUnmount(cancelCombine);
 </script>
 
@@ -633,99 +552,6 @@ onBeforeUnmount(cancelCombine);
     font-size: var(--app-text-size-secondary);
 }
 
-.combine-file-list {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    flex-direction: column;
-    gap: var(--app-combine-file-list-gap);
-    margin: 0;
-    padding: 0;
-    overflow: auto;
-    list-style: none;
-}
-
-.combine-file-row {
-    display: grid;
-    grid-template-columns: var(--app-combine-file-row-columns);
-    align-items: center;
-    gap: var(--app-combine-file-row-gap);
-    min-height: var(--app-combine-file-row-min-height);
-    padding: var(--app-combine-file-row-padding);
-    border: 1px solid var(--ui-border);
-    border-radius: var(--app-radius-xl);
-    background: var(--ui-bg);
-}
-
-.combine-drag-handle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--ui-text-dimmed);
-    cursor: grab;
-    touch-action: none;
-    user-select: none;
-}
-
-.combine-drag-handle:hover {
-    color: var(--ui-text-muted);
-}
-
-.combine-drag-handle:active {
-    cursor: grabbing;
-}
-
-.combine-file-list.is-reordering {
-    cursor: grabbing;
-    user-select: none;
-}
-
-.combine-file-row.is-row-dragging {
-    position: relative;
-    z-index: var(--app-z-local-raised);
-    border-color: var(--ui-primary);
-    background: var(--ui-bg-elevated);
-    box-shadow: var(--shadow-popup);
-}
-
-.combine-file-index {
-    color: var(--ui-text-dimmed);
-    font-variant-numeric: tabular-nums;
-    text-align: center;
-}
-
-.combine-file-icon {
-    width: var(--app-combine-file-icon-width);
-    height: var(--app-combine-file-icon-height);
-}
-
-.combine-file-copy {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: var(--app-combine-file-copy-gap);
-}
-
-.combine-file-copy strong {
-    overflow: hidden;
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body);
-    font-weight: var(--app-font-weight-semibold);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.combine-file-copy span {
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-meta);
-}
-
-.combine-row-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-2xs);
-}
-
 .combine-progress {
     display: flex;
     flex-shrink: 0;
@@ -818,15 +644,6 @@ onBeforeUnmount(cancelCombine);
     .combine-list-header {
         align-items: stretch;
         flex-direction: column;
-    }
-
-    .combine-file-row {
-        grid-template-columns: var(--app-combine-small-row-columns);
-    }
-
-    .combine-row-actions {
-        grid-column: 4;
-        justify-self: end;
     }
 }
 
