@@ -65,6 +65,7 @@ import {
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IPdfOpeningPreviewLayoutPolicy } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope: IAnalyticsDocumentScope;
@@ -119,10 +120,18 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     let createViewerLifecycleHooks: (
         context: IWorkspaceViewerLifecycleContext,
     ) => IWorkspaceViewerLifecycleHooks[] = () => [];
+    const openingPageFramePolicy = shallowRef<IPdfOpeningPreviewLayoutPolicy>({
+        fitMode: 'width',
+        viewMode: 'single',
+        zoom: 1,
+        zoomMode: 'fit-width',
+        continuousScroll: true,
+    });
     const fileLifecycle = useWorkspaceFileLifecycleController({
         analyticsDocumentScope: deps.analyticsDocumentScope,
         createViewerLifecycleHooks: context => createViewerLifecycleHooks(context),
         openSurface: deps.openSurface,
+        readOpeningPageFramePolicy: () => openingPageFramePolicy.value,
         failureSurface,
     });
     const {
@@ -200,6 +209,34 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeSearch,
         resetSearchCache,
     } = sidebarSearch;
+    watch(
+        [
+            fitMode,
+            viewMode,
+            zoom,
+            zoomMode,
+            continuousScroll,
+        ],
+        ([
+            nextFitMode,
+            nextViewMode,
+            nextZoom,
+            nextZoomMode,
+            nextContinuousScroll,
+        ]) => {
+            openingPageFramePolicy.value = {
+                fitMode: nextFitMode,
+                viewMode: nextViewMode,
+                zoom: nextZoom,
+                zoomMode: nextZoomMode,
+                continuousScroll: nextContinuousScroll,
+            };
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
     const {
         settings: appSettings,
         save: saveSettings,

@@ -4,21 +4,39 @@ import type {
     IPdfOpeningGeometry,
 } from '@contracts/electronApiDocuments';
 import {PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT} from '@contracts/electronApiDocuments';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { IPdfPathSource } from '@app/types/pdfUi';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {
+    IPdfPageMetric,
+    IPdfPathSource,
+} from '@app/types/pdfUi';
 import type {
     IDocumentOpenSurfaceSession,
-    IDocumentOpenSurfaceSnapshot, IDocumentPageSource, 
+    IDocumentOpenSurfaceSnapshot,
+    IDocumentPageSource,
 } from '@app/modules/document-viewer/public';
+import { clampDocumentFitScale } from '@app/modules/document-viewer/zoomPolicy';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import { getViewColumnCount } from '@app/utils/pdfViewMode';
+import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
+import {
+    resolvePdfFitWidthDimensions,
+    resolvePdfFitWidthRowWidths,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfFitWidthDimensions';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getErrorMessage } from '@app/utils/error';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
-import { createPagePreviewDocumentSource } from '@app/modules/document-viewer/public';
+import {
+    createLazyIndexedCollection,
+    createPagePreviewDocumentSource,
+} from '@app/modules/document-viewer/public';
 import { shouldStageNativePdfOpeningPreview } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import type { IPdfValidationSourceRevision } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {
     createRequestId,
+    type TDocumentViewMode,
+    type TFitMode,
     type TRequestId,
+    type TZoomMode,
 } from '@contracts/shared';
 
 type TNativePreviewFiles = Parameters<typeof createNativePdfPreviewSourceFromPath>[1];
@@ -29,6 +47,14 @@ export interface IPdfOpeningGeometryResolution {
 }
 
 export interface IStagedPdfOpeningPreview {cancel(reason: string): void;}
+
+export interface IPdfOpeningPreviewLayoutPolicy {
+    readonly fitMode: TFitMode;
+    readonly viewMode: TDocumentViewMode;
+    readonly zoom: number;
+    readonly zoomMode: TZoomMode;
+    readonly continuousScroll: boolean;
+}
 
 function isOpeningTransitionPhase(phase: IDocumentOpenSurfaceSnapshot['phase']) {
     return phase === 'pending'
@@ -102,12 +128,115 @@ function isCompactPageSizes(value: unknown): value is IPdfNativePageSizes {
     });
 }
 
+function createCompactNativePageLayout(pageSizes: IPdfNativePageSizes) {
+    const overrides = new Map<number, IPdfNativePageSize>(
+        pageSizes.overrides.map(override => [
+            override.pageNumber,
+            override,
+        ] as const),
+    );
+    const nativePageSizes = createLazyIndexedCollection<IPdfNativePageSize>({
+        length: pageSizes.pageCount,
+        getValue: index => overrides.get(index + 1) ?? pageSizes.defaultPageSize,
+    });
+    const pageMetrics = createLazyIndexedCollection<IPdfPageMetric>({
+        length: pageSizes.pageCount,
+        getValue: index => {
+            const size = overrides.get(index + 1) ?? pageSizes.defaultPageSize;
+            return {
+                width: size.width,
+                height: size.height,
+            };
+        },
+    });
+    // Keep the compact metadata lazy. The shared fit-width resolver only
+    // visits rows that can change at an override or row boundary, while
+    // indexed reads still return the default size for every other page.
+    Object.defineProperties(pageMetrics, {
+        isSparsePageMetricCollection: {
+            configurable: false,
+            enumerable: false,
+            value: true,
+        },
+        knownIndices: {
+            configurable: false,
+            enumerable: false,
+            value: Object.freeze(pageSizes.overrides.map(override => override.pageNumber - 1)),
+        },
+    });
+    return {
+        nativePageSizes,
+        pageMetrics,
+    };
+}
+
+export function resolvePdfOpeningPageFrameDocumentFitWidthStyle(options: {
+    readonly frame: NonNullable<IDocumentOpenSurfaceSnapshot['openingPageFrame']>;
+    readonly geometry: IPdfOpeningGeometry;
+    readonly pageSizes: readonly IPdfNativePageSize[];
+    readonly metrics?: IPdfPageMetric[];
+    readonly policy: IPdfOpeningPreviewLayoutPolicy;
+    /** Viewport width captured before the opening frame is reconciled. */
+    readonly rawSize: number;
+    readonly widthRows?: ReadonlyMap<number, number>;
+}) {
+    if (
+        options.policy.fitMode !== 'width'
+        || options.policy.zoomMode !== 'fit-width'
+        || options.policy.continuousScroll !== true
+        || options.pageSizes.length !== options.geometry.pageCount
+    ) {
+        return null;
+    }
+    if (!Number.isFinite(options.rawSize) || options.rawSize <= 0 || options.geometry.width <= 0) {
+        return null;
+    }
+    const pageNumber = requirePageNumber(options.geometry.pageNumber, options.geometry.pageCount);
+    const metrics = options.metrics ?? options.pageSizes.map(pageSize => ({
+        width: pageSize.width,
+        height: pageSize.height,
+    }));
+    const currentWidth = resolveCurrentSpreadBaseWidth(
+        metrics,
+        options.policy.viewMode,
+        options.geometry.pageCount,
+        pageNumber,
+    );
+    if (currentWidth === null) {
+        return null;
+    }
+    const dimensions = resolvePdfFitWidthDimensions({
+        metrics,
+        rawSize: options.rawSize,
+        page: pageNumber,
+        currentWidth,
+        viewMode: options.policy.viewMode,
+        totalPages: options.geometry.pageCount,
+        continuousScroll: true,
+        ...(options.widthRows === undefined ? {} : {widthRows: options.widthRows}),
+    });
+    if (dimensions.availableSize <= 0 || dimensions.baseDimension <= 0) {
+        return null;
+    }
+    const scale = clampDocumentFitScale(dimensions.availableSize / dimensions.baseDimension);
+    const width = options.geometry.width * scale;
+    const height = options.geometry.height * scale;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+    }
+    return Object.freeze({
+        width: `${String(width)}px`,
+        height: `${String(height)}px`,
+    });
+}
+
 export function stagePdfOpeningPreview(options: {
     readonly documentFiles: TNativePreviewFiles;
     readonly geometryResolution: Promise<IPdfOpeningGeometryResolution>;
     readonly isCurrent: () => boolean;
     readonly openSurface: IDocumentOpenSurfaceSession;
     readonly source: IPdfPathSource;
+    readonly readOpeningPageFramePolicy?: () => IPdfOpeningPreviewLayoutPolicy;
     readonly traceContext?: Readonly<Record<string, unknown>>;
 }): IStagedPdfOpeningPreview {
     const lifecycle: {
@@ -319,6 +448,7 @@ export function stagePdfOpeningPreview(options: {
         };
         const pageCount = openingGeometry.pageCount;
         let pageSizes: readonly IPdfNativePageSize[] | null = null;
+        let pageMetrics: IPdfPageMetric[] | null = null;
         let getPageSize = (_pageNumber: number): IPdfNativePageSize => fallbackPageSize;
         if (
             Array.isArray(loadedPageSizes)
@@ -326,21 +456,108 @@ export function stagePdfOpeningPreview(options: {
             && loadedPageSizes.every(isValidPageSize)
         ) {
             pageSizes = loadedPageSizes;
+            pageMetrics = loadedPageSizes.map(pageSize => ({
+                width: pageSize.width,
+                height: pageSize.height,
+            }));
             getPageSize = pageNumber => pageSizes?.[pageNumber - 1] ?? fallbackPageSize;
         } else if (
             isCompactPageSizes(loadedPageSizes)
             && loadedPageSizes.pageCount === pageCount
         ) {
-            const overrides = new Map(
-                loadedPageSizes.overrides.map(override => [
-                    override.pageNumber,
-                    override,
-                ] as const),
-            );
-            getPageSize = pageNumber => overrides.get(
-                requirePageNumber(pageNumber, pageCount),
-            ) ?? loadedPageSizes.defaultPageSize;
+            const compactPageLayout = createCompactNativePageLayout(loadedPageSizes);
+            pageSizes = compactPageLayout.nativePageSizes;
+            pageMetrics = compactPageLayout.pageMetrics;
+            getPageSize = pageNumber => pageSizes?.[
+                requirePageNumber(pageNumber, pageCount) - 1
+            ] ?? fallbackPageSize;
         }
+        let fitWidthRowWidthsCacheKey: TDocumentViewMode | null = null;
+        let fitWidthRowWidths: ReadonlyMap<number, number> | undefined;
+        let fitWidthRawSize: number | null = null;
+        function getFitWidthRowWidths(policy: IPdfOpeningPreviewLayoutPolicy) {
+            if (fitWidthRowWidthsCacheKey !== policy.viewMode && pageMetrics !== null) {
+                fitWidthRowWidthsCacheKey = policy.viewMode;
+                fitWidthRowWidths = resolvePdfFitWidthRowWidths({
+                    metrics: pageMetrics,
+                    viewMode: policy.viewMode,
+                    totalPages: pageCount,
+                });
+            }
+            return fitWidthRowWidths;
+        }
+        function getFitWidthRawSize(
+            frame: NonNullable<IDocumentOpenSurfaceSnapshot['openingPageFrame']>,
+            policy: IPdfOpeningPreviewLayoutPolicy,
+        ) {
+            if (
+                policy.fitMode !== 'width'
+                || policy.zoomMode !== 'fit-width'
+                || policy.continuousScroll !== true
+            ) {
+                return null;
+            }
+            if (fitWidthRawSize !== null) {
+                return fitWidthRawSize;
+            }
+            const frameWidth = Number.parseFloat(frame.style.width ?? '');
+            if (!Number.isFinite(frameWidth) || frameWidth <= 0) {
+                return null;
+            }
+            const columns = getViewColumnCount(policy.viewMode, pageCount);
+            const rawSize = frameWidth * columns + DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
+            if (!Number.isFinite(rawSize) || rawSize <= 0) {
+                return null;
+            }
+            fitWidthRawSize = rawSize;
+            return rawSize;
+        }
+        function reconcileOpeningPageFrameDocumentFitWidth(geometry: IPdfOpeningGeometry) {
+            if (pageSizes === null || pageMetrics === null) {
+                return;
+            }
+            const current = options.openSurface.snapshot.value;
+            const frame = current.openingPageFrame;
+            const policy = options.readOpeningPageFramePolicy?.();
+            const rawSize = frame !== null && policy !== undefined
+                ? getFitWidthRawSize(frame, policy)
+                : null;
+            const widthRows = policy === undefined
+                ? undefined
+                : getFitWidthRowWidths(policy);
+            const style = frame !== null && policy !== undefined && rawSize !== null
+                ? resolvePdfOpeningPageFrameDocumentFitWidthStyle({
+                    frame,
+                    geometry,
+                    pageSizes,
+                    metrics: pageMetrics,
+                    policy,
+                    rawSize,
+                    ...(widthRows === undefined ? {} : {widthRows}),
+                })
+                : null;
+            if (style !== null && frame !== null) {
+                const accepted = options.openSurface.commitOpeningPageFrame(activeGeneration, {
+                    generation: activeGeneration,
+                    ownerId: frame.ownerId,
+                    pageNumber: frame.pageNumber,
+                    intentKey: frame.intentKey,
+                    sourceRevisionKey: frame.sourceRevisionKey ?? sourceRevisionKey,
+                    style,
+                });
+                if (accepted) {
+                    logPdfRenderTrace('pdf-open-native-preview-fit-width-reconciled', {
+                        ...options.traceContext,
+                        generation: activeGeneration,
+                        pageCount,
+                        previousWidth: frame.style.width,
+                        nextWidth: style.width,
+                        viewMode: policy?.viewMode ?? null,
+                    });
+                }
+            }
+        }
+        reconcileOpeningPageFrameDocumentFitWidth(openingGeometry);
         pageSource = pageSizes === null
             ? createPagePreviewDocumentSource({
                 documentRef: sourceRevision.documentId,
@@ -462,7 +679,7 @@ export function stagePdfOpeningPreview(options: {
             const nextGeometry = {
                 ...openingGeometry,
                 documentId: sourceRevision.documentId,
-                pageNumber: boundedPage,
+                pageNumber: requirePageNumber(boundedPage, pageCount),
                 pageCount,
                 width: pageSize.width,
                 height: pageSize.height,
@@ -492,6 +709,11 @@ export function stagePdfOpeningPreview(options: {
                 previewSource.revokeObjectURL(rendered.objectUrl);
                 return false;
             }
+            // Preview commit wakes the opening-frame owner, which may restore
+            // its page-local draft in the same synchronous watcher turn. Reuse
+            // the document-wide fit decision after that handoff so the native
+            // shell and the settled PDF.js surface keep one width authority.
+            reconcileOpeningPageFrameDocumentFitWidth(nextGeometry);
             const previousObjectUrl = objectUrl;
             stopWatchingInvalidation?.();
             objectUrl = rendered.objectUrl;

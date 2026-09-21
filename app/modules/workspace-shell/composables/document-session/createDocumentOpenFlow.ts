@@ -54,6 +54,7 @@ import {validatePdfRevision} from '@app/modules/workspace-shell/composables/docu
 import {
     stagePdfOpeningPreview,
     type IPdfOpeningGeometryResolution,
+    type IPdfOpeningPreviewLayoutPolicy,
 } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 import {shouldStageNativePdfOpeningPreview} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
@@ -88,6 +89,7 @@ interface ICreateDocumentOpenFlowDeps {
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     loadEpoch: TEpochGuard;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
+    readOpeningPageFramePolicy?: () => IPdfOpeningPreviewLayoutPolicy;
     openEpoch: TEpochGuard;
     pushHistorySnapshot: (
         snapshot: Uint8Array,
@@ -968,6 +970,9 @@ export function createDocumentOpenFlow(
                 geometryResolution: opts.openingGeometryResolution,
                 isCurrent,
                 openSurface: deps.openSurface,
+                ...(deps.readOpeningPageFramePolicy === undefined
+                    ? {}
+                    : {readOpeningPageFramePolicy: deps.readOpeningPageFramePolicy}),
                 source: nextState.pdfSrc,
                 traceContext,
             })

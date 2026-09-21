@@ -9,6 +9,7 @@ import {
 import { createDocumentConformance } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { createDocumentHistory } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import type { IPdfOpeningPreviewLayoutPolicy } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import {
     createDocumentSessionState,
@@ -22,6 +23,7 @@ let nextPdfFileAnalyticsScopeIndex = 0;
 export interface IUsePdfFileOptions {
     analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
+    readOpeningPageFramePolicy?: () => IPdfOpeningPreviewLayoutPolicy;
     failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
@@ -118,6 +120,9 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         incrementSessionVersion,
         loadEpoch,
         openSurface: options.openSurface,
+        ...(options.readOpeningPageFramePolicy === undefined
+            ? {}
+            : {readOpeningPageFramePolicy: options.readOpeningPageFramePolicy}),
         ...(options.failureSurface?.reportOpenFailure
             ? {reportOpenFailure: options.failureSurface.reportOpenFailure}
             : {}),

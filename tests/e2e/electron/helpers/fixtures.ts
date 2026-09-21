@@ -18,7 +18,9 @@ import {
     join,
     resolve,
 } from 'node:path';
-import {readFile} from 'node:fs/promises';
+import {
+    open, readFile,
+} from 'node:fs/promises';
 import {
     PDFArray,
     PDFDict,
@@ -747,6 +749,69 @@ export async function createMixedSize66FixturePdf(filename: string) {
     }
 
     writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
+/**
+ * Creates a production-shaped native-preview fixture that exposes the
+ * document-wide fit-width handoff: an 882-page portrait document with the
+ * same wider landscape page at page 135 as the user-reported fixture.
+ * Sparse padding crosses the production preview threshold without making the
+ * test source binary large.
+ */
+export async function createNativeMixedWidthFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const targetBytes = NATIVE_LARGE_PDF_FIXTURE_BYTES;
+    const pageCount = 882;
+    const landscapePageNumber = 135;
+    const document = await PDFDocument.create({updateMetadata: false});
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const [
+            width,
+            height,
+        ] = pageNumber === landscapePageNumber
+            ? [
+                765,
+                482,
+            ]
+            : [
+                482,
+                765,
+            ];
+        const page = document.addPage([
+            width,
+            height,
+        ]);
+        page.drawText(`Native mixed-width fit fixture page ${pageNumber}`, {
+            font,
+            size: 18,
+            x: 36,
+            y: height - 54,
+        });
+    }
+    const basePdf = await document.save({
+        addDefaultPage: false,
+        useObjectStreams: false,
+    });
+    const baseText = Buffer.from(basePdf).toString('latin1');
+    const startXref = [...baseText.matchAll(/startxref\s+(\d+)\s+%%EOF/gu)].at(-1)?.[1];
+    if (startXref === undefined) {
+        throw new Error('Native mixed-width fixture is missing its startxref trailer');
+    }
+    const finalTrailer = Buffer.from(`\nstartxref\n${startXref}\n%%EOF\n`, 'ascii');
+    if (targetBytes < basePdf.byteLength + finalTrailer.byteLength) {
+        throw new Error('Native mixed-width fixture target is smaller than its PDF payload');
+    }
+    writeFileSync(filePath, basePdf);
+    const handle = await open(filePath, 'r+');
+    try {
+        await handle.truncate(targetBytes);
+        await handle.write(finalTrailer, 0, finalTrailer.byteLength, targetBytes - finalTrailer.byteLength);
+    } finally {
+        await handle.close();
+    }
     return filePath;
 }
 

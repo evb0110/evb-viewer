@@ -11,6 +11,7 @@ import {
     createCorruptPdfFixture,
     createMixedSize66FixturePdf,
     createMultiPageTextFixturePdf,
+    createNativeMixedWidthFixturePdf,
     createRotated90FixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -18,7 +19,10 @@ import {
     clickVisibleToolbarButton,
     ensureSidebarOpen,
     goToPageViaToolbar,
+    installNativePdfOpeningSampler,
+    openNativePdfPreviewInApp,
     openPdfInApp,
+    stopNativePdfOpeningSampler,
     triggerOpenPathInApp,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
@@ -74,6 +78,35 @@ const READY_AFTER_CANVAS_BUDGET_MS = 1_500;
 // about 1fps. Convergence itself is still asserted exactly; only the patience
 // is generous.
 const RENDER_SETTLE_TIMEOUT_MS = 45_000;
+
+function assertNativeOpeningFitWidthIsSettled(
+    frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>>,
+) {
+    const previewFrames = frames.filter(frame => (
+        frame.openingPreviewVisible
+        && frame.openingPreviewPage === 1
+        && frame.transitionShellRect !== null
+    ));
+    const firstPreview = previewFrames[0];
+    const firstPdfjs = frames.find(frame => (
+        frame.pdfjsCanvasVisible
+        && frame.pdfjsCanvasRects.some(rect => rect.page === 1)
+    ));
+    const evidence = JSON.stringify({
+        firstPreview,
+        firstPdfjs,
+        previewFrames,
+        frameCount: frames.length,
+    });
+    expect(firstPreview, evidence).toBeDefined();
+    expect(firstPdfjs, evidence).toBeDefined();
+    const openingWidth = firstPreview?.transitionShellRect?.width ?? 0;
+    const settledRect = firstPdfjs?.pdfjsCanvasRects.find(rect => rect.page === 1) ?? null;
+    const settledCanvasWidth = settledRect === null ? 0 : settledRect.right - settledRect.left;
+    expect(Math.abs(openingWidth - settledCanvasWidth), evidence).toBeLessThanOrEqual(2);
+    const previewWidths = previewFrames.map(frame => frame.transitionShellRect?.width ?? 0);
+    expect(Math.max(...previewWidths) - Math.min(...previewWidths), evidence).toBeLessThanOrEqual(2);
+}
 
 interface IVisibleSidebarSample {
     ownerTabId: string | null;
@@ -1606,6 +1639,34 @@ describe('standard PDF.js fit-mode continuity', () => {
             toolbarPage: DEEP_PAGE + 1,
         });
     }, 300_000);
+
+    it('keeps the native opening preview on the settled document-wide Fit Width', async () => {
+        const session = sessionFixture.getSession();
+        const mixedWidthPdfPath = await createNativeMixedWidthFixturePdf(
+            `standard-pdf-native-fit-width-${Date.now()}.pdf`,
+        );
+        await enablePdfRenderTrace(session);
+        await installNativePdfOpeningSampler(session.page);
+        let frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>> = [];
+        try {
+            await openNativePdfPreviewInApp(session.page, mixedWidthPdfPath, OPEN_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
+            await waitForAnimationFrames(session.page, 5);
+        } finally {
+            frames = await stopNativePdfOpeningSampler(session.page);
+        }
+        const trace = await evaluateInPage(session.page, () => {
+            const traceWindow = window as Window & IPdfRenderTraceWindow;
+            return (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [])
+                .filter(entry => entry.event.startsWith('pdf-open-native-preview'));
+        });
+        const documentWideReconciliation = trace.find(entry => (
+            entry.event === 'pdf-open-native-preview-fit-width-reconciled'
+            && entry.payload.previousWidth !== entry.payload.nextWidth
+        ));
+        expect(documentWideReconciliation, JSON.stringify(trace)).toBeDefined();
+        assertNativeOpeningFitWidthIsSettled(frames);
+    }, 180_000);
 
     it('keeps mixed-size jumps and continuous Fit Width geometry user-visible', async () => {
         const session = sessionFixture.getSession();
