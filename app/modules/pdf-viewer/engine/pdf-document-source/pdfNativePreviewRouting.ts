@@ -49,11 +49,18 @@ export function shouldDeferNativePdfOpeningSkeleton(input: {
     const isNativePathSource = isPathPdfSource(input.source)
         && !isBrowserDocumentRef(input.source.path);
     const size = sourceSize ?? input.geometry?.size;
+    const isNativeDocument = isNativeLegacyDocumentRef(input.documentId);
+    // The opening chassis can paint before the source object and trusted
+    // geometry are available. Keep that unresolved native-path opening hidden
+    // until the size check arrives; the `isOpening` fence releases it for
+    // small files as soon as the opening surface commits.
+    const isLargeOrUnresolvedNativePath = size === undefined
+        ? isNativeDocument
+        : size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
+            && (isNativeDocument || isNativePathSource);
     return input.sourceKind === 'pdf'
         && input.rendererKind === 'pdfjs'
         && input.isOpening
-        && size !== undefined
-        && size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
-        && (isNativeLegacyDocumentRef(input.documentId) || isNativePathSource)
+        && isLargeOrUnresolvedNativePath
         && !input.hasPreview;
 }
