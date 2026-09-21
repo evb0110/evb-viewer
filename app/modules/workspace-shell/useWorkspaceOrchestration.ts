@@ -319,12 +319,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     async function handleExportDocx(selectedLanguages?: string[]) {
         if (isExportingDocx.value) { cancelDocxExport(); return; }
         const cancellationVersion = docxExportCancellationVersion;
-        const exported = await exportDocx({
+        const exported = await documentOperationLease.runExclusive('docx-export', () => exportDocx({
             workingCopyPath: workingCopyPath.value,
             documentRevisionToken: documentRevisionToken.value,
             pdfDocument: pdfDocument.value,
             ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
-        });
+        }));
         if (!exported && cancellationVersion === docxExportCancellationVersion) openDropdown('ocr');
     }
     const annotationSession = useWorkspaceAnnotationSession({

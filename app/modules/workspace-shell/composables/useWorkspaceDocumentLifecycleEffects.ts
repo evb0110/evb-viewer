@@ -98,7 +98,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     const { presentFailureToast } = useFailureToast();
     let revisionRefreshRequestId = 0;
 
-    async function refreshDocumentRevision(path: TDocumentRef) {
+    async function refreshDocumentRevision(path: TDocumentRef): Promise<boolean> {
         const requestId = ++revisionRefreshRequestId;
         try {
             const revision = await documentFiles.getDocumentRevision(path);
@@ -108,7 +108,9 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             ) {
                 documentRevisionInfo.value = revision;
                 documentRevisionToken.value = revision.token;
+                return true;
             }
+            return false;
         } catch {
             if (
                 requestId === revisionRefreshRequestId
@@ -117,6 +119,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 documentRevisionInfo.value = null;
                 documentRevisionToken.value = null;
             }
+            return false;
         }
     }
 
@@ -252,6 +255,9 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             didReplaceWorkingCopy = true;
             if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {
                 return null;
+            }
+            if (!await refreshDocumentRevision(payload.sourceWorkingCopyPath)) {
+                throw new Error('Failed to refresh the working-copy revision after OCR apply');
             }
 
             restorePromise = waitForPdfReload(pageToRestore).catch((error: unknown) => {

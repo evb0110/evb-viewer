@@ -7,6 +7,7 @@ import type {
 } from '@contracts/electronApiOcr';
 
 const TEXT_TOKEN_RE = /\bBT\b|\bET\b|(?:^|\s)([0-7])(?:\.0+)?\s+Tr\b|\b(Tj|TJ)\b|(?:^|\s)(['"])(?=\s|$)/gm;
+const EVB_OCR_LAYER_MARKER = 'EVB_VIEWER_OCR_LAYER';
 const OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES = 16 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES = 4 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES = 16 * 1024 * 1024;
@@ -32,6 +33,14 @@ export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcr
     let hasVisibleTextOperators = false;
 
     for (const source of streamSources) {
+        // EVB's searchable layer is a marked Form XObject. The page content
+        // stream therefore contains the marker and a Do operator, while the
+        // BT/ET and 3 Tr operators live in the nested object. Treat the
+        // marker as hidden text evidence so a missing catalog cannot make an
+        // unusable EVB layer look like native text and skip rescan.
+        if (source.includes(EVB_OCR_LAYER_MARKER)) {
+            hasHiddenTextOperators = true;
+        }
         TEXT_TOKEN_RE.lastIndex = 0;
         for (const match of source.matchAll(TEXT_TOKEN_RE)) {
             const token = match[0].trim();
