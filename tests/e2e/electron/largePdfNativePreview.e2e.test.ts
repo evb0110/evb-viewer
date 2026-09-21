@@ -334,6 +334,11 @@ function assertAtomicNativeToPdfjsHandoff(
 
     const visualHandoffFrames = generationFrames.slice(firstPreviewIndex, firstPdfjsIndex + 1);
     expect(visualHandoffFrames.length, JSON.stringify(generationFrames)).toBeGreaterThan(1);
+    const framesBeforePdfjs = generationFrames.slice(firstPreviewIndex, firstPdfjsIndex);
+    expect(framesBeforePdfjs.every(frame => (
+        frame.pdfjsOpeningSurfaceDeferred
+        && !frame.pdfjsCanvasVisible
+    )), JSON.stringify(framesBeforePdfjs)).toBe(true);
     expect(visualHandoffFrames.every(frame => (
         frame.openingPreviewVisible || frame.pdfjsCanvasVisible
     )), JSON.stringify(visualHandoffFrames)).toBe(true);

@@ -268,7 +268,6 @@ const shouldDeferLargePdfOpeningSurface = computed(() => {
     return shouldDeferNativePdfOpeningSkeleton({
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
-        hasPreview: snapshot.openingPageFrame?.preview !== undefined,
         isOpening: isCommittedInitialPageTransition.value,
         rendererKind: 'pdfjs',
         source: props.src,

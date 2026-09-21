@@ -8,9 +8,9 @@
 
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
-/* A large native PDF already has a trusted opening preview in flight. Keep
-   PDF.js's provisional page track mounted for lifecycle/measurement, but do
-   not let its page-local shell paint before that preview is ready. */
+/* A large native PDF keeps its preview as the sole visible opening owner until
+   the first PDF.js canvas is committed. Keep the PDF.js track mounted for
+   lifecycle/measurement without exposing its provisional page-local shell. */
 .pdf-viewer-container--opening-surface-deferred {
     visibility: hidden;
 }

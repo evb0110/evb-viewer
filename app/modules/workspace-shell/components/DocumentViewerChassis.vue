@@ -518,7 +518,6 @@ const shouldDeferLargePdfOpeningSkeleton = computed(() => {
     return shouldDeferNativePdfOpeningSkeleton({
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
-        hasPreview: snapshot.openingPageFrame?.preview !== undefined,
         isOpening,
         rendererKind: rendererKind.value,
         source: attrs.src as TPdfSource | null | undefined,
