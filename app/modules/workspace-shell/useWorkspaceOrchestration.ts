@@ -434,6 +434,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfData,
         pdfDocument,
         pdfViewerRef,
+        openSurface: deps.openSurface,
         workingCopyPath,
         originalPath,
         documentSessionKey: computed(() => (
@@ -623,6 +624,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const pdfHistory = usePdfHistory({
         pdfDocument,
         pdfViewerRef,
+        openSurface: deps.openSurface,
         currentPage,
         isAnySaving,
         isHistoryBusy,

@@ -1,4 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
@@ -21,6 +22,7 @@ const HISTORY_LOG_SECTION = 'pdf-history';
 export const usePdfHistory = (deps: {
     pdfDocument: Ref<IPdfDocument | null>;
     pdfViewerRef: Ref<IPdfReloadWaiterViewer | null>;
+    openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'> | undefined;
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;
     isHistoryBusy: Ref<boolean>;
@@ -37,6 +39,7 @@ export const usePdfHistory = (deps: {
     const {
         pdfDocument,
         pdfViewerRef,
+        openSurface,
         currentPage,
         isAnySaving,
         isHistoryBusy,
@@ -64,6 +67,7 @@ export const usePdfHistory = (deps: {
         return createPdfReloadWaiter({
             pdfDocument,
             pdfViewerRef,
+            ...(openSurface ? {openSurface} : {}),
             resetSearchCache,
             pageToRestore: normalizedPageToRestore,
         });

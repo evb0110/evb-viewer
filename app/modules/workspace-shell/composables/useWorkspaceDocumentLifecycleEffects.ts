@@ -98,19 +98,26 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     const { presentFailureToast } = useFailureToast();
     let revisionRefreshRequestId = 0;
 
+    function hasCurrentRevisionForPath(path: TDocumentRef) {
+        return workingCopyPath.value === path
+            && documentRevisionInfo.value?.documentRef === path
+            && documentRevisionToken.value !== null;
+    }
+
     async function refreshDocumentRevision(path: TDocumentRef): Promise<boolean> {
         const requestId = ++revisionRefreshRequestId;
         try {
             const revision = await documentFiles.getDocumentRevision(path);
-            if (
-                requestId === revisionRefreshRequestId
-                && workingCopyPath.value === path
-            ) {
+            if (requestId === revisionRefreshRequestId && workingCopyPath.value === path) {
                 documentRevisionInfo.value = revision;
                 documentRevisionToken.value = revision.token;
                 return true;
             }
-            return false;
+            // A replace can publish the new revision through the event channel
+            // while this read is in flight. That event is authoritative; do
+            // not reject an otherwise valid OCR apply merely because this
+            // superseded read lost the race.
+            return hasCurrentRevisionForPath(path);
         } catch {
             if (
                 requestId === revisionRefreshRequestId
@@ -119,7 +126,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 documentRevisionInfo.value = null;
                 documentRevisionToken.value = null;
             }
-            return false;
+            return hasCurrentRevisionForPath(path);
         }
     }
 

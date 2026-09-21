@@ -10,6 +10,10 @@ import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpos
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
+    requireDocumentRevisionToken, type IDocumentRevisionInfo,
+} from '@contracts/documentRevision';
+import { requireEpochMs } from '@contracts/timestamps';
+import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -21,7 +25,10 @@ function createSnapshot(overrides: Partial<IWorkspaceToolbarSnapshot> = {}): IWo
     };
 }
 
-function createRecord(snapshot: Partial<IWorkspaceToolbarSnapshot> = {}) {
+function createRecord(
+    snapshot: Partial<IWorkspaceToolbarSnapshot> = {},
+    documentIdentity: IDocumentRevisionInfo | null = null,
+) {
     return createWorkspaceDocumentRecord({
         tab: {
             fileName: 'paper.pdf',
@@ -29,6 +36,7 @@ function createRecord(snapshot: Partial<IWorkspaceToolbarSnapshot> = {}) {
             isDirty: false,
             isDjvu: false,
         },
+        documentIdentity,
         toolbarSnapshot: createSnapshot(snapshot),
     });
 }
@@ -63,6 +71,23 @@ describe('useShellWorkspaceToolbar', () => {
             effectiveZoom: 1.5,
         });
         expect(toolbar.shellToolbarHasPdf.value).toBe(true);
+    });
+
+    it('publishes the active working copy identity for the fallback OCR toolbar', () => {
+        const documentIdentity: IDocumentRevisionInfo = {
+            version: 1,
+            documentRef: requireDocumentRef('/tmp/working-copy.pdf'),
+            authority: 'electron-working-copy',
+            contentRevision: 4,
+            mintedAt: requireEpochMs(1),
+            token: requireDocumentRevisionToken('revision-4'),
+        };
+        const activeDocumentRecord = ref<IWorkspaceDocumentRecord | null>(createRecord({hasPdf: true}, documentIdentity));
+
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentRecord }));
+
+        expect(toolbar.shellToolbarOcrWorkingCopyPath.value).toBe('/tmp/working-copy.pdf');
+        expect(toolbar.shellToolbarOcrDocumentRevision.value).toBe('revision-4');
     });
 
     it('updates when the active document record changes', () => {

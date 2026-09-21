@@ -8,6 +8,7 @@ import type {
 
 const TEXT_TOKEN_RE = /\bBT\b|\bET\b|(?:^|\s)([0-7])(?:\.0+)?\s+Tr\b|\b(Tj|TJ)\b|(?:^|\s)(['"])(?=\s|$)/gm;
 const EVB_OCR_LAYER_MARKER = 'EVB_VIEWER_OCR_LAYER';
+const EVB_OCR_LAYER_BLOCK_RE = /(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_BEGIN\s*\r?\n[\s\S]*?(?:^|\r?\n)\s*\/[A-Za-z0-9._-]+\s+Do\b[^\r\n]*\r?\n[\s\S]*?(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_END\s*(?=\r?\n|$)/m;
 const OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES = 16 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES = 4 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES = 16 * 1024 * 1024;
@@ -38,7 +39,7 @@ export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcr
         // BT/ET and 3 Tr operators live in the nested object. Treat the
         // marker as hidden text evidence so a missing catalog cannot make an
         // unusable EVB layer look like native text and skip rescan.
-        if (source.includes(EVB_OCR_LAYER_MARKER)) {
+        if (source.includes(EVB_OCR_LAYER_MARKER) && EVB_OCR_LAYER_BLOCK_RE.test(source)) {
             hasHiddenTextOperators = true;
         }
         TEXT_TOKEN_RE.lastIndex = 0;

@@ -1,6 +1,7 @@
 import type {
     ComputedRef, Ref, ShallowRef,
 } from 'vue';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfBookmarkEntry, IPdfPageLabelRange,
@@ -33,6 +34,7 @@ interface IPageSaveOrchestrationDeps {
     pdfData: Ref<Uint8Array | null>;
     pdfDocument: ShallowRef<IPdfDocument | null>;
     pdfViewerRef: Ref<TPageSaveViewer | null>;
+    openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'> | undefined;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
     documentSessionKey: Ref<string | null>;
@@ -186,6 +188,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 const reloadWaiter = createPdfReloadWaiter({
                     pdfDocument: deps.pdfDocument,
                     pdfViewerRef: deps.pdfViewerRef,
+                    ...(deps.openSurface ? {openSurface: deps.openSurface} : {}),
                     resetSearchCache: deps.resetSearchCache,
                     pageToRestore,
                     restoreScroll: true,

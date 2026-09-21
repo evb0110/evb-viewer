@@ -2,6 +2,8 @@
     <WorkspacePdfToolbarView
         :snapshot="snapshot"
         :has-pdf="hasPdf"
+        :ocr-document-revision="ocrDocumentRevision"
+        :ocr-working-copy-path="ocrWorkingCopyPath"
         :can-use-ocr="canUseOcr"
         :is-desktop-runtime="isDesktopRuntime"
         :surface="toolbarSurface"
@@ -64,6 +66,8 @@
 </template>
 
 <script setup lang="ts">
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
@@ -72,10 +76,14 @@ import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandS
 
 const {
     hasPdf,
+    ocrDocumentRevision = null,
+    ocrWorkingCopyPath = null,
     snapshot,
 } = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
     hasPdf: boolean;
+    ocrDocumentRevision?: TDocumentRevisionToken | null;
+    ocrWorkingCopyPath?: TDocumentRef | null;
     ocrPopupOpen: boolean;
     zoomDropdownOpen: boolean;
     pageDropdownOpen: boolean;

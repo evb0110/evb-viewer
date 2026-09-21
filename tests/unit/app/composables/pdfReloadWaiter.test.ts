@@ -82,6 +82,107 @@ describe('createPdfReloadWaiter', () => {
         expect(scrollToPage).toHaveBeenCalledWith(4);
     });
 
+    it('waits for the changed open surface to become visually ready before restoring the page', async () => {
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 'before'}));
+        const scrollToPage = vi.fn();
+        const surfaceSnapshot = shallowRef(cast({
+            generation: 1,
+            identity: {
+                documentId: 'document',
+                documentRevision: 'revision-a',
+            },
+            phase: 'ready',
+            presentation: 'committed',
+        }));
+        const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({scrollToPage}),
+            openSurface: cast({
+                snapshot: surfaceSnapshot,
+                viewportSession,
+            }),
+            resetSearchCache: vi.fn(),
+            pageToRestore: 6,
+        });
+
+        pdfDocument.value = cast({id: 'after'});
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(scrollToPage).not.toHaveBeenCalled();
+
+        surfaceSnapshot.value = cast({
+            generation: 2,
+            identity: {
+                documentId: 'document',
+                documentRevision: 'revision-b',
+            },
+            phase: 'canvas-committed',
+            presentation: 'page-shell',
+        });
+        viewportSession.value = cast({lifecycle: 'opening'});
+        await Promise.resolve();
+        expect(scrollToPage).not.toHaveBeenCalled();
+
+        surfaceSnapshot.value = cast({
+            generation: 2,
+            identity: {
+                documentId: 'document',
+                documentRevision: 'revision-b',
+            },
+            phase: 'ready',
+            presentation: 'committed',
+        });
+        viewportSession.value = cast({lifecycle: 'ready'});
+        await waiter.promise;
+
+        expect(scrollToPage).toHaveBeenCalledWith(6);
+    });
+
+    it('does not start a redundant navigation when the open surface already committed the target page', async () => {
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 'before'}));
+        const scrollToPage = vi.fn();
+        const surfaceSnapshot = shallowRef(cast({
+            generation: 1,
+            identity: {
+                documentId: 'document',
+                documentRevision: 'revision-a',
+            },
+            phase: 'ready',
+            presentation: 'committed',
+            committedViewport: {pageNumber: 6},
+        }));
+        const viewportSession = shallowRef(cast({lifecycle: 'ready'}));
+        const waiter = createPdfReloadWaiter({
+            pdfDocument,
+            pdfViewerRef: ref({scrollToPage}),
+            openSurface: cast({
+                snapshot: surfaceSnapshot,
+                viewportSession,
+            }),
+            resetSearchCache: vi.fn(),
+            pageToRestore: 6,
+        });
+
+        pdfDocument.value = cast({id: 'after'});
+        await Promise.resolve();
+        await Promise.resolve();
+        surfaceSnapshot.value = cast({
+            generation: 2,
+            identity: {
+                documentId: 'document',
+                documentRevision: 'revision-b',
+            },
+            phase: 'ready',
+            presentation: 'committed',
+            committedViewport: {pageNumber: 6},
+        });
+        viewportSession.value = cast({lifecycle: 'ready'});
+        await waiter.promise;
+
+        expect(scrollToPage).not.toHaveBeenCalled();
+    });
+
     it('skips stale restoration after user viewport interaction', async () => {
         const pdfDocument = shallowRef<IPdfDocument | null>(cast({ id: 'before' }));
         const scrollToPage = vi.fn();
