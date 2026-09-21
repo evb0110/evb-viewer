@@ -82,6 +82,10 @@ const RENDER_SETTLE_TIMEOUT_MS = 45_000;
 function assertNativeOpeningFitWidthIsSettled(
     frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>>,
 ) {
+    const visibleShellFrames = frames.filter(frame => (
+        frame.transitionSurfaceVisible
+        && frame.transitionShellRect !== null
+    ));
     const previewFrames = frames.filter(frame => (
         frame.openingPreviewVisible
         && frame.openingPreviewPage === 1
@@ -95,9 +99,13 @@ function assertNativeOpeningFitWidthIsSettled(
     const evidence = JSON.stringify({
         firstPreview,
         firstPdfjs,
+        visibleShellFrames,
         previewFrames,
         frameCount: frames.length,
     });
+    expect(visibleShellFrames, evidence).not.toHaveLength(0);
+    const visibleShellWidths = visibleShellFrames.map(frame => frame.transitionShellRect?.width ?? 0);
+    expect(Math.max(...visibleShellWidths) - Math.min(...visibleShellWidths), evidence).toBeLessThanOrEqual(2);
     expect(firstPreview, evidence).toBeDefined();
     expect(firstPdfjs, evidence).toBeDefined();
     const openingWidth = firstPreview?.transitionShellRect?.width ?? 0;

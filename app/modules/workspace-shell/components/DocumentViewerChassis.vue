@@ -46,7 +46,8 @@
                 v-if="chassisOpeningPageShell
                     && shouldRenderChassisOpeningPageShell
                     && (chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview
-                        || chassisAuthority.openingPageVisual.value !== 'fresh')"
+                        || !shouldDeferLargePdfOpeningSkeleton
+                        && chassisAuthority.openingPageVisual.value !== 'fresh')"
                 class="document-viewer-chassis__opening-layer"
             >
                 <section
@@ -95,6 +96,7 @@ import type {
     Component,
     ComponentPublicInstance,
 } from 'vue';
+import { isNativeLegacyDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
@@ -120,6 +122,7 @@ import type {
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import {
     createPdfPageNavigationRequest,
+    PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
     readPrevalidatedTrustedPdfOpenGeometry,
 } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
@@ -500,6 +503,21 @@ const chassisOpeningPageShell = computed(() => {
             left: `max(${String(margin)}px, calc(50% - ${String(liveWidth / 2)}px))`,
         },
     };
+});
+// A large path-backed PDF is opened through the native preview lane. Its
+// document-wide Fit Width is not knowable from page 1, so do not expose the
+// page-local provisional shell while that lane is loading its page table. The
+// preview is committed with the settled document-wide width and becomes the
+// first visible opening shell.
+const shouldDeferLargePdfOpeningSkeleton = computed(() => {
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    const geometry = snapshot.openingPageGeometry;
+    return sourceKind.value === 'pdf'
+        && rendererKind.value === 'pdfjs'
+        && geometry?.size !== undefined
+        && geometry.size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
+        && isNativeLegacyDocumentRef(snapshot.identity?.documentId)
+        && snapshot.openingPageFrame?.preview === undefined;
 });
 const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
 
