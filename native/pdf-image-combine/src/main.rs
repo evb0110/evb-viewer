@@ -34,6 +34,7 @@ const MAX_COMPACT_MANIFEST_LINE_BYTES: usize = 64 * 1024;
 const MAX_PATH_BYTES: usize = 4_096;
 const COMPACT_MANIFEST_JSONL_FORMAT: &str = "evb-pdf-image-combine-jsonl";
 const COMPACT_MANIFEST_JSONL_SCHEMA_VERSION: u64 = 1;
+const FILE_BACKED_OUTPUT_MODE: &str = "file-backed";
 
 struct Config {
     output_path: PathBuf,
@@ -162,12 +163,8 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                     max_pages,
                     max_pixels,
                     max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-                    max_output_bytes: read_limit(
-                        "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
-                        PDF_COMBINE_MAX_OUTPUT_BYTES,
-                        1024 * 1024,
-                        PDF_COMBINE_MAX_OUTPUT_BYTES,
-                    ),
+                    max_output_bytes: read_pdf_output_limit(),
+                    allow_large_output: is_file_backed_output_mode(),
                     max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
                         as usize,
                     provenance_stamp_hex,
@@ -246,12 +243,8 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             max_pages,
             max_pixels,
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
-            max_output_bytes: read_limit(
-                "EVB_PDF_COMBINE_MAX_OUTPUT_BYTES",
-                PDF_COMBINE_MAX_OUTPUT_BYTES,
-                1024 * 1024,
-                PDF_COMBINE_MAX_OUTPUT_BYTES,
-            ),
+            max_output_bytes: read_pdf_output_limit(),
+            allow_large_output: is_file_backed_output_mode(),
             max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize,
             provenance_stamp_hex,
             worker_threads: read_limit(
@@ -1276,6 +1269,31 @@ fn read_limit(name: &str, default_value: u64, min_value: u64, max_value: u64) ->
         .unwrap_or(default_value)
 }
 
+fn read_pdf_output_limit() -> u64 {
+    read_pdf_output_limit_from(
+        env::var("EVB_PDF_COMBINE_OUTPUT_MODE").ok().as_deref(),
+        env::var("EVB_PDF_COMBINE_MAX_OUTPUT_BYTES").ok().as_deref(),
+    )
+}
+
+fn is_file_backed_output_mode() -> bool {
+    env::var("EVB_PDF_COMBINE_OUTPUT_MODE")
+        .ok()
+        .is_some_and(|mode| mode == FILE_BACKED_OUTPUT_MODE)
+}
+
+fn read_pdf_output_limit_from(output_mode: Option<&str>, configured_limit: Option<&str>) -> u64 {
+    let maximum = if output_mode.is_some_and(|mode| mode == FILE_BACKED_OUTPUT_MODE) {
+        u64::MAX
+    } else {
+        PDF_COMBINE_MAX_OUTPUT_BYTES
+    };
+    configured_limit
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0 && *value <= maximum)
+        .unwrap_or(PDF_COMBINE_MAX_OUTPUT_BYTES)
+}
+
 fn print_progress(processed: usize, total: usize, started_at: Instant) {
     let elapsed_ms = started_at.elapsed().as_millis() as u64;
     let percent = ((processed as f64 / total as f64) * 100.0).round() as u32;
@@ -1496,5 +1514,27 @@ mod tests {
         let error = serde_json::from_value::<CompactManifestJsonlHeader>(header)
             .expect_err("the manifest outline field must use the shared aggregate bound");
         assert!(error.to_string().contains("item admission ceiling"));
+    }
+
+    #[test]
+    fn read_pdf_output_limit_only_relaxes_for_file_backed_output() {
+        let oversized = (PDF_COMBINE_MAX_OUTPUT_BYTES + 1).to_string();
+
+        assert_eq!(
+            read_pdf_output_limit_from(Some(FILE_BACKED_OUTPUT_MODE), Some("1")),
+            1,
+        );
+        assert_eq!(
+            read_pdf_output_limit_from(Some(FILE_BACKED_OUTPUT_MODE), Some(&oversized)),
+            PDF_COMBINE_MAX_OUTPUT_BYTES + 1,
+        );
+        assert_eq!(
+            read_pdf_output_limit_from(Some("memory"), Some(&oversized)),
+            PDF_COMBINE_MAX_OUTPUT_BYTES,
+        );
+        assert_eq!(
+            read_pdf_output_limit_from(None, Some(&oversized)),
+            PDF_COMBINE_MAX_OUTPUT_BYTES,
+        );
     }
 }

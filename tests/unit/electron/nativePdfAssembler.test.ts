@@ -519,7 +519,7 @@ describe('tryCreatePdfFromInputPathsNative', () => {
         expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
     });
 
-    it('refuses strict file-backed output above the shared output cap', async () => {
+    it('accepts strict file-backed output above the byte-returning cap', async () => {
         vi.stubEnv('EVB_PDF_NATIVE_ASSEMBLER_ENABLE', '1');
         let statCalls = 0;
         mocks.stat.mockImplementation(async () => {
@@ -532,12 +532,17 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             ['/tmp/one.png'],
             '/tmp/final.pdf',
             {failureMode: 'capability-error'},
-        )).rejects.toMatchObject({
-            code: 'too-large',
-            name: 'SerializableError',
-        });
+        )).resolves.toBe(true);
 
-        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(mocks.nativeWrite).toHaveBeenCalledWith(
+            ['/tmp/one.png'],
+            expect.stringMatching(/^\/tmp\/native-assembler\/image-chunk-\d+-.+\.pdf$/u),
+            expect.objectContaining({
+                maxOutputBytes: Number.MAX_SAFE_INTEGER,
+                outputMode: 'file-backed',
+            }),
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith('/tmp/final.pdf.tmp', '/tmp/final.pdf');
     });
 
     it('does not apply the former 500-page cap to strict file-backed input batches', async () => {

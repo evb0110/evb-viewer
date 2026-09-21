@@ -209,6 +209,7 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
         max_pixels,
         max_bilevel_pixels: max_pixels,
         max_output_bytes: MAX_OUTPUT_BYTES as u64,
+        allow_large_output: false,
         max_tiff_frames: read_usize_le(request, offset, "max_tiff_frames")?,
         provenance_stamp_hex: None,
         worker_threads: 1,

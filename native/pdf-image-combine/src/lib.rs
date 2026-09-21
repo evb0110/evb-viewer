@@ -67,7 +67,7 @@ pub use evb_native_support::pdf_catalog::{BookmarkEntry, PageLabelRange};
 pub const DEFAULT_DPI: u32 = 72;
 pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
 pub const DEFAULT_MAX_BILEVEL_PIXELS: u64 = 160_000_000;
-/// Shared output cap for native, WASM, and browser PDF combines.
+/// Shared output cap for byte-returning native, WASM, and browser combines.
 pub const PDF_COMBINE_MAX_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const CM_PER_INCH: f64 = 2.54;
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -256,6 +256,10 @@ pub struct PdfBuildOptions {
     pub max_pixels: u64,
     pub max_bilevel_pixels: u64,
     pub max_output_bytes: u64,
+    /// Allows the trusted file-backed native CLI to exceed the shared
+    /// byte-returning output cap. Byte-returning adapters must leave this
+    /// disabled.
+    pub allow_large_output: bool,
     pub max_tiff_frames: usize,
     /// Lowercase hex encoding of the canonical JSON provenance payload to
     /// publish in the PDF Info dictionary.
@@ -282,6 +286,7 @@ impl Default for PdfBuildOptions {
             max_pixels: DEFAULT_MAX_IMAGE_PIXELS,
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_output_bytes: PDF_COMBINE_MAX_OUTPUT_BYTES,
+            allow_large_output: false,
             max_tiff_frames: 250,
             provenance_stamp_hex: None,
             worker_threads: 1,
@@ -322,10 +327,12 @@ where
         .worker_threads
         .clamp(1, evb_native_support::MAX_WORKER_THREADS);
     let encoders = PageEncoders::new(batch_size)?;
-    let output = OutputLimitWriter::new(
-        output,
-        options.max_output_bytes.min(PDF_COMBINE_MAX_OUTPUT_BYTES),
-    );
+    let max_output_bytes = if options.allow_large_output {
+        options.max_output_bytes
+    } else {
+        options.max_output_bytes.min(PDF_COMBINE_MAX_OUTPUT_BYTES)
+    };
+    let output = OutputLimitWriter::new(output, max_output_bytes);
     let mut page_count = 0usize;
     let mut processed = 0usize;
     let output = write_pdf_to_writer(

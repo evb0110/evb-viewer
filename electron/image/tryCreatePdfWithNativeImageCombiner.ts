@@ -56,6 +56,8 @@ interface INativePdfImageCombineOptions {
     maxInputBytes?: number;
     /** Maximum output size accepted from the native writer. */
     maxOutputBytes?: number;
+    /** Permit a validated output path to exceed the byte-returning cap. */
+    outputMode?: 'memory' | 'file-backed';
     onProgress?: (progress: INativePdfImageCombineProgress) => void;
     signal?: AbortSignal;
     rotationDegrees?: readonly number[];
@@ -119,6 +121,7 @@ const PDF_EOF_SCAN_BYTES = 1024 * 1024;
 const JPEG_ORIENTATION_SCAN_MAX_BYTES = 4 * 1024 * 1024;
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_INPUT_MB = 4_096;
+const FILE_BACKED_NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = Number.MAX_SAFE_INTEGER;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = (() => {
     const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? String(
         PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
@@ -243,7 +246,18 @@ async function isStructurallyPlausiblePdfFile(outputPath: string) {
     }
 }
 
-function normalizeOutputLimit(value: number | undefined) {
+function normalizeOutputLimit(
+    value: number | undefined,
+    outputMode: INativePdfImageCombineOptions['outputMode'] = 'memory',
+) {
+    if (outputMode === 'file-backed') {
+        return typeof value === 'number'
+            && Number.isSafeInteger(value)
+            && value >= 1
+            ? Math.min(value, FILE_BACKED_NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES)
+            : FILE_BACKED_NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES;
+    }
+
     return Math.min(
         NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
         normalizePdfCombineOutputLimit(value),
@@ -576,7 +590,13 @@ async function createPdfWithNativeImageCombiner(
         retainCleanupUntilTerminationProof,
     }) => {
         const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-        const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
+        const memoryOptions = options?.outputMode === undefined
+            ? options
+            : {
+                ...options,
+                outputMode: 'memory' as const,
+            };
+        const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], memoryOptions, [
             ...extraArgs,
             '--inputs-file',
             inputsPath,
@@ -629,7 +649,7 @@ async function writePdfWithNativeImageCombiner(
             }
             return await validateNativePdfOutputFile(
                 outputPath,
-                normalizeOutputLimit(options?.maxOutputBytes),
+                normalizeOutputLimit(options?.maxOutputBytes, options?.outputMode),
             );
         } catch (error) {
             if (
@@ -667,10 +687,13 @@ async function runNativePdfImageCombine(
     }
     const maxPages = normalizeMaxPagesForEnv(options?.maxPages);
     const maxInputMb = normalizeMaxInputMbForEnv(options?.maxInputBytes);
-    const maxOutputBytes = normalizeOutputLimit(options?.maxOutputBytes);
+    const maxOutputBytes = normalizeOutputLimit(options?.maxOutputBytes, options?.outputMode);
     const env = {
         ...process.env,
         EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(maxOutputBytes),
+        ...(options?.outputMode === 'file-backed'
+            ? {EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed'}
+            : {}),
         ...(maxInputMb ? {EVB_PDF_COMBINE_MAX_INPUT_MB: maxInputMb} : {}),
         ...(maxPages ? {EVB_PDF_COMBINE_MAX_PAGES: maxPages} : {}),
     };

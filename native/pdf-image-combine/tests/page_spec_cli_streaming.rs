@@ -8,7 +8,7 @@ use std::{
 
 use evb_pdf_image_combine::{
     write_pdf, FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource, PageSpec,
-    PdfBuildOptions,
+    PdfBuildOptions, PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use jpeg_encoder::{ColorType, Encoder as JpegEncoder};
 
@@ -42,6 +42,47 @@ fn cli_streaming_path_matches_the_core_without_vec_staging() {
     assert_eq!(fs::read(&output_path).unwrap(), expected);
 
     remove_files([&first_path, &second_path, &output_path]);
+}
+
+#[test]
+fn cli_uses_the_file_backed_output_capability_for_large_results() {
+    let input_path = temp_path("large-output-input").with_extension("jpg");
+    let memory_output_path = temp_path("large-output-memory").with_extension("pdf");
+    let file_backed_output_path = temp_path("large-output-file-backed").with_extension("pdf");
+    fs::write(&input_path, large_valid_jpeg()).unwrap();
+    let input = input_path.to_str().unwrap();
+    let inputs = std::iter::repeat_n(input, 32);
+    let configured_limit = u64::MAX.to_string();
+
+    let memory_output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .env_remove("EVB_PDF_COMBINE_OUTPUT_MODE")
+        .env("EVB_PDF_COMBINE_MAX_OUTPUT_BYTES", &configured_limit)
+        .args(["--output", memory_output_path.to_str().unwrap(), "--"])
+        .args(inputs.clone())
+        .output()
+        .unwrap();
+    assert!(!memory_output.status.success());
+    let memory_error: serde_json::Value = serde_json::from_slice(&memory_output.stderr).unwrap();
+    assert_eq!(memory_error["code"], "too-large");
+    assert!(!memory_output_path.exists());
+
+    let file_backed_output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-image-combine"))
+        .env("EVB_PDF_COMBINE_OUTPUT_MODE", "file-backed")
+        .env("EVB_PDF_COMBINE_MAX_OUTPUT_BYTES", &configured_limit)
+        .args(["--output", file_backed_output_path.to_str().unwrap(), "--"])
+        .args(inputs)
+        .output()
+        .unwrap();
+    assert!(
+        file_backed_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&file_backed_output.stderr)
+    );
+    let output_bytes = fs::read(&file_backed_output_path).unwrap();
+    assert!(output_bytes.starts_with(b"%PDF-"));
+    assert!(output_bytes.len() as u64 > PDF_COMBINE_MAX_OUTPUT_BYTES);
+
+    remove_files([&input_path, &memory_output_path, &file_backed_output_path]);
 }
 
 #[test]
@@ -462,6 +503,19 @@ fn valid_rgb_jpeg() -> Vec<u8> {
     encode_jpeg(&[0x10, 0x20, 0x30], ColorType::Rgb)
 }
 
+fn large_valid_jpeg() -> Vec<u8> {
+    let mut pixels = Vec::with_capacity(1024 * 1024 * 3);
+    for index in 0..(1024 * 1024) {
+        let value = index as u32;
+        pixels.extend_from_slice(&[
+            (value.wrapping_mul(17) & 0xff) as u8,
+            (value.wrapping_mul(31) & 0xff) as u8,
+            (value.wrapping_mul(47) & 0xff) as u8,
+        ]);
+    }
+    encode_jpeg_with_dimensions(&pixels, 1024, 1024, ColorType::Rgb)
+}
+
 fn valid_cmyk_jpeg() -> Vec<u8> {
     encode_jpeg(&[0x10, 0x20, 0x30, 0x40], ColorType::Cmyk)
 }
@@ -471,9 +525,18 @@ fn valid_ycck_jpeg() -> Vec<u8> {
 }
 
 fn encode_jpeg(pixel: &[u8], color_type: ColorType) -> Vec<u8> {
+    encode_jpeg_with_dimensions(pixel, 1, 1, color_type)
+}
+
+fn encode_jpeg_with_dimensions(
+    pixel: &[u8],
+    width: u16,
+    height: u16,
+    color_type: ColorType,
+) -> Vec<u8> {
     let mut bytes = Vec::new();
     JpegEncoder::new(&mut bytes, 90)
-        .encode(pixel, 1, 1, color_type)
+        .encode(pixel, width, height, color_type)
         .unwrap();
     bytes
 }

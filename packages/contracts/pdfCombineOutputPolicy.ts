@@ -5,9 +5,9 @@ import {
 } from '@contracts/serializableError';
 
 /**
- * The maximum number of bytes a PDF image combiner may return as one value or
- * write as one combine result. File-backed input does not make an oversized
- * result safe for the callers that consume the combine result.
+ * The maximum number of bytes a PDF image combiner may return as one value.
+ * A validated file-backed output path has a separate resource budget because
+ * it does not cross the byte-returning transport boundary.
  */
 export const PDF_COMBINE_OUTPUT_POLICY = Object.freeze({
     maxBytes: 16 * 1024 * 1024,

@@ -91,10 +91,12 @@ const log = createLogger('nativePdfAssembler');
 interface INativePdfAssemblerResourceLimits {
     maxOutputBytes: number;
     maxPages: number;
+    outputMode: 'memory' | 'file-backed';
 }
 
 const IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES = 500;
 const FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES = Number.MAX_SAFE_INTEGER;
+const FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES = Number.MAX_SAFE_INTEGER;
 const PDF_COMBINE_SMALL_MEMORY_MAX_PAGES_LIMIT = 10_000;
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES = 4_096 * BYTES_PER_MEBIBYTE;
@@ -195,18 +197,25 @@ function throwIfAborted(signal: AbortSignal | undefined) {
 
 function getResourceLimits(
     mode: TNativePdfAssemblerMode = 'memory',
+    allowLargeOutput = false,
 ): INativePdfAssemblerResourceLimits {
     if (mode === 'file-backed') {
         return {
-            maxOutputBytes: normalizePdfCombineOutputLimit(
-                parseIntegerEnv(
-                    'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
-                    PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
-                    1,
-                    PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
-                ) * BYTES_PER_MEBIBYTE,
-            ),
+            // Only the strict output-path API may opt out of the shared
+            // byte-returning cap. The compatibility API still reads bytes
+            // back into JavaScript and must remain bounded.
+            maxOutputBytes: allowLargeOutput
+                ? FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES
+                : normalizePdfCombineOutputLimit(
+                    parseIntegerEnv(
+                        'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
+                        PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
+                        1,
+                        PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
+                    ) * BYTES_PER_MEBIBYTE,
+                ),
             maxPages: FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES,
+            outputMode: allowLargeOutput ? 'file-backed' : 'memory',
         };
     }
 
@@ -225,6 +234,7 @@ function getResourceLimits(
             1,
             PDF_COMBINE_SMALL_MEMORY_MAX_PAGES_LIMIT,
         ),
+        outputMode: 'memory',
     };
 }
 
@@ -316,6 +326,7 @@ async function flushImageChunk(
     const ok = await tryWritePdfWithNativeImageCombiner(chunkInputPaths, chunkPath, {
         maxPages: limits.maxPages,
         maxOutputBytes: limits.maxOutputBytes,
+        outputMode: limits.outputMode,
         ...(options?.failureMode === 'capability-error'
             ? {maxInputBytes: NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES}
             : {}),
@@ -821,7 +832,7 @@ export async function tryWritePdfFromInputPathsNative(
         throw error;
     }
     const stagedOutputPath = makeSiblingTempPath(normalizedOutputPath);
-    const limits = getResourceLimits('file-backed');
+    const limits = getResourceLimits('file-backed', strict);
     let retainNativeCleanup = false;
 
     try {
@@ -924,9 +935,9 @@ export async function tryCreatePdfFromInputPathsNative(
         throw error;
     }
     const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-    // Both native entrypoints use the same finite output policy. The
-    // file-backed form keeps bytes on disk, but it still cannot publish an
-    // oversized combine result to its caller.
+    // This API returns a Uint8Array to its caller. Keep its output budget
+    // finite even when strict mode prevents a JS fallback. Callers that need
+    // large native output must use the file-backed API above.
     const limits = getResourceLimits(strict ? 'file-backed' : 'memory');
     let retainNativeCleanup = false;
 

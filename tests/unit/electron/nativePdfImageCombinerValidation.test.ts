@@ -341,14 +341,24 @@ describe('native PDF image combiner output validation', () => {
         });
     });
 
-    it('accepts structurally plausible native PDF output', async () => {
+    it('keeps byte-returning native combines in memory mode', async () => {
         const validPdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
         mocks.openData = validPdf;
         mocks.readFile.mockResolvedValueOnce(validPdf);
         const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
 
-        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'])).resolves.toEqual(new Uint8Array(validPdf));
-        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith('/native/evb-pdf-image-combine', {env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(16 * 1024 * 1024)})});
+        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'], {
+            maxOutputBytes: Number.MAX_SAFE_INTEGER,
+            outputMode: 'file-backed',
+        })).resolves.toEqual(new Uint8Array(validPdf));
+        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith(
+            '/native/evb-pdf-image-combine',
+            {env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(16 * 1024 * 1024)})},
+        );
+        expect(mocks.verifyNativeToolProtocol).not.toHaveBeenCalledWith(
+            '/native/evb-pdf-image-combine',
+            {env: expect.objectContaining({EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed'})},
+        );
         expect(mocks.verifyNativeToolProtocol.mock.invocationCallOrder[0]!)
             .toBeLessThan(mocks.spawn.mock.invocationCallOrder[0]!);
     });
@@ -361,6 +371,60 @@ describe('native PDF image combiner output validation', () => {
 
         expect(mocks.readFile).not.toHaveBeenCalledWith('/tmp/input.jpg');
         expect(mocks.open).toHaveBeenCalledWith('/tmp/output.pdf', 'r');
+    });
+
+    it('allows strict file-backed output above the byte-returning cap', async () => {
+        mocks.open.mockImplementation(async (path: string) => {
+            const data = path.endsWith('.jpg')
+                ? Buffer.from([
+                    0xff,
+                    0xd8,
+                    0xff,
+                    0xda,
+                ])
+                : Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
+            return {
+                stat: vi.fn(async () => ({
+                    isFile: () => true,
+                    size: path.endsWith('.pdf') ? (16 * 1024 * 1024) + 1 : data.byteLength,
+                })),
+                read: vi.fn(async (buffer: Buffer, offset: number, length: number, position: number) => {
+                    data.copy(
+                        buffer,
+                        offset,
+                        Math.min(position, data.byteLength),
+                        Math.min(position + length, data.byteLength),
+                    );
+                    if (position > 0) {
+                        Buffer.from('%%EOF').copy(buffer, offset + length - 5);
+                    }
+                    return {
+                        bytesRead: length,
+                        buffer,
+                    };
+                }),
+                close: vi.fn(async () => undefined),
+            };
+        });
+        const { tryWritePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
+
+        await expect(tryWritePdfWithNativeImageCombiner(
+            ['/tmp/input.jpg'],
+            '/tmp/output.pdf',
+            {
+                maxOutputBytes: Number.MAX_SAFE_INTEGER,
+                outputMode: 'file-backed',
+            },
+        )).resolves.toBe(true);
+
+        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith(
+            '/native/evb-pdf-image-combine',
+            {env: expect.objectContaining({
+                EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(Number.MAX_SAFE_INTEGER),
+                EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed',
+            })},
+        );
+        expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
     it('rejects oversized native PDF output before reading it into memory', async () => {
