@@ -9,9 +9,14 @@ interface IWorkspaceHostPlaceholderSignals {
 }
 
 export function shouldShowWorkspacePlaceholder(signals: IWorkspaceHostPlaceholderSignals) {
+    // A title-only pending hint is still startup metadata, so it should keep
+    // the lightweight Recent Files surface. Once an open transaction exists,
+    // the workspace owns the surface even before page geometry is available;
+    // its document skeleton is the progress state the user should see.
+    const hasOpeningSurfaceOwner = signals.hasVisibleDocument || signals.isDocumentOpenInFlight;
     return (
         !signals.hasQueuedSplitRestore
-        && !signals.hasVisibleDocument
+        && !hasOpeningSurfaceOwner
     );
 }
 

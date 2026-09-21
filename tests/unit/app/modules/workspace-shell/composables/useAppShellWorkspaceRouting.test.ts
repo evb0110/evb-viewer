@@ -31,20 +31,10 @@ import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
-const routingMocks = vi.hoisted(() => ({
-    getPdfOpeningGeometry: vi.fn(),
-    readRecentOpenExactGeometry: vi.fn(),
-    openDocumentDirect: vi.fn(),
-}));
+const routingMocks = vi.hoisted(() => ({readRecentOpenExactGeometry: vi.fn()}));
 
 vi.mock('@app/modules/workspace-shell/host/recentOpenGeometryReadiness', () => ({readRecentOpenExactGeometry: routingMocks.readRecentOpenExactGeometry}));
-const platformApi = createElectronPlatformApiFixture({
-    documentFiles: {getPdfOpeningGeometry: routingMocks.getPdfOpeningGeometry},
-    documentOpen: {openDocumentDirect: routingMocks.openDocumentDirect},
-});
-vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 interface IWorkspaceRecord {
     workspace: IWorkspaceExpose;
@@ -211,8 +201,6 @@ describe('useAppShellWorkspaceRouting', () => {
             size: 1,
             modifiedAt: 1,
         });
-        routingMocks.getPdfOpeningGeometry.mockResolvedValue(null);
-        routingMocks.openDocumentDirect.mockResolvedValue(null);
     });
 
     // The trace is a live window flag shared by every test in this file. A test
@@ -222,30 +210,14 @@ describe('useAppShellWorkspaceRouting', () => {
         resetPdfRenderTrace();
     });
 
-    it('resolves a cold direct path in main before the host claims its opening transaction', async () => {
+    it('claims a cold direct path through the workspace before it stages the file', async () => {
         const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const initialWorkspace = createWorkspace(false);
         const activeTab = createTabStub('tab-1');
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
-        const result = {
-            kind: 'pdf' as const,
-            workingPath: '/managed/cold.pdf',
-            originalPath: '/docs/cold.pdf',
-        };
-        const openingGeometry = {
-            pageNumber: 1 as const,
-            pageCount: 431,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size: 538_000_000,
-            modifiedAt: 1_720_000_000_000,
-        };
         routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
-        routingMocks.openDocumentDirect.mockResolvedValueOnce(result);
-        routingMocks.getPdfOpeningGeometry.mockResolvedValueOnce(openingGeometry);
         const routingOptions = createRoutingOptions({
             activePaneId,
             activeTabId,
@@ -259,54 +231,11 @@ describe('useAppShellWorkspaceRouting', () => {
 
         await expect(routing.openPathInAppropriateTab(requireDocumentRef('/docs/cold.pdf'))).resolves.toBe(true);
 
-        expect(routingMocks.openDocumentDirect).toHaveBeenCalledWith('/docs/cold.pdf');
-        expect(routingMocks.getPdfOpeningGeometry).toHaveBeenCalledWith('/managed/cold.pdf');
-        expect(initialWorkspace.openPath).not.toHaveBeenCalled();
-        expect(initialWorkspace.openResult).toHaveBeenCalledWith({
-            ...result,
-            openingGeometry,
-        });
+        expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/cold.pdf');
+        expect(initialWorkspace.openResult).not.toHaveBeenCalled();
     });
 
-    it('continues a cold direct open when opening geometry does not settle', async () => {
-        vi.useFakeTimers();
-        try {
-            const activePaneId = ref('pane-1');
-            const activeTabId = ref('tab-1');
-            const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
-            const initialWorkspace = createWorkspace(false);
-            const activeTab = createTabStub('tab-1');
-            workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
-            const result = {
-                kind: 'pdf' as const,
-                workingPath: '/managed/slow-geometry.pdf',
-                originalPath: '/docs/slow-geometry.pdf',
-            };
-            routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
-            routingMocks.openDocumentDirect.mockResolvedValueOnce(result);
-            routingMocks.getPdfOpeningGeometry.mockImplementationOnce(() => new Promise(() => {}));
-            const routingOptions = createRoutingOptions({
-                activePaneId,
-                activeTabId,
-                workspaceRefs,
-                createTab: () => {
-                    throw new Error('should reuse placeholder tab');
-                },
-            });
-            routingOptions.getTabById = vi.fn(() => activeTab);
-            const routing = useAppShellWorkspaceRouting(routingOptions);
-
-            const opening = routing.openPathInAppropriateTab(requireDocumentRef('/docs/slow-geometry.pdf'));
-            await vi.advanceTimersByTimeAsync(750);
-
-            await expect(opening).resolves.toBe(true);
-            expect(initialWorkspace.openResult).toHaveBeenCalledWith(result);
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it('closes the open-route capability span when the direct open resolves', async () => {
+    it('closes the open-route span after the workspace-owned open resolves', async () => {
         const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
@@ -314,11 +243,6 @@ describe('useAppShellWorkspaceRouting', () => {
         const activeTab = createTabStub('tab-1');
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
         routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
-        routingMocks.openDocumentDirect.mockResolvedValueOnce({
-            kind: 'pdf' as const,
-            workingPath: '/managed/cold.pdf',
-            originalPath: '/docs/cold.pdf',
-        });
         const routingOptions = createRoutingOptions({
             activePaneId,
             activeTabId,
@@ -336,11 +260,11 @@ describe('useAppShellWorkspaceRouting', () => {
         const span = readCapabilitySpan(trace.entries(), '/docs/cold.pdf');
         expect(span, JSON.stringify(trace.entries())).toMatchObject({
             failed: false,
-            resultKind: 'pdf',
+            resultKind: null,
         });
     });
 
-    it('closes the open-route capability span as failed when the direct open rejects', async () => {
+    it('closes the open-route span as failed when the workspace-owned open rejects', async () => {
         const activePaneId = ref('pane-1');
         const activeTabId = ref('tab-1');
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
@@ -348,7 +272,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const activeTab = createTabStub('tab-1');
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
         routingMocks.readRecentOpenExactGeometry.mockReturnValueOnce(null);
-        routingMocks.openDocumentDirect.mockRejectedValueOnce(new Error('preflight refused'));
+        initialWorkspace.openPath.mockRejectedValueOnce(new Error('direct open refused'));
         const routingOptions = createRoutingOptions({
             activePaneId,
             activeTabId,
@@ -360,10 +284,11 @@ describe('useAppShellWorkspaceRouting', () => {
         routingOptions.getTabById = vi.fn(() => activeTab);
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        // A refused preflight still has to close the span it opened. Left open,
-        // the next open measures its phases from an origin that never ended.
+        // A failed workspace-owned open still has to close the span it opened.
+        // Left open, the next open measures its phases from an origin that
+        // never ended.
         const trace = withPdfRenderTrace(() => routing.openPathInAppropriateTab(requireDocumentRef('/docs/refused.pdf')));
-        await expect(trace.settled).rejects.toThrow('preflight refused');
+        await expect(trace.settled).rejects.toThrow('direct open refused');
 
         const span = readCapabilitySpan(trace.entries(), '/docs/refused.pdf');
         expect(span, JSON.stringify(trace.entries())).toMatchObject({
@@ -393,7 +318,6 @@ describe('useAppShellWorkspaceRouting', () => {
 
         await expect(routing.openPathInAppropriateTab(requireDocumentRef('/docs/prepared.pdf'))).resolves.toBe(true);
 
-        expect(routingMocks.openDocumentDirect).not.toHaveBeenCalled();
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/prepared.pdf');
         expect(initialWorkspace.openResult).not.toHaveBeenCalled();
     });
