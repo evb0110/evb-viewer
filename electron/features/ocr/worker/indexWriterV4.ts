@@ -7,6 +7,7 @@ import {
     open,
     readFile,
     readdir,
+    realpath,
     rename,
     rm,
     stat,
@@ -1967,6 +1968,27 @@ async function seedLegacyManifest(
     );
 }
 
+/** Source identity is shared by preparation, carry-forward, and publication. */
+async function isSameSourcePdf(left: string, right: string): Promise<boolean> {
+    if (resolve(left) === resolve(right)) {
+        return true;
+    }
+    // macOS /var and /private/var can name the same validated working copy.
+    // Failure to resolve either path must never authorize a different source.
+    try {
+        const [
+            canonicalLeft,
+            canonicalRight,
+        ] = await Promise.all([
+            realpath(left),
+            realpath(right),
+        ]);
+        return canonicalLeft === canonicalRight;
+    } catch {
+        return false;
+    }
+}
+
 async function createBuildState(input: {
     catalogRoot: string;
     sourcePdfPath: string;
@@ -1983,7 +2005,7 @@ async function createBuildState(input: {
     await createGenerationDirectory(input.catalogRoot, input.generation);
     const carry = input.catalog !== null
         && input.catalog.root.documentRevision.token === input.documentRevision
-        && resolve(input.catalog.root.source.pdfPath) === resolve(input.sourcePdfPath)
+        && await isSameSourcePdf(input.catalog.root.source.pdfPath, input.sourcePdfPath)
         && input.catalog.root.pageCount === input.pageCount;
     const sourceCatalog = carry ? input.catalog : null;
     const parent = sourceCatalog?.root.generation ?? null;
@@ -2116,7 +2138,7 @@ async function migrateOcrIndexV3ToV4Unlocked(
     const sourcePdfPath = options.sourcePdfPath ?? current.metadata.source.pdfPath;
     if (
         options.sourcePdfPath !== undefined
-        && resolve(options.sourcePdfPath) !== resolve(current.metadata.source.pdfPath)
+        && !await isSameSourcePdf(options.sourcePdfPath, current.metadata.source.pdfPath)
     ) {
         throw new OcrCatalogFencedError('Cannot migrate an OCR v3 catalog from a different source PDF');
     }
@@ -2245,7 +2267,7 @@ async function writeOcrIndexV4Unlocked(
         && current?.kind === 'v3'
         && options.migrateLegacy !== false
         && current.metadata.documentRevision.token === revision.token
-        && resolve(current.metadata.source.pdfPath) === resolve(options.sourcePdfPath)
+        && await isSameSourcePdf(current.metadata.source.pdfPath, options.sourcePdfPath)
     ) {
         await migrateOcrIndexV3ToV4Unlocked({
             catalogRoot: options.catalogRoot,
@@ -2272,7 +2294,7 @@ async function writeOcrIndexV4Unlocked(
     const legacyManifestPath = options.publishRoot === false
         && current?.kind === 'v3'
         && current.metadata.documentRevision.token === revision.token
-        && resolve(current.metadata.source.pdfPath) === resolve(options.sourcePdfPath)
+        && await isSameSourcePdf(current.metadata.source.pdfPath, options.sourcePdfPath)
         && current.metadata.pageCount === options.pageCount
         ? current.manifestPath
         : null;
@@ -2405,7 +2427,7 @@ export async function prepareOcrCatalogV4Generation(
         : current?.kind === 'v3'
             ? current.metadata.source.pdfPath
             : null;
-    if (currentSourcePath !== null && resolve(currentSourcePath) !== resolve(options.sourcePdfPath)) {
+    if (currentSourcePath !== null && !await isSameSourcePdf(currentSourcePath, options.sourcePdfPath)) {
         throw new OcrCatalogFencedError('Cannot prepare OCR catalog from a different source PDF');
     }
     if (
@@ -2502,7 +2524,7 @@ async function publishPreparedOcrCatalogV4Unlocked(
         const currentSourcePath = current.kind === 'v4'
             ? current.root.source.pdfPath
             : current.metadata.source.pdfPath;
-        if (resolve(currentSourcePath) !== resolve(input.sourcePdfPath)) {
+        if (!await isSameSourcePdf(currentSourcePath, input.sourcePdfPath)) {
             throw new OcrCatalogFencedError('Prepared OCR catalog source PDF does not match the live catalog');
         }
         if (current.kind === 'v4' && current.root.catalogId !== descriptor.catalogId) {
@@ -2510,7 +2532,7 @@ async function publishPreparedOcrCatalogV4Unlocked(
         }
     }
     const staged = await readPreparedGeneration(input.catalogRoot, descriptor);
-    if (resolve(staged.generation.source.pdfPath) !== resolve(input.sourcePdfPath)) {
+    if (!await isSameSourcePdf(staged.generation.source.pdfPath, input.sourcePdfPath)) {
         throw new OcrCatalogFencedError('Prepared OCR generation source PDF does not match the apply request');
     }
     const currentGeneration = actualSourceGeneration ?? 0;

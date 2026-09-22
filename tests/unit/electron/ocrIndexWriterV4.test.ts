@@ -4,6 +4,7 @@ import {
     readFile,
     readdir,
     rm,
+    symlink,
     utimes,
     writeFile,
 } from 'node:fs/promises';
@@ -588,6 +589,63 @@ describe('writeOcrIndexV4', () => {
         expect(liveAfterApply?.header.generation).toBe(3);
         await liveAfterApply?.close?.();
         await expect(readdir(join(root, 'result.pdf.ocr'))).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('accepts canonical aliases of the catalog source but fences a different file', async () => {
+        const root = await createCatalogRoot();
+        const directory = join(root, 'source');
+        const alias = join(root, 'source-alias');
+        await mkdir(directory);
+        await symlink(directory, alias, 'junction');
+        const sourcePdfPath = join(directory, 'document.pdf');
+        await writeFile(sourcePdfPath, 'source');
+        const otherPdfPath = join(directory, 'other.pdf');
+        await writeFile(otherPdfPath, 'other');
+        const initialRevision = revisionInfo('drt1:ocr-source-alias-1', sourcePdfPath);
+        await writeOcrIndexV4({
+            catalogRoot: root,
+            sourcePdfPath: join(alias, 'document.pdf'),
+            documentRevision: initialRevision,
+            pageCount: 130,
+            pageBatches: batches([
+                page(1, 'cover'),
+                page(130, 'last page'),
+            ]),
+        });
+        const options = {
+            catalogRoot: root,
+            sourcePdfPath,
+            documentRevision: initialRevision,
+            pageCount: 130,
+            pageBatches: batches([page(17, 'recognized')]),
+            resultPath: join(root, 'result.pdf'),
+        };
+        await expect(prepareOcrCatalogV4Generation({
+            ...options,
+            sourcePdfPath: otherPdfPath,
+        }))
+            .rejects.toThrow('different source PDF');
+        const descriptor = await prepareOcrCatalogV4Generation(options);
+        expect(descriptor).toMatchObject({
+            sourceRootGeneration: 1,
+            stagedGeneration: 2,
+        });
+        const nextRevision = revisionInfo('drt1:ocr-source-alias-2', sourcePdfPath);
+        await publishPreparedOcrCatalogV4({
+            catalogRoot: root,
+            descriptor,
+            resultPath: options.resultPath,
+            sourcePdfPath: join(alias, 'document.pdf'),
+            nextRevision,
+        });
+        const published = await openCatalog(root, {expectedDocumentRevision: nextRevision.token});
+        try {
+            await expect(published?.readPage(1)).resolves.toMatchObject({text: 'cover'});
+            await expect(published?.readPage(17)).resolves.toMatchObject({text: 'recognized'});
+            await expect(published?.readPage(130)).resolves.toMatchObject({text: 'last page'});
+        } finally {
+            await published?.close?.();
+        }
     });
 
     it('rolls back a prepared descriptor without changing the live root', async () => {
