@@ -23,6 +23,7 @@ import {
     type IDocumentPageDisplayLayout,
     type IDocumentPageMetrics,
     type IDocumentPageSource,
+    type IDocumentNavigationTicket,
     type IDocumentViewportSessionState,
     type IDocumentWheelInteraction,
     type IDocumentZoomAnchor,
@@ -445,11 +446,16 @@ export const useDocumentPageSourceRuntime = (options: {
     const pageMetrics = shallowRef<TDocumentPageMetricsCollection>([]);
     const exactPageMetricNumbers = new Set<number>();
     const exactPageMetricLoads = new Map<number, Promise<IDocumentPageMetrics>>();
+    const navigationTargetPage = computed(() => {
+        const target = chassisAuthority?.openSurface.navigationTicket.value?.request.target;
+        return target && 'page' in target ? target.page : null;
+    });
     let loadSettled = Promise.resolve();
     let loadController: AbortController | null = null;
     let releaseViewportFeature: (() => void) | null = null;
     let inactiveLeaseReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let suspendedViewportRestore: ISuspendedViewportRestore | null = null;
+    let lastProjectedNavigationSignal: AbortSignal | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
         if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
@@ -530,13 +536,14 @@ export const useDocumentPageSourceRuntime = (options: {
             })?.pageNumbers ?? []
             : [];
         return renderSession?.resolveMountedPages({
-            currentPage: props.value.currentPage,
-            destinationPage: [
-                'opening',
-                'transitioning',
-            ].includes(chassisAuthority?.openSurface.viewportSession.value.lifecycle ?? '')
-                ? chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber
-                : undefined,
+            currentPage: navigationTargetPage.value ?? props.value.currentPage,
+            destinationPage: navigationTargetPage.value
+                ?? ([
+                    'opening',
+                    'transitioning',
+                ].includes(chassisAuthority?.openSurface.viewportSession.value.lifecycle ?? '')
+                    ? chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.pageNumber
+                    : undefined),
             maxPages: DOCUMENT_SOURCE_MAX_MOUNTED_PAGES,
             pageCount,
             radius: props.value.continuousScroll ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS : 3,
@@ -548,7 +555,7 @@ export const useDocumentPageSourceRuntime = (options: {
             ? DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS
             : rasterBufferProfile.pdfBufferPages,
         continuousScroll: props.value.continuousScroll,
-        currentPage: props.value.currentPage,
+        currentPage: navigationTargetPage.value ?? props.value.currentPage,
         estimatePagePixels: (pageNumber) => {
             const layout = pageLayouts.value[pageNumber - 1];
             const pixelRatio = window.devicePixelRatio || 1;
@@ -762,7 +769,7 @@ export const useDocumentPageSourceRuntime = (options: {
                 DOCUMENT_SOURCE_RENDER_CONCURRENCY,
                 renderDemand.value.visiblePages.length,
             ),
-            currentPage: props.value.currentPage,
+            currentPage: navigationTargetPage.value ?? props.value.currentPage,
             guardRadius: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
             inFlightPages: [...presentation.renderControllers.keys()],
             mountedPages: mountedPages.value,
@@ -909,6 +916,23 @@ export const useDocumentPageSourceRuntime = (options: {
         if (consumedAuthorityScroll) {
             layoutLifecycle.refreshLayoutTransactionAnchor();
             const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+            if (
+                viewportSession
+                && viewportSession.requestedPage !== props.value.currentPage
+            ) {
+                // The scroll event can be delivered after the authored offset
+                // lands but before the shared navigation ready edge publishes
+                // its semantic page. Do not derive a center page from that
+                // provisional offset: it can overwrite the command target
+                // while the viewport is still settling.
+                if (
+                    viewportSession.lifecycle === 'ready'
+                    && viewportSession.committedPage === viewportSession.requestedPage
+                ) {
+                    emit('update:currentPage', viewportSession.requestedPage);
+                }
+                return;
+            }
             const hasStableCommittedPage = viewportSession?.lifecycle === 'ready'
                 && viewportSession.requestedPage === viewportSession.committedPage
                 && viewportSession.requestedPage === props.value.currentPage;
@@ -948,6 +972,23 @@ export const useDocumentPageSourceRuntime = (options: {
         const container = viewerContainer.value;
         if (!container || container.clientWidth <= 0 || container.clientHeight <= 0
             || !props.value.continuousScroll) {
+            return;
+        }
+        const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+        if (
+            viewportSession?.lifecycle === 'ready'
+            && viewportSession.requestedPage === viewportSession.committedPage
+            && (
+                viewportSession.observedPage === null
+                || viewportSession.observedPage === viewportSession.requestedPage
+            )
+            && viewportSession.requestedPage !== props.value.currentPage
+        ) {
+            // A command may have committed its authored offset before the
+            // corresponding currentPage update reaches this feature. Preserve
+            // that shared semantic target instead of interpreting the command
+            // offset as a user-centered page.
+            emit('update:currentPage', viewportSession.requestedPage);
             return;
         }
         const totalPages = source.value?.pageCount
@@ -1051,6 +1092,7 @@ export const useDocumentPageSourceRuntime = (options: {
     function scrollToPage(
         pageNumber: number,
         navigationSource: Parameters<IDocumentViewerExpose['scrollToPage']>[1] | 'wheel' = undefined,
+        existingTicket?: IDocumentNavigationTicket,
     ) {
         const options = typeof navigationSource === 'object'
             ? navigationSource
@@ -1061,7 +1103,10 @@ export const useDocumentPageSourceRuntime = (options: {
         }
         const normalized = Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
         const request = createPdfPageNavigationRequest(normalized, options);
-        const ticket = chassisAuthority?.navigate(request) ?? null;
+        const ticket = existingTicket ?? chassisAuthority?.navigate(request) ?? null;
+        if (ticket) {
+            lastProjectedNavigationSignal = ticket.signal;
+        }
         const requestedTargetPage = ticket?.request.target && 'page' in ticket.request.target
             ? ticket.request.target.page
             : normalized;
@@ -1130,6 +1175,24 @@ export const useDocumentPageSourceRuntime = (options: {
             scheduleRender.schedule();
         });
     }
+    watch(
+        () => chassisAuthority?.openSurface.navigationTicket.value ?? null,
+        (ticket) => {
+            if (
+                !ticket
+                || ticket.request.source === 'restore'
+                || lastProjectedNavigationSignal === ticket.signal
+                || !('page' in ticket.request.target)
+            ) {
+                return;
+            }
+            scrollToPage(ticket.request.target.page, undefined, ticket);
+        },
+        {
+            flush: 'post',
+            immediate: true,
+        },
+    );
     function releaseInactivePageStates() {
         if (inactiveLeaseReleaseTimer !== null) {
             clearTimeout(inactiveLeaseReleaseTimer);

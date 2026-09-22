@@ -615,6 +615,54 @@ describe('ViewportAuthority', () => {
         expect(writes).toEqual([]);
     });
 
+    it('replays a current navigation ticket after a stale cancellation', async () => {
+        let currentCheckCount = 0;
+        const navigationTicket: IDocumentNavigationTicket = {
+            generation: 1,
+            documentRevision: 'revision-1',
+            id: 'ticket-replay',
+            request: createPageNavigationRequest(2, 'toolbar'),
+            signal: new AbortController().signal,
+            finished: Promise.resolve({
+                kind: 'arrived',
+                page: 2,
+            }),
+        };
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            isIntentCurrent: () => {
+                currentCheckCount += 1;
+                return currentCheckCount > 1;
+            },
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 2,
+                },
+                left: 0,
+                top: 0,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            apply: () => {},
+            awaitVisual: async () => {},
+        });
+        const replayableIntent = {
+            ...intent('ticket-replay', 2),
+            navigationTicket,
+        };
+
+        await expect(authority.submit(replayableIntent))
+            .resolves.toMatchObject({outcome: 'cancelled'});
+        expect(authority.getTerminalOutcome('ticket-replay')).toBe('cancelled');
+
+        await expect(authority.submit(replayableIntent))
+            .resolves.toMatchObject({outcome: 'settled'});
+        expect(authority.currentPage.value).toBe(2);
+        expect(authority.getTerminalOutcome('ticket-replay')).toBe('settled');
+    });
+
     it('rebases a live intent when visual hydration changes geometry', async () => {
         let geometryRevision = 1;
         let release!: () => void;

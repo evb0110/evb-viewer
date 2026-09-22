@@ -30,6 +30,12 @@ case "$target_project" in
     )
     ;;
   e2e-rapid-navigation)
+    # The rapid-navigation project also exercises the native opening-preview
+    # path. Its shared macOS build is downloaded from another job, so restore
+    # executable permission for pdf-page-ops before the --no-build suite runs.
+    native_paths=(
+      ".tmp/pdf-page-ops/$platform_arch/bin/evb-pdf-page-ops"
+    )
     ;;
   *)
     printf '%s\n' "Unsupported Electron E2E project for the shared build: $target_project" >&2

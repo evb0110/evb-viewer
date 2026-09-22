@@ -123,6 +123,7 @@ export {
     reconcileDocumentSidebarTab, type TDocumentSidebarTab,
 } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 export { resolveBoundedRasterDimensions } from '@app/modules/document-viewer/resolveBoundedRasterDimensions';
+export { resolveDjvuPageSizeInPoints } from '@app/modules/document-viewer/source/resolveDjvuPageSizeInPoints';
 export {
     resolveDocumentContinuousScrollWindow, resolveNearestDocumentPageToViewportCenter,
 } from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';

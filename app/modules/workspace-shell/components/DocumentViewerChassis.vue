@@ -461,16 +461,13 @@ const chassisOpeningPageShell = computed(() => {
         || snapshot.phase === 'geometry-committed'
         || snapshot.phase === 'canvas-committed'
         || snapshot.phase === 'viewport-committed';
-    if (
-        !isOpening
-        || frame !== null && (
-            frame.generation !== snapshot.generation
-            || frame.pageNumber !== chassisAuthority.currentPage.value
-                && frame.preview === undefined
-        )
-    ) {
+    if (!isOpening || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
         return null;
     }
+    const currentPage = chassisAuthority.currentPage.value;
+    const hasStaleNonPreviewFrame = frame !== null
+        && frame.pageNumber !== currentPage
+        && frame.preview === undefined;
     const viewport = readOpeningViewportSize();
     const provisionalWidth = viewport.width > 40 ? viewport.width - 40 : 612;
     const provisionalStyle = {
@@ -492,7 +489,12 @@ const chassisOpeningPageShell = computed(() => {
         viewportHeight: readOpeningViewportSize().height,
         ...policy,
     }) : null;
-    const style = liveFrame?.style ?? frame?.style ?? provisionalStyle;
+    // A queued navigation can supersede the page-1 opening frame while the
+    // viewport is still opening. Keep one host-owned skeleton in that gap,
+    // but do not reuse page 1's dimensions for the requested page.
+    const style = liveFrame?.style ?? (
+        hasStaleNonPreviewFrame ? provisionalStyle : frame?.style ?? provisionalStyle
+    );
     const liveWidth = Number.parseFloat(style.width);
     const liveHeight = Number.parseFloat(style.height);
     if (
@@ -509,8 +511,8 @@ const chassisOpeningPageShell = computed(() => {
         height: liveHeight,
         id: resolveDocumentOpeningPageShellId(chassisAuthority.instanceId, snapshot.generation),
         isPdf,
-        ownerId: frame?.ownerId ?? 'chassis-provisional',
-        pageNumber: frame?.pageNumber ?? chassisAuthority.currentPage.value,
+        ownerId: frame?.preview ? frame.ownerId : frame?.ownerId ?? 'chassis-provisional',
+        pageNumber: frame?.preview ? frame.pageNumber : currentPage,
         provisional: frame === null,
         style: {
             ...style,
@@ -584,6 +586,24 @@ const shouldShowChassisNativePreviewLoadingOverlay = computed(() => {
     return (shouldDeferLargePdfOpeningSkeleton.value || shouldHoldLargePdfOpeningShellUntilGeometry.value)
         && nativePreviewTablePending
         && snapshot.openingPageFrame?.preview === undefined;
+});
+const shouldShowChassisOpeningPageSkeleton = computed(() => {
+    const viewportSession = chassisAuthority.openSurface.viewportSession.value;
+    const hasQueuedNavigationTarget = viewportSession.requestedPage
+        !== chassisAuthority.currentPage.value;
+    return (
+        snapshotNativeOpeningPreviewState.value !== 'failed'
+        && (
+            snapshotNativeOpeningPreviewState.value === 'settled'
+            || !shouldDeferLargePdfOpeningSkeleton.value
+            || hasQueuedNavigationTarget
+        )
+        && (
+            !shouldHoldLargePdfOpeningShellUntilGeometry.value
+            || hasQueuedNavigationTarget
+        )
+        && chassisAuthority.openingPageVisual.value !== 'fresh'
+    );
 });
 const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
 

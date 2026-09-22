@@ -121,6 +121,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         promise: Promise<unknown>;
     } | null = null;
     let navigationRestartRequested = false;
+    let navigationReplayTicket: IDocumentNavigationTicket | null = null;
+    let navigationReplayCount = 0;
+    let settledAnchorReapplySequence = 0;
     function isNavigationTicketCurrent(ticket: IDocumentNavigationTicket) {
         return navigationRuntime?.openSurface.isNavigationCurrent(ticket) ?? false;
     }
@@ -401,6 +404,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         },
         onPositionCommitted: (commit) => {
             options.onViewportPositionCommitted?.(commit);
+            if (commit.navigationTicket) {
+                reapplySettledNavigationAnchor(commit.navigationTicket);
+            }
         },
         awaitVisual: async (intent, signal) => {
             const page = requireIntentPage(intent, signal);
@@ -602,14 +608,94 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return viewportAuthority.submit(intent);
     }
 
+    function reapplySettledNavigationAnchor(allowedTicket?: IDocumentNavigationTicket) {
+        const anchor = viewportAuthority.committedAnchor.value;
+        if (!anchor) {
+            return;
+        }
+        const interactionEpoch = options.viewportWritePort.getInteractionEpoch();
+        const sequence = ++settledAnchorReapplySequence;
+        let previousLayoutKey: string | null = null;
+        let framesRemaining = 600;
+        const scheduleFrame = (callback: () => void) => {
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(callback);
+            } else {
+                setTimeout(callback, 0);
+            }
+        };
+        const reapplyWhenLayoutChanges = () => {
+            if (
+                sequence !== settledAnchorReapplySequence
+                || (
+                    currentNavigationTicket()
+                    && currentNavigationTicket()?.signal !== allowedTicket?.signal
+                )
+                || options.viewportWritePort.getInteractionEpoch() !== interactionEpoch
+                || framesRemaining <= 0
+            ) {
+                return;
+            }
+            const container = options.viewerContainer.value;
+            const targetPage = container?.querySelector<HTMLElement>(
+                `.page_container[data-page="${String(Math.max(1, Math.trunc(anchor.page)))}"]`,
+            );
+            const layoutKey = container && targetPage
+                ? [
+                    targetPage.offsetTop,
+                    targetPage.offsetHeight,
+                    container.scrollHeight,
+                    container.clientHeight,
+                ].join(':')
+                : null;
+            if (viewportAuthority.activeIntent.value === null && layoutKey !== previousLayoutKey) {
+                previousLayoutKey = layoutKey;
+                applyViewportAnchorPreview(anchor);
+            }
+            framesRemaining -= 1;
+            scheduleFrame(reapplyWhenLayoutChanges);
+        };
+        void nextTick(async () => {
+            await yieldToBrowser();
+            // Releasing the semantic navigation ticket lets the virtualization
+            // layer replace preserved outgoing-page geometry. Re-resolve the
+            // same anchor whenever that bounded handoff changes the target
+            // page's physical layout so a late height change cannot move a
+            // revealed annotation or other destination marker.
+            reapplyWhenLayoutChanges();
+        });
+    }
+
     function startNavigationTicket(ticket: IDocumentNavigationTicket) {
         if (activeNavigationExecution?.ticket === ticket) {
             navigationRestartRequested = true;
             return false;
         }
+        if (navigationReplayTicket?.signal !== ticket.signal) {
+            navigationReplayTicket = ticket;
+            navigationReplayCount = 0;
+        }
         if (!isNavigationTicketCurrent(ticket)) return false;
         if (!isNavigationRuntimeReady()) return false;
-        const execution = submitNavigationIntent(ticket).catch(error => {
+        const execution = submitNavigationIntent(ticket).then(result => {
+            if (result?.outcome === 'settled') {
+                reapplySettledNavigationAnchor();
+            }
+            // A stale authority attempt is safely cancelled, but the semantic
+            // ticket remains live and must be captured against the current
+            // load. The authority clears this ticket's cancelled terminal
+            // outcome when the replay is submitted.
+            if (
+                isNavigationTicketCurrent(ticket)
+                && result?.outcome === 'cancelled'
+                && viewportAuthority.getTerminalOutcome(ticket.id) === 'cancelled'
+                && navigationReplayCount < 4
+            ) {
+                navigationReplayCount += 1;
+                navigationRestartRequested = true;
+            }
+            return result;
+        }).catch(error => {
             runGuardedTask(() => { throw error; }, {
                 category: 'background-diagnostic',
                 scope: 'pdf-navigation',
@@ -637,6 +723,49 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             return false;
         }
         const page = Math.max(1, Math.trunc(pageNumber));
+        if (
+            scrollOptions?.navigationSource === 'annotation'
+            && scrollOptions.markerRect
+            && page === viewportAuthority.currentPage.value
+            && currentNavigationTicket() === null
+            && viewportAuthority.activeIntent.value === null
+        ) {
+            const container = options.viewerContainer.value;
+            const snapshot = refreshGeometry();
+            if (container && snapshot && hasMeasurableMountedPage(container, toPageNumber(page))) {
+                const request = requestFor(page, scrollOptions);
+                const anchor = resolvePdfNavigationAnchor(request, {
+                    page,
+                    rect: scrollOptions.markerRect,
+                }, snapshot);
+                const scroll = resolveNavigationScrollForViewport(snapshot, anchor);
+                const applied = options.viewportWritePort.apply(container, {
+                    intent: options.viewportWritePort.beginIntent(
+                        `pdf-current-page-navigation-${String(++intentSequence)}`,
+                    ),
+                    reason: 'navigate:annotation-current-page',
+                    ...scroll,
+                });
+                if (!applied) {
+                    return false;
+                }
+                options.updateVisibleRange(container, options.numPages.value);
+                const committed = viewportAuthority.commitSettledPosition({
+                    intentId: `pdf-current-page-navigation-${String(intentSequence)}`,
+                    intentKind: 'navigate',
+                    documentRevision: options.getDocumentRevision(),
+                    geometryRevision: options.getGeometryRevision(),
+                    page: toPageNumber(page),
+                    left: container.scrollLeft,
+                    top: container.scrollTop,
+                    anchor,
+                });
+                if (committed) {
+                    reapplySettledNavigationAnchor();
+                }
+                return committed !== null;
+            }
+        }
         const request = requestFor(page, scrollOptions);
         return submitNavigationRequest(request);
     }
@@ -1085,6 +1214,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     watch([
         navigationTicket,
         navigationRuntimeReady,
+        () => options.getDocumentRevision(),
         () => options.getGeometryRevision(),
         () => options.pdfDocument.value,
         options.numPages,

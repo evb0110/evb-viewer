@@ -59,9 +59,9 @@ export function shouldDeferNativePdfOpeningSkeleton(input: {
     const size = sourceSize ?? input.geometry?.size;
     const isNativeDocument = isNativeLegacyDocumentRef(input.documentId);
     // The opening chassis can paint before the source object and trusted
-    // geometry are available. Keep that unresolved native-path opening hidden
-    // until the size check arrives; the `isOpening` fence releases it for
-    // small files as soon as the opening surface commits.
+    // geometry are available. Keep an unresolved native-path opening hidden
+    // until the size check arrives; the chassis may expose a provisional
+    // owner when a queued navigation target needs one before that check.
     const nativePreviewEligible = shouldStageNativePdfOpeningPreview(input.source, input.geometry);
     const isLargeOrUnresolvedNativePath = size === undefined
         ? isNativeDocument

@@ -56,7 +56,10 @@ import {
     type IPdfOpeningGeometryResolution,
     type IPdfOpeningPreviewLayoutPolicy,
 } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
-import {shouldStageNativePdfOpeningPreview} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
+import {
+    PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
+    shouldStageNativePdfOpeningPreview,
+} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import {
     isDjvuOpenResult,
@@ -401,19 +404,56 @@ export function createDocumentOpenFlow(
         );
         const rasterDisplayProfile = options.rasterDisplayProfile
             ?? registeredRasterDisplayProfile;
-        const readOpeningGeometry = getDocumentFilesCapability().getPdfOpeningGeometry;
+        const documentFiles = getDocumentFilesCapability();
+        const readOpeningGeometry = documentFiles.getPdfOpeningGeometry;
+        const workingFileStat = geometryPreflightMode === 'cache-only'
+            ? await documentFiles.statFile(result.workingPath).catch(() => null)
+            : null;
+        // Cache-only keeps ordinary low-resource opens off the native probe,
+        // but a large path PDF cannot stage its opening preview without the
+        // same first-page geometry. The stat is cheap and already required by
+        // the load path, so use it to preserve that preview's first-paint
+        // contract without re-enabling geometry probing for every PDF.
+        const shouldPreflightOpeningGeometry = geometryPreflightMode === 'concurrent'
+            || (workingFileStat?.size ?? 0) >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES;
+        const readOpeningGeometryForOpen = readOpeningGeometry
+            ? async () => {
+                try {
+                    const workingGeometry = await readOpeningGeometry(result.workingPath);
+                    if (workingGeometry !== null || result.originalPath === result.workingPath) {
+                        return workingGeometry;
+                    }
+                } catch {
+                    // A newly-created working copy can be visible to the open
+                    // result one IPC turn before its path capability is ready.
+                    // Retry through the original source grant below.
+                }
+                if (result.originalPath === result.workingPath) {
+                    return null;
+                }
+                try {
+                    return await readOpeningGeometry(result.originalPath);
+                } catch {
+                    return null;
+                }
+            }
+            : undefined;
         const openingGeometry = resolvePdfOpeningGeometry({
-            concurrent: geometryPreflightMode === 'concurrent',
+            concurrent: shouldPreflightOpeningGeometry,
             isCurrent: () => isCurrentOpenRequest(openRequestId),
             openSurface: deps.openSurface,
-            readOpeningGeometry: readOpeningGeometry
-                ? () => readOpeningGeometry(result.workingPath)
-                : undefined,
-            readSourceRevision: () => getDocumentFilesCapability().statFile(result.originalPath)
+            ...(readOpeningGeometryForOpen === undefined
+                ? {}
+                : {readOpeningGeometry: readOpeningGeometryForOpen}),
+            readSourceRevision: () => documentFiles.statFile(result.originalPath)
                 .then(file => ({
                     fileSize: file.size,
                     ...(file.modifiedAt === undefined ? {} : {modifiedAt: file.modifiedAt}),
-                })),
+                }))
+                .catch(() => documentFiles.statFile(result.workingPath).then(file => ({
+                    fileSize: file.size,
+                    ...(file.modifiedAt === undefined ? {} : {modifiedAt: file.modifiedAt}),
+                }))),
             result,
         });
         try {

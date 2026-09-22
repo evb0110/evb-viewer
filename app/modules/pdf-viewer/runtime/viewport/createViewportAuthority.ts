@@ -293,6 +293,10 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             && intent.navigationTicket !== undefined
             && activeIntent.value?.navigationTicket === intent.navigationTicket
             && activeIntent.value.id === intent.id;
+        const sameTicketReplay = !options.restartCurrent
+            && intent.navigationTicket !== undefined
+            && activeIntent.value === null
+            && terminal.get(intent.id) === 'cancelled';
         if (options.restartCurrent) {
             // A geometry change invalidates only the current execution attempt.
             // Retain the semantic intent and ticket while replacing the abort
@@ -307,7 +311,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             }
             controller?.abort();
             endGeometryReplacement(intent.id);
-        } else if (sameTicketReplacement) {
+        } else if (sameTicketReplacement || sameTicketReplay) {
             controller?.abort();
             endGeometryReplacement(intent.id);
             terminal.delete(intent.id);
@@ -318,7 +322,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             ...intent,
             interactionEpoch: intent.interactionEpoch ?? interactionEpoch,
         };
-        if (!options.restartCurrent && !sameTicketReplacement && activeIntent.value !== null) {
+        if (!options.restartCurrent && !sameTicketReplacement && !sameTicketReplay && activeIntent.value !== null) {
             finish(next, 'cancelled');
             return {
                 outcome: 'cancelled' as const,
