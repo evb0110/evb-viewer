@@ -552,6 +552,10 @@ pub struct CleanupOptions {
     pub resolved_text_tone_diagnostics: ResolvedTextToneDiagnostics,
     #[serde(default)]
     pub ocr_mode: bool,
+    /// OCR-only raster preparation: detect light text on a dark page and
+    /// otherwise pass the source raster through without scan cleanup.
+    #[serde(default)]
+    pub ocr_polarity_only: bool,
     #[serde(default)]
     pub layout: LayoutMode,
     #[serde(rename = "manualSplit")]
@@ -620,6 +624,7 @@ impl Default for CleanupOptions {
             prefer_soft_alpha_foreground: None,
             resolved_text_tone_diagnostics: ResolvedTextToneDiagnostics::default(),
             ocr_mode: false,
+            ocr_polarity_only: false,
             layout: LayoutMode::Auto,
             manual_split_x: None,
             automatic_split: None,

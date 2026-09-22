@@ -148,6 +148,40 @@ describe('tryPreprocessOcrImage', () => {
         });
     });
 
+    it('uses only polarity correction for preprocessing-off OCR', async () => {
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+
+        await expect(tryPreprocessOcrImage(
+            '/tmp/raw.png',
+            '/tmp/polarity.png',
+            mocks.log,
+            new AbortController().signal,
+            undefined,
+            '/bin/evb-scan-cleanup',
+            '/tmp/polarity.json',
+            300,
+            'polarity-only',
+        )).resolves.toEqual({path: '/tmp/polarity.png'});
+
+        const nativeArgs: string[] = mocks.runOcrCommand.mock.calls[0]?.[1] ?? [];
+        const options = JSON.parse(nativeArgs[nativeArgs.indexOf('--options') + 1] ?? '{}');
+        expect(options).toMatchObject({
+            ocrMode: true,
+            ocrPolarityOnly: true,
+            normalizeIllumination: false,
+            despeckle: false,
+            layout: 'force-single',
+            cropContent: false,
+            matchPageSize: false,
+        });
+        expect(options.margins).toEqual({
+            leftMm: 0,
+            topMm: 0,
+            rightMm: 0,
+            bottomMm: 0,
+        });
+    });
+
     it('falls back before recognition when native geometry metadata is singular', async () => {
         mocks.decodeMetadata.mockReturnValue({inverseTransform: {matrix: [
             [

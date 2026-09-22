@@ -499,7 +499,7 @@ async function processOcrPage(
         const dims = await readPngDimensions(pageImagePath);
         ocrImagePath = pageImagePath;
         let ocrDims = dims;
-        if (context.options.preprocessingMode === 'clean') {
+        if (context.options.preprocessingMode === 'clean' || context.options.preprocessingMode === 'off') {
             context.preprocessInverseByPageNumber?.delete(page.pageNumber);
             const candidateOcrImage = await tryPreprocessOcrImage(
                 pageImagePath,
@@ -513,6 +513,7 @@ async function processOcrPage(
                 paths.scanCleanupBinary,
                 preprocessMetadataPath,
                 effectiveDpi,
+                context.options.preprocessingMode === 'off' ? 'polarity-only' : 'clean',
             );
             if (candidateOcrImage.path !== pageImagePath) {
                 const candidateDims = await readPngDimensions(candidateOcrImage.path);

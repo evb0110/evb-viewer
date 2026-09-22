@@ -1320,7 +1320,16 @@ fn prepare_region_transforms(
         .zip(split_cache_key)
         .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
     let deskew_started = Instant::now();
-    let deskew = if let Some(angle_degrees) = options
+    let deskew = if options.ocr_polarity_only {
+        // Polarity-only OCR must not quietly become scan cleanup through
+        // automatic geometry correction. Keep the source coordinate system
+        // unchanged; the caller already owns the rendered-page alignment.
+        DeskewResult {
+            angle_degrees: 0.0,
+            confidence: 1.0,
+            accepted: false,
+        }
+    } else if let Some(angle_degrees) = options
         .manual_skew_degrees
         .or_else(|| options.automatic_skew_for(half))
     {
@@ -1360,7 +1369,10 @@ fn prepare_region_transforms(
     let analysis_deskew_inverse = analysis_deskew_forward
         .inverse()
         .ok_or("Cleanup analysis deskew transform is not invertible")?;
-    let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
+    let automatic_dewarp = if !options.ocr_polarity_only
+        && options.dewarp.is_none()
+        && options.experimental.auto_dewarp
+    {
         // Curve detection is designed for the ~200-DPI working scale; handing
         // it the full-resolution crop together with the capped analysis DPI
         // made its internal downscale a no-op and ran thresholding, labeling
@@ -2633,6 +2645,34 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
     let dark_background_detector_removed_by_picture_mask = detected_dark_background_mask.is_some()
         && dark_background_binary.is_none()
         && rendered_picture_mask.is_some();
+    if options.ocr_polarity_only {
+        // `preprocessing=off` still needs a raster Tesseract can read. This
+        // is intentionally the only operation allowed in that mode: preserve
+        // ordinary pages byte-for-byte and emit only the polarity-correct
+        // light-on-dark stencil for detected covers.
+        return match detected_dark_background_mask {
+            Some(mask) if mask.count_black() > 0 => BilevelProcessingOutput {
+                image: CleanupRaster::Bilevel(mask),
+                binarization_mode: None,
+                binarization_diagnostics: None,
+                despeckle_fallback: false,
+                mixed_layers: None,
+                emitted_output_mode: OutputMode::Bw,
+                ink_consistency_diagnostics: None,
+                conservation_warnings: Vec::new(),
+            },
+            _ => BilevelProcessingOutput {
+                image: CleanupRaster::Gray(rendered_source_gray),
+                binarization_mode: None,
+                binarization_diagnostics: None,
+                despeckle_fallback: false,
+                mixed_layers: None,
+                emitted_output_mode: OutputMode::Grayscale,
+                ink_consistency_diagnostics: None,
+                conservation_warnings: Vec::new(),
+            },
+        };
+    }
     let is_dark_background_ocr = dark_background_binary.is_some();
     // The shared cleanup guards are deliberately written for dark ink on a
     // light page. Feed them the polarity-correct source when the OCR detector

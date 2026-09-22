@@ -15,6 +15,8 @@ export interface IOcrPreprocessedImage {
     inverseTransform?: IScanCleanupPreviewAffine;
 }
 
+export type TOcrPreprocessingMode = 'clean' | 'polarity-only';
+
 /**
  * OCR reads the pixels the cleanup engine produces, so anything left unset here
  * would be answered by the engine's own defaults — the same defaults viewer
@@ -134,9 +136,27 @@ export async function tryPreprocessOcrImage(
     scanCleanupBinary?: string,
     metadataPath = `${outputPath}.json`,
     dpi = 300,
+    mode: TOcrPreprocessingMode = 'clean',
 ): Promise<IOcrPreprocessedImage> {
     if (scanCleanupBinary) {
         try {
+            const options = mode === 'polarity-only'
+                ? {
+                    ...OCR_PREPROCESS_PINNED_OPTIONS,
+                    normalizeIllumination: false,
+                    despeckle: false,
+                    layout: 'force-single' as const,
+                    cropContent: false,
+                    matchPageSize: false,
+                    margins: {
+                        leftMm: 0,
+                        topMm: 0,
+                        rightMm: 0,
+                        bottomMm: 0,
+                    },
+                    ocrPolarityOnly: true,
+                }
+                : OCR_PREPROCESS_PINNED_OPTIONS;
             await runOcrCommand(scanCleanupBinary, [
                 '--input',
                 inputPath,
@@ -147,7 +167,7 @@ export async function tryPreprocessOcrImage(
                 '--ocr-mode',
                 '--options',
                 JSON.stringify({
-                    ...OCR_PREPROCESS_PINNED_OPTIONS,
+                    ...options,
                     dpi,
                     sourceDpi: dpi,
                     requestedRenderDpi: dpi,

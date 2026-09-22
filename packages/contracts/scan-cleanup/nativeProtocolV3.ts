@@ -87,6 +87,8 @@ export interface INativeScanCleanupOptionsV3 {
         Record<TScanCleanupOutputHalf, INativeScanCleanupTextToneDiagnosticsV3>
     >;
     ocrMode: boolean;
+    /** OCR-only polarity correction without the rest of scan cleanup. */
+    ocrPolarityOnly?: boolean;
     layout: 'auto' | 'force-single' | 'page-with-offcut' | 'keep-left' | 'keep-right' | 'force-two-page';
     manualSplit: IScanCleanupNormalizedSplit | null;
     /**

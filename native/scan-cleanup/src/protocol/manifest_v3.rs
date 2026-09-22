@@ -405,6 +405,7 @@ fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
             "preferSoftAlphaForeground",
             "resolvedTextToneDiagnostics",
             "ocrMode",
+            "ocrPolarityOnly",
             "layout",
             "manualSplit",
             "automaticSplit",
