@@ -572,12 +572,6 @@ const shouldHoldLargePdfOpeningShellUntilGeometry = computed(() => {
 const snapshotNativeOpeningPreviewState = computed(() => (
     chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewState ?? 'inactive'
 ));
-const shouldShowChassisOpeningPageSkeleton = computed(() => (
-    snapshotNativeOpeningPreviewState.value !== 'failed'
-    && (snapshotNativeOpeningPreviewState.value === 'settled' || !shouldDeferLargePdfOpeningSkeleton.value)
-    && !shouldHoldLargePdfOpeningShellUntilGeometry.value
-    && chassisAuthority.openingPageVisual.value !== 'fresh'
-));
 const shouldShowChassisNativePreviewLoadingOverlay = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const nativePreviewTablePending = snapshot.nativeOpeningPreviewState === undefined
