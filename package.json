@@ -145,7 +145,7 @@
     "prepare": "pnpm run fetch:runtime-binaries --if-published && pnpm run generate:build-artifacts && husky"
   },
   "lint-staged": {
-    "!(*.config).{ts,mts,vue}": "eslint --fix --max-warnings=0 --no-warn-ignored",
+    "!(*.config).{ts,mts,mjs,vue}": "eslint --fix --max-warnings=0 --no-warn-ignored",
     "app/**/*.{vue,scss,css}": "stylelint --fix"
   },
   "dependencies": {
