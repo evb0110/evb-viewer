@@ -3,6 +3,7 @@ import {
     mkdirSync,
     openSync,
 } from 'node:fs';
+import { join } from 'node:path';
 import {
     spawn,
     type ChildProcess,
@@ -37,7 +38,6 @@ import {
     normalizeInitialOpenPaths,
 } from '@scripts/electron-run/electronLaunch';
 
-const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const DEV_DETACHED_SESSION_READY_TIMEOUT_MS = 120_000;
 const E2E_DETACHED_SESSION_READY_TIMEOUT_MS = 65_000;
 export const E2E_SESSION_START_TIMEOUT_MS = 75_000;
@@ -52,25 +52,26 @@ export function resolveDetachedSessionLaunch(
     owner: 'dev' | 'e2e',
     sessionName: string,
     execPath = process.execPath,
-    pnpmCommand = PNPM_COMMAND,
 ) {
     return owner === 'e2e'
         ? {
             args: [
                 '--import',
                 'tsx',
-                'scripts/electron-run/ephemeralSessionEntry.ts',
+                join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts'),
                 sessionName,
             ],
             command: execPath,
         }
         : {
             args: [
-                'electron:run',
+                '--import',
+                'tsx',
+                join(projectRoot, 'scripts', 'electronRun.ts'),
                 `--session=${sessionName}`,
                 'start',
             ],
-            command: pnpmCommand,
+            command: execPath,
         };
 }
 

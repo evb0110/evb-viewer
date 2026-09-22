@@ -2565,6 +2565,10 @@ export async function createScannedTextFixturePdf(filename: string, text: string
     const filePath = join(getFixtureDir(), filename);
     const canvas = createCanvas(1200, 500);
     const context = canvas.getContext('2d');
+    context.font = font;
+    // Font metrics differ across hosts. Keep every requested glyph and both
+    // margins in the scanned image instead of clipping longer OCR fixtures.
+    canvas.width = Math.max(canvas.width, Math.ceil(context.measureText(text).width) + 120);
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = '#111111';
@@ -2573,15 +2577,15 @@ export async function createScannedTextFixturePdf(filename: string, text: string
 
     const doc = await PDFDocument.create();
     const page = doc.addPage([
-        600,
-        250,
+        canvas.width / 2,
+        canvas.height / 2,
     ]);
     const image = await doc.embedPng(canvas.toBuffer('image/png'));
     page.drawImage(image, {
         x: 0,
         y: 0,
-        width: 600,
-        height: 250,
+        width: canvas.width / 2,
+        height: canvas.height / 2,
     });
     writeFileSync(filePath, await doc.save());
     return filePath;

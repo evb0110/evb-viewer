@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import {
     existsSync,
     lstatSync,
@@ -681,7 +682,7 @@ export function prepareAutomationAppEntry(options: {
     writeFileSync(entryPaths.packageJsonPath, JSON.stringify(packageJson, null, 2));
     writeFileSync(entryPaths.mainJsPath, [
         '(async () => {',
-        `  await import(${JSON.stringify(options.mainJs)});`,
+        `  await import(${JSON.stringify(pathToFileURL(options.mainJs).href)});`,
         '})();',
         '',
     ].join('\n'));

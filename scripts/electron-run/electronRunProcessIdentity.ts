@@ -201,7 +201,7 @@ export function matchesSessionProcessIdentity(
             : hasExactArgument(snapshot.command, `--session=${expectation.sessionName}`);
         const isLegacyController = (snapshot.command.includes('electron:run') || hasControllerEntry)
             && hasExpectedSession
-            && /(?:^|\s)start(?:\s|$)/.test(snapshot.command);
+            && hasExactArgument(snapshot.command, 'start');
         const isEphemeralController = hasEphemeralControllerEntry
             && hasExactArgument(snapshot.command, expectation.sessionName);
         return hasProjectIdentity && (isLegacyController || isEphemeralController);

@@ -25,6 +25,8 @@ import { statSync } from 'node:fs';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { getE2ESharedRendererSessionName } from '@scripts/electron-run/electronRunE2ESharedRenderer';
+import { projectRoot } from '@scripts/electron-run/projectRoot';
+import { matchesSessionProcessIdentity } from '@scripts/electron-run/electronRunProcessIdentity';
 import {
     electronUserDataPath,
     sessionDir,
@@ -585,25 +587,23 @@ describe('Electron E2E deterministic isolation policy', () => {
         expect(resolveDetachedSessionReadyTimeoutMs('dev')).toBe(120_000);
     });
 
-    it('dispatches detached ownership through distinct executable commands', () => {
+    it('dispatches detached owners with absolute entries that remain verifiable without a process cwd', () => {
         const e2eLaunch = resolveDetachedSessionLaunch(
             'e2e',
             'e2e-unit-viewer',
             '/runtime/node',
-            '/runtime/pnpm',
         );
         const devLaunch = resolveDetachedSessionLaunch(
             'dev',
             'developer-unit',
             '/runtime/node',
-            '/runtime/pnpm',
         );
 
         expect(e2eLaunch).toEqual({
             args: [
                 '--import',
                 'tsx',
-                'scripts/electron-run/ephemeralSessionEntry.ts',
+                join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts'),
                 'e2e-unit-viewer',
             ],
             command: '/runtime/node',
@@ -611,12 +611,43 @@ describe('Electron E2E deterministic isolation policy', () => {
         expect(JSON.stringify(e2eLaunch)).not.toMatch(/devSupervisor|default|electron:run/u);
         expect(devLaunch).toEqual({
             args: [
-                'electron:run',
+                '--import',
+                'tsx',
+                join(projectRoot, 'scripts', 'electronRun.ts'),
                 '--session=developer-unit',
                 'start',
             ],
-            command: '/runtime/pnpm',
+            command: '/runtime/node',
         });
+        for (const [
+            launch,
+            sessionName,
+        ] of [
+                [
+                    e2eLaunch,
+                    'e2e-unit-viewer',
+                ],
+                [
+                    devLaunch,
+                    'developer-unit',
+                ],
+            ] as const) {
+            expect(matchesSessionProcessIdentity({
+                pid: 72_001,
+                platform: 'win32',
+                cwd: null,
+                command: [
+                    launch.command,
+                    ...launch.args,
+                ].map(argument => `"${argument}"`).join(' '),
+                environment: '',
+                descendantPids: [],
+                pidsOnExpectedPort: [],
+            }, {
+                kind: 'controller',
+                sessionName,
+            })).toBe(true);
+        }
     });
 
     it('keeps shared renderer and requested default sessions run-scoped with separate profiles', () => {

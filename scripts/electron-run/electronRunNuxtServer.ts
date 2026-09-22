@@ -56,7 +56,6 @@ import {
 import { ELECTRON_SERVER_PATH } from '@scripts/electron-run/appRendererUrl';
 export { ELECTRON_SERVER_PATH } from '@scripts/electron-run/appRendererUrl';
 
-const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const NUXT_HTTP_READINESS_TIMEOUT_MS = 1000;
 const NUXT_DEPENDENCY_WARMUP_TIMEOUT_MS = 30_000;
 const NUXT_DEPENDENCY_WARMUP_REQUEST_TIMEOUT_MS = 2_000;
@@ -888,11 +887,19 @@ function updateNuxtStartupMarkers(
 function spawnNuxtStartupAttempt(attemptIndex: number, logTiming: (message: string) => void): INuxtStartupAttempt {
     console.log(`[Nuxt] Starting dev server on port ${getNuxtPort()} (attempt ${attemptIndex + 1}/2)...`);
     const attempt: INuxtStartupAttempt = {
-        nuxt: spawn(PNPM_COMMAND, [
+        // Windows command shims require cmd.exe. Pass one fixed command string
+        // so shell argument concatenation cannot reinterpret dynamic values.
+        nuxt: spawn(process.platform === 'win32' ? 'cmd.exe' : 'pnpm', process.platform === 'win32' ? [
+            '/d',
+            '/s',
+            '/c',
+            'pnpm.cmd run dev:nuxt',
+        ] : [
             'run',
             'dev:nuxt',
         ], {
             cwd: projectRoot,
+            windowsHide: true,
             stdio: [
                 'ignore',
                 'pipe',
@@ -917,7 +924,12 @@ function spawnNuxtStartupAttempt(attemptIndex: number, logTiming: (message: stri
     });
 
     const checkOutput = (stream: 'stdout' | 'stderr', data: Buffer) => {
-        getActiveDevServerOutputTee()?.write('nuxt-dev-server', stream, data);
+        const tee = getActiveDevServerOutputTee();
+        if (tee) {
+            tee.write('nuxt-dev-server', stream, data);
+        } else {
+            process[stream].write(data);
+        }
         updateNuxtStartupMarkers(attempt, data.toString(), logTiming);
     };
     attempt.nuxt.stdout?.on('data', (data: Buffer) => checkOutput('stdout', data));

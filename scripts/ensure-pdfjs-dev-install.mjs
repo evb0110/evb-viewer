@@ -1,6 +1,7 @@
 import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 import {
+    basename,
     dirname,
     join,
     resolve,
@@ -26,9 +27,12 @@ function resolvePdfjsArchive(root = projectRoot) {
 function readArchiveVersion(archivePath) {
     const packageJson = execFileSync('tar', [
         '-xOzf',
-        archivePath,
+        basename(archivePath),
         'package/package.json',
-    ], {encoding: 'utf8'});
+    ], {
+        encoding: 'utf8',
+        cwd: dirname(archivePath),
+    });
     return readJsonFromText(packageJson).version;
 }
 
@@ -86,8 +90,13 @@ export function formatPdfjsDevIdentityFailure(identity, problems) {
 export function ensurePdfjsDevInstall({
     root = projectRoot,
     install = () => execFileSync(
-        process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
-        [
+        process.platform === 'win32' ? 'cmd.exe' : 'pnpm',
+        process.platform === 'win32' ? [
+            '/d',
+            '/s',
+            '/c',
+            'pnpm.cmd install --frozen-lockfile',
+        ] : [
             'install',
             '--frozen-lockfile',
         ],

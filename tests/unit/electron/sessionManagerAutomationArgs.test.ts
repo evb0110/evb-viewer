@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import {
     mkdir,
     mkdtemp,
@@ -10,6 +11,7 @@ import {
     readFile,
     rm,
     utimes,
+    writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +24,7 @@ import {
     buildHeadlessAutomationEnv,
     buildAutomationAppEntryPackage,
     buildAutomationAppEntryPaths,
+    prepareAutomationAppEntry,
     buildElectronE2EAutomationEnv,
     buildVisibleWindowElectronE2EAutomationEnv,
     buildMacOSHiddenAppBundleDirName,
@@ -569,6 +572,25 @@ describe('sessionManager automation launch args', () => {
         expect(() => buildAutomationAppEntryPackage('   ')).toThrow(
             'requires the canonical application version',
         );
+    });
+
+    it('loads the generated automation entry from a filesystem path containing URL characters', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-entry-'));
+        try {
+            const mainJs = join(directory, 'main # automation.mjs');
+            await writeFile(mainJs, 'console.log("automation main loaded");');
+            const entry = prepareAutomationAppEntry({
+                destinationRoot: directory,
+                mainJs,
+            });
+            expect(execFileSync(process.execPath, [entry.mainJsPath], {encoding: 'utf8'}).trim())
+                .toBe('automation main loaded');
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('prefers real Electron executables instead of the npm shim on supported platforms', () => {

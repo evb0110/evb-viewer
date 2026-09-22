@@ -447,20 +447,40 @@ describe('Electron E2E - text interaction contract', () => {
         await openAnnotationsTab(page);
         const row = '.editor-pane.is-active .note-item-content';
         await page.waitForSelector(row, {visible: true});
-        const bounds = () => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .pdfViewer');
-            const mark = document.querySelector<SVGElement>('.editor-pane.is-active g[data-annotation-kind="text-markup"]');
-            if (!viewer || !mark) throw new Error('Rendered annotation and viewport are required');
-            const rect = mark.getBoundingClientRect();
-            const viewport = viewer.getBoundingClientRect();
+        const bounds = async (durationMs = 0) => {
+            const read = () => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .pdfViewer');
+                const mark = document.querySelector<SVGElement>('.editor-pane.is-active g[data-annotation-kind="text-markup"]');
+                const targetPage = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="2"]');
+                if (!viewer || !mark || !targetPage) throw new Error('Rendered annotation, page and viewport are required');
+                const rect = mark.getBoundingClientRect();
+                const pageRect = targetPage.getBoundingClientRect();
+                const viewport = viewer.getBoundingClientRect();
+                return {
+                    top: rect.top,
+                    bottom: rect.bottom,
+                    left: rect.left,
+                    width: rect.width,
+                    height: rect.height,
+                    pageTop: pageRect.top,
+                    pageLeft: pageRect.left,
+                    pageWidth: pageRect.width,
+                    pageHeight: pageRect.height,
+                    viewportTop: viewport.top,
+                    viewportBottom: viewport.top + viewer.clientHeight,
+                    viewportHeight: viewer.clientHeight,
+                };
+            };
+            const before = read();
+            const samples = [before];
+            const until = performance.now() + durationMs;
+            while (performance.now() < until) {
+                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                samples.push(read());
+            }
             return {
-                top: rect.top,
-                bottom: rect.bottom,
-                height: rect.height,
-                viewportTop: viewport.top,
-                viewportBottom: viewport.top + viewer.clientHeight,
-                viewportHeight: viewer.clientHeight,
-                scrollTop: viewer.scrollTop,
+                before,
+                samples,
             };
         };
         for (const zoom of [
@@ -478,20 +498,33 @@ describe('Electron E2E - text interaction contract', () => {
             // Observe the actual rendered region through the settled interval;
             // the old first-line target leaves the bottom outside this viewport.
             await expect.poll(async () => {
-                const current = await page.evaluate(bounds);
+                const {before: current} = await page.evaluate(bounds);
                 return current.height <= current.viewportHeight
                     ? current.top >= current.viewportTop - 1 && current.bottom <= current.viewportBottom + 1
                     : current.top >= current.viewportTop - 1
                         && current.top < current.viewportTop + current.height / 36;
             }, {timeout: 10_000}).toBe(true);
-            const before = await page.evaluate(bounds);
+            const {before} = await page.evaluate(bounds);
+            // R2/R3 protect the rendered destination, not the virtualized scroll
+            // offset. Sample inside the renderer during pointer entry as well
+            // as afterwards, so a transient jump cannot hide between CDP calls.
+            const observation = page.evaluate(bounds, 600);
             await page.mouse.move(850, 400, {steps: 15});
-            const until = Date.now() + 600;
-            while (Date.now() < until) {
-                await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
-                const sample = await page.evaluate(bounds);
-                expect(Math.abs(sample.top - before.top)).toBeLessThanOrEqual(1);
-                expect(Math.abs(sample.scrollTop - before.scrollTop)).toBeLessThanOrEqual(1);
+            const {samples} = await observation;
+            for (const sample of samples) {
+                for (const key of [
+                    'top',
+                    'bottom',
+                    'left',
+                    'width',
+                    'height',
+                    'pageTop',
+                    'pageLeft',
+                    'pageWidth',
+                    'pageHeight',
+                ] as const) {
+                    expect(Math.abs(sample[key] - before[key]), key).toBeLessThanOrEqual(1);
+                }
             }
         }
     }, 120_000);
