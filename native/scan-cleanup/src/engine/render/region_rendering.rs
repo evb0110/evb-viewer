@@ -1427,11 +1427,15 @@ fn prepare_region_transforms(
     });
     let source_rotated_to_deskewed =
         Affine::translation(-region.x, -region.y).then(local_deskew_forward);
-    let candidate_dewarp = options.dewarp.clone().or_else(|| {
-        automatic_dewarp
-            .as_ref()
-            .and_then(|result| result.model.clone())
-    });
+    let candidate_dewarp = if options.ocr_polarity_only {
+        None
+    } else {
+        options.dewarp.clone().or_else(|| {
+            automatic_dewarp
+                .as_ref()
+                .and_then(|result| result.model.clone())
+        })
+    };
     let transformed_dewarp = candidate_dewarp
         .as_ref()
         .map(|model| transform_dewarp_options(model, source_rotated_to_deskewed));

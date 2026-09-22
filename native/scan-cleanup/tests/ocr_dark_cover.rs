@@ -71,3 +71,84 @@ fn dark_cover_bilevel_render_keeps_picture_content_out_of_ocr_ink() {
         "picture-region pixels must remain excluded from OCR ink: {picture_ink}"
     );
 }
+
+#[test]
+fn polarity_only_dark_cover_emits_only_light_print_as_ocr_ink() {
+    let mut source = GrayImage::new(512, 512, 24);
+    for y in (40..176).step_by(24) {
+        for stroke_y in y..y + 6 {
+            for x in 32..224 {
+                source.set(x, stroke_y, 220);
+            }
+        }
+    }
+
+    let result = clean_page_with_color(
+        &source,
+        None,
+        &CleanupOptions {
+            output_mode: OutputMode::Bw,
+            layout: LayoutMode::Single,
+            normalize_illumination: false,
+            crop_content: false,
+            match_page_size: false,
+            ocr_mode: true,
+            ocr_polarity_only: true,
+            dpi: 300.0,
+            source_dpi: Some(300.0),
+            ..CleanupOptions::default()
+        },
+        0,
+    )
+    .unwrap();
+    let image = result.outputs[0]
+        .image
+        .bilevel()
+        .expect("dark polarity-only OCR should emit a bilevel mask");
+
+    assert!(image.get(48, 42), "bright cover print must become OCR ink");
+    assert!(
+        !image.get(0, 0),
+        "dark cover background must not become OCR ink"
+    );
+}
+
+#[test]
+fn polarity_only_ordinary_page_preserves_the_source_as_grayscale() {
+    let mut source = GrayImage::new(128, 128, 224);
+    for y in 24..104 {
+        for x in 20..108 {
+            if (x + y) % 17 == 0 {
+                source.set(x, y, 38);
+            }
+        }
+    }
+    let source_sample = source.get(20, 24);
+
+    let result = clean_page_with_color(
+        &source,
+        None,
+        &CleanupOptions {
+            output_mode: OutputMode::Bw,
+            layout: LayoutMode::Single,
+            normalize_illumination: false,
+            crop_content: false,
+            match_page_size: false,
+            ocr_mode: true,
+            ocr_polarity_only: true,
+            dpi: 300.0,
+            source_dpi: Some(300.0),
+            ..CleanupOptions::default()
+        },
+        0,
+    )
+    .unwrap();
+    let image = &result.outputs[0].image;
+
+    assert!(
+        image.bilevel().is_none(),
+        "ordinary OCR pages stay grayscale"
+    );
+    assert_eq!(image.get(20, 24), source_sample);
+    assert_eq!(image.get(38, 24), source.get(38, 24));
+}
