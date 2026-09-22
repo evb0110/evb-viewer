@@ -155,7 +155,7 @@ async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult
                     onClick: operation.discardPendingResult,
                 }, 'Discard')
                 : null,
-            operation.canCancel.value && operation.isCombining.value
+            operation.canCancel.value && operation.phase.value === 'combining'
                 ? h('button', {
                     class: 'cancel',
                     onClick: operation.cancel,
@@ -311,6 +311,7 @@ describe('mounted Combine PDF page state machine', () => {
         });
         await flushUpdates();
         expect(page.host.querySelector('.phase')?.textContent).toBe('opening');
+        expect(page.host.querySelector('.cancel')).toBeNull();
 
         opened.resolve(true);
         await flushUpdates();
