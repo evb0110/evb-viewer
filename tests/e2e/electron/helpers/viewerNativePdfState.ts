@@ -97,8 +97,10 @@ export async function installNativePdfOpeningSampler(page: Page) {
             ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
             const viewportHost = chassis?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
+            // The loader is a full-viewport status surface, not a page-shaped
+            // opening shell. Keep it observable separately so geometry checks
+            // cannot mistake its width for the page frame's width.
             const transitionSurface = host?.querySelector<HTMLElement>('.document-viewer-chassis__opening-page')
-                ?? host?.querySelector<HTMLElement>('[data-testid="document-opening-native-preview-loading"]')
                 ?? null;
             const transitionLoadingOverlay = host?.querySelector<HTMLElement>(
                 '[data-testid="document-opening-native-preview-loading"]',

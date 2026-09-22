@@ -73,6 +73,7 @@ const DEEP_PAGE = 500;
 const FIRST_USEFUL_PIXEL_BUDGET_MS = 10_000;
 const FIRST_PAGE_SHELL_BUDGET_MS = 5_500;
 const READY_AFTER_CANVAS_BUDGET_MS = 1_500;
+const OPENING_WIDTH_TOLERANCE_PX = 0.5;
 // A full-page raster of a deep page at a user-chosen zoom is the slowest thing
 // this suite waits for, and it competes with an Xvfb renderer that animates at
 // about 1fps. Convergence itself is still asserted exactly; only the patience
@@ -96,24 +97,42 @@ function assertNativeOpeningFitWidthIsSettled(
         frame.pdfjsCanvasVisible
         && frame.pdfjsCanvasRects.some(rect => rect.page === 1)
     ));
+    const skeletonFrames = frames.filter(frame => (
+        frame.transitionSkeletonCount > 0
+        && frame.transitionSkeletonRects.length > 0
+        && frame.transitionSurfaceVisible
+    ));
     const evidence = JSON.stringify({
         firstPreview,
         firstPdfjs,
+        skeletonFrames,
         visibleShellFrames,
         previewFrames,
         frameCount: frames.length,
     });
     expect(visibleShellFrames, evidence).not.toHaveLength(0);
+    expect(skeletonFrames, evidence).not.toHaveLength(0);
+    const firstSkeleton = skeletonFrames[0];
+    if (firstSkeleton === undefined) {
+        throw new Error(evidence);
+    }
+    expect(firstSkeleton.capturedAtMs, evidence).toBeLessThan(firstPreview?.capturedAtMs ?? Number.POSITIVE_INFINITY);
+    const skeletonWidths = skeletonFrames.flatMap(frame => frame.transitionSkeletonRects.map(rect => rect.width));
+    expect(Math.max(...skeletonWidths) - Math.min(...skeletonWidths), evidence)
+        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
     const visibleShellWidths = visibleShellFrames.map(frame => frame.transitionShellRect?.width ?? 0);
-    expect(Math.max(...visibleShellWidths) - Math.min(...visibleShellWidths), evidence).toBeLessThanOrEqual(2);
+    expect(Math.max(...visibleShellWidths) - Math.min(...visibleShellWidths), evidence)
+        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
     expect(firstPreview, evidence).toBeDefined();
     expect(firstPdfjs, evidence).toBeDefined();
     const openingWidth = firstPreview?.transitionShellRect?.width ?? 0;
     const settledRect = firstPdfjs?.pdfjsCanvasRects.find(rect => rect.page === 1) ?? null;
     const settledCanvasWidth = settledRect === null ? 0 : settledRect.right - settledRect.left;
-    expect(Math.abs(openingWidth - settledCanvasWidth), evidence).toBeLessThanOrEqual(2);
+    expect(Math.abs(openingWidth - settledCanvasWidth), evidence)
+        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
     const previewWidths = previewFrames.map(frame => frame.transitionShellRect?.width ?? 0);
-    expect(Math.max(...previewWidths) - Math.min(...previewWidths), evidence).toBeLessThanOrEqual(2);
+    expect(Math.max(...previewWidths) - Math.min(...previewWidths), evidence)
+        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
 }
 
 interface IVisibleSidebarSample {

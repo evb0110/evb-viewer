@@ -337,26 +337,29 @@ const shouldHoldPdfOpeningSurfaceUntilGeometry = computed(() => {
         sourceKind: 'pdf',
     });
 });
+const shouldKeepPdfFallbackShellHidden = computed(() => {
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    return snapshot.committedRender === null
+        && snapshot.nativeOpeningPreviewStaged === true
+        && snapshot.nativeOpeningPreviewState === 'failed'
+        && (
+            snapshot.openingPageFrame === null
+            || !hasCompletePageGeometry.value
+            || canonicalOpeningPageStyle.value === null
+        );
+});
 const shouldHidePdfOpeningSurface = computed(() => (
     shouldDeferLargePdfOpeningSurface.value
     || shouldHoldPdfOpeningSurfaceUntilGeometry.value
+    || shouldKeepPdfFallbackShellHidden.value
 ));
 const hasStagedNativeOpeningPreview = computed(() => {
     return chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewStaged === true;
 });
 const shouldShowPdfFallbackOpeningLoader = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
-    const nativeFallbackPending = hasStagedNativeOpeningPreview.value
-        && snapshot.nativeOpeningPreviewState === 'failed';
     return snapshot.committedRender === null
-        && (snapshot.openingPageFrame === null || !hasCompletePageGeometry.value)
-        && (
-            nativeFallbackPending
-            || (
-                injectedChassisAuthority === null
-                && shouldHoldPdfOpeningSurfaceUntilGeometry.value
-            )
-        );
+        && shouldKeepPdfFallbackShellHidden.value;
 });
 const shouldShowPdfOpeningSkeleton = computed(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
