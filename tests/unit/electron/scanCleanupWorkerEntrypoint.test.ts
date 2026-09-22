@@ -138,9 +138,9 @@ describe('scan cleanup worker entrypoint', () => {
             },
         });
         // One "Phase started" line per stage, not per progress event.
-        const phaseLines = mocks.logger.info.mock.calls.filter(call => String(call[0]).startsWith('Phase started:'));
+        const phaseLines = mocks.logger.info.mock.calls.filter(call => call[0] === 'Scan cleanup phase started');
         expect(phaseLines).toHaveLength(2);
-        expect(mocks.logger.info.mock.calls.some(call => String(call[0]).startsWith('Run completed:'))).toBe(true);
+        expect(mocks.logger.info.mock.calls.some(call => call[0] === 'Scan cleanup run completed')).toBe(true);
         expect(mocks.logger.error).not.toHaveBeenCalled();
     });
 
@@ -153,8 +153,8 @@ describe('scan cleanup worker entrypoint', () => {
             error: 'Scan cleanup worker received an invalid runtime policy',
         });
         expect(mocks.logger.error).toHaveBeenCalledWith(
-            expect.stringContaining('Run failed after'),
-            {
+            'Scan cleanup run failed',
+            expect.objectContaining({
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
                 context: {
                     stage: 'worker',
@@ -162,7 +162,8 @@ describe('scan cleanup worker entrypoint', () => {
                     failureClass: 'unknown',
                 },
                 cause: expect.objectContaining({message: 'Scan cleanup worker received an invalid runtime policy'}),
-            },
+            }),
+            expect.objectContaining({errorMessage: 'Scan cleanup worker received an invalid runtime policy'}),
         );
     });
 
@@ -182,7 +183,7 @@ describe('scan cleanup worker entrypoint', () => {
 
         await bootWorker();
 
-        expect(mocks.logger.info).toHaveBeenCalledWith(expect.stringContaining('Run canceled after'));
+        expect(mocks.logger.info).toHaveBeenCalledWith('Scan cleanup run canceled', expect.any(Object));
         expect(mocks.logger.error).not.toHaveBeenCalled();
         const result = lastResultMessage();
         expect(result?.ok).toBe(false);
@@ -198,7 +199,7 @@ describe('scan cleanup worker entrypoint', () => {
 
         await bootWorker();
 
-        expect(mocks.logger.info).toHaveBeenCalledWith(expect.stringContaining('Run canceled after'));
+        expect(mocks.logger.info).toHaveBeenCalledWith('Scan cleanup run canceled', expect.any(Object));
         expect(mocks.logger.error).not.toHaveBeenCalled();
     });
 
@@ -215,7 +216,8 @@ describe('scan cleanup worker entrypoint', () => {
         await bootWorker();
 
         expect(mocks.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('without proving its native tree died: scan-cleanup-sidecar survived SIGKILL'),
+            'Scan cleanup run stopped without proving native termination',
+            expect.objectContaining({detail: 'scan-cleanup-sidecar survived SIGKILL'}),
         );
         expect(mocks.logger.error).not.toHaveBeenCalled();
         expect(lastResultMessage()).toMatchObject({
@@ -233,8 +235,8 @@ describe('scan cleanup worker entrypoint', () => {
         await bootWorker();
 
         expect(mocks.logger.error).toHaveBeenCalledWith(
-            expect.stringContaining('sidecar exited with code 3'),
-            {
+            'Scan cleanup run failed',
+            expect.objectContaining({
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
                 context: {
                     stage: 'worker',
@@ -242,7 +244,8 @@ describe('scan cleanup worker entrypoint', () => {
                     failureClass: 'unknown',
                 },
                 cause: failure,
-            },
+            }),
+            expect.objectContaining({errorMessage: 'sidecar exited with code 3'}),
         );
         expect(lastResultMessage()).toMatchObject({
             ok: false,

@@ -1,6 +1,9 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IPdfNativeAnnotationIdentityBinding } from '@contracts/electronApiDocuments';
+import type {
+    TDocumentSaveFailureReason,
+    IPdfNativeAnnotationIdentityBinding,
+} from '@contracts/electronApiDocuments';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import { pageNumberToPageIndex } from '@contracts/pageNumbers';
 import type { IDocumentPageRange } from '@app/modules/document-viewer/public';
@@ -124,6 +127,15 @@ export interface IPdfSaveResult {
     validation: IPdfValidationResult;
 }
 
+export interface IPdfPersistFailure {
+    channel: string;
+    operation: string;
+    phase: string;
+    reason: TDocumentSaveFailureReason;
+    message?: string;
+    validation?: IPdfValidationResult | null;
+}
+
 export interface IPdfPersistResult {
     success: boolean;
     outPath: TDocumentRef | null;
@@ -138,6 +150,8 @@ export interface IPdfPersistResult {
      * attempted and refused.
      */
     abortReason?: 'cancelled' | 'stale' | undefined;
+    /** Typed persistence cause retained for the workspace failure record. */
+    failure?: IPdfPersistFailure;
 }
 
 export function mapPdfSearchResultToUiMatch(result: IPdfSearchResult): IPdfUiSearchMatch {

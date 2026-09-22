@@ -319,14 +319,21 @@ function handleWorkerMessage(
     switch (message.type) {
         case 'log':
             if (message.level === 'warn') {
-                log.warn(message.message);
+                log.warn('OCR worker warning', {
+                    ...(message.data ?? {}),
+                    workerMessage: message.message,
+                });
             } else if (message.level === 'error') {
-                log.error(`[worker-error] ${message.message}`, {
+                log.error('OCR worker error', {
                     code: 'MAIN_OCR_OPERATION_FAILED',
                     context: {},
-                });
+                    cause: message.message,
+                }, message.data);
             } else {
-                log.debug(`[worker] ${message.message}`);
+                log.debug('OCR worker debug message', {
+                    ...(message.data ?? {}),
+                    workerMessage: message.message,
+                });
             }
             return;
         case 'progress': {

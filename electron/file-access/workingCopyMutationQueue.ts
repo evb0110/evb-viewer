@@ -62,7 +62,7 @@ export function onWorkingCopyMutationStarting(
 // so they cannot provide this ordering guarantee.
 function notifyWorkingCopyMutationStarting(workingCopyPath: string, signal: AbortSignal) {
     const logListenerFailure = (error: unknown) => {
-        log.debug(`Failed to notify working copy mutation starting listener: ${getErrorMessage(error)}`);
+        log.debug('Failed to notify working copy mutation starting listener', {error: getErrorMessage(error)});
     };
     const notifyListener = (listener: (workingCopyPath: string, signal: AbortSignal) => void | Promise<void>) => {
         try {
@@ -121,7 +121,7 @@ function notifyWorkingCopyMutationSettled(workingCopyPath: string) {
         try {
             listener(workingCopyPath);
         } catch (error) {
-            log.debug(`Failed to notify working copy mutation listener: ${getErrorMessage(error)}`);
+            log.debug('Failed to notify working copy mutation listener', {error: getErrorMessage(error)});
         }
     }
 }
@@ -218,7 +218,7 @@ export function enqueueWorkingCopyMutation<T>(
     const enqueueLog = previousEntry || activeEntryAtEnqueue
         ? log.warn.bind(log)
         : log.debug.bind(log);
-    enqueueLog(`Working-copy mutation enqueued: ${JSON.stringify({
+    enqueueLog('Working-copy mutation enqueued', {
         queueKey,
         operationId: entry.operationId,
         kind: entry.kind,
@@ -234,7 +234,7 @@ export function enqueueWorkingCopyMutation<T>(
             kind: activeEntryAtEnqueue.kind,
             origin: activeEntryAtEnqueue.origin,
         } : null,
-    })}`);
+    });
     const operationPromise = previousTail
         .then(async () => {
             if (isMutationAborted()) {
@@ -245,7 +245,7 @@ export function enqueueWorkingCopyMutation<T>(
             const grantedAt = performance.now();
             const waitedMs = Math.round((grantedAt - enqueuedAt) * 10) / 10;
             activeWorkingCopyMutations.set(queueKey, entry);
-            getQueueLogLevel(waitedMs)(`Working-copy mutation granted: ${JSON.stringify({
+            getQueueLogLevel(waitedMs)('Working-copy mutation granted', {
                 queueKey,
                 operationId: entry.operationId,
                 kind: entry.kind,
@@ -257,7 +257,7 @@ export function enqueueWorkingCopyMutation<T>(
                     kind: previousEntry.kind,
                     origin: previousEntry.origin,
                 } : null,
-            })}`);
+            });
             try {
                 const preparation = notifyWorkingCopyMutationStarting(workingCopyPath, mutationOperation.signal);
                 // Only yield when a listener actually asked to prepare: an
@@ -274,14 +274,14 @@ export function enqueueWorkingCopyMutation<T>(
                 return await runWithWorkingCopyMutationCommitSignal(mutationOperation, () => operation(mutationOperation));
             } finally {
                 const durationMs = Math.round((performance.now() - grantedAt) * 10) / 10;
-                getQueueLogLevel(durationMs)(`Working-copy mutation settled: ${JSON.stringify({
+                getQueueLogLevel(durationMs)('Working-copy mutation settled', {
                     queueKey,
                     operationId: entry.operationId,
                     kind: entry.kind,
                     origin: entry.origin,
                     waitedMs,
                     durationMs,
-                })}`);
+                });
                 if (activeWorkingCopyMutations.get(queueKey) === entry) {
                     activeWorkingCopyMutations.delete(queueKey);
                 }
@@ -311,7 +311,10 @@ async function unlinkIfPresent(filePath: string) {
     } catch (error) {
         const code = isErrnoException(error) ? error.code : undefined;
         if (code !== 'ENOENT') {
-            log.debug(`Failed to remove page-op artifact "${filePath}": ${getErrorMessage(error)}`);
+            log.debug('Failed to remove page-op artifact', {
+                filePath,
+                error: getErrorMessage(error),
+            });
         }
     }
 }
@@ -322,7 +325,7 @@ export async function clearWorkingCopyOcrArtifacts(workingCopyPath: string) {
             recursive: true,
             force: true,
         }).catch(error => {
-            log.debug(`Failed to remove OCR sidecar for page-op mutation: ${getErrorMessage(error)}`);
+            log.debug('Failed to remove OCR sidecar for page-op mutation', {error: getErrorMessage(error)});
         }),
         unlinkIfPresent(`${workingCopyPath}.index.json`),
         unlinkIfPresent(getCompactSearchIndexPath(workingCopyPath)),

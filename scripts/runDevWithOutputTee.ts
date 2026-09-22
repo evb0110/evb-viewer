@@ -14,6 +14,7 @@ const TSX_COMMAND = process.platform === 'win32' ? 'tsx.cmd' : 'tsx';
 
 interface ICommandStep {
     source: string;
+    label: string;
     command: string;
     args: string[];
     stdio: 'pipe' | 'inherit';
@@ -56,11 +57,12 @@ function createChildEnv() {
     return {
         ...process.env,
         [DEV_OUTPUT_TEE_DIR_ENV]: tee.runDir,
+        EVB_GATE_QUIET: process.env.EVB_GATE_QUIET ?? '1',
     };
 }
 
 function runStep(step: ICommandStep): Promise<number> {
-    writeWrapperLine(`[pnpm dev] ${step.source}: ${step.command} ${step.args.join(' ')}`);
+    writeWrapperLine(`[pnpm dev] ${step.label}`);
 
     return new Promise((resolve) => {
         const child = spawn(step.command, step.args, {
@@ -110,8 +112,10 @@ async function main() {
     const steps: ICommandStep[] = [
         {
             source: 'pnpm-dev-stop-default-session',
+            label: 'Stopping previous default session',
             command: PNPM_COMMAND,
             args: [
+                '--silent',
                 'electron:run',
                 'stop',
                 '--session=default',
@@ -120,8 +124,10 @@ async function main() {
         },
         {
             source: 'pnpm-dev-build-scan-cleanup',
+            label: 'Building native scan-cleanup',
             command: PNPM_COMMAND,
             args: [
+                '--silent',
                 'run',
                 'build:scan-cleanup',
             ],
@@ -132,8 +138,10 @@ async function main() {
         // fails every conversion, so dev keeps all three crates fresh.
         {
             source: 'pnpm-dev-build-pdf-image-combine',
+            label: 'Building native pdf-image-combine',
             command: PNPM_COMMAND,
             args: [
+                '--silent',
                 'run',
                 'build:pdf-image-combine',
             ],
@@ -141,8 +149,10 @@ async function main() {
         },
         {
             source: 'pnpm-dev-build-pdf-page-ops',
+            label: 'Building native pdf-page-ops',
             command: PNPM_COMMAND,
             args: [
+                '--silent',
                 'run',
                 'build:pdf-page-ops',
             ],
@@ -150,8 +160,10 @@ async function main() {
         },
         {
             source: 'pnpm-dev-build-electron',
+            label: 'Building Electron main and preload',
             command: PNPM_COMMAND,
             args: [
+                '--silent',
                 'run',
                 'build:electron',
             ],
@@ -159,6 +171,7 @@ async function main() {
         },
         {
             source: 'pnpm-dev-start-electron-session',
+            label: 'Starting Electron session',
             command: TSX_COMMAND,
             args: [
                 'scripts/electronRun.ts',
@@ -171,7 +184,9 @@ async function main() {
     for (const step of steps) {
         const exitCode = await runStep(step);
         if (exitCode !== 0) {
-            tee.writeLine('pnpm-dev-wrapper', 'stderr', `[pnpm dev] ${step.source} exited with ${exitCode}`);
+            const failure = `[pnpm dev] ${step.label} failed (exit ${exitCode}); run logs: ${tee.relativeRunDir}`;
+            process.stderr.write(`${failure}\n`);
+            tee.writeLine('pnpm-dev-wrapper', 'stderr', failure);
             tee.close();
             process.exit(exitCode);
         }

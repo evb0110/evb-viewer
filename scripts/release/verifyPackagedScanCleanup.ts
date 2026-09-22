@@ -2,6 +2,11 @@ import {
     execFile,
     spawn,
 } from 'node:child_process';
+import {
+    APP_LOG_FILE_NAME,
+    decodeLogRecord,
+    formatLogData,
+} from '@contracts/logRecord';
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {
@@ -633,7 +638,11 @@ async function waitForLogEvidence(logPath: string, pattern: RegExp) {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
         const contents = await readFile(logPath, 'utf8').catch(() => '');
-        if (pattern.test(contents)) {
+        const matched = contents.split('\n').some((line) => {
+            const record = decodeLogRecord(line);
+            return record !== null && pattern.test(`${record.msg} ${formatLogData(record.data)}`);
+        });
+        if (matched) {
             return true;
         }
         await delay(100);
@@ -741,7 +750,7 @@ async function run() {
     const outputCopyPath = path.join(args.artifactDir, 'rome-packaged-cleaned.pdf');
     const nativeMetadataPath = path.join(args.artifactDir, 'native-metadata');
     const userDataPath = path.join(args.artifactDir, 'user-data');
-    const appLogPath = path.join(args.artifactDir, 'app-logs', 'scan-cleanup-worker.log');
+    const appLogPath = path.join(args.artifactDir, 'app-logs', APP_LOG_FILE_NAME);
     await rm(userDataPath, {
         force: true,
         recursive: true,

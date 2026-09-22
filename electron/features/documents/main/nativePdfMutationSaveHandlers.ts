@@ -253,7 +253,10 @@ async function cleanupTempPath(path: string): Promise<void> {
         if (isErrnoException(error) && error.code === 'ENOENT') {
             return;
         }
-        log.debug(`Failed to cleanup native note text temp file "${path}": ${getErrorMessage(error)}`);
+        log.debug('Failed to cleanup native note text temp file', {
+            path,
+            error: getErrorMessage(error),
+        });
     });
 }
 
@@ -473,23 +476,23 @@ async function runNativeNoteCommand(
             }
             committed = true;
             committedValidation = validation;
-            log.debug(`Native note save phase timings: ${JSON.stringify({
+            log.debug('Native note save phase timings', {
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
                 phases: phaseTimings,
-            })}`);
+            });
             return {
                 applied: true,
                 validation,
                 ...(identityBindings === undefined ? {} : {identityBindings}),
             };
         } catch (error) {
-            log.debug(`Native note text update failed, falling back to pdf-lib: ${JSON.stringify({
+            log.debug('Native note text update failed, falling back to pdf-lib', {
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
                 phases: phaseTimings,
                 error: getErrorMessage(error),
-            })}`);
+            });
             if (committed) {
                 return {
                     applied: true,
@@ -576,13 +579,13 @@ async function runNativeWorkingCopyCommand(
             staged = true;
             const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
             const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
-            logTimings(`Native working-copy mutation phase timings: ${JSON.stringify({
+            logTimings('Native working-copy mutation phase timings', {
                 command: options.command,
                 endedAtEpochMs: Date.now(),
                 startedAtEpochMs: operationStartedAtEpochMs,
                 totalMs,
                 phases: phaseTimings,
-            })}`);
+            });
             return {
                 applied: true,
                 validation,
@@ -591,14 +594,14 @@ async function runNativeWorkingCopyCommand(
                 ...(identityBindings === undefined ? {} : {identityBindings}),
             };
         } catch (error) {
-            log.warn(`Native working-copy mutation failed: ${JSON.stringify({
+            log.warn('Native working-copy mutation failed', {
                 command: options.command,
                 endedAtEpochMs: Date.now(),
                 startedAtEpochMs: operationStartedAtEpochMs,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
                 phases: phaseTimings,
                 error: getErrorMessage(error),
-            })}`);
+            });
             return createNotAppliedResult(error);
         } finally {
             if (!staged) await cleanupTempPath(tempPath);
@@ -715,12 +718,12 @@ export async function handleCommitStagedPdfNativeMutations(
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
     const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
-    logTimings(`Native staged mutation commit phase timings: ${JSON.stringify({
+    logTimings('Native staged mutation commit phase timings', {
         endedAtEpochMs: Date.now(),
         startedAtEpochMs: operationStartedAtEpochMs,
         totalMs,
         phases: phaseTimings,
-    })}`);
+    });
     return result;
 }
 

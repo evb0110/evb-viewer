@@ -9,6 +9,7 @@ import {
     getElectronAppUrl,
     waitForReusableNuxtServer,
 } from '@scripts/electron-run/electronRunNuxtServer';
+import { logLauncher } from '@scripts/electron-run/terminalLog';
 import {
     isElectronAppPageUrl,
     isNuxtDevServerUrl,
@@ -240,7 +241,7 @@ async function waitForRendererBindings(
         ) {
             reloadCount += 1;
             lastReloadAt = now;
-            console.log(`[Puppeteer] Renderer loaded transient dev-server error, reloading (${reloadCount}/${RENDERER_DEAD_PAGE_MAX_RELOADS})...`);
+            logLauncher('info', 'cdp', `Renderer loaded transient dev-server error, reloading (${reloadCount}/${RENDERER_DEAD_PAGE_MAX_RELOADS})...`);
             try {
                 await currentPage.reload({
                     waitUntil: 'domcontentloaded',
@@ -248,7 +249,7 @@ async function waitForRendererBindings(
                 });
             } catch (error) {
                 if (!isTransientPageContextError(error) && !isNavigationAbortedError(error)) {
-                    console.log(`[Puppeteer] Renderer reload failed while recovering from transient dev-server error: ${getErrorMessage(error)}`);
+                    logLauncher('warn', 'cdp', `Renderer reload failed while recovering from transient dev-server error: ${getErrorMessage(error)}`);
                 }
             }
         }
@@ -350,7 +351,7 @@ async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000) {
                 }>;
                 const pageTarget = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
                 if (pageTarget?.webSocketDebuggerUrl) {
-                    console.log(`[CDP] Discovered page target: ${pageTarget.url}`);
+                    logLauncher('debug', 'cdp', 'Discovered page target', {url: pageTarget.url});
                     return;
                 }
                 const summary = JSON.stringify(targets.map(t => ({
@@ -358,7 +359,7 @@ async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000) {
                     url: t.url,
                 })));
                 if (summary !== lastLoggedTargets) {
-                    console.log(`[CDP] /json/list targets: ${summary}`);
+                    logLauncher('debug', 'cdp', 'CDP targets', {summary});
                     lastLoggedTargets = summary;
                 }
             }
@@ -397,7 +398,7 @@ async function connectPuppeteerWithRetries(browserWsUrl: string) {
         } catch (error) {
             if (attempt === 0 || attempt === 4 || attempt === 9) {
                 const message = getErrorMessage(error);
-                console.log(`[Puppeteer] CDP connect retry ${attempt + 1}/10: ${message}`);
+                logLauncher('info', 'cdp', `CDP connect retry ${attempt + 1}/10: ${message}`);
             }
             await delay(500);
         }
@@ -511,7 +512,7 @@ async function waitForBodyElement(
     while (Date.now() - startedAt < RENDERER_READY_TIMEOUT_MS) {
         const nextPage = await findAppPage(browser);
         if (nextPage && nextPage !== currentPage) {
-            console.log('[Puppeteer] App target changed during initial load, re-attaching...');
+            logLauncher('info', 'cdp', 'App target changed during initial load, re-attaching...');
             currentPage = nextPage;
             watcher.attach(currentPage);
         }
@@ -549,15 +550,15 @@ async function waitForHydration(
     return pollHydration(browser, page, watcher, {
         delayMs: 500,
         onOutdated: () => {
-            console.log('[Puppeteer] Detected Vite 504 (Outdated Optimize Dep), reloading...');
+            logLauncher('info', 'cdp', 'Detected Vite 504 (Outdated Optimize Dep), reloading...');
         },
         onInterval: async (current) => {
             const freshPage = await findAppPage(browser);
             if (freshPage && freshPage !== current) {
                 navigationCount += 1;
-                console.log(`[Puppeteer] Page navigated (${navigationCount}/${MAX_NAVIGATIONS}), re-attaching...`);
+                logLauncher('info', 'cdp', `Page navigated (${navigationCount}/${MAX_NAVIGATIONS}), re-attaching...`);
                 if (navigationCount > MAX_NAVIGATIONS) {
-                    console.log('[Puppeteer] Too many navigations, proceeding with current page');
+                    logLauncher('info', 'cdp', 'Too many navigations, proceeding with current page');
                     return null;
                 }
                 watcher.attach(freshPage);
@@ -671,7 +672,7 @@ export async function connectToBrowser(cdpPort: number): Promise<{
     page: Page
 }> {
     const logTiming = createStartupLogger();
-    console.log('[Puppeteer] Connecting via CDP...');
+    logLauncher('debug', 'cdp', 'Connecting via CDP...');
 
     await waitForElectronPageTarget(cdpPort);
     logTiming('Electron page target available');
@@ -685,14 +686,14 @@ export async function connectToBrowser(cdpPort: number): Promise<{
     optimizeDepWatcher.attach(page);
     try {
         page = await waitForBodyElement(browser, page, optimizeDepWatcher);
-        console.log('[Puppeteer] Waiting for Vue to hydrate...');
+        logLauncher('debug', 'cdp', 'Waiting for Vue to hydrate...');
         logTiming('Renderer body available');
 
         const hydrationResult = await waitForHydration(browser, page, optimizeDepWatcher);
         page = hydrationResult.page;
         if (!hydrationResult.hydrated || optimizeDepWatcher.sawOutdatedOptimizeDep()) {
             if (!hydrationResult.hydrated) {
-                console.log('[Puppeteer] Vue not ready, reloading page...');
+                logLauncher('info', 'cdp', 'Vue not ready, reloading page...');
             }
             optimizeDepWatcher.reset();
             const reloadResult = await reloadAndWaitForHydration(browser, page, optimizeDepWatcher);
@@ -701,12 +702,12 @@ export async function connectToBrowser(cdpPort: number): Promise<{
                 throw createViteOptimizeDepError(optimizeDepWatcher.optimizeDepUrl() ?? 'Outdated Optimize Dep after reload');
             }
             if (!reloadResult.hydrated) {
-                console.log('[Puppeteer] Warning: Vue may not be fully hydrated after reload');
+                logLauncher('warn', 'cdp', 'Vue may not be fully hydrated after reload');
             }
         }
 
         page = await waitForReadyRenderer(browser, page, optimizeDepWatcher);
-        console.log('[Puppeteer] Connected to app');
+        logLauncher('debug', 'cdp', 'Connected to app');
         logTiming('Renderer bindings ready');
         return {
             browser,

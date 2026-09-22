@@ -2035,6 +2035,11 @@ export async function acquireHeavyGate({
 }
 
 /** @returns {Promise<void>} */
+// `pnpm dev` runs three fingerprinted native builds through the gate before
+// every start. EVB_GATE_QUIET=1 keeps a passing run to the stage's own output;
+// a failing run still prints its evidence path and timings.
+const gateOutputQuiet = process.env.EVB_GATE_QUIET === '1';
+
 async function reportRepoSessions() {
     const worktreeOutput = await gitOutput([
         'worktree',
@@ -2702,7 +2707,7 @@ async function runStages(stages, {
     })}\n`);
 
     try {
-        if (stages.some(stageDefinition => (stageDefinition.heavyWeight ?? 0) > 0)) {
+        if (!gateOutputQuiet && stages.some(stageDefinition => (stageDefinition.heavyWeight ?? 0) > 0)) {
             await reportRepoSessions();
         }
         const lastPassingFingerprints = noCache
@@ -2921,16 +2926,19 @@ async function runStages(stages, {
             minimumAgeMs: 10 * 60_000,
             root: evidenceDir,
         });
-        process.stdout.write(`[gate] Evidence: ${path.relative(projectRoot, evidencePath)}\n`);
-        if (results.length > 0) {
-            process.stdout.write([
-                '[gate] Slowest stages:',
-                ...[...results]
-                    .sort((left, right) => right.wallMs - left.wallMs)
-                    .slice(0, 5)
-                    .map(result => `  ${result.id}: ${(result.wallMs / 1000).toFixed(2)}s`),
-                '',
-            ].join('\n'));
+        const runPassed = results.length === stages.length && results.every(result => result.status === 'passed');
+        if (!gateOutputQuiet || !runPassed) {
+            process.stdout.write(`[gate] Evidence: ${path.relative(projectRoot, evidencePath)}\n`);
+            if (results.length > 0) {
+                process.stdout.write([
+                    '[gate] Slowest stages:',
+                    ...[...results]
+                        .sort((left, right) => right.wallMs - left.wallMs)
+                        .slice(0, 5)
+                        .map(result => `  ${result.id}: ${(result.wallMs / 1000).toFixed(2)}s`),
+                    '',
+                ].join('\n'));
+            }
         }
     }
 }

@@ -19,6 +19,12 @@ import {
     buildNuxtDevServerEnv,
     resolveNuxtDevServerArtifactDirs,
 } from '@scripts/electron-run/electronRunLaunchConfig';
+import {
+    createNuxtOutputRecordStream,
+    logLauncher,
+    printTerminalLogRecord,
+    resolveTerminalLogLevel,
+} from '@scripts/electron-run/terminalLog';
 import { getActiveDevServerOutputTee } from '@scripts/electron-run/devServerOutputTee';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
@@ -254,7 +260,7 @@ function clearViteCache() {
                 recursive: true,
                 force: true,
             });
-            console.log(`[Cache] Cleared ${cachePath.replace(projectRoot + '/', '')}`);
+            logLauncher('info', 'cache', `Cleared ${cachePath.replace(projectRoot + '/', '')}`);
         } catch {}
     }
 }
@@ -327,7 +333,7 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
         return false;
     }
 
-    console.log(`[Nuxt] Cleaning stale session-owned Nuxt process(es) on port ${nuxtPort} (${reason}): ${staleNuxtPids.join(', ')}`);
+    logLauncher('info', 'nuxt', `Cleaning stale session-owned Nuxt process(es) on port ${nuxtPort} (${reason}): ${staleNuxtPids.join(', ')}`);
     for (const staleNuxtPid of staleNuxtPids) {
         const owner = sessionMetadata.find(session => session.nuxtPid === staleNuxtPid);
         if (!owner) {
@@ -543,7 +549,7 @@ export async function cleanupOrphanedProjectNuxtRoots(
         return false;
     }
 
-    console.log(`[Nuxt] Cleaning orphaned project dev server root(s) (${reason}): ${targets.join(', ')}`);
+    logLauncher('info', 'nuxt', `Cleaning orphaned project dev server root(s) (${reason}): ${targets.join(', ')}`);
     let terminated = 0;
     for (const target of targets) {
         const root = eligibleRoots.find(candidate => candidate.pid === target);
@@ -812,12 +818,12 @@ export function shouldCleanupOrphanedProjectNuxtRoots(sessionName = getCurrentSe
 async function selectNuxtPort() {
     if (resolveNuxtPortStrategy() === 'fixed-default') {
         setNuxtPort(DEFAULT_NUXT_PORT);
-        console.log(`[Nuxt] Using fixed dev port ${getNuxtPort()}`);
+        logLauncher('info', 'nuxt', `Using fixed dev port ${getNuxtPort()}`);
         return;
     }
 
     setNuxtPort(await findFreePort());
-    console.log(`[Nuxt] Using isolated port ${getNuxtPort()} for session '${getCurrentSessionName()}'`);
+    logLauncher('info', 'nuxt', `Using isolated port ${getNuxtPort()} for session '${getCurrentSessionName()}'`);
 }
 
 async function prepareNuxtServerStart(
@@ -826,17 +832,17 @@ async function prepareNuxtServerStart(
     options: {mustRestart?: boolean} = {},
 ) {
     await selectNuxtPort();
-    console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
+    logLauncher('info', 'nuxt', `Browser dev server: http://localhost:${getNuxtPort()}/`);
     if (shouldCleanupOrphanedProjectNuxtRoots()) {
         await cleanupOrphanedProjectNuxtRoots('before reuse check');
         logTiming('Nuxt orphan cleanup complete');
     } else {
-        console.log(`[Nuxt] Skipping project-wide orphan cleanup for isolated session '${getCurrentSessionName()}'`);
+        logLauncher('info', 'nuxt', `Skipping project-wide orphan cleanup for isolated session '${getCurrentSessionName()}'`);
         logTiming('Nuxt isolated-session cleanup boundary applied');
     }
 
     if (!forceClean && !options.mustRestart && await isReusableNuxtServerReady()) {
-        console.log(`[Nuxt] Reusing existing dev server at http://127.0.0.1:${getNuxtPort()}`);
+        logLauncher('info', 'nuxt', `Reusing existing dev server at http://127.0.0.1:${getNuxtPort()}`);
         logTiming('Nuxt existing dev server reused');
         return false;
     }
@@ -845,7 +851,7 @@ async function prepareNuxtServerStart(
     logTiming('Nuxt port cleanup complete');
 
     if (forceClean) {
-        console.log('[Nuxt] Force clean start...');
+        logLauncher('info', 'nuxt', 'Force clean start...');
         clearViteCache();
         logTiming('Nuxt cache cleanup complete');
     }
@@ -859,22 +865,18 @@ function updateNuxtStartupMarkers(
     logTiming: (message: string) => void,
 ) {
     if (text.includes('Vite client built')) {
-        console.log('[Nuxt] Vite client built');
         logTiming('Nuxt Vite client built');
         attempt.viteClientBuilt = true;
     }
     if (text.includes('Vite server built')) {
-        console.log('[Nuxt] Vite server built');
         logTiming('Nuxt Vite server built');
         attempt.viteServerBuilt = true;
     }
     if (text.includes('Nitro server built') || text.includes('Nitro') && text.includes('built')) {
-        console.log('[Nuxt] Nitro server built');
         logTiming('Nuxt Nitro server built');
         attempt.nitroBuilt = true;
     }
     if (text.includes('Vite client warmed up')) {
-        console.log('[Nuxt] Vite client warmed up');
         logTiming('Nuxt Vite client warmed up');
         attempt.viteClientWarmed = true;
     }
@@ -885,7 +887,7 @@ function updateNuxtStartupMarkers(
 }
 
 function spawnNuxtStartupAttempt(attemptIndex: number, logTiming: (message: string) => void): INuxtStartupAttempt {
-    console.log(`[Nuxt] Starting dev server on port ${getNuxtPort()} (attempt ${attemptIndex + 1}/2)...`);
+    logLauncher('info', 'nuxt', `Starting dev server on port ${getNuxtPort()} (attempt ${attemptIndex + 1}/2)...`);
     const attempt: INuxtStartupAttempt = {
         // Windows command shims require cmd.exe. Pass one fixed command string
         // so shell argument concatenation cannot reinterpret dynamic values.
@@ -923,17 +925,18 @@ function spawnNuxtStartupAttempt(attemptIndex: number, logTiming: (message: stri
         attempt.exitSignal = signal;
     });
 
+    // Raw Nuxt output stays in the run directory; the terminal gets its
+    // warnings, errors and page reloads in the shared record format.
+    const terminalLevel = resolveTerminalLogLevel(process.env);
+    const records = createNuxtOutputRecordStream(record => printTerminalLogRecord(record, terminalLevel));
     const checkOutput = (stream: 'stdout' | 'stderr', data: Buffer) => {
-        const tee = getActiveDevServerOutputTee();
-        if (tee) {
-            tee.write('nuxt-dev-server', stream, data);
-        } else {
-            process[stream].write(data);
-        }
+        getActiveDevServerOutputTee()?.write('nuxt-dev-server', stream, data, {aggregate: false});
+        records.write(stream, data);
         updateNuxtStartupMarkers(attempt, data.toString(), logTiming);
     };
     attempt.nuxt.stdout?.on('data', (data: Buffer) => checkOutput('stdout', data));
     attempt.nuxt.stderr?.on('data', (data: Buffer) => checkOutput('stderr', data));
+    attempt.nuxt.once('exit', () => records.end());
     return attempt;
 }
 
@@ -978,7 +981,6 @@ export async function warmupElectronAppDependencies(
         pollIntervalMs?: number;
     } = {},
 ) {
-    console.log('[Nuxt] Warming up dependencies...');
     const timeoutMs = options.timeoutMs ?? NUXT_DEPENDENCY_WARMUP_TIMEOUT_MS;
     const stablePollsRequired = options.stablePolls ?? NUXT_DEPENDENCY_WARMUP_STABLE_POLLS;
     const pollIntervalMs = options.pollIntervalMs ?? NUXT_DEPENDENCY_WARMUP_POLL_INTERVAL_MS;
@@ -1087,7 +1089,7 @@ async function maybeReuseUnrelatedNuxtServer(
         throw new Error(`[Nuxt] ${message}. Strict E2E isolation refuses to reuse it.`);
     }
 
-    console.log(`[Nuxt] ${message}. Reusing existing server.`);
+    logLauncher('info', 'nuxt', `${message}. Reusing existing server.`);
     if (isProcessAlive(nuxtPid)) {
         await killProcessTree(nuxtPid, 800);
     }
@@ -1125,14 +1127,13 @@ async function waitForNuxtStartupAttempt(
         if (buildsComplete && warmupComplete) {
             if (!serverUp) {
                 if (Date.now() - lastLog > 2_000) {
-                    console.log('[Nuxt] Build markers complete; waiting for HTTP readiness.');
+                    logLauncher('debug', 'nuxt', 'Build markers complete; waiting for HTTP readiness.');
                     lastLog = Date.now();
                 }
                 await delay(250);
                 continue;
             }
 
-            console.log('[Nuxt] Server ready at http://127.0.0.1:' + getNuxtPort());
             logTiming('Nuxt server ready');
             await warmupElectronAppDependenciesBestEffort(logTiming);
             return {
@@ -1142,7 +1143,7 @@ async function waitForNuxtStartupAttempt(
         }
 
         if (options.allowUnrelatedReuse !== false && serverUp && elapsedMs > 15_000 && await isReusableNuxtServer()) {
-            console.log('[Nuxt] Reusable server responded without full build markers; proceeding with existing readiness signal.');
+            logLauncher('info', 'nuxt', 'Reusable server responded without full build markers; proceeding with existing readiness signal.');
             logTiming('Nuxt server ready from HTTP fallback');
             await warmupElectronAppDependenciesBestEffort(logTiming);
             return {
@@ -1168,7 +1169,7 @@ async function waitForNuxtStartupAttempt(
                     nuxt: null,
                 };
             }
-            console.log(`[Nuxt] Waiting for builds: ${getMissingNuxtBuildLabels(attempt).join(', ')}`);
+            logLauncher('info', 'nuxt', `Waiting for builds: ${getMissingNuxtBuildLabels(attempt).join(', ')}`);
             lastLog = now;
         }
 

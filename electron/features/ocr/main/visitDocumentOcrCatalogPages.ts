@@ -88,7 +88,10 @@ export async function openCurrentOcrCatalog(
             throw error;
         }
         const receipt = await quarantineOcrCatalog(catalogRoot, documentRevision, error);
-        log.warn(`Quarantined corrupt OCR catalog for ${workingCopyPath}: ${JSON.stringify(receipt)}`);
+        log.warn('Quarantined corrupt OCR catalog', {
+            workingCopyPath,
+            receipt,
+        });
         return null;
     }
 }
@@ -115,11 +118,17 @@ export async function recoverOcrCatalogCorruption(
             documentRevision,
             error,
         );
-        log.warn(`Quarantined corrupt OCR catalog for ${workingCopyPath}: ${JSON.stringify(receipt)}`);
+        log.warn('Quarantined corrupt OCR catalog', {
+            workingCopyPath,
+            receipt,
+        });
         return true;
     } catch (quarantineError) {
         const detail = quarantineError instanceof Error ? quarantineError.message : String(quarantineError);
-        log.warn(`Failed to quarantine corrupt OCR catalog for ${workingCopyPath}: ${detail}`);
+        log.warn('Failed to quarantine corrupt OCR catalog', {
+            workingCopyPath,
+            error: detail,
+        });
         return false;
     }
 }

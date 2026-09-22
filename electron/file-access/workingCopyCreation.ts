@@ -255,18 +255,18 @@ async function createWorkingCopyWithOutcomeInternal(
                 ownerWebContentsId,
             );
             void backgroundMaterialization?.promise.catch(error => {
-                logger.warn(`Background working-copy materialization failed: ${String(error)}`);
+                logger.warn('Background working-copy materialization failed', {error: String(error)});
             });
         }
 
-        logger.debug(`Working copy source-critical timings: ${JSON.stringify({
+        logger.debug('Working copy source-critical timings', {
             deferredUntilNeeded: ['page-identity-on-mutation'],
             backingState,
             materializationMode,
             phases: phaseTimings,
             totalMs: Math.round((performance.now() - operationStartedAt) * 10) / 10,
             workingPath,
-        })}`);
+        });
         return {
             workingPath,
             wasEncrypted: encrypted || undefined,
@@ -493,7 +493,7 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
             void schedulePageIdentityStoreInitialization(normalizedWorkingPath, revision, originalPath);
         }
         await markWorkingCopyContentChanged(normalizedWorkingPath, 'replace-working-copy', senderWebContentsId);
-        logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);
+        logger.warn('Recreated missing working copy directory', {workingCopyPath: normalizedWorkingPath});
         return true;
     } catch (error) {
         await rm(normalizedWorkingPath, {force: true}).catch(() => undefined);

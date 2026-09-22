@@ -10,7 +10,17 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import {stringifyJson} from '@contracts/stringifyJson';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
-import { createLogger } from '@electron/utils/createLogger';
+import {
+    createLogger,
+    redactLogData,
+    writeLogRecord,
+} from '@electron/utils/createLogger';
+import {
+    DEFAULT_LOG_DATA_LIMITS,
+    toLogData,
+    type ILogDataLimits,
+    type TLogData,
+} from '@contracts/logRecord';
 import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
 
 interface IRendererLogRateState {
@@ -98,189 +108,27 @@ function clampString(value: unknown, maxChars: number, fallback = '') {
     return `${trimmed.slice(0, maxChars)}…`;
 }
 
-interface IRendererLogSerializeState {
-    remainingNodes: number;
-    seen: WeakSet<object>;
-}
+const RENDERER_LOG_DATA_LIMITS: ILogDataLimits = {
+    ...DEFAULT_LOG_DATA_LIMITS,
+    maxNodes: RENDERER_LOG_SERIALIZE_MAX_NODES,
+    maxArrayItems: RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS,
+    maxObjectKeys: RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS,
+};
 
-const RENDERER_LOG_NOT_PRIMITIVE = Symbol('renderer-log-not-primitive');
-
-function normalizeRendererLogPrimitive(value: unknown) {
-    if (value === null || value === undefined) {
-        return null;
+function normalizeRendererLogData(data: unknown): TLogData | undefined {
+    // The renderer is untrusted input: bound and redact at this boundary.
+    const normalized = redactLogData(toLogData(data, RENDERER_LOG_DATA_LIMITS));
+    if (!normalized) {
+        return undefined;
     }
-
-    const valueType = typeof value;
-    if (valueType === 'string') {
-        return clampString(value, RENDERER_LOG_MAX_DATA_CHARS);
+    const serialized = stringifyJson(normalized) ?? '';
+    if (serialized.length <= RENDERER_LOG_MAX_DATA_CHARS) {
+        return normalized;
     }
-    if (valueType === 'number' || valueType === 'boolean') {
-        return value;
-    }
-    if (typeof value === 'bigint') {
-        return `${value.toString()}n`;
-    }
-    if (typeof value === 'symbol') {
-        return value.toString();
-    }
-    if (typeof value === 'function') {
-        const functionName = value.name;
-        return `[Function ${functionName || 'anonymous'}]`;
-    }
-
-    return RENDERER_LOG_NOT_PRIMITIVE;
-}
-
-function normalizeRendererLogSpecialObject(value: object, depth: number) {
-    if (Array.isArray(value) && depth >= 1) {
-        return `[Array(${value.length})]`;
-    }
-    if (value instanceof Date) {
-        return value.toISOString();
-    }
-    if (value instanceof RegExp) {
-        return String(value);
-    }
-    // BrowserLogger sends plain error records over IPC. Preserve their scalar
-    // details before the generic nested-object depth limit discards them.
-    if (value instanceof Error || (
-        isRecord(value)
-        && typeof value.name === 'string'
-        && typeof value.message === 'string'
-        && typeof value.stack === 'string'
-    )) {
-        return {
-            name: clampString(value.name, RENDERER_LOG_MAX_SECTION_CHARS),
-            message: clampString(value.message, RENDERER_LOG_MAX_MESSAGE_CHARS),
-            stack: clampString(value.stack, RENDERER_LOG_MAX_DATA_CHARS),
-        };
-    }
-    if (ArrayBuffer.isView(value)) {
-        const typedArray = value;
-        return `[${typedArray.constructor.name}(${typedArray.byteLength})]`;
-    }
-    if (value instanceof ArrayBuffer) {
-        return `[ArrayBuffer(${value.byteLength})]`;
-    }
-
-    return undefined;
-}
-
-function normalizeRendererLogArray(
-    value: unknown[],
-    depth: number,
-    state: IRendererLogSerializeState,
-) {
-    const normalizedItems = value
-        .slice(0, RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS)
-        .map(item => normalizeRendererLogData(item, depth + 1, state));
-    if (value.length > RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS) {
-        normalizedItems.push(`[+${value.length - RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS} more items]`);
-    }
-    return normalizedItems;
-}
-
-function normalizeRendererLogPlainObject(
-    value: Record<PropertyKey, unknown>,
-    depth: number,
-    state: IRendererLogSerializeState,
-) {
-    const normalizedObject: Record<string, unknown> = {};
-    const entries = Object.entries(value);
-    const maxKeys = Math.min(entries.length, RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS);
-    for (let index = 0; index < maxKeys; index += 1) {
-        const entry = entries[index];
-        if (!entry) {
-            continue;
-        }
-        const [
-            key,
-            itemValue,
-        ] = entry;
-        normalizedObject[key] = normalizeRendererLogData(itemValue, depth + 1, state);
-    }
-    if (entries.length > RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS) {
-        normalizedObject.__truncatedKeys = entries.length - RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS;
-    }
-    return normalizedObject;
-}
-
-function normalizeRendererLogData(
-    value: unknown,
-    depth: number,
-    state: IRendererLogSerializeState,
-): unknown {
-    if (state.remainingNodes <= 0) {
-        return '[Truncated]';
-    }
-
-    const normalizedPrimitive = normalizeRendererLogPrimitive(value);
-    if (normalizedPrimitive !== RENDERER_LOG_NOT_PRIMITIVE) {
-        return normalizedPrimitive;
-    }
-
-    if (value === null || typeof value !== 'object') {
-        return String(value);
-    }
-
-    const normalizedSpecialObject = normalizeRendererLogSpecialObject(value, depth);
-    if (normalizedSpecialObject !== undefined) {
-        return normalizedSpecialObject;
-    }
-    if (depth >= 1) {
-        return '[Object]';
-    }
-
-    if (state.seen.has(value)) {
-        return '[Circular]';
-    }
-    state.seen.add(value);
-    state.remainingNodes -= 1;
-
-    try {
-        if (Array.isArray(value)) {
-            return normalizeRendererLogArray(value, depth, state);
-        }
-
-        return isRecord(value)
-            ? normalizeRendererLogPlainObject(value, depth, state)
-            : '[Object]';
-    } finally {
-        state.seen.delete(value);
-    }
-}
-
-function stringifyRendererLogData(data: unknown) {
-    if (data === undefined) {
-        return '';
-    }
-
-    let serialized: string;
-    try {
-        const normalized = normalizeRendererLogData(data, 0, {
-            remainingNodes: RENDERER_LOG_SERIALIZE_MAX_NODES,
-            seen: new WeakSet<object>(),
-        });
-        serialized = JSON.stringify(normalized);
-    } catch {
-        serialized = clampString(
-            typeof data === 'object' && data !== null
-                ? '[unserializable object]'
-                : stringifyJson(data) ?? '<unserializable value>',
-            RENDERER_LOG_MAX_DATA_CHARS,
-        );
-    }
-
-    if (!serialized) {
-        serialized = '';
-    }
-    serialized = redactElectronLogText(serialized);
-
-    if (serialized.length > RENDERER_LOG_MAX_DATA_CHARS) {
-        const originalLength = serialized.length;
-        serialized = `${serialized.slice(0, RENDERER_LOG_MAX_DATA_CHARS)}…(truncated ${originalLength - RENDERER_LOG_MAX_DATA_CHARS} chars)`;
-    }
-    return ` data=${serialized}`;
+    return {
+        truncated: `${serialized.slice(0, RENDERER_LOG_MAX_DATA_CHARS)}…`,
+        originalChars: serialized.length,
+    };
 }
 
 function consumeRendererLogRateToken(webContentsId: number) {
@@ -301,9 +149,10 @@ function consumeRendererLogRateToken(webContentsId: number) {
     if (state.tokens >= 1) {
         state.tokens -= 1;
         if (state.droppedLogs > 0 && now - state.lastDropNoticeAt >= RENDERER_LOG_DROP_NOTICE_INTERVAL_MS) {
-            rendererLogger.warn(
-                `[renderer:${webContentsId}] Dropped ${state.droppedLogs} renderer log message(s) due to rate limiting`,
-            );
+            rendererLogger.warn('Dropped renderer log records due to rate limiting', {
+                window: webContentsId,
+                dropped: state.droppedLogs,
+            });
             state.droppedLogs = 0;
             state.lastDropNoticeAt = now;
         }
@@ -313,9 +162,11 @@ function consumeRendererLogRateToken(webContentsId: number) {
 
     state.droppedLogs += 1;
     if (now - state.lastDropNoticeAt >= RENDERER_LOG_DROP_NOTICE_INTERVAL_MS) {
-        rendererLogger.warn(
-            `[renderer:${webContentsId}] Renderer log channel is rate-limited (limit ${RENDERER_LOG_RATE_LIMIT_PER_SECOND}/s, burst ${RENDERER_LOG_RATE_LIMIT_BURST})`,
-        );
+        rendererLogger.warn('Renderer log channel is rate-limited', {
+            window: webContentsId,
+            limitPerSecond: RENDERER_LOG_RATE_LIMIT_PER_SECOND,
+            burst: RENDERER_LOG_RATE_LIMIT_BURST,
+        });
         state.lastDropNoticeAt = now;
     }
     rendererLogRateStateBySender.set(webContentsId, state);
@@ -344,7 +195,7 @@ interface INormalizedRendererLogEntry {
     section: string;
     message: string;
     timestamp: string;
-    serializedData: string;
+    data?: TLogData;
     failureRef?: FailureReceipt;
 }
 
@@ -386,42 +237,50 @@ function normalizeRendererLogTimestamp(value: unknown) {
 
 export function normalizeRendererLogEntry(payload: unknown): INormalizedRendererLogEntry {
     const failureRef = decodeFailureReceipt(readRendererLogField(payload, 'failureRef'));
+    const data = normalizeRendererLogData(readRendererLogField(payload, 'data'));
     return {
         level: normalizeRendererLogLevel(readRendererLogField(payload, 'level')),
         section: normalizeRendererLogSection(readRendererLogField(payload, 'section')),
         message: normalizeRendererLogMessage(readRendererLogField(payload, 'message')),
         timestamp: normalizeRendererLogTimestamp(readRendererLogField(payload, 'timestamp')),
-        serializedData: stringifyRendererLogData(readRendererLogField(payload, 'data')),
+        ...(data ? {data} : {}),
         ...(failureRef ? {failureRef} : {}),
     };
 }
 
-function formatRendererLogLine(webContentsId: number, entry: INormalizedRendererLogEntry) {
-    return `[renderer:${webContentsId}] [${entry.timestamp}] [${entry.section}] ${entry.message}`
-        + entry.serializedData;
-}
-
-function dispatchRendererLogLine(entry: INormalizedRendererLogEntry, line: string) {
-    const {level} = entry;
-    if (level === 'debug') {
-        rendererLogger.debug(line);
-        return;
-    }
-    if (level === 'warn') {
-        rendererLogger.warn(line);
-        return;
-    }
-    if (level === 'error') {
-        rendererLogger.error(
-            line,
-            entry.failureRef ?? {
+/**
+ * Writes a renderer record into the shared app log as `proc: 'renderer'`.
+ * It stays out of the stdout mirror because the dev launcher already reads the
+ * renderer console over CDP; printing both would duplicate every line.
+ */
+function dispatchRendererLogRecord(webContentsId: number, entry: INormalizedRendererLogEntry) {
+    let failureRef = entry.failureRef;
+    if (entry.level === 'error' && !failureRef) {
+        failureRef = rendererLogger.error(
+            'Renderer error record arrived without a failure receipt',
+            {
                 code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED',
                 context: {},
             },
+            {
+                section: entry.section,
+                window: webContentsId,
+            },
         );
-        return;
     }
-    rendererLogger.info(line);
+    writeLogRecord({
+        ts: entry.timestamp,
+        level: entry.level,
+        proc: 'renderer',
+        scope: entry.section,
+        msg: entry.message,
+        data: entry.data,
+        window: webContentsId,
+        ...(failureRef ? {
+            errorId: failureRef.eventId,
+            code: failureRef.code,
+        } : {}),
+    }, {stdout: false});
 }
 
 export interface IRendererLogBridgeOptions {
@@ -452,8 +311,7 @@ export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
             return;
         }
 
-        const entry = normalizeRendererLogEntry(payload);
-        dispatchRendererLogLine(entry, formatRendererLogLine(webContentsId, entry));
+        dispatchRendererLogRecord(webContentsId, normalizeRendererLogEntry(payload));
     }
 
     registerListener(CORE_IPC_SEND_CHANNELS.rendererLog, handleRendererLog);

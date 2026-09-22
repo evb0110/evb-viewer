@@ -53,19 +53,20 @@ function decodeProgress(value: unknown): TDecodedProgress {
             value: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
         };
     } catch (error) {
-        logger.error(
-            `Rejected scan cleanup worker progress: ${JSON.stringify(value)} `
-            + `(${getErrorMessage(error)})`,
-            {
-                code: 'MAIN_SCAN_CLEANUP_FAILED',
-                context: {
-                    stage: 'worker-task',
-                    errorCode: getScanCleanupDiagnosticErrorCode(error),
-                    failureClass: getScanCleanupDiagnosticFailureClass(error),
-                },
-                cause: error,
+        logger.error('Rejected scan cleanup worker progress', {
+            code: 'MAIN_SCAN_CLEANUP_FAILED',
+            severity: 'error',
+            operation: 'main-error',
+            context: {
+                stage: 'worker-task',
+                errorCode: getScanCleanupDiagnosticErrorCode(error),
+                failureClass: getScanCleanupDiagnosticFailureClass(error),
             },
-        );
+            cause: error,
+        }, {
+            value,
+            errorMessage: getErrorMessage(error),
+        });
         return {kind: 'invalid'};
     }
 }

@@ -1,6 +1,8 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { join } from 'node:path';
 import { startSessionRecording } from '@scripts/electron-run/sessionRecording';
+import { logLauncher } from '@scripts/electron-run/terminalLog';
+import { APP_LOG_FILE_NAME } from '@contracts/logRecord';
 import { assertRecordingTools } from '@scripts/electron-run/recordingVideo';
 import { createServer } from 'node:http';
 import type { ChildProcess } from 'node:child_process';
@@ -68,6 +70,7 @@ import {
 import {
     electronUserDataPath,
     getCurrentSessionName,
+    resolveAutomationFileLogDir,
     sessionDir,
     sessionFilePath,
     sessionKeepNuxtMarkerPath,
@@ -135,7 +138,7 @@ async function ensureSessionCanStart() {
 function resolveForceCleanStart(forceClean: boolean) {
     const otherRunning = listRunningSessions().filter(name => name !== getCurrentSessionName());
     if (forceClean && otherRunning.length > 0) {
-        console.log(`[Nuxt] ${otherRunning.length} other session(s) running (${otherRunning.join(', ')}), skipping Nuxt restart`);
+        logLauncher('info', 'nuxt', `${otherRunning.length} other session(s) running (${otherRunning.join(', ')}), skipping Nuxt restart`);
         return {
             forceClean: false,
             otherRunning,
@@ -153,7 +156,7 @@ function clearElectronUserDataCache() {
             recursive: true,
             force: true,
         });
-        console.log(`[Cache] Cleared ${electronUserDataPath().replace(projectRoot + '/', '')}`);
+        logLauncher('info', 'cache', `Cleared ${electronUserDataPath().replace(projectRoot + '/', '')}`);
     } catch {}
 }
 
@@ -194,7 +197,7 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
     const electronPid = state.electronProcess.pid ?? null;
     const shutdownStartedAt = Date.now();
     if (state.browser.connected) {
-        console.log('[Electron] Requesting graceful app shutdown...');
+        logLauncher('info', 'electron', 'Requesting graceful app shutdown...');
         // Browser.close enters Electron's coordinated before-quit path. Calling
         // windowTabs.closeCurrentWindow here would instead run the user-facing
         // dirty-document close handshake, which cannot receive a dialog decision
@@ -210,11 +213,11 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
             ELECTRON_GRACEFUL_SHUTDOWN_TIMEOUT_MS - (Date.now() - shutdownStartedAt),
         );
         if (remainingMs > 0 && await waitForProcessExit(electronPid, remainingMs)) {
-            console.log('[Electron] Graceful app shutdown complete');
+            logLauncher('info', 'electron', 'Graceful app shutdown complete');
             return;
         }
         if (!isProcessAlive(electronPid)) {
-            console.log('[Electron] Graceful app shutdown complete');
+            logLauncher('info', 'electron', 'Graceful app shutdown complete');
             return;
         }
     }
@@ -242,7 +245,7 @@ async function stopSessionNuxtProcess(state: ISessionState | null, keepNuxtOnSto
             getNuxtPort(),
         )
     ) {
-        console.log('[Nuxt] Left running (shared with other session)');
+        logLauncher('info', 'nuxt', 'Left running (shared with other session)');
         return;
     }
     await killSpawnedProcessTree(state.nuxtProcess, 1200);
@@ -267,7 +270,7 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
         existsSync(workspaceCrashCheckpointPath(getCurrentSessionName())),
     );
     if (keepNuxtOnStop) {
-        console.log('[Nuxt] Keeping dev server alive for fast restart');
+        logLauncher('info', 'nuxt', 'Keeping dev server alive for fast restart');
     }
 
     httpServer?.close();
@@ -276,7 +279,10 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
             console.error(`[Recording] Finalization failed: ${getErrorMessage(error)}`);
             return null;
         });
-        console.log(`[Recording] ${evidence?.status ?? 'failed'}: ${sessionState.recording.manifest.reviewPath}`);
+        logLauncher(evidence?.status === 'complete' ? 'info' : 'warn', 'recording', 'Recording evidence', {
+            status: evidence?.status ?? 'failed',
+            review: sessionState.recording.manifest.reviewPath,
+        });
         if (evidence?.status !== 'complete') { exitCode = exitCode || 1; }
     }
     await stopSessionElectronProcess(sessionState);
@@ -318,7 +324,7 @@ function installStartupSignalCleanup() {
             return;
         }
         cleanupStarted = true;
-        console.log(`\n[Session] Received ${signal} during startup, cleaning up...`);
+        logLauncher('info', 'session', `Received ${signal} during startup, cleaning up...`);
         cleanupPromise = cleanupSessionStartingAttempt()
             .catch((error) => {
                 const message = getErrorMessage(error);
@@ -449,8 +455,11 @@ function listenForSessionCommands(options: {
 export async function startControlledSession(forceClean = false, options: IStartSessionOptions = {}) {
     const outputTee = installDevServerOutputTee();
     if (outputTee) {
-        console.log(`[DevOutput] Tee logs: ${outputTee.relativeRunDir}`);
-        console.log(`[DevOutput] Stable session log: ${outputTee.sessionLogFile}`);
+        logLauncher('info', 'logs', 'Session logs', {
+            run: outputTee.relativeRunDir,
+            session: outputTee.sessionLogFile,
+            app: join(resolveAutomationFileLogDir(process.env), APP_LOG_FILE_NAME),
+        });
     }
 
     const logTiming = createStartupLogger();
@@ -475,7 +484,7 @@ export async function startControlledSession(forceClean = false, options: IStart
         const startupOptions = resolveForceCleanStart(sharedRenderer ? false : forceClean);
         let nuxtProcess: ChildProcess | null = null;
         if (sharedRenderer) {
-            console.log(`[Nuxt] Using shared Electron E2E renderer at http://127.0.0.1:${sharedRenderer.port}/electron`);
+            logLauncher('info', 'nuxt', `Using shared Electron E2E renderer at http://127.0.0.1:${sharedRenderer.port}/electron`);
             if (!await waitForReusableNuxtServer(30_000)) {
                 throw new Error(`Shared Electron E2E renderer on port ${sharedRenderer.port} did not become reusable`);
             }
@@ -505,7 +514,7 @@ export async function startControlledSession(forceClean = false, options: IStart
             ...(options.initialOpenPaths ?? []),
         ]);
         if (initialOpenPaths.length > 0) {
-            console.log(`[Electron] Initial open path(s): ${initialOpenPaths.length}`);
+            logLauncher('info', 'electron', `Initial open path(s): ${initialOpenPaths.length}`);
         }
         const launch = await launchAutomationSessionWithRecovery({
             cdpPort: ports.cdpPort,
@@ -535,7 +544,7 @@ export async function startControlledSession(forceClean = false, options: IStart
                 session: getCurrentSessionName(),
                 cwd: projectRoot,
             });
-            console.log(`[Recording] ${sessionState.recording.manifest.manifestPath}`);
+            logLauncher('info', 'recording', `${sessionState.recording.manifest.manifestPath}`);
         }
 
         let isShuttingDown = false;
@@ -552,8 +561,8 @@ export async function startControlledSession(forceClean = false, options: IStart
             if (isShuttingDown) {
                 return;
             }
-            console.log(`\n[Electron] Process exited (code: ${code ?? '<unknown>'}, signal: ${signal ?? '<unknown>'})`);
-            console.log('[Session] Electron died - shutting down session...');
+            logLauncher('warn', 'electron', `Process exited (code: ${code ?? '<unknown>'}, signal: ${signal ?? '<unknown>'})`);
+            logLauncher('warn', 'session', 'Electron died - shutting down session...');
             void cleanupAndExit(1);
         });
 
@@ -561,8 +570,8 @@ export async function startControlledSession(forceClean = false, options: IStart
             if (isShuttingDown) {
                 return;
             }
-            console.log('\n[Puppeteer] Browser disconnected');
-            console.log('[Session] Lost connection to Electron - shutting down session...');
+            logLauncher('info', 'cdp', 'Browser disconnected');
+            logLauncher('warn', 'session', 'Lost connection to Electron - shutting down session...');
             void cleanupAndExit(1);
         });
 

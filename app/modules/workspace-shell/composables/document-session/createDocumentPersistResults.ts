@@ -3,7 +3,10 @@
 // guess whether a refused result was an error, a cancellation, or a document
 // that moved on.
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
-import type { IPdfPersistResult } from '@app/types/pdfUi';
+import type {
+    IPdfPersistFailure,
+    IPdfPersistResult,
+} from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { createFailedPdfPersistResult } from '@app/services/pdf-file/createFailedPdfPersistResult';
 import { createPdfPersistResult } from '@app/services/pdf-file/createPdfPersistResult';
@@ -15,8 +18,9 @@ export function createDocumentPersistResults(getOriginalPath: () => TDocumentRef
         didSaveAs: boolean,
         outPath: TDocumentRef | null = success && !didSaveAs ? getOriginalPath() : null,
         abortReason?: IPdfPersistResult['abortReason'],
+        failure?: IPdfPersistFailure,
     ): IPdfPersistResult {
-        return createPdfPersistResult(success, saveMode, didSaveAs, outPath, abortReason);
+        return createPdfPersistResult(success, saveMode, didSaveAs, outPath, abortReason, failure);
     }
 
     /**

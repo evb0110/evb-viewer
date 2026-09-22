@@ -14,7 +14,6 @@ import {
 } from '@app/utils/rendererDiagnosticNotices';
 import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
-const RENDERER_GUARD_WARN_THROTTLE_MS = 5000;
 const MAX_SERIALIZED_ERROR_LENGTH = 12_000;
 
 interface IRendererErrorGuardState { cleanup: () => void; }
@@ -201,12 +200,11 @@ export default defineNuxtPlugin((nuxtApp) => {
     const errorHandler = (error: unknown, instance: ComponentPublicInstance | null, info: string) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(error);
         if (ignorableMessage) {
-            BrowserLogger.warnThrottled(
+            BrowserLogger.debug(
                 'renderer-guard',
-                ignorableMessage,
-                RENDERER_GUARD_WARN_THROTTLE_MS,
                 'Ignored benign Vue error',
                 {
+                    ignorableMessage,
                     info,
                     component: getComponentName(instance),
                     error: serializeError(error),
@@ -228,12 +226,11 @@ export default defineNuxtPlugin((nuxtApp) => {
     const onWindowError = (event: ErrorEvent) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(event.error ?? event.message);
         if (ignorableMessage) {
-            BrowserLogger.warnThrottled(
+            BrowserLogger.debug(
                 'renderer-guard',
-                ignorableMessage,
-                RENDERER_GUARD_WARN_THROTTLE_MS,
                 'Ignored benign window error',
                 {
+                    ignorableMessage,
                     message: event.message,
                     filename: event.filename,
                     lineno: event.lineno,
@@ -256,12 +253,13 @@ export default defineNuxtPlugin((nuxtApp) => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(event.reason);
         if (ignorableMessage) {
-            BrowserLogger.warnThrottled(
+            BrowserLogger.debug(
                 'renderer-guard',
-                ignorableMessage,
-                RENDERER_GUARD_WARN_THROTTLE_MS,
                 'Ignored benign promise rejection',
-                {reason: serializeError(event.reason)},
+                {
+                    ignorableMessage,
+                    reason: serializeError(event.reason),
+                },
             );
             return;
         }

@@ -22,7 +22,12 @@ function logElectronPerf(label: string, startedAt: number, thresholdMs: number, 
         return;
     }
 
-    perfLogger.debug(`${label} ${Math.round(durationMs * 100) / 100}ms${details ? ` ${JSON.stringify(details)}` : ''}`);
+    perfLogger.debug('Electron performance threshold exceeded', {
+        label,
+        durationMs: Math.round(durationMs * 100) / 100,
+        thresholdMs,
+        ...(details === undefined ? {} : {details}),
+    });
 }
 
 export async function measureElectronPerfAsync<T>(

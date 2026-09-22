@@ -1,6 +1,9 @@
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type { TPdfSaveMode } from '@app/types/pdfContracts';
-import type { IPdfPersistResult } from '@app/types/pdfUi';
+import type {
+    IPdfPersistFailure,
+    IPdfPersistResult,
+} from '@app/types/pdfUi';
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -351,22 +354,36 @@ export function createDocumentPersistence(
     async function saveWorkingCopyToOriginal(
         workingPath: TDocumentRef,
         expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
-    ) {
+    ): Promise<{ok: true} | {
+        ok: false;
+        failure: IPdfPersistFailure
+    }> {
         const documentFiles = getDocumentFilesCapability();
         const result = await documentFiles.saveFileStructured(
             workingPath,
             createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
         );
         if (!result.ok) {
+            const failure: IPdfPersistFailure = {
+                channel: 'file:saveStructured',
+                operation: 'saveFileStructured',
+                phase: 'publish-original',
+                reason: result.reason,
+                ...(result.message === undefined ? {} : {message: result.message}),
+                ...(result.validation === undefined ? {} : {validation: result.validation}),
+            };
             state.error.value = result.validation?.errors.join('\n')
                 ?? result.message
                 ?? deps.t('errors.file.save');
-            return false;
+            return {
+                ok: false,
+                failure,
+            };
         }
         if (result.warning) {
             BrowserLogger.warn('workspace', 'Working-copy save completed with a platform warning', result.warning);
         }
-        return true;
+        return {ok: true};
     }
 
     async function saveFile(
@@ -462,8 +479,12 @@ export function createDocumentPersistence(
                 });
             }
 
-            if (!await saveWorkingCopyToOriginal(workingPath, stagedRequest.expectedDocumentRevisionToken)) {
-                return createFailedPersistResult(requestedSaveMode, false);
+            const persistenceResult = await saveWorkingCopyToOriginal(
+                workingPath,
+                stagedRequest.expectedDocumentRevisionToken,
+            );
+            if (!persistenceResult.ok) {
+                return createFailedPersistResult(requestedSaveMode, false, persistenceResult.failure);
             }
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale working-copy save completion', {

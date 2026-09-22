@@ -1,9 +1,14 @@
-function formatElapsedMs(startedAt: number) {
-    return `${((Date.now() - startedAt) / 1000).toFixed(2)}s`;
-}
+import {
+    formatLauncherElapsed,
+    logLauncher,
+} from '@scripts/electron-run/terminalLog';
 
-export function createStartupLogger(startedAt = Date.now()) {
+/**
+ * Startup milestones share the launcher's process clock, so a session start
+ * reads as one monotonic timeline across Nuxt, Electron and CDP attach.
+ */
+export function createStartupLogger(startedAt?: number) {
     return (message: string) => {
-        console.log(`[Startup +${formatElapsedMs(startedAt)}] ${message}`);
+        logLauncher('info', 'startup', message, {elapsed: formatLauncherElapsed(startedAt)});
     };
 }

@@ -60,18 +60,14 @@ function createDeferred<T>() {
 const dependentSettleBound = vi.hoisted(() => {
     const previousValue = process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS;
     process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS = '50';
-    return {
-        timeoutMs: 50,
-        restore: () => {
-            if (previousValue === undefined) {
-                delete process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS;
-                return;
-            }
-            process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS = previousValue;
-        },
-    };
+    return {restore: () => {
+        if (previousValue === undefined) {
+            delete process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS;
+            return;
+        }
+        process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS = previousValue;
+    }};
 });
-const DEPENDENT_SETTLE_TIMEOUT_MS = dependentSettleBound.timeoutMs;
 
 afterAll(dependentSettleBound.restore);
 
@@ -508,12 +504,12 @@ describe('working-copy cleanup materialization retirement', () => {
         expect(existsSync(dirname(workingPath))).toBe(true);
         expect(existsSync(workingPath)).toBe(true);
         expect(state.workingCopyMap.has(workingPath)).toBe(true);
-        expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-            `Retained the working copy directory for "${workingPath}"`,
-        ));
-        expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining('critical-write#scan-cleanup'));
         expect(state.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining(`within ${DEPENDENT_SETTLE_TIMEOUT_MS}ms`),
+            'Retained the working copy directory instead of deleting it',
+            expect.objectContaining({
+                workingPath,
+                reason: expect.stringContaining('critical-write#scan-cleanup'),
+            }),
         );
         // Retention is the designed outcome of an unprovable stop. Reporting it
         // at error level would turn the user's tab close into an application
@@ -552,9 +548,10 @@ describe('working-copy cleanup materialization retirement', () => {
         expect(state.workingCopyMap.get(workingPath)?.registrationId).toBe(74);
         expect(existsSync(dirname(workingPath))).toBe(true);
         expect(existsSync(workingPath)).toBe(true);
-        expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-            `Skipped cleanup for a working copy re-registered while its dependents settled "${workingPath}"`,
-        ));
+        expect(state.logger.warn).toHaveBeenCalledWith(
+            'Skipped cleanup for a working copy re-registered during dependent settlement',
+            {workingCopyPath: workingPath},
+        );
     });
 
     it('stops a dependent that appears while the first ones are settling', async () => {
@@ -623,9 +620,13 @@ describe('working-copy cleanup materialization retirement', () => {
 
         expect(existsSync(dirname(workingPath))).toBe(true);
         expect(existsSync(workingPath)).toBe(true);
-        expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-            'operation(s) still hold this working copy',
-        ));
+        expect(state.logger.warn).toHaveBeenCalledWith(
+            'Retained the working copy directory instead of deleting it',
+            expect.objectContaining({
+                workingPath,
+                reason: expect.stringContaining('operation(s) still hold this working copy'),
+            }),
+        );
         expect(state.logger.error).not.toHaveBeenCalled();
     });
 
@@ -679,9 +680,13 @@ describe('working-copy cleanup materialization retirement', () => {
 
         expect(state.workingCopyMap.has(workingPath)).toBe(false);
         expect(existsSync(workingPath)).toBe(true);
-        expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-            'the working copy is quarantined (evb-scan-cleanup process tree (pid=4242) was not proven dead)',
-        ));
+        expect(state.logger.warn).toHaveBeenCalledWith(
+            'Retained the working copy directory instead of deleting it',
+            expect.objectContaining({
+                workingPath,
+                reason: expect.stringContaining('the working copy is quarantined (evb-scan-cleanup process tree (pid=4242) was not proven dead)'),
+            }),
+        );
         expect(state.logger.error).not.toHaveBeenCalled();
     });
 
@@ -749,9 +754,10 @@ describe('working-copy cleanup materialization retirement', () => {
         expect(existsSync(dirname(settling.workingPath))).toBe(false);
         expect(existsSync(wedged.workingPath)).toBe(true);
         expect(state.workingCopyMap.has(wedged.workingPath)).toBe(true);
-        expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-            `Retained the working copy directory for "${wedged.workingPath}"`,
-        ));
+        expect(state.logger.warn).toHaveBeenCalledWith(
+            'Retained the working copy directory instead of deleting it',
+            expect.objectContaining({workingPath: wedged.workingPath}),
+        );
         // Shutdown reports unsaved work as a fault. A reader that could not be
         // proven stopped is not that, so it must not become one.
         expect(state.logger.error).not.toHaveBeenCalled();
@@ -787,9 +793,10 @@ describe('working-copy cleanup materialization retirement', () => {
         // Losing the registration is not the same answer as "a dependent would
         // not stop", and reporting it as the latter would blame a document that
         // was never asked to close.
-        expect(state.logger.warn).toHaveBeenCalledWith(expect.stringContaining(
-            `Skipped cleanup for a working copy re-registered while its dependents settled "${workingPath}"`,
-        ));
+        expect(state.logger.warn).toHaveBeenCalledWith(
+            'Skipped cleanup for a working copy re-registered during dependent settlement',
+            {workingCopyPath: workingPath},
+        );
         expect(state.logger.warn).not.toHaveBeenCalledWith(expect.stringContaining(
             'had not stopped',
         ));

@@ -813,6 +813,14 @@ process.on('unhandledRejection', (reason) => {
         },
     );
 });
+// Node still prints warnings to stderr; this copy carries the stack that
+// locates the source (for example which listener exceeded MaxListeners).
+process.on('warning', (warning) => {
+    logger.warn(`Node warning: ${warning.message}`, {
+        name: warning.name,
+        stack: warning.stack,
+    });
+});
 process.on('uncaughtException', (error) => {
     const receipt = startupCrashMarker.captureLiveException(error);
     requestFatalShutdown(

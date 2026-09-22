@@ -14,6 +14,7 @@ import {
     join,
     relative,
 } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import {
     getCurrentSessionName,
@@ -67,11 +68,18 @@ export interface IDevServerOutputTee {
     readonly logManifestFile: string;
     readonly sessionLogFile: string;
     readonly runCombinedLogFile: string;
-    write(source: string, stream: TOutputStreamName, chunk: TOutputChunk): void;
+    write(source: string, stream: TOutputStreamName, chunk: TOutputChunk, options?: ITeeWriteOptions): void;
     writeLine(source: string, stream: TOutputStreamName, line: string): void;
     installProcessStreamTee(source?: string): void;
     close(): void;
 }
+
+/**
+ * `aggregate: false` keeps the chunk in its per-source files only. Raw Electron
+ * and Nuxt output use this: the launcher prints a formatted line for it, and
+ * that line is what the session log should contain.
+ */
+export interface ITeeWriteOptions {readonly aggregate?: boolean;}
 
 let activeTee: DevServerOutputTee | null = null;
 const openTeeRunDirs = new Set<string>();
@@ -191,6 +199,8 @@ class DevServerOutputTee implements IDevServerOutputTee {
     private readonly sourceStems = new Set<string>();
     private readonly stableLogEnabled: boolean;
     private readonly restoreProcessStreams: Array<() => void> = [];
+    /** Unterminated line tails per `stem:stream`, so prefixes land on whole lines. */
+    private readonly partialLines = new Map<string, string>();
     private closed = false;
 
     constructor(options: Required<ICreateDevServerOutputTeeOptions>) {
@@ -255,7 +265,7 @@ class DevServerOutputTee implements IDevServerOutputTee {
         this.pruneCompletedRuns(options.now);
     }
 
-    write(source: string, stream: TOutputStreamName, chunk: TOutputChunk) {
+    write(source: string, stream: TOutputStreamName, chunk: TOutputChunk, options: ITeeWriteOptions = {}) {
         if (this.closed) {
             return;
         }
@@ -267,7 +277,15 @@ class DevServerOutputTee implements IDevServerOutputTee {
         }
         const buffer = toBuffer(chunk);
         this.writeFile(`${stem}.${stream}.log`, buffer);
-        this.writeCombinedFile(stem, stream, buffer);
+        const key = `${stem}:${stream}`;
+        const text = (this.partialLines.get(key) ?? '') + stripVTControlCharacters(buffer.toString('utf8'));
+        const lastNewline = text.lastIndexOf('\n');
+        if (lastNewline === -1) {
+            this.partialLines.set(key, text);
+            return;
+        }
+        this.partialLines.set(key, text.slice(lastNewline + 1));
+        this.writeCombinedLines(stem, stream, text.slice(0, lastNewline + 1), options.aggregate !== false);
     }
 
     writeLine(source: string, stream: TOutputStreamName, line: string) {
@@ -290,6 +308,21 @@ class DevServerOutputTee implements IDevServerOutputTee {
             return;
         }
 
+        for (const [
+            key,
+            tail,
+        ] of this.partialLines) {
+            if (tail.length > 0) {
+                const separator = key.lastIndexOf(':');
+                this.writeCombinedLines(
+                    key.slice(0, separator),
+                    key.slice(separator + 1) as TOutputStreamName,
+                    `${tail}\n`,
+                    true,
+                );
+            }
+        }
+        this.partialLines.clear();
         this.closed = true;
         for (const restore of this.restoreProcessStreams.splice(0).reverse()) {
             restore();
@@ -378,14 +411,19 @@ class DevServerOutputTee implements IDevServerOutputTee {
         } catch {}
     }
 
-    private writeCombinedFile(stem: string, stream: TOutputStreamName, buffer: Buffer) {
+    /** `lines` ends with a newline; every line gets exactly one prefix. */
+    private writeCombinedLines(stem: string, stream: TOutputStreamName, lines: string, aggregate: boolean) {
         const timestamp = new Date().toISOString();
+        const body = lines.slice(0, -1);
         const prefix = `[${timestamp} ${stream}] `;
-        const text = buffer.toString('utf8').replace(/^/gmu, prefix);
+        const text = `${body.replace(/^/gmu, prefix)}\n`;
         this.writeFile(`${stem}.combined.log`, Buffer.from(text));
+        if (!aggregate) {
+            return;
+        }
 
         const aggregatePrefix = `[${timestamp} ${stem} ${stream}] `;
-        const aggregateText = buffer.toString('utf8').replace(/^/gmu, aggregatePrefix);
+        const aggregateText = `${body.replace(/^/gmu, aggregatePrefix)}\n`;
         this.writeFile('session.combined.log', Buffer.from(aggregateText));
         if (this.stableLogEnabled) {
             try {

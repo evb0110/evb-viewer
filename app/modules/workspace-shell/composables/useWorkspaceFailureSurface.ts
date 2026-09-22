@@ -93,6 +93,7 @@ export const useWorkspaceFailureSurface = () => {
         reason: TWorkspaceSaveFailureReason,
         detail?: string | null,
         existingReceipt?: FailureReceipt,
+        diagnostics?: unknown,
     ) {
         if (isDuplicateFailure({
             domain: 'save',
@@ -108,6 +109,7 @@ export const useWorkspaceFailureSurface = () => {
                 operationId,
                 reason,
                 detail: description,
+                ...(diagnostics === undefined ? {} : {diagnostics}),
             },
             {
                 code: 'RENDERER_WORKSPACE_OPERATION_FAILED',

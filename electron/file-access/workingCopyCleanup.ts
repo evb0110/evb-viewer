@@ -145,9 +145,7 @@ async function performCleanupStaleWorkingCopyDirectories(
     removedOcrDirectories: number;
 }> {
     if (staleWorkingCopyCleanupBlockedReason) {
-        logger.warn(
-            `Skipped stale working-copy cleanup because recovery preservation is required: ${staleWorkingCopyCleanupBlockedReason}`,
-        );
+        logger.warn('Skipped stale working-copy cleanup for recovery preservation', {reason: staleWorkingCopyCleanupBlockedReason});
         return {
             removedDirectories: 0,
             removedOcrDirectories: 0,
@@ -274,12 +272,14 @@ async function performCleanupStaleWorkingCopyDirectories(
     }));
 
     if (removedAtomicReplaceBackups > 0) {
-        logger.info(`Cleaned stale atomic replace backups: ${removedAtomicReplaceBackups}`);
+        logger.info('Cleaned stale atomic replace backups', {removedAtomicReplaceBackups});
     }
     if (removedDirectories > 0 || removedOcrDirectories > 0) {
-        logger.info(
-            `Cleaned stale working copy temp directories (work=${removedDirectories}, ocr=${removedOcrDirectories}, scanned=${candidates.length})`,
-        );
+        logger.info('Cleaned stale working copy temp directories', {
+            removedDirectories,
+            removedOcrDirectories,
+            scanned: candidates.length,
+        });
     }
 
     return {
@@ -342,7 +342,7 @@ async function cleanupWorkingCopyDirectory(
             const ocrDir = `${workDir}.ocr`;
             const resolvedOriginalPath = originalPath ? normalizePathForLookup(originalPath) : null;
             if (resolvedOriginalPath && isPathWithin(workDir, resolvedOriginalPath)) {
-                logger.warn(`Refused to delete a working directory containing its original backing: ${workDir}`);
+                logger.warn('Refused to delete a working directory containing its original backing', {workDir});
                 await rm(ocrDir, {
                     recursive: true,
                     force: true,
@@ -361,7 +361,7 @@ async function cleanupWorkingCopyDirectory(
             ]);
         }
     } catch (err) {
-        logger.warn(`Failed to delete working directory: ${getErrorMessage(err)}`);
+        logger.warn('Failed to delete working directory', {error: getErrorMessage(err)});
     }
 }
 
@@ -443,11 +443,10 @@ async function settleWorkingCopyMaterialization(
         }
     }
     await settlement.catch((error) => {
-        logger.debug(
-            `${hasActiveDemand ? 'Joined' : 'Cancelled'} working-copy materialization settled with an error: ${
-                getErrorMessage(error)
-            }`,
-        );
+        logger.debug('Working-copy materialization settled with an error', {
+            outcome: hasActiveDemand ? 'joined' : 'cancelled',
+            error: getErrorMessage(error),
+        });
     });
     await waitForOperationSettlement(abortableOperationIds);
 }
@@ -516,14 +515,15 @@ async function stopWorkingCopyDependents(
             };
         }
         if (round === 0) {
-            logger.debug(
-                `Cancelled ${canceled.length} dependent operation(s) for a closing working copy `
-                + `(${canceled.map(operation => operation.kind).join(', ')})`,
-            );
+            logger.debug('Cancelled dependent operations for a closing working copy', {
+                count: canceled.length,
+                kinds: canceled.map(operation => operation.kind),
+            });
         } else {
-            logger.debug(
-                `Cancelled ${canceled.length} dependent operation(s) that started while "${workingPath}" was closing`,
-            );
+            logger.debug('Cancelled dependent operations that started during working-copy cleanup', {
+                count: canceled.length,
+                workingPath,
+            });
         }
         const settlement = await waitForMainOperationsSettled(canceled, {timeoutMs});
         if (!settlement.settled) {
@@ -589,7 +589,10 @@ function reportRetainedWorkingCopy(
     workingPath: string,
     reason: string,
 ) {
-    logger.warn(`Retained the working copy directory for "${workingPath}" instead of deleting it: ${reason}`);
+    logger.warn('Retained the working copy directory instead of deleting it', {
+        workingPath,
+        reason,
+    });
 }
 
 function describeUnsettledDependents(
@@ -696,7 +699,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
 
     const originalEntry = workingCopyMap.get(normalizedPath);
     if (!originalEntry) {
-        logger.warn(`Rejected cleanup for unmanaged working copy path "${normalizedPath}"`);
+        logger.warn('Rejected cleanup for unmanaged working copy path', {workingPath: normalizedPath});
         return false;
     }
     const workingCopyPath = getWorkingCopyLogicalPath(normalizedPath, originalEntry);
@@ -705,14 +708,12 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         typeof ownerWebContentsId === 'number'
         && ownerWebContentsId !== senderWebContentsId
     ) {
-        logger.warn(`Rejected cleanup for working copy path owned by another sender "${normalizedPath}"`);
+        logger.warn('Rejected cleanup for working copy path owned by another sender', {workingPath: normalizedPath});
         return false;
     }
 
     if (hasWorkingCopyRecoveryClaim(normalizedPath)) {
-        logger.warn(
-            `Retained recovery working copy while its checkpoint adoption is unresolved "${normalizedPath}"`,
-        );
+        logger.warn('Retained recovery working copy while checkpoint adoption is unresolved', {workingPath: normalizedPath});
         return false;
     }
 
@@ -728,9 +729,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
     );
     if (settlement.outcome === 'ownership-lost') {
-        logger.warn(
-            `Skipped cleanup for a working copy re-registered while its dependents settled "${workingCopyPath}"`,
-        );
+        logger.warn('Skipped cleanup for a working copy re-registered during dependent settlement', {workingCopyPath});
         return false;
     }
     if (settlement.outcome === 'unsettled') {
@@ -751,7 +750,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         typeof currentOwnerWebContentsId === 'number'
         && currentOwnerWebContentsId !== senderWebContentsId
     ) {
-        logger.warn(`Rejected cleanup for working copy path whose owner changed while waiting "${workingCopyPath}"`);
+        logger.warn('Rejected cleanup because the working-copy owner changed while waiting', {workingCopyPath});
         return false;
     }
 
@@ -764,9 +763,7 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
         DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
     );
     if (postMaterializationSettlement.outcome === 'ownership-lost') {
-        logger.warn(
-            `Skipped cleanup for a working copy re-registered while its dependents settled "${workingCopyPath}"`,
-        );
+        logger.warn('Skipped cleanup for a working copy re-registered during dependent settlement', {workingCopyPath});
         return false;
     }
     if (postMaterializationSettlement.outcome === 'unsettled') {
@@ -783,7 +780,10 @@ export async function cleanupWorkingCopy(workingPath: string, senderWebContentsI
 
     const retirement = await retireAndDeleteWorkingCopy(workingCopyPath, originalEntry);
     if (retirement.status === 'skipped') {
-        logger.warn(`Skipped cleanup for a working copy: ${retirement.reason} "${workingCopyPath}"`);
+        logger.warn('Skipped cleanup for a working copy', {
+            workingCopyPath,
+            reason: retirement.reason,
+        });
         return false;
     }
     if (retirement.status === 'retained') {
@@ -870,14 +870,13 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
         clearPageIdentityStoreInitializations();
     }
     if (skipPaths.size > 0) {
-        logger.warn(
-            `Skipped shutdown deletion for ${skipPaths.size} working copy path(s) with pending writes or dirty sync state: ${
-                Array.from(skipPaths).join(', ')
-            }`,
-        );
+        logger.warn('Skipped shutdown deletion for working copies with pending writes or dirty sync state', {
+            count: skipPaths.size,
+            workingPaths: Array.from(skipPaths),
+        });
     }
-    logger.debug(
-        `Deleted ${retiredPaths.size} working copy director(ies) during shutdown, `
-        + `retained ${retainedPaths.size}`,
-    );
+    logger.debug('Deleted working copy directories during shutdown', {
+        deleted: retiredPaths.size,
+        retained: retainedPaths.size,
+    });
 }

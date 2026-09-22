@@ -46,7 +46,7 @@ export function attachShowLifecycle(
                 stabilityCheckTimeout: !!stabilityCheckTimeout,
                 ...details,
             };
-            options.logger.debug(`${event} ${JSON.stringify(info)}`);
+            options.logger.debug(event, info);
         }
     };
 
@@ -55,7 +55,10 @@ export function attachShowLifecycle(
             windowWebContents.removeListener('did-start-navigation', onStartNavigation);
             windowWebContents.removeListener('did-finish-load', onFinishLoad);
         } catch (error) {
-            options.logger.warn(`Failed to cleanup startup show listeners for window ${windowId}: ${getErrorMessage(error)}`);
+            options.logger.warn('Failed to cleanup startup show listeners', {
+                windowId,
+                error: getErrorMessage(error),
+            });
         }
         deleteWindowRendererReadyCallback(windowId);
     };

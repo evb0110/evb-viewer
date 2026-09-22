@@ -156,7 +156,10 @@ export class WindowTabTransferBroker {
         }
 
         if (pending.targetWindowId !== windowId) {
-            logger.warn(`Ignoring transfer ack from unexpected window ${windowId} for transfer ${ack.transferId}`);
+            logger.warn('Ignoring transfer ack from unexpected window', {
+                windowId,
+                transferId: ack.transferId,
+            });
             return false;
         }
 

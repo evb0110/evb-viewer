@@ -62,6 +62,7 @@ const mocks = vi.hoisted(() => ({
     markWorkingCopyContentChanged: vi.fn(),
     transitionWorkingCopyContentRevision: vi.fn(),
     ensureWorkingCopyMaterialized: vi.fn(),
+    loggerWarn: vi.fn(),
 }));
 
 vi.mock('@electron/utils/atomicReplace', () => ({
@@ -110,6 +111,12 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_2) => ({
     getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args),
 }));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: (...args: unknown[]) => mocks.loggerWarn(...args),
+    error: vi.fn(),
+})}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => {
     class WorkingCopyMaterializationError extends Error {
         readonly code: string;
@@ -311,6 +318,41 @@ describe('workingCopySave', () => {
                 validation: {isValid: true},
             });
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
+    });
+
+    it('logs the validation cause for a rejected structured save', async () => {
+        const workingPath = join(tempRoot, 'invalid-working.pdf');
+        const originalPath = join(tempRoot, 'invalid-original.pdf');
+        writeFileSync(workingPath, 'invalid-working');
+        writeFileSync(originalPath, 'old-original');
+        mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
+        const validation = {
+            isValid: false,
+            tool: 'qpdf' as const,
+            errors: ['qpdf: structural validation failed'],
+            warnings: ['qpdf: recovered object stream'],
+        };
+        mocks.validatePdfFileForSave.mockResolvedValue(validation);
+        const {handleFileSaveStructured} = await import('@electron/features/documents/main/workingCopySave');
+
+        await expect(handleFileSaveStructured(context, workingPath, revisionOptions))
+            .resolves
+            .toMatchObject({
+                ok: false,
+                reason: 'validation-failed',
+                validation,
+            });
+        expect(mocks.loggerWarn).toHaveBeenCalledWith(
+            'Structured working-copy save rejected',
+            expect.objectContaining({
+                channel: 'file:saveStructured',
+                operation: 'saveFileStructured',
+                phase: 'validate-before-publish',
+                reason: 'validation-failed',
+                error: validation.errors[0],
+                validation,
+            }),
+        );
     });
 
     it('returns a typed stale conflict without overwriting a same-size external replacement', async () => {

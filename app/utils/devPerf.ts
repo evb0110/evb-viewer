@@ -1,7 +1,14 @@
+import { BrowserLogger } from '@app/utils/browserLogger';
+
 interface IDevPerfDetails { [key: string]: unknown; }
 
+// A synchronous measurement this long drops frames; it is worth a warning in
+// the dev terminal rather than a debug record.
+const DEV_PERF_SLOW_MS = 50;
+const DEV_PERF_WARN_INTERVAL_MS = 5_000;
+
 function isDevPerfEnabled() {
-    return import.meta.dev && typeof performance !== 'undefined' && typeof console !== 'undefined';
+    return import.meta.dev && typeof performance !== 'undefined';
 }
 
 function logDevPerf(label: string, startedAt: number, thresholdMs: number, details?: IDevPerfDetails) {
@@ -14,10 +21,15 @@ function logDevPerf(label: string, startedAt: number, thresholdMs: number, detai
         return;
     }
 
-    console.debug(`[perf] ${label}`, {
+    const data = {
         durationMs: Math.round(durationMs * 100) / 100,
         ...details,
-    });
+    };
+    if (durationMs >= DEV_PERF_SLOW_MS) {
+        BrowserLogger.warnThrottled('perf', label, DEV_PERF_WARN_INTERVAL_MS, `${label} was slow`, data);
+        return;
+    }
+    BrowserLogger.debug('perf', label, data);
 }
 
 export function measureDevPerf<T>(

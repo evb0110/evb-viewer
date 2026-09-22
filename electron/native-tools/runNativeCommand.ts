@@ -54,6 +54,7 @@ export interface IRunCommandOptions {
 const DEFAULT_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144, 1_024);
 const DEFAULT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144, 1_024);
 const DEFAULT_TERMINATION_GRACE_MS = parseIntegerEnv('EVB_NATIVE_TOOL_TERMINATION_GRACE_MS', 1_000, 250);
+const NATIVE_PROCESS_WATCHDOG_MS = 5_000;
 const nativeProcessTelemetryLog = createLogger('native-process-telemetry');
 let activeNativeProcessCount = 0;
 const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = parseIntegerEnv(
@@ -344,10 +345,15 @@ export async function runNativeCommand(
         const stdoutDecoder = new StringDecoder('utf8');
         const stderrDecoder = new StringDecoder('utf8');
         let timeoutHandle: NodeJS.Timeout | null = null;
+        let watchdogHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
         let pendingTerminationError = null as Error | null;
         let terminationPromise: Promise<boolean> | null = null;
         let settled = false as boolean;
+        let watchdogTriggered = false;
+        let settlementOutcome: 'resolved' | 'rejected' | null = null;
+        let settlementExitCode: number | null = null;
+        let settlementSignal: NodeJS.Signals | null = null;
         let processAdmitted = false;
         const startedAt = performance.now();
         let stdoutDataHandler: ((data: Buffer) => void) | null = null;
@@ -447,13 +453,26 @@ export async function runNativeCommand(
             if (processAdmitted) {
                 processAdmitted = false;
                 activeNativeProcessCount = Math.max(0, activeNativeProcessCount - 1);
-                nativeProcessTelemetryLog.debug(
-                    `Native process settled: command=${context.displayName} durationMs=${Math.round(performance.now() - startedAt)} active=${activeNativeProcessCount}`,
-                );
+                const settledLog = watchdogTriggered
+                    ? nativeProcessTelemetryLog.warn
+                    : nativeProcessTelemetryLog.debug;
+                settledLog('Native process settled', {
+                    command: context.displayName,
+                    durationMs: Math.round(performance.now() - startedAt),
+                    active: activeNativeProcessCount,
+                    outcome: settlementOutcome ?? 'unknown',
+                    exitCode: settlementExitCode,
+                    signal: settlementSignal,
+                    watchdogTriggered,
+                });
             }
             if (timeoutHandle) {
                 clearTimeout(timeoutHandle);
                 timeoutHandle = null;
+            }
+            if (watchdogHandle) {
+                clearTimeout(watchdogHandle);
+                watchdogHandle = null;
             }
             if (forceRejectHandle) {
                 clearTimeout(forceRejectHandle);
@@ -473,12 +492,15 @@ export async function runNativeCommand(
         };
 
         const finalizeReject = (error: Error) => {
+            settlementOutcome = 'rejected';
             finalize(() => {
                 reject(error);
             });
         };
 
         const finalizeResolve = (result: IProcessResult) => {
+            settlementOutcome = 'resolved';
+            settlementExitCode = result.exitCode;
             finalize(() => {
                 resolve(result);
             });
@@ -506,9 +528,18 @@ export async function runNativeCommand(
             proc = spawnNativeProcess(command, args, context, windowsHide);
             processAdmitted = true;
             activeNativeProcessCount += 1;
-            nativeProcessTelemetryLog.debug(
-                `Native process spawned: command=${context.displayName} active=${activeNativeProcessCount}`,
-            );
+            watchdogHandle = setTimeout(() => {
+                if (settled || !proc) {
+                    return;
+                }
+                watchdogTriggered = true;
+                nativeProcessTelemetryLog.warn('Native process still running', {
+                    command: context.displayName,
+                    elapsedMs: Math.round(performance.now() - startedAt),
+                    pid: proc.pid ?? null,
+                });
+            }, NATIVE_PROCESS_WATCHDOG_MS);
+            watchdogHandle.unref();
         } catch (error) {
             const message = `${context.displayName} failed to start: ${getErrorMessage(error)}`;
             log?.('error', `${message}; cmd=${context.displayCommand}`);
@@ -613,6 +644,8 @@ export async function runNativeCommand(
                 return;
             }
             const exitCode = typeof code === 'number' ? code : null;
+            settlementExitCode = exitCode;
+            settlementSignal = closeSignal;
             const outputSnapshot = output.snapshot();
             if (closeSignal || exitCode === null || !allowedExitCodes.includes(exitCode)) {
                 if (!closeSignal) {

@@ -13,6 +13,7 @@ const mocks = vi.hoisted<{
     logged: Array<{
         level: 'debug' | 'info' | 'warn' | 'error';
         message: string;
+        data?: unknown;
     }>;
     workerCtor: ReturnType<typeof vi.fn<(workerPath: string, options: unknown) => void>>;
     workerRecords: Array<{
@@ -59,22 +60,26 @@ vi.mock('@contracts/scan-cleanup/ipc', async importOriginal => {
 });
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: (message: string) => mocks.logged.push({
+    debug: (message: string, data?: unknown) => mocks.logged.push({
         level: 'debug',
         message,
+        data,
     }),
-    info: (message: string) => mocks.logged.push({
+    info: (message: string, data?: unknown) => mocks.logged.push({
         level: 'info',
         message,
+        data,
     }),
-    warn: (message: string) => mocks.logged.push({
+    warn: (message: string, data?: unknown) => mocks.logged.push({
         level: 'warn',
         message,
+        data,
     }),
-    error: (message: string) => {
+    error: (message: string, _failure: unknown, data?: unknown) => {
         mocks.logged.push({
             level: 'error',
             message,
+            data,
         });
         return mocks.failureReceipt;
     },
@@ -543,12 +548,12 @@ describe('workerTask', () => {
         expect(settled).toBe(false);
         expect(mocks.workerRecords[0]?.terminateCalls).toBe(WORKER_TERMINATION_ESCALATION_LIMIT);
         expect(mocks.logged.filter(entry => (
-            entry.level === 'warn' && entry.message.includes('re-issuing terminate')
+            entry.level === 'warn' && entry.message === 'Worker remains unsettled after termination request'
         ))).toHaveLength(WORKER_TERMINATION_ESCALATION_LIMIT - 1);
         // A wedged worker is a contained outcome the working-copy owner turns
         // into a quarantine, so it stays below the level the renderer reports.
         expect(mocks.logged.some(entry => (
-            entry.level === 'warn' && entry.message.includes('has not stopped after')
+            entry.level === 'warn' && entry.message === 'Worker remains unsettled after termination escalation'
         ))).toBe(true);
         expect(mocks.logged.some(entry => entry.level === 'error')).toBe(false);
 
@@ -629,8 +634,8 @@ describe('workerTask', () => {
         await vi.waitFor(() => {
             expect(mocks.logged.some(entry => (
                 entry.level === 'warn'
-                && entry.message.includes('Worker termination request did not complete')
-                && entry.message.includes('terminate threw')
+                && entry.message === 'Worker termination request did not complete'
+                && (entry.data as {error?: string} | undefined)?.error === 'terminate threw'
             ))).toBe(true);
         });
         await new Promise(resolve => setTimeout(resolve, 20));
@@ -723,7 +728,8 @@ describe('workerTask', () => {
         expect(getWorkerTaskFailureReceipt(error)).toEqual(mocks.failureReceipt);
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([{
             level: 'error',
-            message: expect.stringContaining('Worker reported failure'),
+            message: 'Worker reported failure',
+            data: expect.objectContaining({error: 'pdftoppm failed'}),
         }]);
     });
 
@@ -984,7 +990,7 @@ describe('workerTask', () => {
         expect(getUnprovenNativeTerminationDetail(error))
             .toContain('native processes it spawned were never confirmed stopped');
         expect(mocks.logged.some(entry => (
-            entry.level === 'warn' && entry.message.includes('did not acknowledge cancellation within 5000ms')
+            entry.level === 'warn' && entry.message === 'Worker did not acknowledge cancellation before force termination'
         ))).toBe(true);
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
     });

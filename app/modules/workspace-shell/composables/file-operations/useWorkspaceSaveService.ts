@@ -709,6 +709,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 detail?: string | null;
                 expectedRevisionToken?: TDocumentRevisionToken | null;
                 failure?: Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[3];
+                diagnostics?: unknown;
             } = {},
         ) {
             if (request.kind === 'optimize-copy' && reason === 'capability-unavailable') {
@@ -729,7 +730,13 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 });
                 return false;
             }
-            return failureSurface.reportSaveFailure(operationId, reason, options.detail, options.failure);
+            return failureSurface.reportSaveFailure(
+                operationId,
+                reason,
+                options.detail,
+                options.failure,
+                options.diagnostics,
+            );
         }
 
         /**
@@ -746,8 +753,11 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             return reportSaveFailureIfCurrent(
                 result.reason,
                 result.origin.phase === 'pre-write'
-                    ? {expectedRevisionToken: result.origin.plannedRevisionToken}
-                    : {},
+                    ? {
+                        expectedRevisionToken: result.origin.plannedRevisionToken,
+                        ...(result.failure === undefined ? {} : {diagnostics: result.failure}),
+                    }
+                    : result.failure === undefined ? {} : {diagnostics: result.failure},
             );
         }
 

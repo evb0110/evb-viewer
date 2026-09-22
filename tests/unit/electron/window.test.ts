@@ -715,7 +715,7 @@ describe('window runtime readiness', () => {
 
         window?.emit('unresponsive');
 
-        expect(mocks.logger.warn).toHaveBeenCalledWith('[renderer] window unresponsive (windowId=1)');
+        expect(mocks.logger.warn).toHaveBeenCalledWith('Renderer window unresponsive', {windowId: 1});
         expect(mocks.logger.error).not.toHaveBeenCalled();
 
         window?.emit('responsive');
@@ -746,7 +746,7 @@ describe('window runtime readiness', () => {
                 exitCode: 1,
             },
         }));
-        expect(mocks.logger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({eventId: windowFailureReceipt.eventId}));
+        expect(mocks.logger.error).toHaveBeenCalledWith('Window operation failed', expect.objectContaining({eventId: windowFailureReceipt.eventId}), expect.anything());
     });
 
     it('does not duplicate an initial renderer death through the renderer-ready load owner', async () => {
@@ -833,7 +833,7 @@ describe('window runtime readiness', () => {
                 cause: preloadError,
             }),
         }));
-        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('preload secret stack'), expect.anything());
+        expect(mocks.logger.error).toHaveBeenCalledWith('Window operation failed', expect.anything(), expect.objectContaining({message: expect.stringContaining('preload secret stack')}));
         const capturedInput = mocks.reporter.capture.mock.calls[0]?.[0] as {
             context: unknown;
             local: {message: string}
@@ -870,7 +870,7 @@ describe('window runtime readiness', () => {
                     recoveryAttempt: 0,
                 },
             }));
-            expect(mocks.logger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({eventId: windowFailureReceipt.eventId}));
+            expect(mocks.logger.error).toHaveBeenCalledWith('Window operation failed', expect.objectContaining({eventId: windowFailureReceipt.eventId}), expect.anything());
         } finally {
             vi.useRealTimers();
         }
@@ -978,7 +978,8 @@ describe('window runtime readiness', () => {
 
         expect(mocks.loadURL).toHaveBeenCalledTimes(3);
         expect(mocks.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('attempt=3'),
+            'Attempting renderer recovery load',
+            expect.objectContaining({attempt: 3}),
         );
     });
 
@@ -1028,8 +1029,9 @@ describe('window runtime readiness', () => {
             await vi.advanceTimersByTimeAsync(15_000);
 
             expect(mocks.logger.error).toHaveBeenCalledWith(
-                '[renderer] window remained unresponsive after 15000ms (windowId=1)',
+                'Window operation failed',
                 expect.objectContaining({eventId: windowFailureReceipt.eventId}),
+                expect.objectContaining({message: '[renderer] window remained unresponsive after 15000ms (windowId=1)'}),
             );
             expect(mocks.dialog.showMessageBox).toHaveBeenCalledTimes(1);
         } finally {

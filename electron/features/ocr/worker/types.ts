@@ -34,7 +34,11 @@ export interface IWorkerPaths {
 
 export type TOcrWorkerLogLevel = 'debug' | 'warn' | 'error';
 
-export type TWorkerLog = (level: TOcrWorkerLogLevel, message: string) => void;
+export type TWorkerLog = (
+    level: TOcrWorkerLogLevel,
+    message: string,
+    data?: Record<string, unknown>,
+) => void;
 
 export interface IOcrPdfPageRequest {
     pageNumber: number;
@@ -252,6 +256,7 @@ export interface IOcrWorkerLogMessage {
     type: 'log';
     level: TOcrWorkerLogLevel;
     message: string;
+    data?: Record<string, unknown>;
 }
 
 export interface IOcrWorkerResourceAcquireMessage {

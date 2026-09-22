@@ -1,3 +1,4 @@
+import type * as TCreateLoggerModule from '@electron/utils/createLogger';
 import {
     beforeEach,
     describe,
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => {
             warn: vi.fn(),
             error: vi.fn(),
         },
+        writeLogRecord: vi.fn(),
         registeredWindowsById: new Map<number, unknown>(),
         browserWindowFromWebContents: vi.fn(),
         getWindowByIdFromRegistry: vi.fn(),
@@ -83,7 +85,11 @@ vi.mock('@electron/te', () => ({
     setElectronLocale: vi.fn(async () => {}),
     te: (key: string) => key,
 }));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/utils/createLogger', async (importOriginal) => ({
+    redactLogData: (await importOriginal<typeof TCreateLoggerModule>()).redactLogData,
+    createLogger: () => mocks.logger,
+    writeLogRecord: mocks.writeLogRecord,
+}));
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'https://trusted.example/electron'}}}));
 
 function createSender(id: number) {
@@ -143,7 +149,7 @@ describe('renderer log registry', () => {
                 });
             }
 
-            expect(mocks.logger.info).toHaveBeenCalledTimes(120);
+            expect(mocks.writeLogRecord).toHaveBeenCalledTimes(120);
             expect(firstSender.once).toHaveBeenCalledTimes(2);
 
             const destroyedHandler = firstSender.once.mock.calls
@@ -162,7 +168,7 @@ describe('renderer log registry', () => {
             });
 
             expect(secondSender.once).toHaveBeenCalledTimes(2);
-            expect(mocks.logger.info).toHaveBeenCalledTimes(121);
+            expect(mocks.writeLogRecord).toHaveBeenCalledTimes(121);
         } finally {
             vi.useRealTimers();
         }
@@ -197,7 +203,7 @@ describe('renderer log registry', () => {
         expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', renderGoneHandler);
     });
 
-    it('summarizes nested payloads without walking deeply nested objects', async () => {
+    it('keeps nested renderer payloads structured instead of collapsing them to [Object]', async () => {
         const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
         registerIpcHandlers();
 
@@ -219,9 +225,17 @@ describe('renderer log registry', () => {
             },
         });
 
-        const loggedMessage = mocks.logger.info.mock.calls.at(-1)?.[0] as string | undefined;
-        expect(loggedMessage).toContain('"nested":"[Object]"');
-        expect(loggedMessage).toContain('"items":"[Array(1)]"');
+        expect(mocks.writeLogRecord).toHaveBeenLastCalledWith(expect.objectContaining({
+            level: 'info',
+            proc: 'renderer',
+            scope: 'search',
+            msg: 'payload',
+            window: 8,
+            data: {
+                nested: {value: 1},
+                items: ['child'],
+            },
+        }), {stdout: false});
     });
 
     it('reuses a renderer-owned failure receipt without creating a main occurrence', async () => {
@@ -247,10 +261,14 @@ describe('renderer log registry', () => {
             failureRef,
         });
 
-        expect(mocks.logger.error).toHaveBeenCalledWith(
-            expect.stringContaining('Renderer failure'),
-            failureRef,
-        );
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+        expect(mocks.writeLogRecord).toHaveBeenLastCalledWith(expect.objectContaining({
+            level: 'error',
+            proc: 'renderer',
+            msg: 'Renderer failure',
+            errorId: failureRef.eventId,
+            code: failureRef.code,
+        }), {stdout: false});
     });
 });
 
@@ -362,13 +380,11 @@ describe('normalizeRendererLogEntry', () => {
             section: 'search',
             message: 'm',
             timestamp: '2026-03-21T00:00:00.000Z',
-            serializedData: '',
         });
         expect(Object.keys(entry).sort()).toEqual([
             'level',
             'message',
             'section',
-            'serializedData',
             'timestamp',
         ]);
     });
@@ -379,7 +395,7 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
         expect(entry.message).toBe('<empty>');
-        expect(entry.serializedData).toBe('');
+        expect(entry.data).toBeUndefined();
         expect(entry.timestamp).toMatch(/\d{4}-\d{2}-\d{2}T/);
     });
 
@@ -389,7 +405,7 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
         expect(entry.message).toBe('<empty>');
-        expect(entry.serializedData).toBe('');
+        expect(entry.data).toBeUndefined();
     });
 
     it('uses defaults for string payload', async () => {
@@ -398,7 +414,7 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
         expect(entry.message).toBe('<empty>');
-        expect(entry.serializedData).toBe('');
+        expect(entry.data).toBeUndefined();
     });
 
     it('uses defaults for number payload', async () => {
@@ -407,7 +423,7 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
         expect(entry.message).toBe('<empty>');
-        expect(entry.serializedData).toBe('');
+        expect(entry.data).toBeUndefined();
     });
 
     it('uses defaults for array payload', async () => {
@@ -419,7 +435,7 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
         expect(entry.message).toBe('<empty>');
-        expect(entry.serializedData).toBe('');
+        expect(entry.data).toBeUndefined();
     });
 
     it('retains bounded redacted details of nested errors serialized by the renderer', async () => {
@@ -437,16 +453,16 @@ describe('normalizeRendererLogEntry', () => {
                 },
             },
         });
-        const data = JSON.parse(entry.serializedData.slice(' data='.length));
-        expect(data.error).toEqual({
+        const data = entry.data as {error: unknown;};
+        expect(data.error).toMatchObject({
             name: 'RangeError',
             message: expect.stringContaining('Invalid page'),
             stack: expect.stringContaining('navigation.ts:115:32'),
         });
-        expect(entry.serializedData).not.toContain('/Users/evb/private/document.pdf');
+        expect(JSON.stringify(entry.data)).not.toContain('/Users/evb/private/document.pdf');
     });
 
-    it('serializes data into serializedData with leading data= marker', async () => {
+    it('keeps data as a structured object', async () => {
         const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'info',
@@ -454,7 +470,7 @@ describe('normalizeRendererLogEntry', () => {
             message: 'm',
             data: {a: 1},
         });
-        expect(entry.serializedData).toBe(' data={"a":1}');
+        expect(entry.data).toEqual({a: 1});
     });
 
     it('redacts secrets and local paths before serializing renderer log fields', async () => {
@@ -474,10 +490,10 @@ describe('normalizeRendererLogEntry', () => {
         expect(entry.message).toContain('/Users/[redacted]');
         expect(entry.message).not.toContain('secret-token');
         expect(entry.message).not.toContain('/Users/evb/private');
-        expect(entry.serializedData).toContain('file://[redacted]');
-        expect(entry.serializedData).toContain('Bearer [redacted]');
-        expect(entry.serializedData).not.toContain('abc.def.ghi');
-        expect(entry.serializedData).not.toContain('/Users/evb/private/report.pdf');
+        expect(JSON.stringify(entry.data)).toContain('file://[redacted]');
+        expect(JSON.stringify(entry.data)).toContain('Bearer [redacted]');
+        expect(JSON.stringify(entry.data)).not.toContain('abc.def.ghi');
+        expect(JSON.stringify(entry.data)).not.toContain('/Users/evb/private/report.pdf');
     });
 
     it('redacts URL secrets while preserving renderer log routing details', async () => {
@@ -503,9 +519,9 @@ describe('normalizeRendererLogEntry', () => {
             },
         });
 
-        expect(entry.serializedData).not.toContain('super-secret');
-        expect(entry.serializedData).not.toContain('api-secret');
-        expect(entry.serializedData).toContain('"authorization":"[redacted-secret]"');
-        expect(entry.serializedData).toContain('"apiKey":"[redacted-secret]"');
+        expect(JSON.stringify(entry.data)).not.toContain('super-secret');
+        expect(JSON.stringify(entry.data)).not.toContain('api-secret');
+        expect(JSON.stringify(entry.data)).toContain('"authorization":"[redacted-secret]"');
+        expect(JSON.stringify(entry.data)).toContain('"apiKey":"[redacted-secret]"');
     });
 });

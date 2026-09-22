@@ -362,10 +362,10 @@ function attachLateWorkerErrorHandler(worker: Worker, workerPath: string) {
     // for the rest of the worker's life and keeps the late error below the
     // severity that turns into a user-facing diagnostic.
     worker.on('error', (error: unknown) => {
-        workerTaskLog.info(
-            `Worker emitted an error after its task settled: path=${workerPath} `
-            + `message=${getErrorMessage(error)}`,
-        );
+        workerTaskLog.info('Worker emitted an error after its task settled', {
+            workerPath,
+            error: getErrorMessage(error),
+        });
     });
 }
 
@@ -397,10 +397,11 @@ async function terminateWorkerAfterTask(
     // so it falls through to the exit event instead.
     worker.once('exit', markStopped);
     const reportUnprovenTermination = (attempt: number, error: unknown) => {
-        workerTaskLog.warn(
-            `Worker termination request did not complete: path=${workerPath} attempt=${attempt} `
-            + `message=${getErrorMessage(error)}; waiting for the worker to exit`,
-        );
+        workerTaskLog.warn('Worker termination request did not complete', {
+            workerPath,
+            attempt,
+            error: getErrorMessage(error),
+        });
     };
     // `worker.terminate()` can also fail synchronously. Evaluating the call
     // inside `Promise.resolve(...)` lets that throw escape past the rejection
@@ -429,18 +430,19 @@ async function terminateWorkerAfterTask(
                 // task stays unsettled and the working-copy owner retains the
                 // bytes. Reporting it at error level would turn a contained,
                 // correct outcome into a user-facing runtime report.
-                workerTaskLog.warn(
-                    `Worker has not stopped after ${attempts} termination requests over `
-                    + `${attempts * WORKER_TERMINATION_ESCALATION_INTERVAL_MS}ms: path=${workerPath}. `
-                    + 'Its task stays unsettled so nothing reclaims resources the worker may still be reading',
-                );
+                workerTaskLog.warn('Worker remains unsettled after termination escalation', {
+                    workerPath,
+                    attempts,
+                    elapsedMs: attempts * WORKER_TERMINATION_ESCALATION_INTERVAL_MS,
+                });
                 return;
             }
             attempts += 1;
-            workerTaskLog.warn(
-                `Worker has not stopped ${WORKER_TERMINATION_ESCALATION_INTERVAL_MS}ms after termination was `
-                + `requested: path=${workerPath}; re-issuing terminate (attempt ${attempts})`,
-            );
+            workerTaskLog.warn('Worker remains unsettled after termination request', {
+                workerPath,
+                elapsedMs: WORKER_TERMINATION_ESCALATION_INTERVAL_MS,
+                attempt: attempts,
+            });
             requestTermination(attempts);
             scheduleEscalation();
         }, WORKER_TERMINATION_ESCALATION_INTERVAL_MS);
@@ -543,10 +545,11 @@ function attachWorkerHandlers<T>({
         if (settled || hasPendingCancelError) {
             return;
         }
-        workerTaskLog.warn(
-            `Worker cancellation requested: path=${options.workerPath} reason=${reason} `
-            + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
-        );
+        workerTaskLog.warn('Worker cancellation requested', {
+            workerPath: options.workerPath,
+            reason,
+            elapsedMs: Math.round(performance.now() - startedAt),
+        });
         const cancelMessage = options.createCancelMessage?.(reason);
         if (cancelMessage === undefined) {
             finalize(() => {
@@ -565,10 +568,10 @@ function attachWorkerHandlers<T>({
             // processes that thread spawned, and a worker that never answered
             // the cooperative cancel never got to stop them either. Whatever
             // those children were reading has to be treated as still open.
-            workerTaskLog.warn(
-                `Worker did not acknowledge cancellation within ${cooperativeCancelDelayMs}ms: `
-                + `path=${options.workerPath}; force terminating with its native children unaccounted for`,
-            );
+            workerTaskLog.warn('Worker did not acknowledge cancellation before force termination', {
+                workerPath: options.workerPath,
+                elapsedMs: cooperativeCancelDelayMs,
+            });
             finalize(() => {
                 reject(markUnprovenNativeTermination(
                     error,
@@ -614,17 +617,19 @@ function attachWorkerHandlers<T>({
 
     worker.once('online', () => {
         online = true;
-        workerTaskLog.debug(
-            `Worker online: path=${options.workerPath} onlineMs=${Math.round(performance.now() - startedAt)}`,
-        );
+        workerTaskLog.debug('Worker online', {
+            workerPath: options.workerPath,
+            elapsedMs: Math.round(performance.now() - startedAt),
+        });
     });
 
     const handleMessage = (payload: unknown) => {
         if (!firstMessageObserved) {
             firstMessageObserved = true;
-            workerTaskLog.debug(
-                `Worker first message: path=${options.workerPath} firstMessageMs=${Math.round(performance.now() - startedAt)}`,
-            );
+            workerTaskLog.debug('Worker first message received', {
+                workerPath: options.workerPath,
+                elapsedMs: Math.round(performance.now() - startedAt),
+            });
         }
         if (onProgressMessage?.(payload)) {
             restartInactivityTimeout();
@@ -648,12 +653,15 @@ function attachWorkerHandlers<T>({
             if (!resultPayload) {
                 const error = new Error(invalidPayloadMessage);
                 const receipt = workerTaskLog.error(
-                    `Worker returned an invalid payload: path=${options.workerPath} `
-                    + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                    'Worker returned an invalid payload',
                     {
                         code: 'MAIN_WORKER_TASK_FAILED',
                         context: {},
                         cause: error,
+                    },
+                    {
+                        workerPath: options.workerPath,
+                        elapsedMs: Math.round(performance.now() - startedAt),
                     },
                 );
                 reject(markWorkerTaskErrorReported(error, receipt));
@@ -661,19 +669,21 @@ function attachWorkerHandlers<T>({
             }
             if (!resultPayload.ok) {
                 const workerError = createWorkerTaskError(resultPayload);
-                const summary = `path=${options.workerPath} `
-                    + `elapsedMs=${Math.round(performance.now() - startedAt)} `
-                    + `message=${resultPayload.error}`;
+                const summary = {
+                    workerPath: options.workerPath,
+                    elapsedMs: Math.round(performance.now() - startedAt),
+                    error: resultPayload.error,
+                };
                 // A worker that reports its own abort is finishing the
                 // cancellation it was asked for, not failing.
                 if (workerError.canceled) {
-                    workerTaskLog.info(`Worker reported cancellation: ${summary}`);
+                    workerTaskLog.info('Worker reported cancellation', summary);
                 } else {
-                    const receipt = workerTaskLog.error(`Worker reported failure: ${summary}`, {
+                    const receipt = workerTaskLog.error('Worker reported failure', {
                         code: 'MAIN_WORKER_TASK_FAILED',
                         context: {},
                         cause: workerError,
-                    });
+                    }, summary);
                     markWorkerTaskErrorReported(workerError, receipt);
                 }
                 reject(workerError);
@@ -683,11 +693,14 @@ function attachWorkerHandlers<T>({
                 const decoded = decodeResult(resultPayload.data);
                 if (decoded === null) {
                     const receipt = workerTaskLog.error(
-                        `Worker returned an invalid result: path=${options.workerPath} `
-                        + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                        'Worker returned an invalid result',
                         {
                             code: 'MAIN_WORKER_TASK_FAILED',
                             context: {},
+                        },
+                        {
+                            workerPath: options.workerPath,
+                            elapsedMs: Math.round(performance.now() - startedAt),
                         },
                     );
                     reject(markWorkerTaskErrorReported(
@@ -696,17 +709,17 @@ function attachWorkerHandlers<T>({
                     ));
                     return;
                 }
-                workerTaskLog.debug(
-                    `Worker completed: path=${options.workerPath} `
-                    + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
-                );
+                workerTaskLog.debug('Worker completed', {
+                    workerPath: options.workerPath,
+                    elapsedMs: Math.round(performance.now() - startedAt),
+                });
                 resolve(decoded);
                 return;
             }
-            workerTaskLog.debug(
-                `Worker completed: path=${options.workerPath} `
-                + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
-            );
+            workerTaskLog.debug('Worker completed', {
+                workerPath: options.workerPath,
+                elapsedMs: Math.round(performance.now() - startedAt),
+            });
             resolve(resultPayload.data as T);
         });
     };
@@ -718,20 +731,23 @@ function attachWorkerHandlers<T>({
     }
 
     worker.once('error', (error) => {
-        const summary = `path=${options.workerPath} `
-            + `online=${online} elapsedMs=${Math.round(performance.now() - startedAt)} `
-            + `message=${getErrorMessage(error)}`;
+        const summary = {
+            workerPath: options.workerPath,
+            online,
+            elapsedMs: Math.round(performance.now() - startedAt),
+            error: getErrorMessage(error),
+        };
         // A worker torn down by a cancellation already in flight is expected to
         // die noisily; the cancellation is the outcome, so it is not an app error.
         let receipt: FailureReceipt | undefined;
         if (hasPendingCancelError) {
-            workerTaskLog.info(`Worker emitted an error while cancelling: ${summary}`);
+            workerTaskLog.info('Worker emitted an error while cancelling', summary);
         } else {
-            receipt = workerTaskLog.error(`Worker emitted an error: ${summary}`, {
+            receipt = workerTaskLog.error('Worker emitted an error', {
                 code: 'MAIN_WORKER_TASK_FAILED',
                 context: {},
                 cause: error,
-            });
+            }, summary);
         }
         finalize(() => {
             if (hasPendingCancelError) {
@@ -754,17 +770,20 @@ function attachWorkerHandlers<T>({
         if (settled) {
             return;
         }
-        const summary = `path=${options.workerPath} `
-            + `code=${code} online=${online} `
-            + `elapsedMs=${Math.round(performance.now() - startedAt)}`;
+        const summary = {
+            workerPath: options.workerPath,
+            code,
+            online,
+            elapsedMs: Math.round(performance.now() - startedAt),
+        };
         let receipt: FailureReceipt | undefined;
         if (hasPendingCancelError) {
-            workerTaskLog.info(`Worker exited while cancelling: ${summary}`);
+            workerTaskLog.info('Worker exited while cancelling', summary);
         } else {
-            receipt = workerTaskLog.error(`Worker exited before returning a result: ${summary}`, {
+            receipt = workerTaskLog.error('Worker exited before returning a result', {
                 code: 'MAIN_WORKER_TASK_FAILED',
                 context: {},
-            });
+            }, summary);
         }
         finalize(() => {
             if (hasPendingCancelError) {

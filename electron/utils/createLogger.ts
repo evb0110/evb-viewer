@@ -1,4 +1,7 @@
-import { isMainThread } from 'worker_threads';
+import {
+    isMainThread,
+    threadId,
+} from 'worker_threads';
 import { tmpdir } from 'os';
 import {
     mkdirSync,
@@ -10,10 +13,7 @@ import {
     rename,
     rm,
 } from 'fs/promises';
-import {
-    dirname,
-    join,
-} from 'path';
+import { join } from 'path';
 import { sortBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
 import {
@@ -35,12 +35,23 @@ import {
 import {getMainFailureReporter} from '@electron/features/diagnostics/public';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
+import {
+    APP_LOG_FILE_NAME,
+    formatLogData,
+    isLogLevelEnabled,
+    parseLogLevel,
+    toLogData,
+    type ILogRecord,
+    type TLogData,
+    type TLogLevel,
+    type TLogProcess,
+} from '@contracts/logRecord';
 
 interface ILogMessage {
     source: string;
     message: string;
     timestamp: string;
-    level: TLogLevel;
+    level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
     failureRef?: IFailureRef;
 }
 
@@ -50,13 +61,19 @@ interface IFailureRef {
     severity: FailureReceipt['severity'];
 }
 
+/**
+ * Main-process and worker logger. `msg` is a short, stable sentence; variable
+ * details belong in `data`, which every sink formats the same way. Do not
+ * interpolate JSON into `msg`.
+ */
 export interface ILogger {
-    debug(msg: string): void;
-    info(msg: string): void;
-    warn(msg: string): void;
+    debug(msg: string, data?: unknown): void;
+    info(msg: string, data?: unknown): void;
+    warn(msg: string, data?: unknown): void;
     error<C extends DiagnosticCode = DiagnosticCode>(
         msg: string,
         failure: FailureReceipt | ILoggerFailureInput<C>,
+        data?: unknown,
     ): FailureReceipt | undefined;
 }
 
@@ -68,7 +85,6 @@ export type ILoggerFailureInput<C extends DiagnosticCode = DiagnosticCode> = Pic
 interface ILoggerOptions {broadcastToRenderers?: boolean;}
 
 interface IFileLogState {
-    source: string;
     queue: Promise<void>;
     initialized: boolean;
     approximateBytes: number;
@@ -79,79 +95,58 @@ interface IFileLogState {
     flushTimer: NodeJS.Timeout | null;
 }
 
-type TLogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
-
-const LOG_LEVELS: Record<TLogLevel, number> = {
-    DEBUG: 10,
-    INFO: 20,
-    WARN: 30,
-    ERROR: 40,
-};
+function readIntegerEnv(name: string, fallback: number, minimum: number, maximum: number) {
+    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
+    if (!Number.isFinite(parsed) || parsed < minimum) {
+        return fallback;
+    }
+    return Math.min(parsed, maximum);
+}
 
 const IS_PACKAGED_RUNTIME = !process.execPath.toLowerCase().includes('node_modules');
-const FILE_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL)
-    ?? (IS_PACKAGED_RUNTIME ? 'INFO' : 'DEBUG');
-const RENDER_LOG_LEVEL = normalizeLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL)
-    ?? 'WARN';
-const LOG_FILE_MAX_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_FILE_LOG_MAX_BYTES ?? `${5 * 1024 * 1024}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 256 * 1024) {
-        return 5 * 1024 * 1024;
-    }
-    return Math.min(parsed, 256 * 1024 * 1024);
-})();
-const LOG_FILE_MAX_BACKUPS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_FILE_LOG_MAX_BACKUPS ?? '3', 10);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-        return 3;
-    }
-    return Math.min(parsed, 16);
-})();
-const LOG_DIR_MAX_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_FILE_LOG_DIR_MAX_BYTES ?? `${64 * 1024 * 1024}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 1024 * 1024) {
-        return 64 * 1024 * 1024;
-    }
-    return Math.min(parsed, 2 * 1024 * 1024 * 1024);
-})();
-const LOG_WRITE_QUEUE_MAX_PENDING = (() => {
-    const parsed = Number.parseInt(process.env.EVB_FILE_LOG_QUEUE_MAX_PENDING ?? '2000', 10);
-    if (!Number.isFinite(parsed) || parsed < 64) {
-        return 2_000;
-    }
-    return Math.min(parsed, 100_000);
-})();
+const FILE_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL)
+    ?? (IS_PACKAGED_RUNTIME ? 'info' : 'debug');
+const RENDER_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL) ?? 'warn';
+/**
+ * `EVB_LOG_STDOUT=ndjson` mirrors records to stdout as NDJSON. The dev
+ * launcher sets it and formats the stream, which is how main-process and
+ * worker records reach the `pnpm dev` terminal.
+ */
+const STDOUT_LOG_ENABLED = process.env.EVB_LOG_STDOUT === 'ndjson';
+const STDOUT_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.EVB_LOG_STDOUT_LEVEL) ?? 'info';
+const LOG_FILE_MAX_BYTES = readIntegerEnv('EVB_FILE_LOG_MAX_BYTES', 16 * 1024 * 1024, 256 * 1024, 256 * 1024 * 1024);
+const LOG_FILE_MAX_BACKUPS = readIntegerEnv('EVB_FILE_LOG_MAX_BACKUPS', 3, 0, 16);
+const LOG_DIR_MAX_BYTES = readIntegerEnv('EVB_FILE_LOG_DIR_MAX_BYTES', 96 * 1024 * 1024, 1024 * 1024, 2 * 1024 * 1024 * 1024);
+const LOG_WRITE_QUEUE_MAX_PENDING = readIntegerEnv('EVB_FILE_LOG_QUEUE_MAX_PENDING', 4_000, 64, 100_000);
 const LOG_WRITE_FLUSH_INTERVAL_MS = 100;
-const LOG_WRITE_FLUSH_BYTES = 8 * 1024;
-const LOG_DIR_PRUNE_INTERVAL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_FILE_LOG_DIR_PRUNE_INTERVAL_MS ?? `${60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 5_000) {
-        return 60 * 1_000;
-    }
-    return parsed;
-})();
+const LOG_WRITE_FLUSH_BYTES = 16 * 1024;
+const LOG_DIR_PRUNE_INTERVAL_MS = readIntegerEnv('EVB_FILE_LOG_DIR_PRUNE_INTERVAL_MS', 60 * 1_000, 5_000, Number.MAX_SAFE_INTEGER);
 
 const LOG_DIR = process.env.EVB_FILE_LOG_DIR ?? join(tmpdir(), 'electron-logs');
-const fileLogStates = new Map<string, IFileLogState>();
+/**
+ * Every source, thread and the renderer bridge append to this one timeline.
+ * Only the main thread rotates it; workers append to whatever file currently
+ * owns the path.
+ */
+const APP_LOG_FILE = join(LOG_DIR, APP_LOG_FILE_NAME);
+const fileLogState: IFileLogState = {
+    queue: Promise.resolve(),
+    initialized: false,
+    approximateBytes: 0,
+    pendingWrites: 0,
+    droppedWrites: 0,
+    buffer: [],
+    bufferBytes: 0,
+    flushTimer: null,
+};
+// Read lazily: importing the logger must not touch worker_threads state.
+function processKind(): TLogProcess {
+    return isMainThread ? 'main' : 'worker';
+}
 let logDirPruneLastAt = 0;
 let logDirPrunePromise: Promise<void> | null = null;
-
-function normalizeLogLevel(value: unknown): TLogLevel | null {
-    if (typeof value !== 'string') {
-        return null;
-    }
-
-    const normalized = value.trim().toUpperCase();
-    if (normalized === 'DEBUG' || normalized === 'INFO' || normalized === 'WARN' || normalized === 'ERROR') {
-        return normalized;
-    }
-
-    return null;
-}
-
-function shouldLog(level: TLogLevel, minLevel: TLogLevel) {
-    return LOG_LEVELS[level] >= LOG_LEVELS[minLevel];
-}
+let stdoutMirrorBroken = false;
+let sessionStartWritten = false;
 
 try {
     mkdirSync(LOG_DIR, { recursive: true });
@@ -177,42 +172,20 @@ async function broadcastToRenderers(data: ILogMessage) {
     }
 }
 
-function ensureState(logFile: string, source: string): IFileLogState {
-    const existingState = fileLogStates.get(logFile);
-    if (existingState) {
-        return existingState;
-    }
-
-    const nextState: IFileLogState = {
-        source,
-        queue: Promise.resolve(),
-        initialized: false,
-        approximateBytes: 0,
-        pendingWrites: 0,
-        droppedWrites: 0,
-        buffer: [],
-        bufferBytes: 0,
-        flushTimer: null,
-    };
-    fileLogStates.set(logFile, nextState);
-    return nextState;
-}
-
-async function initializeState(logFile: string, state: IFileLogState) {
+async function initializeState(state: IFileLogState) {
     if (state.initialized) {
         return;
     }
     state.initialized = true;
 
     try {
-        await appendFile(logFile, '', 'utf8');
+        await appendFile(APP_LOG_FILE, '', 'utf8');
     } catch {
         // Ignore initialization failures, writes will keep retrying.
     }
 
     try {
-        const fileStat = statSync(logFile);
-        state.approximateBytes = fileStat.size;
+        state.approximateBytes = statSync(APP_LOG_FILE).size;
     } catch {
         state.approximateBytes = 0;
     }
@@ -276,6 +249,9 @@ async function pruneLogDirectory(force = false) {
         const files: IFileEntry[] = [];
         for (const entry of entries) {
             const filePath = join(LOG_DIR, entry);
+            if (filePath === APP_LOG_FILE) {
+                continue;
+            }
             try {
                 const fileStat = statSync(filePath);
                 if (!fileStat.isFile()) {
@@ -291,7 +267,7 @@ async function pruneLogDirectory(force = false) {
             }
         }
 
-        let totalBytes = sumBy(files, file => file.size);
+        let totalBytes = sumBy(files, file => file.size) + fileLogState.approximateBytes;
         if (totalBytes <= LOG_DIR_MAX_BYTES) {
             return;
         }
@@ -304,7 +280,6 @@ async function pruneLogDirectory(force = false) {
             try {
                 await rm(file.path, { force: true });
                 totalBytes -= file.size;
-                fileLogStates.delete(file.path);
             } catch {
                 // Ignore cleanup failures and continue pruning.
             }
@@ -316,7 +291,20 @@ async function pruneLogDirectory(force = false) {
     return logDirPrunePromise;
 }
 
-function flushState(logFile: string, state: IFileLogState) {
+function createDroppedWritesRecord(droppedWrites: number) {
+    return JSON.stringify({
+        ts: new Date().toISOString(),
+        level: 'warn',
+        proc: processKind(),
+        scope: 'logger',
+        msg: 'Dropped buffered log records due to logger backpressure',
+        data: {droppedWrites},
+        pid: process.pid,
+        ...(isMainThread ? {} : {thread: threadId}),
+    } satisfies ILogRecord);
+}
+
+function flushState(state: IFileLogState) {
     if (state.flushTimer) {
         clearTimeout(state.flushTimer);
         state.flushTimer = null;
@@ -334,26 +322,32 @@ function flushState(logFile: string, state: IFileLogState) {
 
     state.queue = state.queue
         .then(async () => {
-            await initializeState(logFile, state);
+            await initializeState(state);
 
             const linesToWrite: string[] = [];
             if (state.droppedWrites > 0) {
-                linesToWrite.push(
-                    `[${new Date().toISOString()}] [${state.source}] [WARN] `
-                    + `Dropped ${state.droppedWrites} buffered log message(s) due to logger backpressure`,
-                );
+                linesToWrite.push(createDroppedWritesRecord(state.droppedWrites));
                 state.droppedWrites = 0;
             }
             linesToWrite.push(...bufferedLines);
             const payload = `${linesToWrite.join('\n')}\n`;
             const payloadBytes = Buffer.byteLength(payload, 'utf8');
 
-            if (state.approximateBytes + payloadBytes > LOG_FILE_MAX_BYTES) {
-                await rotateFile(logFile);
-                state.approximateBytes = 0;
+            if (isMainThread && state.approximateBytes + payloadBytes > LOG_FILE_MAX_BYTES) {
+                // Workers append to the same file, so re-read the real size
+                // before deciding to rotate.
+                try {
+                    state.approximateBytes = statSync(APP_LOG_FILE).size;
+                } catch {
+                    state.approximateBytes = 0;
+                }
+                if (state.approximateBytes + payloadBytes > LOG_FILE_MAX_BYTES) {
+                    await rotateFile(APP_LOG_FILE);
+                    state.approximateBytes = 0;
+                }
             }
 
-            await appendFile(logFile, payload, 'utf8');
+            await appendFile(APP_LOG_FILE, payload, 'utf8');
             state.approximateBytes += payloadBytes;
         })
         .catch(() => {
@@ -362,20 +356,17 @@ function flushState(logFile: string, state: IFileLogState) {
         .finally(() => {
             state.pendingWrites = Math.max(0, state.pendingWrites - bufferedLines.length);
         });
-    void state.queue.then(() => {
-        void pruneLogDirectory().catch(() => undefined);
-    });
+    if (isMainThread) {
+        void state.queue.then(() => {
+            void pruneLogDirectory().catch(() => undefined);
+        });
+    }
 
     return state.queue;
 }
 
-function enqueueWrite(
-    source: string,
-    logFile: string,
-    line: string,
-    level: TLogLevel,
-) {
-    const state = ensureState(logFile, source);
+function enqueueWrite(line: string, level: TLogLevel) {
+    const state = fileLogState;
     if (state.pendingWrites >= LOG_WRITE_QUEUE_MAX_PENDING) {
         state.droppedWrites += 1;
         return;
@@ -386,8 +377,8 @@ function enqueueWrite(
 
     // Errors are the lines most likely to be needed after a crash, so they never wait
     // on the coalescing window.
-    if (level === 'ERROR' || state.bufferBytes >= LOG_WRITE_FLUSH_BYTES) {
-        void flushState(logFile, state);
+    if (level === 'error' || state.bufferBytes >= LOG_WRITE_FLUSH_BYTES) {
+        void flushState(state);
         return;
     }
     if (state.flushTimer) {
@@ -395,9 +386,28 @@ function enqueueWrite(
     }
     state.flushTimer = setTimeout(() => {
         state.flushTimer = null;
-        void flushState(logFile, state);
+        void flushState(state);
     }, LOG_WRITE_FLUSH_INTERVAL_MS);
     state.flushTimer.unref();
+}
+
+function writeStdoutMirror(line: string) {
+    if (stdoutMirrorBroken) {
+        return;
+    }
+    try {
+        process.stdout.write(`${line}\n`);
+    } catch {
+        stdoutMirrorBroken = true;
+    }
+}
+
+if (STDOUT_LOG_ENABLED) {
+    // The launcher may exit before Electron. A closed pipe must disable the
+    // mirror, not surface as an uncaught EPIPE in the main process.
+    process.stdout.on?.('error', () => {
+        stdoutMirrorBroken = true;
+    });
 }
 
 /**
@@ -405,12 +415,108 @@ function enqueueWrite(
  * process exits, otherwise coalesced lines are lost.
  */
 export async function flushPendingLogWrites() {
-    await Promise.all([...fileLogStates].map(
-        ([
-            logFile,
-            state,
-        ]) => flushState(logFile, state).catch(() => undefined),
-    ));
+    await flushState(fileLogState).catch(() => undefined);
+}
+
+/** Redacts data with the one Electron redaction policy, keeping its structure. */
+export function redactLogData(data: TLogData | undefined): TLogData | undefined {
+    if (!data) {
+        return undefined;
+    }
+    let serialized: string;
+    try {
+        serialized = JSON.stringify(data);
+    } catch {
+        return {value: '[Unserializable]'};
+    }
+    const redacted = redactElectronLogText(serialized);
+    if (redacted === serialized) {
+        return data;
+    }
+    try {
+        const parsed: unknown = JSON.parse(redacted);
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+            ? parsed as TLogData
+            : {value: redacted};
+    } catch {
+        return {value: redacted};
+    }
+}
+
+/** `stdout: false` keeps a record out of the stdout mirror (the launcher already sees it). */
+export interface IWriteLogRecordOptions {readonly stdout?: boolean;}
+
+/**
+ * Normalizes, redacts and writes one record to the app log and, when enabled,
+ * the stdout mirror. Level filtering for each sink happens here.
+ */
+export function writeLogRecord(
+    input: Omit<ILogRecord, 'ts' | 'pid' | 'data'> & {
+        ts?: string;
+        data?: unknown;
+    },
+    options: IWriteLogRecordOptions = {},
+): ILogRecord | null {
+    const toFile = isLogLevelEnabled(input.level, FILE_LOG_LEVEL);
+    const toStdout = STDOUT_LOG_ENABLED
+        && options.stdout !== false
+        && isLogLevelEnabled(input.level, STDOUT_LOG_LEVEL);
+    if (!toFile && !toStdout) {
+        return null;
+    }
+
+    const data = redactLogData(toLogData(input.data));
+    const record: ILogRecord = {
+        ts: input.ts ?? new Date().toISOString(),
+        level: input.level,
+        proc: input.proc,
+        scope: input.scope,
+        msg: redactElectronLogText(input.msg),
+        ...(data ? {data} : {}),
+        ...(input.errorId ? {errorId: input.errorId} : {}),
+        ...(input.code ? {code: input.code} : {}),
+        pid: process.pid,
+        ...(input.thread === undefined ? {} : {thread: input.thread}),
+        ...(input.window === undefined ? {} : {window: input.window}),
+    };
+    ensureSessionStartRecord();
+    const line = JSON.stringify(record);
+    if (toFile) {
+        enqueueWrite(line, record.level);
+    }
+    if (toStdout) {
+        writeStdoutMirror(line);
+    }
+    return record;
+}
+
+/**
+ * One marker per process start, so a log that spans many runs still shows
+ * where each run began.
+ */
+function ensureSessionStartRecord() {
+    if (sessionStartWritten || !isMainThread) {
+        return;
+    }
+    sessionStartWritten = true;
+    void pruneLogDirectory(true).catch(() => {});
+    const line = JSON.stringify({
+        ts: new Date().toISOString(),
+        level: 'info',
+        proc: 'main',
+        scope: 'logger',
+        msg: 'Log session started',
+        data: {
+            platform: process.platform,
+            arch: process.arch,
+            electron: process.versions.electron ?? null,
+            node: process.versions.node,
+            packaged: IS_PACKAGED_RUNTIME,
+            fileLevel: FILE_LOG_LEVEL,
+        },
+        pid: process.pid,
+    } satisfies ILogRecord);
+    enqueueWrite(line, 'info');
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -525,44 +631,75 @@ function captureMainLoggerFailure<C extends DiagnosticCode>(
     }
 }
 
+
+function toFailureData(failure: unknown, data: unknown) {
+    const cause = isPlainRecord(failure) && !isFailureReceipt(failure) ? failure.cause : undefined;
+    if (cause === undefined) {
+        return data;
+    }
+    if (data === undefined) {
+        return {cause};
+    }
+    return typeof data === 'object' && data !== null && !Array.isArray(data)
+        ? {
+            ...data,
+            cause,
+        }
+        : {
+            value: data,
+            cause,
+        };
+}
+
+function toDebugLogLevel(level: TLogLevel): ILogMessage['level'] {
+    switch (level) {
+        case 'debug': return 'DEBUG';
+        case 'info': return 'INFO';
+        case 'warn': return 'WARN';
+        case 'error': return 'ERROR';
+    }
+}
+
 export function createLogger(source: string, options: ILoggerOptions = {}): ILogger {
-    const logFile = join(LOG_DIR, `${source}.log`);
     const broadcastToRenderersEnabled = options.broadcastToRenderers ?? true;
 
-    try {
-        mkdirSync(dirname(logFile), { recursive: true });
-    } catch {
-        // Ignore
-    }
+    function log(level: TLogLevel, msg: string, data: unknown, failureRef?: IFailureRef) {
+        const record = writeLogRecord({
+            level,
+            proc: processKind(),
+            scope: source,
+            msg,
+            data,
+            ...(isMainThread ? {} : {thread: threadId}),
+            ...(failureRef ? {
+                errorId: failureRef.eventId,
+                code: failureRef.code,
+            } : {}),
+        });
 
-    function log(level: TLogLevel, msg: string, failureRef?: IFailureRef) {
-        const ts = new Date().toISOString();
-        const redactedMsg = redactElectronLogText(msg);
-        const formattedMsg = `[${ts}] [${source}] [${level}] ${redactedMsg}`;
-
-        if (shouldLog(level, FILE_LOG_LEVEL)) {
-            enqueueWrite(source, logFile, formattedMsg, level);
-        }
-
-        const canBroadcast = level !== 'ERROR' || (isMainThread && failureRef !== undefined);
-        if (broadcastToRenderersEnabled && canBroadcast && shouldLog(level, RENDER_LOG_LEVEL)) {
+        const canBroadcast = level !== 'error' || (isMainThread && failureRef !== undefined);
+        if (broadcastToRenderersEnabled && canBroadcast && isLogLevelEnabled(level, RENDER_LOG_LEVEL)) {
+            // The broadcast has its own level; a record the file and stdout
+            // sinks skipped still carries its (redacted) data here.
+            const dataText = formatLogData(record ? record.data : redactLogData(toLogData(data)), 2_000);
             void broadcastToRenderers({
                 source,
-                message: `[${level}] ${redactedMsg}`,
-                timestamp: ts,
-                level,
-                ...(level === 'ERROR' && isMainThread && failureRef ? {failureRef} : {}),
+                message: `[${level.toUpperCase()}] ${record?.msg ?? redactElectronLogText(msg)}${dataText ? ` ${dataText}` : ''}`,
+                timestamp: record?.ts ?? new Date().toISOString(),
+                level: toDebugLogLevel(level),
+                ...(level === 'error' && isMainThread && failureRef ? {failureRef} : {}),
             });
         }
     }
 
     return {
-        debug: (msg) => log('DEBUG', msg),
-        info: (msg) => log('INFO', msg),
-        warn: (msg) => log('WARN', msg),
-        error: (msg, existingReceipt) => {
+        debug: (msg, data) => log('debug', msg, data),
+        info: (msg, data) => log('info', msg, data),
+        warn: (msg, data) => log('warn', msg, data),
+        error: (msg, existingReceipt, data) => {
+            const recordData = toFailureData(existingReceipt, data);
             if (!isMainThread) {
-                log('ERROR', msg);
+                log('error', msg, recordData);
                 return undefined;
             }
 
@@ -570,10 +707,8 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
             const receipt = isFailureReceipt(existingReceipt)
                 ? existingReceipt
                 : reporter ? captureMainLoggerFailure(source, msg, existingReceipt) : undefined;
-            log('ERROR', msg, toFailureRef(receipt));
+            log('error', msg, recordData, toFailureRef(receipt));
             return receipt;
         },
     };
 }
-
-void pruneLogDirectory(true).catch(() => {});

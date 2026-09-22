@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('worker_threads', () => ({
+    isMainThread: false,
     parentPort: {
         close: vi.fn(),
         on: (event: string, listener: (message: unknown) => void) => {

@@ -143,12 +143,12 @@ const pendingResourceAcquires = new Map<TRequestId, {
 }>();
 export const OCR_WORKER_PAGE_BATCH_SIZE = 5_000;
 
-const log: TWorkerLog = (level, message) => {
-    const timestamp = new Date().toISOString();
+const log: TWorkerLog = (level, message, data) => {
     const payload: IOcrWorkerLogMessage = {
         type: 'log',
         level,
-        message: `[${timestamp}] [ocr-worker] ${message}`,
+        message,
+        ...(data === undefined ? {} : {data}),
     };
     parentPort?.postMessage(payload);
 };
@@ -447,7 +447,7 @@ async function processOcrPage(
         rm(checkpointJsonPath, {force: true}),
         rm(checkpointPdfPath, {force: true}),
     ]).catch(() => undefined);
-    log('debug', `Processing page ${page.pageNumber}`);
+    log('debug', 'Processing OCR page', {pageNumber: page.pageNumber});
 
     const pageImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}.png`));
     const pageSizeProbeImagePath = context.trackTempFile(join(paths.tempDir, `${context.sessionId}-page-${page.pageNumber}-size-probe.png`));
@@ -480,7 +480,12 @@ async function processOcrPage(
             const reason = pageSourceDpi !== undefined && pageSourceDpi <= effectiveDpi
                 ? 'to avoid upscaling the embedded page image'
                 : 'to stay within native resource budget';
-            log('debug', `Reduced OCR render DPI for page ${page.pageNumber} from ${context.extractionDpi} to ${effectiveDpi} ${reason}`);
+            log('debug', 'Reduced OCR render DPI', {
+                pageNumber: page.pageNumber,
+                requestedDpi: context.extractionDpi,
+                effectiveDpi,
+                reason,
+            });
             diagnostics.push({
                 code: 'OCR_SOURCE_DPI_LIMITED',
                 severity: 'info',
@@ -531,11 +536,12 @@ async function processOcrPage(
                 } else {
                     const rawSize = `${dims.width}x${dims.height}`;
                     const cleanSize = `${candidateDims.width}x${candidateDims.height}`;
-                    log('warn', [
-                        `OCR preprocessing changed page ${page.pageNumber} image dimensions`,
-                        `from ${rawSize} to ${cleanSize};`,
-                        'using raw page render to preserve text-layer alignment',
-                    ].join(' '));
+                    log('warn', 'OCR preprocessing changed image dimensions', {
+                        pageNumber: page.pageNumber,
+                        rawSize,
+                        cleanSize,
+                        action: 'using raw page render to preserve text-layer alignment',
+                    });
                     diagnostics.push({
                         code: 'OCR_PREPROCESSING_GEOMETRY_CHANGED',
                         severity: 'warning',
@@ -576,7 +582,11 @@ async function processOcrPage(
 
         if (ocrResult.unsupportedOptions) {
             const rejected = ocrResult.unsupportedOptions.join(', ');
-            log('warn', `Tesseract rejected ${rejected} on page ${page.pageNumber}; the selected recognition mode was not fully applied`);
+            log('warn', 'Tesseract rejected OCR options', {
+                pageNumber: page.pageNumber,
+                rejectedOptions: rejected,
+                action: 'selected recognition mode was not fully applied',
+            });
             diagnostics.push({
                 code: 'OCR_ENGINE_OPTION_UNSUPPORTED',
                 severity: 'warning',
@@ -657,7 +667,10 @@ async function processOcrPage(
             throw err;
         }
         const errMsg = getErrorMessage(err);
-        log('warn', `Failed to process page ${page.pageNumber}: ${errMsg}`);
+        log('warn', 'Failed to process OCR page', {
+            pageNumber: page.pageNumber,
+            error: errMsg,
+        });
         return {
             error: `Failed to process page ${page.pageNumber}: ${errMsg}`,
             checkpointJsonPath,
@@ -815,20 +828,33 @@ async function validateSourcePdf(jobId: TJobId, sourcePdfPath: string, pageCount
     if (sourceStat.size <= 0) {
         throw new Error(`Source PDF is empty: ${sourcePdfPath}`);
     }
-    log('debug', `Processing OCR job ${jobId}: sourcePath=${sourcePdfPath}, pdfBytes=${sourceStat.size}, pages=${pageCount}`);
+    log('debug', 'Processing OCR job', {
+        jobId,
+        sourcePath: sourcePdfPath,
+        pdfBytes: sourceStat.size,
+        pages: pageCount,
+    });
 }
 
 function logPopplerEnvironment(popplerEnv?: NodeJS.ProcessEnv) {
     if (popplerEnv) {
         log(
             'debug',
-            `Poppler env: POPPLER_DATADIR=${popplerEnv.POPPLER_DATADIR?.length ? popplerEnv.POPPLER_DATADIR : 'unset'}, FONTCONFIG_PATH=${popplerEnv.FONTCONFIG_PATH?.length ? popplerEnv.FONTCONFIG_PATH : 'unset'}, FONTCONFIG_FILE=${popplerEnv.FONTCONFIG_FILE?.length ? popplerEnv.FONTCONFIG_FILE : 'unset'}`,
+            'Poppler environment configured',
+            {
+                popplerDataDir: popplerEnv.POPPLER_DATADIR?.length ? popplerEnv.POPPLER_DATADIR : 'unset',
+                fontConfigPath: popplerEnv.FONTCONFIG_PATH?.length ? popplerEnv.FONTCONFIG_PATH : 'unset',
+                fontConfigFile: popplerEnv.FONTCONFIG_FILE?.length ? popplerEnv.FONTCONFIG_FILE : 'unset',
+            },
         );
         return;
     }
 
     if (process.platform === 'win32') {
-        log('warn', 'Poppler env data/config paths are unavailable; Windows builds may crash if Poppler runtime assets are missing');
+        log('warn', 'Poppler environment paths unavailable', {
+            platform: process.platform,
+            impact: 'Windows builds may crash if Poppler runtime assets are missing',
+        });
     }
 }
 
@@ -887,7 +913,12 @@ async function buildOcrPageProcessingPlan(
         }
     }
 
-    log('debug', `OCR PDF: pages=${targetPages.length}, dpi=${extractionDpi}, concurrency=${concurrency}, threads=${tesseractThreads}`);
+    log('debug', 'OCR page processing plan ready', {
+        pages: targetPages.length,
+        dpi: extractionDpi,
+        concurrency,
+        threads: tesseractThreads,
+    });
 
     return {
         targetPages,
@@ -909,7 +940,7 @@ function sendEmptyOcrResultFailure(
     errors: string[],
     errorEnvelope?: IOcrErrorEnvelope,
 ) {
-    log('error', `OCR failed to produce searchable output. errors=${errors.join(' | ') || 'none'}`);
+    log('error', 'OCR failed to produce searchable output', {errors});
     sendComplete(jobId, {
         success: false,
         errors,
@@ -1057,7 +1088,7 @@ async function processOcrJob(
             tempDir: paths.tempDir,
         });
         await storageBudget.assertWithinBudget();
-        log('debug', `OCR storage budget: ${JSON.stringify(storageBudget.describe())}`);
+        log('debug', 'OCR storage budget', storageBudget.describe());
         durableManifest = await createOcrJobManifestController(checkpointDir, checkpointFingerprint);
         await durableManifest.markNode('model', 'verified');
         await durableManifest.markNode('normalized-source', 'running');
@@ -1225,7 +1256,12 @@ async function processOcrJob(
             appendMessages(completionMessages, [`${omittedMessageCount} OCR diagnostic message(s) omitted from the completion payload`]);
         }
 
-        log('debug', `OCR done. successfulPages=${successfulPageCount}, requestedPages=${requestedPageCount}, errors=${jobErrors.length}, renderDpi=${actualRenderDpi}`);
+        log('debug', 'OCR job completed', {
+            successfulPages: successfulPageCount,
+            requestedPages: requestedPageCount,
+            errors: jobErrors.length,
+            renderDpi: actualRenderDpi,
+        });
 
         sendProgress(
             jobId,
@@ -1335,14 +1371,20 @@ async function processOcrJob(
         const errMsg = getErrorMessage(err);
         if (isAbortError(err)) {
             await durableManifest?.setTerminal('cancelled').catch(() => undefined);
-            log('debug', `OCR job ${jobId} aborted: ${errMsg}`);
+            log('debug', 'OCR job aborted', {
+                jobId,
+                error: errMsg,
+            });
             sendComplete(jobId, {
                 success: false,
                 errors: [errMsg],
             });
             return;
         }
-        log('error', `CRITICAL ERROR in processOcrJob: ${errMsg}`);
+        log('error', 'Critical OCR job failure', {
+            jobId,
+            error: errMsg,
+        });
         await durableManifest?.setTerminal('failed').catch(() => undefined);
         sendComplete(jobId, {
             success: false,
@@ -1370,7 +1412,10 @@ parentPort?.on('message', async (rawMessage: unknown) => {
     if (!message) {
         const invalidStart = parseInvalidOcrWorkerStartMessage(rawMessage);
         if (invalidStart) {
-            log('warn', invalidStart.error);
+            log('warn', 'Invalid OCR worker start message', {
+                jobId: invalidStart.jobId,
+                error: invalidStart.error,
+            });
             sendComplete(invalidStart.jobId, {
                 success: false,
                 errors: [invalidStart.error],

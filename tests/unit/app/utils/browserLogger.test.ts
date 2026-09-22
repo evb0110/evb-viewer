@@ -53,7 +53,7 @@ function createWindowStub(options: IWindowStubOptions = {}) {
 
 function spyOnConsole() {
     return {
-        log: vi.spyOn(console, 'log').mockImplementation(() => {}),
+        debug: vi.spyOn(console, 'debug').mockImplementation(() => {}),
         info: vi.spyOn(console, 'info').mockImplementation(() => {}),
         warn: vi.spyOn(console, 'warn').mockImplementation(() => {}),
         error: vi.spyOn(console, 'error').mockImplementation(() => {}),
@@ -89,7 +89,7 @@ describe('BrowserLogger', () => {
         logger.debug('section-a', 'debug message');
         logger.info('section-a', 'info message');
 
-        expect(consoleSpies.log).not.toHaveBeenCalled();
+        expect(consoleSpies.debug).not.toHaveBeenCalled();
         expect(consoleSpies.info).not.toHaveBeenCalled();
         expect(rendererLog).not.toHaveBeenCalled();
     });
@@ -134,7 +134,7 @@ describe('BrowserLogger', () => {
         logger.diagnostic('pdf-nav', 'trace message');
         logger.diagnosticThrottled('pdf-nav', 'key-1', 100, 'throttled trace');
 
-        expect(consoleSpies.log).not.toHaveBeenCalled();
+        expect(consoleSpies.debug).not.toHaveBeenCalled();
         expect(consoleSpies.warn).not.toHaveBeenCalled();
         expect(rendererLog).not.toHaveBeenCalled();
     });
@@ -150,7 +150,7 @@ describe('BrowserLogger', () => {
 
         logger.diagnostic('section-a', 'trace message', {step: 1});
 
-        expect(consoleSpies.log).toHaveBeenCalledTimes(1);
+        expect(consoleSpies.debug).toHaveBeenCalledTimes(1);
         expect(consoleSpies.warn).not.toHaveBeenCalled();
         expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
             level: 'debug',
@@ -171,7 +171,7 @@ describe('BrowserLogger', () => {
 
         logger.diagnostic('pdf-nav', 'trace message', {step: 1});
 
-        expect(consoleSpies.log).not.toHaveBeenCalled();
+        expect(consoleSpies.debug).not.toHaveBeenCalled();
         expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
             level: 'debug',
             section: 'pdf-nav',
@@ -194,7 +194,7 @@ describe('BrowserLogger', () => {
 
         logger.diagnostic('pdf-nav', 'trace message', {step: 1});
 
-        expect(consoleSpies.log).toHaveBeenCalledTimes(1);
+        expect(consoleSpies.debug).toHaveBeenCalledTimes(1);
         expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
             level: 'debug',
             section: 'pdf-nav',
@@ -213,7 +213,7 @@ describe('BrowserLogger', () => {
         logger.diagnostic('pdf-nav', 'trace message');
 
         expect(consoleSpies.warn).toHaveBeenCalledTimes(1);
-        expect(consoleSpies.log).not.toHaveBeenCalled();
+        expect(consoleSpies.debug).not.toHaveBeenCalled();
         expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
             level: 'warn',
             section: 'pdf-nav',
@@ -235,12 +235,12 @@ describe('BrowserLogger', () => {
         logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'tick', {sequence: 2});
         logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'tick', {sequence: 3});
 
-        expect(consoleSpies.log).toHaveBeenCalledTimes(1);
+        expect(consoleSpies.debug).toHaveBeenCalledTimes(1);
 
         vi.setSystemTime(new Date('2026-01-01T00:00:01.500Z'));
         logger.diagnosticThrottled('section-a', 'key-1', 1_000, 'tick', {sequence: 4});
 
-        expect(consoleSpies.log).toHaveBeenCalledTimes(2);
+        expect(consoleSpies.debug).toHaveBeenCalledTimes(2);
         expect(rendererLog).toHaveBeenLastCalledWith(expect.objectContaining({data: expect.objectContaining({
             sequence: 4,
             throttledSuppressedCount: 2,

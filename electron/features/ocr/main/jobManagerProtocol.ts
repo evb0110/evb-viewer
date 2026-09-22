@@ -59,6 +59,7 @@ function parseWorkerLogMessage(message: Record<string, unknown>): TOcrWorkerMana
             type: 'log',
             level: message.level,
             message: message.message,
+            ...(isRecord(message.data) ? {data: message.data} : {}),
         };
     }
     return null;

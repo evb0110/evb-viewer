@@ -17,7 +17,10 @@ vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => [{
     isDestroyed: () => false,
     webContents: {send: (...args: unknown[]) => mocks.broadcasts.push(args)},
 }]}}));
-vi.mock('worker_threads', () => ({isMainThread: true}));
+vi.mock('worker_threads', () => ({
+    isMainThread: true,
+    threadId: 0,
+}));
 
 vi.mock('fs', () => ({
     mkdirSync: vi.fn(),
@@ -38,12 +41,23 @@ vi.mock('fs/promises', () => ({
     rm: vi.fn(async () => undefined),
 }));
 
-function countWrittenLines() {
+function readRecords() {
     return mocks.appended
         .join('')
         .split('\n')
         .filter(line => line.length > 0)
-        .length;
+        .map(line => JSON.parse(line) as {
+            msg: string;
+            level: string;
+            scope: string;
+            data?: Record<string, unknown>;
+        })
+        // Each process start writes one session marker before its first record.
+        .filter(record => record.msg !== 'Log session started');
+}
+
+function countWrittenLines() {
+    return readRecords().length;
 }
 
 describe('file logger write buffering', () => {
@@ -175,9 +189,97 @@ describe('file logger write buffering', () => {
 
         await flushPendingLogWrites();
 
-        expect(mocks.appended.join('')).toContain(
+        expect(readRecords().at(-1)?.msg).toBe(
             'event={"authorization":"[redacted-secret]","next":"useful"}',
         );
         expect(mocks.appended.join('')).not.toContain('abc def');
+    });
+
+    it('writes structured data as one NDJSON record and redacts it', async () => {
+        const {
+            createLogger,
+            flushPendingLogWrites,
+        } = await import('@electron/utils/createLogger');
+        const logger = createLogger('structured-test', {broadcastToRenderers: false});
+        logger.warn('Save did not commit', {
+            path: '/Users/someone/private/report.pdf',
+            busy: {
+                isSaving: false,
+                nested: {phase: 'post-write'},
+            },
+            authorization: 'Bearer abc.def',
+        });
+
+        await flushPendingLogWrites();
+
+        const [record] = readRecords();
+        expect(record).toMatchObject({
+            level: 'warn',
+            scope: 'structured-test',
+            msg: 'Save did not commit',
+            data: {
+                path: '/Users/[redacted]',
+                busy: {
+                    isSaving: false,
+                    nested: {phase: 'post-write'},
+                },
+                authorization: '[redacted-secret]',
+            },
+        });
+        expect(mocks.appended.join('')).not.toContain('someone');
+        expect(mocks.appended.join('')).not.toContain('abc.def');
+    });
+
+    it('keeps redacted data in renderer broadcasts when the file sink skips the level', async () => {
+        process.env.ELECTRON_FILE_LOG_LEVEL = 'ERROR';
+        process.env.ELECTRON_RENDER_LOG_LEVEL = 'WARN';
+        const {createLogger} = await import('@electron/utils/createLogger');
+        createLogger('broadcast-only-test').warn('Slow save', {
+            durationMs: 28736,
+            path: '/Users/someone/private.pdf',
+        });
+        await vi.dynamicImportSettled();
+
+        expect(readRecords()).toHaveLength(0);
+        const message = (mocks.broadcasts.at(-1)?.[1] as {message: string;} | undefined)?.message;
+        expect(message).toBe('[WARN] Slow save durationMs=28736 path=/Users/[redacted]');
+    });
+
+    it('mirrors records to stdout only when the launcher asks for NDJSON', async () => {
+        process.env.EVB_LOG_STDOUT = 'ndjson';
+        process.env.EVB_LOG_STDOUT_LEVEL = 'warn';
+        const writes: string[] = [];
+        const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: string | Uint8Array) => {
+            writes.push(String(chunk));
+            return true;
+        });
+        try {
+            const {
+                createLogger,
+                writeLogRecord,
+            } = await import('@electron/utils/createLogger');
+            const logger = createLogger('mirror-test', {broadcastToRenderers: false});
+            logger.info('below the stdout level');
+            logger.warn('Slow save', {durationMs: 28736});
+            writeLogRecord({
+                level: 'warn',
+                proc: 'renderer',
+                scope: 'workspace',
+                msg: 'already on the CDP console',
+            }, {stdout: false});
+
+            expect(writes).toHaveLength(1);
+            expect(JSON.parse(writes[0]!)).toMatchObject({
+                level: 'warn',
+                proc: 'main',
+                scope: 'mirror-test',
+                msg: 'Slow save',
+                data: {durationMs: 28736},
+            });
+        } finally {
+            writeSpy.mockRestore();
+            delete process.env.EVB_LOG_STDOUT;
+            delete process.env.EVB_LOG_STDOUT_LEVEL;
+        }
     });
 });

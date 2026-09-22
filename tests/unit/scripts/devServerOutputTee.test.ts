@@ -136,6 +136,28 @@ describe('dev server output tee', () => {
         });
     });
 
+    it('prefixes whole lines when chunks split mid-line and keeps raw-only sources out of the session log', () => {
+        const baseDir = createTempBaseDir();
+        const tee = createDevServerOutputTee({
+            sessionName: 'line-session',
+            baseDir,
+            now: new Date('2026-07-06T10:11:12.345Z'),
+            pid: 12346,
+        });
+
+        tee.write('launcher', 'stdout', 'first half ');
+        tee.write('electron-main-process', 'stderr', 'raw chromium line\n', {aggregate: false});
+        tee.write('launcher', 'stdout', '\u001B[33msecond\u001B[0m half\nnext');
+        tee.close();
+
+        const sessionLines = readFileSync(tee.sessionLogFile, 'utf8').trimEnd().split('\n');
+        expect(sessionLines).toHaveLength(2);
+        expect(sessionLines[0]).toMatch(/^\[[^\]]+ launcher stdout\] first half second half$/u);
+        expect(sessionLines[1]).toMatch(/^\[[^\]]+ launcher stdout\] next$/u);
+        expect(readFileSync(tee.sessionLogFile, 'utf8')).not.toContain('raw chromium line');
+        expect(readFileSync(join(tee.runDir, 'electron-main-process.stderr.log'), 'utf8')).toBe('raw chromium line\n');
+    });
+
     it('can be explicitly disabled for callers that allow it', () => {
         expect(createDevServerOutputTee({
             env: {[DEV_OUTPUT_TEE_DISABLED_ENV]: '1'},

@@ -71,14 +71,6 @@ interface IOpenInputPathsAbortLifecycle {
     cleanup: () => void;
 }
 
-function formatPathListForLog(paths: string[]) {
-    const visiblePaths = paths.slice(0, 20);
-    const suffix = paths.length > visiblePaths.length
-        ? ` | ... (${paths.length - visiblePaths.length} more)`
-        : '';
-    return `${visiblePaths.join(' | ')}${suffix}`;
-}
-
 function getOwnerWebContentsId(owner?: TOpenPathOwner) {
     if (typeof owner === 'number') {
         return owner;
@@ -189,7 +181,10 @@ export async function openInputPaths(
 ): Promise<TOpenFileResult | null> {
     const normalizedPaths = paths.filter(path => typeof path === 'string' && path.length > 0)
         .map(path => normalizePossiblyEncodedExistingPath(path) ?? path);
-    logger.debug(`openInputPaths normalized ${normalizedPaths.length} path(s): ${formatPathListForLog(normalizedPaths)}`);
+    logger.debug('Normalized open input paths', {
+        pathCount: normalizedPaths.length,
+        paths: normalizedPaths,
+    });
     if (normalizedPaths.length === 0) {
         return null;
     }
@@ -212,7 +207,7 @@ export async function openInputPaths(
     if (!options.forceCombine && djvuPaths.length > 0 && normalizedPaths.length === 1 && djvuPaths.length === 1) {
         const djvuPath = djvuPaths[0]!;
         const trustedDjvuPath = requireOpenPath(djvuPath, owner);
-        logger.debug(`openInputPaths resolved DjVu path: ${djvuPath}`);
+        logger.debug('Resolved DjVu input path', {path: djvuPath});
         persistRecentInputsAfterOpen([djvuPath], owner);
         return {
             kind: 'djvu',
@@ -226,7 +221,7 @@ export async function openInputPaths(
         const originalPath = normalizedPaths[0]!;
         const isGenerated = isScanCleanupGeneratedOutputPath(originalPath);
         const ownerWebContentsId = getOwnerWebContentsId(owner);
-        logger.debug(`openInputPaths creating working copy for PDF: ${originalPath}`);
+        logger.debug('Creating working copy for PDF input', {path: originalPath});
         const lifecycle = createOpenInputPathsAbortLifecycle(owner, originalPath, options.signal);
         const { signal } = lifecycle;
         let openLease: Awaited<ReturnType<typeof mainJobBroker.acquire>> | null = null;
@@ -276,10 +271,10 @@ export async function openInputPaths(
                     persistRecentInputsAfterOpen([originalPath], owner);
                 }
                 throwIfAborted(signal);
-                logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
+                logger.debug('PDF input source-critical timings', {
                     recentPersistence: 'background',
                     totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
-                })}`);
+                });
                 const result: TOpenFileResult = {
                     kind: 'pdf',
                     workingPath: requireDocumentRef(unownedWorkingPath),
@@ -306,7 +301,7 @@ export async function openInputPaths(
             if (unownedWorkingPath) {
                 await cleanupWorkingCopy(unownedWorkingPath, ownerWebContentsId)
                     .catch(error => {
-                        logger.warn(`Failed to clean an unclaimed PDF working copy: ${getErrorMessage(error)}`);
+                        logger.warn('Failed to clean an unclaimed PDF working copy', {error: getErrorMessage(error)});
                     });
             }
         }
@@ -354,7 +349,7 @@ export async function openInputPaths(
             },
         );
         throwIfAborted(signal);
-        logger.info(`openInputPaths created combined PDF for batch; output: ${outputPath}`);
+        logger.info('Created combined PDF for input batch', {outputPath});
         allowOpenPaths([tempOutputPath], owner);
         const trustedTempOutputPath = requireOpenPath(tempOutputPath, owner);
         workingPath = await createWorkingCopyFromPath(
@@ -381,6 +376,6 @@ export async function openInputPaths(
 
 function persistRecentInputsAfterOpen(paths: string[], owner?: TOpenPathOwner) {
     void addRecentInputs(paths, owner).catch(error => {
-        logger.warn(`Failed to persist opened input in Recent Files: ${getErrorMessage(error)}`);
+        logger.warn('Failed to persist opened input in Recent Files', {error: getErrorMessage(error)});
     });
 }

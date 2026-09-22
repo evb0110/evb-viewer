@@ -108,7 +108,7 @@ function mountStartupOverlay(deps: IStartupOverlayLifecycleDeps) {
 `;
     body.appendChild(overlay);
     deps.tracePreload('startup overlay mounted');
-    deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay mounted', {
+    deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay mounted', {
         variant: 'startup-overlay',
         spinnerSizePx: STARTUP_OVERLAY_SPINNER_SIZE_PX,
         hasLabel: true,
@@ -120,7 +120,7 @@ function unmountStartupOverlay(reason: string, deps: IStartupOverlayLifecycleDep
     if (overlay) {
         overlay.remove();
         deps.tracePreload('startup overlay removed', { reason });
-        deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay removed', {
+        deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay removed', {
             variant: 'startup-overlay',
             reason,
         });
@@ -216,7 +216,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             }
 
             const delayMs = DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS - elapsedMs;
-            deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay removal delayed for dev stabilization', {
+            deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay removal delayed for dev stabilization', {
                 variant: 'startup-overlay',
                 reason,
                 delayMs,
@@ -241,7 +241,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         appReadyRemovalTimer = window.setTimeout(() => {
             appReadyRemovalTimer = null;
             if (waitingForStartupOpenVisual) {
-                deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay retained for startup document visual readiness', {
+                deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay retained for startup document visual readiness', {
                     variant: 'startup-overlay',
                     reason,
                 });
@@ -249,7 +249,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             }
 
             if (!startupOpenClaimSeen) {
-                deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay retained until startup open claim is observed', {
+                deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay retained until startup open claim is observed', {
                     variant: 'startup-overlay',
                     reason,
                 });
@@ -281,7 +281,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
         if (pathCount > 0) {
             waitingForStartupOpenVisual = true;
             clearAppReadyRemovalTimer();
-            deps.forwardPreloadLogToMain('info', 'loader', 'Startup external open claimed; retaining overlay until first document paint', {
+            deps.forwardPreloadLogToMain('debug', 'loader', 'Startup external open claimed; retaining overlay until first document paint', {
                 variant: 'startup-overlay',
                 pathCount,
             });
@@ -297,7 +297,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
     function handleStartupOpenVisualReady(event: Event) {
         waitingForStartupOpenVisual = false;
         const detail = event instanceof CustomEvent ? event.detail as Record<string, unknown> | null : null;
-        deps.forwardPreloadLogToMain('info', 'loader', 'Startup document visual readiness reached', {
+        deps.forwardPreloadLogToMain('debug', 'loader', 'Startup document visual readiness reached', {
             variant: 'startup-overlay',
             reason: typeof detail?.reason === 'string' ? detail.reason : 'startup-open-visual-ready',
             timedOut: detail?.timedOut === true,
@@ -314,7 +314,7 @@ export function installStartupOverlayLifecycle(deps: IStartupOverlayLifecycleDep
             const overlayAlreadyShown = window.sessionStorage.getItem(DEV_STARTUP_OVERLAY_SHOWN_KEY) === '1';
             if (overlayAlreadyShown) {
                 deps.tracePreload('startup overlay continuing across dev reload', {reason: DEV_STARTUP_OVERLAY_SHOWN_KEY});
-                deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay continuing across dev reload', {variant: 'startup-overlay'});
+                deps.forwardPreloadLogToMain('debug', 'loader', 'Startup overlay continuing across dev reload', {variant: 'startup-overlay'});
             }
 
             window.sessionStorage.setItem(DEV_STARTUP_OVERLAY_SHOWN_KEY, '1');

@@ -17,4 +17,4 @@ xcrun swiftc \
   "$project_root/native/macos-pdf-print-dialog/main.swift" \
   -o "$output_dir/pdf-print-dialog"
 chmod 755 "$output_dir/pdf-print-dialog"
-"$output_dir/pdf-print-dialog" --version
+"$output_dir/pdf-print-dialog" --version >/dev/null

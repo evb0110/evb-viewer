@@ -41,8 +41,8 @@ vi.mock('@app/composables/useRuntimeErrorReports', () => (
 ));
 
 const browserLoggerMock = {
+    debug: vi.fn(),
     error: vi.fn(),
-    warnThrottled: vi.fn(),
 };
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
@@ -271,7 +271,7 @@ describe('renderer hygiene plugins', () => {
 
         expect(browserLoggerMock.error).not.toHaveBeenCalled();
         expect(mocks.reportRuntimeError).not.toHaveBeenCalled();
-        expect(browserLoggerMock.warnThrottled).toHaveBeenCalledTimes(3);
+        expect(browserLoggerMock.debug).toHaveBeenCalledTimes(3);
         expect(harness.previousErrorHandler).toHaveBeenCalledOnce();
     });
 });

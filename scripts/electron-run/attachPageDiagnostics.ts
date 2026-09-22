@@ -5,10 +5,15 @@ import type {
     Page,
 } from 'puppeteer-core';
 import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
-import { stringifyJson } from '@contracts/stringifyJson';
+import { formatLogRecordLine } from '@contracts/logRecord';
+import {
+    consoleMessageToLogRecord,
+    createLogRecord,
+    printTerminalLogRecord,
+    resolveTerminalLogLevel,
+} from '@scripts/electron-run/terminalLog';
 
 const MAX_CONSOLE_MESSAGES = 400;
-const MAX_CONSOLE_ARG_TEXT_LENGTH = 2000;
 const MAX_DEVTOOLS_EVENTS = 1200;
 
 function pushBounded<T>(collection: T[], item: T, maxSize: number) {
@@ -18,44 +23,26 @@ function pushBounded<T>(collection: T[], item: T, maxSize: number) {
     }
 }
 
-function boundConsoleArgText(text: string) {
-    if (text.length <= MAX_CONSOLE_ARG_TEXT_LENGTH) {
-        return text;
-    }
-    return `${text.slice(0, MAX_CONSOLE_ARG_TEXT_LENGTH)}...`;
-}
-
-function stringifyConsoleArgValue(value: unknown) {
+async function evaluateConsoleArg(arg: JSHandle) {
     try {
-        const text = typeof value === 'string'
-            ? value
-            : stringifyJson(value);
-        return boundConsoleArgText(text ?? String(value));
+        return await arg.jsonValue();
     } catch {
-        return boundConsoleArgText(String(value));
+        return undefined;
     }
 }
 
-async function serializeConsoleArg(arg: JSHandle, fallbackText: string) {
+/**
+ * Turns one console call into a record. Arguments are evaluated once; the
+ * message text never mixes CDP's `[object Object]` rendering with the data.
+ */
+async function toConsoleRecord(msg: ConsoleMessage) {
+    const fallbackText = msg.text();
     try {
-        return stringifyConsoleArgValue(await arg.jsonValue());
+        const args = await Promise.all(msg.args().map(evaluateConsoleArg));
+        const evaluated = args.every(value => value !== undefined) ? args : [];
+        return consoleMessageToLogRecord(msg.type(), evaluated, fallbackText);
     } catch {
-        return boundConsoleArgText(fallbackText);
-    }
-}
-
-async function formatConsoleMessage(msg: ConsoleMessage) {
-    const text = msg.text();
-    try {
-        const serializedArgs = await Promise.all(
-            msg.args().map(arg => serializeConsoleArg(arg, text)),
-        );
-        if (serializedArgs.length === 0) {
-            return text;
-        }
-        return `${text} ${serializedArgs.join(' ')}`;
-    } catch {
-        return text;
+        return consoleMessageToLogRecord(msg.type(), [], fallbackText);
     }
 }
 
@@ -76,25 +63,16 @@ export function attachPageDiagnostics(page: Page) {
     };
     type TConsoleEntry = ISessionState['consoleMessages'][number];
 
+    const terminalLevel = resolveTerminalLogLevel();
     page.on('console', (msg) => {
         void (async () => {
-            try {
-                const entry: TConsoleEntry = {
-                    type: msg.type(),
-                    text: await formatConsoleMessage(msg),
-                    timestamp: Date.now(),
-                };
-                pushConsoleMessage(entry);
-                console.log(`[${entry.type.toUpperCase()}] ${entry.text}`);
-            } catch {
-                const entry: TConsoleEntry = {
-                    type: msg.type(),
-                    text: msg.text(),
-                    timestamp: Date.now(),
-                };
-                pushConsoleMessage(entry);
-                console.log(`[${entry.type.toUpperCase()}] ${entry.text}`);
-            }
+            const record = await toConsoleRecord(msg);
+            pushConsoleMessage({
+                type: msg.type(),
+                text: formatLogRecordLine(record, {time: 'none'}),
+                timestamp: Date.now(),
+            });
+            printTerminalLogRecord(record, terminalLevel);
         })();
     });
     page.on('request', (request) => {
@@ -142,7 +120,7 @@ export function attachPageDiagnostics(page: Page) {
             timestamp: entry.timestamp,
             text: entry.text,
         });
-        console.log(`[ERROR] ${error.message}`);
+        printTerminalLogRecord(createLogRecord('error', 'renderer', 'page', 'Page error', {error}), terminalLevel);
     });
     page.on('pageerror', (error) => {
         const message = getErrorMessage(error);
@@ -157,7 +135,7 @@ export function attachPageDiagnostics(page: Page) {
             timestamp: entry.timestamp,
             text: message,
         });
-        console.log(`[ERROR] ${message}`);
+        printTerminalLogRecord(createLogRecord('error', 'renderer', 'page', 'Uncaught page exception', {error}), terminalLevel);
     });
 
     return {

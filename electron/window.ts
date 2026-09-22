@@ -110,12 +110,13 @@ function reportWindowFailure<C extends DiagnosticCode>(
         // Diagnostics must not change renderer recovery or window teardown.
     }
     if (receipt === undefined) {
-        logger.error(message, {
+        logger.error('Window operation failed', {
             code: 'MAIN_WINDOW_OPERATION_FAILED',
             context: {},
-        });
+            cause,
+        }, {message});
     } else {
-        logger.error(message, receipt);
+        logger.error('Window operation failed', receipt, {message});
     }
     return receipt;
 }
@@ -128,7 +129,11 @@ function logWindowStartup(phase: string, details?: Record<string, unknown>) {
     const now = Date.now();
     const elapsedMs = now - windowStartupStartedAt;
     const message = `[startup] ${phase} (+${elapsedMs}ms)`;
-    logger.info(message);
+    logger.debug('Window startup phase', {
+        phase,
+        elapsedMs,
+        ...details,
+    });
     console.info(`[${new Date(now).toISOString()}] [window] ${message}`, {
         elapsedMs,
         ...details,
@@ -201,11 +206,11 @@ function createWindowLoadFailureOwner(): IWindowLoadFailureOwner {
             }
 
             attempt.reported = true;
-            const receipt = logger.error(error.message, {
+            const receipt = logger.error('Renderer load failed', {
                 code: 'MAIN_WINDOW_OPERATION_FAILED',
                 context: {},
                 cause: error,
-            });
+            }, {message: error.message});
             if (receipt) {
                 attempt.receipt = receipt;
             }
@@ -278,9 +283,7 @@ async function lockRendererZoom(window: BrowserWindow) {
         window.webContents.setZoomFactor(1);
         window.webContents.setZoomLevel(0);
     } catch (error) {
-        logger.warn(
-            `Failed to lock renderer zoom: ${getErrorMessage(error)}`,
-        );
+        logger.warn('Failed to lock renderer zoom', {error: getErrorMessage(error)});
     }
 }
 
@@ -323,7 +326,10 @@ async function promptUnresponsiveRendererRecovery(
     } catch (error) {
         const message = `Failed to prompt for unresponsive renderer recovery (windowId=${windowId}): ${getErrorMessage(error)}`;
         if (window.isDestroyed()) {
-            logger.info(message);
+            logger.info('Renderer recovery prompt failed after window destruction', {
+                windowId,
+                error: getErrorMessage(error),
+            });
         } else {
             reportWindowFailure(
                 'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
@@ -386,7 +392,11 @@ function attachRendererDiagnostics(
         }`;
         let receipt: FailureReceipt | undefined;
         if (window.isDestroyed()) {
-            logger.info(message);
+            logger.info('Renderer recovery load failed after window destruction', {
+                windowId,
+                reason: failure.reason,
+                error: getErrorMessage(error),
+            });
         } else {
             const trigger = normalizeRendererRecoveryTrigger(failure.reason);
             if (trigger === 'renderer-gone') {
@@ -434,7 +444,11 @@ function attachRendererDiagnostics(
             reported: false,
         };
         clearUnresponsiveRecoveryTimer();
-        logger.warn(`[renderer] attempting recovery load (${reason}, windowId=${windowId}, attempt=${recentRecoveryAttempts.length})`);
+        logger.warn('Attempting renderer recovery load', {
+            reason,
+            windowId,
+            attempt: recentRecoveryAttempts.length,
+        });
         void (async () => {
             try {
                 await windowRuntime.ensureReady();
@@ -459,7 +473,11 @@ function attachRendererDiagnostics(
         }
         const message = `[renderer] render-process-gone (windowId=${windowId}, reason=${details.reason}, exitCode=${details.exitCode})`;
         if (window.isDestroyed()) {
-            logger.info(message);
+            logger.info('Renderer process exited after window destruction', {
+                windowId,
+                reason: details.reason,
+                exitCode: details.exitCode,
+            });
             return;
         }
         const exitCode = normalizeProcessGoneExitCode(details.exitCode);
@@ -479,7 +497,11 @@ function attachRendererDiagnostics(
             error.stack ?? getErrorMessage(error)
         }`;
         if (window.isDestroyed()) {
-            logger.info(message);
+            logger.info('Renderer preload failed after window destruction', {
+                windowId,
+                preloadPath,
+                error: error.stack ?? getErrorMessage(error),
+            });
             return;
         }
         reportWindowFailure(
@@ -491,7 +513,7 @@ function attachRendererDiagnostics(
     });
 
     window.on('unresponsive', () => {
-        logger.warn(`[renderer] window unresponsive (windowId=${windowId})`);
+        logger.warn('Renderer window unresponsive', {windowId});
         if (config.isDev || isRecoveryUnavailable(true) || UNRESPONSIVE_RECOVERY_DELAY_MS <= 0) {
             return;
         }
@@ -513,7 +535,7 @@ function attachRendererDiagnostics(
                 },
                 message,
             );
-            logger.warn(`[renderer] prompting recovery for unresponsive renderer (windowId=${windowId})`);
+            logger.warn('Prompting recovery for unresponsive renderer', {windowId});
             void promptUnresponsiveRendererRecovery(
                 window,
                 windowId,
@@ -528,7 +550,7 @@ function attachRendererDiagnostics(
     });
 
     window.on('responsive', () => {
-        logger.info(`[renderer] window responsive (windowId=${windowId})`);
+        logger.debug('Renderer window responsive', {windowId});
         clearUnresponsiveRecoveryTimer();
     });
 
@@ -545,33 +567,11 @@ function attachRendererDiagnostics(
         return rendererDiagnostics;
     }
 
-    webContents.on('did-start-loading', () => {
-        logger.debug(`[renderer] did-start-loading (windowId=${windowId})`);
-    });
-
-    webContents.on('did-stop-loading', () => {
-        logger.debug(`[renderer] did-stop-loading (windowId=${windowId})`);
-    });
-
-    webContents.on('did-start-navigation', (
-        _event,
-        url,
-        isInPlace,
-        isMainFrame,
-    ) => {
-        if (!isMainFrame) {
-            return;
-        }
-
-        logger.debug(`[renderer] did-start-navigation (windowId=${windowId}, inPlace=${String(isInPlace)}, url=${url})`);
-    });
-
-    webContents.on('did-navigate', (_event, url) => {
-        logger.info(`[renderer] did-navigate (windowId=${windowId}, url=${url})`);
-    });
-
     webContents.on('did-finish-load', () => {
-        logger.info(`[renderer] did-finish-load (windowId=${windowId}, url=${webContents.getURL()})`);
+        logger.debug('Renderer finished loading', {
+            windowId,
+            url: webContents.getURL(),
+        });
     });
 
     return rendererDiagnostics;
@@ -582,8 +582,6 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     const createStart = Date.now();
     const preloadPath = join(__dirname, 'preload.cjs');
     const keepAutomationRendererActive = config.automation.hideWindow || config.automation.noFocus;
-    logger.debug(`__dirname: ${__dirname}`);
-    logger.debug(`preload path: ${preloadPath}`);
 
     const window = new BrowserWindow({
         width: config.window.width,

@@ -2,7 +2,10 @@
 // end in, plus the constructors that make "nothing was written" always carry
 // why. Kept beside the save service rather than inside it so the reasons and
 // the shapes that use them stay one unit.
-import type { IPdfPersistResult } from '@app/types/pdfUi';
+import type {
+    IPdfPersistFailure,
+    IPdfPersistResult,
+} from '@app/types/pdfUi';
 import type { IPdfNativeAnnotationIdentityBinding } from '@contracts/electronApiDocuments';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TWorkspaceSaveFailureReason } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
@@ -78,6 +81,7 @@ export type TWorkspaceSaveExecutionResult =
         // Every non-throwing abort carries why it stopped so the shared
         // failure surface can report it exactly like a thrown save.
         reason: TWorkspaceSaveAbortReason;
+        failure?: IPdfPersistFailure;
         origin: TWorkspaceSaveAbortOrigin;
         reloadWaiter: IPostSaveReloadWaiter | null;
     }
@@ -110,12 +114,14 @@ export function notSavedBeforeWrite(
 export function notSavedAfterWrite(
     reason: TWorkspaceSaveAbortReason,
     reloadWaiter: IPostSaveReloadWaiter | null,
+    failure?: IPdfPersistFailure,
 ): TWorkspaceSaveAbort {
     return {
         status: 'not-saved',
         reason,
         origin: {phase: 'post-write'},
         reloadWaiter,
+        ...(failure === undefined ? {} : {failure}),
     };
 }
 
@@ -144,7 +150,7 @@ export function workingCopySaveResult(
     completion: Partial<ISaveCompletionPolicy> = {},
 ): TWorkspaceSaveExecutionResult {
     if (!persisted.success) {
-        return notSavedAfterWrite(abortReasonForPersistResult(persisted), reloadWaiter);
+        return notSavedAfterWrite(abortReasonForPersistResult(persisted), reloadWaiter, persisted.failure);
     }
     return {
         status: 'saved',

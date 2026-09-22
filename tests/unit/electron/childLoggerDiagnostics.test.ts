@@ -15,7 +15,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => []}}));
-vi.mock('worker_threads', () => ({isMainThread: false}));
+vi.mock('worker_threads', () => ({
+    isMainThread: false,
+    threadId: 3,
+}));
 vi.mock('@electron/features/diagnostics/public', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getMainFailureReporter: () => mocks.reporter,

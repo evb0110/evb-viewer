@@ -153,6 +153,9 @@ export function buildElectronAutomationArgs(options: {
 export function sanitizeElectronLaunchEnv(env: NodeJS.ProcessEnv) {
     const launchEnv = { ...env };
     delete launchEnv.ELECTRON_RUN_AS_NODE;
+    // Main-process output is NDJSON for the launcher. An inherited FORCE_COLOR
+    // next to NO_COLOR only makes Node warn on every start.
+    delete launchEnv.FORCE_COLOR;
     return launchEnv;
 }
 

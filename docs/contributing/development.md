@@ -177,6 +177,11 @@ renderer instead of starting their own Nuxt server. Session boot is a suite
 hook, so a filtered command such as `vitest ... -t 'specific journey'` does not
 need to include a synthetic infrastructure-test title.
 
+`pnpm dev` prints one line format for the main process, the renderer console
+and Electron's own output. [Logging](logging.md) describes the record, the
+levels, where each sink writes, and `pnpm electron:run logs --app` for reading
+the structured app log.
+
 Failed fixture-backed E2E tests retain their bounded session log, diagnostics,
 and an automatic renderer screenshot under `.devkit/sessions/e2e-*/`. Set
 `EVB_E2E_PRESERVE_ARTIFACTS=1` to retain the same diagnostics for successful

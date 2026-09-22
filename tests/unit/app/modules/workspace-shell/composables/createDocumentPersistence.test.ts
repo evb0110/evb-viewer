@@ -331,6 +331,35 @@ describe('createDocumentPersistence', () => {
         expectBroadWorkingCopyFacadeNotUsed();
     });
 
+    it('preserves the typed structured save failure cause for the workspace failure record', async () => {
+        const { persistence } = createPersistenceHarness();
+        mocks.documentFilesCapability.saveFileStructured.mockResolvedValueOnce({
+            ok: false,
+            reason: 'validation-failed',
+            message: 'qpdf strict structure check failed',
+            externalWriteCommitted: false,
+            validation: {
+                isValid: false,
+                tool: 'qpdf',
+                errors: ['qpdf strict structure check failed'],
+                warnings: [],
+            },
+        });
+
+        const result = await persistence.saveWorkingCopy();
+
+        expect(result).toMatchObject({
+            success: false,
+            failure: {
+                channel: 'file:saveStructured',
+                operation: 'saveFileStructured',
+                phase: 'publish-original',
+                reason: 'validation-failed',
+                message: 'qpdf strict structure check failed',
+            },
+        });
+    });
+
     it('repairs the working copy through the split file IO capability', async () => {
         const { persistence } = createPersistenceHarness();
 

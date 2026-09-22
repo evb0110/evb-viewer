@@ -54,6 +54,7 @@ import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/docum
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     optimizeLargePdfForOrdinarySave,
     optimizePdfForSave,
@@ -65,6 +66,7 @@ const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
     10 * 60 * 1000,
     1_000,
 );
+const logger = createLogger('working-copy-save');
 
 function requireSenderId(context: IDocumentsSenderIdContext): number {
     if (typeof context.senderId !== 'number') {
@@ -339,6 +341,14 @@ export async function handleFileSaveStructured(
         });
 
         if (!saveResult.validation.isValid) {
+            logger.warn('Structured working-copy save rejected', {
+                channel: 'file:saveStructured',
+                operation: 'saveFileStructured',
+                phase: 'validate-before-publish',
+                reason: getValidationSaveFailureReason(saveResult.validation),
+                error: saveResult.validation.errors[0] ?? null,
+                validation: saveResult.validation,
+            });
             return createSaveFailureResult(
                 getValidationSaveFailureReason(saveResult.validation),
                 undefined,
@@ -378,6 +388,13 @@ export async function handleFileSaveStructured(
                 validation: null,
             });
         }
+        logger.warn('Structured working-copy save failed', {
+            channel: 'file:saveStructured',
+            operation: 'saveFileStructured',
+            phase: 'persist-working-copy',
+            reason: err instanceof WorkingCopyMissingError ? 'working-copy-missing' : 'write-failed',
+            error: getErrorMessage(err),
+        });
         return createSaveFailureResult('write-failed', err, {
             externalWriteCommitted: false,
             validation: null,

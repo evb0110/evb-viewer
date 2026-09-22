@@ -71,8 +71,10 @@ function parseLog(prefix: string, calls: unknown[][]) {
     const message = calls
         .map(call => call[0])
         .find(value => typeof value === 'string' && value.startsWith(prefix));
-    expect(message).toBeTypeOf('string');
-    return JSON.parse((message as string).slice(prefix.length)) as Record<string, unknown>;
+    expect(message).toBe(prefix);
+    const call = calls.find(candidate => candidate[0] === prefix);
+    expect(call?.[1]).toBeTypeOf('object');
+    return call?.[1] as Record<string, unknown>;
 }
 
 describe('workingCopyMutationQueue telemetry', () => {
@@ -106,7 +108,7 @@ describe('workingCopyMutationQueue telemetry', () => {
         await Promise.resolve();
         const second = enqueueWorkingCopyMutation('/tmp/book.pdf', async () => undefined, {kind: 'second-write'});
 
-        const secondEnqueue = parseLog('Working-copy mutation enqueued: ', mocks.warn.mock.calls);
+        const secondEnqueue = parseLog('Working-copy mutation enqueued', mocks.warn.mock.calls);
         expect(secondEnqueue).toMatchObject({
             queueKey: '/tmp/book.pdf',
             operationId: 'operation-2',
@@ -130,7 +132,7 @@ describe('workingCopyMutationQueue telemetry', () => {
         ]);
 
         const third = enqueueWorkingCopyMutation('/tmp/book.pdf', async () => undefined, {kind: 'third-write'});
-        const thirdEnqueue = parseLog('Working-copy mutation enqueued: ', mocks.debug.mock.calls.slice(-1));
+        const thirdEnqueue = parseLog('Working-copy mutation enqueued', mocks.debug.mock.calls.slice(-1));
         expect(thirdEnqueue).toMatchObject({
             operationId: 'operation-3',
             kind: 'third-write',

@@ -11,6 +11,8 @@ import {
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
     terminateDetachedChildProcess: vi.fn(async (_proc: unknown, _graceMs: number): Promise<boolean> => false),
+    telemetryDebug: vi.fn(),
+    telemetryWarn: vi.fn(),
 }));
 
 class MockNativeProcess extends EventEmitter {
@@ -34,6 +36,12 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
+    debug: mocks.telemetryDebug,
+    info: vi.fn(),
+    warn: mocks.telemetryWarn,
+    error: vi.fn(),
+})}));
 
 describe('runNativeCommand', () => {
     beforeEach(() => {
@@ -108,6 +116,32 @@ describe('runNativeCommand', () => {
         expect(onSpawn).toHaveBeenCalledWith(proc.pid);
         proc.emit('close', 0, null);
         await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
+    });
+
+    it('warns once for a process that crosses the watchdog threshold and settles at warn', async () => {
+        vi.useFakeTimers();
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {commandLabel: 'watchdog-tool'});
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        expect(mocks.telemetryWarn).toHaveBeenCalledWith('Native process still running', expect.objectContaining({
+            command: 'watchdog-tool',
+            elapsedMs: 5_000,
+            pid: proc.pid,
+        }));
+        expect(mocks.telemetryWarn).toHaveBeenCalledTimes(1);
+
+        proc.emit('close', 0, null);
+        await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
+        expect(mocks.telemetryWarn).toHaveBeenCalledWith('Native process settled', expect.objectContaining({
+            command: 'watchdog-tool',
+            exitCode: 0,
+            watchdogTriggered: true,
+        }));
+        expect(mocks.telemetryDebug).not.toHaveBeenCalledWith('Native process spawned', expect.anything());
     });
 
     it('terminates the process when the spawn callback fails', async () => {

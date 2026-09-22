@@ -1076,14 +1076,9 @@ async function runPdfNativePagePreview(
     let resourceLease: IJobBrokerLease | null = null;
     const requestStartedAt = performance.now();
     let requestOutcome = 'failed';
+    let admissionWaitMs: number | null = null;
 
     try {
-        logger.debug(`Native PDF preview admission started: ${JSON.stringify({
-            ownerId,
-            page,
-            previewRequestId,
-            targetWidthPx: requestedTargetWidthPx,
-        })}`);
         resourceLease = await acquireNativePdfPreviewAdmission({
             acquire: request => mainJobBroker.acquire(request),
             ownerSignal: abortController.signal,
@@ -1101,24 +1096,11 @@ async function runPdfNativePagePreview(
                 },
             },
         });
-        logger.debug(`Native PDF preview admission granted: ${JSON.stringify({
-            ownerId,
-            page,
-            previewRequestId,
-            targetWidthPx: requestedTargetWidthPx,
-            waitMs: Math.round((performance.now() - requestStartedAt) * 10) / 10,
-        })}`);
+        admissionWaitMs = Math.round((performance.now() - requestStartedAt) * 10) / 10;
         tempDir = await mkdtemp(join(tmpdir(), 'evb-pdf-native-preview-'));
         const outputPrefix = join(tempDir, 'page');
         const outputPath = `${outputPrefix}.jpg`;
         const renderPage = async (physicalPath: string) => {
-            logger.debug(`Native PDF preview render started: ${JSON.stringify({
-                ownerId,
-                page,
-                previewRequestId,
-                requestedTargetWidthPx,
-                targetWidthPx: requestedTargetWidthPx,
-            })}`);
             await runNativeToolCommand(
                 tools.pdftoppm,
                 [
@@ -1181,14 +1163,15 @@ async function runPdfNativePagePreview(
         mainOperation.signal.removeEventListener('abort', handleMainAbort);
         mainOperation.complete();
         resourceLease?.release();
-        logger.debug(`Native PDF preview request finished: ${JSON.stringify({
+        logger.debug('Native PDF preview request finished', {
             ownerId,
             page,
             previewRequestId,
             targetWidthPx: requestedTargetWidthPx,
+            admissionWaitMs,
             outcome: abortController.signal.aborted ? 'canceled' : requestOutcome,
             totalMs: Math.round((performance.now() - requestStartedAt) * 10) / 10,
-        })}`);
+        });
     }
 }
 

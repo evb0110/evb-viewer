@@ -7,13 +7,32 @@ import {
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
-import { validateSessionName } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    electronFileLogDir,
+    validateSessionName,
+} from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    APP_LOG_FILE_NAME,
+    decodeLogRecord,
+    formatLogOrigin,
+    isLogLevelEnabled,
+    parseLogLevel,
+    type ILogRecord,
+    type TLogLevel,
+} from '@contracts/logRecord';
+import { formatTerminalLogRecord } from '@scripts/electron-run/terminalLog';
 
 interface IDevLogsOptions {
     follow: boolean;
     sessionName: string;
     sinceMs: number | null;
     tailLines: number;
+    /** Read the structured app log instead of the terminal transcript. */
+    app: boolean;
+    json: boolean;
+    level: TLogLevel;
+    scope: string | null;
+    grep: RegExp | null;
 }
 
 interface ILogManifest {
@@ -47,6 +66,14 @@ export function parseDevLogsArgs(args: readonly string[], nowMs = Date.now()): I
     let sessionName = 'default';
     let sinceMs: number | null = null;
     let tailLines = 200;
+    let app = false;
+    let json = false;
+    let level: TLogLevel = 'debug';
+    let scope: string | null = null;
+    let grep: RegExp | null = null;
+    const readValue = (arg: string, name: string, index: number) => (
+        arg.startsWith(`${name}=`) ? arg.slice(name.length + 1) : args[index + 1] ?? ''
+    );
 
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
@@ -64,6 +91,29 @@ export function parseDevLogsArgs(args: readonly string[], nowMs = Date.now()): I
             tailLines = Number(args[++index]);
         } else if (arg?.startsWith('--tail=')) {
             tailLines = Number(arg.slice('--tail='.length));
+        } else if (arg === '--app') {
+            app = true;
+        } else if (arg === '--json') {
+            app = true;
+            json = true;
+        } else if (arg === '--level' || arg?.startsWith('--level=')) {
+            const value = readValue(arg, '--level', index);
+            if (!arg.includes('=')) index += 1;
+            const parsed = parseLogLevel(value);
+            if (!parsed) {
+                throw new Error(`Invalid --level value: ${value}. Use debug, info, warn, or error.`);
+            }
+            app = true;
+            level = parsed;
+        } else if (arg === '--scope' || arg?.startsWith('--scope=')) {
+            scope = readValue(arg, '--scope', index);
+            if (!arg.includes('=')) index += 1;
+            app = true;
+        } else if (arg === '--grep' || arg?.startsWith('--grep=')) {
+            const value = readValue(arg, '--grep', index);
+            if (!arg.includes('=')) index += 1;
+            grep = new RegExp(value, 'iu');
+            app = true;
         } else {
             throw new Error(`Unknown argument: ${arg ?? '<missing>'}`);
         }
@@ -78,7 +128,92 @@ export function parseDevLogsArgs(args: readonly string[], nowMs = Date.now()): I
         sessionName,
         sinceMs,
         tailLines,
+        app,
+        json,
+        level,
+        scope,
+        grep,
     };
+}
+
+type TAppLogFilter = Pick<IDevLogsOptions, 'sinceMs' | 'level' | 'scope' | 'grep'>;
+
+function matchesAppLogFilter(record: ILogRecord, filter: TAppLogFilter) {
+    if (!isLogLevelEnabled(record.level, filter.level)) {
+        return false;
+    }
+    if (filter.sinceMs !== null && Date.parse(record.ts) < filter.sinceMs) {
+        return false;
+    }
+    if (filter.scope !== null && !formatLogOrigin(record).includes(filter.scope)) {
+        return false;
+    }
+    return filter.grep === null || filter.grep.test(`${record.msg} ${JSON.stringify(record.data ?? {})}`);
+}
+
+/**
+ * Formats NDJSON app-log text. Lines that are not records (for example a
+ * partially written tail) are skipped.
+ */
+export function formatAppLogText(
+    text: string,
+    options: TAppLogFilter & Pick<IDevLogsOptions, 'json'> & {
+        tailLines?: number;
+        color?: boolean;
+    },
+) {
+    const lines: string[] = [];
+    for (const line of text.split('\n')) {
+        const record = decodeLogRecord(line.trim());
+        if (!record || !matchesAppLogFilter(record, options)) {
+            continue;
+        }
+        lines.push(options.json ? line.trim() : formatTerminalLogRecord(record, {color: options.color ?? false}));
+    }
+    const tailLines = options.tailLines ?? 0;
+    return (tailLines > 0 && lines.length > tailLines ? lines.slice(-tailLines) : lines).join('\n');
+}
+
+function runAppLogs(options: IDevLogsOptions) {
+    const logFile = join(electronFileLogDir(options.sessionName), APP_LOG_FILE_NAME);
+    if (!existsSync(logFile)) {
+        throw new Error(`No app log is available for session '${options.sessionName}'. Expected ${logFile}`);
+    }
+    process.stderr.write(`[dev:logs] session=${options.sessionName}\n`);
+    process.stderr.write(`[dev:logs] app-log=${logFile}\n`);
+    const color = Boolean(process.stdout.isTTY) && !options.json;
+    let content = readFileSync(logFile, 'utf8');
+    const initial = formatAppLogText(content, {
+        ...options,
+        color,
+    });
+    if (initial) process.stdout.write(`${initial}\n`);
+    let offset = Buffer.byteLength(content);
+    let pending = '';
+    if (!options.follow) {
+        return;
+    }
+    watchFile(logFile, {interval: 250}, (current) => {
+        if (current.size < offset) {
+            // Rotated: continue from the start of the new file.
+            offset = 0;
+            pending = '';
+        }
+        if (current.size === offset) {
+            return;
+        }
+        content = readFileSync(logFile, 'utf8');
+        const appended = pending + Buffer.from(content).subarray(offset).toString('utf8');
+        offset = Buffer.byteLength(content);
+        const lastNewline = appended.lastIndexOf('\n');
+        pending = appended.slice(lastNewline + 1);
+        const formatted = formatAppLogText(appended.slice(0, lastNewline + 1), {
+            ...options,
+            tailLines: 0,
+            color,
+        });
+        if (formatted) process.stdout.write(`${formatted}\n`);
+    });
 }
 
 function readManifest(path: string): ILogManifest | null {
@@ -110,6 +245,10 @@ export function filterDevLogText(text: string, options: Pick<IDevLogsOptions, 's
 
 export function runDevLogs(args = process.argv.slice(2)) {
     const options = parseDevLogsArgs(args);
+    if (options.app) {
+        runAppLogs(options);
+        return;
+    }
     const sessionDir = join(projectRoot, '.devkit', 'sessions', options.sessionName);
     const manifestFile = join(sessionDir, 'logs.json');
     const manifest = readManifest(manifestFile);

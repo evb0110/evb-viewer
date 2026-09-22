@@ -711,14 +711,17 @@ export async function awaitPageIdentityStoreInitialization(workingCopyPath: stri
             abortController.signal,
         );
         void entry.promise.then(
-            state => logger.debug(`Page identity initialization complete: ${JSON.stringify({
+            state => logger.debug('Page identity initialization complete', {
                 durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
                 pageCount: state.pageCount,
                 workingCopyPath,
-            })}`),
+            }),
             error => {
                 if (!isAbortError(error)) {
-                    logger.warn(`Page identity initialization failed for "${workingCopyPath}": ${getErrorMessage(error)}`);
+                    logger.warn('Page identity initialization failed', {
+                        workingCopyPath,
+                        error: getErrorMessage(error),
+                    });
                 }
             },
         );

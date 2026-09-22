@@ -27,7 +27,7 @@ interface IBrowserLoggerErrorOptions<C extends DiagnosticCode> {
 }
 
 const ORIGINAL_CONSOLE_SINKS = {
-    debug: console.log.bind(console),
+    debug: console.debug.bind(console),
     error: console.error.bind(console),
     info: console.info.bind(console),
     warn: console.warn.bind(console),
@@ -60,7 +60,9 @@ function normalizeLogLevel(value: unknown): TBrowserLogLevel | null {
     return null;
 }
 
-const DEFAULT_LOG_LEVEL: TBrowserLogLevel = 'warn';
+// Development keeps info records so the app log explains what happened before
+// a warning; packaged builds forward warnings and errors only.
+const DEFAULT_LOG_LEVEL: TBrowserLogLevel = import.meta.dev ? 'info' : 'warn';
 const THROTTLED_LOG_STATE = new Map<string, {
     lastAtMs: number;
     suppressedCount: number;
@@ -269,6 +271,18 @@ function enrichThrottledPayload(
     };
 }
 
+function withErrorId(resolved: unknown, errorId: string) {
+    return typeof resolved === 'object' && resolved !== null && !Array.isArray(resolved)
+        ? {
+            ...resolved,
+            errorId,
+        }
+        : {
+            ...(resolved === undefined ? {} : {value: resolved}),
+            errorId,
+        };
+}
+
 function writeToConsole(level: TEmitLogLevel, line: string, resolved: unknown) {
     const sink = ORIGINAL_CONSOLE_SINKS[level];
     if (resolved !== undefined) {
@@ -295,7 +309,11 @@ function emitLog(
     const timestamp = createIsoTimestamp();
     const resolved = serializeForRendererLog(resolveLazyValue(data));
     if (options.writeConsole !== false) {
-        writeToConsole(level, `[${timestamp}] [${section}] ${message}`, resolved);
+        writeToConsole(
+            level,
+            `[${timestamp}] [${section}] ${message}`,
+            options.failureRef ? withErrorId(resolved, options.failureRef.eventId) : resolved,
+        );
     }
 
     forwardToMain({
