@@ -130,6 +130,11 @@ function createContext(overrides: Partial<TPageContext> = {}): TPageContext {
         jobId: requireJobId(randomUUID()),
         sessionId: 'session',
         popplerSourcePdfPath: join(checkpointDir, 'source.pdf'),
+        getPopplerSourcePdfPath: () => join(checkpointDir, 'source.pdf'),
+        preparePopplerFallback: async () => ({
+            pdfPath: join(checkpointDir, 'source.pdf'),
+            warnings: [],
+        }),
         extractionDpi: 300,
         tesseractThreads: 1,
         pageSizeByNumber: new Map(),

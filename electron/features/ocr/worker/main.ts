@@ -74,7 +74,8 @@ import {
     createOcrRasterRenderLimits,
     preparePdfForPoppler,
     probeOcrPageSizeInches,
-    renderPdfPageToPng,
+    renderOcrPageToPng,
+    type IPreparedPopplerPdf,
 } from '@electron/features/ocr/worker/popplerStage';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
@@ -88,6 +89,7 @@ import {sha256OcrFile} from '@electron/features/ocr/worker/sha256OcrFile';
 import {
     readOcrPdfPageSizesInches,
     type IOcrPageSizeInches,
+    type TOcrPageSizeProbeResult,
 } from '@electron/features/ocr/worker/pdfPageSizeProbe';
 import {
     cleanupStaleOcrJobDirectories,
@@ -380,6 +382,8 @@ interface IOcrPageProcessingContext {
     jobId: TJobId;
     sessionId: string;
     popplerSourcePdfPath: string;
+    getPopplerSourcePdfPath: () => string;
+    preparePopplerFallback: () => Promise<IPreparedPopplerPdf>;
     extractionDpi: number;
     tesseractThreads: number;
     pageSizeByNumber: Map<number, IOcrPageSizeInches>;
@@ -458,7 +462,10 @@ async function processOcrPage(
     try {
         // Without a native page size the governor and raster guard would guess.
         const pageSize = context.pageSizeByNumber.get(page.pageNumber)
-            ?? await probeOcrPageSizeInches(paths, log, page.pageNumber, context, pageSizeProbeImagePath);
+            ?? await probeOcrPageSizeInches(paths, log, page.pageNumber, {
+                ...context,
+                popplerSourcePdfPath: context.getPopplerSourcePdfPath(),
+            }, pageSizeProbeImagePath);
         const resourceLease = await acquireOcrResourceSlot(
             context.jobId,
             page.pageNumber,
@@ -482,18 +489,18 @@ async function processOcrPage(
             });
         }
 
-        await renderPdfPageToPng(
+        await renderOcrPageToPng([
             paths,
             log,
             page.pageNumber,
-            context.popplerSourcePdfPath,
+            context.getPopplerSourcePdfPath(),
             pageImagePath,
             effectiveDpi,
             context.popplerEnv,
             context.signal,
             undefined,
             pageSize === undefined ? undefined : createOcrRasterRenderLimits(pageSize, effectiveDpi),
-        );
+        ], context.preparePopplerFallback);
         await context.storageBudget.assertWithinBudget();
 
         const dims = await readPngDimensions(pageImagePath);
@@ -832,7 +839,13 @@ async function buildOcrPageProcessingPlan(
     popplerEnv: NodeJS.ProcessEnv | undefined,
     baseContext: Omit<IOcrPageProcessingContext, 'extractionDpi' | 'tesseractThreads' | 'pageSizeByNumber' | 'pageSourceDpiByNumber'>,
     sendStage: (phase: TOcrProgressPhase) => void,
-) {
+): Promise<{
+    targetPages: IOcrPdfPageRequest[];
+    concurrency: number;
+    effectiveRenderDpi: number;
+    pageSizeProbe: TOcrPageSizeProbeResult;
+    pageContext: IOcrPageProcessingContext;
+}> {
     const targetPages = pages;
     sendStage('dpi-inspection');
     const detectedSourceDpi = renderDpi === undefined
@@ -866,6 +879,13 @@ async function buildOcrPageProcessingPlan(
         signal: baseContext.signal,
         log,
     });
+
+    if (pageSizeProbe.status === 'degraded' && pageSizeProbe.reason === 'native-tool-failed') {
+        const prepared = await baseContext.preparePopplerFallback();
+        if (prepared.pdfPath !== popplerSourcePdfPath) {
+            return buildOcrPageProcessingPlan(pages, prepared.pdfPath, renderDpi, popplerEnv, baseContext, sendStage);
+        }
+    }
 
     log('debug', `OCR PDF: pages=${targetPages.length}, dpi=${extractionDpi}, concurrency=${concurrency}, threads=${tesseractThreads}`);
 
@@ -1042,21 +1062,20 @@ async function processOcrJob(
         await durableManifest.markNode('model', 'verified');
         await durableManifest.markNode('normalized-source', 'running');
         sendStageProgress(jobId, requestedSelection, 'pdf-prep');
-        const preparedPopplerPdf = await storageBudget.withReservation(
-            (await stat(sourcePdfPath)).size,
-            () => preparePdfForPoppler(
-                paths,
-                log,
-                sourcePdfPath,
-                activeSessionId,
-                trackTempFile,
-                abortController.signal,
-            ),
-        );
-        await storageBudget.assertWithinBudget();
-        const popplerSourcePdfPath = preparedPopplerPdf.pdfPath;
+        let popplerSourcePdfPath = sourcePdfPath;
+        const jobStorageBudget = storageBudget;
+        let popplerFallback: Promise<IPreparedPopplerPdf> | undefined;
+        const preparePopplerFallback = () => popplerFallback ??= (async () => {
+            const prepared = await jobStorageBudget.withReservation(
+                (await stat(sourcePdfPath)).size,
+                () => preparePdfForPoppler(paths, log, sourcePdfPath, activeSessionId, trackTempFile, abortController.signal),
+            );
+            await jobStorageBudget.assertWithinBudget();
+            appendMessages(jobWarnings, prepared.warnings);
+            popplerSourcePdfPath = prepared.pdfPath;
+            return prepared;
+        })();
         await durableManifest.markNode('normalized-source', 'verified');
-        appendMessages(jobWarnings, preparedPopplerPdf.warnings);
         const popplerEnv = buildPopplerEnv(paths);
         logPopplerEnvironment(popplerEnv);
 
@@ -1065,6 +1084,8 @@ async function processOcrJob(
             sessionId: activeSessionId,
             jobId,
             popplerSourcePdfPath,
+            getPopplerSourcePdfPath: () => popplerSourcePdfPath,
+            preparePopplerFallback,
             signal: abortController.signal,
             options,
             checkpointDir,

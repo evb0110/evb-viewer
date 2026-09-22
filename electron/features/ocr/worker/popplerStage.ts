@@ -14,6 +14,7 @@ import {
 } from '@electron/features/ocr/worker/runOcrCommand';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
 import {readPngDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {IScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/types';
@@ -37,6 +38,29 @@ const renderers = createScanCleanupRenderers(runOcrCommand, {
 });
 export const renderPdfPageToPng = renderers.renderPage;
 export const renderPdfPageToPpm = renderers.renderPagePpm;
+
+// Most PDFs are directly readable by Poppler. Keep normalization as repair,
+// not a full-document copy paid by every single-page OCR request.
+export async function renderOcrPageToPng(
+    args: Parameters<typeof renderPdfPageToPng>,
+    prepareFallback: () => Promise<IPreparedPopplerPdf>,
+) {
+    try {
+        await renderPdfPageToPng(...args);
+    } catch (error) {
+        const signal = args[7];
+        if (signal?.aborted || isAbortError(error) || error instanceof RangeError
+            || error instanceof TypeError || getUnprovenNativeTerminationDetail(error)) {
+            throw error;
+        }
+        const prepared = await prepareFallback();
+        signal?.throwIfAborted();
+        if (prepared.pdfPath === args[3]) throw error;
+        const fallbackArgs: typeof args = [...args];
+        fallbackArgs[3] = prepared.pdfPath;
+        await renderPdfPageToPng(...fallbackArgs);
+    }
+}
 
 export function createOcrRasterRenderLimits(
     pageSize: IOcrPageSizeInches,

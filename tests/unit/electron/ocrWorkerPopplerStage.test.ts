@@ -12,8 +12,10 @@ import {
     probeOcrPageSizeInches,
     renderPdfPageToPng,
     renderPdfPageToPpm,
+    renderOcrPageToPng,
 } from '@electron/features/ocr/worker/popplerStage';
 import type { IWorkerPaths } from '@electron/features/ocr/worker/types';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     readPngDimensions: vi.fn(),
@@ -97,6 +99,86 @@ describe('renderPdfPageToPng', () => {
             isColor: true,
         });
         mocks.rm.mockResolvedValue(undefined);
+        mocks.runOcrCommand.mockReset();
+    });
+
+    it('renders readable OCR input directly without preparing a full PDF copy', async () => {
+        const fallback = vi.fn();
+        await renderOcrPageToPng([
+            workerPaths,
+            vi.fn(),
+            17,
+            '/source.pdf',
+            '/page.png',
+            300,
+        ], fallback);
+        expect(fallback).not.toHaveBeenCalled();
+        expect(mocks.runOcrCommand).toHaveBeenCalledWith('/bin/pdftoppm', expect.arrayContaining(['/source.pdf']), expect.anything());
+    });
+
+    it('repairs a Poppler failure and retries the same page and raster settings', async () => {
+        mocks.runOcrCommand.mockRejectedValueOnce(new Error('broken xref'));
+        const fallback = vi.fn().mockResolvedValue({
+            pdfPath: '/normalized.pdf',
+            warnings: [],
+        });
+        await renderOcrPageToPng([
+            workerPaths,
+            vi.fn(),
+            17,
+            '/source.pdf',
+            '/page.png',
+            300,
+        ], fallback);
+        expect(fallback).toHaveBeenCalledOnce();
+        expect(mocks.runOcrCommand).toHaveBeenLastCalledWith('/bin/pdftoppm', [
+            '-png',
+            '-cropbox',
+            '-r',
+            '300',
+            '-f',
+            '17',
+            '-l',
+            '17',
+            '-singlefile',
+            '/normalized.pdf',
+            '/page',
+        ], expect.anything());
+    });
+
+    it.each([
+        new RangeError('raster exceeds limits'),
+        markUnprovenNativeTermination(new Error('termination failed'), 'process still running'),
+    ])('does not normalize after a safety failure: %s', async error => {
+        mocks.runOcrCommand.mockRejectedValueOnce(error);
+        const fallback = vi.fn();
+        await expect(renderOcrPageToPng([
+            workerPaths,
+            vi.fn(),
+            1,
+            '/source.pdf',
+            '/page.png',
+            300,
+        ], fallback)).rejects.toBe(error);
+        expect(fallback).not.toHaveBeenCalled();
+    });
+
+    it('does not retry the original input when normalization also failed', async () => {
+        const error = new Error('broken PDF');
+        mocks.runOcrCommand.mockRejectedValueOnce(error);
+        const fallback = vi.fn().mockResolvedValue({
+            pdfPath: '/source.pdf',
+            warnings: ['repair failed'],
+        });
+        await expect(renderOcrPageToPng([
+            workerPaths,
+            vi.fn(),
+            1,
+            '/source.pdf',
+            '/page.png',
+            300,
+        ], fallback)).rejects.toBe(error);
+        expect(mocks.runOcrCommand).toHaveBeenCalledOnce();
     });
 
     it('renders OCR rasters against the PDF CropBox contract', async () => {
