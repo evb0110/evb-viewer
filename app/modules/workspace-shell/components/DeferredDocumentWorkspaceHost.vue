@@ -41,11 +41,7 @@
             />
         </div>
 
-        <div
-            v-if="isPlaceholderMounted"
-            v-show="isPlaceholderVisible"
-            class="workspace-host__placeholder"
-        >
+        <div v-if="isPlaceholderVisible" class="workspace-host__placeholder">
             <PdfEmptyState
                 :recent-files="recentFiles"
                 :recent-files-resolved="isResolved"
@@ -112,8 +108,6 @@ import {
     workspaceSessionHasOpenedDocument as getWorkspaceSessionHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
 import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
-import { acceptsDocumentWithoutVisual } from '@app/modules/workspace-shell/document-sessions/acceptsDocumentWithoutVisual';
-import { toolbarSnapshotHasAcceptedDocument } from '@app/modules/workspace-shell/host/toolbarSnapshotHasAcceptedDocument';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
 import type { TStartSection } from '@app/types/startSection';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
@@ -354,7 +348,6 @@ watch(
 const isPlaceholderVisible = computed(() => {
     const snapshot = documentOpenSurface.snapshot.value;
     return shouldShowWorkspacePlaceholder({
-        hasAcceptedDocument: toolbarSnapshotHasAcceptedDocument(mountedWorkspace.value?.getToolbarSnapshot()),
         hasQueuedSplitRestore: hasQueuedSplitRestore.value,
         hasPendingDocumentHint: hasPendingDocumentHint.value,
         hasVisibleDocument: !shouldPresentDocumentOpenEmptyPlaceholder(snapshot)
@@ -431,27 +424,6 @@ const hasQueuedSplitRestore = computed(() => {
         : workspaceSplitCache.has(tabId);
 });
 const isDocumentOpenInFlight = computed(() => activeDocumentOpenTransaction.value !== null);
-// An open started from Start (a Recent file or a Combine result) keeps Start
-// mounted but hidden until the open settles. A failed open then returns to the
-// same Combine queue, error and Retry instead of a fresh empty page. Opens that
-// begin without a mounted Start surface never mount one.
-const isPlaceholderMounted = ref(false);
-watch(
-    [
-        isPlaceholderVisible,
-        isDocumentOpenInFlight,
-    ],
-    ([
-        visible,
-        openInFlight,
-    ]) => {
-        isPlaceholderMounted.value = visible || (openInFlight && isPlaceholderMounted.value);
-    },
-    {
-        immediate: true,
-        flush: 'sync',
-    },
-);
 const hasUnresolvedDirtyRecovery = computed(() => isDirty === true && Boolean(recoveryWorkingCopyPath));
 const isFilePickerInFlight = computed(() => filePickerInFlightCount.value > 0);
 // Startup open-claim is a background probe. Mark the open UI busy only once the
@@ -795,7 +767,7 @@ async function handleClearRecentFromPlaceholder() {
 async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
     return activeDocumentSession.value.open({
         action: 'openCombineResultFromPlaceholder',
-        acceptDocumentWithoutVisual: acceptsDocumentWithoutVisual(result),
+        acceptDocumentWithoutVisual: result.kind === 'pdf' && result.isGenerated === true,
         target: buildPendingTabDocumentHint(result),
     }, async signal => withWorkspace(
         'openCombineResultFromPlaceholder',
