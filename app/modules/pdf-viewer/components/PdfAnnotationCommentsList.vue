@@ -8,17 +8,6 @@
             <span class="notes-count">({{ filteredComments.length }})</span>
             <UButton
                 type="button"
-                class="notes-header-btn notes-header-btn--place"
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                square
-                icon="i-ph-chat-circle-dots"
-                :aria-label="t('annotations.placeNoteOnPage')"
-                @click="setTool('note')"
-            />
-            <UButton
-                type="button"
                 class="notes-header-btn"
                 color="neutral"
                 variant="ghost"
@@ -253,7 +242,6 @@ import type {
     IAnnotationCommentSummary,
     IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
-    TAnnotationTool,
 } from '@app/types/annotations';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
@@ -331,7 +319,6 @@ const emit = defineEmits<{
     'open-note': [comment: IAnnotationCommentSummary];
     'edit-text-box': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
-    'set-tool': [tool: TAnnotationTool];
     'retry-enrichment': [];
 }>();
 
@@ -646,10 +633,6 @@ function deleteComment(comment: IAnnotationCommentSummary) {
     emit('delete-comment', comment);
 }
 
-function setTool(tool: TAnnotationTool) {
-    emit('set-tool', tool);
-}
-
 </script>
 
 <style lang="scss" scoped>
@@ -677,9 +660,6 @@ function setTool(tool: TAnnotationTool) {
 
 .notes-header-btn {
     flex: 0 0 auto;
-}
-
-.notes-header-btn--place {
     margin-left: auto;
 }
 

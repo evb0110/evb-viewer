@@ -920,31 +920,6 @@ export async function createStickyNoteWithPointer(
     await openAnnotationsTab(page, 30_000);
     await waitForViewerInteractive(page, 30_000);
 
-    const buttons = await page.$$('.editor-pane.is-active .workspace-host .notes-list-header .notes-header-btn');
-    let placeNoteButton: (typeof buttons)[number] | null = null;
-    for (const button of buttons) {
-        const isPlaceNote = await button.evaluate((candidate) => {
-            const label = (candidate.getAttribute('aria-label') ?? '').trim().toLowerCase();
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return (
-                !candidate.hasAttribute('disabled')
-                && (label.startsWith('place note') || label.includes('place note on page'))
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.width > 0
-                && rect.height > 0
-            );
-        });
-        if (isPlaceNote) {
-            placeNoteButton = button;
-            break;
-        }
-    }
-    if (!placeNoteButton) {
-        throw new Error('Visible Place note control was not available');
-    }
-
     const point = await page.evaluate(async ({
         targetPageNumber,
         xRatio,
@@ -1008,7 +983,7 @@ export async function createStickyNoteWithPointer(
     // Resolve the point before entering placement mode. Scrolling the target
     // page can cancel an active placement gesture when a prior test leaves the
     // viewport at a different offset.
-    await placeNoteButton.click();
+    await clickAnnotationTool(page, 'Note');
     await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
         '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"], '
         + '.annotation-editor-layer[data-pdf-annotation-editor-ready="true"]',

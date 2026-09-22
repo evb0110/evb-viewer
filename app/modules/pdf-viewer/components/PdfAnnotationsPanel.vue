@@ -27,7 +27,6 @@
             @edit-text-box="emit('edit-text-box', $event)"
             @open-note="openNote"
             @delete-comment="deleteComment"
-            @set-tool="setTool"
             @retry-enrichment="retryEnrichment"
         />
 

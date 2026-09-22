@@ -248,7 +248,7 @@ it('finds a shape by the type label rendered in its card', async () => {
     await nextTick();
     const typeLabel = mounted.host.querySelector('.note-item-type')?.textContent?.trim();
     expect(typeLabel).toBeTruthy();
-    mounted.host.querySelector<HTMLButtonElement>('.notes-header-btn:not(.notes-header-btn--place)')?.click();
+    mounted.host.querySelector<HTMLButtonElement>('.notes-header-btn')?.click();
     await nextTick();
     const searchInput = mounted.host.querySelector<HTMLInputElement>('input');
     expect(searchInput).not.toBeNull();

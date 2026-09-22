@@ -2362,6 +2362,15 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
 
+        // Note placement belongs to the tool palette. The list header should
+        // expose only search, not a second note button without active feedback.
+        const headerButtons = await page.$$eval('.notes-list-header button', buttons => buttons.map(
+            button => button.getAttribute('aria-label'),
+        ));
+        expect(headerButtons).toEqual(['Search annotations, text, author, page...']);
+        await page.click('.notes-list-header button');
+        await page.waitForSelector('.notes-search input, input.notes-search', {visible: true});
+
         const baselineCount = await getVisibleSidebarAnnotationCount(page);
         await placeEmptyNote(page);
         await waitForSidebarAnnotationCount(page, baselineCount + 1);
