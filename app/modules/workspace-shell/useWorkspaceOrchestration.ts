@@ -474,7 +474,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getBookmarksSaveStateToken: getBookmarksRevision,
         isDirty,
         hasPendingUnsavedChanges,
-        validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path),
+        validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'save'}),
         saveFile,
         ...(repairWorkingCopy ? { repairWorkingCopy } : {}),
         ...(optimizeWorkingCopy ? { optimizeWorkingCopy } : {}),

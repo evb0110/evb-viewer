@@ -170,7 +170,7 @@ describe('feature IPC codec maps', () => {
             .toThrow('invalid working-copy backing status');
     });
 
-    it('accepts only the bounded opening purpose for path validation', () => {
+    it('accepts bounded opening and save purposes for path validation', () => {
         const channel = DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath;
         const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[channel];
 
@@ -183,11 +183,17 @@ describe('feature IPC codec maps', () => {
             '/tmp/document.pdf',
             {purpose: 'opening'},
         ]);
-        expect(() => codec?.decodeArgs([
+        expect(codec?.decodeArgs([
             '/tmp/document.pdf',
             {purpose: 'save'},
-        ]))
-            .toThrow('validation options must be {purpose: \'opening\'}');
+        ])).toEqual([
+            '/tmp/document.pdf',
+            {purpose: 'save'},
+        ]);
+        expect(() => codec?.decodeArgs([
+            '/tmp/document.pdf',
+            {purpose: 'other'},
+        ])).toThrow('validation options must be {purpose: \'opening\' | \'save\'}');
     });
 
     it('preserves typed native mutation fallback errors and rejects unknown codes', () => {

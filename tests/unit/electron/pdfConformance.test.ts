@@ -248,6 +248,7 @@ const {
     analyzePdfConformanceFile,
     validatePdfFile,
     validatePdfFileForOpening,
+    validatePdfFileForSave,
 } = await import('@electron/features/documents/main/pdfConformance');
 const { analyzePdfConformanceFileDirect } = await import('@electron/features/documents/main/analyzePdfConformanceFileDirect');
 
@@ -667,7 +668,7 @@ describe('validatePdfFileForOpening', () => {
         await expect(validatePdfFileForOpening('/tmp/broken.pdf')).resolves.toEqual({
             isValid: false,
             tool: 'qpdf',
-            errors: ['PDF opening validation returned an invalid page count'],
+            errors: ['PDF structural validation returned an invalid page count'],
             warnings: [],
         });
     });
@@ -682,7 +683,7 @@ describe('validatePdfFileForOpening', () => {
         await expect(validatePdfFileForOpening('/tmp/broken.pdf')).resolves.toEqual({
             isValid: false,
             tool: 'qpdf',
-            errors: ['PDF opening validation returned an invalid page count'],
+            errors: ['PDF structural validation returned an invalid page count'],
             warnings: [],
         });
     });
@@ -696,5 +697,36 @@ describe('validatePdfFileForOpening', () => {
             errors: ['damaged xref table'],
             warnings: [],
         });
+    });
+});
+
+describe('validatePdfFileForSave', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: '882\n',
+            stderr: '',
+            exitCode: 0,
+        });
+    });
+
+    it('uses the structural page-tree check without a whole-file qpdf scan', async () => {
+        await expect(validatePdfFileForSave('/tmp/large.pdf')).resolves.toMatchObject({
+            isValid: true,
+            tool: 'qpdf',
+        });
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith('/mock/qpdf', [
+            '--show-npages',
+            '/tmp/large.pdf',
+        ], expect.objectContaining({
+            timeoutMs: 10_000,
+            commandLabel: 'qpdf(validate-pdf-structure)',
+        }));
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalledWith(
+            '/mock/qpdf',
+            expect.arrayContaining(['--check']),
+            expect.anything(),
+        );
     });
 });

@@ -30,12 +30,12 @@ export const pdfValidationPathArgs = s.fromParser<TPdfValidationPathArgs>(
         if (rawOptions === undefined) {
             return [documentRef];
         }
-        if (!isRecord(rawOptions) || rawOptions.purpose !== 'opening') {
-            fail('validation options must be {purpose: \'opening\'}');
+        if (!isRecord(rawOptions) || (rawOptions.purpose !== 'opening' && rawOptions.purpose !== 'save')) {
+            fail('validation options must be {purpose: \'opening\' | \'save\'}');
         }
         return [
             documentRef,
-            {purpose: 'opening'},
+            {purpose: rawOptions.purpose},
         ];
     },
     () => [

@@ -9,6 +9,7 @@ import {
     validatePdfData as validatePdfBytes,
     validatePdfFile,
     validatePdfFileForOpening,
+    validatePdfFileForSave,
 } from '@electron/features/documents/main/pdfConformance';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
@@ -64,6 +65,8 @@ export async function handleValidatePdfPath(
         filePath,
         options?.purpose === 'opening'
             ? validatePdfFileForOpening
-            : validatePdfFile,
+            : options?.purpose === 'save'
+                ? validatePdfFileForSave
+                : validatePdfFile,
     );
 }

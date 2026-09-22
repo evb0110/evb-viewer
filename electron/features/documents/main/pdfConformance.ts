@@ -44,8 +44,9 @@ const QPDF_VALIDATE_TIMEOUT_BYTES_PER_STEP = 16 * 1024 * 1024;
 const QPDF_VALIDATE_TIMEOUT_STEP_MS = 1_000;
 const QPDF_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf)';
 const QPDF_VALIDATE_TIMEOUT_PATTERN = /^qpdf\(validate-pdf\) timed out after \d+ms$/u;
-const QPDF_OPENING_VALIDATE_TIMEOUT_MS = 10_000;
+const QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS = 10_000;
 const QPDF_OPENING_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-opening)';
+const QPDF_SAVE_VALIDATE_COMMAND_LABEL = 'qpdf(validate-pdf-structure)';
 const QPDF_EXIT_CODE_OK = 0;
 const QPDF_EXIT_CODE_WARNINGS = 3;
 const PDF_CONFORMANCE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-conformance'].fileName;
@@ -301,11 +302,9 @@ export async function validatePdfFile(
     }
 }
 
-// Opening authorization is layered. qpdf proves that the page tree is readable,
-// then PDF.js must pass its render and viewport fences before the native preview
-// retires. Save operations still use validatePdfFile and its full qpdf check.
-export async function validatePdfFileForOpening(
+async function validatePdfFileWithPageCount(
     filePath: string,
+    commandLabel: string,
     options: IPdfConformancePathAnalysisOptions = {},
 ): Promise<IPdfValidationResult> {
     try {
@@ -314,12 +313,12 @@ export async function validatePdfFileForOpening(
             '--show-npages',
             filePath,
         ], {
-            timeoutMs: QPDF_OPENING_VALIDATE_TIMEOUT_MS,
+            timeoutMs: QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS,
             allowedExitCodes: [
                 QPDF_EXIT_CODE_OK,
                 QPDF_EXIT_CODE_WARNINGS,
             ],
-            commandLabel: QPDF_OPENING_VALIDATE_COMMAND_LABEL,
+            commandLabel,
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
         });
@@ -329,7 +328,7 @@ export async function validatePdfFileForOpening(
             return {
                 isValid: false,
                 tool: 'qpdf',
-                errors: ['PDF opening validation returned an invalid page count'],
+                errors: ['PDF structural validation returned an invalid page count'],
                 warnings: [],
             };
         }
@@ -349,10 +348,28 @@ export async function validatePdfFileForOpening(
         return {
             isValid: false,
             tool: 'qpdf',
-            errors: [error instanceof Error ? getErrorMessage(error) : 'PDF opening validation failed'],
+            errors: [error instanceof Error ? getErrorMessage(error) : 'PDF structural validation failed'],
             warnings: [],
         };
     }
+}
+
+// Opening authorization is layered. qpdf proves that the page tree is readable,
+// then PDF.js must pass its render and viewport fences before the native preview
+// retires. This same structural check is the save boundary after the mutation
+// owner has already performed the expensive full validation.
+export function validatePdfFileForOpening(
+    filePath: string,
+    options: IPdfConformancePathAnalysisOptions = {},
+) {
+    return validatePdfFileWithPageCount(filePath, QPDF_OPENING_VALIDATE_COMMAND_LABEL, options);
+}
+
+export function validatePdfFileForSave(
+    filePath: string,
+    options: IPdfConformancePathAnalysisOptions = {},
+) {
+    return validatePdfFileWithPageCount(filePath, QPDF_SAVE_VALIDATE_COMMAND_LABEL, options);
 }
 
 export async function validatePdfData(

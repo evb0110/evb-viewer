@@ -132,7 +132,7 @@ describe('pdfSaveAsOptimization', () => {
         expect(existsSync(optimizedPath)).toBe(false);
     });
 
-    it('keeps valid qpdf output even when it is not smaller', async () => {
+    it('discards valid qpdf output when it is not smaller', async () => {
         const tempPath = join(tempRoot, 'document.pdf');
         const optimizedPath = `${tempPath}.optimized`;
         writeFileSync(tempPath, 'tiny');
@@ -141,13 +141,11 @@ describe('pdfSaveAsOptimization', () => {
         });
         const { optimizePdfForSaveAs } = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true }))
-            .resolves
-            .toMatchObject({ isValid: true });
+        await expect(optimizePdfForSaveAs(tempPath, { optimizeLossless: true })).resolves.toBeNull();
 
-        expect(mocks.validatePdfFile).toHaveBeenCalledWith(optimizedPath, {});
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(optimizedPath, tempPath);
-        expect(readFileSyncUtf8(tempPath)).toBe('larger-pdf');
+        expect(mocks.validatePdfFile).not.toHaveBeenCalled();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+        expect(readFileSyncUtf8(tempPath)).toBe('tiny');
         expect(existsSync(optimizedPath)).toBe(false);
     });
 
@@ -217,9 +215,9 @@ describe('pdfSaveAsOptimization', () => {
     it('optimizes generated PDFs without semantic preflight', async () => {
         const tempPath = join(tempRoot, 'generated.pdf');
         const optimizedPath = `${tempPath}.optimized`;
-        writeFileSync(tempPath, 'generated-pdf');
+        writeFileSync(tempPath, 'generated-pdf-with-padding');
         mocks.runNativeToolCommand.mockImplementation(async () => {
-            await writeFile(optimizedPath, 'linearized-generated-pdf');
+            await writeFile(optimizedPath, 'linearized-pdf');
         });
         const { optimizeGeneratedPdfForInteraction } =
             await import('@electron/features/documents/main/pdfSaveAsOptimization');
@@ -234,7 +232,7 @@ describe('pdfSaveAsOptimization', () => {
             expect.arrayContaining(['--linearize']),
             expect.objectContaining({ commandLabel: 'qpdf(generated-pdf-optimize)' }),
         );
-        expect(readFileSyncUtf8(tempPath)).toBe('linearized-generated-pdf');
+        expect(readFileSyncUtf8(tempPath)).toBe('linearized-pdf');
     });
 
     it('skips PDFs where rewriting can alter document semantics', async () => {

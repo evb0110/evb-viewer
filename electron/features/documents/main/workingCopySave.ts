@@ -31,7 +31,10 @@ import {
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
 import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteAtomic';
-import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
+import {
+    validatePdfFile,
+    validatePdfFileForSave,
+} from '@electron/features/documents/main/pdfConformance';
 import {
     enqueueWorkingCopyMutation,
     type IWorkingCopyMutationOperation,
@@ -74,6 +77,8 @@ interface IReplaceOriginalWithValidatedTempResult {
     validation: IPdfValidationResult;
     optimized: boolean;
 }
+
+type TPdfSaveValidation = 'full' | 'structural';
 
 function createOriginalChangedValidationResult(): IPdfValidationResult {
     return {
@@ -156,7 +161,10 @@ async function replaceOriginalWithValidatedTemp(
     workingPath: string,
     senderWebContentsId: number,
     writeTemp: (tempPath: string) => Promise<void>,
-    options: { optimize?: 'large' | 'force' } = {},
+    options: {
+        optimize?: 'large' | 'force';
+        validation?: TPdfSaveValidation;
+    } = {},
 ): Promise<IReplaceOriginalWithValidatedTempResult> {
     const tempPath = makeSiblingTempPath(originalPath);
     let replaced = false;
@@ -170,7 +178,9 @@ async function replaceOriginalWithValidatedTemp(
             : options.optimize === 'large'
                 ? await optimizeLargePdfForOrdinarySave(tempPath)
                 : null;
-        const validation = optimizedValidation ?? await validatePdfFile(tempPath);
+        const validation = optimizedValidation ?? (options.validation === 'structural'
+            ? await validatePdfFileForSave(tempPath)
+            : await validatePdfFile(tempPath));
         if (!validation.isValid) {
             return {
                 validation,
@@ -313,7 +323,7 @@ export async function handleFileSaveStructured(
                 normalizedWorkingPath,
                 senderId,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
-                { optimize: 'large' },
+                { validation: 'structural' },
             );
             if (queuedSave.validation.isValid) {
                 return {

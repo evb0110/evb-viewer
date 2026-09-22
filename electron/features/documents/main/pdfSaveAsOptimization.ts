@@ -162,6 +162,14 @@ async function optimizePdf(
         await rewritePdfLosslessly(tempPath, optimizedPath, label, options.signal, options.cancelGroup);
         throwIfAborted(options.signal);
         const optimizedStats = await stat(optimizedPath);
+        if (optimizedStats.size >= originalStats.size) {
+            logger.debug(
+                `Discarding PDF save optimization for "${tempPath}": candidate is not smaller (${
+                    originalStats.size
+                } -> ${optimizedStats.size} bytes)`,
+            );
+            return null;
+        }
 
         const validation = await validatePdfFile(optimizedPath, {
             ...(options.signal ? {signal: options.signal} : {}),

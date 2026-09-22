@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
         await rename(sourcePath, targetPath);
     }),
     validatePdfFile: vi.fn(),
+    validatePdfFileForSave: vi.fn(),
     ensureWorkingCopyDirectory: vi.fn(),
     getWorkingCopyOriginalFileExpectation: vi.fn(),
     getWorkingCopyOriginalPath: vi.fn(),
@@ -67,7 +68,10 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: Parameters<typeof mocks.atomicReplace>) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
-vi.mock('@electron/features/documents/main/pdfConformance', () => ({validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args)}));
+vi.mock('@electron/features/documents/main/pdfConformance', () => ({
+    validatePdfFile: (...args: unknown[]) => mocks.validatePdfFile(...args),
+    validatePdfFileForSave: (...args: unknown[]) => mocks.validatePdfFileForSave(...args),
+}));
 vi.mock('@electron/features/documents/main/pdfSaveAsOptimization', () => ({
     optimizeLargePdfForOrdinarySave: (...args: unknown[]) => mocks.optimizeLargePdfForOrdinarySave(...args),
     optimizePdfForSave: (...args: unknown[]) => mocks.optimizePdfForSave(...args),
@@ -145,6 +149,12 @@ describe('workingCopySave', () => {
         vi.clearAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-working-copy-save-test-'));
         mocks.validatePdfFile.mockResolvedValue({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
+        mocks.validatePdfFileForSave.mockResolvedValue({
             isValid: true,
             tool: 'qpdf',
             errors: [],
@@ -243,7 +253,8 @@ describe('workingCopySave', () => {
             workingCopyRefreshed: true,
         });
         expect(readFileSyncUtf8(originalPath)).toBe('new-working');
-        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).not.toHaveBeenCalled();
+        expect(mocks.validatePdfFileForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.atomicReplace).toHaveBeenCalledWith(
             `${originalPath}.tmp`,
             originalPath,
@@ -344,21 +355,12 @@ describe('workingCopySave', () => {
         expect(readFileSyncUtf8(workingPath)).toBe('renderer-version');
     });
 
-    it('copies optimized structured save bytes back to the working copy after the original write commits', async () => {
-        const workingPath = join(tempRoot, 'structured-optimized-working.pdf');
-        const originalPath = join(tempRoot, 'structured-optimized-original.pdf');
-        writeFileSync(workingPath, 'unoptimized-working');
+    it('copies ordinary structured save bytes without running the large-file optimizer', async () => {
+        const workingPath = join(tempRoot, 'structured-working-copy.pdf');
+        const originalPath = join(tempRoot, 'structured-original-copy.pdf');
+        writeFileSync(workingPath, 'working-pdf');
         writeFileSync(originalPath, 'old-original');
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
-        mocks.optimizeLargePdfForOrdinarySave.mockImplementationOnce(async (tempPath: string) => {
-            writeFileSync(tempPath, 'optimized-pdf');
-            return {
-                isValid: true,
-                tool: 'qpdf',
-                errors: [],
-                warnings: [],
-            };
-        });
         const { handleFileSaveStructured } = await import('@electron/features/documents/main/workingCopySave');
 
         await expect(handleFileSaveStructured(context, workingPath, revisionOptions))
@@ -369,8 +371,10 @@ describe('workingCopySave', () => {
                 workingCopyRefreshed: true,
             });
 
-        expect(readFileSyncUtf8(originalPath)).toBe('optimized-pdf');
-        expect(readFileSyncUtf8(workingPath)).toBe('optimized-pdf');
+        expect(readFileSyncUtf8(originalPath)).toBe('working-pdf');
+        expect(readFileSyncUtf8(workingPath)).toBe('working-pdf');
+        expect(mocks.optimizeLargePdfForOrdinarySave).not.toHaveBeenCalled();
+        expect(mocks.validatePdfFileForSave).toHaveBeenCalledWith(`${originalPath}.tmp`);
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
     });
 

@@ -1206,7 +1206,7 @@ export interface IDocumentsFileCapability {
     ) => Promise<Uint8Array>;
 }
 
-export interface IPdfPathValidationOptions {purpose: 'opening';}
+export interface IPdfPathValidationOptions {purpose: 'opening' | 'save';}
 
 export interface IDocumentsPickerCapability extends Pick<
     IDocumentsFileCapability,
