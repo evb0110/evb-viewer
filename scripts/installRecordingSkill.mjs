@@ -23,8 +23,13 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 let deployedRepo = repo;
 if (existsSync(join(repo, '.git')) && lstatSync(join(repo, '.git')).isFile()) {
     const commonGitDir = execFileSync('git', [
-        'rev-parse', '--path-format=absolute', '--git-common-dir',
-    ], { cwd: repo, encoding: 'utf8' }).trim();
+        'rev-parse',
+        '--path-format=absolute',
+        '--git-common-dir',
+    ], {
+        cwd: repo,
+        encoding: 'utf8',
+    }).trim();
     const primaryRepo = dirname(commonGitDir);
     if (!existsSync(join(primaryRepo, 'docs/internal/agents/recorded-automation.md'))) {
         throw new Error(`No durable recording guide found in primary checkout: ${primaryRepo}`);
