@@ -15,6 +15,7 @@ import {
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {isOcrStorageFailure} from '@electron/features/ocr/worker/ocrJobStorageBudget';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
 import {readPngDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {IScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/types';
@@ -50,7 +51,7 @@ export async function renderOcrPageToPng(
     } catch (error) {
         const signal = args[7];
         if (signal?.aborted || isAbortError(error) || error instanceof RangeError
-            || error instanceof TypeError || getUnprovenNativeTerminationDetail(error)) {
+            || error instanceof TypeError || isOcrStorageFailure(error) || getUnprovenNativeTerminationDetail(error)) {
             throw error;
         }
         const prepared = await prepareFallback();

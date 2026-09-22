@@ -109,7 +109,8 @@ async function directoryBytes(path: string): Promise<number> {
 }
 
 export function isOcrStorageFailure(error: unknown): error is Error {
-    return error instanceof OcrStorageBudgetError || isDiskCapacityError(error);
+    return error instanceof OcrStorageBudgetError || isDiskCapacityError(error)
+        || (error instanceof Error && isDiskCapacityMessage(error.message));
 }
 
 async function inspectLiveJobStorage(

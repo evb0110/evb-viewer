@@ -148,6 +148,9 @@ describe('renderPdfPageToPng', () => {
 
     it.each([
         new RangeError('raster exceeds limits'),
+        Object.assign(new Error('device full'), {code: 'ENOSPC'}),
+        new Error('pdftoppm failed: No space left on device'),
+        new Error('pdftoppm failed: Disk quota exceeded'),
         markUnprovenNativeTermination(new Error('termination failed'), 'process still running'),
     ])('does not normalize after a safety failure: %s', async error => {
         mocks.runOcrCommand.mockRejectedValueOnce(error);
