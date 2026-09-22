@@ -52,10 +52,11 @@
                     {{ t('searchResults.showingFirst', { count: results.length }) }}
                 </div>
             </div>
+            <!-- Kept in place when idle so finishing a search does not lift the list. -->
             <AppProgressBar
-                v-if="isSearching"
-                :value="searchProgressPercent"
-                class="document-search-results-progress-bar"
+                :value="isSearching ? searchProgressPercent : 0"
+                :class="['document-search-results-progress-bar', { 'is-idle': !isSearching }]"
+                :aria-hidden="!isSearching || undefined"
             />
             <div
                 v-bind="containerProps"
@@ -485,6 +486,10 @@ watch(
 .document-search-results-progress-bar {
     height: var(--app-search-progress-height);
     border-radius: 0;
+}
+
+.document-search-results-progress-bar.is-idle {
+    visibility: hidden;
 }
 
 .document-search-results-truncated {

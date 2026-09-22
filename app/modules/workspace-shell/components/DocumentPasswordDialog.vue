@@ -16,9 +16,14 @@
                 <p class="text-sm text-muted">
                     {{ t('errors.file.passwordPromptDescription', { name: fileName }) }}
                 </p>
+                <!--
+                    The blank help line holds the error's place, so a wrong
+                    password does not grow the dialog and move its buttons.
+                -->
                 <UFormField
                     :label="t('errors.file.passwordPromptLabel')"
                     :error="errorMessage || false"
+                    :help="'\u00A0'"
                 >
                     <UInput
                         v-model="password"

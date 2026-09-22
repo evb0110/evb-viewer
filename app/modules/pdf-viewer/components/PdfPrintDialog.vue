@@ -12,27 +12,17 @@
 
         <template #body>
             <div class="flex flex-col gap-4">
-                <div class="flex flex-col gap-2">
-                    <URadioGroup
-                        v-model="scope"
-                        :legend="t('print.scopeLabel')"
-                        :items="scopeOptions"
-                        :ui="radioGroupUi"
-                    />
-
-                    <UFormField
-                        v-if="scope === 'range'"
-                        :error="rangeError"
-                        class="mt-1"
-                        :ui="rangeFieldUi"
-                    >
-                        <UInput
-                            v-model="rangeInput"
-                            :placeholder="t('print.rangePlaceholder')"
-                            @blur="rangeTouched = true"
-                        />
-                    </UFormField>
-                </div>
+                <PdfPageScopeRadioGroup
+                    v-model:scope="scope"
+                    v-model:range-input="rangeInput"
+                    :legend="t('print.scopeLabel')"
+                    :items="scopeOptions"
+                    :range-label="t('print.scopeRange')"
+                    :placeholder="t('print.rangePlaceholder')"
+                    :invalid="rangeError !== null"
+                    :described-by="summaryId"
+                    @range-blur="rangeTouched = true"
+                />
 
                 <div
                     v-if="supportsAdvancedPrintOptions !== false"
@@ -89,8 +79,11 @@
                     </div>
                 </div>
 
-                <p class="m-0 text-xs text-muted">
-                    {{ printSummary }}
+                <p
+                    :id="summaryId"
+                    :class="['m-0 text-xs', rangeError ? 'text-error' : 'text-muted']"
+                >
+                    {{ rangeError ?? printSummary }}
                 </p>
 
                 <p class="m-0 text-xs text-muted">
@@ -140,13 +133,17 @@
 
 <script setup lang="ts">
 import AppFailureAlert from '@app/components/AppFailureAlert.vue';
+import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     parsePrintPageRangeSelectionInput,
     type TPrintOrientation,
 } from '@app/utils/pdfPrintShared';
-import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import {
+    usePdfPageScopeSelection,
+    type TPdfPageScope,
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import { pageSelectionCount } from '@pdf-core/pdfPageSelection';
 
@@ -182,14 +179,7 @@ const emit = defineEmits<{submit: [payload: {
 
 const { t } = useTypedI18n();
 
-const radioGroupUi = {
-    fieldset: 'gap-y-2',
-    legend: 'mb-0.5 text-xs text-muted font-normal',
-    item: 'items-center',
-    label: 'font-normal',
-} as const;
-
-const rangeFieldUi = { error: 'mt-1 text-xs' } as const;
+const summaryId = useId();
 
 // The default modal is `max-w-lg`, which leaves each option column ~209px and
 // wraps the longest layout names. `max-w-xl` plus the 2:1 column split gives the
@@ -226,7 +216,10 @@ const {
 });
 
 const scopeOptions = computed(() => {
-    const options = [
+    const options: Array<{
+        value: TPdfPageScope;
+        label: string;
+    }> = [
         {
             value: 'all',
             label: t('print.scopeAll', { count: totalPages }),
@@ -258,7 +251,7 @@ const rangeError = computed(() => (
     && rangeInput.value.trim().length > 0
     && rangeSelection.value === null
         ? t('print.invalidRange')
-        : false
+        : null
 ));
 
 const printPageCount = computed(() => {

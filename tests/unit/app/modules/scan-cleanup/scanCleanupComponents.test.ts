@@ -2310,9 +2310,12 @@ describe('Scan cleanup components', () => {
         expect(scopeGroup).not.toBeNull();
         expect(harness.host.querySelector('[role="tablist"]')).toBeNull();
         expect(harness.host.querySelectorAll('[aria-label="Page layout"]')).toHaveLength(1);
-        expect(harness.host.querySelector('[aria-label="Output mode for pages"]')).toBeNull();
-        expect(harness.host.querySelector('[data-override-marker]')).toBeNull();
-        expect(harness.host.querySelector('[data-reset-override]')).toBeNull();
+        // The per-page field keeps its place for the all-pages scope but is
+        // hidden from the user and from assistive technology.
+        const pageOnlyField = harness.host.querySelector('[aria-label="Output mode for pages"]')
+            ?.closest('.scan-cleanup-selection-field');
+        expect(pageOnlyField?.getAttribute('aria-hidden')).toBe('true');
+        expect(pageOnlyField?.hasAttribute('inert')).toBe(true);
         expect(harness.host.querySelector('[data-override-count="layout"]')?.textContent).toBe('1');
         expect(harness.host.querySelector('[data-override-count="margins"]')?.getAttribute('title'))
             .toBe('1 pages override this');

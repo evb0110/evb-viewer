@@ -20,29 +20,35 @@
                     :disabled="isRunning"
                 />
 
-                <UAlert
-                    v-if="selectedPresetDestructive"
-                    color="warning"
-                    variant="soft"
-                    icon="i-ph-warning-circle"
-                    :description="t('optimizePdf.flattenWarning')"
-                />
-
-                <div
-                    v-if="isRunning || progress"
-                    class="flex flex-col gap-2"
-                >
-                    <div class="flex items-center justify-between gap-3 text-xs text-muted">
-                        <span>{{ progressStatus }}</span>
-                        <span>{{ progressPercentLabel }}</span>
-                    </div>
-                    <UProgress
-                        color="primary"
-                        size="md"
-                        :max="100"
-                        :model-value="progressPercent"
-                        :ui="progressUi"
+                <div class="optimize-status-slot">
+                    <UAlert
+                        color="warning"
+                        variant="soft"
+                        icon="i-ph-warning-circle"
+                        :description="t('optimizePdf.flattenWarning')"
+                        :class="{invisible: !selectedPresetDestructive || isRunning || Boolean(progress)}"
+                        :aria-hidden="selectedPresetDestructive && !isRunning && !progress
+                            ? undefined
+                            : 'true'"
                     />
+
+                    <div
+                        class="flex flex-col gap-2"
+                        :class="{invisible: !isRunning && !progress}"
+                        :aria-hidden="isRunning || progress ? undefined : 'true'"
+                    >
+                        <div class="flex items-center justify-between gap-3 text-xs text-muted">
+                            <span>{{ progressStatus }}</span>
+                            <span>{{ progressPercentLabel }}</span>
+                        </div>
+                        <UProgress
+                            color="primary"
+                            size="md"
+                            :max="100"
+                            :model-value="progressPercent"
+                            :ui="progressUi"
+                        />
+                    </div>
                 </div>
 
                 <AppFailureAlert
@@ -180,3 +186,13 @@ function handleSubmit() {
     emit('submit', { preset: preset.value });
 }
 </script>
+
+<style scoped>
+.optimize-status-slot {
+    display: grid;
+}
+
+.optimize-status-slot > * {
+    grid-area: 1 / 1;
+}
+</style>

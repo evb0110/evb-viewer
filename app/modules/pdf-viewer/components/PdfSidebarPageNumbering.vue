@@ -43,10 +43,12 @@
                             />
                         </div>
 
-                        <div
-                            v-if="numberingScope === 'range'"
-                            class="pdf-sidebar-pages-field flex flex-col gap-1"
-                        >
+                        <!--
+                            Always present: typing a range already switches the scope
+                            to it, and hiding the field for the other scopes moved
+                            every control below it when the scope changed.
+                        -->
+                        <div class="pdf-sidebar-pages-field flex flex-col gap-1">
                             <UFormField
                                 :label="t('pageNumbering.pageRange')"
                                 :ui="formFieldUi"
@@ -58,6 +60,10 @@
                                     size="xs"
                                     inputmode="numeric"
                                     :placeholder="t('pageNumbering.rangePlaceholder')"
+                                    :color="rangeErrorMessage ? 'error' : 'primary'"
+                                    :highlight="rangeErrorMessage.length > 0"
+                                    :aria-invalid="rangeErrorMessage.length > 0 || undefined"
+                                    aria-describedby="page-label-target-summary"
                                 />
                             </UFormField>
                         </div>
@@ -113,7 +119,13 @@
                     </div>
 
                     <div class="flex items-center gap-1.5">
-                        <span class="pdf-sidebar-pages-selection-text">{{ targetSummary }}</span>
+                        <span
+                            id="page-label-target-summary"
+                            :class="[
+                                'pdf-sidebar-pages-selection-text',
+                                { 'pdf-sidebar-pages-selection-text--error': rangeErrorMessage },
+                            ]"
+                        >{{ rangeErrorMessage || targetSummary }}</span>
                         <UButton
                             size="xs"
                             variant="link"
@@ -125,13 +137,6 @@
                             {{ t('pageNumbering.clear') }}
                         </UButton>
                     </div>
-
-                    <p
-                        v-if="rangeErrorMessage"
-                        class="pdf-sidebar-pages-error"
-                    >
-                        {{ rangeErrorMessage }}
-                    </p>
 
                     <UButton
                         size="xs"
@@ -666,9 +671,7 @@ watch(
     text-overflow: ellipsis;
 }
 
-.pdf-sidebar-pages-error {
-    margin: 0;
-    font-size: var(--app-sidebar-caption-font-size);
+.pdf-sidebar-pages-selection-text--error {
     color: var(--ui-error);
 }
 </style>

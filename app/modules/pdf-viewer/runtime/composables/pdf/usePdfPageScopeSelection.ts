@@ -10,7 +10,7 @@ import {
 } from '@app/utils/pdfPageSelection';
 import type { TPageSelection } from '@app/utils/pdfPageSelection';
 
-type TPdfPageScope = 'all' | 'current' | 'selected' | 'range' | 'even' | 'odd';
+export type TPdfPageScope = 'all' | 'current' | 'selected' | 'range' | 'even' | 'odd';
 
 interface IPdfPageScopeSelectionOptions {
     totalPages: () => number;

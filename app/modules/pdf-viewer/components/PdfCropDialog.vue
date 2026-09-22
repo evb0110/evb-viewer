@@ -66,25 +66,14 @@
                         :ui="horizontalRadioGroupUi"
                     />
 
-                    <div class="flex flex-col gap-2">
-                        <URadioGroup
-                            v-model="scope"
-                            :legend="t('crop.applyTo')"
-                            :items="scopeOptions"
-                            :ui="verticalRadioGroupUi"
-                        />
-
-                        <UFormField
-                            v-if="scope === 'range'"
-                            class="mt-1"
-                            :ui="rangeFieldUi"
-                        >
-                            <UInput
-                                v-model="rangeInput"
-                                :placeholder="t('crop.rangePlaceholder')"
-                            />
-                        </UFormField>
-                    </div>
+                    <PdfPageScopeRadioGroup
+                        v-model:scope="scope"
+                        v-model:range-input="rangeInput"
+                        :legend="t('crop.applyTo')"
+                        :items="scopeOptions"
+                        :range-label="t('crop.scopeRange')"
+                        :placeholder="t('crop.rangePlaceholder')"
+                    />
                 </template>
             </div>
         </template>
@@ -138,7 +127,11 @@ import {
     pageSelectionCount,
 } from '@app/utils/pdfPageSelection';
 import type { TPageSelection } from '@app/utils/pdfPageSelection';
-import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
+import {
+    usePdfPageScopeSelection,
+    type TPdfPageScope,
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 interface ICropMarginField {
     side: keyof ICropMargins;
@@ -189,15 +182,6 @@ const horizontalRadioGroupUi = {
     wrapper: 'ms-1',
     label: 'font-normal',
 } as const;
-
-const verticalRadioGroupUi = {
-    fieldset: 'gap-y-2',
-    legend: 'mb-0.5 text-xs text-muted font-normal',
-    item: 'items-center',
-    label: 'font-normal',
-} as const;
-
-const rangeFieldUi = { error: 'mt-1 text-xs' } as const;
 
 const margins = reactive<ICropMargins>({
     top: 0,
@@ -286,7 +270,10 @@ const {
 });
 
 const scopeOptions = computed(() => {
-    const options = [
+    const options: Array<{
+        value: TPdfPageScope;
+        label: string;
+    }> = [
         {
             value: 'all',
             label: t('crop.scopeAll', { count: totalPages }),
@@ -303,10 +290,6 @@ const scopeOptions = computed(() => {
             value: 'odd',
             label: t('crop.scopeOdd'),
         },
-        {
-            value: 'range',
-            label: t('crop.scopeRange'),
-        },
     ];
 
     const selectedCount = pageSelectionCount(normalizedSelectedPageSelection.value);
@@ -316,6 +299,12 @@ const scopeOptions = computed(() => {
             label: t('crop.scopeSelected', { count: selectedCount }),
         });
     }
+
+    // Last, so the always-present range field sits directly under it.
+    options.push({
+        value: 'range',
+        label: t('crop.scopeRange'),
+    });
 
     return options;
 });

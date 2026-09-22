@@ -12,28 +12,23 @@
 
         <template #body>
             <div class="flex flex-col gap-4">
-                <URadioGroup
-                    v-model="scope"
+                <PdfPageScopeRadioGroup
+                    v-model:scope="scope"
+                    v-model:range-input="rangeInput"
                     :legend="t('export.scopeLabel')"
                     :items="scopeOptions"
-                    :ui="radioGroupUi"
+                    :range-label="t('export.scopeRange')"
+                    :placeholder="t('export.rangePlaceholder')"
+                    :invalid="rangeError !== null"
+                    :described-by="summaryId"
+                    @range-blur="rangeTouched = true"
                 />
 
-                <UFormField
-                    v-if="scope === 'range'"
-                    :error="rangeError"
-                    class="mt-1"
-                    :ui="rangeFieldUi"
+                <p
+                    :id="summaryId"
+                    :class="['m-0 mt-1 text-xs', rangeError ? 'text-error' : 'text-muted']"
                 >
-                    <UInput
-                        v-model="rangeInput"
-                        :placeholder="t('export.rangePlaceholder')"
-                        @blur="rangeTouched = true"
-                    />
-                </UFormField>
-
-                <p class="m-0 mt-1 text-xs text-muted">
-                    {{ exportSummary }}
+                    {{ rangeError ?? exportSummary }}
                 </p>
             </div>
         </template>
@@ -59,7 +54,11 @@
 
 import { parsePageRangeInput } from '@app/modules/document-viewer/public';
 import { createPageSelectionFromRange } from '@app/utils/pdfPageSelection';
-import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
+import {
+    usePdfPageScopeSelection,
+    type TPdfPageScope,
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import { pageSelectionCount } from '@pdf-core/pdfPageSelection';
 
@@ -85,14 +84,7 @@ const emit = defineEmits<{submit: [payload: { pageSelection?: TPageSelection }];
 
 const { t } = useTypedI18n();
 
-const radioGroupUi = {
-    fieldset: 'gap-y-2',
-    legend: 'mb-0.5 text-xs text-muted font-normal',
-    item: 'items-center',
-    label: 'font-normal',
-} as const;
-
-const rangeFieldUi = { error: 'mt-1 text-xs' } as const;
+const summaryId = useId();
 
 const dialogTitle = computed(() => (
     mode === 'images'
@@ -127,7 +119,10 @@ const {
 });
 
 const scopeOptions = computed(() => {
-    const options = [
+    const options: Array<{
+        value: TPdfPageScope;
+        label: string;
+    }> = [
         {
             value: 'all',
             label: t('export.scopeAll', { count: totalPages }),
@@ -135,10 +130,6 @@ const scopeOptions = computed(() => {
         {
             value: 'current',
             label: t('export.scopeCurrent', { page: currentPage }),
-        },
-        {
-            value: 'range',
-            label: t('export.scopeRange'),
         },
     ];
 
@@ -149,6 +140,12 @@ const scopeOptions = computed(() => {
         });
     }
 
+    // Last, so the always-present range field sits directly under it.
+    options.push({
+        value: 'range',
+        label: t('export.scopeRange'),
+    });
+
     return options;
 });
 
@@ -158,7 +155,7 @@ const rangeError = computed(() => (
     && rangeInput.value.trim().length > 0
     && rangeSelection.value === null
         ? t('export.invalidRange')
-        : false
+        : null
 ));
 
 const exportSummary = computed(() => {

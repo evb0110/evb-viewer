@@ -357,7 +357,16 @@
                 </p>
             </div>
 
-            <div v-if="scope !== 'all'" class="scan-cleanup-selection-field">
+            <!--
+                Kept in the layout for every scope, so switching between all
+                pages and one page does not move the settings below it.
+            -->
+            <div
+                class="scan-cleanup-selection-field"
+                :class="{invisible: scope === 'all'}"
+                :aria-hidden="scope === 'all' ? 'true' : undefined"
+                :inert="scope === 'all' ? true : undefined"
+            >
                 <div class="scan-cleanup-selection-field-label">
                     <div class="scan-cleanup-control-label">
                         <span>{{ t('scanCleanup.output.pageLabel') }}</span>
@@ -423,7 +432,7 @@
                 </UDropdownMenu>
                 <p
                     :id="applyPageHintId"
-                    class="scan-cleanup-selection-hint is-reserved"
+                    class="scan-cleanup-selection-hint is-reserved is-two-lines"
                 >
                     {{ scope === 'page' ? '' : t('scanCleanup.settings.applyThisPageToHint') }}&nbsp;
                 </p>
