@@ -502,12 +502,13 @@ describe('pdfOutlineHelpers', () => {
         ], 5, null)?.id).toBe('chapter');
     });
 
-    it('uses the last bookmark at or before the page when the active bookmark is elsewhere', () => {
+    it('uses the nearest preceding page even when outline destinations are out of order', () => {
         const bookmarks = [
             createBookmark('intro', 0),
             createBookmark('first-on-page', 4),
             createBookmark('last-on-page', 4),
             createBookmark('next-page', 5),
+            createBookmark('back-reference', 1),
         ];
 
         expect(resolveActiveBookmarkForPage(bookmarks, 5, 'intro')?.id).toBe('last-on-page');

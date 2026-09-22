@@ -135,6 +135,7 @@ import type {
     TDocumentBookmarkPersistenceRefusal,
     TDocumentBookmarkStatus,
 } from '@app/modules/document-viewer/public';
+import { isDocumentBookmarkExpanded } from '@app/modules/document-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
@@ -144,6 +145,7 @@ import {
     parseOutlineItems,
     resolveActiveBookmarkForPage,
     resolveMaxBookmarkDepth,
+    resolvePageIndex,
 } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -605,8 +607,17 @@ provide(pdfOutlineTreeKey, {
 let outlineRunId = 0;
 const initialBookmarkEntries = shallowRef<IPdfBookmarkEntry[]>([]);
 const hasMaterializedBookmarkSnapshot = ref(false);
+const bookmarkDestinationCache = new Map<string, unknown[] | null>();
+const bookmarkPageRefCache = new Map<string, number | null>();
+let activeItemResolution: AbortController | null = null;
+
+function cancelActiveItemResolution() {
+    activeItemResolution?.abort();
+    activeItemResolution = null;
+}
 
 function emitBookmarksChange() {
+    cancelActiveItemResolution();
     const persisted = editing.mapBookmarksForPersistence(bookmarks.value);
     emit('bookmarks-change', {
         bookmarks: persisted,
@@ -627,11 +638,43 @@ function setBookmarkBaseline() {
     });
 }
 
-function updateActiveItemFromCurrentPage() {
+async function updateActiveItemFromCurrentPage() {
+    cancelActiveItemResolution();
+    const controller = new AbortController();
+    activeItemResolution = controller;
+    const pdfDocument = props.pdfDocument;
+    const currentPage = props.currentPage;
+    const items = flatBookmarks.value;
+    const pageIndexes = new Map<IBookmarkItem, number | null>();
+
+    // Outline structure is published immediately. Resolve only page metadata
+    // for passive selection, without loading page geometry, changing persisted
+    // bookmarks, or issuing a second navigation. A click retires this work.
+    try {
+        for (const item of items) {
+            const pageIndex = item.pageIndex ?? (pdfDocument && item.dest
+                ? await resolvePageIndex(
+                    pdfDocument,
+                    item.dest,
+                    bookmarkDestinationCache,
+                    bookmarkPageRefCache,
+                    controller.signal,
+                )
+                : null);
+            if (controller.signal.aborted) return;
+            pageIndexes.set(item, pageIndex);
+        }
+    } catch (error) {
+        if (controller.signal.aborted) return;
+        throw error;
+    }
+    if (controller.signal.aborted || props.currentPage !== currentPage || props.pdfDocument !== pdfDocument) return;
+    activeItemResolution = null;
     const active = resolveActiveBookmarkForPage(
-        flatBookmarks.value,
-        props.currentPage,
+        items,
+        currentPage,
         activeItemId.value,
+        item => pageIndexes.get(item) ?? null,
     );
     activeItemId.value = active?.id ?? null;
     if (!isEditMode.value) {
@@ -678,7 +721,7 @@ function applyPendingBookmarkItems(
     dragDrop.resetDragState();
     selection.clearSelection();
     expandedBookmarkIds.value = new Set();
-    updateActiveItemFromCurrentPage();
+    void updateActiveItemFromCurrentPage();
     if (activeItemId.value) {
         selection.applySingleSelection(activeItemId.value);
     }
@@ -701,6 +744,7 @@ function applyPendingBookmarkItemsIfDirty() {
 }
 
 function resetOutlineInteractionState() {
+    cancelActiveItemResolution();
     closeBookmarkContextMenu();
     editing.cancelEditingBookmark();
     dragDrop.resetDragState();
@@ -751,7 +795,7 @@ function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
 
     outlineError.value = false;
     bookmarks.value = resolved;
-    updateActiveItemFromCurrentPage();
+    void updateActiveItemFromCurrentPage();
     if (activeItemId.value) {
         selection.applySingleSelection(activeItemId.value);
     }
@@ -804,6 +848,8 @@ async function loadUsableOutline(pdfDocument: IPdfDocument, runId: number) {
 }
 
 async function loadOutline() {
+    bookmarkDestinationCache.clear();
+    bookmarkPageRefCache.clear();
     const pdfDocument = props.pdfDocument;
     outlineRunId += 1;
     invalidateBookmarkNavigationRequests();
@@ -832,6 +878,7 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
 }
 
 function handleActivate(payload: IBookmarkActivatePayload) {
+    cancelActiveItemResolution();
     activeItemId.value = payload.id;
     if (isEditMode.value) {
         if (payload.rangeSelect) {
@@ -861,19 +908,11 @@ function activateSharedBookmark(id: string) {
         return;
     }
 
-    const wasActive = activeItemId.value === item.id;
     handleActivate({
         id: item.id,
-        hasChildren: item.items.length > 0,
-        wasActive,
         multiSelect: false,
         rangeSelect: false,
     });
-    if (wasActive && item.items.length > 0) {
-        toggleExpanded(item.id);
-        return;
-    }
-
     const navigationRequestId = beginBookmarkNavigationRequest();
     void navigateToBookmarkDestination({
         item,
@@ -885,12 +924,17 @@ function activateSharedBookmark(id: string) {
 }
 
 function toggleExpanded(id: string) {
+    const wasExpanded = isDocumentBookmarkExpanded(id, {
+        displayMode: displayMode.value,
+        expandedIds: expandedBookmarkIds.value,
+        activePathIds: activePathBookmarkIds.value,
+    });
     if (displayMode.value !== 'top-level') {
         displayMode.value = 'top-level';
     }
 
     const nextExpanded = new Set(expandedBookmarkIds.value);
-    if (nextExpanded.has(id)) {
+    if (wasExpanded) {
         nextExpanded.delete(id);
     } else {
         nextExpanded.add(id);
@@ -951,6 +995,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+    cancelActiveItemResolution();
     outlineRunId += 1;
     invalidateBookmarkNavigationRequests();
 });

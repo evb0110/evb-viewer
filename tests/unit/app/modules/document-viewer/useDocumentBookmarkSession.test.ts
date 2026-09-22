@@ -15,6 +15,7 @@ import type {
     IDocumentPageSource,
 } from '@app/modules/document-viewer/source/documentPageSource';
 import { useDocumentBookmarkSession } from '@app/modules/document-viewer/bookmarks/useDocumentBookmarkSession';
+import { getDocumentBookmarkVisibleRows } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import {requireDocumentRef} from '@contracts/documentRef';
 
 function createSource(getOutline: NonNullable<IDocumentPageSource['outlineProvider']>['getOutline']): IDocumentPageSource {
@@ -71,6 +72,18 @@ describe('useDocumentBookmarkSession', () => {
             'document-bookmark-0',
             'document-bookmark-0-0',
         ]));
+        for (const mode of [
+            'current-expanded',
+            'all-expanded',
+        ] as const) {
+            session.setDisplayMode(mode);
+            session.toggleExpanded('document-bookmark-0');
+            expect(getDocumentBookmarkVisibleRows(session.items.value, {
+                displayMode: session.displayMode.value,
+                expandedIds: session.expandedIds.value,
+                activePathIds: session.activePathIds.value,
+            }).map(row => row.item.title)).toEqual(['Part']);
+        }
         scope.stop();
     });
 

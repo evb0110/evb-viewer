@@ -427,18 +427,19 @@ export async function resolvePageIndex(
     dest: IOutlineItemRaw['dest'],
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
+    signal?: AbortSignal,
 ) {
     if (!dest) {
         return null;
     }
 
-    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache);
+    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache, signal);
 
     if (!destinationArray || destinationArray.length === 0) {
         return null;
     }
 
-    return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
+    return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache, signal);
 }
 
 async function resolveDestinationTarget(
@@ -806,35 +807,40 @@ export function resolveActiveBookmarkForPage(
     flatBookmarks: IBookmarkItem[],
     currentPage: number,
     currentActiveItemId: string | null,
+    getPageIndex: (item: IBookmarkItem) => number | null = item => item.pageIndex,
 ) {
     const pageIndex = Math.max(0, (Number.isFinite(currentPage) ? currentPage : 1) - 1);
     const currentActive = currentActiveItemId
         ? flatBookmarks.find(item => item.id === currentActiveItemId) ?? null
         : null;
 
-    if (currentActive?.pageIndex === pageIndex) {
+    if (currentActive && getPageIndex(currentActive) === pageIndex) {
         return currentActive;
     }
 
     const depths = resolveFlattenedBookmarkDepths(flatBookmarks);
     let active: IBookmarkItem | null = null;
+    let activePageIndex = Number.NEGATIVE_INFINITY;
 
     for (const item of flatBookmarks) {
+        const itemPageIndex = getPageIndex(item);
         if (
-            typeof item.pageIndex !== 'number'
-            || !Number.isFinite(item.pageIndex)
-            || item.pageIndex > pageIndex
+            typeof itemPageIndex !== 'number'
+            || !Number.isFinite(itemPageIndex)
+            || itemPageIndex > pageIndex
         ) {
             continue;
         }
-        // Later candidates win, except that a child inheriting its parent's
-        // page must not outrank the parent that names the section.
+        // Nearest preceding page wins; later equal-page candidates win unless
+        // a child inherits the page of the parent that names the section.
         if (
             active === null
-            || item.pageIndex !== active.pageIndex
-            || (depths.get(item) ?? 0) <= (depths.get(active) ?? 0)
+            || itemPageIndex > activePageIndex
+            || (itemPageIndex === activePageIndex
+                && (depths.get(item) ?? 0) <= (depths.get(active) ?? 0))
         ) {
             active = item;
+            activePageIndex = itemPageIndex;
         }
     }
 

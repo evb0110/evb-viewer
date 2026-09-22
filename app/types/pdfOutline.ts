@@ -63,8 +63,6 @@ export interface IBookmarkDropTarget {
 
 export interface IBookmarkActivatePayload {
     id: string;
-    hasChildren: boolean;
-    wasActive: boolean;
     multiSelect: boolean;
     rangeSelect: boolean;
 }

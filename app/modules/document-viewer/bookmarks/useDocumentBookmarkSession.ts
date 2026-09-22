@@ -5,6 +5,7 @@ import {
     createDocumentBookmarkTree,
     findDocumentBookmark,
     getDocumentBookmarkActivePath,
+    isDocumentBookmarkExpanded,
     type IDocumentBookmarkTreeItem,
     type TDocumentBookmarkDisplayMode,
     type TDocumentBookmarkStatus,
@@ -80,9 +81,14 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
     }
 
     function toggleExpanded(id: string) {
+        const wasExpanded = isDocumentBookmarkExpanded(id, {
+            displayMode: displayMode.value,
+            expandedIds: expandedIds.value,
+            activePathIds: activePathIds.value,
+        });
         if (displayMode.value !== 'top-level') displayMode.value = 'top-level';
         const next = new Set(expandedIds.value);
-        if (next.has(id)) next.delete(id);
+        if (wasExpanded) next.delete(id);
         else next.add(id);
         expandedIds.value = next;
     }

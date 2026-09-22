@@ -43,6 +43,8 @@
                     class="pdf-bookmark-item-toggle"
                     :aria-label="isExpanded ? t('bookmarks.collapse') : t('bookmarks.expand')"
                     @click.stop="toggleExpand"
+                    @keydown.enter.stop
+                    @keydown.space.stop
                 >
                     <UIcon
                         :name="isExpanded ? 'i-ph-caret-down' : 'i-ph-caret-right'"
@@ -62,6 +64,7 @@
                 type="text"
                 class="pdf-bookmark-item-input"
                 @click.stop
+                @keydown.stop
                 @keydown.enter.prevent="commitEdit"
                 @keydown.escape.prevent="cancelEdit"
                 @blur="commitEdit"
@@ -89,6 +92,8 @@
                     class="pdf-bookmark-item-actions-trigger"
                     :aria-label="t('bookmarks.actions')"
                     @click.stop="openActionsFromButton"
+                    @keydown.enter.stop
+                    @keydown.space.stop
                 >
                     <UIcon
                         name="i-ph-dots-three"
@@ -127,6 +132,7 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 
 
 import type {
+    IBookmarkActivatePayload,
     IBookmarkItem,
     IBookmarkMenuPayload,
     TBookmarkDropPosition,
@@ -155,13 +161,7 @@ const {
 
 const emit = defineEmits<{
     'go-to-page': [page: number, options?: IScrollToPageOptions];
-    activate: [payload: {
-        id: string;
-        hasChildren: boolean;
-        wasActive: boolean;
-        multiSelect: boolean;
-        rangeSelect: boolean;
-    }];
+    activate: [payload: IBookmarkActivatePayload];
     'toggle-expand': [id: string];
     'open-actions': [payload: IBookmarkMenuPayload];
     'save-edit': [payload: {
@@ -233,13 +233,7 @@ function goToPage(page: number, options?: IScrollToPageOptions) {
     emit('go-to-page', page, options);
 }
 
-function activate(payload: {
-    id: string;
-    hasChildren: boolean;
-    wasActive: boolean;
-    multiSelect: boolean;
-    rangeSelect: boolean;
-}) {
+function activate(payload: IBookmarkActivatePayload) {
     emit('activate', payload);
 }
 
@@ -383,19 +377,11 @@ function shouldSkipBookmarkNavigation(multiSelect: boolean, rangeSelect: boolean
 }
 
 function emitBookmarkActivation(multiSelect: boolean, rangeSelect: boolean) {
-    const wasActive = isActive.value;
     emit('activate', {
         id: item.id,
-        hasChildren: hasChildren.value,
-        wasActive,
         multiSelect,
         rangeSelect,
     });
-    return wasActive;
-}
-
-function shouldToggleBookmarkFromActivation(wasActive: boolean) {
-    return wasActive && hasChildren.value;
 }
 
 function shouldIgnoreBookmarkClick(event?: MouseEvent | KeyboardEvent) {
@@ -403,17 +389,11 @@ function shouldIgnoreBookmarkClick(event?: MouseEvent | KeyboardEvent) {
 }
 
 function continueBookmarkClickNavigation(
-    wasActive: boolean,
     multiSelect: boolean,
     rangeSelect: boolean,
     navigationRequestId: number,
 ) {
     if (shouldSkipBookmarkNavigation(multiSelect, rangeSelect)) {
-        return;
-    }
-
-    if (shouldToggleBookmarkFromActivation(wasActive)) {
-        emit('toggle-expand', item.id);
         return;
     }
 
@@ -436,9 +416,8 @@ function handleClick(event?: MouseEvent | KeyboardEvent) {
         rangeSelect,
     } = resolveBookmarkSelectionIntent(event);
     const navigationRequestId = treeContext.beginBookmarkNavigationRequest();
-    const wasActive = emitBookmarkActivation(multiSelect, rangeSelect);
+    emitBookmarkActivation(multiSelect, rangeSelect);
     continueBookmarkClickNavigation(
-        wasActive,
         multiSelect,
         rangeSelect,
         navigationRequestId,

@@ -9,7 +9,12 @@ import {
     readFile,
     rm,
     truncate,
+    writeFile,
 } from 'node:fs/promises';
+import { PDFDocument } from 'pdf-lib';
+import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import {mkdirSync} from 'node:fs';
 import {
     dirname,
@@ -21,6 +26,7 @@ import {
     createMixedSizeTextFixturePdf,
     createNativeDjvuLatePageSearchFixture,
     createMultiPageTextFixturePdf,
+    createOutlinePageLabelFixturePdf,
     createPngFixture,
     readPdfAnnotationSummary,
     resolveDjvuFixturePath,
@@ -1324,6 +1330,122 @@ async function readWindowLayoutObservation(session: IElectronE2ESession, anchor:
 
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
+
+    it('selects a bookmark on the first activation and follows later page navigation', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createOutlinePageLabelFixturePdf(`bookmark-selection-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const entry = (title: string, pageIndex: number, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
+            title,
+            pageIndex: requirePageIndex(pageIndex),
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items,
+        });
+        writePdfBookmarkOutlines(pdf, [
+            entry('Parent', 0, [
+                entry('Child', 2),
+                entry('Back reference', 0),
+            ]),
+            entry('Appendix', 3),
+            entry('Same page', 3),
+        ]);
+        await writeFile(fixture, await pdf.save());
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+
+        async function activate(title: string, key?: 'Enter' | 'Space') {
+            const rows = await page.$$('.document-bookmark-item__row, .pdf-bookmark-item-row');
+            for (const row of rows) {
+                const matches = await row.evaluate((element, text) => (
+                    element.textContent?.trim() === text && element.getBoundingClientRect().width > 0
+                ), title);
+                if (!matches) continue;
+                if (key) {
+                    await row.focus();
+                    await page.keyboard.press(key);
+                } else {
+                    await row.click();
+                }
+                await page.mouse.move(700, 300);
+                return;
+            }
+            throw new Error(`Bookmark row is not visible: ${title}`);
+        }
+
+        async function expectActive(title: string, pageNumber: number) {
+            await waitForToolbarCurrentPage(page, pageNumber);
+            await waitForViewportQuiet(page);
+            const observation = await page.evaluate((expectedPage) => {
+                const active = Array.from(document.querySelectorAll<HTMLElement>(
+                    '.document-bookmark-item__row.is-active, .pdf-bookmark-item-row.is-active',
+                )).filter(row => row.getBoundingClientRect().width > 0);
+                const destination = document.querySelector<HTMLElement>(`.page_container[data-page="${expectedPage}"]`);
+                const viewport = destination?.closest('#pdf-viewer')?.getBoundingClientRect();
+                const text = destination?.querySelector<HTMLElement>('.textLayer span');
+                const rect = text?.getBoundingClientRect();
+                return {
+                    titles: active.map(row => row.textContent?.trim()),
+                    borders: active.map(row => getComputedStyle(row).borderTopColor),
+                    destinationText: text?.textContent,
+                    textVisible: Boolean(rect && viewport && rect.bottom > viewport.top && rect.top < viewport.bottom),
+                };
+            }, pageNumber);
+            expect(observation.titles).toEqual([title]);
+            expect(observation.borders).not.toContain('rgba(0, 0, 0, 0)');
+            expect(observation.destinationText).toBe(`Metadata matrix page ${pageNumber}`);
+            expect(observation.textVisible).toBe(true);
+        }
+
+        await activate('Appendix');
+        await expectActive('Appendix', 4);
+        await activate('Same page');
+        await expectActive('Same page', 4);
+        await activate('Appendix', 'Enter');
+        await expectActive('Appendix', 4);
+        await activate('Parent', 'Enter');
+        await expectActive('Parent', 1);
+        await activate('Child', 'Space');
+        await expectActive('Child', 3);
+        await openDocumentSidebarTab(page, 'Pages');
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await expectActive('Child', 3);
+        await goToPageViaToolbar(page, 4);
+        await expectActive('Same page', 4);
+        await page.click('.document-bookmarks-toolbar__actions button');
+        await activate('Parent');
+        await expectActive('Parent', 1);
+        await activate('Child', 'Enter');
+        await expectActive('Child', 3);
+        await page.click('.pdf-bookmark-item-row', {button: 'right'});
+        await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
+        await page.click('.bookmarks-context-menu .pdf-context-menu__action');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type('Two words');
+        expect(await page.$eval('input.pdf-bookmark-item-input', input => input.value)).toBe('Two words');
+        await page.keyboard.press('Escape');
+        await goToPageViaToolbar(page, 2);
+        await waitForToolbarCurrentPage(page, 2);
+        await waitForViewportQuiet(page);
+        // Reading the next page follows the preceding section, not outline order.
+        expect(await page.$eval('.pdf-bookmark-item-row.is-active', row => row.textContent?.trim()))
+            .toBe('Parent');
+        const toggle = await page.$('.pdf-bookmark-item-toggle');
+        expect(toggle).not.toBeNull();
+        await toggle!.focus();
+        await page.keyboard.press('Enter');
+        await waitForFunctionInPage(page, () => !document.querySelector('.pdf-bookmark-item-children'));
+        await waitForToolbarCurrentPage(page, 2);
+        await page.keyboard.press('Space');
+        await page.waitForSelector('.pdf-bookmark-item-children');
+        await activate('Parent');
+        await expectActive('Parent', 1);
+    }, 90_000);
 
     it('closes and reopens an annotated PDF without crashing its workspace host', async () => {
         const session = sessionFixture.getSession();

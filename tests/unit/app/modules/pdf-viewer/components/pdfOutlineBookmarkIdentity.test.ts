@@ -36,12 +36,16 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 
 interface ITreeStubState {
     items: readonly IDocumentBookmarkTreeItem[];
+    activeId: string | null;
+    activate: (id: string) => void;
     expandedIds: ReadonlySet<string>;
     toggleExpand: (id: string) => void;
 }
 
 const treeStub: ITreeStubState = {
     items: [],
+    activeId: null,
+    activate: () => undefined,
     expandedIds: new Set<string>(),
     toggleExpand: () => undefined,
 };
@@ -80,9 +84,11 @@ vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', async () => 
         setup: (props, {emit}) => {
             vue.watchEffect(() => {
                 treeStub.items = props.items;
+                treeStub.activeId = props.activeId;
                 treeStub.expandedIds = props.expandedIds;
             });
             treeStub.toggleExpand = (id: string) => emit('toggle-expand', id);
+            treeStub.activate = (id: string) => emit('activate', id);
             return () => vue.h('div', {'data-tree-stub': ''});
         },
     })};
@@ -196,6 +202,7 @@ async function mountOutline(options: {
     pdfDocument?: IPdfDocument | null;
 }) {
     const state = reactive({
+        currentPage: 1,
         bookmarkItems: options.bookmarkItems,
         bookmarksDirty: false,
         isEditMode: options.isEditMode ?? false,
@@ -205,7 +212,7 @@ async function mountOutline(options: {
     document.body.append(host);
     const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
         pdfDocument: options.pdfDocument ?? null,
-        currentPage: 1,
+        currentPage: state.currentPage,
         isEditMode: state.isEditMode,
         bookmarkItems: state.bookmarkItems,
         bookmarksDirty: state.bookmarksDirty,
@@ -261,6 +268,63 @@ function createBaseOutline() {
 }
 
 describe('PdfOutline bookmark identity and dirty comparison', () => {
+    it('keeps the clicked identity across lazy page lookup without changing persisted bookmarks', async () => {
+        const document = createPdfDocumentStub([
+            {
+                title: 'First on page',
+                dest: 'first',
+            },
+            {
+                title: 'Last on page',
+                dest: 'last',
+            },
+        ]);
+        const outline = await mountOutline({
+            bookmarkItems: [],
+            pdfDocument: document,
+        });
+        await vi.waitFor(() => expect(treeStub.items).toHaveLength(2));
+        const firstId = treeStub.items[0]!.id;
+        treeStub.activate(firstId);
+        outline.state.currentPage = 4;
+        await vi.waitFor(() => expect(treeStub.activeId).toBe(firstId));
+        await nextTick();
+        expect(outline.changes).toHaveLength(1);
+        expect(outline.changes[0]?.bookmarks.every(item => item.pageIndex === null)).toBe(true);
+        expect(document.getPage).not.toHaveBeenCalled();
+    });
+
+    it('does not let an older page lookup replace a newer explicit selection', async () => {
+        const destination = Promise.withResolvers<unknown[] | null>();
+        const document = createPdfDocumentStub([
+            {
+                title: 'Pending',
+                dest: 'pending',
+            },
+            {
+                title: 'Selected',
+                dest: [3],
+            },
+        ]);
+        document.getDestination = vi.fn(() => destination.promise);
+        const outline = await mountOutline({
+            bookmarkItems: [],
+            pdfDocument: document,
+        });
+        await vi.waitFor(() => expect(treeStub.items).toHaveLength(2));
+        const selectedId = treeStub.items[1]!.id;
+        treeStub.activate(selectedId);
+        destination.resolve([{
+            num: 12,
+            gen: 0,
+        }]);
+        await nextTick();
+        await nextTick();
+        expect(treeStub.activeId).toBe(selectedId);
+        expect(document.getPageIndex).not.toHaveBeenCalled();
+        outline.unmount();
+    });
+
     it('keeps bookmark ids when an unrelated bookmark is inserted externally', async () => {
         const outline = await mountOutline({ bookmarkItems: createBaseOutline() });
         const baselineIds = collectTreeIds(treeStub.items);

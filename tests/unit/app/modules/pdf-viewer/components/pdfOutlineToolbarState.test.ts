@@ -220,7 +220,8 @@ describe('PdfOutline bookmark toolbar state', () => {
         expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-first-title'))
             .toBe('Chapter 1');
         expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
-        expect(getDestination).not.toHaveBeenCalled();
+        // Selection metadata can resolve in the background while the tree is usable.
+        expect(getDestination).toHaveBeenCalledWith('chapter-1');
     });
 
     it('keeps more than 10000 outline entries editable for native continuation', async () => {
