@@ -287,6 +287,7 @@
                 />
             </div>
         </div>
+        <slot name="persistent-actions" />
     </header>
 </template>
 

@@ -222,6 +222,7 @@ const DOCUMENT_XML_PREFIX = '<?xml version="1.0" encoding="UTF-8" standalone="ye
 const DOCUMENT_XML_SUFFIX = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>' +
     '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
     '</w:sectPr></w:body></w:document>';
+const DOCUMENT_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 
 const CONTENT_TYPES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -390,7 +391,7 @@ export async function* createDocxFromTextChunks(
             throw new TypeError('DOCX text pages must yield strings');
         }
         if (emittedPage) {
-            yield* emitParagraph('');
+            yield* emitDocumentText(DOCUMENT_PAGE_BREAK);
         }
         emittedPage = true;
         for (const line of iterateLines(page)) {

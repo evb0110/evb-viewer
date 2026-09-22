@@ -2378,6 +2378,16 @@ struct CollapsedGrayscaleOutput {
     mixed_layers: Option<MixedLayers>,
 }
 
+fn invert_ocr_filter_source(source: &GrayImage) -> GrayImage {
+    let mut inverted = source.clone();
+    for y in 0..source.height() {
+        for (target, &value) in inverted.row_mut(y).iter_mut().zip(source.row(y)) {
+            *target = 255 - value;
+        }
+    }
+    inverted
+}
+
 fn collapsed_grayscale_output(input: CollapsedGrayscaleInput<'_>) -> CollapsedGrayscaleOutput {
     let CollapsedGrayscaleInput {
         fallback,
@@ -2609,66 +2619,109 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
     } = input;
     let mut conservation_warnings = Vec::new();
     let mut emitted_output_mode = options.output_mode;
-    let routing_diagnostics = spread_plan.map_or_else(
-        || resolve_binarization_diagnostics(canonical_routing_sample, options),
-        |plan| plan.diagnostics(),
-    );
-    let mode = routing_diagnostics.route;
-    let global_threshold_source =
-        (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
-    let binarization_started = Instant::now();
-    let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
-        binarize_normalized_with_diagnostics(
-            &rendered_gray,
-            &rendered_source_gray,
-            routing_diagnostics,
-            global_threshold_source,
-            options,
-            calibration,
+    let detected_dark_background_mask = options
+        .ocr_mode
+        .then(|| dark_background_ocr_mask(&rendered_source_gray))
+        .flatten();
+    let dark_background_binary = detected_dark_background_mask
+        .clone()
+        .map(|mask| {
+            rendered_picture_mask
+                .map_or_else(|| mask.clone(), |picture_mask| mask.subtract(picture_mask))
+        })
+        .filter(|mask| mask.count_black() > 0);
+    let dark_background_detector_removed_by_picture_mask = detected_dark_background_mask.is_some()
+        && dark_background_binary.is_none()
+        && rendered_picture_mask.is_some();
+    let is_dark_background_ocr = dark_background_binary.is_some();
+    // The shared cleanup guards are deliberately written for dark ink on a
+    // light page. Feed them the polarity-correct source when the OCR detector
+    // has selected a light-on-dark cover, while keeping the same guard order
+    // and picture/fold/ownership filtering as every other B&W page.
+    let dark_background_filter_source = dark_background_binary
+        .as_ref()
+        .map(|_| invert_ocr_filter_source(&rendered_source_gray));
+    let filter_source = dark_background_filter_source
+        .as_ref()
+        .unwrap_or(&rendered_source_gray);
+    let (binary, despeckle_fallback, binarization_mode, binarization_diagnostics) =
+        if let Some(binary) = dark_background_binary {
+            // The dark-cover detector has already produced the polarity-correct
+            // OCR stencil. Do not spend time running the ordinary light-on-dark
+            // threshold and postprocess stages just to discard their output.
+            (binary, false, None, None)
+        } else {
+            let routing_diagnostics = spread_plan.map_or_else(
+                || resolve_binarization_diagnostics(canonical_routing_sample, options),
+                |plan| plan.diagnostics(),
+            );
+            let mode = routing_diagnostics.route;
+            let global_threshold_source =
+                (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
+            let binarization_started = Instant::now();
+            let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
+                binarize_normalized_with_diagnostics(
+                    &rendered_gray,
+                    &rendered_source_gray,
+                    routing_diagnostics,
+                    global_threshold_source,
+                    options,
+                    calibration,
+                    rendered_picture_mask,
+                    rendered_text_vicinity_mask,
+                    spread_plan,
+                    !dark_background_detector_removed_by_picture_mask,
+                );
+            timings.threshold_preparation_ms += stage_timings.preparation_ms;
+            timings.thresholding_ms += stage_timings.thresholding_ms;
+            timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+            timings.binarization_ms += binarization_started.elapsed().as_secs_f64() * 1_000.0;
+            let reusable = split.reusable_binary.as_ref().filter(|binary| {
+                mode == crate::BinarizationMode::Otsu
+                    && options.thickness == 0
+                    && !deskew_accepted
+                    && !effective_dewarp
+                    && !crop_enabled
+                    && region.x == 0.0
+                    && region.y == 0.0
+                    && region.width == normalized_width as f64
+                    && region.height == normalized_height as f64
+                    && binary.width() == rendered_gray.width()
+                    && binary.height() == rendered_gray.height()
+            });
+            let (binary, despeckle_fallback) = if let Some(binary) = reusable {
+                postprocess_binary_with_diagnostics_and_raw(
+                    binary,
+                    Some(&rendered_gray),
+                    Some(&rendered_source_gray),
+                    options,
+                    calibration,
+                )
+            } else {
+                (fresh_binary, fresh_despeckle_fallback)
+            };
+            (binary, despeckle_fallback, Some(mode), Some(diagnostics))
+        };
+    // This fallback reconstructs horizontal rules from the ordinary dark-ink
+    // polarity. A dark cover already has a polarity-correct global mask, and
+    // running the rule rescue against its inverted texture would turn cover
+    // grain into connected marks that split otherwise valid title words.
+    let binary = if !is_dark_background_ocr {
+        restore_genuine_horizontal_rules(
+            &binary,
+            filter_source,
             rendered_picture_mask,
+            rendered_text_mask,
             rendered_text_vicinity_mask,
-            spread_plan,
-        );
-    timings.threshold_preparation_ms += stage_timings.preparation_ms;
-    timings.thresholding_ms += stage_timings.thresholding_ms;
-    timings.binary_postprocess_ms += stage_timings.postprocess_ms;
-    timings.binarization_ms += binarization_started.elapsed().as_secs_f64() * 1_000.0;
-    let reusable = split.reusable_binary.as_ref().filter(|binary| {
-        mode == crate::BinarizationMode::Otsu
-            && options.thickness == 0
-            && !deskew_accepted
-            && !effective_dewarp
-            && !crop_enabled
-            && region.x == 0.0
-            && region.y == 0.0
-            && region.width == normalized_width as f64
-            && region.height == normalized_height as f64
-            && binary.width() == rendered_gray.width()
-            && binary.height() == rendered_gray.height()
-    });
-    let (binary, despeckle_fallback) = if let Some(binary) = reusable {
-        postprocess_binary_with_diagnostics_and_raw(
-            binary,
-            Some(&rendered_gray),
-            Some(&rendered_source_gray),
-            options,
-            calibration,
+            options.dpi,
         )
     } else {
-        (fresh_binary, fresh_despeckle_fallback)
+        binary
     };
-    let binary = restore_genuine_horizontal_rules(
-        &binary,
-        &rendered_source_gray,
-        rendered_picture_mask,
-        rendered_text_mask,
-        rendered_text_vicinity_mask,
-        options.dpi,
-    );
     let conservative = binary.clone();
     let binary = filter_soft_shallow_bleed_components(
         &binary,
-        &rendered_source_gray,
+        filter_source,
         rendered_picture_mask,
         rendered_text_mask,
         rendered_text_vicinity_mask,
@@ -2676,7 +2729,7 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
     );
     let binary = enforce_source_ink_support(
         binary,
-        &rendered_source_gray,
+        filter_source,
         rendered_trusted_foreground_mask,
         options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
         options.dpi,
@@ -2735,8 +2788,8 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
     };
     BilevelProcessingOutput {
         image,
-        binarization_mode: Some(mode),
-        binarization_diagnostics: Some(diagnostics),
+        binarization_mode,
+        binarization_diagnostics,
         despeckle_fallback,
         mixed_layers,
         emitted_output_mode,
@@ -2931,6 +2984,7 @@ fn process_mixed_without_picture(input: MixedProcessingInput<'_>) -> MixedProces
             rendered_picture_mask.as_ref(),
             rendered_text_vicinity_mask.as_ref(),
             spread_plan,
+            true,
         );
     timings.threshold_preparation_ms += stage_timings.preparation_ms;
     timings.thresholding_ms += stage_timings.thresholding_ms;

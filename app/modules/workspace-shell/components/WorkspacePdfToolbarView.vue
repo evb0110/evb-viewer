@@ -120,24 +120,13 @@
                 <span v-else class="hidden-trigger" aria-hidden="true" />
             </AppTooltip>
         </template>
-        <template v-if="canUseOcr" #ocr="{ isCollapsed }">
-            <OcrPopup
-                ref="ocrPopupRef"
-                :pdf-document="ocrPdfDocument"
-                :current-page="snapshot.currentPage"
-                :total-pages="snapshot.totalPages"
-                :working-copy-path="ocrWorkingCopyPath"
-                :document-revision="ocrDocumentRevision"
-                :open="ocrPopupOpen"
-                :is-exporting-docx="ocrIsExportingDocx"
-                :external-error="ocrExternalError"
+        <template v-if="canUseOcr" #ocr>
+            <ToolbarButton
+                :icon="getReaderCommandToolbarIcon('ocr')"
+                :active="ocrPopupOpen"
+                :tooltip="t('ocr.button')"
                 :disabled="ocrActionDisabled"
-                :hide-trigger="isCollapsed(1)"
-                @update:open="handleOcrPopupOpenUpdate"
-                @update:running="handleOcrRunningUpdate"
-                @export-docx="handleOcrExportDocx"
-                @cancel-docx-export="handleOcrCancelDocxExport"
-                @ocr-complete="handleOcrComplete"
+                @click="handleOpenOcr"
             />
         </template>
         <template #zoom-dropdown="{ compactLevel }">
@@ -254,6 +243,32 @@
                 @toggle-fullscreen="handleToggleFullscreen"
             />
         </template>
+        <template v-if="canUseOcr" #persistent-actions>
+            <!--
+                The responsive toolbar changes its inline slots as the
+                available width changes. Keep the OCR presenter in this
+                unconditional slot so those changes never abort an in-flight
+                native OCR run; the toolbar slot above is only its trigger.
+            -->
+            <OcrPopup
+                ref="ocrPopupRef"
+                :pdf-document="ocrPdfDocument"
+                :current-page="snapshot.currentPage"
+                :total-pages="snapshot.totalPages"
+                :working-copy-path="ocrWorkingCopyPath"
+                :document-revision="ocrDocumentRevision"
+                :open="ocrPopupOpen"
+                :is-exporting-docx="ocrIsExportingDocx"
+                :external-error="ocrExternalError"
+                :disabled="ocrActionDisabled"
+                hide-trigger
+                @update:open="handleOcrPopupOpenUpdate"
+                @update:running="handleOcrRunningUpdate"
+                @export-docx="handleOcrExportDocx"
+                @cancel-docx-export="handleOcrCancelDocxExport"
+                @ocr-complete="handleOcrComplete"
+            />
+        </template>
     </PdfToolbar>
 </template>
 
@@ -272,6 +287,7 @@ import { PdfToolbar } from '@app/modules/pdf-viewer/public/component-exports/pdf
 import { PdfZoomDropdown } from '@app/modules/pdf-viewer/public/component-exports/pdfZoomDropdown';
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
+import ToolbarButton from '@app/components/ToolbarButton.vue';
 import { useWorkspaceToolbarPageModel } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
@@ -287,6 +303,7 @@ import {
     ScanCleanupScissorsIcon,
     scanCleanupRun,
 } from '@app/modules/scan-cleanup/public/runtime';
+import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
 import { resolveWorkspaceViewerViewMode } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 const OcrPopup = defineAsyncComponent(

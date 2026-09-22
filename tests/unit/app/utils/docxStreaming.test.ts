@@ -49,6 +49,21 @@ describe('createDocxFromTextChunks', () => {
         expect(xml).toContain('<w:p><w:r><w:t xml:space="preserve">123');
     });
 
+    it('preserves a page break between streamed text pages', async () => {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of createDocxFromTextChunks([
+            'cover page',
+            'inner title page',
+        ])) {
+            chunks.push(chunk);
+        }
+        const xml = new TextDecoder().decode(Buffer.concat(chunks.map(chunk => Buffer.from(chunk))));
+
+        expect(xml.match(/<w:br w:type="page"\/>/g)).toHaveLength(1);
+        expect(xml.indexOf('cover page')).toBeLessThan(xml.indexOf('<w:br w:type="page"/>'));
+        expect(xml.indexOf('<w:br w:type="page"/>')).toBeLessThan(xml.indexOf('inner title page'));
+    });
+
     it('uses an RTL language hint only when text has no detected strong direction', () => {
         expect(resolveDocxParagraphDirection('123', true)).toBe(false);
         expect(resolveDocxParagraphDirection('漢字', true)).toBe(true);

@@ -1108,6 +1108,7 @@ mod tests {
             None,
             Some(&text_vicinity),
             None,
+            true,
         );
         let binary = restore_genuine_horizontal_rules(
             &binary,

@@ -13,6 +13,75 @@ const OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES = 16 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES = 4 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES = 16 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_TIMEOUT_MS = 2 * 60 * 1000;
+const OCR_TEXT_WORD_RE = /[\p{L}\p{N}]+/gu;
+const OCR_TEXT_SINGLE_CHARACTER_TOKEN_MAX_FRACTION = 0.6;
+const OCR_TEXT_MINIMUM_LONG_TOKEN_COUNT = 2;
+const OCR_TEXT_SHORT_PHRASE_MAX_TOKEN_COUNT = 2;
+
+type TOcrTextScript = 'latin' | 'cyrillic' | 'greek' | 'rtl' | 'han' | 'kana' | 'hangul' | 'devanagari' | 'thai';
+
+const OCR_LANGUAGE_SCRIPTS: Record<string, readonly TOcrTextScript[]> = {
+    ara: ['rtl'],
+    bul: ['cyrillic'],
+    ces: ['latin'],
+    chi_sim: ['han'],
+    chi_tra: ['han'],
+    dan: ['latin'],
+    deu: ['latin'],
+    ell: ['greek'],
+    eng: ['latin'],
+    fin: ['latin'],
+    fra: ['latin'],
+    grc: ['greek'],
+    heb: ['rtl'],
+    hrv: ['latin'],
+    hun: ['latin'],
+    ind: ['latin'],
+    ita: ['latin'],
+    jpn: [
+        'han',
+        'kana',
+    ],
+    kmr: ['latin'],
+    kor: ['hangul'],
+    nld: ['latin'],
+    nor: ['latin'],
+    pol: ['latin'],
+    por: ['latin'],
+    ron: ['latin'],
+    rus: ['cyrillic'],
+    slk: ['latin'],
+    spa: ['latin'],
+    srp: ['cyrillic'],
+    swe: ['latin'],
+    syr: ['rtl'],
+    tha: ['thai'],
+    tur: ['latin'],
+    ukr: ['cyrillic'],
+    vie: ['latin'],
+};
+
+const OCR_SCRIPT_PATTERNS: Record<TOcrTextScript, RegExp> = {
+    latin: /\p{Script_Extensions=Latin}/u,
+    cyrillic: /\p{Script_Extensions=Cyrillic}/u,
+    greek: /\p{Script_Extensions=Greek}/u,
+    rtl: /[\p{Script_Extensions=Arabic}\p{Script_Extensions=Hebrew}\p{Script_Extensions=Syriac}]/u,
+    han: /\p{Script_Extensions=Han}/u,
+    kana: /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}]/u,
+    hangul: /\p{Script_Extensions=Hangul}/u,
+    devanagari: /\p{Script_Extensions=Devanagari}/u,
+    thai: /\p{Script_Extensions=Thai}/u,
+};
+
+function getLanguageScripts(languages: readonly string[]) {
+    const scripts = new Set<TOcrTextScript>();
+    for (const language of languages) {
+        for (const script of OCR_LANGUAGE_SCRIPTS[language] ?? []) {
+            scripts.add(script);
+        }
+    }
+    return scripts;
+}
 
 export interface IOcrPageTextEvidence {
     classification: TOcrPageTextClassification;
@@ -25,6 +94,60 @@ export interface IOcrPageTextEvidence {
 export interface IOcrPdfTextVisibility {
     hasHiddenTextOperators: boolean;
     hasVisibleTextOperators: boolean;
+}
+
+function hasLanguageScript(text: string, languages: readonly string[] | undefined) {
+    // Digits are script-neutral. A page containing only a page number, date,
+    // or other numeric label is still valid selectable OCR regardless of the
+    // selected language model.
+    if (!/\p{L}/u.test(text)) {
+        return true;
+    }
+    if (languages === undefined || languages.length === 0) {
+        return true;
+    }
+    const scripts = getLanguageScripts(languages);
+    // An unrecognized model code must not make the classifier guess Latin and
+    // reject otherwise valid OCR in a script it does not know about yet.
+    if (scripts.size === 0) return true;
+    return [...scripts].some(script => OCR_SCRIPT_PATTERNS[script].test(text));
+}
+
+/**
+ * Existing EVB generations are normally safe to retain, but a previous OCR
+ * run can have produced only isolated glyph fragments. Presence of text is
+ * not enough to call that layer selectable. Keep this conservative and apply
+ * it only to EVB-owned OCR, so native authored text is never replaced by a
+ * heuristic.
+ */
+export function isLikelyUsableOcrText(
+    text: string,
+    languages?: readonly string[],
+) {
+    const tokens = text.match(OCR_TEXT_WORD_RE) ?? [];
+    if (tokens.length === 0 || !hasLanguageScript(text, languages)) {
+        return false;
+    }
+    const singleCharacterTokens = tokens.filter(token => Array.from(token).length <= 1).length;
+    const longTokens = tokens.filter(token => Array.from(token).length >= 3).length;
+    const numericOnly = tokens.every(token => /^\p{N}+$/u.test(token));
+    if (numericOnly) {
+        return true;
+    }
+    const singleTokenIsMixedAlphaNumeric = tokens.length === 1
+        && /\p{L}/u.test(tokens[0])
+        && /\p{N}/u.test(tokens[0]);
+    const shortPhraseHasMeaningfulWord = tokens.length <= OCR_TEXT_SHORT_PHRASE_MAX_TOKEN_COUNT
+        && longTokens > 0;
+    return singleCharacterTokens / tokens.length < OCR_TEXT_SINGLE_CHARACTER_TOKEN_MAX_FRACTION
+        && !singleTokenIsMixedAlphaNumeric
+        // A page can legitimately contain one isolated word, a short heading
+        // such as “Глава 1”, or a numeric-only label. The two-long-token guard
+        // is still useful for the multi-fragment garbage produced by a broken
+        // OCR layer, but must not reject those valid short results.
+        && (longTokens >= OCR_TEXT_MINIMUM_LONG_TOKEN_COUNT
+            || tokens.length === 1
+            || shortPhraseHasMeaningfulWord);
 }
 
 export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcrPdfTextVisibility {
@@ -239,10 +362,20 @@ export function classifyOcrPageText(input: {
     extractedText: string;
     visibility?: IOcrPdfTextVisibility;
     evbGeneration?: string;
+    languages?: readonly string[];
 }): IOcrPageTextEvidence {
     const extractedTextLength = input.extractedText.trim().length;
     const hasHiddenTextOperators = input.visibility?.hasHiddenTextOperators ?? false;
     const hasVisibleTextOperators = input.visibility?.hasVisibleTextOperators ?? false;
+    if (input.evbGeneration && !isLikelyUsableOcrText(input.extractedText, input.languages)) {
+        return {
+            classification: 'foreign-hidden-ocr',
+            extractedTextLength,
+            hasHiddenTextOperators,
+            hasVisibleTextOperators,
+            evbGeneration: input.evbGeneration,
+        };
+    }
     if (input.evbGeneration) {
         return {
             classification: 'evb-current-generation',

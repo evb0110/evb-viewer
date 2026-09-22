@@ -102,6 +102,90 @@ describe('OCR page text classification and supersession', () => {
         expect(shouldOcrClassifiedPage('foreign-hidden-ocr', 'missing-only')).toBe(true);
     });
 
+    it('does not treat unusable current-generation OCR as complete', () => {
+        const visibility = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END']);
+        const garbage = classifyOcrPageText({
+            extractedText: 'и,\nАаоЗта НЫ)\nРГ. М\nА\nЧ\nК\nи\nУАТАИ,',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['rus'],
+        });
+        const latinGarbage = classifyOcrPageText({
+            extractedText: 'sAtFL4w',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['rus'],
+        });
+
+        expect(garbage.classification).toBe('foreign-hidden-ocr');
+        expect(latinGarbage.classification).toBe('foreign-hidden-ocr');
+        expect(shouldOcrClassifiedPage(garbage.classification, 'missing-only')).toBe(true);
+        expect(shouldOcrClassifiedPage(latinGarbage.classification, 'missing-only')).toBe(true);
+    });
+
+    it('keeps known non-Latin scripts and does not guess Latin for unknown models', () => {
+        const visibility = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END']);
+        for (const languages of [
+            ['chi_sim'],
+            ['unknown-model'],
+        ]) {
+            expect(classifyOcrPageText({
+                extractedText: '这是中文文本 内容测试',
+                visibility,
+                evbGeneration: 'gen-00000001',
+                languages,
+            }).classification).toBe('evb-current-generation');
+        }
+    });
+
+    it('recognizes extended Latin characters through Script_Extensions', () => {
+        const visibility = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END']);
+        expect(classifyOcrPageText({
+            extractedText: 'Žluťoučký kůň',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['ces'],
+        }).classification).toBe('evb-current-generation');
+    });
+
+    it('accepts a valid isolated word without weakening the garbage guard', () => {
+        const visibility = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END']);
+        expect(classifyOcrPageText({
+            extractedText: 'ГРАММАТИЧЕСКИЙ',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['rus'],
+        }).classification).toBe('evb-current-generation');
+        expect(classifyOcrPageText({
+            extractedText: 'sAtFL4w',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['unknown-model'],
+        }).classification).toBe('foreign-hidden-ocr');
+    });
+
+    it('accepts numeric-only pages and short headings with a page number', () => {
+        const visibility = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END']);
+        expect(classifyOcrPageText({
+            extractedText: '2026',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['rus'],
+        }).classification).toBe('evb-current-generation');
+        expect(classifyOcrPageText({
+            extractedText: '1',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['rus'],
+        }).classification).toBe('evb-current-generation');
+        expect(classifyOcrPageText({
+            extractedText: 'Глава 1',
+            visibility,
+            evbGeneration: 'gen-00000001',
+            languages: ['rus'],
+        }).classification).toBe('evb-current-generation');
+    });
+
     it('does not treat an unrelated marker comment or incomplete block as EVB OCR', () => {
         expect(inspectPdfTextVisibility(['% copied from EVB_VIEWER_OCR_LAYER_BEGIN in a PDF comment']))
             .toMatchObject({

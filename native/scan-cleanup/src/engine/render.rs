@@ -22,8 +22,8 @@ use crate::{
     },
     bw::{
         binarize_normalized_with_diagnostics, binarize_normalized_with_diagnostics_excluding,
-        binary_to_gray, is_horizontally_fused_extent_admissible, paper_reference,
-        picture_protection_radius, postprocess_binary_with_diagnostics_and_raw,
+        binary_to_gray, dark_background_ocr_mask, is_horizontally_fused_extent_admissible,
+        paper_reference, picture_protection_radius, postprocess_binary_with_diagnostics_and_raw,
         resolve_binarization_diagnostics, resolve_spread_binarization_plans,
         BinarizationDiagnostics, SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR,
         BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
@@ -2078,7 +2078,10 @@ fn prepare_render_planes<'a, 'b>(
     // rebuilding the same mask over a 15–35 MP source dominated mixed-page
     // cleanup and only created an intermediate mask that was immediately
     // resampled again.
-    let mut picture_mask = if options.output_mode != OutputMode::Bw {
+    // The ordinary B&W route does not need a picture mask, but OCR's
+    // polarity-correct dark-cover route must carry it through so bright
+    // picture pixels cannot become OCR ink.
+    let mut picture_mask = if options.output_mode != OutputMode::Bw || options.ocr_mode {
         analysis_picture_mask.clone()
     } else {
         None

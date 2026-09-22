@@ -19,6 +19,7 @@ import {
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
+import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
 import type { IOcrPdfPageRequest } from '@electron/features/ocr/worker/types';
 
 const probe = vi.hoisted(() => {
@@ -122,12 +123,13 @@ function runSelection(
     sourcePdfPath: string,
     pageNumbers: readonly number[],
     logs: Array<[string, string]>,
+    supersessionPolicy: TOcrTextSupersessionPolicy = 'missing-only',
 ) {
     return selectOcrPagesForSupersession({
         sourcePdfPath,
         documentRevisionToken: requireDocumentRevisionToken('revision-1'),
         pages: pageRequests(pageNumbers),
-        supersessionPolicy: 'missing-only',
+        supersessionPolicy,
         pdftotextBinary: '/fake/pdftotext',
         log: (level, message) => {
             logs.push([
@@ -408,6 +410,11 @@ describe('OCR supersession page selection', () => {
 
     it('reports a failed text probe instead of silently treating pages as text bearing', async () => {
         const sourcePdfPath = await createSourcePdf(3);
+        await writeCatalogWithOcrWorker(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ]);
         probe.state.fail = true;
         const logs: Array<[string, string]> = [];
 
@@ -418,11 +425,46 @@ describe('OCR supersession page selection', () => {
         ], logs);
 
         expect(selection.pages).toEqual([]);
+        expect(selection.diagnostics).toHaveLength(3);
+        expect(selection.diagnostics.every(diagnostic => diagnostic.severity === 'warning')).toBe(true);
         expect(logs.some(([
             level,
             message,
         ]) => level === 'warn' && message.includes('pdftotext exploded'))).toBe(true);
         expect(selection.warnings.some(warning => warning.includes('pdftotext exploded'))).toBe(true);
+    });
+
+    it('allows explicit replacement policies to continue when the text probe fails', async () => {
+        const sourcePdfPath = await createSourcePdf(3);
+        await writeCatalogWithOcrWorker(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ]);
+        probe.state.fail = true;
+
+        const replaceEvb = await runSelection(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ], [], 'replace-evb');
+        expect(replaceEvb.pages.map(page => page.pageNumber)).toEqual([
+            1,
+            2,
+            3,
+        ]);
+        expect(replaceEvb.warnings.filter(warning => warning.includes('Scheduled page'))).toHaveLength(3);
+
+        const replaceAll = await runSelection(sourcePdfPath, [
+            1,
+            2,
+            3,
+        ], [], 'replace-all');
+        expect(replaceAll.pages.map(page => page.pageNumber)).toEqual([
+            1,
+            2,
+            3,
+        ]);
     });
 
     it('recognises its own OCR output from the manifest without opening page artifacts', async () => {
@@ -431,6 +473,20 @@ describe('OCR supersession page selection', () => {
             1,
             2,
             3,
+        ]);
+        probe.state.textByPage = new Map([
+            [
+                1,
+                'evb ocr text 1',
+            ],
+            [
+                2,
+                'evb ocr text 2',
+            ],
+            [
+                3,
+                'evb ocr text 3',
+            ],
         ]);
         recordCatalogReads();
 
@@ -457,6 +513,20 @@ describe('OCR supersession page selection', () => {
             3,
         ]);
         await writeCatalogWithOcrWorker(sourcePdfPath, [2], 3);
+        probe.state.textByPage = new Map([
+            [
+                1,
+                'evb ocr text 1',
+            ],
+            [
+                2,
+                'evb ocr text 2',
+            ],
+            [
+                3,
+                'evb ocr text 3',
+            ],
+        ]);
         recordCatalogReads();
 
         const selection = await runSelection(sourcePdfPath, [
@@ -480,6 +550,20 @@ describe('OCR supersession page selection', () => {
             2,
             3,
         ], CURRENT_REVISION);
+        probe.state.textByPage = new Map([
+            [
+                1,
+                'evb ocr text 1',
+            ],
+            [
+                2,
+                'evb ocr text 2',
+            ],
+            [
+                3,
+                'evb ocr text 3',
+            ],
+        ]);
         recordCatalogReads();
 
         const selection = await runSelection(sourcePdfPath, [

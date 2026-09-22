@@ -39,6 +39,12 @@ const TILE_PAPER_FRACTION_FLOOR: f64 = 0.97;
 const MIN_QUALIFYING_PAPER_TILES: usize = 4;
 const UNIFORM_PAPER_MAXIMUM_RANGE: u8 = 8;
 const FALLBACK_X_HEIGHT_AT_300_DPI_PX: f64 = 17.0;
+const OCR_DARK_BACKGROUND_MIN_BORDER_COVERAGE: f64 = 0.85;
+const OCR_DARK_BACKGROUND_BORDER_OFFSET: u8 = 48;
+const OCR_DARK_BACKGROUND_MIN_HIGHLIGHT_DELTA: u8 = 96;
+const OCR_DARK_BACKGROUND_THRESHOLD_FRACTION: f64 = 0.55;
+const OCR_DARK_BACKGROUND_MIN_COMPONENT_AREA: usize = 24;
+const OCR_DARK_BACKGROUND_MIN_HIGHLIGHT_SAMPLES: usize = 4;
 // Canonical book calibration leaves the nearest corroborated true-Wolf fixture
 // at 9.868637% coverage and the next dark book leaf after the two observed
 // Otsu victims at 11.055276%. Inside this gap the border statistic alone cannot
@@ -1181,6 +1187,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     picture_mask: Option<&BinaryImage>,
     text_vicinity: Option<&BinaryImage>,
     spread_plan: Option<&SpreadBinarizationPlan>,
+    detect_dark_background: bool,
 ) -> (
     BinaryImage,
     BinarizationDiagnostics,
@@ -1193,30 +1200,45 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     let diagnostics = spread_plan.map_or(routing_diagnostics, |plan| plan.diagnostics());
     timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
     let thresholding_started = Instant::now();
-    let binary = threshold_with_mode(
-        &threshold_input,
-        normalized,
-        global_threshold_source,
-        options,
-        diagnostics.route,
-        calibration,
-        spread_plan,
-    );
+    let dark_background_mask = if options.ocr_mode && detect_dark_background {
+        dark_background_ocr_mask(raw_source)
+    } else {
+        None
+    };
+    let binary = dark_background_mask.clone().unwrap_or_else(|| {
+        threshold_with_mode(
+            &threshold_input,
+            normalized,
+            global_threshold_source,
+            options,
+            diagnostics.route,
+            calibration,
+            spread_plan,
+        )
+    });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, interventions) = finish_thresholded_with_line_budget(
-        &binary,
-        normalized,
-        raw_source,
-        options,
-        calibration,
-        picture_mask,
-        text_vicinity,
-        options.binarization,
-        diagnostics.route,
-        should_rescue_spread_fallback(spread_plan, &diagnostics),
-        None,
-    );
+    let (binary, despeckle_fallback, interventions) = if dark_background_mask.is_some() {
+        (
+            binary.clone(),
+            false,
+            inactive_line_stroke_budget_interventions(&binary),
+        )
+    } else {
+        finish_thresholded_with_line_budget(
+            &binary,
+            normalized,
+            raw_source,
+            options,
+            calibration,
+            picture_mask,
+            text_vicinity,
+            options.binarization,
+            diagnostics.route,
+            should_rescue_spread_fallback(spread_plan, &diagnostics),
+            None,
+        )
+    };
     trace_line_stroke_budget(&interventions);
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
@@ -1271,31 +1293,48 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     let diagnostics = spread_plan.map_or(routing_diagnostics, |plan| plan.diagnostics());
     timings.preparation_ms += preparation_started.elapsed().as_secs_f64() * 1_000.0;
     let thresholding_started = Instant::now();
-    let binary = threshold_with_mode_excluding(
-        &threshold_input,
-        normalized,
-        global_threshold_source,
-        options,
-        diagnostics.route,
-        calibration,
-        &protected_picture_mask,
-        spread_plan,
-    );
+    let dark_background_mask = if options.ocr_mode {
+        dark_background_ocr_mask(raw_source)
+    } else {
+        None
+    }
+    .map(|mask| mask.subtract(&protected_picture_mask))
+    .filter(|mask| mask.count_black() > 0);
+    let binary = dark_background_mask.clone().unwrap_or_else(|| {
+        threshold_with_mode_excluding(
+            &threshold_input,
+            normalized,
+            global_threshold_source,
+            options,
+            diagnostics.route,
+            calibration,
+            &protected_picture_mask,
+            spread_plan,
+        )
+    });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, interventions) = finish_thresholded_with_line_budget(
-        &binary,
-        normalized,
-        raw_source,
-        options,
-        calibration,
-        Some(picture_mask),
-        text_vicinity,
-        options.binarization,
-        diagnostics.route,
-        should_rescue_spread_fallback(spread_plan, &diagnostics),
-        Some(&protected_picture_mask),
-    );
+    let (binary, despeckle_fallback, interventions) = if dark_background_mask.is_some() {
+        (
+            binary.clone(),
+            false,
+            inactive_line_stroke_budget_interventions(&binary),
+        )
+    } else {
+        finish_thresholded_with_line_budget(
+            &binary,
+            normalized,
+            raw_source,
+            options,
+            calibration,
+            Some(picture_mask),
+            text_vicinity,
+            options.binarization,
+            diagnostics.route,
+            should_rescue_spread_fallback(spread_plan, &diagnostics),
+            Some(&protected_picture_mask),
+        )
+    };
     trace_line_stroke_budget(&interventions);
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
@@ -2326,6 +2365,58 @@ fn image_percentile(image: &GrayImage, fraction: f64) -> u8 {
         }
     }
     255
+}
+
+/// Return the intensity of a small, non-empty upper-tail class. A percentile
+/// can fall back to the dark background when bright type covers less than one
+/// percent of a page, which is common on a sparse title or cover. Requiring a
+/// few samples keeps isolated compression specks from defining the polarity.
+fn upper_tail_highlight(image: &GrayImage, background: u8) -> u8 {
+    let mut histogram = [0usize; 256];
+    for y in 0..image.height() {
+        for &value in image.row(y) {
+            if value > background {
+                histogram[value as usize] += 1;
+            }
+        }
+    }
+    let mut samples = 0usize;
+    for value in (usize::from(background) + 1..=255).rev() {
+        samples += histogram[value];
+        if samples >= OCR_DARK_BACKGROUND_MIN_HIGHLIGHT_SAMPLES {
+            return value as u8;
+        }
+    }
+    background
+}
+
+/// OCR pages can be scans of dark covers with bright printed type. The normal
+/// cleanup routes intentionally assume dark ink on light paper, so their local
+/// thresholds interpret the cover texture as ink and erase the type. Detect
+/// this page-level polarity only for OCR preprocessing and keep the mask
+/// global: it is a shared raster decision, not a fixture-specific crop.
+pub(crate) fn dark_background_ocr_mask(source: &GrayImage) -> Option<BinaryImage> {
+    let sample = source.downscale_to_fit(256, 256);
+    let background = image_percentile(&sample, 0.50);
+    let dark_border = dark_border_coverage(
+        &sample,
+        background.saturating_add(OCR_DARK_BACKGROUND_BORDER_OFFSET),
+    );
+    let highlight = upper_tail_highlight(&sample, background);
+    let highlight_delta = highlight.saturating_sub(background);
+    if dark_border < OCR_DARK_BACKGROUND_MIN_BORDER_COVERAGE
+        || highlight_delta < OCR_DARK_BACKGROUND_MIN_HIGHLIGHT_DELTA
+    {
+        return None;
+    }
+    let threshold = (f64::from(background)
+        + f64::from(highlight_delta) * OCR_DARK_BACKGROUND_THRESHOLD_FRACTION)
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let mask = threshold_global(source, threshold).invert();
+    let mask = ComponentMap::from_binary(&mask)
+        .retain(|component| component.area >= OCR_DARK_BACKGROUND_MIN_COMPONENT_AREA);
+    (mask.count_black() > 0).then_some(mask)
 }
 
 fn tile_paper_deviation(image: &GrayImage) -> f64 {
@@ -3804,6 +3895,53 @@ mod tests {
         assert_eq!(faint_ink_fraction(&uniform), 0.0);
     }
 
+    #[test]
+    fn dark_background_ocr_mask_keeps_bright_printed_strokes() {
+        let mut source = GrayImage::new(256, 256, 24);
+        for y in (64..192).step_by(20) {
+            for stroke_y in y..y + 7 {
+                for x in 32..224 {
+                    source.set(x, stroke_y, 220);
+                }
+            }
+        }
+
+        let mask = dark_background_ocr_mask(&source).expect("dark cover should be detected");
+        assert!(mask.get(64, 64), "bright print must become OCR ink");
+        assert!(!mask.get(8, 8), "dark cover must remain background");
+    }
+
+    #[test]
+    fn dark_background_ocr_mask_detects_sparse_bright_print() {
+        let mut source = GrayImage::new(256, 256, 24);
+        for y in 128..130 {
+            for x in 64..224 {
+                source.set(x, y, 220);
+            }
+        }
+
+        let mask =
+            dark_background_ocr_mask(&source).expect("sparse bright print should be detected");
+        assert!(
+            mask.get(100, 128),
+            "sparse bright print must become OCR ink"
+        );
+        assert!(!mask.get(8, 8), "dark cover must remain background");
+    }
+
+    #[test]
+    fn dark_background_ocr_mask_falls_back_when_highlights_are_only_specks() {
+        let mut source = GrayImage::new(256, 256, 24);
+        for (x, y) in [(64, 64), (96, 96), (128, 128), (160, 160)] {
+            source.set(x, y, 220);
+        }
+
+        assert!(
+            dark_background_ocr_mask(&source).is_none(),
+            "isolated bright specks must not suppress the normal OCR route"
+        );
+    }
+
     fn binary_fixture(bytes: &[u8]) -> BinaryImage {
         let gray = crate::png::decode_gray(bytes, 1_000_000, 2_000).unwrap();
         let mut binary = BinaryImage::new(gray.width(), gray.height());
@@ -4436,6 +4574,7 @@ mod tests {
             None,
             None,
             Some(&plans.left),
+            true,
         );
         let (_, right_diagnostics, _, _) = binarize_normalized_with_diagnostics(
             &right,
@@ -4447,6 +4586,7 @@ mod tests {
             None,
             None,
             Some(&plans.right),
+            true,
         );
         assert_eq!(left_diagnostics.route, plans.left.route);
         assert_eq!(right_diagnostics.route, plans.right.route);
@@ -4831,6 +4971,7 @@ mod tests {
                 None,
                 Some(&text_vicinity),
                 None,
+                true,
             );
             assert_eq!(diagnostics.route, mode);
             assert!(
@@ -5940,6 +6081,7 @@ mod tests {
                     None,
                     None,
                     None,
+                    true,
                 );
                 rendered_routes.push(diagnostics.route);
             }

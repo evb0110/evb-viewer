@@ -781,12 +781,7 @@ defineExpose<IOcrPopupAgentExpose>({
 
 <style scoped>
 .hidden-trigger {
-    display: block;
-    width: var(--toolbar-control-height, var(--app-toolbar-control-size));
-    height: var(--toolbar-control-height, var(--app-toolbar-control-size));
-    overflow: hidden;
-    visibility: hidden;
-    pointer-events: none;
+    display: none;
 }
 
 .ocr-trigger {

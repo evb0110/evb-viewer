@@ -177,10 +177,32 @@ export async function selectOcrPagesForSupersession(input: {
     for (const page of input.pages) {
         const pageVisibility = visibility.get(page.pageNumber);
         const evbGeneration = generations.get(page.pageNumber);
+        const extractedText = textProbe.texts.get(page.pageNumber) ?? TEXT_PROBE_UNAVAILABLE;
+        if (extractedText === TEXT_PROBE_UNAVAILABLE) {
+            const canReplaceWithoutTextProbe = input.supersessionPolicy === 'replace-all'
+                || input.supersessionPolicy === 'replace-evb' && evbGeneration !== undefined;
+            if (canReplaceWithoutTextProbe) {
+                const message = `Scheduled page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
+                input.log('warn', message);
+                warnings.push(message);
+                pages.push(page);
+                continue;
+            }
+            const message = `Skipped page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
+            warnings.push(message);
+            diagnostics.push({
+                code: 'OCR_EXISTING_TEXT_SKIPPED',
+                severity: 'warning',
+                pageNumber: requirePageNumber(page.pageNumber),
+                message,
+            });
+            continue;
+        }
         const evidence = classifyOcrPageText({
-            extractedText: textProbe.texts.get(page.pageNumber) ?? TEXT_PROBE_UNAVAILABLE,
+            extractedText,
             ...(pageVisibility === undefined ? {} : {visibility: pageVisibility}),
             ...(evbGeneration === undefined ? {} : {evbGeneration}),
+            languages: page.languages,
         });
         if (shouldOcrClassifiedPage(evidence.classification, input.supersessionPolicy)) {
             pages.push(page);
