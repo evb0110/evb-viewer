@@ -102,19 +102,18 @@ cannot read images, its visual verdict is inconclusive. Check persisted output
 separately when saving is part of the task. A video does not establish PDF validity.
 Preserve failures and include the assessment with the delivered evidence.
 
-Serve the review directory as HTML in the thread browser preview or open it
-locally in a browser. `pnpm electron:run recording serve <review-directory>`
-prints a loopback URL with correct MIME types and byte-range video seeking.
-Open that URL in the thread's browser preview, which can display the host page
-to a remote client; a phone's own `127.0.0.1` is not the Mac. The server stays
-in the foreground until Ctrl+C. Retain it while the user is inspecting the
-evidence, and stop only that task-owned server when no longer needed.
-Verify the delivered page renders, video duration matches
-the probe, and seeking reaches the final state. T3's plain file-link route may
-serve HTML as text and does not preserve relative assets. In that case use the
-thread preview with a loopback static server or provide direct MP4 links; an
-unopened `index.html` link is not a verified delivery. Keep recordings private
-unless publication is authorized.
+On fleet hosts, deliver reviewed clips, selected frames and the assessment with
+the installed `tailnet-share` skill. Its managed portal supplies private URLs,
+expiry and cleanup. Retain the original recording, action log and review manifest
+at source. Verify playback and seeking through the returned URL on the consuming
+machine; report its expiry and any unverified delivery behavior.
+
+Outside the fleet, `pnpm electron:run recording serve <review-directory>` serves
+a task-owned loopback preview with MIME types and byte-range seeking. Verify it
+through the actual client; a phone's own `127.0.0.1` is not the capture host.
+Retain that server only for the review period and stop only its owned process.
+T3 file links may serve HTML as text or lose relative assets. An unopened HTML
+link, HTTP success, or local decode alone is not verified video delivery.
 
 Encoding streams through a bounded latest-frame buffer at 15 FPS. Completed
 MP4 fragments survive an interrupted process. A lag over five seconds or an

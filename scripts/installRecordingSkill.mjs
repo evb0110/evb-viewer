@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import {
     dirname,
     join,
@@ -18,13 +19,25 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// Linked task worktrees are disposable; the installed fallback must survive them.
+let deployedRepo = repo;
+if (existsSync(join(repo, '.git')) && lstatSync(join(repo, '.git')).isFile()) {
+    const commonGitDir = execFileSync('git', [
+        'rev-parse', '--path-format=absolute', '--git-common-dir',
+    ], { cwd: repo, encoding: 'utf8' }).trim();
+    const primaryRepo = dirname(commonGitDir);
+    if (!existsSync(join(primaryRepo, 'docs/internal/agents/recorded-automation.md'))) {
+        throw new Error(`No durable recording guide found in primary checkout: ${primaryRepo}`);
+    }
+    deployedRepo = primaryRepo;
+}
 const home = process.env.EVB_SKILL_INSTALL_HOME ?? homedir();
 const name = 'evb-viewer-recording';
 const canonical = join(home, '.agents', 'skills', name);
 const marker = '<!-- Managed by EVB Viewer installRecordingSkill.mjs -->';
 const content = `---
 name: ${name}
-description: Record and visually review EVB Viewer agent UI interactions without taking over the host desktop. Use for app automation, video proofs, contact sheets, full-resolution video frames, and interrupted recording recovery on macOS, Linux or Windows.
+description: Use to record, review, or recover EVB Viewer UI evidence in a task-owned session.
 ---
 
 # EVB Viewer recorded automation
@@ -52,11 +65,12 @@ outcome, track/timestamps/frame paths inspected, observations, and coverage gaps
 Successful extraction or command execution alone is not a visual pass. If your
 model cannot inspect images, report visual review as inconclusive. Review motion
 with dense frames or video playback, and verify saved files separately when needed.
-Return the assessment and video paths. Verify the actual delivered viewer renders
-and its videos play and seek; T3 file links may display HTML source instead. Use
-\`recording serve <review-directory>\` and open its URL in the thread browser
-preview, or return direct MP4 links. The server is local to its host; use the
-thread preview for remote clients and stop only your server when no longer needed.
+On fleet hosts, publish the reviewed clip, frames and assessment through the
+installed \`tailnet-share\` skill. Verify playback and seeking at the returned
+private URL and report its expiry. Retain original tracks and provenance locally.
+Outside the fleet, \`recording serve <review-directory>\` can supply a task-owned
+loopback preview; verify it in the actual consuming browser and stop only that
+server after review. A raw T3 HTML file link may display source instead of a page.
 Native dialogs require the Windows guest/native
 workflow described in the document. A renderer recording covers rendered app
 content; an app API call does not establish that its UI control works.
@@ -68,7 +82,7 @@ if (existsSync(path) && !readFileSync(path, 'utf8').includes(marker)) {
 mkdirSync(canonical, { recursive: true });
 writeFileSync(path, content);
 mkdirSync(join(canonical, 'references'), { recursive: true });
-writeFileSync(join(canonical, 'references', 'repository.txt'), repo + '\n');
+writeFileSync(join(canonical, 'references', 'repository.txt'), deployedRepo + '\n');
 const loaders = [
     '.codex/skills',
     '.claude/skills',
@@ -101,6 +115,7 @@ if (!geminiText.includes(marker)) {
 }
 console.log(JSON.stringify({
     repo,
+    deployedRepo,
     paths,
     sha256: createHash('sha256').update(content).digest('hex'),
 }, null, 2));
