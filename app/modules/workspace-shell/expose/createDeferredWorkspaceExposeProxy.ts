@@ -3,6 +3,7 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
+import { acceptsDocumentWithoutVisual } from '@app/modules/workspace-shell/document-sessions/acceptsDocumentWithoutVisual';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import {
     createDefaultWorkspaceToolbarSnapshot,
@@ -282,6 +283,7 @@ export function createDeferredWorkspaceExposeProxy(
                 action,
                 preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
                 ...(isRecoveryOpen ? {preserveDirtyOnFailure: true} : {}),
+                ...(acceptsDocumentWithoutVisual(result) ? {acceptDocumentWithoutVisual: true} : {}),
                 target: buildPendingTabDocumentHint(result),
             }, async signal => deps.withWorkspace(
                 action,

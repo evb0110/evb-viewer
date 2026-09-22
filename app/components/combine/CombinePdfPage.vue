@@ -151,23 +151,29 @@
                     @reorder="handleReorder"
                 />
 
-                <div v-if="progress" class="combine-progress" role="status" aria-live="polite">
+                <div
+                    v-if="progress"
+                    class="combine-progress"
+                    role="status"
+                    aria-live="polite"
+                    :data-combine-phase="phase"
+                >
                     <div class="combine-progress-copy">
-                        <span>{{ t('combinePdf.progressTitle') }}</span>
-                        <span>
+                        <span>{{ phase === 'opening' ? t('combinePdf.openingTitle') : t('combinePdf.progressTitle') }}</span>
+                        <span v-if="phase !== 'opening'">
                             {{ t('combinePdf.progressDetail', {
                                 processed: progress.processed,
                                 total: progress.total,
                             }) }}
                         </span>
                     </div>
-                    <AppProgressBar :value="progress.percent" />
+                    <AppProgressBar :value="phase === 'opening' ? null : progress.percent" />
                 </div>
 
                 <footer class="combine-actions">
                     <p>{{ t('combinePdf.outputHint') }}</p>
                     <UButton
-                        v-if="isCombining && canCancel"
+                        v-if="phase === 'combining' && canCancel"
                         color="neutral"
                         variant="outline"
                         icon="i-ph-x"
@@ -178,7 +184,7 @@
                         color="primary"
                         icon="i-ph-stack-plus"
                         :loading="isCombining"
-                        :label="isCombining ? t('combinePdf.combining') : pendingCombinedResult ? t('common.retry') : t('combinePdf.combineCountAction', { count: files.length })"
+                        :label="primaryActionLabel"
                         @click="combineFiles"
                     />
                 </footer>
@@ -253,6 +259,7 @@ function toCombineFile(file: File): ICombineFile {
 }
 
 const {
+    phase,
     isCombining,
     progress,
     combineError,
@@ -270,6 +277,18 @@ const {
     ...(openResult ? {openResult} : {}),
     emitOpenResult: result => emit('open-result', result),
     translate: key => t(key as never),
+});
+
+const primaryActionLabel = computed(() => {
+    if (phase.value === 'combining') {
+        return t('combinePdf.combining');
+    }
+    if (phase.value === 'opening') {
+        return t('combinePdf.opening');
+    }
+    return pendingCombinedResult.value
+        ? t('common.retry')
+        : t('combinePdf.combineCountAction', { count: files.value.length });
 });
 
 const queue = useCombinePdfQueue({

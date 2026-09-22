@@ -23,7 +23,10 @@ export const useCombinePdfOperation = <T extends {
     emitOpenResult: (result: TOpenFileResult) => void;
     translate: (key: string) => string;
 }) => {
-    const isCombining = ref(false);
+    // `combining` builds the PDF; `opening` hands the result to a tab and
+    // cannot be canceled from here.
+    const phase = ref<'idle' | 'combining' | 'opening'>('idle');
+    const isCombining = computed(() => phase.value !== 'idle');
     const progress = ref<IDocumentsBatchProgress | null>(null);
     const combineError = ref<string | null>(null);
     const combineFailure = ref<FailureReceipt | null>(null);
@@ -47,7 +50,7 @@ export const useCombinePdfOperation = <T extends {
             return;
         }
         const snapshot = Object.freeze(options.files.value.map(file => Object.freeze({...file})));
-        isCombining.value = true;
+        phase.value = pendingCombinedResult.value ? 'opening' : 'combining';
         abortController = new AbortController();
         combineError.value = null;
         combineFailure.value = null;
@@ -71,6 +74,7 @@ export const useCombinePdfOperation = <T extends {
                 throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
             }
             pendingCombinedResult.value = result;
+            phase.value = 'opening';
             const opened = options.openResult ? await options.openResult(result) : true;
             if (!opened) throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
             if (!options.openResult) options.emitOpenResult(result);
@@ -78,6 +82,7 @@ export const useCombinePdfOperation = <T extends {
             options.files.value = removeCompletedCombineSnapshot(options.files.value, snapshot);
             progress.value = null;
         } catch (error) {
+            const failedPhase = phase.value;
             progress.value = null;
             const expected = error instanceof CombinePdfError && [
                 'canceled',
@@ -102,10 +107,10 @@ export const useCombinePdfOperation = <T extends {
                     'unsupported',
                 ].includes(error.code)
                     ? options.translate('errors.file.invalid')
-                    : options.translate('errors.file.open');
+                    : options.translate(failedPhase === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
             abortController = null;
-            isCombining.value = false;
+            phase.value = 'idle';
         }
     }
 
@@ -115,13 +120,7 @@ export const useCombinePdfOperation = <T extends {
 
     async function savePendingAs() {
         const pending = pendingCombinedResult.value;
-        if (!pending || pending.kind !== 'pdf' || isCombining.value) {
-            return;
-        }
-        if (pending.kind !== 'pdf' || !pending.workingPath) {
-            return;
-        }
-        if (pending.kind !== 'pdf' || !pending.workingPath) {
+        if (!pending || pending.kind !== 'pdf' || !pending.workingPath || isCombining.value) {
             return;
         }
         try {
@@ -157,6 +156,7 @@ export const useCombinePdfOperation = <T extends {
     }
 
     return {
+        phase,
         isCombining,
         progress,
         combineError,
