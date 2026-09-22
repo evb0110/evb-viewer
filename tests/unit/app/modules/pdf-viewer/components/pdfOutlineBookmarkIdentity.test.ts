@@ -314,13 +314,23 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         await vi.waitFor(() => expect(treeStub.items).toHaveLength(2));
         const selectedId = treeStub.items[1]!.id;
         treeStub.activate(selectedId);
+        await outline.applyExternalBookmarks([
+            createEntry('Replacement pending', {
+                pageIndex: null,
+                namedDest: 'pending',
+            }),
+            createEntry('Replacement selected', { pageIndex: requirePageIndex(3) }),
+        ]);
+        expect(treeStub.activeId).toBeNull();
+        const replacementId = treeStub.items[1]!.id;
+        treeStub.activate(replacementId);
         destination.resolve([{
             num: 12,
             gen: 0,
         }]);
         await nextTick();
         await nextTick();
-        expect(treeStub.activeId).toBe(selectedId);
+        expect(treeStub.activeId).toBe(replacementId);
         expect(document.getPageIndex).not.toHaveBeenCalled();
         outline.unmount();
     });

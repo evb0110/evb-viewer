@@ -721,10 +721,8 @@ function applyPendingBookmarkItems(
     dragDrop.resetDragState();
     selection.clearSelection();
     expandedBookmarkIds.value = new Set();
+    activeItemId.value = null;
     void updateActiveItemFromCurrentPage();
-    if (activeItemId.value) {
-        selection.applySingleSelection(activeItemId.value);
-    }
     if (options.syncBaseline) {
         syncBookmarkBaselineFromCurrentItems();
     } else {
@@ -795,10 +793,8 @@ function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
 
     outlineError.value = false;
     bookmarks.value = resolved;
+    activeItemId.value = null;
     void updateActiveItemFromCurrentPage();
-    if (activeItemId.value) {
-        selection.applySingleSelection(activeItemId.value);
-    }
     setBookmarkBaseline();
 }
 
