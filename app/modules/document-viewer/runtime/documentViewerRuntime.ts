@@ -29,6 +29,7 @@ import {
     resolveDocumentViewportCurrentPage,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
+import type { IDocumentViewportFlingBackdrop } from '@app/modules/document-viewer/runtime/documentViewportFlingBackdrop';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 export interface IDocumentViewerRuntime {
@@ -49,6 +50,7 @@ export interface IDocumentViewerRuntime {
     readonly viewportElement: Readonly<ShallowRef<HTMLElement | null>>;
     readonly viewportClass: Readonly<Ref<HTMLAttributes['class']>>;
     readonly viewportStyle: Readonly<Ref<StyleValue>>;
+    readonly viewportFlingBackdrop: Readonly<Ref<IDocumentViewportFlingBackdrop | null>>;
     bindSource(source: IDocumentPageSource | null): void;
     bindOpeningPageElement(element: HTMLElement | null): void;
     commitOpeningPageVisual(
@@ -71,6 +73,7 @@ export type TDocumentOpeningPageVisual = 'none' | 'skeleton' | 'fresh';
 export interface IDocumentViewportFeatureBinding {
     getClass: () => HTMLAttributes['class'];
     getStyle: () => StyleValue;
+    getFlingBackdrop?: () => IDocumentViewportFlingBackdrop | null;
     events: Partial<Record<TDocumentViewportEventType, (event?: Event) => void>>;
     wheel?: (interaction: IDocumentWheelInteraction) => void;
 }
@@ -126,6 +129,7 @@ export function createDocumentViewerRuntime(
     const viewportFeature = shallowRef<IDocumentViewportFeatureBinding | null>(null);
     const viewportClass = computed(() => viewportFeature.value?.getClass() ?? '');
     const viewportStyle = computed(() => viewportFeature.value?.getStyle() ?? {});
+    const viewportFlingBackdrop = computed(() => viewportFeature.value?.getFlingBackdrop?.() ?? null);
     // Surface actions may enter through the shared session while the runtime
     // is still being mounted (for example a restored/full-target command).
     // Fence once per accepted ticket identity here so those actions invalidate
@@ -234,6 +238,7 @@ export function createDocumentViewerRuntime(
         viewportElement,
         viewportClass,
         viewportStyle,
+        viewportFlingBackdrop,
         bindSource(nextSource) {
             if (nextSource && nextSource.kind !== sourceKind.value) {
                 throw new TypeError(`Cannot bind ${nextSource.kind} source to ${sourceKind.value} chassis`);

@@ -133,15 +133,21 @@ its height outside the workspace row.
 
 ## Fast scrolling and rapid commands
 
-On macOS the compositor scrolls a trackpad fling without waiting for the main
-thread, so a fast fling can reach rows the virtual window has not mounted yet.
-The virtual spacers therefore paint the pages they stand in for as a repeated
-page-shell background (`buildPdfVirtualSpacerShellStyle`), anchored at the edge
-that touches a mounted row. A spacer that paints nothing shows the bare viewer
-background in those frames. Keep per-frame mount cost small for the same
-reason: a page skeleton is plain elements with one pulse per page, and effects
-that only matter while a document opens must not subscribe to the virtual
-window or measure the viewport on every scroll frame.
+On macOS the compositor scrolls a trackpad fling on its own thread. A fast
+fling moves tens of thousands of pixels a frame, so it reaches content that has
+not been rasterized yet, and the compositor fills such tiles with the scroll
+viewport's background. Mounting pages sooner cannot help: the pages are there,
+their pixels are not. The chassis therefore keeps the viewport transparent and
+paints the viewer background behind it (`DocumentViewerFlingBackdrop`). During
+a wheel fling that moves more than a viewport per step, a strip of skeleton
+pages shows in that backdrop. A scroll timeline moves it on the compositor, one
+row per row of scroll, so it stays in phase with the page track without new
+raster. The renderer publishes the row geometry through its viewport feature
+binding (`resolvePdfFlingBackdrop`). The strip is transparent at rest, because
+on documents with mixed page sizes it can only match the current row.
+
+Keep per-frame mount cost small as well: a fast scroll mounts a dozen pages a
+frame, so a page skeleton is plain elements with one pulse per page.
 
 The skeleton delay spares a quick navigation from a skeleton flash. It applies
 once per burst of commands: a command that lands while the skeleton already

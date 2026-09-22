@@ -50,6 +50,9 @@ export { createDocumentViewerActivationRunGuard } from '@app/modules/document-vi
 export {
     createDocumentViewerRuntime, documentViewerRuntimeKey, injectDocumentViewerRuntime, shouldAcceptFeaturePackRuntimePage, type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+export type {
+    IDocumentViewportFlingBackdrop, IDocumentViewportFlingBackdropPage,
+} from '@app/modules/document-viewer/runtime/documentViewportFlingBackdrop';
 export {
     createDocumentViewportNavigationMachineState, type IDocumentViewportNavigationState,
 } from '@app/modules/document-viewer/viewport/documentViewportNavigationMachine';

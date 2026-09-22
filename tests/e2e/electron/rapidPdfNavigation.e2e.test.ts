@@ -48,6 +48,7 @@ import {
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
 const PAGE_JUMP_PDF_OVERRIDE = process.env[PAGE_JUMP_PDF_ENV_VAR]?.trim() ?? null;
@@ -107,6 +108,11 @@ const PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
     'pdf-paged-fit-height-backward-wheel-trace.json',
+);
+const FLING_BACKDROP_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-fling-backdrop-trace.json',
 );
 const RAPID_NEXT_SKELETON_TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
@@ -169,6 +175,19 @@ interface IBarePageProbe {
 }
 
 interface IBarePageProbeWindow extends Window { __evbBarePageProbe?: IBarePageProbe }
+
+interface IFlingBackdropFrame {
+    misalignment: number | null;
+    scrollTop: number;
+    visible: boolean;
+}
+
+interface IFlingBackdropProbe {
+    frames: IFlingBackdropFrame[];
+    stopped: boolean;
+}
+
+interface IFlingBackdropProbeWindow extends Window { __evbFlingBackdropProbe?: IFlingBackdropProbe }
 
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -2315,7 +2334,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('fit-width');
     }, 60_000);
 
-    it('paints page shells in a virtual spacer that line up with the mounted pages', async () => {
+    it('shows skeleton pages in phase with the page track behind a trusted wheel fling', async () => {
         const session = sessionFixture.getSession();
         if (!pageJumpReady || !pageJumpPdfPath) {
             throw new Error('Page-jump suite setup did not complete');
@@ -2328,71 +2347,151 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 height: 1000,
             });
             await setFitWidthAndWaitForPage(session, 60);
+            const point = await session.page.evaluate(() => {
+                const rect = document.querySelector<HTMLElement>('#pdf-viewer')?.getBoundingClientRect();
+                return rect ? {
+                    x: Math.round(rect.left + (rect.width / 2)),
+                    y: Math.round(rect.top + (rect.height / 2)),
+                } : null;
+            });
+            expect(point).not.toBeNull();
+            if (!point) {
+                return;
+            }
+            await session.page.mouse.move(point.x, point.y);
 
-            // A fling that outruns page mounting shows the compositor this
-            // spacer region. A hidden Linux session scrolls in lockstep with
-            // the main thread, so move the region into view instead.
-            const seam = await session.page.evaluate(() => {
+            // On macOS the compositor shows this backdrop wherever a fling
+            // outruns raster. A hidden Linux session scrolls in step with the
+            // main thread, so read what the backdrop would show from its layout.
+            await session.page.evaluate(() => {
+                const probe: IFlingBackdropProbe = {
+                    frames: [],
+                    stopped: false,
+                };
+                (window as IFlingBackdropProbeWindow).__evbFlingBackdropProbe = probe;
+                const sample = () => {
+                    if (probe.stopped) {
+                        return;
+                    }
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    const strip = document.querySelector<HTMLElement>('.document-viewer-fling-backdrop__strip');
+                    const viewportRect = viewport?.getBoundingClientRect();
+                    if (viewport && viewportRect) {
+                        const inView = (rect: DOMRect) => rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+                        const shellTops = Array.from(document.querySelectorAll<HTMLElement>('.document-viewer-fling-backdrop__page'))
+                            .map(shell => shell.getBoundingClientRect())
+                            .map(rect => rect.top);
+                        const pageTops = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)'))
+                            .map(page => page.getBoundingClientRect())
+                            .filter(inView)
+                            .map(rect => rect.top);
+                        const misalignment = pageTops.length === 0 || shellTops.length === 0
+                            ? null
+                            : Math.max(...pageTops.map(pageTop => Math.min(...shellTops.map(shellTop => Math.abs(shellTop - pageTop)))));
+                        probe.frames.push({
+                            misalignment,
+                            scrollTop: viewport.scrollTop,
+                            visible: strip !== null && Number(window.getComputedStyle(strip).opacity) > 0.99,
+                        });
+                    }
+                    requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
+            });
+            const fling = await startTrustedWheelFling(session.page, {
+                x: point.x,
+                y: point.y,
+                initialDeltaY: 6_000,
+                finalDeltaY: 1_500,
+                durationMs: 1_200,
+            });
+            await fling.finished;
+            const flingFrames = await session.page.evaluate(() => {
+                const probe = (window as IFlingBackdropProbeWindow).__evbFlingBackdropProbe;
+                if (!probe) {
+                    return [];
+                }
+                probe.stopped = true;
+                return probe.frames;
+            });
+            const visibleFrames = flingFrames.filter(frame => frame.visible);
+            // A scroll timeline is sampled once per frame, while a wheel packet
+            // can move the main-thread offset later in the same frame. Only a
+            // frame whose offset did not move since the last one compares the
+            // strip with the pages at the same offset.
+            const misalignments = flingFrames.flatMap((frame, index) => (
+                frame.visible && frame.misalignment !== null && frame.scrollTop === flingFrames[index - 1]?.scrollTop
+                    ? [frame.misalignment]
+                    : []
+            ));
+            writeTraceArtifact({
+                flingFrames,
+                scenario: 'fling-backdrop-phase',
+            }, FLING_BACKDROP_TRACE_OUTPUT_PATH);
+            expect(visibleFrames.length).toBeGreaterThanOrEqual(10);
+            expect(misalignments.length).toBeGreaterThanOrEqual(10);
+            expect(Math.max(...misalignments)).toBeLessThanOrEqual(2);
+
+            await session.page.waitForFunction(() => {
+                const strip = document.querySelector<HTMLElement>('.document-viewer-fling-backdrop__strip');
+                return strip !== null && Number(window.getComputedStyle(strip).opacity) === 0;
+            }, {timeout: 5_000});
+            await waitForAnimationFrames(session.page, 5);
+
+            const rest = await session.page.evaluate(() => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-                const track = viewport?.querySelector<HTMLElement>('.pdf-viewer-page-track') ?? viewport;
-                const firstChild = track?.firstElementChild;
-                const firstPage = track?.querySelector<HTMLElement>(':scope > .page_container');
-                if (!viewport || !track || !firstPage || !firstChild?.matches('.pdf-viewer-virtual-spacer')) {
-                    return null;
-                }
-                const viewportRect = viewport.getBoundingClientRect();
-                const shift = viewportRect.top + (viewport.clientHeight * 0.7) - firstPage.getBoundingClientRect().top;
-                track.style.transform = `translateY(${shift}px)`;
-                const pageRect = firstPage.getBoundingClientRect();
+                const page = viewport?.querySelector<HTMLElement>('.page_container:not(.page_container--buffered)');
+                const backdrop = document.querySelector<HTMLElement>('.document-viewer-fling-backdrop');
                 const swatch = document.createElement('canvas').getContext('2d');
-                if (!swatch) {
+                if (!viewport || !page || !backdrop || !swatch) {
                     return null;
                 }
-                swatch.fillStyle = window.getComputedStyle(viewport).backgroundColor;
+                swatch.fillStyle = window.getComputedStyle(document.documentElement).getPropertyValue('--app-document-viewer-bg');
                 swatch.fillRect(0, 0, 1, 1);
+                const viewportRect = viewport.getBoundingClientRect();
+                const pageRect = page.getBoundingClientRect();
                 return {
                     background: Array.from(swatch.getImageData(0, 0, 1, 1).data.slice(0, 3)),
-                    gap: Number.parseFloat(window.getComputedStyle(track).rowGap) || 0,
-                    pageCenterX: pageRect.left + (pageRect.width / 2),
-                    pageTop: pageRect.top,
-                    viewportTop: viewportRect.top,
+                    marginX: (viewportRect.left + pageRect.left) / 2,
+                    marginY: viewportRect.top + (viewportRect.height / 2),
                     windowWidth: window.innerWidth,
                 };
             });
-            expect(seam).not.toBeNull();
-            if (!seam) {
+            expect(rest).not.toBeNull();
+            if (!rest) {
                 return;
             }
-            await waitForAnimationFrames(session.page, 3);
             const screenshot = await session.page.screenshot({type: 'png'});
             const image = await loadImage(Buffer.from(screenshot));
-            const ratio = image.width / seam.windowWidth;
+            const ratio = image.width / rest.windowWidth;
             const canvas = createCanvas(image.width, image.height);
             const context = canvas.getContext('2d');
             context.drawImage(image, 0, 0);
-            const isBackgroundAt = (cssY: number) => {
-                const pixel = context.getImageData(Math.round(seam.pageCenterX * ratio), Math.round(cssY * ratio), 1, 1).data;
-                return seam.background.every((channel, index) => Math.abs((pixel[index] ?? 0) - channel) <= 3);
-            };
-            const shellTop = seam.viewportTop + 4;
-            const shellBottom = seam.pageTop - seam.gap - 3;
-            let backgroundRows = 0;
-            let sampledRows = 0;
-            for (let y = shellTop; y <= shellBottom; y += 2) {
-                sampledRows += 1;
-                backgroundRows += isBackgroundAt(y) ? 1 : 0;
-            }
+            const marginPixel = Array.from(context.getImageData(
+                Math.round(rest.marginX * ratio),
+                Math.round(rest.marginY * ratio),
+                1,
+                1,
+            ).data.slice(0, 3));
+            writeTraceArtifact({
+                flingFrames,
+                marginPixel,
+                rest,
+                scenario: 'fling-backdrop-phase',
+            }, FLING_BACKDROP_TRACE_OUTPUT_PATH);
 
-            expect(sampledRows).toBeGreaterThan(100);
-            // The region spans at most one inter-page gap of the repeated shell.
-            expect(backgroundRows / sampledRows).toBeLessThan(0.1);
-            // The last spacer shell ends exactly one track gap above the first page.
-            expect(isBackgroundAt(seam.pageTop - (seam.gap / 2))).toBe(true);
-            expect(isBackgroundAt(seam.pageTop - seam.gap - 3)).toBe(false);
+            // At rest the viewer looks as before: its margin is the viewer background.
+            marginPixel.forEach((channel, index) => {
+                expect(Math.abs(channel - (rest.background[index] ?? 0))).toBeLessThanOrEqual(3);
+            });
         } finally {
             await session.page.evaluate(() => {
-                document.querySelector<HTMLElement>('#pdf-viewer .pdf-viewer-page-track')?.style.removeProperty('transform');
-            });
+                const probeWindow = window as IFlingBackdropProbeWindow;
+                if (probeWindow.__evbFlingBackdropProbe) {
+                    probeWindow.__evbFlingBackdropProbe.stopped = true;
+                }
+                delete probeWindow.__evbFlingBackdropProbe;
+            }).catch(() => undefined);
             if (originalViewport) {
                 await session.page.setViewport(originalViewport);
             }

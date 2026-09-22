@@ -101,6 +101,7 @@ import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/com
 import type { IPdfPageScale } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import {
     resolveDocumentWheelInteraction,
+    type IDocumentViewportFlingBackdrop,
     type IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
 
@@ -122,6 +123,7 @@ interface IProps {
     getPageScale: (page: TPageNumber) => IPdfPageScale | null;
     getPagePlaceholderStyle: (page: TPageNumber) => Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
+    flingBackdrop?: IDocumentViewportFlingBackdrop | null;
     pendingImagePlacement?: IPdfImagePlacementDraft | null;
     isPendingImagePlacementFinalizing?: boolean;
 }
@@ -144,6 +146,7 @@ const {
     getPageScale,
     getPagePlaceholderStyle,
     bottomVirtualSpacerStyle = null,
+    flingBackdrop = null,
     pendingImagePlacement = null,
     isPendingImagePlacementFinalizing = false,
 } = defineProps<IProps>();
@@ -241,6 +244,7 @@ onMounted(() => {
         // The chassis owns scrolling only. Page spacing and viewer-specific
         // inherited variables belong to the physical page track above.
         getStyle: () => ({}),
+        getFlingBackdrop: () => flingBackdrop,
         events: {
             scroll: event => emit('scroll', event as Event),
             mousedown: event => emit('mousedown', event as MouseEvent),

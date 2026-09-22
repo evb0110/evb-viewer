@@ -26,7 +26,13 @@
         :data-chassis-current-page="chassisAuthority.currentPage.value"
         :data-chassis-resize-anchor-page="retainedResizeAnchor?.pageNumber ?? ''"
         :data-chassis-resizing="props.isResizing === true"
+        :class="{'document-viewer-chassis--fling-backdrop': chassisAuthority.viewportFlingBackdrop.value !== null}"
     >
+        <DocumentViewerFlingBackdrop
+            v-if="chassisAuthority.viewportFlingBackdrop.value"
+            :backdrop="chassisAuthority.viewportFlingBackdrop.value"
+            :viewport="chassisAuthority.viewportElement.value"
+        />
         <DocumentViewportHost
             :viewport-id="viewportId"
             :set-viewport="chassisAuthority.bindViewportElement"
@@ -133,6 +139,7 @@ import type {
 import type { TPdfSource } from '@app/types/pdfUi';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
+import DocumentViewerFlingBackdrop from '@app/modules/workspace-shell/components/DocumentViewerFlingBackdrop.vue';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import {
     createPdfPageNavigationRequest,
@@ -846,6 +853,13 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
        scroll anchoring must not move the track while an async feature pack
        replaces provisional geometry with its live page layout. */
     overflow-anchor: none;
+}
+
+/* The fling backdrop paints the viewer background and the page shells behind
+   the viewport, so tiles the compositor has not rasterized yet stay
+   transparent instead of drawing the viewport's own background. */
+.document-viewer-chassis--fling-backdrop > [data-document-viewer-chassis-viewport] {
+    background: transparent;
 }
 
 .document-viewer-chassis__opening-page {

@@ -73,6 +73,7 @@ import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runti
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 import {resolvePdfReadyMetricRange} from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfReadyMetricRange';
 import type { IPdfViewportReloadPlacement } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportReloadPlacement';
+import { resolvePdfFlingBackdrop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfFlingBackdrop';
 import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
@@ -519,6 +520,17 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         hasExactPageGeometry: documentSession.hasExactPageGeometry,
         isFitWidthScaleCurrent: scale.isFitWidthScaleCurrent,
         getPagePlaceholderStyle: viewModel.getPagePlaceholderStyle,
+    });
+    const flingBackdrop = computed(() => {
+        const layout = viewModel.pageLayout.value;
+        if (!layout || !viewModel.virtualizedContinuousMode.value || numPages.value <= 0) {
+            return null;
+        }
+        return resolvePdfFlingBackdrop(
+            layout,
+            clampPageNumber(currentPage.value, numPages.value),
+            getActivePhysicalScrollOrigin(),
+        );
     });
     let mandatoryRasterId = 0;
     let pendingMandatoryRaster: IPdfViewportMandatoryRaster | null = null;
@@ -1301,6 +1313,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         reloadTransition,
         viewModel,
         openVirtualSurfaceGeometry,
+        flingBackdrop,
         singlePageScroll,
         transactionController,
         viewportWritePort,

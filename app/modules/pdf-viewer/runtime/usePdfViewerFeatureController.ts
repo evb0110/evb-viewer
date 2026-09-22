@@ -544,6 +544,7 @@ export const usePdfViewerFeatureController = (
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,
         topVirtualSpacerStyle: viewportSession.viewModel.topVirtualSpacerStyle,
         bottomVirtualSpacerStyle: viewportSession.openVirtualSurfaceGeometry.bottomVirtualSpacerStyle,
+        flingBackdrop: viewportSession.flingBackdrop,
         pendingImagePlacement,
         isPendingImagePlacementFinalizing,
         handleViewportScroll: viewportSession.handleTrustedScroll,

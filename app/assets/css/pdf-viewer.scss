@@ -36,13 +36,11 @@
     }
 }
 
-/* A spacer paints the page shells it stands in for (see
- * buildPdfVirtualSpacerShellStyle), so a fling that outruns page mounting still
- * shows pages rather than the bare viewer background. */
 .pdf-viewer-virtual-spacer {
     flex-shrink: 0;
     width: var(--app-pdf-virtual-spacer-width);
     pointer-events: none;
+    opacity: 0;
 }
 
 .pdfViewer .page_container--rendered .document-page-skeleton {
