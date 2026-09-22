@@ -115,12 +115,16 @@ describe('workspaceSavePlan', () => {
             body: {
                 source: 'working-copy',
                 requiresLargeFileGuard: false,
+                preserveLoadedSource: true,
             },
         });
         expect(saveAs).toMatchObject({
             kind: 'serialized',
             destination: 'save-as',
-            body: {source: 'working-copy'},
+            body: {
+                source: 'working-copy',
+                preserveLoadedSource: false,
+            },
         });
         expect(saveAs.target).toEqual({
             expectedDocumentSessionKey: 'document-session-1',
@@ -163,6 +167,7 @@ describe('workspaceSavePlan', () => {
                 source: 'working-copy',
                 forceRewrite: true,
                 requiresLargeFileGuard: true,
+                preserveLoadedSource: false,
             },
         });
     });

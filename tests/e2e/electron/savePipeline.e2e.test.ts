@@ -22,6 +22,7 @@ import {
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     createMultiPageTextFixturePdf,
+    createScannedTextFixturePdf,
     createPasswordProtectedFixturePdf,
     readPdfAnnotationDetails,
     readPdfHasEncryptDictionary,
@@ -39,6 +40,12 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    assertOcrPdfSemanticOutput,
+    consumeOcrResultIntoActiveWorkspace,
+    getActiveWorkspaceWorkingCopyPath,
+    runOcrSearchablePdf,
+} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     waitForAnimationFrames,
     waitForVisibleMountedPdfCanvases,
@@ -87,6 +94,7 @@ interface ICommittedCanvasContinuitySnapshot {
 }
 
 type TSaveReceiptProbeWindow = Window & {
+    __savedSidebar?: Element;
     __committedCanvasContinuitySnapshot?: ICommittedCanvasContinuitySnapshot;
     __resumeSaveReceiptCommit?: () => void;
     __saveReceiptProbe?: ISaveReceiptProbe;
@@ -615,6 +623,44 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             author,
             secondAuthor,
         ]);
+    }, E2E_TIMEOUT_MS);
+
+    it('keeps the rendered page and annotation sidebar mounted while saving applied OCR', async () => {
+        const expectedText = 'Searchable document after recognition';
+        const pdfPath = await createScannedTextFixturePdf(`save-applied-ocr-${Date.now()}.pdf`, expectedText);
+        session = await startElectronE2ESession(`e2e-save-applied-ocr-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session.page, pdfPath);
+        const workingPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        const requestId = `save-applied-ocr-${Date.now()}`;
+        const ocr = await runOcrSearchablePdf(session.page, workingPath, requestId, expectedText);
+        expect(ocr.success).toBe(true);
+        await consumeOcrResultIntoActiveWorkspace(session.page, requestId, ocr.pdfPath!, ocr.sourceDocumentRevisionToken!);
+        await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
+        await openAnnotationsTab(session.page);
+        expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
+        await session.page.evaluate(() => {
+            const sidebar = document.querySelector('.workspace-host[data-workspace-active="true"] .pdf-sidebar');
+            if (!sidebar || sidebar.getBoundingClientRect().width === 0) throw new Error('Annotation sidebar is not visible');
+            (window as TSaveReceiptProbeWindow).__savedSidebar = sidebar;
+        });
+        await installCommittedSurfaceSampler(session.page);
+        const afterEventId = await getLatestAutomationEventId(session.page);
+        await clickVisibleToolbarButton(session.page, 'Save');
+        await waitForAutomationEvent(session.page, 'save-committed', {
+            afterEventId,
+            path: pdfPath,
+            timeoutMs: SAVE_TIMEOUT_MS,
+        });
+        expectVisiblePdfPagesStayedPainted(await stopSaveVisualContinuitySampler(session.page));
+        await expectCommittedCanvasSurvivedSave(session.page);
+        expect(await session.page.evaluate(() => {
+            const original = (window as TSaveReceiptProbeWindow).__savedSidebar;
+            return original?.isConnected && original === document.querySelector('.workspace-host[data-workspace-active="true"] .pdf-sidebar');
+        })).toBe(true);
+        expect(await assertOcrPdfSemanticOutput(pdfPath, expectedText)).toContain(expectedText);
     }, E2E_TIMEOUT_MS);
 
     it('reuses an unchanged staged receipt and keeps the native save path-backed and live', async () => {

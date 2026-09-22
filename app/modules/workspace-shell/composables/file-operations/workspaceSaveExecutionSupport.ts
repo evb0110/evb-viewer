@@ -155,7 +155,11 @@ export function createWorkspaceSavePlan(input: {
         source: 'working-copy' as const,
         forceRewrite,
         includeManagedShapes: input.hasManagedShapes && dirtyState.shapes,
-        preserveLoadedSource: false,
+        // Applied OCR/page operations are already represented by the live document.
+        // Persisting those bytes does not require replacing its rendered surface.
+        preserveLoadedSource: request.kind === 'save' && !forcedByDirtyState
+            && Boolean(target.expectedOriginalPath)
+            && isNativeDocumentRef(target.expectedWorkingPath),
         requiresLargeFileGuard: forcedByDirtyState || forceRewrite,
     };
     if ((request.kind === 'repair' || request.kind === 'optimize') && !forcedByDirtyState
