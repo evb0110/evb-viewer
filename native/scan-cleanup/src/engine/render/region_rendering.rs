@@ -2704,18 +2704,18 @@ fn process_fresh_bilevel_output(input: FreshBilevelInput<'_>) -> BilevelProcessi
                 (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
             let binarization_started = Instant::now();
             let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
-                binarize_normalized_with_diagnostics(
-                    &rendered_gray,
-                    &rendered_source_gray,
+                binarize_normalized_with_diagnostics(BinarizationInput {
+                    normalized: &rendered_gray,
+                    raw_source: &rendered_source_gray,
                     routing_diagnostics,
                     global_threshold_source,
                     options,
                     calibration,
-                    rendered_picture_mask,
-                    rendered_text_vicinity_mask,
+                    picture_mask: rendered_picture_mask,
+                    text_vicinity: rendered_text_vicinity_mask,
                     spread_plan,
-                    !dark_background_detector_removed_by_picture_mask,
-                );
+                    detect_dark_background: !dark_background_detector_removed_by_picture_mask,
+                });
             timings.threshold_preparation_ms += stage_timings.preparation_ms;
             timings.thresholding_ms += stage_timings.thresholding_ms;
             timings.binary_postprocess_ms += stage_timings.postprocess_ms;
@@ -3018,18 +3018,18 @@ fn process_mixed_without_picture(input: MixedProcessingInput<'_>) -> MixedProces
         (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
     let binarization_started = Instant::now();
     let (binary, diagnostics, despeckle_fallback, stage_timings) =
-        binarize_normalized_with_diagnostics(
-            &rendered_gray,
-            &rendered_source_gray,
+        binarize_normalized_with_diagnostics(BinarizationInput {
+            normalized: &rendered_gray,
+            raw_source: &rendered_source_gray,
             routing_diagnostics,
             global_threshold_source,
             options,
             calibration,
-            rendered_picture_mask.as_ref(),
-            rendered_text_vicinity_mask.as_ref(),
+            picture_mask: rendered_picture_mask.as_ref(),
+            text_vicinity: rendered_text_vicinity_mask.as_ref(),
             spread_plan,
-            true,
-        );
+            detect_dark_background: true,
+        });
     timings.threshold_preparation_ms += stage_timings.preparation_ms;
     timings.thresholding_ms += stage_timings.thresholding_ms;
     timings.binary_postprocess_ms += stage_timings.postprocess_ms;

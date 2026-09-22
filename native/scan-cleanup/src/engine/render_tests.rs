@@ -1,6 +1,8 @@
 mod tests {
     use super::*;
-    use crate::bw::{binarize_normalized, rescue_component_scoped_faint_strokes};
+    use crate::bw::{
+        binarize_normalized, rescue_component_scoped_faint_strokes, BinarizationInput,
+    };
     use crate::protocol::manifest_v3::CanvasScope;
     use crate::split::{FoldBand, FoldBandUnmeasuredReason};
     use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
@@ -1098,18 +1100,18 @@ mod tests {
         };
         let calibration =
             PageCalibration::estimate(&raw, options.dpi, CalibrationConfig::default());
-        let (binary, _, _, _) = binarize_normalized_with_diagnostics(
-            &raw,
-            &raw,
-            resolve_binarization_diagnostics(&raw, &options),
-            None,
-            &options,
+        let (binary, _, _, _) = binarize_normalized_with_diagnostics(BinarizationInput {
+            normalized: &raw,
+            raw_source: &raw,
+            routing_diagnostics: resolve_binarization_diagnostics(&raw, &options),
+            global_threshold_source: None,
+            options: &options,
             calibration,
-            None,
-            Some(&text_vicinity),
-            None,
-            true,
-        );
+            picture_mask: None,
+            text_vicinity: Some(&text_vicinity),
+            spread_plan: None,
+            detect_dark_background: true,
+        });
         let binary = restore_genuine_horizontal_rules(
             &binary,
             &raw,

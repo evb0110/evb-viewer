@@ -1177,23 +1177,39 @@ fn binarize_normalized_calibrated(
     )
 }
 
+pub(crate) struct BinarizationInput<'a> {
+    pub normalized: &'a GrayImage,
+    pub raw_source: &'a GrayImage,
+    pub routing_diagnostics: BinarizationDiagnostics,
+    pub global_threshold_source: Option<&'a GrayImage>,
+    pub options: &'a CleanupOptions,
+    pub calibration: PageCalibration,
+    pub picture_mask: Option<&'a BinaryImage>,
+    pub text_vicinity: Option<&'a BinaryImage>,
+    pub spread_plan: Option<&'a SpreadBinarizationPlan>,
+    pub detect_dark_background: bool,
+}
+
 pub(crate) fn binarize_normalized_with_diagnostics(
-    normalized: &GrayImage,
-    raw_source: &GrayImage,
-    routing_diagnostics: BinarizationDiagnostics,
-    global_threshold_source: Option<&GrayImage>,
-    options: &CleanupOptions,
-    calibration: PageCalibration,
-    picture_mask: Option<&BinaryImage>,
-    text_vicinity: Option<&BinaryImage>,
-    spread_plan: Option<&SpreadBinarizationPlan>,
-    detect_dark_background: bool,
+    input: BinarizationInput<'_>,
 ) -> (
     BinaryImage,
     BinarizationDiagnostics,
     bool,
     BinarizationStageTimings,
 ) {
+    let BinarizationInput {
+        normalized,
+        raw_source,
+        routing_diagnostics,
+        global_threshold_source,
+        options,
+        calibration,
+        picture_mask,
+        text_vicinity,
+        spread_plan,
+        detect_dark_background,
+    } = input;
     let mut timings = BinarizationStageTimings::default();
     let preparation_started = Instant::now();
     let threshold_input = smooth_for_binarization(normalized, options.dpi);
@@ -4564,30 +4580,31 @@ mod tests {
             swapped.right.diagnostics.left_candidate_route
         );
 
-        let (_, left_diagnostics, _, _) = binarize_normalized_with_diagnostics(
-            &left,
-            &left,
-            resolve_binarization_diagnostics(&left, &options),
-            None,
-            &options,
+        let (_, left_diagnostics, _, _) = binarize_normalized_with_diagnostics(BinarizationInput {
+            normalized: &left,
+            raw_source: &left,
+            routing_diagnostics: resolve_binarization_diagnostics(&left, &options),
+            global_threshold_source: None,
+            options: &options,
             calibration,
-            None,
-            None,
-            Some(&plans.left),
-            true,
-        );
-        let (_, right_diagnostics, _, _) = binarize_normalized_with_diagnostics(
-            &right,
-            &right,
-            resolve_binarization_diagnostics(&right, &options),
-            None,
-            &options,
-            calibration,
-            None,
-            None,
-            Some(&plans.right),
-            true,
-        );
+            picture_mask: None,
+            text_vicinity: None,
+            spread_plan: Some(&plans.left),
+            detect_dark_background: true,
+        });
+        let (_, right_diagnostics, _, _) =
+            binarize_normalized_with_diagnostics(BinarizationInput {
+                normalized: &right,
+                raw_source: &right,
+                routing_diagnostics: resolve_binarization_diagnostics(&right, &options),
+                global_threshold_source: None,
+                options: &options,
+                calibration,
+                picture_mask: None,
+                text_vicinity: None,
+                spread_plan: Some(&plans.right),
+                detect_dark_background: true,
+            });
         assert_eq!(left_diagnostics.route, plans.left.route);
         assert_eq!(right_diagnostics.route, plans.right.route);
         assert_eq!(
@@ -4961,18 +4978,19 @@ mod tests {
                 calibration,
             );
             assert!(!damaged.get(38, 40));
-            let (routed, diagnostics, _, _) = binarize_normalized_with_diagnostics(
-                &normalized,
-                &raw,
-                resolve_binarization_diagnostics(&raw, &options),
-                None,
-                &options,
-                calibration,
-                None,
-                Some(&text_vicinity),
-                None,
-                true,
-            );
+            let (routed, diagnostics, _, _) =
+                binarize_normalized_with_diagnostics(BinarizationInput {
+                    normalized: &normalized,
+                    raw_source: &raw,
+                    routing_diagnostics: resolve_binarization_diagnostics(&raw, &options),
+                    global_threshold_source: None,
+                    options: &options,
+                    calibration,
+                    picture_mask: None,
+                    text_vicinity: Some(&text_vicinity),
+                    spread_plan: None,
+                    detect_dark_background: true,
+                });
             assert_eq!(diagnostics.route, mode);
             assert!(
                 routed.get(38, 40),
@@ -6071,18 +6089,19 @@ mod tests {
                 };
                 let calibration =
                     PageCalibration::estimate(working, dpi, CalibrationConfig::default());
-                let (_, diagnostics, _, _) = binarize_normalized_with_diagnostics(
-                    working,
-                    working,
-                    canonical,
-                    None,
-                    &options,
-                    calibration,
-                    None,
-                    None,
-                    None,
-                    true,
-                );
+                let (_, diagnostics, _, _) =
+                    binarize_normalized_with_diagnostics(BinarizationInput {
+                        normalized: working,
+                        raw_source: working,
+                        routing_diagnostics: canonical,
+                        global_threshold_source: None,
+                        options: &options,
+                        calibration,
+                        picture_mask: None,
+                        text_vicinity: None,
+                        spread_plan: None,
+                        detect_dark_background: true,
+                    });
                 rendered_routes.push(diagnostics.route);
             }
             assert_eq!(rendered_routes, [expected, expected], "cells={cells}");

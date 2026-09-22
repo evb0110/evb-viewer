@@ -25,7 +25,7 @@ use crate::{
         binary_to_gray, dark_background_ocr_mask, is_horizontally_fused_extent_admissible,
         paper_reference, picture_protection_radius, postprocess_binary_with_diagnostics_and_raw,
         resolve_binarization_diagnostics, resolve_spread_binarization_plans,
-        BinarizationDiagnostics, SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR,
+        BinarizationDiagnostics, BinarizationInput, SpreadBinarizationPlan, BLEED_CRISPNESS_FLOOR,
         BLEED_SHALLOW_DEPTH, RULE_RAW_DEPTH,
     },
     cache::{PageCache, StageCacheKey},
