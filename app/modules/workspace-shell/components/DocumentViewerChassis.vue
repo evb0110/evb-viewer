@@ -643,6 +643,15 @@ watch(
         // still ask for a provisional hidden frame after it claims `loading`;
         // its complete page table reconciles that frame before it is shown.
         const nativePreviewState = snapshot.nativeOpeningPreviewState ?? 'inactive';
+        // Once the native lane has reconciled the complete page table, its
+        // frame is already document-wide Fit Width. A later layout-revision
+        // notification must not replace it with the page-1 draft.
+        if (
+            nativePreviewState === 'settled'
+            && snapshot.nativeOpeningPreviewStaged === true
+        ) {
+            return;
+        }
         if (
             shouldHoldLargePdfOpeningShellUntilGeometry.value
             && nativePreviewState !== 'loading'

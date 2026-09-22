@@ -546,6 +546,11 @@ export function stagePdfOpeningPreview(options: {
             dispose('source-rejected', false);
             return;
         }
+        // Publishing the native source can synchronously wake the chassis
+        // frame owner, which restores its page-local draft. Reconcile after
+        // that handoff as well as before it, so the first preview request and
+        // the visible shell use the same document-wide Fit Width.
+        reconcileOpeningPageFrameDocumentFitWidth(openingGeometry);
 
         let nextRenderRevision = 0;
         let activeRender: {
