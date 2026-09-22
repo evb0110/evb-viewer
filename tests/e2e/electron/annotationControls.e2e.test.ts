@@ -39,6 +39,26 @@ const STYLE_UPDATE_TIMEOUT_MS = 20_000;
 const SIDEBAR_RESIZE_DELTA_PX = 96;
 
 async function expectTwoLinePreviewPaint(page: Page) {
+    // Selection and root scaling update the clamped preview asynchronously.
+    // Observe its visible line boxes before sampling pixels; a click returning
+    // only proves that input was dispatched, not that this layout was painted.
+    await page.waitForFunction(() => {
+        const row = document.querySelector('.note-item.is-active[data-annotation-id="sidebar-distant"]');
+        const preview = row?.querySelector('.note-item-text');
+        const mark = preview?.querySelector('.note-item-text-mark--squiggly');
+        if (!preview || !mark || getComputedStyle(mark).textDecorationStyle !== 'wavy') return false;
+        const bounds = preview.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(mark);
+        const visibleLines = new Set([...range.getClientRects()]
+            .filter(rect => rect.width > 0 && rect.height > 0 && rect.top >= bounds.top && rect.bottom <= bounds.bottom)
+            .map(rect => rect.top));
+        return visibleLines.size === 2;
+    });
+    await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
     const preview = await page.$('.note-item[data-annotation-id="sidebar-distant"] .note-item-text');
     expect(preview).not.toBeNull();
     const image = await loadImage(Buffer.from(await preview!.screenshot()));
