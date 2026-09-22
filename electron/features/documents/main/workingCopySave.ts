@@ -465,7 +465,7 @@ export async function handleSerializedPdfSave(
                 normalizedWorkingPath,
                 senderId,
                 tempPath => writeFile(tempPath, payload),
-                { optimize: 'large' },
+                { validation: 'full' },
             );
             return queuedSave.validation;
         });

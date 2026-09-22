@@ -599,7 +599,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(workingPath)).toBe('old-original');
         expect(readFileSyncUtf8(originalPath)).toBe('external-change');
-        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp.pdf`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).not.toHaveBeenCalled();
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
@@ -687,7 +687,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('old-original');
         expect(readFileSyncUtf8(workingPath)).toBe('old-working');
-        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp.pdf`);
+        expect(mocks.optimizeLargePdfForOrdinarySave).not.toHaveBeenCalled();
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).not.toHaveBeenCalled();
     });
 
@@ -778,10 +778,7 @@ describe('serializedPdfPersistence', () => {
         });
         expect(readFileSyncUtf8(originalPath)).toBe('new-pdf');
         expect(readFileSyncUtf8(workingPath)).toBe('new-pdf');
-        expect(mocks.optimizeLargePdfForOrdinarySave).toHaveBeenCalledWith(`${originalPath}.tmp.pdf`);
-        expect(
-            firstInvocationOrder(mocks.optimizeLargePdfForOrdinarySave),
-        ).toBeLessThan(firstInvocationOrder(mocks.atomicReplace));
+        expect(mocks.optimizeLargePdfForOrdinarySave).not.toHaveBeenCalled();
         expect(mocks.refreshWorkingCopyOriginalFileExpectation).toHaveBeenCalledWith(workingPath, 42);
         expect(firstInvocationOrder(mocks.copyFileCopyOnWrite))
             .toBeLessThan(firstInvocationOrder(mocks.refreshWorkingCopyOriginalFileExpectation));

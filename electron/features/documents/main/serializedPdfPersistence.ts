@@ -89,10 +89,7 @@ import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory'
 import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
-import {
-    optimizeLargePdfForOrdinarySave,
-    optimizePdfForSaveAs,
-} from '@electron/features/documents/main/pdfSaveAsOptimization';
+import {optimizePdfForSaveAs} from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type {
     IDocumentsSenderIdContext,
     IDocumentsWebContentsContext,
@@ -592,9 +589,7 @@ async function stageSession(
     }
     const optimizedValidation = session.mode === 'save_as'
         ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
-        : session.mode === 'save'
-            ? await optimizeLargePdfForOrdinarySave(session.tempPath)
-            : null;
+        : null;
     const stagedValidation = optimizedValidation ?? validation;
     if (stagedValidation.tool !== 'qpdf') {
         throw new Error('Serialized PDF staging requires qpdf validation');
