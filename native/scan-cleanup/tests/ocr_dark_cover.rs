@@ -150,5 +150,56 @@ fn polarity_only_ordinary_page_preserves_the_source_as_grayscale() {
         "ordinary OCR pages stay grayscale"
     );
     assert_eq!(image.get(20, 24), source_sample);
-    assert_eq!(image.get(38, 24), source.get(38, 24));
+    assert_eq!(image.get(27, 24), source.get(27, 24));
+}
+
+#[test]
+fn polarity_only_ignores_manual_skew_and_dewarp_geometry() {
+    let mut source = GrayImage::new(512, 512, 24);
+    for y in (40..176).step_by(24) {
+        for stroke_y in y..y + 6 {
+            for x in 32..224 {
+                source.set(x, stroke_y, 220);
+            }
+        }
+    }
+
+    let output = clean_page_with_color(
+        &source,
+        None,
+        &CleanupOptions {
+            output_mode: OutputMode::Bw,
+            layout: LayoutMode::Single,
+            normalize_illumination: false,
+            crop_content: false,
+            match_page_size: false,
+            ocr_mode: true,
+            ocr_polarity_only: true,
+            manual_skew_degrees: Some(12.0),
+            dewarp: Some(evb_scan_cleanup::DewarpOptions {
+                top_curve: vec![
+                    scan_primitives::Point::new(0.0, 0.0),
+                    scan_primitives::Point::new(256.0, 12.0),
+                    scan_primitives::Point::new(512.0, 0.0),
+                ],
+                bottom_curve: vec![
+                    scan_primitives::Point::new(0.0, 512.0),
+                    scan_primitives::Point::new(256.0, 500.0),
+                    scan_primitives::Point::new(512.0, 512.0),
+                ],
+                depth: 0.1,
+            }),
+            dpi: 300.0,
+            source_dpi: Some(300.0),
+            ..CleanupOptions::default()
+        },
+        0,
+    )
+    .unwrap()
+    .outputs
+    .remove(0);
+
+    assert_eq!((output.image.width(), output.image.height()), (512, 512));
+    assert!(!output.metadata.skew_applied);
+    assert!(output.metadata.dewarp_mapping.is_none());
 }
