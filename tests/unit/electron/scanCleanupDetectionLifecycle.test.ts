@@ -153,7 +153,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         detectionRequest,
     )?.progress).toMatchObject({
         stage: 'rasterizing',
-        completedUnits: 1,
+        completedUnits: 0,
         totalUnits: 3,
     }));
     expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toEqual([]);

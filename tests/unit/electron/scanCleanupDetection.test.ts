@@ -1109,6 +1109,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 completedUnits: 0,
                 totalUnits: 2,
                 percent: 0,
+                rasterizedUnits: 2,
+                recheckedUnits: 0,
                 completedPageNumbers: [1],
                 completedPageNumbersTruncated: true,
             },
@@ -1117,6 +1119,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 completedUnits: 1,
                 totalUnits: 2,
                 percent: 50,
+                rasterizedUnits: 2,
+                recheckedUnits: 0,
                 completedPageNumbers: [1],
             },
             {
@@ -1124,6 +1128,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 completedUnits: 1,
                 totalUnits: 2,
                 percent: 50,
+                rasterizedUnits: 2,
+                recheckedUnits: 0,
                 completedPageNumbers: [
                     1,
                     2,
@@ -1135,6 +1141,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 completedUnits: 2,
                 totalUnits: 2,
                 percent: 100,
+                rasterizedUnits: 2,
+                recheckedUnits: 0,
                 completedPageNumbers: [
                     1,
                     2,

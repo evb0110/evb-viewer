@@ -153,7 +153,7 @@ describe('scan cleanup progress reporter', () => {
         expect(reports.at(-1)?.etaSeconds).toBe(20);
     });
 
-    it('never raises a displayed ETA when a slower sample changes the rate estimate', () => {
+    it('uses the average rate so a slower sample can raise the ETA', () => {
         const reports: TScanCleanupProgress[] = [];
         let now = 0;
         const emit = createScanCleanupProgressReporter(
@@ -173,7 +173,7 @@ describe('scan cleanup progress reporter', () => {
         emit('rendering', 6, 392);
 
         expect(initialEta).toBeTypeOf('number');
-        expect(reports.at(-1)?.etaSeconds).toBe(initialEta);
+        expect(reports.at(-1)?.etaSeconds).toBeGreaterThan(initialEta!);
     });
 
     it('never rewinds when a matched lossless run switches to raster rendering', () => {

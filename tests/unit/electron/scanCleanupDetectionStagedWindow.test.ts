@@ -23,7 +23,10 @@ import {
     runScanCleanupDetection,
     type IScanCleanupDetectionRetention,
 } from '@evb/scan-cleanup/core/detection';
-import type {IScanCleanupDetectionRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {
+    IScanCleanupDetectionRequest,
+    TScanCleanupProgress,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupManifestV3,
@@ -522,6 +525,7 @@ describe('runScanCleanupDetection staged raster window', () => {
             ],
         });
         const log = vi.fn();
+        const progress: TScanCleanupProgress[] = [];
 
         const detection = await runScanCleanupDetection(
             createRequest(),
@@ -529,7 +533,7 @@ describe('runScanCleanupDetection staged raster window', () => {
             harness.retention,
             harness.dependencies(sidecar.runSidecar),
             {rasterConcurrency: 2},
-            () => undefined,
+            (_results, nextProgress) => progress.push(nextProgress),
             log,
         );
         resultStores.push(detection.resultStore);
@@ -563,6 +567,23 @@ describe('runScanCleanupDetection staged raster window', () => {
         expect(manifest.stagedInputPeakPixels).toBe(1_754 * 1_321);
         expect(manifest.pages.map(page => page.sourcePageIndex))
             .toEqual(Array.from({length: 148}, (_, index) => index));
+        const detectionProgress = progress.filter(item => item.stage === 'detecting');
+        expect(detectionProgress.length).toBeGreaterThan(0);
+        expect(detectionProgress.every(item => (
+            item.rasterizedUnits !== undefined
+            && item.recheckedUnits !== undefined
+        ))).toBe(true);
+        // Page images read ahead of the verdicts are reported, so the account
+        // moves while analysis waits for its next input.
+        expect(detectionProgress.some(item => item.rasterizedUnits! > item.completedUnits)).toBe(true);
+        expect(detectionProgress.map(item => item.rasterizedUnits!))
+            .toEqual([...detectionProgress.map(item => item.rasterizedUnits!)].sort((left, right) => left - right));
+        expect(detectionProgress.map(item => item.recheckedUnits!))
+            .toEqual([...detectionProgress.map(item => item.recheckedUnits!)].sort((left, right) => left - right));
+        expect(detectionProgress.at(-1)).toMatchObject({
+            rasterizedUnits: 148,
+            recheckedUnits: 3,
+        });
     });
 
     it('produces identical output at window sizes of one, two and normal concurrency', async () => {

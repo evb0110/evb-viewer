@@ -415,12 +415,17 @@ async function verifyCleanupQueuedDuringDetection(
             && meter.textContent.trim().length > 0
             && action?.disabled === false;
     }, {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-    const queuedStatusText = await evaluateInPage(page, (runMeterSelector: string) =>
-        document.querySelector<HTMLElement>(runMeterSelector)
-            ?.textContent.trim() ?? '', SCAN_CLEANUP_RUN_METER_SELECTOR);
-    if (!queuedStatusText.toLowerCase().includes('pre-analyzing')) {
+    const queuedStatus = await evaluateInPage(page, (runMeterSelector: string) => {
+        const meter = document.querySelector<HTMLElement>(runMeterSelector);
+        return {
+            phase: meter?.dataset.phase ?? '',
+            text: meter?.textContent.trim() ?? '',
+        };
+    }, SCAN_CLEANUP_RUN_METER_SELECTOR);
+    const queuedStatusText = queuedStatus.text;
+    if (queuedStatus.phase !== 'analyze' || queuedStatusText === '') {
         throw new Error(
-            `Cleanup click did not expose a queued pre-analysis state: "${queuedStatusText}"`,
+            `Cleanup click did not expose a queued analysis state: "${queuedStatusText}"`,
         );
     }
 

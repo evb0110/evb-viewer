@@ -24,6 +24,8 @@ import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composab
 import {useScanCleanupDetectionSession} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
 import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {useScanCleanupRunSession} from '@app/modules/scan-cleanup/composables/useScanCleanupRunSession';
+import {useScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composables/useScanCleanupActivityTimeline';
+import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 import {useTypedI18n} from '@app/composables/useTypedI18n';
 import type {TScanCleanupPreviewFrameRevealOutcome} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
@@ -389,6 +391,25 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             });
     });
 
+    const activity = computed(() => resolveScanCleanupActivity({
+        detection: {
+            pending: detection.pending.value,
+            progress: detection.jobProgress.value,
+            analyzedPages: detection.analyzedPages.value,
+            totalPages: totalPages.value,
+            calibrating: detection.placementAnchorCalibrationPending.value,
+        },
+        run: run.isRunning.value
+            ? {
+                waitingForDetection: run.waitingForDetection.value,
+                starting: run.starting.value,
+                progress: run.jobProgress.value,
+                committing: run.finishing.value,
+            }
+            : null,
+    }));
+    const activityTimeline = useScanCleanupActivityTimeline(activity);
+
     return {
         selection,
         settings,
@@ -398,5 +419,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             ...run,
             ownerId,
         },
+        activity,
+        activityTimeline,
     };
 };

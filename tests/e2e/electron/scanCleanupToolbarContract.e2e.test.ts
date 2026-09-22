@@ -44,7 +44,7 @@ const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-
 // attempts). This blocking test pins the same contract against the dev app on
 // every relevant change: a parseable completed/total detection counter, a
 // cancellable in-flight detection, cleanup queueable while detection runs,
-// and a run meter that reports the queued pre-analysis state as text.
+// and a run meter that reports the queued analysis phase.
 describe('scan cleanup toolbar contract', () => {
     it('keeps the detection counter, queued cleanup, and run meter contract the release verifier relies on', async () => {
         const session = sessionFixture.getSession();
@@ -82,8 +82,12 @@ describe('scan cleanup toolbar contract', () => {
             const status = document.querySelector<HTMLElement>(toolbarCountSelector);
             const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
             const match = /(\d+)\D+(\d+)/u.exec(text);
+            // The meter names the analysis step instead of showing a bare
+            // counter that sits at zero while page images are read.
+            const detail = document.querySelector('.scan-cleanup-activity-detail')?.textContent?.trim() ?? '';
             return action?.disabled === false
                 && document.querySelector(cancelDetectionSelector) !== null
+                && detail.length > 0
                 && match !== null
                 && Number(match[2]) === expectedTotal
                 && Number(match[1]) < expectedTotal;
@@ -91,7 +95,7 @@ describe('scan cleanup toolbar contract', () => {
         SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
 
         // Queue cleanup while detection is still running: the run meter must
-        // appear and report the queued pre-analysis state as readable text,
+        // appear and report the queued analysis phase as readable text,
         // and the primary action must remain enabled (it becomes cancel).
         await session.page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
         await waitForFunctionInPage(session.page, (runMeterSelector: string, primaryActionSelector: string) => {
@@ -103,10 +107,17 @@ describe('scan cleanup toolbar contract', () => {
                 && (meter.textContent ?? '').trim().length > 0
                 && action?.disabled === false;
         }, {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-        const queuedStatusText = await session.page.evaluate((runMeterSelector: string) =>
-            document.querySelector<HTMLElement>(runMeterSelector)
-                ?.textContent?.trim() ?? '', SCAN_CLEANUP_RUN_METER_SELECTOR);
-        expect(queuedStatusText.toLowerCase()).toContain('pre-analyzing');
+        // A run queued behind detection continues the analysis account in the
+        // same meter instead of replacing it with a new layout.
+        const queuedStatus = await session.page.evaluate((runMeterSelector: string) => {
+            const meter = document.querySelector<HTMLElement>(runMeterSelector);
+            return {
+                phase: meter?.dataset.phase ?? '',
+                text: meter?.textContent?.trim() ?? '',
+            };
+        }, SCAN_CLEANUP_RUN_METER_SELECTOR);
+        expect(queuedStatus.phase).toBe('analyze');
+        expect(queuedStatus.text).toContain('Analyze');
 
         // Cancel the queued run: the meter clears while detection continues.
         await session.page.click(SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
@@ -114,11 +125,16 @@ describe('scan cleanup toolbar contract', () => {
             document.querySelector(runMeterSelector) === null
                 && document.querySelector(cancelDetectionSelector) !== null
         ), {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+        // The source-page rail paints page images; it stayed blank placeholders
+        // while the workspace never marked its thumbnail list active.
+        await waitForFunctionInPage(session.page, () => document.querySelectorAll(
+            '.scan-thumbnail-list img, .scan-thumbnail-list canvas',
+        ).length > 0, {timeout: 30_000});
 
         // Let detection settle, then run the same six-page document to
         // completion. The blocking contract must cover the generated PDF,
         // not only the controls that start it.
-        // These post-cancellation waits total 315s (30 + 180 + 15 + 45 + 45),
+        // These post-cancellation waits total 345s (30 + 30 + 180 + 15 + 45 + 45),
         // inside the existing 360s test budget.
         await waitForFunctionInPage(session.page, (
             primaryActionSelector: string,

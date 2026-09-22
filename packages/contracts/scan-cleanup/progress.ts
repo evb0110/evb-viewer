@@ -49,6 +49,18 @@ const progress = s.refine(s.object({
         min: 0,
         message: 'invalid scan-cleanup progress ETA',
     })),
+    // Pages whose analysis image exists during this detection job.
+    rasterizedUnits: s.optional(s.number({
+        integer: true,
+        min: 0,
+        message: 'invalid scan-cleanup rasterized units',
+    })),
+    // Pages re-read during document reconciliation and MediaBox retries.
+    recheckedUnits: s.optional(s.number({
+        integer: true,
+        min: 0,
+        message: 'invalid scan-cleanup rechecked units',
+    })),
     completedPageNumbers: s.optional(s.array(s.number({
         integer: true,
         min: 1,
@@ -59,6 +71,10 @@ const progress = s.refine(s.object({
     completedPageNumbersTruncated: s.optional(s.boolean()),
 }), value =>
     value.completedUnits <= value.totalUnits
+    && (
+        value.rasterizedUnits === undefined
+        || value.rasterizedUnits <= value.totalUnits
+    )
     && (
         value.stageIndex === undefined
         || value.stageCount === undefined

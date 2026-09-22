@@ -63,6 +63,7 @@ describe('scan cleanup raster batch renderer', () => {
         });
         const fileSystem = createFileSystem();
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, fileSystem);
+        const renderedPages: number[] = [];
         const targets = [
             17,
             18,
@@ -84,6 +85,7 @@ describe('scan cleanup raster batch renderer', () => {
             signal: new AbortController().signal,
             sourcePdfPath: '/source.pdf',
             targets,
+            onPageRendered: pageNumber => renderedPages.push(pageNumber),
         });
 
         expect(runCommand).toHaveBeenCalledOnce();
@@ -111,6 +113,10 @@ describe('scan cleanup raster batch renderer', () => {
                 width: 1,
             },
         ]);
+        expect(renderedPages).toEqual([
+            17,
+            18,
+        ]);
         expect(await readFile(targets[0]!.outputPath)).toEqual(PNG);
         expect(await readFile(targets[1]!.outputPath)).toEqual(PNG);
         expect((await readdir(root)).sort()).toEqual([
@@ -118,10 +124,55 @@ describe('scan cleanup raster batch renderer', () => {
             'page-18.png',
         ]);
         expect(fileSystem.mkdtemp).toHaveBeenCalledOnce();
-        expect(fileSystem.readdir).toHaveBeenCalledOnce();
+        expect(fileSystem.readdir).toHaveBeenCalledTimes(2);
         expect(fileSystem.open).toHaveBeenCalledTimes(2);
         expect(fileSystem.rename).toHaveBeenCalledTimes(2);
         expect(fileSystem.rm).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a rendered batch when its progress callback throws', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
+        roots.push(root);
+        const runCommand = vi.fn(async (_binary: string, args: string[]) => {
+            await writeFile(`${args.at(-1)!}-0003.png`, PNG);
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        });
+        const log = vi.fn();
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
+        const outputPath = join(root, 'page-3.png');
+
+        const results = await renderBatch({
+            dpi: 150,
+            log,
+            pdftoppmBinary: '/pdftoppm',
+            signal: new AbortController().signal,
+            sourcePdfPath: '/source.pdf',
+            targets: [{
+                limits: {
+                    expectedHeightPx: 3,
+                    expectedWidthPx: 3,
+                    maxDimensionPx: 100,
+                    maxPixels: 10_000,
+                },
+                outputPath,
+                pageNumber: 3,
+            }],
+            onPageRendered: () => {
+                throw new Error('progress channel closed');
+            },
+        });
+
+        expect(results).toEqual([{
+            height: 1,
+            pageNumber: 3,
+            width: 1,
+        }]);
+        expect(await readFile(outputPath)).toEqual(PNG);
+        expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('progress channel closed'));
     });
 
     it('keeps published rasters when scratch cleanup fails', async () => {
@@ -169,6 +220,39 @@ describe('scan cleanup raster batch renderer', () => {
             'warn',
             'Scan cleanup could not remove raster batch scratch directory: scratch cleanup failed',
         );
+    });
+
+    it('does not report pages after Poppler fails', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
+        roots.push(root);
+        const runCommand = vi.fn(async () => {
+            throw new Error('pdftoppm failed');
+        });
+        const renderedPages: number[] = [];
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
+
+        await expect(renderBatch({
+            dpi: 150,
+            log: vi.fn(),
+            onPageRendered: pageNumber => renderedPages.push(pageNumber),
+            pdftoppmBinary: '/pdftoppm',
+            signal: new AbortController().signal,
+            sourcePdfPath: '/source.pdf',
+            targets: [
+                1,
+                2,
+            ].map(pageNumber => ({
+                limits: {
+                    expectedHeightPx: 1,
+                    expectedWidthPx: 1,
+                    maxDimensionPx: 100,
+                    maxPixels: 10_000,
+                },
+                outputPath: join(root, `page-${String(pageNumber)}.png`),
+                pageNumber,
+            })),
+        })).rejects.toThrow('pdftoppm failed');
+        expect(renderedPages).toEqual([]);
     });
 
     it('rejects non-contiguous windows before starting Poppler', async () => {

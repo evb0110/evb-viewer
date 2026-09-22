@@ -41,6 +41,7 @@
             v-else
             class="scan-thumbnail-list"
             :source="orderedSource"
+            :is-active="active"
             :current-page="leaderPosition"
             :selected-pages="selectedPositions"
             :item-metrics-key="leaderPosition"
@@ -302,6 +303,8 @@ const props = defineProps<{
     sourcePending?: boolean;
     detectionActive?: boolean;
     settledPages?: ReadonlySet<number>;
+    /** Whether this workspace is the visible tab; thumbnails render only then. */
+    active?: boolean;
 }>();
 const emit = defineEmits<{
     'select-page': [page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages];

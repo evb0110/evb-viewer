@@ -94,6 +94,7 @@ const RECENT_PROGRESS_PAGES = 256;
  * source for every page.
  */
 const LARGE_PROGRESS_PUBLISH_INTERVAL_MS = 1_000;
+const DETECTION_READ_ONLY_PROGRESS_INTERVAL_MS = 250;
 
 /**
  * The progress contract accepts a page list only when it is exactly the
@@ -381,6 +382,7 @@ export interface IScanCleanupDetectionDependencies {
             outputPath: string;
             pageNumber: number
         }>;
+        onPageRendered?: (pageNumber: number) => void;
     }) => Promise<ReadonlyArray<{
         height: number;
         pageNumber: number;
@@ -771,6 +773,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
 
     let rasterizedPages = 0;
     let analyzedPages = 0;
+    let recheckedPages = 0;
+    let readOnlyProgressDirty = false;
+    let lastReadOnlyPublishAt = Number.NEGATIVE_INFINITY;
+    const reportedPageNumbers = new Set<number>();
     const etaEstimator = createScanCleanupProgressEtaEstimator();
     const mediaBoxRetryCandidates: Array<{
         pageNumber: number;
@@ -787,24 +793,73 @@ async function runBatchedScanCleanupDetection<TDocument>(
         totalUnits: number,
         progress: Pick<TScanCleanupProgress, 'percent' | 'completedPageNumbers' | 'completedPageNumbersTruncated'>,
     ): TScanCleanupProgress => {
-        const etaSeconds = etaEstimator.update(stage, completedUnits, totalUnits, performance.now());
+        // Detection's published stage changes when the first verdict arrives,
+        // but its rate must cover the whole job, including the initial raster
+        // wait. Keep one estimator key for both published stages.
+        const etaSeconds = etaEstimator.update('detecting', completedUnits, totalUnits, performance.now());
         return {
             stage,
             completedUnits,
             totalUnits,
             ...progress,
+            rasterizedUnits: rasterizedPages,
+            recheckedUnits: recheckedPages,
             ...(etaSeconds === undefined ? {} : {etaSeconds}),
         };
     };
-    const publishRasterizing = () => publish([], progressWithEta(
-        'rasterizing',
-        rasterizedPages,
-        totalPages,
-        {
-            percent: totalPages === 0 ? 100 : rasterizedPages / totalPages * 100,
-            completedPageNumbers: [],
-        },
-    ), documentCanvasSignature());
+    // A throttled frame is published when its window ends, so the last change
+    // of a burst, such as a render finishing, is never left unreported.
+    let trailingReadOnlyPublish: ReturnType<typeof setTimeout> | null = null;
+    const publishReadOnlyProgress = (force = false) => {
+        if (trailingReadOnlyPublish !== null && force) {
+            clearTimeout(trailingReadOnlyPublish);
+            trailingReadOnlyPublish = null;
+        }
+        if (!readOnlyProgressDirty || signal.aborted) return;
+        const now = Date.now();
+        const interval = compatibilityResults === null
+            ? LARGE_PROGRESS_PUBLISH_INTERVAL_MS
+            : DETECTION_READ_ONLY_PROGRESS_INTERVAL_MS;
+        if (!force && now - lastReadOnlyPublishAt < interval) {
+            trailingReadOnlyPublish ??= setTimeout(() => {
+                trailingReadOnlyPublish = null;
+                publishReadOnlyProgress();
+            }, interval - (now - lastReadOnlyPublishAt));
+            return;
+        }
+        readOnlyProgressDirty = false;
+        lastReadOnlyPublishAt = now;
+        const stage = analyzedPages > 0 ? 'detecting' : 'rasterizing';
+        publish(takePublishableResults(), progressWithEta(
+            stage,
+            analyzedPages,
+            totalPages,
+            {
+                percent: totalPages === 0
+                    ? 100
+                    : (stage === 'rasterizing' ? rasterizedPages : analyzedPages) / totalPages * 100,
+                ...(analyzedPages === 0
+                    ? {completedPageNumbers: []}
+                    : completedPageProgress(reportedPageNumbers, analyzedPages)),
+            },
+        ), documentCanvasSignature(analyzedPages >= totalPages));
+    };
+    const markReadOnlyProgress = () => {
+        readOnlyProgressDirty = true;
+        publishReadOnlyProgress();
+    };
+    const publishRasterizing = () => {
+        readOnlyProgressDirty = false;
+        publish([], progressWithEta(
+            'rasterizing',
+            analyzedPages,
+            totalPages,
+            {
+                percent: totalPages === 0 ? 100 : rasterizedPages / totalPages * 100,
+                completedPageNumbers: [],
+            },
+        ), documentCanvasSignature());
+    };
     publishRasterizing();
 
     for (const batch of iterateScanCleanupPageBatches(
@@ -954,6 +1009,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
         };
         const countedRasterPages = new Set(retained.keys());
         rasterizedPages += retained.size;
+        if (retained.size > 0) markReadOnlyProgress();
         const recordRasterizedPage = (pageNumber: number) => {
             if (!countedRasterPages.has(pageNumber)) {
                 countedRasterPages.add(pageNumber);
@@ -1004,6 +1060,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     rendered.push(...await batchRenderer({
                         dpi: DETECTION_DPI,
                         log,
+                        onPageRendered: pageNumber => {
+                            recordRasterizedPage(pageNumber);
+                            markReadOnlyProgress();
+                        },
                         pdftoppmBinary: dependencies.getPdftoppmBinary(),
                         signal: operationSignal,
                         sourcePdfPath: request.sourcePdfPath,
@@ -1122,7 +1182,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             },
             onStaged: pageNumber => {
                 recordRasterizedPage(pageNumber);
-                if ((compatibilityResults?.size ?? batchResults.size) === 0) publishRasterizing();
+                if ((compatibilityResults?.size ?? batchResults.size) === 0) markReadOnlyProgress();
             },
         });
         let batchCompleted = false;
@@ -1186,14 +1246,14 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 await releasePreStaged(new Set());
                 throw error;
             }
-            publishRasterizing();
+            markReadOnlyProgress();
             log(
                 'debug',
                 'Scan cleanup pre-staged Poppler batch '
                 + JSON.stringify({pages: preStagePageNumbers.length}),
             );
         }
-        const reportedPageNumbers = new Set<number>();
+        let firstVerdictsComplete = false;
         const resolveSourcePageNumber = (pageNumber: number | undefined) => {
             if (pageNumber === undefined) {
                 return undefined;
@@ -1297,6 +1357,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
                                 `Scan cleanup detection requested unknown page ${String(nativeProgress.pageNumber)}`,
                             );
                         }
+                        if (firstVerdictsComplete) {
+                            recheckedPages += 1;
+                            markReadOnlyProgress();
+                        }
                         void stagedWindow.acquire(sourcePageNumber).catch((error: unknown) => {
                             stagingError ??= error;
                             stagingAbort.abort(error);
@@ -1335,6 +1399,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
                                 analyzedPages,
                                 batch.startOffset + nativeProgress.completedPages,
                             );
+                            if (analyzedPages >= batch.endOffsetExclusive) {
+                                firstVerdictsComplete = true;
+                            }
                             if (
                                 nativeProgress.classification === undefined
                                 || nativeProgress.confidence === undefined
@@ -1345,6 +1412,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                             if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
                                 return;
                             }
+                            readOnlyProgressDirty = false;
                             publish(takePublishableResults(), progressWithEta(
                                 'detecting',
                                 analyzedPages,
@@ -1370,6 +1438,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         if (!shouldPublishLargeProgress(completedUnits >= totalPages)) {
                             return;
                         }
+                        readOnlyProgressDirty = false;
                         publish(takePublishableResults(), progressWithEta(
                             'detecting',
                             completedUnits,
@@ -1516,6 +1585,8 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         'MediaBox retry',
                         'mediabox',
                     );
+                    recheckedPages += 1;
+                    markReadOnlyProgress();
                 } catch (error) {
                     if (signal.aborted) throw error;
                     log(
@@ -1678,6 +1749,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             });
         }
     }
+    publishReadOnlyProgress(true);
     const placementAnchorSummary = usesScanCleanupInkAlignment(request.options)
         ? await buildScanCleanupPlacementAnchorSummary({
             options: request.options,

@@ -29,11 +29,6 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import type {ComputedRef} from 'vue';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
 import {
-    formatScanCleanupEta,
-    formatScanCleanupPreAnalysisProgress,
-    resolveScanCleanupEtaWidestText,
-} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
-import {
     scanCleanupAutoDetectionCanceledDocuments as autoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache as detectionSessionCache,
     discardScanCleanupDetectionStateForAliases,
@@ -355,39 +350,14 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         percent: 0,
         completedPageNumbers: [],
     });
-    // Raster production and native analysis overlap, but that handoff is an
-    // implementation detail. Count only actual page verdicts so the one
-    // user-facing pre-analysis counter never changes meaning or moves backward.
-    const preAnalysisProgress = computed(() => ({
-        completedUnits: Math.min(options.totalPages.value, detectionResultCount.value),
-        totalUnits: Math.max(1, options.totalPages.value),
-    }));
-    const preAnalysisParts = computed(() => formatScanCleanupPreAnalysisProgress(preAnalysisProgress.value, t));
-    const progressText = computed(() => preAnalysisParts.value.text);
-    const progressPhaseText = computed(() => preAnalysisParts.value.phase);
-    const progressCountText = computed(() => preAnalysisParts.value.count);
-    const progressPercent = computed(() => preAnalysisProgress.value.totalUnits === 0
-        ? 0
-        : preAnalysisProgress.value.completedUnits / preAnalysisProgress.value.totalUnits * 100);
-    const progressEtaText = computed(() => {
-        const state = jobState.value;
-        if (state !== null
-            && !detectionIsTerminal(state)
-            && preAnalysisProgress.value.completedUnits >= preAnalysisProgress.value.totalUnits
-        ) {
-            return t('scanCleanup.detectAll.reconciling');
-        }
-        return formatScanCleanupEta(state?.progress.etaSeconds, t, state?.progress.stage);
-    });
-    const progressEtaWidestText = computed(() => resolveScanCleanupEtaWidestText(t));
-    // The same sentence at its widest counter, so the status line can reserve
-    // its box and the cancel button beside it never moves as the count grows.
-    const preAnalysisWidestParts = computed(() => formatScanCleanupPreAnalysisProgress({
-        ...preAnalysisProgress.value,
-        completedUnits: preAnalysisProgress.value.totalUnits,
-    }, t));
-    const progressWidestText = computed(() => preAnalysisWidestParts.value.text);
-    const progressCountWidestText = computed(() => preAnalysisWidestParts.value.count);
+    // The job's own progress, or null before a job has reported. Pages are
+    // counted by their layout verdicts: raster production and native analysis
+    // report separately, and the activity model shows both without letting
+    // the verdict counter change meaning or move backward.
+    const jobProgress = computed(() => jobState.value?.progress ?? null);
+    // Clamped to the native page count, which can arrive before the viewer
+    // publishes its own.
+    const analyzedPages = computed(() => Math.min(resolveDetectionDocumentPageCount(), detectionResultCount.value));
     const blankPageCount = computed(() => jobState.value?.status === 'completed'
         ? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
         : 0);
@@ -1653,14 +1623,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         pagePlanEvidenceByPage,
         pending,
         progress,
-        progressCountText,
-        progressCountWidestText,
-        progressEtaText,
-        progressEtaWidestText,
-        progressPercent,
-        progressPhaseText,
-        progressText,
-        progressWidestText,
+        jobProgress,
+        analyzedPages,
         refreshDetection,
         recommendedOutputModeByPage,
         recommendedOutputModeConfidenceByPage,

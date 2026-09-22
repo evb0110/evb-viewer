@@ -20,149 +20,92 @@
         </div>
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-center">
-            <div
-                v-if="isRunning"
-                :class="SCAN_CLEANUP_RUN_METER_CLASS"
-            >
-                <p
-                    class="scan-cleanup-run-meter-status"
-                    role="status"
-                    aria-live="polite"
-                >
-                    <span class="scan-cleanup-run-meter-phase">
-                        {{ transitionText || cancelStatusText || progressPhaseText }}
-                    </span>
-                    <template v-if="!transitionText && progressCountText">
-                        <span class="scan-cleanup-run-meter-separator" aria-hidden="true">·</span>
-                        <ScanCleanupStableWidthText
-                            class="scan-cleanup-run-meter-count"
-                            :text="progressCountText"
-                            :widest="progressCountWidestText"
-                        />
-                    </template>
-                    <span class="scan-cleanup-run-meter-spacer" aria-hidden="true" />
-                    <span class="scan-cleanup-run-meter-step">{{ progressStepText }}</span>
-                    <span class="scan-cleanup-run-meter-separator" aria-hidden="true">·</span>
-                    <ScanCleanupStableWidthText
-                        class="scan-cleanup-run-meter-eta"
-                        :text="resolvedProgressEtaText"
-                        :widest="resolvedProgressEtaWidestText"
-                    />
-                </p>
-                <ol
-                    class="scan-cleanup-run-segments"
-                    :aria-label="t('scanCleanup.progressPhases.label')"
-                >
-                    <li
-                        v-for="phase in progressPhases"
-                        :key="phase.id"
-                        class="scan-cleanup-run-segment"
-                        :class="{'scan-cleanup-run-segment--current': phase.state === 'current'}"
-                        :aria-label="phase.label"
-                        :aria-current="phase.state === 'current' ? 'step' : undefined"
-                    >
-                        <span
-                            v-if="phase.state === 'complete'"
-                            class="scan-cleanup-run-segment-fill scan-cleanup-run-segment-fill--complete"
-                        />
-                        <span
-                            v-else-if="phase.state === 'current'"
-                            class="scan-cleanup-run-segment-track"
-                            role="progressbar"
-                            :aria-label="t('scanCleanup.runStatusLabel')"
-                            aria-valuemin="0"
-                            aria-valuemax="100"
-                            :aria-valuenow="meterIsIndeterminate ? undefined : normalizedPercent ?? undefined"
-                            :aria-valuetext="`${progressStepText}: ${transitionText || progressText}`"
-                        >
-                            <span
-                                class="scan-cleanup-run-segment-fill"
-                                :class="{'scan-cleanup-run-segment-fill--indeterminate': meterIsIndeterminate}"
-                                :style="meterIsIndeterminate ? undefined : {width: `${normalizedPercent}%`}"
-                            />
-                        </span>
-                    </li>
-                </ol>
-            </div>
-            <template v-else>
-                <AppTooltip :text="t('scanCleanup.zones.toggleHint')">
-                    <UButton
-                        class="scan-cleanup-toolbar-zone-editor"
-                        type="button"
-                        :color="zoneEditing ? 'primary' : 'neutral'"
-                        :variant="zoneEditing ? 'soft' : 'ghost'"
-                        size="xs"
-                        square
-                        icon="i-ph-bounding-box"
-                        :aria-label="t('scanCleanup.zones.toggle')"
-                        :aria-pressed="zoneEditing"
-                        @click="emit('update:zoneEditing', !zoneEditing)"
-                    />
-                </AppTooltip>
-                <AppTooltip :text="t('scanCleanup.detectAll.redetect')">
-                    <UButton
-                        class="scan-cleanup-toolbar-redetect"
-                        type="button"
-                        color="neutral"
-                        variant="ghost"
-                        size="xs"
-                        icon="i-ph-arrows-clockwise"
-                        :label="t('scanCleanup.detectAll.redetect')"
-                        :aria-label="t('scanCleanup.detectAll.redetect')"
-                        :disabled="!canDetectAll || isDetecting"
-                        @click="emit('detect-all')"
-                    />
-                </AppTooltip>
-                <div class="scan-cleanup-toolbar-status-slot">
-                    <template v-if="runError">
-                        <span class="scan-cleanup-toolbar-error" role="alert">
-                            {{ runError }}
-                        </span>
+            <AppTooltip :text="t('scanCleanup.zones.toggleHint')">
+                <UButton
+                    class="scan-cleanup-toolbar-zone-editor"
+                    type="button"
+                    :color="zoneEditing ? 'primary' : 'neutral'"
+                    :variant="zoneEditing ? 'soft' : 'ghost'"
+                    size="xs"
+                    square
+                    icon="i-ph-bounding-box"
+                    :aria-label="t('scanCleanup.zones.toggle')"
+                    :aria-pressed="zoneEditing"
+                    :disabled="isRunning"
+                    @click="emit('update:zoneEditing', !zoneEditing)"
+                />
+            </AppTooltip>
+            <!-- Analysis and a run share this slot and its size, so clicking
+                 Clean up while pages are analyzed continues the same meter. -->
+            <div class="scan-cleanup-toolbar-main-slot">
+                <ScanCleanupActivityMeter
+                    v-if="meterVisible && activity"
+                    :activity="activity"
+                    :timeline="activityTimeline"
+                    :notice="cancelStatusText"
+                />
+                <template v-else>
+                    <AppTooltip :text="t('scanCleanup.detectAll.redetect')">
                         <UButton
-                            class="scan-cleanup-toolbar-dismiss-error"
+                            class="scan-cleanup-toolbar-redetect"
                             type="button"
                             color="neutral"
                             variant="ghost"
                             size="xs"
-                            square
-                            icon="i-ph-x"
-                            :aria-label="t('common.close')"
-                            @click="emit('dismiss-run-error')"
+                            icon="i-ph-arrows-clockwise"
+                            :label="t('scanCleanup.detectAll.redetect')"
+                            :aria-label="t('scanCleanup.detectAll.redetect')"
+                            :disabled="!canDetectAll || isDetecting"
+                            @click="emit('detect-all')"
                         />
-                    </template>
-                    <template v-else-if="isDetecting">
-                        <ScanCleanupStableWidthText
-                            :class="SCAN_CLEANUP_TOOLBAR_COUNT_CLASS"
-                            role="status"
-                            aria-live="polite"
-                            :aria-label="detectionProgressText"
-                            :text="detectionProgressText"
-                            :widest="detectionProgressWidestText"
-                        />
-                        <AppTooltip :text="detectionCancelLabel" usefulness="always">
+                    </AppTooltip>
+                    <div class="scan-cleanup-toolbar-status-slot">
+                        <template v-if="runError">
+                            <AppTooltip :text="runError" usefulness="overflow">
+                                <span class="scan-cleanup-toolbar-error" role="alert" tabindex="0">
+                                    {{ runError }}
+                                </span>
+                            </AppTooltip>
                             <UButton
-                                :class="SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_CLASS"
+                                class="scan-cleanup-toolbar-dismiss-error"
                                 type="button"
                                 color="neutral"
                                 variant="ghost"
                                 size="xs"
                                 square
-                                :icon="detectionCancelRequested ? 'i-ph-circle-notch' : 'i-ph-x'"
-                                :aria-label="detectionCancelLabel"
-                                :disabled="detectionCancelRequested"
-                                @click="emit('cancel-detection')"
+                                icon="i-ph-x"
+                                :aria-label="t('common.close')"
+                                @click="emit('dismiss-run-error')"
                             />
+                        </template>
+                        <AppTooltip v-else-if="detectionError" :text="detectionError" usefulness="overflow">
+                            <span class="scan-cleanup-toolbar-error" role="alert" tabindex="0">
+                                {{ detectionError }}
+                            </span>
                         </AppTooltip>
-                    </template>
-                    <span v-else-if="detectionError" class="scan-cleanup-toolbar-error" role="alert">
-                        {{ detectionError }}
-                    </span>
-                    <span v-else-if="outputEstimate" class="scan-cleanup-toolbar-estimate">
-                        {{ outputEstimate }}
-                    </span>
-                    <span v-else class="scan-cleanup-toolbar-status-placeholder" aria-hidden="true">&nbsp;</span>
-                </div>
-            </template>
+                        <span v-else-if="outputEstimate" class="scan-cleanup-toolbar-estimate">
+                            {{ outputEstimate }}
+                        </span>
+                        <span v-else class="scan-cleanup-toolbar-status-placeholder" aria-hidden="true">&nbsp;</span>
+                    </div>
+                </template>
+            </div>
+            <div class="scan-cleanup-toolbar-trailing-slot">
+                <AppTooltip v-if="meterVisible && isDetecting && !isRunning" :text="detectionCancelLabel" usefulness="always">
+                    <UButton
+                        :class="SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_CLASS"
+                        type="button"
+                        color="neutral"
+                        variant="ghost"
+                        size="xs"
+                        square
+                        :icon="detectionCancelRequested ? 'i-ph-circle-notch' : 'i-ph-x'"
+                        :aria-label="detectionCancelLabel"
+                        :disabled="detectionCancelRequested"
+                        @click="emit('cancel-detection')"
+                    />
+                </AppTooltip>
+            </div>
         </div>
 
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-right">
@@ -235,62 +178,45 @@
 </template>
 
 <script setup lang="ts">
-import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
+import ScanCleanupActivityMeter from '@app/modules/scan-cleanup/components/ScanCleanupActivityMeter.vue';
+import type {IScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composables/useScanCleanupActivityTimeline';
+import type {IScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 import {
-    SCAN_CLEANUP_RUN_METER_CLASS,
     SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_CLASS,
-    SCAN_CLEANUP_TOOLBAR_COUNT_CLASS,
     SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_CLASS,
 } from '@contracts/scan-cleanup/toolbarSelectors';
 
 const {
+    activity = null,
+    activityTimeline = null,
     canDetectAll,
     canRun,
     cancelRequested,
     cancelStatusText = '',
     detectionCancelRequested,
     detectionError,
-    detectionProgressText,
-    detectionProgressWidestText,
     finishing = false,
     isDetecting,
     isRunning,
     outputEstimate,
-    percent,
-    progressPhase = 'clean',
-    progressCountText,
-    progressCountWidestText = '',
-    progressEtaText = '',
-    progressEtaWidestText = '',
-    progressPhaseText,
-    progressText,
     runError = '',
     runLabel,
     runDisabledReason,
     settingsBadges = [],
     zoneEditing,
-    transitionText,
 } = defineProps<{
+    activity?: IScanCleanupActivity | null;
+    activityTimeline?: IScanCleanupActivityTimeline | null;
     canDetectAll: boolean;
     canRun: boolean;
     cancelRequested: boolean;
     cancelStatusText?: string;
     detectionCancelRequested: boolean;
     detectionError: string;
-    detectionProgressText: string;
-    detectionProgressWidestText: string;
     finishing?: boolean;
     isDetecting: boolean;
     isRunning: boolean;
     outputEstimate: string;
-    percent: number | null;
-    progressPhase?: 'analyze' | 'clean' | 'finish';
-    progressCountText: string;
-    progressCountWidestText?: string;
-    progressEtaText?: string;
-    progressEtaWidestText?: string;
-    progressPhaseText: string;
-    progressText: string;
     runError?: string;
     runLabel: string;
     runDisabledReason: string;
@@ -299,7 +225,6 @@ const {
         label: string
     }>;
     zoneEditing?: boolean;
-    transitionText: string;
 }>();
 const emit = defineEmits<{
     cancel: [];
@@ -313,40 +238,8 @@ const emit = defineEmits<{
     'update:zoneEditing': [value: boolean];
 }>();
 const {t} = useTypedI18n();
-const normalizedPercent = computed(() => percent === null
-    ? null
-    : Math.min(100, Math.max(0, Math.round(percent))));
-// A transition has no job yet, so its 0% is a placeholder rather than a
-// measurement; the track pulses instead of promising a start it cannot show.
-const meterIsIndeterminate = computed(() => normalizedPercent.value === null || transitionText !== '');
-const PROGRESS_PHASE_IDS = [
-    'analyze',
-    'clean',
-    'finish',
-] as const;
-const progressPhases = computed(() => {
-    const currentIndex = PROGRESS_PHASE_IDS.indexOf(progressPhase);
-    return PROGRESS_PHASE_IDS.map((id, index) => ({
-        id,
-        index: index + 1,
-        label: t(`scanCleanup.progressPhases.${id}`),
-        state: index < currentIndex
-            ? 'complete' as const
-            : index === currentIndex
-                ? 'current' as const
-                : 'upcoming' as const,
-    }));
-});
-const progressStepText = computed(() => t('scanCleanup.runStep', {
-    index: PROGRESS_PHASE_IDS.indexOf(progressPhase) + 1,
-    count: PROGRESS_PHASE_IDS.length,
-}));
-const resolvedProgressEtaText = computed(() => progressEtaText === ''
-    ? t('scanCleanup.etaPending')
-    : progressEtaText);
-const resolvedProgressEtaWidestText = computed(() => progressEtaWidestText === ''
-    ? resolvedProgressEtaText.value
-    : progressEtaWidestText);
+// A failed run stays readable until dismissed, even while analysis restarts.
+const meterVisible = computed(() => activity !== null && (activity.run || runError === ''));
 // Cancelling detection is not destructive: pages already detected keep their
 // results, so the control names that outcome instead of a bare “Cancel”.
 const detectionCancelLabel = computed(() => t(detectionCancelRequested
@@ -403,126 +296,33 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
     white-space: nowrap;
 }
 
-.scan-cleanup-run-meter {
-    display: flex;
-    width: 100%;
-    flex-direction: column;
-    gap: var(--app-space-sm);
-}
-
-/* One sentence for the whole run: what is happening and how far on the left,
-   which step and how long on the right. */
-.scan-cleanup-run-meter-status {
-    display: flex;
-    min-width: 0;
-    align-items: baseline;
-    margin: 0;
-    gap: var(--app-space-md);
-    font-size: var(--app-text-size-body-sm);
-    overflow: hidden;
-    white-space: nowrap;
-}
-
-.scan-cleanup-run-meter-phase {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--ui-text-highlighted);
-    font-weight: var(--app-font-weight-heading);
-    text-overflow: ellipsis;
-}
-
-.scan-cleanup-run-meter-spacer {
-    flex: 1;
-}
-
-.scan-cleanup-run-meter-separator {
-    flex: none;
-    color: var(--ui-text-dimmed);
-}
-
-.scan-cleanup-run-meter-count,
-.scan-cleanup-run-meter-step,
-.scan-cleanup-run-meter-eta {
-    flex: none;
-    color: var(--ui-text-muted);
-}
-
-.scan-cleanup-run-meter-status :deep(.scan-cleanup-stable-width-text) {
-    justify-items: start;
-}
-
-/* One bar in three equal segments: finished segments are full, the current one
-   fills, the rest are empty — the whole run reads at a glance. */
-.scan-cleanup-run-segments {
-    display: grid;
-    padding: 0;
-    margin: 0;
-    gap: var(--app-space-xs);
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    list-style: none;
-}
-
-.scan-cleanup-run-segment {
-    display: block;
-    overflow: hidden;
-    height: var(--app-scan-toolbar-progress-height);
-    border-radius: var(--app-radius-full);
-    background: var(--ui-border);
-}
-
-.scan-cleanup-run-segment-track {
-    display: block;
-    height: 100%;
-}
-
-.scan-cleanup-run-segment-fill {
-    display: block;
-    height: 100%;
-    background: var(--ui-primary);
-    transition: width var(--app-transition-standard);
-}
-
-.scan-cleanup-run-segment-fill--complete {
-    width: 100%;
-}
-
-.scan-cleanup-run-segment-fill--indeterminate {
-    width: 40%;
-    animation: scan-cleanup-progress-indeterminate 1.5s ease-in-out infinite;
-}
-
-@keyframes scan-cleanup-progress-indeterminate {
-    0% {
-        transform: translateX(-100%);
-    }
-
-    100% {
-        transform: translateX(350%);
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .scan-cleanup-run-segment-fill--indeterminate {
-        width: 100%;
-        animation: none;
-        opacity: var(--app-scan-toolbar-indeterminate-opacity);
-    }
-}
-
 .scan-cleanup-toolbar-redetect {
     width: var(--app-scan-toolbar-redetect-width);
     flex: none;
     justify-content: center;
 }
 
+.scan-cleanup-toolbar-main-slot {
+    display: flex;
+    min-width: 0;
+    flex: 0 1 var(--app-scan-toolbar-activity-width);
+    align-items: center;
+    gap: var(--app-space-5xl);
+}
+
 .scan-cleanup-toolbar-status-slot {
-    width: var(--app-scan-toolbar-status-width);
     height: var(--app-control-height-xs);
-    min-width: var(--app-scan-toolbar-status-width);
-    flex: none;
+    flex: 1 1 auto;
     justify-content: flex-start;
     gap: var(--app-space-sm);
     overflow: hidden;
+}
+
+.scan-cleanup-toolbar-trailing-slot {
+    display: flex;
+    width: var(--app-control-height-xs);
+    flex: none;
+    align-items: center;
 }
 
 .scan-cleanup-toolbar-primary-slot {
@@ -574,14 +374,6 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 .scan-cleanup-settings-reset {
     flex: none;
-}
-
-.scan-cleanup-toolbar-count {
-    flex: none;
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-body-sm);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
 }
 
 .scan-cleanup-toolbar-estimate,

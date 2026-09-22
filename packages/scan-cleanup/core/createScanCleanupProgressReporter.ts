@@ -220,7 +220,6 @@ const LOSSLESS_BANDS = resolveBands(LOSSLESS_STAGE_WEIGHTS);
 
 const ETA_MIN_COMPLETED_UNITS = 5;
 const ETA_MIN_STAGE_ELAPSED_MS = 10_000;
-const ETA_EMA_ALPHA = 0.25;
 
 export interface IScanCleanupProgressEtaEstimator {update: (
     stage: TScanCleanupProgressStage,
@@ -237,44 +236,31 @@ export interface IScanCleanupProgressEtaEstimator {update: (
 export function createScanCleanupProgressEtaEstimator(): IScanCleanupProgressEtaEstimator {
     let activeStage: TScanCleanupProgressStage | null = null;
     let stageStartedAt = 0;
-    let lastSampleAt = 0;
-    let lastCompletedUnits = 0;
-    let smoothedMsPerUnit: number | null = null;
-    let lastEtaSeconds: number | undefined;
+    let completedAtStageStart = 0;
 
     return {update(stage, completedUnits, totalUnits, reportedAt) {
-        if (activeStage !== stage || completedUnits < lastCompletedUnits) {
+        if (activeStage !== stage || completedUnits < completedAtStageStart) {
             activeStage = stage;
             stageStartedAt = reportedAt;
-            lastSampleAt = reportedAt;
-            lastCompletedUnits = completedUnits;
-            smoothedMsPerUnit = null;
-            lastEtaSeconds = undefined;
-        } else if (completedUnits > lastCompletedUnits) {
-            const sampleMsPerUnit = (reportedAt - lastSampleAt) / (completedUnits - lastCompletedUnits);
-            if (Number.isFinite(sampleMsPerUnit) && sampleMsPerUnit >= 0) {
-                smoothedMsPerUnit = smoothedMsPerUnit === null
-                    ? sampleMsPerUnit
-                    : smoothedMsPerUnit * (1 - ETA_EMA_ALPHA) + sampleMsPerUnit * ETA_EMA_ALPHA;
-            }
-            lastSampleAt = reportedAt;
-            lastCompletedUnits = completedUnits;
+            completedAtStageStart = completedUnits;
         }
+        const completedWithinStage = completedUnits - completedAtStageStart;
+        const elapsedSinceStageStart = reportedAt - stageStartedAt;
         if (
-            smoothedMsPerUnit === null
-                || completedUnits < ETA_MIN_COMPLETED_UNITS
-                || reportedAt - stageStartedAt < ETA_MIN_STAGE_ELAPSED_MS
+            completedWithinStage < ETA_MIN_COMPLETED_UNITS
+                || elapsedSinceStageStart < ETA_MIN_STAGE_ELAPSED_MS
                 || totalUnits <= 0
         ) {
             return undefined;
         }
-        const remainingStageMs = Math.max(0, totalUnits - completedUnits) * smoothedMsPerUnit;
-        const estimatedSeconds = Math.max(0, Math.ceil(remainingStageMs / 1000));
-        const etaSeconds = lastEtaSeconds === undefined
-            ? estimatedSeconds
-            : Math.min(lastEtaSeconds, estimatedSeconds);
-        lastEtaSeconds = etaSeconds;
-        return etaSeconds;
+        const averageMsPerUnit = elapsedSinceStageStart / completedWithinStage;
+        if (!Number.isFinite(averageMsPerUnit) || averageMsPerUnit < 0) {
+            return undefined;
+        }
+        return Math.max(
+            0,
+            Math.ceil(Math.max(0, totalUnits - completedUnits) * averageMsPerUnit / 1000),
+        );
     }};
 }
 

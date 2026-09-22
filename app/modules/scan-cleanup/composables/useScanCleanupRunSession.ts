@@ -43,11 +43,6 @@ import {
     formatScanCleanupErrorByCode,
     formatScanCleanupErrorMessage,
 } from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
-import {
-    formatScanCleanupEta,
-    formatScanCleanupProgress,
-    resolveScanCleanupEtaWidestText,
-} from '@app/modules/scan-cleanup/runtime/formatScanCleanupProgress';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {
@@ -320,14 +315,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         && !inkPlacementCapacityExceeded.value
         && missingInkPlacementAnchorPage.value === null
         && getScanCleanupCapability() !== null);
-    const transitionText = computed(() => {
-        if (transition.value === 'waiting-for-detection') {
-            return t('scanCleanup.detectAll.preAnalyzing');
-        }
-        return transition.value === 'starting-cleanup'
-            ? t('scanCleanup.startingCleanup')
-            : '';
-    });
     // Only ever read on the run affordance, which an engaged run replaces with
     // the cancel affordance, so the transition explains itself in the meter
     // rather than here.
@@ -351,7 +338,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             return placementAnchorCalibrationError.value;
         }
         if (inkPlacementCapacityExceeded.value) {
-            return t('scanCleanup.errors.tooLarge');
+            return t('scanCleanup.errors.inkPlacementTooLarge');
         }
         if (isInkPlacementAnchorMissing()) {
             return t('scanCleanup.errors.inkPlacementMissing');
@@ -361,40 +348,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         return '';
     });
-    const progressParts = computed(() => formatScanCleanupProgress(progress.value, t));
-    const progressPhaseText = computed(() => progressParts.value.phase);
-    const progressCountText = computed(() => progressParts.value.count);
-    const progressCountWidestText = computed(() => t('scanCleanup.runCount', {
-        completed: progress.value.totalUnits,
-        total: progress.value.totalUnits,
-    }));
-    const pageProgressComplete = computed(() => [
-        'classifying',
-        'rendering',
-    ].includes(progress.value.stage)
-        && progress.value.totalUnits > 0
-        && progress.value.completedUnits >= progress.value.totalUnits);
-    const progressIsFinishing = computed(() => progress.value.percent >= 100
-        || pageProgressComplete.value
-        || [
-            'collecting',
-            'assembling',
-            'handoff',
-        ].includes(progress.value.stage));
-    const progressEtaText = computed(() => {
-        if (progressIsFinishing.value) {
-            return [
-                'collecting',
-                'assembling',
-                'handoff',
-            ].includes(progress.value.stage)
-                ? t('scanCleanup.almostDone')
-                : t('scanCleanup.finishingPhase');
-        }
-        return formatScanCleanupEta(progress.value.etaSeconds, t, progress.value.stage);
-    });
-    const progressEtaWidestText = computed(() => resolveScanCleanupEtaWidestText(t));
-    const progressText = computed(() => `${progressParts.value.text}. ${progressEtaText.value}`);
     const runLabel = computed(() => options.sourcePageNumbers.value === null
         ? t('scanCleanup.cleanUp')
         : options.sourcePageNumbers.value.length === 1
@@ -421,7 +374,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (inkPlacementCapacityExceeded.value) {
             reportScanCleanupRunError(
                 options.ownerId,
-                t('scanCleanup.errors.tooLarge'),
+                t('scanCleanup.errors.inkPlacementTooLarge'),
                 options.sourcePath.value,
                 'too-large',
                 options.documentRevision.value,
@@ -805,16 +758,15 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         isRunning,
         processedPages,
         progress,
-        progressCountText,
-        progressCountWidestText,
-        progressEtaText,
-        progressEtaWidestText,
-        progressPhaseText,
-        progressText,
+        // The job's progress once it exists; the click that precedes it is
+        // described by the transition instead of a placeholder count.
+        jobProgress: computed(() => scanCleanupRun.ownerId === options.ownerId
+            ? scanCleanupRun.jobState?.progress ?? null
+            : null),
         runLabel,
         runDisabledReason,
         run,
-        transitionText,
+        starting: computed(() => transition.value === 'starting-cleanup'),
         waitingForDetection: computed(() => transition.value === 'waiting-for-detection'),
     };
 };

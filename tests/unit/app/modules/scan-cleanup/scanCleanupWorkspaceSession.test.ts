@@ -467,7 +467,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession('settled-pages');
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
         const settled = mounted.session.detection.settledPages;
-        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 of 3 pages');
+        expect(mounted.session.activity.value?.count).toEqual({
+            completed: 0,
+            total: 3,
+        });
 
         // Reading the source reports pages one by one and carries no results at
         // all; without this signal every thumbnail spun for the whole stage.
@@ -492,8 +495,16 @@ describe('scan cleanup workspace session detection guidance', () => {
             3,
         ]);
         // Source rasters are only inputs. Reporting them as analyzed pages made
-        // the visible counter change meaning when native results started.
-        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 0 of 3 pages');
+        // the visible counter change meaning when native results started; the
+        // read pages are shown ahead of it instead.
+        expect(mounted.session.activity.value).toMatchObject({
+            detail: 'read',
+            count: {
+                completed: 0,
+                total: 3,
+            },
+        });
+        expect(mounted.session.activity.value?.bufferFraction).toBeCloseTo(2 / 3);
 
         // The analysis stage reports a different set; neither replaces the other.
         harness.emitDetection({
@@ -524,9 +535,13 @@ describe('scan cleanup workspace session detection guidance', () => {
             2,
             3,
         ]);
-        expect(mounted.session.detection.progressText.value).toBe('Pre-analyzing pages — 1 of 3 pages');
-        expect(mounted.session.detection.progressWidestText.value).toBe('Pre-analyzing pages — 3 of 3 pages');
-        expect(mounted.session.detection.progressCountWidestText.value).toBe('3 of 3 pages');
+        expect(mounted.session.activity.value).toMatchObject({
+            detail: 'detect',
+            count: {
+                completed: 1,
+                total: 3,
+            },
+        });
 
         mounted.unmount();
     });
@@ -689,7 +704,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
-        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.inkPlacementTooLarge');
         mounted.unmount();
     });
 
@@ -1212,7 +1227,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.errorCode.value).toBe('too-large');
-        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.inkPlacementTooLarge');
         mounted.unmount();
     });
 
@@ -1277,12 +1292,12 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         expect(mounted.session.detection.pagePlanEvidenceByPage.has(20_001)).toBe(false);
 
-        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.tooLarge');
+        expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.inkPlacementTooLarge');
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
         expect(mounted.session.run.errorCode.value).toBe('too-large');
-        expect(mounted.session.run.error.value).toContain('scanCleanup.errors.tooLarge');
+        expect(mounted.session.run.error.value).toContain('scanCleanup.errors.inkPlacementTooLarge');
         mounted.unmount();
     });
 
@@ -2042,7 +2057,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         }
         await nextTick();
 
-        expect(mounted.session.detection.progressEtaText.value).toBe('Current task: about 3 sec');
+        expect(mounted.session.activity.value?.etaSeconds).toBe(3);
 
         mounted.unmount();
     });
@@ -2120,16 +2135,45 @@ describe('scan cleanup workspace session detection guidance', () => {
                 etaSeconds: 0,
             },
         ];
-        const expectedEtaTexts = [
-            'scanCleanup.etaPending',
-            'scanCleanup.etaPending',
-            'scanCleanup.etaPending',
-            'Current task: about 2 min',
-            'Current task: about 2 min',
-            'scanCleanup.finishingPhase',
-            'scanCleanup.almostDone',
-            'scanCleanup.almostDone',
-            'scanCleanup.almostDone',
+        // The estimate belongs to page work only; the short preparation and
+        // finishing steps name what they do instead of promising a time.
+        const expectedSteps = [
+            [
+                'prepare',
+                undefined,
+            ],
+            [
+                'prepare',
+                undefined,
+            ],
+            [
+                'prepare',
+                undefined,
+            ],
+            [
+                'clean',
+                110,
+            ],
+            [
+                'clean',
+                95,
+            ],
+            [
+                'clean',
+                20,
+            ],
+            [
+                'build',
+                undefined,
+            ],
+            [
+                'build',
+                undefined,
+            ],
+            [
+                'open',
+                undefined,
+            ],
         ];
 
         for (const [
@@ -2143,18 +2187,12 @@ describe('scan cleanup workspace session detection guidance', () => {
                 updatedAtMs: requireEpochMs(Date.now() + index),
             };
             await nextTick();
-            expect(mounted.session.run.progressEtaText.value).toBe(expectedEtaTexts[index]);
-            if (index >= 3) {
-                expect(mounted.session.run.progressEtaText.value).not.toBe('scanCleanup.etaPending');
-            }
-            if (index === 3) {
-                expect(mounted.session.run.progressPhaseText.value).toBe('scanCleanup.runProgress.rasterizing');
-                expect(mounted.session.run.progressPhaseText.value).not.toContain('Step');
-            }
-            if (index === 4) {
-                expect(mounted.session.run.progressPhaseText.value).toBe('scanCleanup.runProgress.rendering');
-                expect(mounted.session.run.progressPhaseText.value).not.toContain('Step');
-            }
+            const activity = mounted.session.activity.value;
+            expect([
+                activity?.step,
+                activity?.etaSeconds,
+            ]).toEqual(expectedSteps[index]);
+            expect(activity?.detail).toBe(event.stage);
         }
 
         mounted.unmount();
@@ -2173,6 +2211,8 @@ describe('scan cleanup workspace session detection guidance', () => {
             'detection',
             'preview',
             'run',
+            'activity',
+            'activityTimeline',
         ]);
         expect(first.session.detection.pending.value).toBe(true);
         await first.session.detection.cancel();
@@ -2465,8 +2505,11 @@ describe('scan cleanup workspace session detection guidance', () => {
             }],
             updatedAtMs: partialResultAt,
         });
-        await vi.waitFor(() => expect(mounted.session.detection.progressText.value)
-            .toBe('Pre-analyzing pages — 1 of 3 pages'));
+        await vi.waitFor(() => expect(mounted.session.activity.value?.count)
+            .toEqual({
+                completed: 1,
+                total: 3,
+            }));
         expect(mounted.session.run.canRun.value).toBe(true);
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
@@ -2486,8 +2529,11 @@ describe('scan cleanup workspace session detection guidance', () => {
             updatedAtMs: requireEpochMs(Date.now() + 3),
         });
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
-            .toBe('Pre-analyzing pages'));
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
         expect(mounted.session.run.isRunning.value).toBe(true);
         expect(harness.value.cancelDetection).not.toHaveBeenCalled();
         expect(harness.value.start).not.toHaveBeenCalled();
@@ -2532,12 +2578,18 @@ describe('scan cleanup workspace session detection guidance', () => {
             }],
             updatedAtMs: requireEpochMs(Date.now() + 1_000),
         });
-        await vi.waitFor(() => expect(mounted.session.detection.progressText.value)
-            .toBe('Pre-analyzing pages — 1 of 3 pages'));
+        await vi.waitFor(() => expect(mounted.session.activity.value?.count)
+            .toEqual({
+                completed: 1,
+                total: 3,
+            }));
 
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
-            .toBe('Pre-analyzing pages'));
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
         await mounted.session.run.cancel();
         await run;
 
@@ -2653,8 +2705,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
-            .toBe('Pre-analyzing pages'));
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
         expect(mounted.session.run.isRunning.value).toBe(true);
         expect(harness.value.cancelDetection).not.toHaveBeenCalled();
         expect(harness.value.start).not.toHaveBeenCalled();
@@ -2845,7 +2900,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         const run = mounted.session.run.run();
         await nextTick();
 
-        expect(mounted.session.run.transitionText.value).toBe('Pre-analyzing pages');
+        expect(mounted.session.run.waitingForDetection.value).toBe(true);
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
         expect(mounted.session.run.isRunning.value).toBe(true);
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         expect(harness.value.start).not.toHaveBeenCalled();
@@ -2902,7 +2961,11 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         const run = mounted.session.run.run();
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
-        expect(mounted.session.run.transitionText.value).toBe('Pre-analyzing pages');
+        expect(mounted.session.run.waitingForDetection.value).toBe(true);
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
 
         sourceSha256.value = 'c'.repeat(64);
         await nextTick();
@@ -3102,7 +3165,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         // be ineligible for the new document's Run click.
         expect(mounted.session.detection.terminalStatus.value).toBeNull();
         const run = mounted.session.run.run();
-        expect(mounted.session.run.transitionText.value).toBe('Pre-analyzing pages');
+        expect(mounted.session.run.waitingForDetection.value).toBe(true);
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
         expect(harness.value.start).not.toHaveBeenCalled();
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
@@ -3183,8 +3250,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
-            .toBe('Pre-analyzing pages'));
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
         revision.value = 'revision-2';
         await nextTick();
         harness.emitDetection(detectionState('detect-1', 'completed'));
@@ -3305,8 +3375,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
 
         const run = mounted.session.run.run();
-        await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
-            .toBe('Pre-analyzing pages'));
+        await vi.waitFor(() => expect(mounted.session.run.waitingForDetection.value).toBe(true));
+        expect(mounted.session.activity.value).toMatchObject({
+            run: true,
+            phase: 'analyze',
+        });
         mounted.session.settings.values.outputMode = 'color';
         mounted.session.settings.values.thickness = -3;
         harness.emitDetection(detectionState('detect-1', 'completed'));

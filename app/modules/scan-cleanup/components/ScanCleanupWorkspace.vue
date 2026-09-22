@@ -5,6 +5,8 @@
         :disabled="!canTeleportToolbar"
     >
         <ScanCleanupToolbar
+            :activity="activity"
+            :activity-timeline="activityTimeline"
             :can-detect-all="canDetectAll"
             :can-run="canRun"
             :cancel-requested="cancelRequested"
@@ -12,25 +14,14 @@
             :detection-cancel-requested="detectionCancelRequested"
             :detection-error="detectionError"
             :run-error="runError"
-            :detection-progress-text="detectionProgressText"
-            :detection-progress-widest-text="detectionProgressWidestText"
             :is-detecting="detectionPending"
             :finishing="finishing"
             :is-running="isRunning"
             :output-estimate="outputEstimate"
-            :percent="meterPercent"
-            :progress-phase="progressPhase"
-            :progress-count-text="progressCountText"
-            :progress-count-widest-text="progressCountWidestText"
-            :progress-eta-text="progressEtaText"
-            :progress-eta-widest-text="progressEtaWidestText"
-            :progress-phase-text="progressPhaseText"
-            :progress-text="progressText"
             :run-label="runLabel"
             :run-disabled-reason="runDisabledReason"
             :settings-badges="settingsBadges"
             :zone-editing="zoneEditing"
-            :transition-text="transitionText"
             @cancel="cancel"
             @cancel-detection="cancelDetection"
             @detect-all="detectAllPages"
@@ -109,6 +100,7 @@
             </fieldset>
 
             <ScanCleanupThumbnailRail
+                :active="workspaceActive"
                 :source="pageSource"
                 :source-pending="pageSourcePending"
                 :total-pages="previewTotalPages"
@@ -339,14 +331,6 @@ const {
     layoutDetectionComplete,
     outputEstimate,
     pending: detectionPending,
-    progressCountText: detectionProgressCountText,
-    progressCountWidestText: detectionProgressCountWidestText,
-    progressEtaText: detectionProgressEtaText,
-    progressEtaWidestText: detectionProgressEtaWidestText,
-    progressPercent: detectionProgressPercent,
-    progressPhaseText: detectionProgressPhaseText,
-    progressText: detectionProgressText,
-    progressWidestText: detectionProgressWidestText,
     terminalStatus: detectionTerminalStatus,
     settledPages: detectionSettledPages,
     recommendedOutputModeByPage,
@@ -381,18 +365,9 @@ const {
     isRunning,
     ownerId,
     processedPages,
-    progress: jobProgress,
-    progressCountText: runProgressCountText,
-    progressCountWidestText: runProgressCountWidestText,
-    progressEtaText: runProgressEtaText,
-    progressEtaWidestText: runProgressEtaWidestText,
-    progressPhaseText: runProgressPhaseText,
-    progressText: runProgressText,
     runLabel,
     runDisabledReason,
     run,
-    transitionText: runTransitionText,
-    waitingForDetection,
 } = workspaceSession.run;
 const marginBoundaryVisible = ref(false);
 let pageMappingConsumed = false;
@@ -411,51 +386,10 @@ function emitSessionState() {
         ...(pageMapping === undefined ? {} : {pageMapping}),
     });
 }
-const FINISH_STAGES = new Set([
-    'collecting',
-    'assembling',
-    'handoff',
-]);
-const progressPhase = computed<'analyze' | 'clean' | 'finish'>(() => {
-    if (waitingForDetection.value) {
-        return 'analyze';
-    }
-    return FINISH_STAGES.has(jobProgress.value.stage) ? 'finish' : 'clean';
-});
-// The meter is explicitly phase-local. Analysis and cleanup count different
-// work, so presenting them as one percentage created the observed 100% → 10%
-// rewind. The phase rail owns overall position; the final short tail is
-// indeterminate because its units are PDF objects rather than source pages.
-const meterPercent = computed(() => waitingForDetection.value
-    ? detectionProgressPercent.value
-    : progressPhase.value === 'finish'
-        ? null
-        : jobProgress.value.percent);
-const progressPhaseText = computed(() => waitingForDetection.value
-    ? detectionProgressPhaseText.value
-    : runProgressPhaseText.value);
-const progressCountText = computed(() => waitingForDetection.value
-    ? detectionProgressCountText.value
-    : runProgressCountText.value);
-const progressCountWidestText = computed(() => waitingForDetection.value
-    ? detectionProgressCountWidestText.value
-    : runProgressCountWidestText.value);
-const progressEtaText = computed(() => {
-    const eta = waitingForDetection.value
-        ? detectionProgressEtaText.value
-        : runProgressEtaText.value;
-    if (eta === '') {
-        return t('scanCleanup.etaPending');
-    }
-    return eta;
-});
-const progressEtaWidestText = computed(() => waitingForDetection.value
-    ? detectionProgressEtaWidestText.value
-    : runProgressEtaWidestText.value);
-const progressText = computed(() => waitingForDetection.value
-    ? `${detectionProgressText.value}. ${progressEtaText.value}`
-    : runProgressText.value);
-const transitionText = computed(() => waitingForDetection.value ? '' : runTransitionText.value);
+const {
+    activity,
+    activityTimeline,
+} = workspaceSession;
 const settingsBadges = computed(() => resolveScanCleanupNonDefaultSettings(settings).map(badge => ({
     id: badge.key,
     label: formatScanCleanupSettingsBadge(t, badge.key, badge.value),

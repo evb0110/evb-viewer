@@ -145,6 +145,10 @@
     --app-scan-toolbar-progress-height: var(--app-search-progress-height);
     --app-scan-toolbar-progress-min-width: 4rem;
     --app-scan-toolbar-indeterminate-opacity: 0.55;
+    --app-scan-toolbar-buffer-opacity: 0.3;
+    --app-scan-toolbar-activity-width: 34rem;
+    --app-scan-activity-details-width: 26rem;
+    --app-scan-activity-time-width: 3rem;
     --app-scan-toolbar-right-zone-width: 21rem;
     --app-scan-toolbar-meter-width: 42rem;
     --app-scan-toolbar-redetect-width: 6.5rem;
