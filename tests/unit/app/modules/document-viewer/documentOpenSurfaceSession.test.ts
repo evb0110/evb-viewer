@@ -306,6 +306,21 @@ describe('document open surface session', () => {
         });
     });
 
+    it('does not publish a duplicate viewport observation', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'scan.pdf', 'revision-1');
+        session.metadataReady(20);
+        commitDefaultGeometry(session, generation);
+        const fence = createRenderFence(session, generation, 'revision-1');
+        commitReadySurface(session, fence);
+
+        expect(session.observeViewportPage(6)).toBe(6);
+        const firstObservation = session.viewportSession.value;
+
+        expect(session.observeViewportPage(6)).toBe(6);
+        expect(session.viewportSession.value).toBe(firstObservation);
+    });
+
     it('invalidates an out-of-range committed page when refreshed metadata shrinks', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'edited.pdf', 'pdfjs:1');

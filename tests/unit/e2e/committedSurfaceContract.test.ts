@@ -147,6 +147,24 @@ describe('committed surface E2E contract', () => {
         expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
     });
 
+    it('allows only an explicitly deferred cold opening before the page shell exists', () => {
+        const deferredOpening = frame(1, {
+            committedEmptySource: null,
+            kind: 'blank',
+            openSurfaceDiagnostic: {openSurfaceHasOpeningFrame: 'false'},
+            openSurfacePhase: 'pending',
+            openSurfacePresentation: 'idle',
+            pdfNavigationDiagnostic: {openingSurfaceDeferred: 'true'},
+        });
+        const frames = [
+            deferredOpening,
+            ...Array.from({length: 10}, (_, index) => committedCanvas(index + 2)),
+        ];
+
+        expect(findCommittedSurfaceContractViolations({frames})).toContain('frame 1 exposed blank');
+        expect(findCommittedSurfaceContractViolations({frames}, {allowDeferredOpening: true})).toEqual([]);
+    });
+
     it('accepts an empty-to-document sample that begins at the first page shell', () => {
         const frames = [
             frame(1, {

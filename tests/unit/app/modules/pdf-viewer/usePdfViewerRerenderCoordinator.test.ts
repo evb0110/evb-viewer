@@ -292,6 +292,46 @@ describe('usePdfViewerRerenderCoordinator', () => {
         }));
     });
 
+    it('retains the first toolbar zoom anchor while the physical navigation epoch is unchanged', async () => {
+        vi.useFakeTimers();
+        try {
+            const zoom = ref(1);
+            const currentPage = ref(500);
+            const firstAnchor = createResizeAnchor(500);
+            const staleVisibleAnchor = createResizeAnchor(451);
+            const buildResizeAnchorContext = vi.fn(() => (
+                buildResizeAnchorContext.mock.calls.length <= 1
+                    ? firstAnchor
+                    : staleVisibleAnchor
+            ));
+            const enqueueZoomSync = vi.fn();
+
+            usePdfViewerRerenderCoordinator(createDeps({
+                currentPage,
+                zoom: computed(() => zoom.value),
+                fitMode: computed(() => 'width' as const),
+                buildResizeAnchorContext,
+                enqueueZoomSync,
+            }));
+
+            zoom.value = 1.1;
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+            zoom.value = 1.2;
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(buildResizeAnchorContext).toHaveBeenCalledOnce();
+            expect(enqueueZoomSync).toHaveBeenCalledTimes(2);
+            expect(enqueueZoomSync.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+                source: 'zoom-change',
+                resizeAnchor: firstAnchor,
+            }));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('commits custom zoom geometry before queueing the replacement raster', async () => {
         const zoom = ref(1);
         const setupPagePlaceholders = vi.fn();
@@ -922,6 +962,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const captureResizeVisualSnapshots = vi.fn();
         const setupPagePlaceholders = vi.fn();
         const cancelInFlightPageRenders = vi.fn();
+        const beginResizeTransition = vi.fn(() => 7);
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
 
         usePdfViewerRerenderCoordinator(createDeps({
@@ -941,6 +982,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             computeFitWidthScale,
             captureResizeVisualSnapshots,
             cancelInFlightPageRenders,
+            beginResizeTransition,
             setupPagePlaceholders,
             getMostVisiblePage: vi.fn(() => 500),
         }));
@@ -951,6 +993,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         expect(captureResizeVisualSnapshots).toHaveBeenCalledWith(
             expect.objectContaining({page: 500}),
         );
+        expect(beginResizeTransition).toHaveBeenCalledWith('zoom-mode', 500);
         // Cancelling the raster source releases the committed resident, which
         // re-shows the page skeleton. The snapshot has to exist before that,
         // and before the placeholder geometry changes under it.

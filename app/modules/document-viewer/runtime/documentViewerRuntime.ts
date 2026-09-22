@@ -140,6 +140,14 @@ export function createDocumentViewerRuntime(
                 return;
             }
             lastFencedNavigationTicketId = ticketId;
+            // A wheel ticket is authored by the physical gesture currently
+            // being delivered. Fencing it would classify the remaining
+            // packets of that gesture as command residue and make paged wheel
+            // navigation stop after the first page. Toolbar, search, and
+            // restore tickets still fence the older gesture tail.
+            if (openSurface.navigationTicket.value?.request.source === 'wheel') {
+                return;
+            }
             viewportWritePort.fenceCommandAgainstLiveGesture();
         },
         {

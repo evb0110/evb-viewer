@@ -67,6 +67,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         beginLayoutGeometryReplacement,
         consumeZoomViewportAnchor,
         submitZoomViewportStateIntent,
+        beginResizeTransition,
         consumeSuppressedZoomRerender,
         transactionController,
     } = options;
@@ -80,6 +81,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     let zoomOrchestrationTaskId: ReturnType<typeof setTimeout> | null = null;
     let zoomOrchestrationGeneration = 0;
     let zoomOrchestrationDisposed = false;
+    // A toolbar zoom is a series of discrete geometry replacements. Once the
+    // first replacement has captured the reading point, the live visible
+    // range can describe a page from the old geometry while the viewport
+    // authority still owns the same page. Keep that anchor for subsequent
+    // zoom commands until a physical navigation or page change supersedes it.
+    let lastZoomResizeAnchor: IResizeAnchorContext | null = null;
     let pendingZoomOrchestration: {
         document: IPdfDocument | null;
         previousZoom: number | null;
@@ -98,6 +105,26 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             clearTimeout(zoomOrchestrationTaskId);
             zoomOrchestrationTaskId = null;
         }
+    }
+
+    function clearLastZoomResizeAnchor() {
+        lastZoomResizeAnchor = null;
+    }
+
+    function getReusableZoomResizeAnchor() {
+        const anchor = lastZoomResizeAnchor;
+        if (!anchor || anchor.page !== currentPage.value) {
+            return null;
+        }
+        const currentPhysicalNavigationEpoch = getUserPhysicalNavigationEpoch?.();
+        if (
+            currentPhysicalNavigationEpoch !== undefined
+            && anchor.physicalNavigationEpoch !== undefined
+            && currentPhysicalNavigationEpoch !== anchor.physicalNavigationEpoch
+        ) {
+            return null;
+        }
+        return anchor;
     }
 
     function runPendingZoomOrchestration(generation: number) {
@@ -143,6 +170,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     ? PDF_RERENDER_SOURCE.ZoomModeChange
                     : PDF_RERENDER_SOURCE.ZoomChange;
             const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? pending.resizeAnchor;
+            if (!zoomViewportAnchor) {
+                lastZoomResizeAnchor = zoomAnchor;
+            }
             logPdfRenderTrace('zoom-rerender-anchor-captured', () => ({
                 previousZoom: pending.previousZoom ?? nextZoom,
                 nextZoom,
@@ -201,6 +231,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             ?? null;
         const resizeAnchor = existingPendingZoomOrchestration?.resizeAnchor
             ?? zoomViewportAnchor?.resizeAnchor
+            ?? getReusableZoomResizeAnchor()
             ?? buildResizeAnchorContext();
         pendingZoomOrchestration = {
             document: pdfDocument.value,
@@ -553,6 +584,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         // scroll position under changing page metrics and can advance the
         // current page without any user navigation.
         resetZoomRerenderQueueState(`${source}-change`);
+        clearLastZoomResizeAnchor();
         const pageToPreserve = navigationAnchorPage?.value ?? currentPage.value;
         const updated = computeFitWidthScale(viewerContainer.value, { page: pageToPreserve });
         if (!(updated || options.forceRerender === true) || !document) {
@@ -570,6 +602,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         // that clamp is dispatched as an ordinary scroll event which would
         // otherwise look like navigation and cancel the confirmation below.
         const endLayoutGeometryReplacement = beginLayoutGeometryReplacement?.() ?? null;
+        // Keep the semantic page mounted while the old visible range still
+        // describes the pre-fit geometry. Without this resize window,
+        // virtualization can unmount the committed page before its snapshot
+        // is replaced, leaving the user with a bare skeleton for a frame.
+        const resizeTransitionToken = beginResizeTransition(source, pageToPreserve);
         try {
             // Cancelling the viewport raster source releases every committed
             // resident it owns, and the renderer answers a release by emptying
@@ -606,6 +643,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             applyResizeAnchorPreview?.(fitAnchor);
             syncHorizontalScrollAfterLayoutUpdate();
         } finally {
+            scheduleEndResizeTransition(
+                resizeTransitionToken,
+                'fit-rerender-complete',
+                pageToPreserve,
+            );
             endLayoutGeometryReplacement?.();
         }
     }
@@ -833,6 +875,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             stop?.();
         }
         cancelPendingZoomOrchestration();
+        clearLastZoomResizeAnchor();
     }
 
     return {

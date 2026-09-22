@@ -1293,10 +1293,16 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     });
                 }
             }
+            const observedPage = current.pageCount === null
+                ? normalized
+                : Math.min(current.pageCount, normalized);
+            if (!supersede && current.observedPage === observedPage) {
+                return resolveDocumentViewportCurrentPage(current);
+            }
             dispatchViewport({
                 type: 'page-observed',
                 generation: current.generation,
-                pageNumber: normalized,
+                pageNumber: observedPage,
             });
             return resolveDocumentViewportCurrentPage(sessionState.value.viewport);
         },

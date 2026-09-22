@@ -346,6 +346,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 : Promise.resolve(commit)
         ),
         awaitSlots: async (intent, signal) => {
+            // Ambient geometry intents (zoom, fit, resize, and activation)
+            // must place the semantic anchor before waiting for its page slot.
+            // Virtualization may have released that page after a scale change;
+            // waiting for it here would deadlock because applying the scroll is
+            // what brings the target row back into the mounted window.
+            if (!intent.navigation) {
+                return;
+            }
             const page = requireIntentPage(intent, signal);
             const captured = requireIntentDocument(intent, signal);
             if (hasMatchingOpeningRenderFence(intent, page)) {

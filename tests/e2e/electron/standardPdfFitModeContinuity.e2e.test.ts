@@ -1144,6 +1144,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             maxFirstPageShellMs: FIRST_PAGE_SHELL_BUDGET_MS,
             maxReadyAfterCanvasMs: READY_AFTER_CANVAS_BUDGET_MS,
             requirePageShell: false,
+            allowDeferredOpening: true,
         });
         // Asserted at the end of this test: a missed opening budget is a real
         // failure, but it must not hide whether the fit contract below held.

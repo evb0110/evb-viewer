@@ -996,6 +996,20 @@ describe('document viewer chassis authority', () => {
         expect(requestNavigation).toHaveBeenCalledWith(request);
     });
 
+    it('does not fence the wheel gesture that owns a wheel navigation ticket', () => {
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-1',
+        });
+        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+        const fence = vi.spyOn(authority.viewportWritePort, 'fenceCommandAgainstLiveGesture');
+
+        expect(authority.navigate(createPageNavigationRequest(2, 'wheel'))).not.toBeNull();
+
+        expect(fence).not.toHaveBeenCalled();
+    });
+
     it('mounts on the latest opening-session intent while keeping physical page separate', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({

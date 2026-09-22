@@ -137,6 +137,8 @@ export interface ICommittedSurfaceCausalOpenContract {
     maxFirstPageShellMs: number;
     maxReadyAfterCanvasMs: number;
     requirePageShell: boolean;
+    /** Allow the explicit cold-shell handoff before opening geometry exists. */
+    allowDeferredOpening?: boolean;
 }
 
 export interface ICommittedSurfaceTiming {
@@ -191,7 +193,10 @@ function ownsPageFrameStyle(style: ICommittedSurfaceStyle | null) {
 }
 
 /** Returns release-blocking contract violations, keeping Vitest assertions out of the helper. */
-export function findCommittedSurfaceContractViolations(trace: ICommittedSurfaceTrace) {
+export function findCommittedSurfaceContractViolations(
+    trace: ICommittedSurfaceTrace,
+    options: {allowDeferredOpening?: boolean} = {},
+) {
     const violations = trace.errors?.map(error => (
         `surface sampler failed at frame ${String(error.frame)} (${error.checkpoint ?? 'unmarked'}): ${error.message}`
     )) ?? [];
@@ -201,7 +206,14 @@ export function findCommittedSurfaceContractViolations(trace: ICommittedSurfaceT
     }
 
     for (const frame of frames) {
-        if (frame.kind === 'blank' || frame.kind === 'loader' || frame.kind === 'neutral') {
+        const isExplicitDeferredOpening = options.allowDeferredOpening === true
+            && frame.kind === 'blank'
+            && frame.openSurfacePhase === 'pending'
+            && frame.pdfNavigationDiagnostic?.openingSurfaceDeferred === 'true';
+        if (
+            (frame.kind === 'blank' || frame.kind === 'loader' || frame.kind === 'neutral')
+            && !isExplicitDeferredOpening
+        ) {
             violations.push(`frame ${String(frame.frame)} exposed ${frame.kind}`);
         }
         if (frame.kind === 'committed-empty' && frame.committedEmptySource === null) {
@@ -394,7 +406,12 @@ export function findCommittedSurfaceCausalOpenViolations(
     trace: ICommittedSurfaceTrace,
     contract: ICommittedSurfaceCausalOpenContract,
 ) {
-    const violations = findCommittedSurfaceContractViolations(trace);
+    const violations = findCommittedSurfaceContractViolations(
+        trace,
+        contract.allowDeferredOpening === undefined
+            ? {}
+            : {allowDeferredOpening: contract.allowDeferredOpening},
+    );
     const frames = trace.frames;
     const firstPageShell = frames.find(frame => frame.kind === 'page-shell');
     const firstCanvas = frames.find(frame => frame.kind === 'committed-canvas');
