@@ -566,11 +566,31 @@ function navigationRequested(
         type: 'cancel-skeleton-delay',
         token: state.skeletonDelay.token,
     });
+    // The delay spares a quick navigation from a skeleton flash. Once a
+    // transition already shows the skeleton, the next command keeps it, and a
+    // command that lands while the delay is running keeps its deadline: rapid
+    // Next/Previous otherwise alternated between skeleton and bare page, or
+    // never showed the skeleton at all.
+    const isNavigationTransition = state.lifecycle === 'transitioning';
+    const continuesSkeleton = isNavigationTransition
+        && state.visual.kind === 'page'
+        && state.visual.presentation === 'skeleton';
+    const pendingDeadline = isNavigationTransition && state.skeletonDelay?.generation === state.generation
+        ? state.skeletonDelay.deadline
+        : null;
+    const skeletonDelay = event.skeletonDelay && !continuesSkeleton
+        ? {
+            token: event.skeletonDelay.token,
+            deadline: pendingDeadline === null
+                ? event.skeletonDelay.deadline
+                : Math.min(pendingDeadline, event.skeletonDelay.deadline),
+        }
+        : null;
     const visual: TDocumentViewportVisualOwner = {
         kind: 'page',
         generation: state.generation,
         pageNumber,
-        presentation: event.skeletonDelay ? 'cold-shell' : 'skeleton',
+        presentation: skeletonDelay ? 'cold-shell' : 'skeleton',
         frameKey: null,
         error: null,
     };
@@ -594,21 +614,21 @@ function navigationRequested(
         // navigation intent.
         committedRenderFence: state.committedRenderFence,
         committedViewportFence: state.committedViewportFence,
-        skeletonDelay: event.skeletonDelay ? {
+        skeletonDelay: skeletonDelay ? {
             generation: state.generation,
-            token: event.skeletonDelay.token,
+            token: skeletonDelay.token,
             pageNumber,
-            deadline: event.skeletonDelay.deadline,
+            deadline: skeletonDelay.deadline,
         } : null,
         failure: null,
     };
-    if (event.skeletonDelay) {
+    if (skeletonDelay) {
         effects.push({
             type: 'schedule-skeleton-delay',
             generation: state.generation,
             pageNumber,
-            token: event.skeletonDelay.token,
-            deadline: event.skeletonDelay.deadline,
+            token: skeletonDelay.token,
+            deadline: skeletonDelay.deadline,
         });
     }
     return accept(next, effects);

@@ -1,28 +1,32 @@
 <template>
+    <!-- Plain elements, not USkeleton, and one pulse on .inner rather than one
+    per line: a fast scroll mounts a dozen pages per frame, and a component and
+    an animation for each of their hundreds of lines made every such frame a
+    long task. -->
     <div class="document-page-skeleton" :style="paddingStyle" aria-hidden="true">
         <div class="inner flex flex-col">
             <div class="header flex flex-col gap-2">
-                <USkeleton class="title-line" />
-                <USkeleton class="subtitle-line" />
+                <div class="title-line"></div>
+                <div class="subtitle-line"></div>
             </div>
 
             <div class="paragraph flex flex-col">
-                <USkeleton class="line" />
-                <USkeleton class="line" />
-                <USkeleton class="line is-short" />
+                <div class="line"></div>
+                <div class="line"></div>
+                <div class="line is-short"></div>
             </div>
 
             <div class="paragraph flex flex-col">
-                <USkeleton class="line" />
-                <USkeleton class="line" />
-                <USkeleton class="line is-short" />
+                <div class="line"></div>
+                <div class="line"></div>
+                <div class="line is-short"></div>
             </div>
 
             <div class="formula-block">
-                <USkeleton class="formula" />
+                <div class="formula"></div>
                 <div class="formula-inline-row">
-                    <USkeleton class="formula-inline" />
-                    <USkeleton class="formula-inline" />
+                    <div class="formula-inline"></div>
+                    <div class="formula-inline"></div>
                 </div>
             </div>
 
@@ -31,9 +35,9 @@
                 :key="`document-page-skeleton-paragraph-${i}`"
                 class="paragraph flex flex-col"
             >
-                <USkeleton class="line" />
-                <USkeleton class="line" />
-                <USkeleton class="line is-short" />
+                <div class="line"></div>
+                <div class="line"></div>
+                <div class="line is-short"></div>
             </div>
         </div>
     </div>

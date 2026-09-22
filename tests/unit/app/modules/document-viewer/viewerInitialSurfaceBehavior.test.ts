@@ -87,7 +87,7 @@ describe('viewer initial-surface behavior', () => {
         expect(shell?.style.height).toBe('792px');
         expect(shell?.querySelector('.document-page-skeleton')).not.toBeNull();
         expect(shell?.querySelector<HTMLElement>('.document-page-skeleton')?.style.padding).toBe('56px');
-        expect(shell?.querySelectorAll('[data-ui-skeleton]').length).toBeGreaterThan(0);
+        expect(shell?.querySelectorAll('.document-page-skeleton .line').length).toBeGreaterThan(0);
 
         harness.unmount();
     });

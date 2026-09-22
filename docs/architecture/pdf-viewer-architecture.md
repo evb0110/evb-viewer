@@ -131,6 +131,23 @@ its siblings and pushes the scroll rail beyond the sidebar's clip edge. The
 global status row owns no sidebar compensation; the app shell already reserves
 its height outside the workspace row.
 
+## Fast scrolling and rapid commands
+
+On macOS the compositor scrolls a trackpad fling without waiting for the main
+thread, so a fast fling can reach rows the virtual window has not mounted yet.
+The virtual spacers therefore paint the pages they stand in for as a repeated
+page-shell background (`buildPdfVirtualSpacerShellStyle`), anchored at the edge
+that touches a mounted row. A spacer that paints nothing shows the bare viewer
+background in those frames. Keep per-frame mount cost small for the same
+reason: a page skeleton is plain elements with one pulse per page, and effects
+that only matter while a document opens must not subscribe to the virtual
+window or measure the viewport on every scroll frame.
+
+The skeleton delay spares a quick navigation from a skeleton flash. It applies
+once per burst of commands: a command that lands while the skeleton already
+shows keeps it for the new target, and one that lands while the delay runs
+keeps the running deadline.
+
 ## Wheel gestures and explicit commands
 
 Viewport intent is ordered by when the user expressed it, not by when its

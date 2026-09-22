@@ -570,6 +570,56 @@ describe('document open surface session', () => {
         vi.useRealTimers();
     });
 
+    it('keeps the skeleton through rapid navigation instead of returning to a bare page', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(2_000);
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'scan.djvu', 'djvu:1');
+        expect(session.commitOpeningPageGeometry(generation, openingGeometry('scan.djvu', 10, {
+            pageNumber: 1,
+            width: 600,
+            height: 800,
+            rotation: 0,
+        }))).toBe(true);
+        expect(session.commitGeometry(generation, {
+            width: 600,
+            height: 800,
+            margin: 16,
+        })).toBe(true);
+        const fence = createRenderFence(session, generation, 'djvu:1', {
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 1,
+        });
+        expect(session.commitCanvas(fence)).toBe(true);
+        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
+        expect(session.markReady(fence)).toBe(true);
+        vi.advanceTimersByTime(1_000);
+
+        // A command that lands while the delay runs keeps its deadline.
+        session.requestNavigation(2, 120);
+        vi.advanceTimersByTime(80);
+        session.requestNavigation(3, 120);
+        expect(session.viewportSession.value.visual).toMatchObject({
+            pageNumber: 3,
+            presentation: 'cold-shell',
+        });
+        vi.advanceTimersByTime(40);
+        expect(session.viewportSession.value.visual).toMatchObject({
+            pageNumber: 3,
+            presentation: 'skeleton',
+        });
+
+        // Once the skeleton shows, the next target keeps it immediately.
+        session.requestNavigation(4, 120);
+        expect(session.viewportSession.value.visual).toMatchObject({
+            pageNumber: 4,
+            presentation: 'skeleton',
+        });
+        expect(session.viewportSession.value.skeletonDelay).toBeNull();
+        vi.useRealTimers();
+    });
+
     it('orders same-page commands by ticket and rejects the earlier placement', async () => {
         const session = createDocumentOpenSurfaceSession();
         beginSurface(session);

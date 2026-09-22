@@ -23,6 +23,10 @@ import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/p
 import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import {
+    buildPdfVirtualSpacerShellStyle,
+    type TPdfVirtualSpacerShellAnchor,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPdfVirtualSpacerShellStyle';
+import {
     getIndexedValue,
     getPageMetricMaximum,
     normalizePageMetrics,
@@ -121,9 +125,19 @@ function mergePdfRowWindows(
     return mergedWindows;
 }
 
-function createVirtualSpacerStyle(height: number) {
+function createVirtualSpacerStyle(
+    height: number,
+    layout: NonNullable<ReturnType<typeof buildPageLayoutMetrics>>,
+    adjacentPage: number,
+    anchor: TPdfVirtualSpacerShellAnchor,
+) {
     const value = `${height}px`;
     return {
+        ...buildPdfVirtualSpacerShellStyle(
+            layout,
+            requirePageNumber(adjacentPage, layout.base.totalPages),
+            anchor,
+        ),
         height: value,
         minHeight: value,
         flexBasis: value,
@@ -540,7 +554,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return null;
         }
 
-        return createVirtualSpacerStyle(spacerHeight);
+        return createVirtualSpacerStyle(spacerHeight, layout, virtualWindowStartPage.value, 'bottom');
     });
 
     const bottomVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
@@ -569,7 +583,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return null;
         }
 
-        return createVirtualSpacerStyle(spacerHeight);
+        return createVirtualSpacerStyle(spacerHeight, layout, virtualWindowEndPageNumber, 'top');
     });
 
     const pagesToRender = computed(() => {
@@ -723,7 +737,12 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                 key: `${window.start}:${window.end}`,
                 pages: range(window.start, window.end + 1),
                 spacerBeforeStyle: spacerHeight > 0
-                    ? createVirtualSpacerStyle(spacerHeight)
+                    ? createVirtualSpacerStyle(
+                        spacerHeight,
+                        layout,
+                        previous ? previous.end : window.start,
+                        previous ? 'top' : 'bottom',
+                    )
                     : null,
             };
         });

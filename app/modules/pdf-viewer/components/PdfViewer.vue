@@ -567,7 +567,18 @@ function alignProvisionalOpeningPageShell(pageNumber: TPageNumber) {
 // remounting the target page. Reassert physical ownership after each Vue DOM
 // flush until the canonical viewport transaction commits, otherwise the
 // changed offsets can put the old row back under the viewport for one RAF.
+// Outside that window alignment is a no-op, so do not subscribe to the virtual
+// window or read the exact page style: that read measures the viewport and
+// forced a synchronous layout after every scroll frame's DOM patch.
 watchPostEffect(() => {
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    if (
+        snapshot.phase === 'ready'
+        || snapshot.phase === 'failed'
+        || snapshot.committedViewport !== null
+    ) {
+        return;
+    }
     void virtualPageSegments.value;
     void projectedOpeningPageStyle.value;
     void chassisAuthority?.openSurface.snapshot.value.geometry;

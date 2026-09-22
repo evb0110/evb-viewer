@@ -14,6 +14,10 @@ import {
     resolve,
 } from 'node:path';
 import { delay } from 'es-toolkit/promise';
+import {
+    createCanvas,
+    loadImage,
+} from '@napi-rs/canvas';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     createLargeScannedFixturePdf,
@@ -104,6 +108,11 @@ const PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH = resolve(
     '.devkit',
     'pdf-paged-fit-height-backward-wheel-trace.json',
 );
+const RAPID_NEXT_SKELETON_TRACE_OUTPUT_PATH = resolve(
+    process.cwd(),
+    '.devkit',
+    'pdf-rapid-next-skeleton-trace.json',
+);
 const CTRL_WHEEL_FIRST_PAGE_TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
@@ -147,6 +156,19 @@ interface IPageButtonState {
 }
 
 interface IRapidNavigationProbeWindow { __evbTestApi?: IEvbTestApi }
+
+interface IBarePageFrame {
+    bare: boolean;
+    elapsedMs: number;
+    page: number | null;
+}
+
+interface IBarePageProbe {
+    frames: IBarePageFrame[];
+    stopped: boolean;
+}
+
+interface IBarePageProbeWindow extends Window { __evbBarePageProbe?: IBarePageProbe }
 
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -596,6 +618,17 @@ async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber
     }, { timeout }, pageNumber)
         .then(() => true)
         .catch(() => false);
+}
+
+async function setFitWidthAndWaitForPage(session: IElectronE2ESession, pageNumber: number) {
+    await requireWorkspaceCommand(session.page, 'handleViewModeSingle');
+    await jumpToPageAndWaitForCanvas(session, pageNumber);
+    await requireWorkspaceCommand(session.page, 'handleFitWidth');
+    await session.page.waitForFunction(() => (
+        (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
+    ), {timeout: 15_000});
+    await waitForVisiblePageCanvas(session, pageNumber, 15_000);
+    await waitForAnimationFrames(session.page, 10);
 }
 
 async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumber: number) {
@@ -2280,6 +2313,201 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(surfaceTrace.frames.length).toBeGreaterThanOrEqual(2);
         expect(missingVisualFrames).toEqual([]);
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('fit-width');
+    }, 60_000);
+
+    it('paints page shells in a virtual spacer that line up with the mounted pages', async () => {
+        const session = sessionFixture.getSession();
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
+        }
+
+        const originalViewport = session.page.viewport();
+        try {
+            await session.page.setViewport({
+                width: 1600,
+                height: 1000,
+            });
+            await setFitWidthAndWaitForPage(session, 60);
+
+            // A fling that outruns page mounting shows the compositor this
+            // spacer region. A hidden Linux session scrolls in lockstep with
+            // the main thread, so move the region into view instead.
+            const seam = await session.page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const track = viewport?.querySelector<HTMLElement>('.pdf-viewer-page-track') ?? viewport;
+                const firstChild = track?.firstElementChild;
+                const firstPage = track?.querySelector<HTMLElement>(':scope > .page_container');
+                if (!viewport || !track || !firstPage || !firstChild?.matches('.pdf-viewer-virtual-spacer')) {
+                    return null;
+                }
+                const viewportRect = viewport.getBoundingClientRect();
+                const shift = viewportRect.top + (viewport.clientHeight * 0.7) - firstPage.getBoundingClientRect().top;
+                track.style.transform = `translateY(${shift}px)`;
+                const pageRect = firstPage.getBoundingClientRect();
+                const swatch = document.createElement('canvas').getContext('2d');
+                if (!swatch) {
+                    return null;
+                }
+                swatch.fillStyle = window.getComputedStyle(viewport).backgroundColor;
+                swatch.fillRect(0, 0, 1, 1);
+                return {
+                    background: Array.from(swatch.getImageData(0, 0, 1, 1).data.slice(0, 3)),
+                    gap: Number.parseFloat(window.getComputedStyle(track).rowGap) || 0,
+                    pageCenterX: pageRect.left + (pageRect.width / 2),
+                    pageTop: pageRect.top,
+                    viewportTop: viewportRect.top,
+                    windowWidth: window.innerWidth,
+                };
+            });
+            expect(seam).not.toBeNull();
+            if (!seam) {
+                return;
+            }
+            await waitForAnimationFrames(session.page, 3);
+            const screenshot = await session.page.screenshot({type: 'png'});
+            const image = await loadImage(Buffer.from(screenshot));
+            const ratio = image.width / seam.windowWidth;
+            const canvas = createCanvas(image.width, image.height);
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            const isBackgroundAt = (cssY: number) => {
+                const pixel = context.getImageData(Math.round(seam.pageCenterX * ratio), Math.round(cssY * ratio), 1, 1).data;
+                return seam.background.every((channel, index) => Math.abs((pixel[index] ?? 0) - channel) <= 3);
+            };
+            const shellTop = seam.viewportTop + 4;
+            const shellBottom = seam.pageTop - seam.gap - 3;
+            let backgroundRows = 0;
+            let sampledRows = 0;
+            for (let y = shellTop; y <= shellBottom; y += 2) {
+                sampledRows += 1;
+                backgroundRows += isBackgroundAt(y) ? 1 : 0;
+            }
+
+            expect(sampledRows).toBeGreaterThan(100);
+            // The region spans at most one inter-page gap of the repeated shell.
+            expect(backgroundRows / sampledRows).toBeLessThan(0.1);
+            // The last spacer shell ends exactly one track gap above the first page.
+            expect(isBackgroundAt(seam.pageTop - (seam.gap / 2))).toBe(true);
+            expect(isBackgroundAt(seam.pageTop - seam.gap - 3)).toBe(false);
+        } finally {
+            await session.page.evaluate(() => {
+                document.querySelector<HTMLElement>('#pdf-viewer .pdf-viewer-page-track')?.style.removeProperty('transform');
+            });
+            if (originalViewport) {
+                await session.page.setViewport(originalViewport);
+            }
+        }
+    }, 60_000);
+
+    it('keeps the page skeleton through rapid trusted Next clicks instead of flashing bare pages', async () => {
+        const session = sessionFixture.getSession();
+        if (!pageJumpReady || !pageJumpPdfPath) {
+            throw new Error('Page-jump suite setup did not complete');
+        }
+
+        const originalViewport = session.page.viewport();
+        const throttle = await session.page.createCDPSession();
+        try {
+            await session.page.setViewport({
+                width: 1600,
+                height: 1000,
+            });
+            await setFitWidthAndWaitForPage(session, 200);
+            const nextButton = await session.page.evaluate(() => {
+                const rect = Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
+                    .filter(candidate => (candidate.getAttribute('aria-label')?.trim() ?? '').startsWith('Next Page'))
+                    .map(candidate => candidate.getBoundingClientRect())
+                    .find(candidate => candidate.width > 8 && candidate.height > 8);
+                return rect ? {
+                    x: rect.left + (rect.width / 2),
+                    y: rect.top + (rect.height / 2),
+                } : null;
+            });
+            expect(nextButton).not.toBeNull();
+            if (!nextButton) {
+                return;
+            }
+
+            await session.page.evaluate(() => {
+                const probe: IBarePageProbe = {
+                    frames: [],
+                    stopped: false,
+                };
+                (window as IBarePageProbeWindow).__evbBarePageProbe = probe;
+                const startedAt = performance.now();
+                const sample = () => {
+                    if (probe.stopped) {
+                        return;
+                    }
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    const viewportRect = viewport?.getBoundingClientRect();
+                    const centerY = viewportRect ? viewportRect.top + (viewportRect.height / 2) : 0;
+                    const page = viewport
+                        ? Array.from(viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)'))
+                            .find((candidate) => {
+                                const rect = candidate.getBoundingClientRect();
+                                return rect.top <= centerY && rect.bottom >= centerY;
+                            })
+                        : undefined;
+                    const skeleton = page?.querySelector<HTMLElement>('.document-page-skeleton');
+                    const showsSkeleton = Boolean(skeleton && window.getComputedStyle(skeleton).display !== 'none');
+                    const rendered = page?.classList.contains('page_container--rendered') === true;
+                    probe.frames.push({
+                        bare: page !== undefined && !rendered && !showsSkeleton,
+                        elapsedMs: performance.now() - startedAt,
+                        page: page ? Number(page.dataset.page) : null,
+                    });
+                    requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
+            });
+            // Scanned pages render slower than a reader clicks; throttling
+            // keeps each target still loading when the next click lands.
+            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 4});
+            for (let click = 0; click < 10; click += 1) {
+                await session.page.mouse.click(nextButton.x, nextButton.y);
+                await delay(90);
+            }
+            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 1});
+            await delay(600);
+            const toolbarPage = (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? null;
+            const frames = await session.page.evaluate(() => {
+                const probe = (window as IBarePageProbeWindow).__evbBarePageProbe;
+                if (!probe) {
+                    return [];
+                }
+                probe.stopped = true;
+                return probe.frames;
+            });
+            const barePages = [...new Set(frames.filter(frame => frame.bare).map(frame => frame.page))];
+            writeTraceArtifact({
+                barePages,
+                frames,
+                nextButton,
+                scenario: 'rapid-trusted-next-skeleton-continuity',
+                toolbarPage,
+            }, RAPID_NEXT_SKELETON_TRACE_OUTPUT_PATH);
+
+            expect(toolbarPage).toBe(210);
+            expect(frames.length).toBeGreaterThan(20);
+            // The first command may hold the skeleton back briefly so that a
+            // quick render does not flash it. Later clicks land while the
+            // skeleton shows and must keep it, not flash each page bare.
+            expect(barePages.length).toBeLessThanOrEqual(2);
+        } finally {
+            await session.page.evaluate(() => {
+                const probeWindow = window as IBarePageProbeWindow;
+                if (probeWindow.__evbBarePageProbe) {
+                    probeWindow.__evbBarePageProbe.stopped = true;
+                }
+                delete probeWindow.__evbBarePageProbe;
+            }).catch(() => undefined);
+            await throttle.send('Emulation.setCPUThrottlingRate', {rate: 1}).catch(() => undefined);
+            await throttle.detach().catch(() => undefined);
+            if (originalViewport) {
+                await session.page.setViewport(originalViewport);
+            }
+        }
     }, 60_000);
 
     it('keeps page overlays mounted after jumping to page 100', async () => {
