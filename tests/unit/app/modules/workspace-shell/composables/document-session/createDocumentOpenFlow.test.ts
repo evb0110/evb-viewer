@@ -91,6 +91,14 @@ const PDF_BYTES = Uint8Array.from([
     68,
     70,
 ]);
+
+function createNativePageSizes(pageCount: number) {
+    return Array.from({length: pageCount}, () => ({
+        width: 612,
+        height: 792,
+    }));
+}
+
 interface IResetHistoryTestOptions {
     reuseSnapshot?: boolean;
     isCurrent?: (() => boolean) | undefined;
@@ -134,6 +142,13 @@ function createOpenFlowHarness(options: {
         incrementSessionVersion: vi.fn(),
         loadEpoch: createEpochGuard(),
         ...(options.openSurface === undefined ? {} : {openSurface: options.openSurface}),
+        readOpeningPageFramePolicy: () => ({
+            fitMode: 'width' as const,
+            viewMode: 'single' as const,
+            zoom: 1,
+            zoomMode: 'fit-width' as const,
+            continuousScroll: true,
+        }),
         openEpoch: createEpochGuard(),
         pushHistorySnapshot: vi.fn(async () => true),
         ...(options.reportOpenFailure === undefined ? {} : {reportOpenFailure: options.reportOpenFailure}),
@@ -275,7 +290,7 @@ describe('createDocumentOpenFlow', () => {
         const revokeObjectURL = vi.fn();
         mocks.nativePreview.createSource.mockReturnValue({
             cancelPagePreview,
-            getPageSizes: vi.fn(),
+            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
             renderPageObjectUrl,
             revokeObjectURL,
             terminate,
@@ -299,7 +314,7 @@ describe('createDocumentOpenFlow', () => {
         await vi.waitFor(() => {
             expect(renderPageObjectUrl).toHaveBeenCalledOnce();
         });
-        expect(renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({targetWidthPx: 900}));
+        expect(renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({targetWidthPx: 901}));
         expect(terminate).not.toHaveBeenCalled();
         expect(state.pdfOpeningSrc.value).toEqual({
             kind: 'path',
@@ -386,7 +401,7 @@ describe('createDocumentOpenFlow', () => {
         }));
         mocks.nativePreview.createSource.mockReturnValue({
             cancelPagePreview: vi.fn(),
-            getPageSizes: vi.fn(),
+            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
             renderPageObjectUrl,
             revokeObjectURL: vi.fn(),
             terminate: vi.fn(),
@@ -500,7 +515,7 @@ describe('createDocumentOpenFlow', () => {
         const renderPageObjectUrl = vi.fn(() => rasterGate.promise);
         mocks.nativePreview.createSource.mockReturnValue({
             cancelPagePreview: vi.fn(),
-            getPageSizes: vi.fn(),
+            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
             renderPageObjectUrl,
             revokeObjectURL: vi.fn(),
             terminate,
@@ -638,6 +653,97 @@ describe('createDocumentOpenFlow', () => {
         expect(terminate).toHaveBeenCalledOnce();
     });
 
+    it('releases the native opening owner when page-size metadata is incomplete', async () => {
+        const originalPath = requireDocumentRef('/documents/incomplete-page-sizes.pdf');
+        const workingPath = requireDocumentRef('/tmp/incomplete-page-sizes-working.pdf');
+        const size = 170_496_793;
+        const modifiedAt = requireEpochMs(1_724_000_000_000);
+        const openingGeometry = {
+            pageNumber: requirePageNumber(1),
+            pageCount: 1_859,
+            width: 612,
+            height: 792,
+            rotation: 0 as const,
+            size,
+            modifiedAt,
+            linearized: false,
+        };
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.beginPrepared({
+            documentId: originalPath,
+            documentRevision: 'open-intent:incomplete-page-sizes',
+        }, {
+            documentId: originalPath,
+            ownerId: 'test-chassis',
+            pageNumber: requirePageNumber(1),
+            intentKey: 'fit-width:1',
+            layoutKey: '1000x800',
+            policyKey: 'width:single:fit-width:1',
+            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
+            style: {
+                width: '900px',
+                height: '1165px',
+            },
+            geometry: {
+                documentId: originalPath,
+                ...openingGeometry,
+            },
+        });
+        const validationGate = Promise.withResolvers<{
+            isValid: true;
+            tool: 'qpdf';
+            errors: never[];
+            warnings: never[];
+        }>();
+        const terminate = vi.fn();
+        const renderPageObjectUrl = vi.fn();
+        const getPageSizes = vi.fn(() => ({
+            pageCount: openingGeometry.pageCount,
+            defaultPageSize: {
+                width: openingGeometry.width,
+                height: openingGeometry.height,
+            },
+            overrides: [],
+        }));
+        mocks.nativePreview.createSource.mockReturnValue({
+            cancelPagePreview: vi.fn(),
+            getPageSizes,
+            renderPageObjectUrl,
+            revokeObjectURL: vi.fn(),
+            terminate,
+        });
+        mocks.documentFiles.statFile.mockResolvedValue({
+            size,
+            modifiedAt,
+        });
+        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(openingGeometry);
+        mocks.documentPdf.validatePdfPath.mockReturnValue(validationGate.promise);
+        const {openFlow} = createOpenFlowHarness({openSurface});
+
+        const opening = openFlow.openFile({
+            kind: 'pdf',
+            originalPath,
+            workingPath,
+            openingGeometry,
+        });
+        await vi.waitFor(() => {
+            expect(getPageSizes).toHaveBeenCalledOnce();
+            expect(terminate).toHaveBeenCalledOnce();
+        });
+
+        expect(renderPageObjectUrl).not.toHaveBeenCalled();
+        expect(openSurface.openingPageSource.value).toBeNull();
+        expect(openSurface.snapshot.value.nativeOpeningPreviewState).toBe('failed');
+
+        validationGate.resolve({
+            isValid: true,
+            tool: 'qpdf',
+            errors: [],
+            warnings: [],
+        });
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
+    });
+
     it('retires native resources when a second open supersedes validation', async () => {
         const originalPath = requireDocumentRef('/documents/first-dictionary.pdf');
         const workingPath = requireDocumentRef('/tmp/first-dictionary-working.pdf');
@@ -698,7 +804,7 @@ describe('createDocumentOpenFlow', () => {
         const terminate = vi.fn();
         mocks.nativePreview.createSource.mockReturnValue({
             cancelPagePreview: vi.fn(),
-            getPageSizes: vi.fn(),
+            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
             renderPageObjectUrl: vi.fn(async () => ({
                 objectUrl: 'blob:first-native-opening',
                 renderedPx: 1_800,

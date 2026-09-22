@@ -137,6 +137,22 @@ function parseDefaultPageSize(pdfInfoOutput: string): IPdfNativePageSize | null 
     } : null;
 }
 
+function resolveDisplayedPageSize(
+    width: number,
+    height: number,
+    rotation: 0 | 90 | 180 | 270,
+): IPdfNativePageSize {
+    return rotation === 90 || rotation === 270
+        ? {
+            width: height,
+            height: width,
+        }
+        : {
+            width,
+            height,
+        };
+}
+
 function isPageInPdfInfoWindow(pageNumber: number, pageCount: number) {
     return pageNumber <= PDFINFO_PAGE_SIZE_WINDOW_PAGES
         || pageNumber > pageCount - PDFINFO_PAGE_SIZE_WINDOW_PAGES;
@@ -151,6 +167,16 @@ export function parsePdfInfoPageSizes(
         throw new Error('Unable to determine PDF page count for native preview');
     }
     const parsedPageSizes = new Map<number, IPdfNativePageSize>();
+    const pageRotations = new Map<number, 0 | 90 | 180 | 270>();
+
+    PAGE_ROTATION_RE.lastIndex = 0;
+    for (const match of pdfInfoOutput.matchAll(PAGE_ROTATION_RE)) {
+        const pageNumber = Number.parseInt(match[1] ?? '', 10);
+        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
+            continue;
+        }
+        pageRotations.set(pageNumber, normalizeRightAngleRotation(match[2]));
+    }
 
     PAGE_SIZE_RE.lastIndex = 0;
     for (const match of pdfInfoOutput.matchAll(PAGE_SIZE_RE)) {
@@ -168,13 +194,22 @@ export function parsePdfInfoPageSizes(
         ) {
             continue;
         }
-        parsedPageSizes.set(pageNumber, {
+        parsedPageSizes.set(pageNumber, resolveDisplayedPageSize(
             width,
             height,
-        });
+            pageRotations.get(pageNumber) ?? 0,
+        ));
     }
 
-    const firstResolvedSize = fallbackPageSize
+    const fallbackPageSizeFor = (pageNumber: number) => fallbackPageSize === null || fallbackPageSize === undefined
+        ? null
+        : resolveDisplayedPageSize(
+            fallbackPageSize.width,
+            fallbackPageSize.height,
+            pageRotations.get(pageNumber) ?? 0,
+        );
+    const normalizedFallbackPageSize = fallbackPageSizeFor(1);
+    const firstResolvedSize = normalizedFallbackPageSize
         ?? parsedPageSizes.values().next().value
         ?? null;
     if (!firstResolvedSize) {
@@ -182,14 +217,30 @@ export function parsePdfInfoPageSizes(
     }
 
     if (pageCount > PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT) {
+        // The compact default describes the unrotated catalog size. A page's
+        // display rotation is an override, including page 1; using page 1's
+        // displayed dimensions as the default would make every unrotated page
+        // look like an override when the first page is quarter-turned.
+        const compactDefaultPageSize = fallbackPageSize ?? firstResolvedSize;
+        const compactPageSizes = new Map(parsedPageSizes);
+        if (fallbackPageSize !== null && fallbackPageSize !== undefined) {
+            for (const pageNumber of pageRotations.keys()) {
+                if (!compactPageSizes.has(pageNumber)) {
+                    const fallback = fallbackPageSizeFor(pageNumber);
+                    if (fallback) {
+                        compactPageSizes.set(pageNumber, fallback);
+                    }
+                }
+            }
+        }
         const overrides: IPdfNativePageSizeOverride[] = [];
         for (const [
             pageNumber,
             size,
-        ] of parsedPageSizes) {
+        ] of compactPageSizes) {
             if (
-                size.width === firstResolvedSize.width
-                && size.height === firstResolvedSize.height
+                size.width === compactDefaultPageSize.width
+                && size.height === compactDefaultPageSize.height
             ) {
                 continue;
             }
@@ -197,22 +248,21 @@ export function parsePdfInfoPageSizes(
                 pageNumber: requirePageNumber(pageNumber, pageCount),
                 ...size,
             });
-            if (overrides.length >= PDFINFO_PAGE_SIZE_WINDOW_LIMIT) {
-                break;
+            if (overrides.length > PDFINFO_PAGE_SIZE_WINDOW_LIMIT) {
+                throw new Error('Native PDF page-size metadata exceeds the complete override limit');
             }
         }
         return {
             pageCount,
-            defaultPageSize: { ...firstResolvedSize },
+            defaultPageSize: { ...compactDefaultPageSize },
             overrides,
         } satisfies IPdfNativePageSizes;
     }
 
-    const sizes = Array.from({ length: pageCount }, () => (
-        fallbackPageSize
-            ? { ...fallbackPageSize }
-            : null
-    ));
+    const sizes = Array.from({ length: pageCount }, (_, index) => {
+        const fallback = fallbackPageSizeFor(index + 1);
+        return fallback ? {...fallback} : null;
+    });
     for (const [
         pageNumber,
         size,

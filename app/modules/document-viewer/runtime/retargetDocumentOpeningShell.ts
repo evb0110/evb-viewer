@@ -1,6 +1,7 @@
 export type TDocumentOpenSurfacePresentation = 'idle' | 'page-shell'
     | 'committed' | 'failed';
 export type TDocumentOpenSurfaceVisualPresentation = Exclude<TDocumentOpenSurfacePresentation, 'failed'>;
+export type TDocumentNativeOpeningPreviewState = 'inactive' | 'loading' | 'settled' | 'failed';
 
 export interface IDocumentOpenSurfaceGeometry {
     readonly width: number;
@@ -43,6 +44,9 @@ export interface IDocumentOpenSurfaceVisualState {
     geometry: IDocumentOpenSurfaceGeometry | null;
     openingPageGeometry: IDocumentOpenSurfacePageGeometry | null;
     openingPageFrame: IDocumentOpenSurfacePageFrame | null;
+    nativeOpeningPreviewState?: TDocumentNativeOpeningPreviewState;
+    /** Whether the native opening-preview lane has claimed this generation. */
+    nativeOpeningPreviewStaged?: boolean;
     committedViewportPosition: {
         readonly viewportIntentId: string;
         readonly left: number;

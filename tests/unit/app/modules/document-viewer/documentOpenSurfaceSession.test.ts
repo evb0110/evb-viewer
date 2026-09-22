@@ -148,6 +148,22 @@ function createPageSource(documentRef: string): IDocumentPageSource {
 }
 
 describe('document open surface session', () => {
+    it('publishes native preview ownership without leaving the opening surface blank', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'large.pdf', 'revision-large');
+
+        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('inactive');
+        expect(session.setNativeOpeningPreviewState(generation, 'loading')).toBe(true);
+        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('loading');
+        expect(session.setNativeOpeningPreviewState(generation, 'settled')).toBe(true);
+        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('settled');
+        expect(session.setNativeOpeningPreviewState(generation, 'failed')).toBe(true);
+        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('failed');
+
+        session.reset();
+        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('inactive');
+    });
+
     it('rejects navigation until an opening session owns the document', () => {
         const session = createDocumentOpenSurfaceSession();
 

@@ -5,9 +5,9 @@
         data-pdf-viewer-host
         :class="{
             'pdf-viewer-container--dark': props.invertColors === true,
-            'pdf-viewer-container--opening-surface-deferred': shouldDeferLargePdfOpeningSurface,
+            'pdf-viewer-container--opening-surface-deferred': shouldHidePdfOpeningSurface,
         }"
-        :data-opening-surface-deferred="shouldDeferLargePdfOpeningSurface"
+        :data-opening-surface-deferred="shouldHidePdfOpeningSurface"
     >
         <template v-if="props.mountPresentation !== false">
             <PdfViewerViewport
@@ -47,8 +47,21 @@
                 @cancel-placed-image="clearPendingImagePlacement"
             />
             <PdfInitialSurfacePlaceholder
-                v-if="showInitialSurfacePlaceholder"
+                v-if="showInitialSurfacePlaceholder && !shouldUseGenericInitialSurfaceLoading"
                 :page-style="initialSurfacePlaceholderPageStyle"
+            />
+            <AppLoaderOverlay
+                v-else-if="showInitialSurfacePlaceholder && shouldUseGenericInitialSurfaceLoading"
+                :label="t('status.preparingDocument')"
+                background="muted"
+                size="md"
+            />
+            <AppLoaderOverlay
+                v-else-if="shouldShowPdfFallbackOpeningLoader"
+                :label="t('status.preparingDocument')"
+                background="muted"
+                size="md"
+                data-testid="document-opening-pdfjs-geometry-loading"
             />
             <PdfRegionSnipOverlay
                 :active="regionSnip.isActive.value"
@@ -86,6 +99,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import PdfViewerPortalLayers from '@app/modules/pdf-viewer/components/PdfViewerPortalLayers.vue';
 import PdfViewerViewport from '@app/modules/pdf-viewer/components/PdfViewerViewport.vue';
+import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
 import PdfRegionSnipOverlay from '@app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue';
 import PdfCropOverlay from '@app/modules/pdf-viewer/components/PdfCropOverlay.vue';
 import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
@@ -146,6 +160,7 @@ const {
     viewerContainer,
     viewerClass,
     containerStyle,
+    hasCompletePageGeometry,
     scaledMargin,
     openingVirtualExtentMinimumScrollHeight,
     virtualPageSegments,
@@ -187,6 +202,18 @@ const showInitialSurfacePlaceholder = computed(() => (
     injectedChassisAuthority === null
     && isViewerLoadingOverlayVisible.value
     && props.isActive !== false
+));
+const shouldUseGenericInitialSurfaceLoading = computed(() => (
+    injectedChassisAuthority === null
+    && shouldDeferNativePdfOpeningSkeleton({
+        documentId: null,
+        geometry: null,
+        isOpening: true,
+        nativeOpeningPreviewState: 'inactive',
+        rendererKind: 'pdfjs',
+        source: props.src,
+        sourceKind: 'pdf',
+    })
 ));
 
 const initialSurfacePlaceholderPageStyle = computed(() => buildPdfInitialSurfacePlaceholderStyle({
@@ -232,7 +259,17 @@ const showCommittedInitialPageShell = computed(() => (
     && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page'
 ));
 function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
-    if (shouldDeferLargePdfOpeningSurface.value) {
+    if (
+        shouldShowPdfOpeningSkeleton.value
+        && pageNumber === committedInitialPageNumber.value
+    ) {
+        return true;
+    }
+    if (
+        shouldDeferLargePdfOpeningSurface.value
+        || shouldHoldPdfOpeningSurfaceUntilGeometry.value
+        || shouldShowPdfFallbackOpeningLoader.value
+    ) {
         return false;
     }
     const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
@@ -269,10 +306,65 @@ const shouldDeferLargePdfOpeningSurface = computed(() => {
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
         isOpening: isCommittedInitialPageTransition.value,
+        nativeOpeningPreviewState: snapshot.nativeOpeningPreviewState ?? 'inactive',
+        ...(snapshot.nativeOpeningPreviewStaged === undefined
+            ? {}
+            : {nativeOpeningPreviewStaged: snapshot.nativeOpeningPreviewStaged}),
         rendererKind: 'pdfjs',
         source: props.src,
         sourceKind: 'pdf',
     });
+});
+// Releasing the native lane does not mean PDF.js has a document-wide scale.
+// On the low-CPU path there is no native preview owner, so keep both opening
+// shells behind the generic loader until PDF.js has measured every page. This
+// prevents its page-1 metric from becoming a visible provisional width.
+const shouldHoldPdfOpeningSurfaceUntilGeometry = computed(() => {
+    if (injectedChassisAuthority === null) {
+        return false;
+    }
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    if (snapshot.openingPageFrame !== null) {
+        return false;
+    }
+    return shouldDeferNativePdfOpeningSkeleton({
+        documentId: snapshot.identity?.documentId,
+        geometry: snapshot.openingPageGeometry,
+        isOpening: isCommittedInitialPageTransition.value,
+        nativeOpeningPreviewState: snapshot.nativeOpeningPreviewState ?? 'inactive',
+        rendererKind: 'pdfjs',
+        source: props.src,
+        sourceKind: 'pdf',
+    });
+});
+const shouldHidePdfOpeningSurface = computed(() => (
+    shouldDeferLargePdfOpeningSurface.value
+    || shouldHoldPdfOpeningSurfaceUntilGeometry.value
+));
+const hasStagedNativeOpeningPreview = computed(() => {
+    return chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewStaged === true;
+});
+const shouldShowPdfFallbackOpeningLoader = computed(() => {
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    const nativeFallbackPending = hasStagedNativeOpeningPreview.value
+        && snapshot.nativeOpeningPreviewState === 'failed';
+    return snapshot.committedRender === null
+        && (snapshot.openingPageFrame === null || !hasCompletePageGeometry.value)
+        && (
+            nativeFallbackPending
+            || (
+                injectedChassisAuthority === null
+                && shouldHoldPdfOpeningSurfaceUntilGeometry.value
+            )
+        );
+});
+const shouldShowPdfOpeningSkeleton = computed(() => {
+    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    return hasStagedNativeOpeningPreview.value
+        && snapshot.nativeOpeningPreviewState === 'failed'
+        && snapshot.committedRender === null
+        && hasCompletePageGeometry.value
+        && canonicalOpeningPageStyle.value !== null;
 });
 
 watchEffect(() => {
@@ -302,6 +394,10 @@ watchEffect(() => {
     }
     if (
         !isOpeningTransition
+        || (
+            shouldHoldPdfOpeningSurfaceUntilGeometry.value
+            && !hasCompletePageGeometry.value
+        )
         || openingPageFrameRecord.value !== null
     ) {
         return;

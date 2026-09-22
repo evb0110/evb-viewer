@@ -81,6 +81,49 @@ Page    3 size:  595.32 x 820.32 pts
         ]);
     });
 
+    it('normalizes per-page sizes to displayed dimensions when Poppler reports rotation', () => {
+        expect(parsePdfInfoPageSizes(`
+Pages:           2
+Page    1 size:  612 x 792 pts
+Page    1 rot:   90
+Page    2 size:  400 x 500 pts
+Page    2 rot:   -90
+`, 2, null)).toEqual([
+            {
+                width: 792,
+                height: 612,
+            },
+            {
+                width: 500,
+                height: 400,
+            },
+        ]);
+    });
+
+    it('applies each page rotation to dense fallback dimensions', () => {
+        expect(parsePdfInfoPageSizes(`
+Pages:           3
+Page size:       612 x 792 pts (letter)
+Page    2 rot:   90
+`, 3, {
+            width: 612,
+            height: 792,
+        })).toEqual([
+            {
+                width: 612,
+                height: 792,
+            },
+            {
+                width: 792,
+                height: 612,
+            },
+            {
+                width: 612,
+                height: 792,
+            },
+        ]);
+    });
+
     it('fills missing page sizes with the default size', () => {
         expect(parsePdfInfoPageSizes(`
 Pages:           3
@@ -128,6 +171,67 @@ Page    100000 size:  400 x 500 pts
                 height: 500,
             }],
         });
+    });
+
+    it('keeps rotated fallback pages as compact overrides', () => {
+        expect(parsePdfInfoPageSizes(`
+Pages:           100001
+Page size:       612 x 792 pts (letter)
+Page    100000 rot:   -90
+`, 100_001, {
+            width: 612,
+            height: 792,
+        })).toEqual({
+            pageCount: 100_001,
+            defaultPageSize: {
+                width: 612,
+                height: 792,
+            },
+            overrides: [{
+                pageNumber: 100_000,
+                width: 792,
+                height: 612,
+            }],
+        });
+    });
+
+    it('keeps a rotated first page as an override over the unrotated compact default', () => {
+        expect(parsePdfInfoPageSizes(`
+Pages:           100001
+Page size:       612 x 792 pts (letter)
+Page    1 rot:   90
+`, 100_001, {
+            width: 612,
+            height: 792,
+        })).toEqual({
+            pageCount: 100_001,
+            defaultPageSize: {
+                width: 612,
+                height: 792,
+            },
+            overrides: [{
+                pageNumber: 1,
+                width: 792,
+                height: 612,
+            }],
+        });
+    });
+
+    it('rejects compact metadata when the override table would be truncated', () => {
+        const pageRotations = [
+            'Page    1 rot: 0',
+            ...Array.from({length: 129}, (_, index) => (
+                `Page ${String(index + 2).padStart(4, ' ')} rot: 90`
+            )),
+        ].join('\n');
+        expect(() => parsePdfInfoPageSizes(`
+Pages:           100001
+Page size:       612 x 792 pts (letter)
+${pageRotations}
+`, 100_001, {
+            width: 612,
+            height: 792,
+        })).toThrow('complete override limit');
     });
 
     it('gates the dense compatibility array at the documented page-count limit', () => {

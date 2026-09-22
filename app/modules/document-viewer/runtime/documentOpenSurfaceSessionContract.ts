@@ -11,6 +11,7 @@ import type {
     IDocumentOpenSurfacePageGeometry,
     IDocumentOpenSurfacePagePreview,
     TDocumentOpenSurfacePresentation,
+    TDocumentNativeOpeningPreviewState,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 
 export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
@@ -74,6 +75,9 @@ export interface IDocumentOpenSurfaceSnapshot {
     readonly geometry: IDocumentOpenSurfaceGeometry | null;
     readonly openingPageGeometry: IDocumentOpenSurfacePageGeometry | null;
     readonly openingPageFrame: IDocumentOpenSurfacePageFrame | null;
+    readonly nativeOpeningPreviewState?: TDocumentNativeOpeningPreviewState;
+    /** Whether the native opening-preview lane has claimed this generation. */
+    readonly nativeOpeningPreviewStaged?: boolean;
     readonly committedRender: IDocumentOpenSurfaceRenderFence | null;
     readonly committedViewport: IDocumentOpenSurfaceViewportCommit | null;
     readonly failure: string | null;
@@ -105,6 +109,10 @@ export interface IDocumentOpenSurfaceSession {
     acquireSource(identity: IDocumentOpenSurfaceIdentity, expectedGeneration: number): number | null;
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
     commitOpeningPagePreview(generation: number, preview: IDocumentOpenSurfacePagePreview): boolean;
+    setNativeOpeningPreviewState(
+        generation: number,
+        state: TDocumentNativeOpeningPreviewState,
+    ): boolean;
     clearOpeningPagePreview(generation: number, objectUrl: string): boolean;
     publishOpeningPageSource(
         generation: number,

@@ -8,11 +8,13 @@
 
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
-/* A large native PDF keeps its preview as the sole visible opening owner until
-   the first PDF.js canvas is committed. Keep the PDF.js track mounted for
-   lifecycle/measurement without exposing its provisional page-local shell. */
+/* Keep the PDF.js track mounted for lifecycle/measurement without exposing a
+   provisional page-local shell while the opening owner resolves geometry. The
+   loader remains a sibling of this track and therefore stays visible. */
 .pdf-viewer-container--opening-surface-deferred {
-    visibility: hidden;
+    .pdf-viewer-page-track {
+        visibility: hidden;
+    }
 }
 
 .page_container {

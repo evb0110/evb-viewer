@@ -158,4 +158,75 @@ describe('pdfNativePreviewRouting', () => {
             },
         })).toBe(false);
     });
+
+    it('uses the open-surface native preview state as the visibility authority', () => {
+        const input = {
+            documentId: '/tmp/native-dictionary.pdf',
+            geometry: { size: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES },
+            isOpening: true,
+            nativeOpeningPreviewState: 'inactive' as const,
+            rendererKind: 'pdfjs',
+            sourceKind: 'pdf',
+        };
+
+        expect(shouldDeferNativePdfOpeningSkeleton(input)).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewState: 'loading',
+        })).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewState: 'settled',
+        })).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewState: 'failed',
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewStaged: true,
+            nativeOpeningPreviewState: 'loading',
+        })).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewStaged: true,
+            nativeOpeningPreviewState: 'settled',
+        })).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewStaged: true,
+            nativeOpeningPreviewState: 'inactive',
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewStaged: false,
+            nativeOpeningPreviewState: 'loading',
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            nativeOpeningPreviewStaged: false,
+            nativeOpeningPreviewState: 'settled',
+        })).toBe(false);
+    });
+
+    it('keeps a sub-threshold non-linearized page-heavy open deferred until staging settles', () => {
+        const source = {
+            kind: 'path' as const,
+            path: requireDocumentRef('/tmp/page-heavy.pdf'),
+            size: 170_496_793,
+        };
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            documentId: source.path,
+            geometry: {
+                pageCount: 1_859,
+                linearized: false,
+                size: source.size,
+            },
+            isOpening: true,
+            nativeOpeningPreviewState: 'inactive',
+            rendererKind: 'pdfjs',
+            source,
+            sourceKind: 'pdf',
+        })).toBe(true);
+    });
 });

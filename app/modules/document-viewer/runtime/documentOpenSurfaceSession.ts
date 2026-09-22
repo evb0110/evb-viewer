@@ -30,6 +30,7 @@ import {
     type IDocumentOpenSurfaceVisualState,
     type TDocumentOpenSurfacePresentation,
     type TDocumentOpenSurfaceVisualPresentation,
+    type TDocumentNativeOpeningPreviewState,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 import {createDocumentOpeningPreviewGate} from '@app/modules/document-viewer/runtime/createDocumentOpeningPreviewGate';
 export type {
@@ -70,6 +71,7 @@ export type {
     IDocumentOpenSurfacePageFrame,
     IDocumentOpenSurfacePagePreview,
     IDocumentOpenSurfacePageGeometry,
+    TDocumentNativeOpeningPreviewState,
     TDocumentOpenSurfacePresentation,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
@@ -94,6 +96,7 @@ const idleVisualState = (): IDocumentOpenSurfaceVisualState => ({
     geometry: null,
     openingPageGeometry: null,
     openingPageFrame: null,
+    nativeOpeningPreviewState: 'inactive',
     committedViewportPosition: null,
 });
 
@@ -246,6 +249,10 @@ function projectDocumentOpenSurfaceSnapshot(
         geometry: visual.geometry,
         openingPageGeometry: visual.openingPageGeometry,
         openingPageFrame: visual.openingPageFrame,
+        nativeOpeningPreviewState: visual.nativeOpeningPreviewState ?? 'inactive',
+        ...(visual.nativeOpeningPreviewStaged === undefined
+            ? {}
+            : {nativeOpeningPreviewStaged: visual.nativeOpeningPreviewStaged}),
         committedRender,
         committedViewport,
         failure: viewport.failure,
@@ -897,6 +904,21 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         commitOpeningPagePreview(generation, preview) {
             return openingPreviewGate.commit(generation, preview);
+        },
+        setNativeOpeningPreviewState(generation, state: TDocumentNativeOpeningPreviewState) {
+            const current = snapshot.value;
+            if (
+                current.generation !== generation
+                || state !== 'inactive' && !isTransitionPhase(current.phase)
+            ) {
+                return false;
+            }
+            commitVisual(visual => ({
+                ...visual,
+                nativeOpeningPreviewState: state,
+                nativeOpeningPreviewStaged: state === 'inactive' ? false : true,
+            }));
+            return true;
         },
         clearOpeningPagePreview(generation, objectUrl) {
             return openingPreviewGate.clear(generation, objectUrl);

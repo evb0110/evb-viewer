@@ -23,7 +23,7 @@ export {
     clampKeyboardSelection, createKeyboardSelection, updateKeyboardSelection,
 } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
-    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfacePageGeometrySeed, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
+    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfacePageGeometrySeed, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentNativeOpeningPreviewState, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export {
     createAnchorPageWindow, createLazyIndexedCollection, expandVirtualWindowForAnchor, isLazyIndexedCollection, type ILazyIndexedCollection,

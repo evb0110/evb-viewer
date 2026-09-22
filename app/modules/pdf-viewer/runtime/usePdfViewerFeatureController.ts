@@ -526,6 +526,7 @@ export const usePdfViewerFeatureController = (
         viewerHost,
         viewerContainer,
         renderedPageStateVersion: readonly(renderingSession.renderedPageStateVersion),
+        hasCompletePageGeometry: documentSession.hasCompletePageGeometry,
         viewerClass: viewportSession.viewModel.viewerClass,
         containerStyle: viewportSession.viewModel.containerStyle,
         scaledMargin: viewportSession.scale.scaledMargin,

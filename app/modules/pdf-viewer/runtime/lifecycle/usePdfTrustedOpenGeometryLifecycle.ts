@@ -10,8 +10,13 @@ import type {
     TPdfSource,
 } from '@app/types/pdfUi';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
+import {
+    PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
+    shouldStageNativePdfOpeningPreview,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { writeTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
+import { isBrowserLegacyDocumentRef } from '@contracts/documentRef';
 
 interface IUsePdfTrustedOpenGeometryLifecycleOptions {
     acceptedSource: Readonly<Ref<TPdfSource | null>>;
@@ -80,16 +85,33 @@ export const usePdfTrustedOpenGeometryLifecycle = (
                         modifiedAt: prevalidatedGeometry.modifiedAt,
                     };
                 }
-                seedTrustedPageGeometry({
-                    pageNumber: requirePageNumber(
-                        prevalidatedGeometry.pageNumber,
-                        prevalidatedGeometry.pageCount,
-                    ),
-                    pageCount: prevalidatedGeometry.pageCount,
-                    width: prevalidatedGeometry.width,
-                    height: prevalidatedGeometry.height,
-                    rotation: prevalidatedGeometry.rotation,
-                });
+                // A staged native opening preview owns the first visual for
+                // large path-backed PDFs. Its page table, rather than page 1,
+                // is the only authority that can resolve document-wide Fit
+                // Width. Seeding PDF.js with the trusted cover geometry here
+                // would let its fallback raster paint page 1 at page-local
+                // width before the full metrics table arrives, then visibly
+                // shrink when the wider document page is discovered. Leave
+                // the session cold until PDF.js has authoritative metrics if
+                // the native lane later releases this opening.
+                const nativePreviewLaneEligible = !isBrowserLegacyDocumentRef(documentId)
+                    && (
+                        typeof prevalidatedGeometry.size === 'number'
+                            && prevalidatedGeometry.size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
+                        || shouldStageNativePdfOpeningPreview(sourceAtLookup, prevalidatedGeometry)
+                    );
+                if (!nativePreviewLaneEligible) {
+                    seedTrustedPageGeometry({
+                        pageNumber: requirePageNumber(
+                            prevalidatedGeometry.pageNumber,
+                            prevalidatedGeometry.pageCount,
+                        ),
+                        pageCount: prevalidatedGeometry.pageCount,
+                        width: prevalidatedGeometry.width,
+                        height: prevalidatedGeometry.height,
+                        rotation: prevalidatedGeometry.rotation,
+                    });
+                }
                 // The main-process opening-geometry capability already
                 // fingerprinted this exact original source. Do not issue a
                 // second file:stat for the original path: renderer file I/O is

@@ -11,6 +11,7 @@ export interface INativePdfOpeningFrame {
     documentId: string;
     emptyStateVisible: boolean;
     generation: number;
+    nativeOpeningPreviewState: string;
     nativeSkeletonVisible: boolean;
     nativeViewerVisible: boolean;
     openingPreviewPage: number | null;
@@ -40,6 +41,13 @@ export interface INativePdfOpeningFrame {
         top: number;
         width: number;
     } | null;
+    transitionLoadingOverlayVisible: boolean;
+    transitionSkeletonRects: Array<{
+        height: number;
+        left: number;
+        top: number;
+        width: number;
+    }>;
     transitionSkeletonCount: number;
     transitionSurfaceVisible: boolean;
     viewportCommittedPage: number | null;
@@ -50,11 +58,13 @@ export interface INativePdfOpeningFrame {
 export async function installNativePdfOpeningSampler(page: Page) {
     await evaluateInPage(page, (rasterWidthCeilingPx: number) => {
         const testWindow = window as typeof window & {
-            __nativePdfOpeningAnimationFrame?: number;
+            __nativePdfOpeningMutationObserver?: MutationObserver;
+            __nativePdfOpeningSamplingTimer?: number;
             __nativePdfOpeningFrames?: INativePdfOpeningFrame[];
         };
-        if (testWindow.__nativePdfOpeningAnimationFrame !== undefined) {
-            cancelAnimationFrame(testWindow.__nativePdfOpeningAnimationFrame);
+        testWindow.__nativePdfOpeningMutationObserver?.disconnect();
+        if (testWindow.__nativePdfOpeningSamplingTimer !== undefined) {
+            clearInterval(testWindow.__nativePdfOpeningSamplingTimer);
         }
         testWindow.__nativePdfOpeningFrames = [];
         const isVisible = (element: HTMLElement | null) => {
@@ -87,12 +97,20 @@ export async function installNativePdfOpeningSampler(page: Page) {
             ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
             const viewportHost = chassis?.querySelector<HTMLElement>('[data-open-surface-phase]') ?? null;
-            const transitionSurface = host?.querySelector<HTMLElement>('.document-viewer-chassis__opening-page') ?? null;
+            const transitionSurface = host?.querySelector<HTMLElement>('.document-viewer-chassis__opening-page')
+                ?? host?.querySelector<HTMLElement>('[data-testid="document-opening-native-preview-loading"]')
+                ?? null;
+            const transitionLoadingOverlay = host?.querySelector<HTMLElement>(
+                '[data-testid="document-opening-native-preview-loading"]',
+            ) ?? null;
             const openingPreview = transitionSurface?.querySelector<HTMLElement>(
                 '[data-testid="document-opening-native-preview"]',
             ) ?? null;
             const transitionShell = transitionSurface?.querySelector<HTMLElement>('[data-page-number]') ?? transitionSurface;
             const transitionRect = transitionShell?.getBoundingClientRect() ?? null;
+            const transitionSkeletons = Array.from(
+                transitionSurface?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
+            ).filter(isVisible);
             const viewportRect = viewportHost?.getBoundingClientRect() ?? null;
             const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer') ?? null;
             const pdfjsViewer = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
@@ -159,6 +177,7 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 documentId: chassis?.dataset.openSurfaceDocumentId ?? '',
                 emptyStateVisible: Array.from(host?.querySelectorAll<HTMLElement>('.empty-state') ?? []).some(isVisible),
                 generation: Number(chassis?.dataset.openSurfaceGeneration ?? 0),
+                nativeOpeningPreviewState: chassis?.dataset.nativeOpeningPreviewState ?? 'inactive',
                 nativeSkeletonVisible: Array.from(
                     nativeViewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
                 ).some(element => isVisible(element) && intersects(element, viewportHost)),
@@ -192,9 +211,19 @@ export async function installNativePdfOpeningSampler(page: Page) {
                     top: transitionRect.top,
                     width: transitionRect.width,
                 } : null,
-                transitionSkeletonCount: Array.from(
-                    transitionSurface?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
-                ).filter(isVisible).length,
+                transitionLoadingOverlayVisible: transitionLoadingOverlay !== null
+                    && isVisible(transitionLoadingOverlay)
+                    && intersects(transitionLoadingOverlay, viewportHost),
+                transitionSkeletonRects: transitionSkeletons.map((skeleton) => {
+                    const rect = skeleton.getBoundingClientRect();
+                    return {
+                        height: rect.height,
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                    };
+                }),
+                transitionSkeletonCount: transitionSkeletons.length,
                 transitionCoversViewport: transitionRect !== null
                     && viewportRect !== null
                     && Math.min(transitionRect.right, viewportRect.right, window.innerWidth)
@@ -206,23 +235,33 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 viewportLifecycle: chassis?.dataset.viewportLifecycle ?? '',
                 viewportRequestedPage: parsePage(chassis?.dataset.viewportRequestedPage),
             });
-            testWindow.__nativePdfOpeningAnimationFrame = requestAnimationFrame(capture);
         };
         capture();
+        const observer = new MutationObserver(capture);
+        observer.observe(document.body, {
+            attributes: true,
+            childList: true,
+            subtree: true,
+        });
+        testWindow.__nativePdfOpeningMutationObserver = observer;
+        testWindow.__nativePdfOpeningSamplingTimer = window.setInterval(capture, 35);
     }, PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX);
 }
 
 export async function stopNativePdfOpeningSampler(page: Page): Promise<INativePdfOpeningFrame[]> {
     return evaluateInPage(page, () => {
         const testWindow = window as typeof window & {
-            __nativePdfOpeningAnimationFrame?: number;
+            __nativePdfOpeningMutationObserver?: MutationObserver;
+            __nativePdfOpeningSamplingTimer?: number;
             __nativePdfOpeningFrames?: INativePdfOpeningFrame[];
         };
-        if (testWindow.__nativePdfOpeningAnimationFrame !== undefined) {
-            cancelAnimationFrame(testWindow.__nativePdfOpeningAnimationFrame);
+        testWindow.__nativePdfOpeningMutationObserver?.disconnect();
+        if (testWindow.__nativePdfOpeningSamplingTimer !== undefined) {
+            clearInterval(testWindow.__nativePdfOpeningSamplingTimer);
         }
         const frames = testWindow.__nativePdfOpeningFrames ?? [];
-        delete testWindow.__nativePdfOpeningAnimationFrame;
+        delete testWindow.__nativePdfOpeningMutationObserver;
+        delete testWindow.__nativePdfOpeningSamplingTimer;
         delete testWindow.__nativePdfOpeningFrames;
         return frames;
     });

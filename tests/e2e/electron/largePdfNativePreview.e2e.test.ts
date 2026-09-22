@@ -324,9 +324,33 @@ function assertAtomicNativeToPdfjsHandoff(
     expect(framesBeforePreview.every(frame => (
         !frame.pdfjsOpeningPageVisible
         && frame.pdfjsOpeningSurfaceDeferred
-        && !frame.transitionSurfaceVisible
-        && frame.transitionSkeletonCount === 0
+        && (
+            (
+                frame.transitionLoadingOverlayVisible
+                && frame.transitionSkeletonCount === 0
+                && frame.nativeOpeningPreviewState === 'loading'
+            )
+            || (
+                !frame.transitionLoadingOverlayVisible
+                && frame.transitionSkeletonCount > 0
+                && frame.nativeOpeningPreviewState === 'settled'
+            )
+        )
+        && frame.transitionCoversViewport
+        && [
+            'loading',
+            'settled',
+        ].includes(frame.nativeOpeningPreviewState)
     )), JSON.stringify(generationFrames)).toBe(true);
+    expect(
+        framesBeforePreview.some(frame => frame.transitionSkeletonCount > 0),
+        JSON.stringify(generationFrames),
+    ).toBe(true);
+    const firstSkeletonIndex = generationFrames.findIndex(frame => (
+        frame.transitionSkeletonRects.length > 0
+    ));
+    expect(firstSkeletonIndex, JSON.stringify(generationFrames)).toBeGreaterThanOrEqual(0);
+    expect(firstSkeletonIndex, JSON.stringify(generationFrames)).toBeLessThan(firstPdfjsIndex);
     expect(
         generationFrames[firstPreviewIndex]!.capturedAtMs - opening.capturedAtMs,
         JSON.stringify(generationFrames),
@@ -367,6 +391,33 @@ function assertAtomicNativeToPdfjsHandoff(
     const targetCanvasRects = firstPdfjsFrame!.pdfjsCanvasRects
         .filter(rect => rect.page === expectedPage);
     expect(targetCanvasRects.length, JSON.stringify(visualHandoffFrames)).toBeGreaterThan(0);
+    const settledCanvasWidth = targetCanvasRects[0]!.right - targetCanvasRects[0]!.left;
+    const openingShapeWidths = generationFrames.flatMap(frame => [
+        ...frame.transitionSkeletonRects.map(rect => rect.width),
+        ...(frame.openingPreviewVisible && frame.transitionShellRect !== null
+            ? [frame.transitionShellRect.width]
+            : []),
+        ...(frame.pdfjsOpeningPageVisible && frame.pdfjsOpeningPageRect !== null
+            ? [frame.pdfjsOpeningPageRect.width]
+            : []),
+        ...frame.pdfjsCanvasRects
+            .filter(rect => rect.page === expectedPage)
+            .map(rect => rect.right - rect.left),
+    ]);
+    expect(openingShapeWidths.length, JSON.stringify(generationFrames)).toBeGreaterThan(0);
+    expect(
+        openingShapeWidths.every(width => Math.abs(width - settledCanvasWidth) <= 0.5),
+        JSON.stringify({
+            settledCanvasWidth,
+            openingShapeWidths,
+            generationFrames,
+        }),
+    ).toBe(true);
+    expect(
+        generationFrames[firstSkeletonIndex]!.transitionSkeletonRects
+            .every(rect => Math.abs(rect.width - settledCanvasWidth) <= 0.5),
+        JSON.stringify(generationFrames),
+    ).toBe(true);
     expect(targetCanvasRects.every(rect => (
         Math.abs(rect.left - transition.left) <= 2
         && Math.abs(rect.top - transition.top) <= 2
@@ -385,6 +436,8 @@ async function assertFinalPdfjsCapabilities(
         hasPdf: true,
         initialVisualReady: true,
         isOpeningDocument: false,
+        isFitWidthActive: true,
+        zoomMode: 'fit-width',
         viewerCapabilities: {
             crop: true,
             pdfMutationActions: true,

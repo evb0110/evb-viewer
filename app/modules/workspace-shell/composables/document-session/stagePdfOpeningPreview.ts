@@ -1,9 +1,7 @@
 import type {
     IPdfNativePageSize,
-    IPdfNativePageSizes,
     IPdfOpeningGeometry,
 } from '@contracts/electronApiDocuments';
-import {PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT} from '@contracts/electronApiDocuments';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IPdfPageMetric,
@@ -24,7 +22,6 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { getErrorMessage } from '@app/utils/error';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/public';
 import {
-    createLazyIndexedCollection,
     clampDocumentFitScale,
     createPagePreviewDocumentSource,
     DOCUMENT_PAGE_GUTTER_PX,
@@ -90,84 +87,6 @@ function isValidPageSize(value: unknown): value is IPdfNativePageSize {
         && typeof record.height === 'number'
         && Number.isFinite(record.height)
         && record.height > 0;
-}
-
-function isCompactPageSizes(value: unknown): value is IPdfNativePageSizes {
-    if (
-        typeof value !== 'object'
-        || value === null
-        || Array.isArray(value)
-        || !('pageCount' in value)
-        || !('defaultPageSize' in value)
-        || !('overrides' in value)
-    ) {
-        return false;
-    }
-    const pageCount = value.pageCount;
-    const overrides = value.overrides;
-    if (
-        typeof pageCount !== 'number'
-        || !Number.isSafeInteger(pageCount)
-        || pageCount < 1
-        || !isValidPageSize(value.defaultPageSize)
-        || !Array.isArray(overrides)
-        || overrides.length > PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT
-    ) {
-        return false;
-    }
-    return overrides.every((override) => {
-        if (typeof override !== 'object' || override === null || !('pageNumber' in override)) {
-            return false;
-        }
-        const pageNumber: unknown = (override as Record<string, unknown>).pageNumber;
-        return typeof pageNumber === 'number'
-            && Number.isSafeInteger(pageNumber)
-            && pageNumber >= 1
-            && pageNumber <= pageCount
-            && isValidPageSize(override);
-    });
-}
-
-function createCompactNativePageLayout(pageSizes: IPdfNativePageSizes) {
-    const overrides = new Map<number, IPdfNativePageSize>(
-        pageSizes.overrides.map(override => [
-            override.pageNumber,
-            override,
-        ] as const),
-    );
-    const nativePageSizes = createLazyIndexedCollection<IPdfNativePageSize>({
-        length: pageSizes.pageCount,
-        getValue: index => overrides.get(index + 1) ?? pageSizes.defaultPageSize,
-    });
-    const pageMetrics = createLazyIndexedCollection<IPdfPageMetric>({
-        length: pageSizes.pageCount,
-        getValue: index => {
-            const size = overrides.get(index + 1) ?? pageSizes.defaultPageSize;
-            return {
-                width: size.width,
-                height: size.height,
-            };
-        },
-    });
-    // Keep the compact metadata lazy. The shared fit-width resolver only
-    // visits rows that can change at an override or row boundary, while
-    // indexed reads still return the default size for every other page.
-    Object.defineProperties(pageMetrics, {
-        isSparsePageMetricCollection: {
-            configurable: false,
-            enumerable: false,
-            value: true,
-        },
-        knownIndices: {
-            configurable: false,
-            enumerable: false,
-            value: Object.freeze(pageSizes.overrides.map(override => override.pageNumber - 1)),
-        },
-    });
-    return {
-        nativePageSizes,
-        pageMetrics,
-    };
 }
 
 export function resolvePdfOpeningPageFrameDocumentFitWidthStyle(options: {
@@ -284,6 +203,13 @@ export function stagePdfOpeningPreview(options: {
         if (clearPreview && generation !== null && objectUrl !== null) {
             options.openSurface.clearOpeningPagePreview(generation, objectUrl);
         }
+        if (generation !== null) {
+            const current = options.openSurface.snapshot.value;
+            options.openSurface.setNativeOpeningPreviewState(
+                generation,
+                isOpeningTransitionPhase(current.phase) ? 'failed' : 'inactive',
+            );
+        }
         if (generation !== null && pageSource !== null) {
             options.openSurface.clearOpeningPageSource(generation, pageSource);
         }
@@ -295,6 +221,21 @@ export function stagePdfOpeningPreview(options: {
             ...options.traceContext,
             reason,
         });
+    }
+
+    function releaseNativeOpeningPreviewIfCurrent() {
+        if (!options.isCurrent()) {
+            return;
+        }
+        const current = options.openSurface.snapshot.value;
+        if (!isOpeningTransitionPhase(current.phase)) {
+            return;
+        }
+        generation = current.generation;
+        // No native preview was admitted (for example, a low-CPU cache miss).
+        // Release the provisional policy owner instead of presenting that
+        // ordinary non-staged open as a failed native lane.
+        options.openSurface.setNativeOpeningPreviewState(generation, 'inactive');
     }
 
     function waitForOpeningFrame(input: {
@@ -328,6 +269,10 @@ export function stagePdfOpeningPreview(options: {
             boundGeneration ??= snapshot.generation;
             if (snapshot.generation !== boundGeneration) {
                 return null;
+            }
+            generation ??= boundGeneration;
+            if (snapshot.nativeOpeningPreviewState !== 'loading') {
+                options.openSurface.setNativeOpeningPreviewState(boundGeneration, 'loading');
             }
             if (snapshot.openingPageGeometry === null && snapshot.phase === 'pending') {
                 options.openSurface.commitOpeningPageGeometry(snapshot.generation, {
@@ -406,11 +351,26 @@ export function stagePdfOpeningPreview(options: {
             || resolution.sourceRevision === null
             || !shouldStage
         ) {
+            // The PDF.js source is the managed working-copy path, while the
+            // open surface is identified by the user's original path. Do not
+            // compare those two identities here: on low-resource profiles
+            // geometry preflight is cache-only, so a cache miss must release
+            // the provisional skeleton owner instead of leaving it visible
+            // forever.
+            releaseNativeOpeningPreviewIfCurrent();
             return;
         }
         const openingGeometry = resolution.openingGeometry;
         const sourceRevision = resolution.sourceRevision;
         const sourceRevisionKey = `${String(sourceRevision.size)}:${String(sourceRevision.modifiedAt)}`;
+        const resolvedSurface = options.openSurface.snapshot.value;
+        if (
+            isOpeningTransitionPhase(resolvedSurface.phase)
+            && resolvedSurface.identity?.documentId === sourceRevision.documentId
+        ) {
+            generation = resolvedSurface.generation;
+            options.openSurface.setNativeOpeningPreviewState(generation, 'loading');
+        }
         logPdfRenderTrace('pdf-open-native-preview-frame-wait-start', {
             ...options.traceContext,
             pageNumber: resolution.openingGeometry.pageNumber,
@@ -442,14 +402,9 @@ export function stagePdfOpeningPreview(options: {
             dispose('surface-retired-during-page-sizes', false);
             return;
         }
-        const fallbackPageSize = {
-            width: openingGeometry.width,
-            height: openingGeometry.height,
-        };
         const pageCount = openingGeometry.pageCount;
         let pageSizes: readonly IPdfNativePageSize[] | null = null;
         let pageMetrics: IPdfPageMetric[] | null = null;
-        let getPageSize = (_pageNumber: number): IPdfNativePageSize => fallbackPageSize;
         if (
             Array.isArray(loadedPageSizes)
             && loadedPageSizes.length === pageCount
@@ -460,26 +415,39 @@ export function stagePdfOpeningPreview(options: {
                 width: pageSize.width,
                 height: pageSize.height,
             }));
-            getPageSize = pageNumber => pageSizes?.[pageNumber - 1] ?? fallbackPageSize;
-        } else if (
-            isCompactPageSizes(loadedPageSizes)
-            && loadedPageSizes.pageCount === pageCount
-        ) {
-            const compactPageLayout = createCompactNativePageLayout(loadedPageSizes);
-            pageSizes = compactPageLayout.nativePageSizes;
-            pageMetrics = compactPageLayout.pageMetrics;
-            getPageSize = pageNumber => pageSizes?.[
-                requirePageNumber(pageNumber, pageCount) - 1
-            ] ?? fallbackPageSize;
         }
+        if (pageSizes === null || pageMetrics === null) {
+            // Compact native metadata contains only bounded early/late
+            // overrides; pages in the middle are still guesses. A native
+            // opening preview without a complete page table would render
+            // page 1 at a guessed document-wide size, then jump when PDF.js
+            // applies the real Fit Width. Release the provisional owner and
+            // let the regular PDF.js open continue instead.
+            logPdfRenderTrace('pdf-open-native-preview-page-sizes-unavailable', {
+                ...options.traceContext,
+                loadedPageSizes: loadedPageSizes === null
+                    ? 'null'
+                    : Array.isArray(loadedPageSizes)
+                        ? `array:${String(loadedPageSizes.length)}`
+                        : 'compact-incomplete',
+                pageCount,
+            });
+            dispose('page-sizes-unavailable', false);
+            return;
+        }
+        const completePageSizes = pageSizes;
+        const completePageMetrics = pageMetrics;
+        const getPageSize = (pageNumber: number) => completePageSizes[
+            requirePageNumber(pageNumber, pageCount) - 1
+        ]!;
         let fitWidthRowWidthsCacheKey: TDocumentViewMode | null = null;
         let fitWidthRowWidths: ReadonlyMap<number, number> | undefined;
         let fitWidthRawSize: number | null = null;
         function getFitWidthRowWidths(policy: IPdfOpeningPreviewLayoutPolicy) {
-            if (fitWidthRowWidthsCacheKey !== policy.viewMode && pageMetrics !== null) {
+            if (fitWidthRowWidthsCacheKey !== policy.viewMode) {
                 fitWidthRowWidthsCacheKey = policy.viewMode;
                 fitWidthRowWidths = resolvePdfFitWidthRowWidths({
-                    metrics: pageMetrics,
+                    metrics: completePageMetrics,
                     viewMode: policy.viewMode,
                     totalPages: pageCount,
                 });
@@ -513,9 +481,6 @@ export function stagePdfOpeningPreview(options: {
             return rawSize;
         }
         function reconcileOpeningPageFrameDocumentFitWidth(geometry: IPdfOpeningGeometry) {
-            if (pageSizes === null || pageMetrics === null) {
-                return;
-            }
             const current = options.openSurface.snapshot.value;
             const frame = current.openingPageFrame;
             const policy = options.readOpeningPageFramePolicy?.();
@@ -529,8 +494,8 @@ export function stagePdfOpeningPreview(options: {
                 ? resolvePdfOpeningPageFrameDocumentFitWidthStyle({
                     frame,
                     geometry,
-                    pageSizes,
-                    metrics: pageMetrics,
+                    pageSizes: completePageSizes,
+                    metrics: completePageMetrics,
                     policy,
                     rawSize,
                     ...(widthRows === undefined ? {} : {widthRows}),
@@ -556,22 +521,23 @@ export function stagePdfOpeningPreview(options: {
                     });
                 }
             }
+            return style !== null && frame !== null;
         }
-        reconcileOpeningPageFrameDocumentFitWidth(openingGeometry);
-        pageSource = pageSizes === null
-            ? createPagePreviewDocumentSource({
-                documentRef: sourceRevision.documentId,
-                previewSource,
+        if (!reconcileOpeningPageFrameDocumentFitWidth(openingGeometry)) {
+            logPdfRenderTrace('pdf-open-native-preview-fit-width-unavailable', {
+                ...options.traceContext,
                 pageCount,
-                getPageSize,
-                ownsPreviewSource: false,
-            })
-            : createPagePreviewDocumentSource({
-                documentRef: sourceRevision.documentId,
-                previewSource,
-                pageSizes,
-                ownsPreviewSource: false,
             });
+            dispose('document-fit-width-unavailable', false);
+            return;
+        }
+        options.openSurface.setNativeOpeningPreviewState(activeGeneration, 'settled');
+        pageSource = createPagePreviewDocumentSource({
+            documentRef: sourceRevision.documentId,
+            previewSource,
+            pageSizes: completePageSizes,
+            ownsPreviewSource: false,
+        });
         if (!options.openSurface.publishOpeningPageSource(
             activeGeneration,
             pageSource,
