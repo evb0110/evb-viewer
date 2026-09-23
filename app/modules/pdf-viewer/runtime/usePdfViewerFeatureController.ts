@@ -499,17 +499,22 @@ export const usePdfViewerFeatureController = (
     }
 
     function updatePageMutationFitWidth() {
-        if (zoomMode.value !== 'fit-width') {
-            return false;
+        if (zoomMode.value === 'fit-width') {
+            viewportSession.scale.invalidateScaleCache();
+            const page = requirePageNumber(
+                viewportSession.currentPage.value,
+                documentSession.numPages.value,
+            );
+            viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
+            viewportSession.reloadTransition.commitEffectiveZoom(viewportSession.scale.layoutScale.value);
         }
-        viewportSession.scale.invalidateScaleCache();
-        const page = requirePageNumber(
-            viewportSession.currentPage.value,
-            documentSession.numPages.value,
-        );
-        viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
-        viewportSession.reloadTransition.commitEffectiveZoom(viewportSession.scale.layoutScale.value);
-        return true;
+        // Rotated pages change size (and Fit Width may change the scale) under
+        // the reader. A fit intent keeps the committed page in place, the same
+        // placement the revision swap restores; without it the old pixel offset
+        // would be read against the new sizes and show a different page.
+        const zoomValue = viewportSession.scale.layoutScale.value;
+        viewportSession.markAnchoredZoomSubmitted(zoomValue);
+        void viewportSession.singlePageScroll.submitViewportStateIntent('fit', {zoom: zoomValue});
     }
 
     async function beginPageRotationPreview(input: {
