@@ -275,23 +275,29 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             };
             const sample = () => {
                 const page = rightPane.querySelector<HTMLElement>('.page_container');
-                const skeleton = rightPane.querySelector<HTMLElement>('.document-page-skeleton');
+                const viewport = rightPane.querySelector<HTMLElement>('#pdf-viewer')?.getBoundingClientRect();
                 if (page?.querySelector('.page_canvas--resize-visual-snapshot')) {
                     state.snapshotSeen = true;
                 }
-                if (!skeleton || !page) {
+                if (!page || !viewport) {
                     return;
                 }
-                const bounds = skeleton.getBoundingClientRect();
-                const style = getComputedStyle(skeleton);
-                if (
-                    skeleton.isConnected
-                    && bounds.width > 0
-                    && bounds.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                ) {
+                // The fling backdrop keeps transparent skeleton shells mounted
+                // behind the pages, so only a painted skeleton on screen counts.
+                const flashed = Array.from(rightPane.querySelectorAll<HTMLElement>('.document-page-skeleton')).some((skeleton) => {
+                    const bounds = skeleton.getBoundingClientRect();
+                    return skeleton.checkVisibility({
+                        opacityProperty: true,
+                        visibilityProperty: true,
+                    })
+                        && bounds.width > 0
+                        && bounds.height > 0
+                        && bounds.bottom > viewport.top
+                        && bounds.top < viewport.bottom
+                        && bounds.right > viewport.left
+                        && bounds.left < viewport.right;
+                });
+                if (flashed) {
                     state.flashCount += 1;
                 }
             };
