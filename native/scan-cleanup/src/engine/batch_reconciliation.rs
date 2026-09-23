@@ -828,12 +828,9 @@ mod moved_tests {
         let _ = fs::remove_dir_all(dir);
     }
 
-    #[cfg(unix)]
     #[test]
     fn reconciliation_does_not_skip_a_prior_rerun_for_nonregular_input() {
-        use std::path::PathBuf;
-
-        let dir = PathBuf::from(format!("/tmp/evb-scan-reconcile-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("evb-scan-reconcile-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let input = dir.join("already-consumed-input");
         fs::create_dir(&input).unwrap();

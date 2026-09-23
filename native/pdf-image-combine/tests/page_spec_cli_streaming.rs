@@ -1,3 +1,6 @@
+#[path = "../../test-support/external_tool.rs"]
+mod external_tool;
+
 use std::{
     env, fs,
     fs::File,
@@ -306,14 +309,18 @@ fn cli_accepts_decodable_jpeg_and_compatible_jp2() {
         );
         assert!(fs::read(&output_path).unwrap().starts_with(b"%PDF-"));
 
-        if let Some(pdftoppm) = bundled_pdftoppm_path() {
+        {
             let render_prefix = temp_path("valid-image-render");
-            let render = Command::new(pdftoppm)
-                .args(["-singlefile", "-scale-to-x", "1", "-scale-to-y", "1"])
-                .arg(&output_path)
-                .arg(&render_prefix)
-                .output()
-                .unwrap();
+            let render = Command::new(external_tool::tool_path(
+                "PDFTOPPM_PATH",
+                "poppler",
+                "pdftoppm",
+            ))
+            .args(["-singlefile", "-scale-to-x", "1", "-scale-to-y", "1"])
+            .arg(&output_path)
+            .arg(&render_prefix)
+            .output()
+            .unwrap();
             assert!(
                 render.status.success(),
                 "{label}: {}",
@@ -647,27 +654,6 @@ fn assert_no_sibling_temporary(output_path: &Path) {
         .filter(|entry| entry.file_name().to_string_lossy().starts_with(&marker))
         .count();
     assert_eq!(leftovers, 0);
-}
-
-fn bundled_pdftoppm_path() -> Option<PathBuf> {
-    let (tag, executable) = match (env::consts::OS, env::consts::ARCH) {
-        ("macos", "aarch64") => ("darwin-arm64", "pdftoppm"),
-        ("linux", "x86_64") => ("linux-x64", "pdftoppm"),
-        ("windows", "x86_64") => ("win32-x64", "pdftoppm.exe"),
-        _ => return None,
-    };
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../resources/poppler")
-        .join(tag)
-        .join("bin")
-        .join(executable);
-    assert!(
-        path.is_file(),
-        "bundled pdftoppm is missing for supported host {}-{}",
-        env::consts::OS,
-        env::consts::ARCH,
-    );
-    Some(path)
 }
 
 fn remove_files<const N: usize>(paths: [&PathBuf; N]) {

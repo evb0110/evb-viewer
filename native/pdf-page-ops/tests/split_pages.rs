@@ -1,3 +1,8 @@
+#[path = "../../test-support/external_tool.rs"]
+mod external_tool;
+#[path = "../../test-support/sparse_file.rs"]
+mod sparse_file;
+
 use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use std::{
     env,
@@ -73,14 +78,12 @@ fn save_single_page_pdf(
 }
 
 fn qpdf_path() -> PathBuf {
-    env::var_os("QPDF_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("qpdf"))
+    external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
 }
 
 fn write_sparse_pdf_above_encoded_limit(path: &Path) -> u64 {
     const STREAM_BYTES: u64 = 513 * 1024 * 1024;
-    let mut file = File::create(path).unwrap();
+    let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
     let mut offsets = Vec::new();
     offsets.push(file.stream_position().unwrap());

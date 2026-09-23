@@ -1,4 +1,7 @@
-#![cfg(target_family = "unix")]
+#[path = "../../test-support/external_tool.rs"]
+mod external_tool;
+#[path = "../../test-support/sparse_file.rs"]
+mod sparse_file;
 
 use lopdf::{dictionary, Document, Object, Stream};
 use serde_json::Value;
@@ -43,7 +46,7 @@ fn write_object(file: &mut File, offsets: &mut Vec<u64>, object: &[u8]) {
 }
 
 fn write_sparse_five_gib_pdf(path: &Path) -> u64 {
-    let mut file = File::create(path).unwrap();
+    let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
     let mut offsets = Vec::new();
     write_object(
@@ -94,7 +97,7 @@ fn write_sparse_five_gib_pdf(path: &Path) -> u64 {
 }
 
 fn write_sparse_structural_loader_pdf(path: &Path) -> u64 {
-    let mut file = File::create(path).unwrap();
+    let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
     let mut offsets = Vec::new();
     write_object(
@@ -157,7 +160,7 @@ fn write_sparse_structural_loader_pdf(path: &Path) -> u64 {
 
 fn write_sparse_ten_gib_xref_stream_pdf(path: &Path) -> u64 {
     const STREAM_COUNT: u32 = 12;
-    let mut file = File::create(path).unwrap();
+    let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.7\n%\x80\x81\x82\x83\n").unwrap();
     let mut offsets = vec![0_u64];
     write_object(
@@ -220,7 +223,7 @@ fn write_sparse_ten_gib_xref_stream_pdf(path: &Path) -> u64 {
 
 fn write_sparse_near_ten_gib_classic_pdf(path: &Path) -> u64 {
     const TARGET_XREF_OFFSET: u64 = 9_999_999_700;
-    let mut file = File::create(path).unwrap();
+    let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
     let mut offsets = Vec::new();
     write_object(
@@ -281,9 +284,7 @@ fn write_sparse_near_ten_gib_classic_pdf(path: &Path) -> u64 {
 }
 
 fn qpdf_path() -> PathBuf {
-    env::var_os("QPDF_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("qpdf"))
+    external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
 }
 
 fn append_bookmark(pdf: &Path, mutations: &Path) -> Output {
@@ -433,20 +434,24 @@ fn sha256_prefix(path: &Path, length: u64) -> [u8; 32] {
 fn render_page_png(pdf: &Path, label: &str) -> Vec<u8> {
     let prefix = temp_path(label, "render");
     let png = PathBuf::from(format!("{}.png", prefix.display()));
-    let result = Command::new("pdftoppm")
-        .args([
-            "-f",
-            "1",
-            "-l",
-            "1",
-            "-singlefile",
-            "-png",
-            "-hide-annotations",
-        ])
-        .arg(pdf)
-        .arg(&prefix)
-        .output()
-        .unwrap();
+    let result = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args([
+        "-f",
+        "1",
+        "-l",
+        "1",
+        "-singlefile",
+        "-png",
+        "-hide-annotations",
+    ])
+    .arg(pdf)
+    .arg(&prefix)
+    .output()
+    .unwrap();
     assert!(
         result.status.success(),
         "pdftoppm failed: {}",

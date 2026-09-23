@@ -1,6 +1,6 @@
-use evb_native_support::{NativeError, NativeErrorCode};
 use evb_raster_io::{decode_ppm, DecodeLimits};
 use evb_scan_cleanup::{
+    engine::resource_planning::LOGICAL_CPUS_ENV,
     io::pbm::decode_p4,
     png::{decode_gray, encode_gray, encode_rgb, RgbImage},
     BinarizationMode, CleanupOptions, LayoutMode, ManualContentBoxes, ManualZones, MarginsMm,
@@ -14,10 +14,7 @@ use std::{
     io::{BufRead, BufReader},
     path::PathBuf,
     process::{Command, Stdio},
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Barrier,
-    },
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -303,13 +300,6 @@ fn multi_page_analysis_reports_progress_before_reconciliation_completes() {
 
 #[test]
 fn analysis_publishes_a_later_ready_page_before_the_first_page_is_staged() {
-    // Overtaking needs two page workers, and the sidecar sizes its pool to half
-    // the logical CPUs. A two-CPU host (the BGK Windows VM, small runners)
-    // correctly runs one worker, which waits for page 1 in order.
-    if std::thread::available_parallelism().map_or(1, usize::from) < 4 {
-        eprintln!("skipped: out-of-order page analysis needs at least four logical CPUs");
-        return;
-    }
     let scratch = Scratch::new("analysis-progress-out-of-order");
     let first_input = scratch.path("analysis-gated-input-1.png");
     let second_input = scratch.path("analysis-gated-input-2.png");
@@ -341,6 +331,9 @@ fn analysis_publishes_a_later_ready_page_before_the_first_page_is_staged() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
         .args(["--manifest", manifest.to_str().unwrap()])
         .args(["--allowed-path-root", scratch.dir.to_str().unwrap()])
+        // Overtaking needs two page workers, and the sidecar sizes its pool to
+        // half the logical CPUs, so a two-CPU host would run one in page order.
+        .env(LOGICAL_CPUS_ENV, "4")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -1939,18 +1932,25 @@ fn failed_second_page_rolls_back_every_manifest_destination() {
     }
 }
 
+/// Only the Unix sidecar cancels in process, from its SIGTERM handler. On
+/// Windows the host terminates the sidecar and replays the publication journal
+/// itself, so nothing there sets this cancellation flag.
+#[cfg(unix)]
 #[test]
 fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal() {
+    use evb_native_support::{NativeError, NativeErrorCode};
+    use std::sync::{atomic::AtomicBool, Arc, Barrier};
+
     let scratch = Scratch::new("publication-cancel");
     let input = scratch.path("publication-cancel-input.png");
-    let slow_input = scratch.path("publication-cancel-slow-input.png");
+    let gated_input = scratch.path("publication-cancel-gate.fifo");
     let manifest = scratch.path("publication-cancel-manifest.json");
     let output = scratch.path("publication-cancel-output.png");
     let metadata = scratch.path("publication-cancel-output.json");
     let page_metadata = scratch.path("publication-cancel-page.json");
-    let slow_output = scratch.path("publication-cancel-slow-output.png");
-    let slow_metadata = scratch.path("publication-cancel-slow-output.json");
-    let slow_page_metadata = scratch.path("publication-cancel-slow-page.json");
+    let gated_output = scratch.path("publication-cancel-gated-output.png");
+    let gated_metadata = scratch.path("publication-cancel-gated-output.json");
+    let gated_page_metadata = scratch.path("publication-cancel-gated-page.json");
     let journal = PathBuf::from(format!(
         "{}{}",
         manifest.display(),
@@ -1958,15 +1958,15 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
     ));
     let original = b"previous output survives cancellation";
     fs::write(&input, encode_gray(&GrayImage::new(160, 120, 220)).unwrap()).unwrap();
-    // The cancellation lands while this much larger second page still renders.
-    // With a single page the batch reaches its last checkpoint within
-    // microseconds of publishing, so an observer thread on a loaded two-CPU
-    // host routinely cancelled a batch that had already committed.
-    fs::write(
-        &slow_input,
-        encode_gray(&GrayImage::new(3_200, 2_400, 220)).unwrap(),
-    )
-    .unwrap();
+    // Nothing ever writes the second page's FIFO, so the batch cannot pass its
+    // last checkpoint before the observer cancels. With a single page it got
+    // there microseconds after publishing, and a starved observer thread on a
+    // two-CPU host cancelled a batch that had already committed.
+    assert!(Command::new("mkfifo")
+        .arg(&gated_input)
+        .status()
+        .unwrap()
+        .success());
     fs::write(&output, original).unwrap();
     let options = CleanupOptions {
         output_mode: OutputMode::Grayscale,
@@ -1993,13 +1993,13 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
                     "metadataPath": metadata,
                 }],
             }, {
-                "inputPath": slow_input,
+                "inputPath": gated_input,
                 "sourcePageIndex": 1,
-                "pageMetadataPath": slow_page_metadata,
+                "pageMetadataPath": gated_page_metadata,
                 "options": options,
                 "outputs": [{
-                    "outputPath": slow_output,
-                    "metadataPath": slow_metadata,
+                    "outputPath": gated_output,
+                    "metadataPath": gated_metadata,
                 }],
             }]
         }))
@@ -2054,7 +2054,7 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
     assert_eq!(fs::read(&output).unwrap(), original);
     assert!(!metadata.exists());
     assert!(!page_metadata.exists());
-    for path in [&slow_output, &slow_metadata, &slow_page_metadata] {
+    for path in [&gated_output, &gated_metadata, &gated_page_metadata] {
         assert!(!path.exists(), "{} survived rollback", path.display());
     }
     assert!(!journal.exists());

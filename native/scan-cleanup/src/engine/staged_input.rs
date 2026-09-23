@@ -1393,20 +1393,18 @@ mod tests {
 mod moved_tests {
     use super::*;
     use crate::engine::resource_planning::{manifest_cache, page_cache_for, PlanningOperation};
+    use crate::protocol::manifest_v3::{
+        AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, PageOutput, RenderMode, VERSION,
+    };
+    use crate::CleanupOptions;
+    use evb_native_support::NativeError;
     use std::{fs, path::PathBuf};
     // The path-safety and FIFO tests below exercise POSIX filesystem features
-    // (symlinks, hard links, FIFOs), so their fixtures exist only there.
+    // (symlinks, FIFOs), so their fixtures exist only there.
     #[cfg(unix)]
     use crate::engine::resource_planning::PlanningManifest;
     #[cfg(unix)]
-    use crate::protocol::manifest_v3::{
-        AnalysisPurpose, CanvasScope, DetailPixelRect, DetailRenderPlan, ManifestV3, Operation,
-        Page, PageOutput, RenderMode, VERSION,
-    };
-    #[cfg(unix)]
-    use crate::CleanupOptions;
-    #[cfg(unix)]
-    use evb_native_support::NativeError;
+    use crate::protocol::manifest_v3::{DetailPixelRect, DetailRenderPlan};
     #[cfg(unix)]
     use std::{io::Write, path::Path, thread};
 
@@ -1418,7 +1416,6 @@ mod moved_tests {
         super::assert_paths_within_root(&super::staged_path_plan(manifest), root)
     }
 
-    #[cfg(unix)]
     fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
         super::preflight_paths(&super::staged_path_plan(manifest))
     }
@@ -1681,7 +1678,6 @@ mod moved_tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    #[cfg(unix)]
     #[test]
     fn manifest_path_preflight_rejects_hardlink_aliases() {
         let dir = std::env::temp_dir().join(format!(

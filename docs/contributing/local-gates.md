@@ -25,11 +25,11 @@ push. The attribution check still runs.
 | Native behavior | Relevant Rust tests and lint, plus the affected boundary or platform proof |
 | Build or packaging | Build and packaged-artifact checks that exercise the changed contract |
 
-The native `pdf-page-ops` integration tests run `qpdf` and `pdftotext` from
-`PATH`; CI installs `qpdf` and `poppler-utils`. On Windows, run
-`pnpm.cmd fetch:runtime-binaries` and prepend
-`resources\poppler\win32-x64\bin` and `resources\qpdf\win32-x64\bin` to `PATH`
-before `cargo test --manifest-path native/Cargo.toml --workspace`.
+The native PDF integration tests run `qpdf`, `pdftotext` and `pdftoppm` from
+`PATH` (CI installs `qpdf` and `poppler-utils`) and otherwise use the app's
+bundled copies under `resources/`. On Windows, run
+`pnpm.cmd fetch:runtime-binaries` once before
+`cargo test --manifest-path native/Cargo.toml --workspace`.
 
 Unknown impact uses the planner's broader fallback. Shared test helpers,
 fixtures, runners, compiler settings, and dependencies can affect consumers

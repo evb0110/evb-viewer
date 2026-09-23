@@ -104,6 +104,10 @@ pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
     run(args)
 }
 
+// Fake tools are POSIX shell scripts, so the tests that use them run on Unix.
+// What they feed (qpdf's output parsing) is platform-independent, and Windows
+// runs the real qpdf through tests/multi_gib_incremental.rs.
+//
 // A concurrent fork can retain a writable script descriptor until its exec,
 // even with CLOEXEC, and make Linux reject another exec with ETXTBSY. Tests
 // hold the returned guard until they no longer run the fake executable.

@@ -1,3 +1,8 @@
+#[path = "../../test-support/external_tool.rs"]
+mod external_tool;
+#[path = "../../test-support/sparse_file.rs"]
+mod sparse_file;
+
 use lopdf::{dictionary, Dictionary, Document, Object, Stream};
 use std::{
     env,
@@ -120,9 +125,7 @@ fn run_overlay_text(
 }
 
 fn qpdf_path() -> std::path::PathBuf {
-    env::var_os("QPDF_PATH")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("qpdf"))
+    external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf")
 }
 
 fn run_overlay_text_with_qpdf(
@@ -168,7 +171,7 @@ fn write_sparse_source(
     let font_object = malformed_content_object + 1;
     let sparse_object = font_object + 1;
     let mut offsets = vec![0_u64; sparse_object + 1];
-    let mut file = File::create(path).unwrap();
+    let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
     write_raw_object(&mut file, &mut offsets, 1, b"<</Type/Catalog/Pages 2 0 R>>");
     let kids = (first_page_object..=last_page_object)
@@ -272,7 +275,11 @@ fn atomic_output_siblings(output: &Path) -> Vec<std::path::PathBuf> {
 }
 
 fn pdftotext_page(pdf: &Path, page: usize, extra_args: &[&str]) -> std::process::Output {
-    let mut command = Command::new("pdftotext");
+    let mut command = Command::new(external_tool::tool_path(
+        "PDFTOTEXT_PATH",
+        "poppler",
+        "pdftotext",
+    ));
     command.args(extra_args);
     command
         .args(["-f", &page.to_string(), "-l", &page.to_string()])

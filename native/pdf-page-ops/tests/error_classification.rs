@@ -120,6 +120,8 @@ fn run_pdf_conformance(input: &Path, output: &Path, qpdf: &Path) -> Output {
     )
 }
 
+// A POSIX shell script stands in for qpdf, so its tests run on Unix; the
+// output parsing they cover is platform-independent.
 #[cfg(unix)]
 fn write_fake_qpdf(qpdf: &Path, status: i32, structure: &str) {
     use std::os::unix::fs::PermissionsExt;

@@ -755,7 +755,6 @@ mod tests {
         fs::remove_file(destination).unwrap();
     }
 
-    #[cfg(unix)]
     #[test]
     fn publish_failure_preserves_existing_destination() {
         let parent = test_path("publish-failure-dir");
