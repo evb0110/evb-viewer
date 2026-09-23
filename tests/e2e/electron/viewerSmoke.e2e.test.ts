@@ -3633,7 +3633,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             requestAnimationFrame(sample);
         });
 
-        await session.page.evaluate(() => {
+        // Centering is setup, not rail behavior. When the triplet has already
+        // painted before this write, the stability window must still start
+        // after it, or the test measures its own scroll as rail movement.
+        const centeredAtMs = await session.page.evaluate(() => {
             const container = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .pdf-sidebar-pages-thumbnails .pdf-thumbnails',
             );
@@ -3641,7 +3644,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 '.editor-pane.is-active .pdf-thumbnail[data-page="18"]',
             );
             if (!container || !current) {
-                return;
+                return performance.now();
             }
             const containerRect = container.getBoundingClientRect();
             const currentRect = current.getBoundingClientRect();
@@ -3653,6 +3656,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 - (container.clientHeight - currentRect.height) / 2,
             );
             container.dispatchEvent(new Event('scroll', {bubbles: true}));
+            return performance.now();
         });
         let thumbnailTriplet: Array<{
             height: number;
@@ -3765,7 +3769,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             18,
             19,
         ];
-        const stableStartTime = Math.max(...targetPages.map(page => (
+        const stableStartTime = Math.max(centeredAtMs, ...targetPages.map(page => (
             samplesByPage.get(page)?.find(sample => sample.rendered && sample.contentPixels > 1)?.timeMs ?? 0
         )));
         const visibleCurrentPageSamples = samples.filter(sample => (
