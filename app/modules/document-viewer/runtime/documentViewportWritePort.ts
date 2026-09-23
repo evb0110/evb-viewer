@@ -132,6 +132,11 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
     // has not landed yet.
     let fencedGestureId: number | null = null;
     let fencedSequenceId: number | null = null;
+    // When the latest command was accepted. Chromium keeps one wheel packet in
+    // flight and queues the rest in the browser, so a click can overtake
+    // packets the user produced before it. A gesture whose first packet is
+    // older than the command is residue too, whatever order it arrives in.
+    let commandAtMs = Number.NEGATIVE_INFINITY;
     // A scroll sequence that begins while the viewport is not user-scrollable
     // is bound to nothing and stays dead until it ends. Restoring scrolling
     // inside its first event is already too late, because the compositor
@@ -395,6 +400,7 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             observeUserInteraction(container);
         },
         fenceCommandAgainstLiveGesture(nowMs = performance.now()) {
+            commandAtMs = nowMs;
             if (!wheelGestures.hasPackets()) {
                 return;
             }
@@ -442,6 +448,10 @@ export function createDocumentViewportWritePort(): IDocumentViewportWritePort {
             }
             if (!packet.cancelable) {
                 currentSequenceHasNonCancelable = true;
+            }
+            if (gestureId !== previousGestureId && packet.timeStamp < commandAtMs) {
+                fencedGestureId = gestureId;
+                fencedSequenceId = sequenceId;
             }
             if (fencedGestureId !== null) {
                 if (gestureId === fencedGestureId) {

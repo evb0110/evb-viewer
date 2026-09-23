@@ -261,6 +261,52 @@ describe('document viewer chassis authority', () => {
             })).toBe(false);
         });
 
+        it('keeps a gesture begun before the command as residue when the command overtakes it', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+            const send = (timeStamp: number) => observeDocumentViewportWheelInteraction(
+                port,
+                scrollInteraction(timeStamp, 40, 0, true),
+                container,
+            );
+
+            send(0);
+            // Chromium queues wheel packets in the browser and lets the click
+            // overtake them, so packets from before the command arrive after it.
+            port.fenceCommandAgainstLiveGesture(900);
+            const navigation = port.beginIntent('navigate:1');
+
+            expect(send(850)).toBe('command-residue');
+            expect(send(860)).toBe('command-residue');
+            expect(port.apply(container, {
+                intent: navigation,
+                reason: 'navigation',
+                top: 0,
+            })).toBe(true);
+            // Scrolling is still suppressed, so the viewer scrolls this newer
+            // gesture by hand rather than dropping it.
+            expect(send(1_400)).toBe('adopted-user-input');
+            expect(port.isCommandResidueLive()).toBe(false);
+        });
+
+        it('keeps a gesture begun before the command as residue when none of it arrived first', () => {
+            vi.useFakeTimers();
+            const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
+            const container = createViewportContainer();
+            const send = (timeStamp: number) => observeDocumentViewportWheelInteraction(
+                port,
+                scrollInteraction(timeStamp, 40, 0, true),
+                container,
+            );
+
+            port.fenceCommandAgainstLiveGesture(900);
+
+            expect(send(880)).toBe('command-residue');
+            expect(send(890)).toBe('command-residue');
+            expect(send(1_400)).not.toBe('command-residue');
+        });
+
         it('treats a reversal as a new gesture, since inertia never reverses', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
@@ -814,7 +860,8 @@ describe('document viewer chassis authority', () => {
             vi.advanceTimersByTime(260);
             expect(port.userScrollSuppressed.value).toBe(false);
             vi.advanceTimersByTime(400);
-            expect(sendOnePacketSequence(700)).toBe('user-input');
+            // A gesture the user starts now is timed after the command.
+            expect(sendOnePacketSequence(commandAtMs + 660)).toBe('user-input');
         });
 
         it('restores scrolling once the tail goes quiet', () => {

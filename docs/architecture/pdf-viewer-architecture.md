@@ -248,6 +248,13 @@ scroller's `begin` and `end` are handled after this viewport's next first packet
 they are misattributed to it and liveness falls back to packet timing until the
 following sequence.
 
+Arrival order is not expression order either. The browser keeps one wheel
+packet in flight and queues the rest, and a click is not queued behind them, so
+it can overtake packets the user produced before it. The port records when a
+command was accepted, and a gesture whose first packet is older than that is
+residue as well, even though it looks new because nothing of it arrived before
+the command.
+
 A command fences the last observed gesture even if its last packet is old or
 the host already ended the sequence. Neither condition proves the renderer has
 drained its input queue: a fast facing-layout fling can leave wheel packets
