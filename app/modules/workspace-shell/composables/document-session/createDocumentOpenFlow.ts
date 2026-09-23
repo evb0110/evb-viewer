@@ -72,6 +72,11 @@ import {
 } from '@app/modules/workspace-shell/composables/document-session/isPdfPasswordFailureResult';
 import {classifyDocumentOpenError} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
+import {
+    isDocumentOpenWorkingCopyRetained,
+    releaseDocumentOpenWorkingCopyRetention,
+    retainDocumentOpenWorkingCopyForRetry,
+} from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
@@ -116,11 +121,6 @@ interface ICreateDocumentOpenFlowDeps {
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const MAX_EAGER_HISTORY_BASELINE_BYTES = 8 * 1024 * 1024;
-const RETRYABLE_OPEN_RESULTS = new WeakSet<TOpenFileResult>();
-
-export function retainDocumentOpenWorkingCopyForRetry(result: TOpenFileResult) {
-    RETRYABLE_OPEN_RESULTS.add(result);
-}
 
 function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
@@ -304,7 +304,7 @@ export function createDocumentOpenFlow(
         if (
             !isPdfOpenResult(result)
             || state.isActiveWorkingCopy(result.workingPath)
-            || RETRYABLE_OPEN_RESULTS.has(result)
+            || isDocumentOpenWorkingCopyRetained(result)
         ) {
             return;
         }
@@ -495,7 +495,7 @@ export function createDocumentOpenFlow(
         state.originalPath.value = result.originalPath;
         state.requiresSaveAsOnFirstSave.value = !!result.isGenerated;
         state.pdfRasterDisplayProfile.value = rasterDisplayProfile;
-        RETRYABLE_OPEN_RESULTS.delete(result);
+        releaseDocumentOpenWorkingCopyRetention(result);
         return {
             status: 'opened',
             result,

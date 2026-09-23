@@ -27,7 +27,7 @@ import {
     resolveWorkspaceViewerAdapter,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';

@@ -15,10 +15,8 @@ import {
     createDocumentSessionState,
     createEpochGuard,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import {
-    createDocumentOpenFlow,
-    retainDocumentOpenWorkingCopyForRetry,
-} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({

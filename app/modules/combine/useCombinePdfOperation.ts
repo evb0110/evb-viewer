@@ -8,7 +8,14 @@ import {
     CombinePdfError,
     isCombineCancellationSupported,
 } from '@app/services/pdf/combinePdfFiles';
-import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {
+    getDocumentFilesCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
+import {
+    releaseDocumentOpenWorkingCopyRetention,
+    retainDocumentOpenWorkingCopyForRetry,
+} from '@app/modules/workspace-shell/public/documentOpenWorkingCopyRetention';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {BrowserLogger} from '@app/utils/browserLogger';
@@ -74,10 +81,15 @@ export const useCombinePdfOperation = <T extends {
                 throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
             }
             pendingCombinedResult.value = result;
+            // A failed open must leave the combined file for Retry and Save As;
+            // this page removes it once the result is no longer pending.
+            retainDocumentOpenWorkingCopyForRetry(result);
             phase.value = 'opening';
             const opened = options.openResult ? await options.openResult(result) : true;
             if (!opened) throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
             if (!options.openResult) options.emitOpenResult(result);
+            // The opened document now owns the working copy.
+            releaseDocumentOpenWorkingCopyRetention(result);
             pendingCombinedResult.value = null;
             options.files.value = removeCompletedCombineSnapshot(options.files.value, snapshot);
             progress.value = null;
@@ -129,7 +141,7 @@ export const useCombinePdfOperation = <T extends {
                 combineError.value = null;
                 combineFailure.value = null;
                 combineErrorIsExpected.value = false;
-                pendingCombinedResult.value = null;
+                releasePendingResult();
                 progress.value = null;
             }
         } catch (error) {
@@ -147,13 +159,33 @@ export const useCombinePdfOperation = <T extends {
         }
     }
 
-    function discardPendingResult() {
+    // The pending result's working copy belongs to this page until a tab
+    // opens it; letting go of the result removes the file.
+    function releasePendingResult() {
+        const pending = pendingCombinedResult.value;
         pendingCombinedResult.value = null;
+        if (!pending || pending.kind !== 'pdf' || !pending.workingPath) {
+            return;
+        }
+        releaseDocumentOpenWorkingCopyRetention(pending);
+        void getDocumentWorkingCopyCapability().cleanupFile(pending.workingPath).catch((error: unknown) => {
+            BrowserLogger.warn('pdf-combine', 'Failed to remove a released combined PDF', {error});
+        });
+    }
+
+    function discardPendingResult() {
+        releasePendingResult();
         progress.value = null;
         combineError.value = null;
         combineFailure.value = null;
         combineErrorIsExpected.value = false;
     }
+
+    onScopeDispose(() => {
+        if (!isCombining.value) {
+            releasePendingResult();
+        }
+    });
 
     return {
         phase,
