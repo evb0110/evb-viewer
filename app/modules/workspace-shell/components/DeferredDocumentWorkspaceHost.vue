@@ -86,6 +86,7 @@ import type { IRecentFile } from '@contracts/shared';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
+    type IWorkspaceOpenFailure,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -727,9 +728,14 @@ async function pickFileFromUi() {
 // adopted working copy, so that failure is released only when none was
 // adopted. Restores and recovery opens keep their own failure handling.
 const startOpenFailure = shallowRef<IStartOpenFailure | null>(null);
+// The reason the last open in this tab failed, kept after the failed open is
+// released so callers can tell a document that cannot open from a tab that
+// was not available, and not retry the document elsewhere.
+const lastOpenFailure = shallowRef<IWorkspaceOpenFailure | null>(null);
 
 async function openDocument<T>(intent: IDocumentOpenIntent, run: (signal: AbortSignal) => Promise<T>) {
     startOpenFailure.value = null;
+    lastOpenFailure.value = null;
     const result = await activeDocumentSession.value.open(intent, run);
     if (result === false) {
         await releaseFailedOpen(intent);
@@ -741,6 +747,7 @@ async function releaseFailedOpen(intent: IDocumentOpenIntent) {
     const workspace = mountedWorkspace.value;
     const openFailure = workspace?.getOpenFailure() ?? null;
     const isGeneratedResult = intent.acceptDocumentWithoutVisual === true;
+    lastOpenFailure.value = openFailure;
     if (
         !workspace
         || !openFailure
@@ -926,6 +933,7 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
     },
     overrides: {
         getToolbarSnapshot: () => readWorkspaceToolbarSnapshot(),
+        getOpenFailure: () => mountedWorkspace.value?.getOpenFailure() ?? lastOpenFailure.value,
         // The shell toolbar is visible before the deferred workspace mounts.
         // Navigation must enter the already-owned viewport session directly;
         // a mount-wait command target can legitimately become stale as the

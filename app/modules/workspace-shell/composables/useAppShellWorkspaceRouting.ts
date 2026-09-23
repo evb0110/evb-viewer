@@ -12,7 +12,10 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHas
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type {
+    IWorkspaceExpose,
+    IWorkspaceOpenFailure,
+} from '@app/types/workspaceExpose';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -48,6 +51,8 @@ interface IUseAppShellWorkspaceRoutingOptions {
     moveTabToNewWindow: (tabId: string) => Promise<void>;
     moveTabToWindow: (windowId: number, tabId: string) => Promise<void>;
     mergeWindowInto: (windowId: number) => Promise<void>;
+    /** Tells the user an open failed when no tab is left to show it. */
+    reportOpenFailure?: (fileName: string | null, failure: IWorkspaceOpenFailure) => void;
 }
 
 type TWorkspaceOpenDocumentTarget = TDocumentRef | TOpenFileResult;
@@ -64,6 +69,17 @@ interface ISeededTabDocumentHint {
 
 const DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS = 800;
 const DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS = 50;
+// A document that failed to open fails the same way in any tab, so its
+// failure is reported where it happened instead of retried elsewhere. Opens
+// that failed without one, because a tab was not available, keep their retry.
+function readWorkspaceOpenFailure(workspace: IWorkspaceExpose | null | undefined) {
+    try {
+        return workspace?.getOpenFailure() ?? null;
+    } catch {
+        return null;
+    }
+}
+
 function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
     try {
         return workspace.getToolbarSnapshot();
@@ -341,6 +357,9 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         if (opened) {
             return true;
         }
+        if (readWorkspaceOpenFailure(workspace)) {
+            return false;
+        }
 
         if (await waitForSettledDocumentEvidence(tabId, workspace, pathOrResult)) {
             if (!openOptions.documentHintAlreadySeeded) {
@@ -424,7 +443,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     restoredTabId: outgoingTabId,
                     reason: 'open-did-not-settle',
                 });
+                const failure = readWorkspaceOpenFailure(workspace);
                 removeTabFromState(tab.id);
+                if (failure) {
+                    options.reportOpenFailure?.(pendingHint.fileName ?? null, failure);
+                }
                 return false;
             }
             replaceTabDocumentHint(tab.id, pathOrResult);
@@ -447,6 +470,9 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             if (opened) {
                 return true;
             }
+            if (readWorkspaceOpenFailure(workspaceRefs.value.get(tab.id) ?? workspace)) {
+                return false;
+            }
         }
 
         const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
@@ -455,6 +481,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             const seededHint = opened ? seedTabDocumentHint(tabId, pathOrResult) : null;
             if (opened) {
                 return true;
+            }
+            if (readWorkspaceOpenFailure(resolvedWorkspace)) {
+                rollbackSeededTabDocumentHint(tabId, seededHint);
+                return false;
             }
             if (await waitForSettledDocumentEvidence(tabId, resolvedWorkspace, pathOrResult)) {
                 seedTabDocumentHint(tabId, pathOrResult);
@@ -584,7 +614,9 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 canReuseActiveTab = false;
                 startupOpenTasks.push((async () => {
                     const opened = await openInExistingTab(initialActiveTab.id, path, {reuseAlreadyReserved: true});
-                    if (!opened) {
+                    // A document that failed is already reported in its tab;
+                    // only an unavailable tab sends the path back for a retry.
+                    if (!opened && !readWorkspaceOpenFailure(workspaceRefs.value.get(initialActiveTab.id))) {
                         throw new Error('Startup active tab was not available for external open');
                     }
                 })());
@@ -614,7 +646,12 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                     }
 
                     rollbackSeededTabDocumentHint(tab.id, seededHint);
+                    const failure = readWorkspaceOpenFailure(workspace);
                     removeTabFromState(tab.id);
+                    if (failure) {
+                        options.reportOpenFailure?.(buildPendingTabDocumentHint(path).fileName ?? null, failure);
+                        return;
+                    }
                     throw new Error('Startup tab document open did not complete');
                 }
             })());

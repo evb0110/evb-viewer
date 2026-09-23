@@ -25,6 +25,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     openAnnotationsTab,
+    openPdfInApp,
     saveViaWindowHandle,
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -454,6 +455,80 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect(shownState.activeTab).not.toContain(basename(brokenPath));
         expect(shownState.startVisible).toBe(true);
         expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('reports a routed file that cannot be opened once, without a ghost tab', async () => {
+        const stamp = `${process.pid}-${Date.now()}`;
+        const brokenIntoEmptyTab = join(process.cwd(), '.devkit', `blocking-broken-routed-a-${stamp}.pdf`);
+        const brokenBesideDocument = join(process.cwd(), '.devkit', `blocking-broken-routed-b-${stamp}.pdf`);
+        onTestFinished(() => {
+            rmSync(brokenIntoEmptyTab, {force: true});
+            rmSync(brokenBesideDocument, {force: true});
+        });
+        writeFileSync(brokenIntoEmptyTab, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+        writeFileSync(brokenBesideDocument, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+        const documentPath = await createMultiPageTextFixturePdf(`blocking-routed-document-${Date.now()}.pdf`, 1);
+
+        session = await startElectronE2ESession(`e2e-blocking-broken-routed-${Date.now()}`, {clean: true});
+        const {page} = session;
+        await page.waitForFunction(
+            () => document.querySelector('#evb-startup-overlay') === null,
+            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
+        );
+        // Records the most tabs the strip ever showed, frame by frame.
+        const watchTabCount = () => page.evaluate(() => {
+            const watch = {
+                max: 0,
+                stop: false,
+            };
+            Reflect.set(window, '__routedTabWatch', watch);
+            const tick = () => {
+                watch.max = Math.max(watch.max, document.querySelectorAll('.tab[data-tab-id]').length);
+                if (!watch.stop) requestAnimationFrame(tick);
+            };
+            tick();
+        });
+        // Grants the path like a drop or Finder open and waits until routing
+        // has settled, including any fallback tab it would have opened.
+        const openRoutedPathAndSettle = (path: string) => page.evaluate(async (routedPath: string) => {
+            const routedWindow = window as typeof window & {
+                __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
+                __openFileDirect?: (value: string) => Promise<boolean>;
+            };
+            await routedWindow.__allowRendererFileOpenForAutomation?.(routedPath);
+            return routedWindow.__openFileDirect?.(routedPath).catch(() => false) ?? false;
+        }, path);
+        const readMaxTabCount = () => page.evaluate(() => {
+            const watch = Reflect.get(window, '__routedTabWatch') as {
+                max: number;
+                stop: boolean
+            };
+            watch.stop = true;
+            return watch.max;
+        });
+
+        // Into an empty tab: the failure is told on Start, not retried in a new tab.
+        await watchTabCount();
+        await expect(openRoutedPathAndSettle(brokenIntoEmptyTab)).resolves.toBe(false);
+        await page.waitForSelector('[data-testid="start-open-failure"]', {
+            visible: true,
+            timeout: 45_000,
+        });
+        expect(await readMaxTabCount()).toBe(1);
+        expect(await page.evaluate(() => (
+            document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? ''
+        ))).toContain(basename(brokenIntoEmptyTab));
+
+        // Beside an open document: the failed file's tab goes away and says why.
+        await openPdfInApp(page, documentPath);
+        await expect(openRoutedPathAndSettle(brokenBesideDocument)).resolves.toBe(false);
+        await page.waitForFunction((name: string) => (
+            document.body.innerText.includes(name) && document.body.innerText.includes('Failed to open file')
+        ), {timeout: 45_000}, basename(brokenBesideDocument));
+        await page.waitForFunction(() => document.querySelectorAll('.tab[data-tab-id]').length === 1, {timeout: 15_000});
+        expect(await page.evaluate(() => (
+            document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? ''
+        ))).toBe(basename(documentPath));
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
