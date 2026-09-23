@@ -149,6 +149,7 @@ import {
 } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { usePdfOutlineDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
 import { usePdfOutlineEditing } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu';
@@ -196,6 +197,9 @@ const isLoading = ref(false);
 const isLoadingIndicatorVisible = ref(false);
 const outlineError = ref(false);
 const activeItemId = ref<string | null>(null);
+function describeBookmark(id: string | null | undefined) {
+    return id ? flatBookmarks.value.find(item => item.id === id)?.title ?? id : null;
+}
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
 const nativeBookmarkDepthLimit = PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth;
@@ -676,6 +680,11 @@ async function updateActiveItemFromCurrentPage() {
         activeItemId.value,
         item => pageIndexes.get(item) ?? null,
     );
+    logPdfRenderTrace('pdf-outline-active-resolved', () => ({
+        currentPage,
+        previous: describeBookmark(activeItemId.value),
+        next: active?.title ?? null,
+    }));
     activeItemId.value = active?.id ?? null;
     if (!isEditMode.value) {
         if (activeItemId.value) {
@@ -713,6 +722,11 @@ function applyPendingBookmarkItems(
         return;
     }
 
+    logPdfRenderTrace('pdf-outline-reset', () => ({
+        reason: 'pending-items',
+        currentPage: props.currentPage,
+        previous: describeBookmark(activeItemId.value),
+    }));
     invalidateBookmarkNavigationRequests();
     resetBookmarkIdentity();
     bookmarks.value = buildOutlineFromBookmarkEntries(entries, createBookmarkId);
@@ -791,6 +805,11 @@ function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
         return;
     }
 
+    logPdfRenderTrace('pdf-outline-reset', () => ({
+        reason: 'loaded',
+        currentPage: props.currentPage,
+        previous: describeBookmark(activeItemId.value),
+    }));
     outlineError.value = false;
     bookmarks.value = resolved;
     activeItemId.value = null;
@@ -874,6 +893,11 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
 }
 
 function handleActivate(payload: IBookmarkActivatePayload) {
+    logPdfRenderTrace('pdf-outline-activate', () => ({
+        currentPage: props.currentPage,
+        previous: describeBookmark(activeItemId.value),
+        next: describeBookmark(payload.id),
+    }));
     cancelActiveItemResolution();
     activeItemId.value = payload.id;
     if (isEditMode.value) {
@@ -948,7 +972,14 @@ function handleTreeEndDrop() {
 
 watch(
     () => props.pdfDocument,
-    () => loadOutline(),
+    (pdfDocument, previousDocument) => {
+        logPdfRenderTrace('pdf-outline-document', () => ({
+            hasDocument: pdfDocument !== null,
+            replaced: previousDocument !== undefined && previousDocument !== null,
+            currentPage: props.currentPage,
+        }));
+        void loadOutline();
+    },
     { immediate: true },
 );
 
@@ -971,7 +1002,14 @@ watch(
 
 watch(
     () => props.currentPage,
-    () => updateActiveItemFromCurrentPage(),
+    (currentPage, previousPage) => {
+        logPdfRenderTrace('pdf-outline-current-page', () => ({
+            previousPage,
+            currentPage,
+            active: describeBookmark(activeItemId.value),
+        }));
+        void updateActiveItemFromCurrentPage();
+    },
 );
 
 watch(
