@@ -116,7 +116,7 @@ describe('native PDF image combiner output validation', () => {
             .rejects.toThrow('Native image PDF combine fallback is not allowed in tests');
 
         expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('produced invalid PDF output'));
-        expect(mocks.rm).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/pdf-image-combine-test\/.+\.pdf$/u), { force: true });
+        expect(mocks.rm).toHaveBeenCalledWith(expect.stringMatching(/^[\\/]tmp[\\/]pdf-image-combine-test[\\/].+\.pdf$/u), { force: true });
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-image-combine-test', {
             recursive: true,
             force: true,

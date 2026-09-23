@@ -144,7 +144,7 @@ describe('scan cleanup generated output pruning', () => {
         ]), 'utf8');
 
         await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([outputPath]);
-        await expect(readFile(journalPath, 'utf8')).resolves.toContain(outputPath);
+        expect(JSON.parse(await readFile(journalPath, 'utf8'))).toContainEqual(expect.objectContaining({outputPdfPath: outputPath}));
     });
 
     it('creates a managed, human-readable output path without a save dialog', async () => {

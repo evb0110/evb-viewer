@@ -109,7 +109,9 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
         lines.emit('line', line);
 
         expect(lines.close).toHaveBeenCalledOnce();
-        expect(processKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
+        // Windows has no POSIX process groups; the adapter terminates the child itself there.
+        if (process.platform === 'win32') expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+        else expect(processKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
         child.exitCode = 1;
         child.emit('exit', null, 'SIGTERM');
         if (progressError === undefined) {

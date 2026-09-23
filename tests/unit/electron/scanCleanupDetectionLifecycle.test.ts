@@ -961,7 +961,8 @@ export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAd
         expect.any(AbortSignal),
         expect.objectContaining({
             rasterConcurrency: policy.rasterConcurrency,
-            rasterStreaming: true,
+            // Raster FIFO streaming is POSIX-only; Windows admits the retained handoff.
+            rasterStreaming: process.platform !== 'win32',
         }),
         expect.objectContaining({outputMode: 'bw'}),
     );

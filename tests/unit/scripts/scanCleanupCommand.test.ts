@@ -6,6 +6,9 @@ import {
 import {runDiagnosticCommand} from '@scripts/diagnostics/scan-cleanup-command.mjs';
 
 describe('scan-cleanup diagnostic command runner', () => {
+    // The grandchild is detached because libuv on Windows otherwise places it in
+    // the parent's kill-on-close job, so it would die with the parent instead of
+    // holding the inherited streams open. POSIX keeps the same stdio either way.
     it('waits for inherited child streams before resolving', async () => {
         const inheritedChildScript = [
             'setTimeout(() => {',
@@ -15,7 +18,7 @@ describe('scan-cleanup diagnostic command runner', () => {
         ].join('\n');
         const parentScript = [
             'const {spawn} = require(\'node:child_process\');',
-            `const child = spawn(process.execPath, ['-e', ${JSON.stringify(inheritedChildScript)}], {stdio: 'inherit'});`,
+            `const child = spawn(process.execPath, ['-e', ${JSON.stringify(inheritedChildScript)}], {detached: true, stdio: 'inherit'});`,
             'child.unref();',
         ].join('\n');
 
@@ -49,7 +52,7 @@ describe('scan-cleanup diagnostic command runner', () => {
         const grandchildScript = 'setInterval(() => {}, 60_000);';
         const parentScript = [
             'const {spawn} = require(\'node:child_process\');',
-            `const child = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript)}], {stdio: 'inherit'});`,
+            `const child = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript)}], {detached: true, stdio: 'inherit'});`,
             'process.stdout.write(String(child.pid));',
             'child.unref();',
         ].join('\n');

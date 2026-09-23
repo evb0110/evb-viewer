@@ -213,7 +213,7 @@ describe('scan cleanup sidecar abort window', () => {
             expect(error).toBeInstanceOf(Error);
             expect(deferredRecovery).toBeDefined();
             await expect(readFile(original, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
-            await expect(readFile(journalPath, 'utf8')).resolves.toContain(backup);
+            expect(JSON.parse(await readFile(journalPath, 'utf8'))).toMatchObject({entries: [expect.objectContaining({backup})]});
             expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
 
             // Recovery is deferred until the child has actually closed. The

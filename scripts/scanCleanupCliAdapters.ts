@@ -17,6 +17,7 @@ import {
     basename,
     dirname,
     join,
+    posix,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
@@ -117,7 +118,9 @@ export async function snapshotCliDiagnosticMasks(
         if (maskPath === undefined) continue;
         const payload = await readFile(maskPath);
         if (payload[0] !== 0x50 || payload[1] !== 0x34) continue;
-        const relativePath = join(
+        // The evidence manifest is portable JSON, so its relative paths use
+        // forward slashes on every platform.
+        const relativePath = posix.join(
             'raw-masks',
             `output-${String(outputOrdinal).padStart(4, '0')}.pbm`,
         );
@@ -812,16 +815,19 @@ export function resolveCliNativeToolPath(
     currentDir: string,
     envOverride?: string,
 ) {
+    const executableName = process.platform === 'win32' && !binaryName.toLowerCase().endsWith('.exe')
+        ? `${binaryName}.exe`
+        : binaryName;
     const candidates = [
         envOverride,
-        join(currentDir, '.tmp', crateName, platformArchTag(), 'bin', binaryName),
-        join(currentDir, 'resources', crateName, platformArchTag(), 'bin', binaryName),
-        join(currentDir, 'resources', 'poppler', platformArchTag(), 'bin', binaryName),
-        join(currentDir, 'resources', 'qpdf', platformArchTag(), 'bin', binaryName),
+        join(currentDir, '.tmp', crateName, platformArchTag(), 'bin', executableName),
+        join(currentDir, 'resources', crateName, platformArchTag(), 'bin', executableName),
+        join(currentDir, 'resources', 'poppler', platformArchTag(), 'bin', executableName),
+        join(currentDir, 'resources', 'qpdf', platformArchTag(), 'bin', executableName),
         ...(rustTargetTag() === undefined
             ? []
-            : [join(currentDir, 'native', 'target', rustTargetTag()!, 'release', binaryName)]),
-        join(currentDir, 'native', 'target', 'release', binaryName),
+            : [join(currentDir, 'native', 'target', rustTargetTag()!, 'release', executableName)]),
+        join(currentDir, 'native', 'target', 'release', executableName),
         `/opt/homebrew/bin/${binaryName}`,
         `/usr/local/bin/${binaryName}`,
         `/usr/bin/${binaryName}`,

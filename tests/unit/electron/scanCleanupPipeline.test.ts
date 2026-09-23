@@ -11,7 +11,10 @@ import {
     randomBytes,
 } from 'node:crypto';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import {
+    join,
+    sep,
+} from 'path';
 import {
     afterEach,
     describe,
@@ -1738,7 +1741,7 @@ describe('scan cleanup pipeline', () => {
                 },
             }],
         }]});
-        expect(qpdfArgs.some(argument => argument.endsWith('/preserved-source-pages.pdf'))).toBe(true);
+        expect(qpdfArgs.some(argument => argument.endsWith(`${sep}preserved-source-pages.pdf`))).toBe(true);
         expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('HYBRID');
         expect(JSON.parse(await readFile(
             join(evidenceDir, 'scan-cleanup-representation-report.json'),

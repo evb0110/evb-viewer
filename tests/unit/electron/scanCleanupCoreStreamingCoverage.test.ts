@@ -14,6 +14,7 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
+import {encode as encodePng} from 'fast-png';
 import {join} from 'node:path';
 import {
     afterEach,
@@ -65,6 +66,15 @@ import {
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const roots: string[] = [];
+// Raster FIFO streaming is POSIX-only; Windows retains the whole handoff instead.
+const RASTER_STREAMING = process.platform !== 'win32';
+const PNG = Buffer.from(encodePng({
+    width: 1,
+    height: 1,
+    data: new Uint8Array(3),
+    channels: 3,
+    depth: 8,
+}));
 const PPM = Buffer.concat([
     Buffer.from('P6\n1 1\n255\n', 'ascii'),
     Buffer.from([
@@ -1059,7 +1069,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         expect(await readFile(outputPdfPath, 'utf8')).toContain('%PDF-1.7');
         expect(pageSizeStore.forEachChunk).toHaveBeenCalledOnce();
         expect(pageSizeStore.close).toHaveBeenCalledOnce();
-        expect(dependencies.createRasterPipes).toHaveBeenCalledOnce();
+        expect(dependencies.createRasterPipes).toHaveBeenCalledTimes(RASTER_STREAMING ? 1 : 0);
         expect(runSidecar).toHaveBeenCalledOnce();
         expect(placementAnchorsByBatch).toEqual([[
             {full: {yNormalized: 0}},
@@ -1216,7 +1226,17 @@ describe('scan-cleanup-core conversion coverage', () => {
             getPageSizeStore: vi.fn(async () => pageSizeStore),
             detectSourceDpi: vi.fn(async () => sourceDpi),
             createRasterPipes: vi.fn(async () => undefined),
-            renderPage: vi.fn(),
+            // Without FIFO streaming this budget exceeds the raw-raster share
+            // and the retained handoff falls back to PNG.
+            renderPage: vi.fn(async (
+                _paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
+                _log: TScanCleanupLog,
+                _pageNumber: number,
+                _source: string,
+                outputPath: string,
+            ) => {
+                await writeFile(outputPath, PNG);
+            }),
             renderPagePpm: vi.fn(async (
                 _paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
                 _log: TScanCleanupLog,
@@ -1514,7 +1534,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             excludedPages: 0,
         });
         expect(await readFile(outputPdfPath, 'utf8')).toContain('%PDF-1.7');
-        expect(dependencies.createRasterPipes).toHaveBeenCalledOnce();
+        expect(dependencies.createRasterPipes).toHaveBeenCalledTimes(RASTER_STREAMING ? 1 : 0);
         expect(renderPagePpm).toHaveBeenCalledTimes(4);
         expect(dependencies.runSidecar).toHaveBeenCalledOnce();
         expect(progress.at(-1)).toMatchObject({

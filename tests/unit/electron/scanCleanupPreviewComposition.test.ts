@@ -6,6 +6,7 @@ import {
 } from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
+import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {
     defaultDependencies, scanCleanupPreviewLifecycle,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
@@ -1606,7 +1607,7 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
                 plan.baseCleanedRasterPath,
             ]) {
                 if (path !== undefined) {
-                    expect(path.startsWith(`${dir}/`)).toBe(true);
+                    expect(isPathWithinRoot(path, dir)).toBe(true);
                 }
             }
             detailMetadataPath = plan.baseMetadataPath;
