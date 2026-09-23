@@ -534,7 +534,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     });
     let mandatoryRasterId = 0;
     let pendingMandatoryRaster: IPdfViewportMandatoryRaster | null = null;
-    const mandatoryRasterResolvers = new Map<number, () => void>();
+    // Resolves true when the request's own raster pass settled, false when a
+    // newer mandatory request superseded it or the demand was cancelled.
+    const mandatoryRasterResolvers = new Map<number, (settled: boolean) => void>();
     let demandRevision = 0;
     function estimatePageRasterPixels(pageNumber: TPageNumber) {
         const metric = pageMetrics.value[pageNumber - 1];
@@ -671,10 +673,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         renderOptions: IRenderVisiblePagesOptions = {},
     ) {
         if (pendingMandatoryRaster) {
-            mandatoryRasterResolvers.get(pendingMandatoryRaster.id)?.();
+            mandatoryRasterResolvers.get(pendingMandatoryRaster.id)?.(false);
             mandatoryRasterResolvers.delete(pendingMandatoryRaster.id);
         }
-        return new Promise<void>((resolve) => {
+        return new Promise<boolean>((resolve) => {
             const id = ++mandatoryRasterId;
             pendingMandatoryRaster = {
                 id,
@@ -695,7 +697,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         });
     }
     function settleMandatoryRaster(id: number) {
-        mandatoryRasterResolvers.get(id)?.();
+        mandatoryRasterResolvers.get(id)?.(true);
         mandatoryRasterResolvers.delete(id);
         if (pendingMandatoryRaster?.id !== id) {
             return;
@@ -705,7 +707,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     function cancelMandatoryRaster() {
         for (const resolve of mandatoryRasterResolvers.values()) {
-            resolve();
+            resolve(false);
         }
         mandatoryRasterResolvers.clear();
         pendingMandatoryRaster = null;

@@ -131,11 +131,11 @@ describe('pdfNativePreviewRouting', () => {
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,
             geometry: null,
-        })).toBe(true);
+        })).toBe(false);
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,
             geometry: null,
-            documentId: 'browser://documents/native-dictionary.pdf',
+            source: new Blob(['%PDF-1.7']),
         })).toBe(false);
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,

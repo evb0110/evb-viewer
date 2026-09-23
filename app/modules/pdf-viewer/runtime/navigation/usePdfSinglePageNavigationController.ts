@@ -469,13 +469,19 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 });
                 return;
             }
-            await options.renderVisiblePages(range, {
+            // Mandatory raster is latest-wins: an opening or reload pass can
+            // supersede this request before the target paints. The deliberate
+            // navigation still owns its target, so request it again rather
+            // than reporting an unrendered page as a failed transition.
+            while (!await options.renderVisiblePages(range, {
                 authoritativeRaster: true,
                 preserveRenderedPages: true,
                 retainOnlyCurrentResidentRaster: true,
                 suppressResidentRasterDemand: false,
                 ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
-            });
+            })) {
+                requireIntentDocument(intent, signal);
+            }
             requireIntentDocument(intent, signal);
             await ensureTextLayerReady();
             requireIntentDocument(intent, signal);

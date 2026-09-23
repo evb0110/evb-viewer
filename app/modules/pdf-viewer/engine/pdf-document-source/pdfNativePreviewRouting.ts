@@ -58,16 +58,15 @@ export function shouldDeferNativePdfOpeningSkeleton(input: {
         && !isBrowserDocumentRef(input.source.path);
     const size = sourceSize ?? input.geometry?.size;
     const isNativeDocument = isNativeLegacyDocumentRef(input.documentId);
-    // The opening chassis can paint before the source object and trusted
-    // geometry are available. Keep an unresolved native-path opening hidden
-    // until the size check arrives; the chassis may expose a provisional
-    // owner when a queued navigation target needs one before that check.
+    // The opening chassis paints before the source object and trusted geometry
+    // are available, and in-memory sources never carry a native path. An
+    // unresolved size keeps the ordinary page-shell opening; only a known
+    // oversized or preview-eligible source hands the surface to the native lane.
     const nativePreviewEligible = shouldStageNativePdfOpeningPreview(input.source, input.geometry);
-    const isLargeOrUnresolvedNativePath = size === undefined
-        ? isNativeDocument
-        : size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
-            && (isNativeDocument || isNativePathSource)
-            || nativePreviewEligible;
+    const isLargeNativePath = size !== undefined
+        && size >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES
+        && (isNativeDocument || isNativePathSource)
+        || nativePreviewEligible;
     // Before the stage has a generation to claim, the size is the only trusted
     // signal available. Keep PDF.js's provisional surface deferred for that
     // interval; the chassis owns the visible loading surface. Once the stage
@@ -76,7 +75,7 @@ export function shouldDeferNativePdfOpeningSkeleton(input: {
     const nativePreviewOwnsOpeningSurface = input.nativeOpeningPreviewStaged === undefined
         ? input.nativeOpeningPreviewState === undefined
             || input.nativeOpeningPreviewState === 'inactive'
-            ? isLargeOrUnresolvedNativePath
+            ? isLargeNativePath
             : input.nativeOpeningPreviewState === 'loading'
                 || input.nativeOpeningPreviewState === 'settled'
         : input.nativeOpeningPreviewStaged

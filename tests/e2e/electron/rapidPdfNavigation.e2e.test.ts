@@ -1950,6 +1950,9 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
             client = await session.page.createCDPSession();
             await client.send('Emulation.setCPUThrottlingRate', {rate: 6});
+            // macOS routes Control-wheel to native scrolling; other platforms
+            // zoom on Control-wheel and scroll with an unmodified wheel.
+            const platformScrollModifiers = process.platform === 'darwin' ? 2 : 0;
             const dispatchControlWheel = async (count: number) => {
                 const packets: Array<Promise<unknown>> = [];
                 for (let index = 0; index < count; index += 1) {
@@ -1959,7 +1962,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         y: point.y,
                         deltaX: 0,
                         deltaY: Math.round(100_000 * Math.exp(-index / 40)),
-                        modifiers: 2,
+                        modifiers: platformScrollModifiers,
                         pointerType: 'mouse',
                     }));
                 }

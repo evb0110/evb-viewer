@@ -99,6 +99,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 target.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div><div class="text-layer" data-pdf-text-layer-ready="true"></div>';
             }
             freshPages.add(range.start);
+            return true;
         });
 
         try {
@@ -292,7 +293,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
-                renderVisiblePages: vi.fn(async () => undefined),
+                renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
@@ -401,7 +402,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
-                renderVisiblePages: vi.fn(async () => undefined),
+                renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
@@ -509,7 +510,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
-                renderVisiblePages: vi.fn(async () => undefined),
+                renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
@@ -600,7 +601,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
-                renderVisiblePages: vi.fn(async () => undefined),
+                renderVisiblePages: vi.fn(async () => true),
                 prepareNavigationLayout: async () => preparation.promise,
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
@@ -718,7 +719,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
-                renderVisiblePages: vi.fn(async () => undefined),
+                renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 1,
@@ -857,7 +858,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 3),
-                renderVisiblePages: vi.fn(async () => undefined),
+                renderVisiblePages: vi.fn(async () => true),
                 isPageFreshlyRenderedForNavigation: vi.fn(() => true),
                 visibleRange: ref({
                     start: 3,
@@ -963,7 +964,7 @@ describe('usePdfSinglePageNavigationController', () => {
         }) => {
             if (renderVisiblePages.mock.calls.length === 1) {
                 freshPages.add(range.start);
-                return;
+                return true;
             }
             // Closing the file tears the document down while the target
             // raster is still awaited: no live page range remains.
@@ -971,6 +972,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 closeDocument();
                 documentRevision.value += 1;
             }
+            return true;
         });
         const unhandledRejections: unknown[] = [];
         const onUnhandledRejection = (event: PromiseRejectionEvent) => {
