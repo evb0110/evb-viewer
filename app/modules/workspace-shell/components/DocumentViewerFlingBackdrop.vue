@@ -64,6 +64,14 @@ const stripElement = shallowRef<HTMLElement | null>(null);
 let lastScrollTop: number | null = null;
 let lastUserWheelAt = Number.NEGATIVE_INFINITY;
 let holdTimer: ReturnType<typeof setTimeout> | null = null;
+let binding: {
+    animation: Animation;
+    rowPitch: number;
+    scrollRange: number;
+} | null = null;
+// Rebinds the scroll animation when no binding exists yet, for example while
+// the scroll range was still empty.
+const bindRevision = ref(0);
 
 // Primitive projections: a renderer republishes the descriptor as the current
 // page changes, and an unchanged row must not restart the scroll animation.
@@ -107,7 +115,23 @@ function releaseHold() {
     }
 }
 
+function syncScrollRange() {
+    if (!binding) {
+        bindRevision.value += 1;
+        return;
+    }
+    if (!viewport) {
+        return;
+    }
+    const scrollRange = viewport.scrollHeight - viewport.clientHeight;
+    if (scrollRange > 0 && scrollRange !== binding.scrollRange) {
+        binding.scrollRange = scrollRange;
+        binding.animation.effect?.updateTiming({iterations: scrollRange / binding.rowPitch});
+    }
+}
+
 function showStrip() {
+    syncScrollRange();
     active.value = true;
     releaseHold();
     holdTimer = setTimeout(() => {
@@ -169,13 +193,17 @@ watch(() => viewport, (element, _previous, onCleanup) => {
 
 // The compositor drives the strip from the viewport's scroll offset: each
 // iteration moves it up by one row, and one iteration spans one row of scroll,
-// so the rows stay in phase with the page track without new raster. It is
-// bound when the strip shows, so the iterations use the current scroll range.
+// so the rows stay in phase with the page track without new raster. It stays
+// bound while the strip is transparent: a fling can outrun raster in its first
+// frame, before the main thread shows the strip, and binding it then would
+// cost more frames. Showing the strip refreshes the iterations when the scroll
+// range has changed since.
 watchEffect((onCleanup) => {
     const element = stripElement.value;
     const source = viewport;
     const rowPitch = pitch.value;
-    if (!active.value || !element || !source || !strip.value || !(rowPitch > 0)) {
+    void bindRevision.value;
+    if (!element || !source || !(rowPitch > 0)) {
         return;
     }
     const ScrollTimelineConstructor = getScrollTimelineConstructor();
@@ -195,7 +223,15 @@ watchEffect((onCleanup) => {
         easing: 'linear',
         fill: 'both',
     });
-    onCleanup(() => animation.cancel());
+    binding = {
+        animation,
+        rowPitch,
+        scrollRange,
+    };
+    onCleanup(() => {
+        animation.cancel();
+        binding = null;
+    });
 });
 
 onBeforeUnmount(releaseHold);
