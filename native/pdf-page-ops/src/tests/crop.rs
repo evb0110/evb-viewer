@@ -249,9 +249,8 @@ fn crop_postcondition_failure_does_not_publish_staged_output() {
 #[test]
 fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
     use std::{
-        fs::{set_permissions, File},
+        fs::File,
         io::{Read, Seek, SeekFrom, Write},
-        os::unix::fs::PermissionsExt,
     };
 
     const LARGE_SOURCE_OFFSET: u64 = 512 * 1024 * 1024 + 1024;
@@ -274,8 +273,7 @@ fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
     std::fs::write(&pages_file, b"1\n").unwrap();
     let qpdf_json = r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":3},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog","/Pages":"2 0 R"}},"obj:2 0 R":{"value":{"/Type":"/Pages","/Count":1,"/Kids":["3 0 R"],"/MediaBox":[0,0,200,100]}},"obj:3 0 R":{"value":{"/Type":"/Page","/Parent":"2 0 R","/MediaBox":[0,0,200,100],"/CustomKey":"/keep"}}}]}"#;
     let script = format!("#!/bin/sh\nprintf '%s' '{qpdf_json}'\n");
-    std::fs::write(&qpdf, script).unwrap();
-    set_permissions(&qpdf, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let _fake_executable = crate::write_fake_executable(&qpdf, &script);
 
     let original_len = std::fs::metadata(&pdf).unwrap().len();
     mutate_pdf(Config {

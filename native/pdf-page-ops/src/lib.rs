@@ -104,6 +104,24 @@ pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
     run(args)
 }
 
+// A concurrent fork can retain a writable script descriptor until its exec,
+// even with CLOEXEC, and make Linux reject another exec with ETXTBSY. Tests
+// hold the returned guard until they no longer run the fake executable.
+#[cfg(all(test, unix))]
+pub(crate) fn write_fake_executable(
+    path: &std::path::Path,
+    script: &str,
+) -> std::sync::MutexGuard<'static, ()> {
+    use std::os::unix::fs::PermissionsExt;
+    static FAKE_EXECUTABLE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let guard = FAKE_EXECUTABLE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    std::fs::write(path, script).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    guard
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

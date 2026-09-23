@@ -1254,8 +1254,6 @@ mod tests {
 
     #[cfg(unix)]
     fn load_with_fake_qpdf(status: i32, structure: &str) -> Result<IncrementalDocument> {
-        use std::os::unix::fs::PermissionsExt;
-
         let nonce = test_qpdf_temp_nonce()?;
         let stem = format!("evb-qpdf-status-{}-{nonce}", std::process::id());
         let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
@@ -1267,8 +1265,7 @@ mod tests {
         input.save(&input_path)?;
 
         let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\nexit {status}\n");
-        fs::write(&qpdf_path, script)?;
-        fs::set_permissions(&qpdf_path, fs::Permissions::from_mode(0o700))?;
+        let _fake_executable = crate::write_fake_executable(&qpdf_path, &script);
 
         let result = load_qpdf_structural_incremental_pdf(&input_path, &qpdf_path);
         let _ = fs::remove_file(&input_path);
@@ -1279,11 +1276,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn materialized_stream_updates_declared_length_before_clone_and_save() {
-        use std::os::unix::fs::PermissionsExt;
         let nonce = qpdf_temp_nonce().unwrap();
         let qpdf_path = std::env::temp_dir().join(format!("evb-qpdf-stream-length-{nonce}"));
-        fs::write(&qpdf_path, "#!/bin/sh\nprintf 'recovered bytes'\n").unwrap();
-        fs::set_permissions(&qpdf_path, fs::Permissions::from_mode(0o700)).unwrap();
+        let _fake_executable =
+            crate::write_fake_executable(&qpdf_path, "#!/bin/sh\nprintf 'recovered bytes'\n");
         let mut document = Document::with_version("1.4");
         let root = document.add_object(dictionary! {"Type" => "Catalog"});
         document.trailer.set("Root", root);
