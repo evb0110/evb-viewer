@@ -1746,6 +1746,8 @@ export default {
             'loadTitle': 'Kan de documentwerkruimte niet laden',
             'loadDescription': 'Probeer de werkruimte opnieuw te laden.',
             'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',
+            'sessionRestoreTitle': 'Vorige sessie niet hersteld',
+            'sessionRestoreDescription': 'De tabbladen van je vorige sessie konden niet opnieuw worden geopend. De herstelgegevens zijn bewaard.',
         },
         'settings': {
             'load': 'Instellingen konden niet worden geladen',

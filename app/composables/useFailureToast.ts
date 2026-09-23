@@ -16,6 +16,8 @@ export interface FailurePresentation extends IPresentedFailureCapture {
     description?: string;
     technicalDetails?: string;
     actions?: IFailureToastAction[];
+    /** Stays until dismissed, for failures reported while the user may not be looking. */
+    persistent?: boolean;
 }
 
 export interface IFailureToastTarget {add: (options: {
@@ -23,6 +25,8 @@ export interface IFailureToastTarget {add: (options: {
     title: string;
     description: string;
     actions: IFailureToastAction[];
+    duration?: number;
+    progress?: boolean;
 }) => unknown}
 
 const FAILURE_ERROR_ID_SHORT_LENGTH = 8;
@@ -89,6 +93,12 @@ export function createFailureToastPresenter(toast: IFailureToastTarget, copyLabe
                     void copyFailurePresentation(presentation);
                 },
             }],
+            ...(presentation.persistent
+                ? {
+                    duration: Number.POSITIVE_INFINITY,
+                    progress: false,
+                }
+                : {}),
         });
     };
 }

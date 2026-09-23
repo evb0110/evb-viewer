@@ -1746,6 +1746,8 @@ export default {
             'loadTitle': 'Impossibile caricare l’area di lavoro del documento',
             'loadDescription': 'Prova a caricare di nuovo l’area di lavoro.',
             'loadDescriptionWithMessage': 'Prova a caricare di nuovo l’area di lavoro. ({message})',
+            'sessionRestoreTitle': 'Sessione precedente non ripristinata',
+            'sessionRestoreDescription': 'Non è stato possibile riaprire le schede dell’ultima sessione. I dati di ripristino sono stati conservati.',
         },
         'settings': {
             'load': 'Impossibile caricare le impostazioni',

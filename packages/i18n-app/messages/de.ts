@@ -1746,6 +1746,8 @@ export default {
             'loadTitle': 'Der Dokument-Arbeitsbereich konnte nicht geladen werden',
             'loadDescription': 'Versuchen Sie, den Arbeitsbereich erneut zu laden.',
             'loadDescriptionWithMessage': 'Versuchen Sie, den Arbeitsbereich erneut zu laden. ({message})',
+            'sessionRestoreTitle': 'Vorherige Sitzung nicht wiederhergestellt',
+            'sessionRestoreDescription': 'Die Tabs Ihrer letzten Sitzung konnten nicht erneut geöffnet werden. Die Wiederherstellungsdaten wurden aufbewahrt.',
         },
         'settings': {
             'load': 'Einstellungen konnten nicht geladen werden',

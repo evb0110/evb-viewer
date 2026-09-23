@@ -17,6 +17,7 @@ import {
 } from '@app/utils/platform';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFatalRuntimeError } from '@app/composables/useFatalRuntimeError';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
@@ -85,6 +86,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const route = useRoute();
     const { t } = useTypedI18n();
     const { setFatalRuntimeError } = useFatalRuntimeError();
+    const { presentFailureToast } = useFailureToast();
     const {
         tabs,
         workspaceRefs,
@@ -482,6 +484,60 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         ));
     }
 
+    // Recovery is best effort. The main process refuses a checkpoint it
+    // cannot authorize and keeps it as evidence; a refused or failed restore
+    // reports the lost session and lets startup continue.
+    async function restoreStartupWorkspaceCheckpoint(windowTabsCapability: ReturnType<typeof getWindowTabsCapability>) {
+        try {
+            const workspaceCheckpoint = typeof windowTabsCapability.claimWorkspaceCheckpoint === 'function'
+                ? await windowTabsCapability.claimWorkspaceCheckpoint()
+                : null;
+            if (lifecycle.isDisposed.valueOf()) {
+                return;
+            }
+            if (workspaceCheckpoint) {
+                traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
+                const failedCheckpointPaths = await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
+                    tabs,
+                    activeTabId,
+                    workspaceRefs,
+                    restoreGraph: restoreWorkspaceCheckpointGraph,
+                    openPathInReservedTab,
+                    activateTab,
+                    restoreSurfaceMode: getDocumentSession ? restoreSurfaceMode : undefined,
+                });
+                if (lifecycle.isDisposed.valueOf()) {
+                    return;
+                }
+                if (failedCheckpointPaths.length === 0) {
+                    await windowTabsCapability.acknowledgeWorkspaceCheckpoint();
+                } else {
+                    BrowserLogger.warn(
+                        'tabs-shell',
+                        'Workspace checkpoint restore was incomplete; keeping recovery evidence',
+                        {failedPathCount: failedCheckpointPaths.length},
+                    );
+                }
+            }
+        } catch (error) {
+            if (lifecycle.isDisposed.valueOf()) {
+                return;
+            }
+            const failure = BrowserLogger.error('tabs-shell', 'Workspace checkpoint restore failed', error, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            });
+            presentFailureToast({
+                failure,
+                title: t('errors.workspace.sessionRestoreTitle'),
+                description: t('errors.workspace.sessionRestoreDescription'),
+                // Startup can still be covered by its overlay; the notice
+                // must outlast it.
+                persistent: true,
+            });
+        }
+    }
+
     onMounted(() => {
         lifecycle.isDisposed = false;
         const onMountedStart = performance.now();
@@ -539,35 +595,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             menuCleanups.push(...registeredMenuCleanups);
             traceRendererStartup('tabs shell menu bindings registered');
 
-            const workspaceCheckpoint = typeof windowTabsCapability.claimWorkspaceCheckpoint === 'function'
-                ? await windowTabsCapability.claimWorkspaceCheckpoint()
-                : null;
+            await restoreStartupWorkspaceCheckpoint(windowTabsCapability);
             if (lifecycle.isDisposed.valueOf()) {
                 return;
-            }
-            if (workspaceCheckpoint) {
-                traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
-                const failedCheckpointPaths = await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
-                    tabs,
-                    activeTabId,
-                    workspaceRefs,
-                    restoreGraph: restoreWorkspaceCheckpointGraph,
-                    openPathInReservedTab,
-                    activateTab,
-                    restoreSurfaceMode: getDocumentSession ? restoreSurfaceMode : undefined,
-                });
-                if (lifecycle.isDisposed.valueOf()) {
-                    return;
-                }
-                if (failedCheckpointPaths.length === 0) {
-                    await windowTabsCapability.acknowledgeWorkspaceCheckpoint();
-                } else {
-                    BrowserLogger.warn(
-                        'tabs-shell',
-                        'Workspace checkpoint restore was incomplete; keeping recovery evidence',
-                        {failedPathCount: failedCheckpointPaths.length},
-                    );
-                }
             }
 
             const startupExternalPaths = await windowTabsCapability.claimPendingExternalOpenPaths();

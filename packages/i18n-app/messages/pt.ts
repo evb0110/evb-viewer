@@ -1757,6 +1757,8 @@ export default {
             'loadTitle': 'Não foi possível carregar a área de trabalho do documento',
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
+            'sessionRestoreTitle': 'Sessão anterior não restaurada',
+            'sessionRestoreDescription': 'Não foi possível reabrir os separadores da última sessão. Os dados de recuperação foram mantidos.',
         },
         'settings': {
             'load': 'Não foi possível carregar as definições',

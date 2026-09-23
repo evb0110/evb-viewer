@@ -1757,6 +1757,8 @@ export default {
             'loadTitle': 'Impossible de charger l’espace de travail du document',
             'loadDescription': 'Essayez de recharger l’espace de travail.',
             'loadDescriptionWithMessage': 'Essayez de recharger l’espace de travail. ({message})',
+            'sessionRestoreTitle': 'Session précédente non restaurée',
+            'sessionRestoreDescription': 'Les onglets de votre dernière session n’ont pas pu être rouverts. Leurs données de récupération ont été conservées.',
         },
         'settings': {
             'load': 'Impossible de charger les paramètres',

@@ -1746,6 +1746,8 @@ export default {
             'loadTitle': 'Unable to load the document workspace',
             'loadDescription': 'Try loading the workspace again.',
             'loadDescriptionWithMessage': 'Try loading the workspace again. ({message})',
+            'sessionRestoreTitle': 'Previous session not restored',
+            'sessionRestoreDescription': 'The tabs from your last session could not be reopened. Their recovery data was kept.',
         },
         'settings': {
             'load': 'Failed to load settings',

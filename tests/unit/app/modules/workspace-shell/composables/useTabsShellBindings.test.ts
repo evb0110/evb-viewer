@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
         title: 'Startup failure',
     })),
     setFatalRuntimeError: vi.fn(),
+    presentFailureToast: vi.fn(),
     getWorkspaceViewerChunkTargetsForPaths: vi.fn(() => [
         'chassis',
         'pdfjs',
@@ -92,6 +93,7 @@ vi.mock('@app/modules/workspace-shell/host/warmupDesktopViewerChunks', () => ({
 }));
 vi.mock('@app/utils/getOrCaptureRendererBootstrapFailure', () => ({getOrCaptureRendererBootstrapFailure: mocks.getOrCaptureRendererBootstrapFailure}));
 vi.mock('@app/composables/useFatalRuntimeError', () => ({useFatalRuntimeError: () => ({setFatalRuntimeError: mocks.setFatalRuntimeError})}));
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentFailureToast: mocks.presentFailureToast})}));
 
 function createOptions() {
     const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
@@ -208,8 +210,11 @@ async function mountBindingsClient(options: ReturnType<typeof createOptions>) {
 }
 
 async function flushMountedStartupClaim() {
-    await Promise.resolve();
-    await Promise.resolve();
+    // Startup is a chain of awaited steps. Draining a generous number of
+    // microtask turns settles it without depending on each step's hop count.
+    for (let turn = 0; turn < 20; turn += 1) {
+        await Promise.resolve();
+    }
     await nextTick();
 }
 
@@ -543,7 +548,8 @@ describe('useTabsShellBindings', () => {
         unmount();
     });
 
-    it('notifies and schedules once when startup preparation fails', async () => {
+    it('reports a refused session restore and finishes startup', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const options = createOptions();
         mocks.workspaceCheckpointClaimEnabled = true;
         Reflect.set(platformApi.windowTabs, 'claimWorkspaceCheckpoint', mocks.claimWorkspaceCheckpoint);
@@ -552,8 +558,25 @@ describe('useTabsShellBindings', () => {
         const unmount = await mountBindingsClient(options);
         await flushMountedStartupClaim();
 
+        expect(mocks.presentFailureToast).toHaveBeenCalledWith(expect.objectContaining({
+            title: 'errors.workspace.sessionRestoreTitle',
+            persistent: true,
+        }));
+        expect(mocks.setFatalRuntimeError).not.toHaveBeenCalled();
+        expect(mocks.claimPendingExternalOpenPaths).toHaveBeenCalledOnce();
+        expect(mocks.notifyRendererReady).toHaveBeenCalledOnce();
+        unmount();
+    });
+
+    it('notifies and schedules once when startup preparation fails', async () => {
+        const options = createOptions();
+        mocks.claimPendingExternalOpenPaths.mockRejectedValueOnce(new Error('startup path claim failed'));
+
+        const unmount = await mountBindingsClient(options);
+        await flushMountedStartupClaim();
+
         expect(mocks.getOrCaptureRendererBootstrapFailure).toHaveBeenCalledWith(expect.objectContaining({
-            error: expect.objectContaining({message: 'checkpoint claim failed'}),
+            error: expect.objectContaining({message: 'startup path claim failed'}),
             key: 'workspace-startup',
         }));
         expect(mocks.setFatalRuntimeError).toHaveBeenCalledWith(

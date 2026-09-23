@@ -764,10 +764,12 @@ function assertDurableSourceProvenance(
         if (!tab.sourceRef) {
             continue;
         }
+        // A source-only tab stores `workingCopyRef: null`, while its open-grant
+        // provenance omits the field; both mean "no working copy".
         const entry = provenance.find(candidate => (
             candidate.sourceRef === tab.sourceRef
             && candidate.ownerWebContentsId === stored.ownerWebContentsId
-            && candidate.workingCopyRef === tab.workingCopyRef
+            && (candidate.workingCopyRef ?? null) === (tab.workingCopyRef ?? null)
         ));
         if (entry) {
             continue;

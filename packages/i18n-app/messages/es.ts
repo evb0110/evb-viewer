@@ -1746,6 +1746,8 @@ export default {
             'loadTitle': 'No se pudo cargar el espacio de trabajo del documento',
             'loadDescription': 'Intenta cargar el espacio de trabajo de nuevo.',
             'loadDescriptionWithMessage': 'Intenta cargar el espacio de trabajo de nuevo. ({message})',
+            'sessionRestoreTitle': 'No se restauró la sesión anterior',
+            'sessionRestoreDescription': 'No se pudieron volver a abrir las pestañas de tu última sesión. Se conservaron sus datos de recuperación.',
         },
         'settings': {
             'load': 'No se pudieron cargar los ajustes',

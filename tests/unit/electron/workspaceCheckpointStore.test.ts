@@ -786,6 +786,28 @@ describe('workspace checkpoint store', () => {
             .toEqual(grantedCheckpoint);
     });
 
+    it('claims a granted source-only tab that has no working copy', async () => {
+        const grantedPdfPath = join(state.userDataPath, 'granted.pdf');
+        await writeFile(grantedPdfPath, '%PDF-1.7 synthetic checkpoint fixture');
+        const sourceOnlyCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(grantedPdfPath),
+                workingCopyRef: null,
+                isDirty: false,
+            }],
+        };
+        allowOpenPath(grantedPdfPath, 11);
+
+        await saveWorkspaceCheckpoint(sourceOnlyCheckpoint, 11, 11);
+
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({tabs: [{
+            sourceRef: grantedPdfPath,
+            workingCopyRef: null,
+        }]});
+    });
+
     it('keeps legacy source-only evidence but refuses to authorize it on claim', async () => {
         const legacyPath = join(state.userDataPath, 'legacy.txt');
         await writeFile(legacyPath, 'legacy checkpoint fixture');
