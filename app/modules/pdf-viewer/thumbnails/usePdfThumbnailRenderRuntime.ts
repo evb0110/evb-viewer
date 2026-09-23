@@ -69,6 +69,9 @@ interface IPreparedThumbnailRaster {
     renderKey: string;
 }
 
+const THUMBNAIL_RASTER_MAX_PIXELS = 4 * 1024 * 1024;
+const THUMBNAIL_RASTER_MAX_DIMENSION = 16_384;
+
 function normalizeQuarterTurn(rotation: number) {
     return ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
 }
@@ -308,8 +311,8 @@ export const usePdfThumbnailRenderRuntime = (
         const dimensions = resolveBoundedRasterDimensions({
             width: scaledViewport.width * outputScale,
             height: scaledViewport.height * outputScale,
-            maxPixels: 4 * 1024 * 1024,
-            maxDimension: 16_384,
+            maxPixels: THUMBNAIL_RASTER_MAX_PIXELS,
+            maxDimension: THUMBNAIL_RASTER_MAX_DIMENSION,
         });
         return {
             scaledViewport,
@@ -533,11 +536,21 @@ export const usePdfThumbnailRenderRuntime = (
             1,
             Math.ceil(layout.thumbnailRenderWidth.value * resolveThumbnailOutputScale()) / turnedWidth,
         );
-        canvas.width = Math.ceil(turnedWidth * upsample);
-        canvas.height = Math.ceil(turnedHeight * upsample);
+        // Held to the limits of a fresh raster: an extreme page shape keeps a
+        // smaller bitmap rather than an oversized canvas.
+        const bounded = resolveBoundedRasterDimensions({
+            width: turnedWidth * upsample,
+            height: turnedHeight * upsample,
+            maxPixels: THUMBNAIL_RASTER_MAX_PIXELS,
+            maxDimension: THUMBNAIL_RASTER_MAX_DIMENSION,
+        });
+        canvas.width = bounded.width;
+        canvas.height = bounded.height;
         context.translate(canvas.width / 2, canvas.height / 2);
         context.rotate(turn * Math.PI / 180);
-        context.scale(upsample, upsample);
+        const drawScaleX = (isQuarterTurn ? canvas.height : canvas.width) / source.width;
+        const drawScaleY = (isQuarterTurn ? canvas.width : canvas.height) / source.height;
+        context.scale(drawScaleX, drawScaleY);
         context.drawImage(source, -source.width / 2, -source.height / 2);
         context.setTransform(1, 0, 0, 1, 0, 0);
         source.width = 0;
