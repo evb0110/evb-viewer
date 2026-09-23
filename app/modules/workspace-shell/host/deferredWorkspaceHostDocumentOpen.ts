@@ -15,6 +15,7 @@ import {
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
+import { toolbarSnapshotHasAcceptedDocument } from '@app/modules/workspace-shell/host/toolbarSnapshotHasAcceptedDocument';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -137,11 +138,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
     }
 
     function workspaceHasAcceptedDocument() {
-        const toolbarSnapshot = options.mountedWorkspace.value?.getToolbarSnapshot();
-        return Boolean(toolbarSnapshot?.hasPdf
-            && toolbarSnapshot.totalPages > 0
-            && !toolbarSnapshot.hasOpenError
-            && hasWorkspaceViewerDocumentCapabilities(toolbarSnapshot.viewerCapabilities));
+        return toolbarSnapshotHasAcceptedDocument(options.mountedWorkspace.value?.getToolbarSnapshot());
     }
 
     function beginDocumentOpenTransaction(openHost: IWorkspaceDocumentOpenHost, intent: IDocumentOpenIntent,

@@ -303,6 +303,13 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         const {page} = session;
 
         await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+        // Later sessions skip shared-renderer stabilization, so Start can
+        // render while the startup overlay still covers it; a click lands on
+        // the overlay the way a user's would.
+        await page.waitForFunction(
+            () => document.querySelector('#evb-startup-overlay') === null,
+            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
+        );
         await page.click('nav[aria-label="File"] button.rail-item');
         await page.waitForSelector('[data-combine-page]', {visible: true});
         const fileInput = await page.$('input[type="file"]');
@@ -352,6 +359,13 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         const {page} = session;
 
         await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+        // Later sessions skip shared-renderer stabilization, so Start can
+        // render while the startup overlay still covers it; a click lands on
+        // the overlay the way a user's would.
+        await page.waitForFunction(
+            () => document.querySelector('#evb-startup-overlay') === null,
+            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
+        );
         await page.click('nav[aria-label="File"] button.rail-item');
         await page.waitForSelector('[data-combine-page]', {visible: true});
         const fileInput = await page.$('input[type="file"]');

@@ -155,7 +155,7 @@ async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult
                     onClick: operation.discardPendingResult,
                 }, 'Discard')
                 : null,
-            operation.canCancel.value && operation.isCombining.value
+            operation.canCancel.value && operation.phase.value === 'combining'
                 ? h('button', {
                     class: 'cancel',
                     onClick: operation.cancel,
@@ -168,6 +168,7 @@ async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult
             operation.combineError.value
                 ? h('output', { class: 'error' }, operation.combineError.value)
                 : null,
+            h('output', { class: 'phase' }, operation.phase.value),
         ]);
     }});
     const app = createApp(Harness);
@@ -289,6 +290,57 @@ describe('mounted Combine PDF page state machine', () => {
         });
         await flushUpdates();
         page.unmount();
+    });
+
+    it('moves from combining to opening and stops offering cancel once the PDF exists', async () => {
+        const combined = deferred<TOpenFileResult>();
+        const opened = deferred<boolean>();
+        mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);
+        const page = await mountCombinePageStateMachine(() => opened.promise);
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        await nextTick();
+        expect(page.host.querySelector('.phase')?.textContent).toBe('combining');
+        expect(page.host.querySelector('.cancel')).not.toBeNull();
+
+        combined.resolve({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        await flushUpdates();
+        expect(page.host.querySelector('.phase')?.textContent).toBe('opening');
+        expect(page.host.querySelector('.cancel')).toBeNull();
+
+        opened.resolve(true);
+        await flushUpdates();
+        expect(page.host.querySelector('.phase')?.textContent).toBe('idle');
+        expect(page.host.querySelectorAll('.queue-row')).toHaveLength(0);
+        page.unmount();
+    });
+
+    it('names the failed step: combining the files or opening the result', async () => {
+        mocks.combinePdfFiles.mockRejectedValueOnce(new Error('native combine crashed'));
+        const failedCombine = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
+        (failedCombine.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        expect(failedCombine.host.querySelector('.error')?.textContent).toBe('combinePdf.combineFailed');
+        expect(failedCombine.host.querySelector('.combine')?.textContent).toBe('Combine');
+        failedCombine.unmount();
+
+        mocks.combinePdfFiles.mockResolvedValueOnce({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        const failedOpen = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(false));
+        (failedOpen.host.querySelector('.combine') as HTMLButtonElement).click();
+        await flushUpdates();
+        expect(failedOpen.host.querySelector('.error')?.textContent).toBe('errors.file.open');
+        expect(failedOpen.host.querySelector('.combine')?.textContent).toBe('Retry');
+        failedOpen.unmount();
     });
 
     it('discards a failed-open result without changing the queued files', async () => {

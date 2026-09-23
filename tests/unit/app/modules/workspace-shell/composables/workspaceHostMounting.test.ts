@@ -16,7 +16,6 @@ import type {
     TWorkspaceViewerChunkLoader,
     TWorkspaceViewerChunkTarget,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
-import { shouldShowWorkspaceHostLoader } from '@app/modules/workspace-shell/host/shouldShowWorkspaceHostLoader';
 import {
     shouldKeepWorkspacePendingDocumentHint,
     shouldShowWorkspacePlaceholder,
@@ -308,19 +307,15 @@ describe('workspace preload policy', () => {
 
 describe('workspace host startup visibility', () => {
     const emptyPlaceholderSignals = {
+        hasAcceptedDocument: false,
         hasQueuedSplitRestore: false,
         hasPendingDocumentHint: false,
         hasVisibleDocument: false,
         isDocumentOpenInFlight: false,
     };
 
-    it('shows the lightweight empty placeholder while startup open claim is pending', () => {
+    it('shows the lightweight empty placeholder without a document or open', () => {
         expect(shouldShowWorkspacePlaceholder(emptyPlaceholderSignals)).toBe(true);
-        expect(shouldShowWorkspaceHostLoader({
-            ...emptyPlaceholderSignals,
-            hasHostError: false,
-            isStartupOpenClaimPending: true,
-        })).toBe(false);
     });
 
     it('hands the empty surface to an active opening transaction before page geometry is ready', () => {
@@ -335,20 +330,12 @@ describe('workspace host startup visibility', () => {
             hasVisibleDocument: true,
             isDocumentOpenInFlight: true,
         })).toBe(false);
-        expect(shouldShowWorkspaceHostLoader({
-            ...emptyPlaceholderSignals,
-            hasHostError: false,
-            hasPendingDocumentHint: true,
-            isStartupOpenClaimPending: true,
-        })).toBe(false);
     });
 
-    it('hides the startup loader once startup open claim settles', () => {
-        expect(shouldShowWorkspaceHostLoader({
+    it('keeps Start hidden after a generated combine settles before its first page is presented', () => {
+        expect(shouldShowWorkspacePlaceholder({
             ...emptyPlaceholderSignals,
-            hasHostError: false,
-            hasPendingDocumentHint: true,
-            isStartupOpenClaimPending: false,
+            hasAcceptedDocument: true,
         })).toBe(false);
     });
 
@@ -412,14 +399,5 @@ describe('workspace host startup visibility', () => {
             isClosingDocument: false,
             mountedSnapshot: null,
         })).toBe(true);
-    });
-
-    it('does not place the startup loader over host errors', () => {
-        expect(shouldShowWorkspaceHostLoader({
-            ...emptyPlaceholderSignals,
-            hasHostError: true,
-            hasPendingDocumentHint: true,
-            isStartupOpenClaimPending: true,
-        })).toBe(false);
     });
 });
