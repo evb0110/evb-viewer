@@ -337,9 +337,11 @@ const NATIVE_PDF_PAGE_OPS_PATH = join(
 function createHeldPageOpsTool(name: string) {
     const toolPath = createFixturePath(`${name}-page-ops.sh`);
     const armPath = createFixturePath(`${name}-page-ops.arm`);
+    const heldPath = createFixturePath(`${name}-page-ops.held`);
     writeFileSync(toolPath, [
         '#!/usr/bin/env bash',
         `if [ "$1" = "save-mutations" ] && [ -e ${JSON.stringify(armPath)} ]; then`,
+        `    : > ${JSON.stringify(heldPath)}`,
         '    exec sleep 600',
         'fi',
         `exec ${JSON.stringify(NATIVE_PDF_PAGE_OPS_PATH)} "$@"`,
@@ -349,10 +351,12 @@ function createHeldPageOpsTool(name: string) {
     onTestFinished(() => {
         rmSync(toolPath, {force: true});
         rmSync(armPath, {force: true});
+        rmSync(heldPath, {force: true});
     });
     return {
         toolPath,
         hold: () => writeFileSync(armPath, ''),
+        waitUntilHeld: () => expect.poll(() => existsSync(heldPath), {timeout: 30_000}).toBe(true),
         release: () => rmSync(armPath, {force: true}),
     };
 }
@@ -549,6 +553,7 @@ describe('Project 8 recovered close decisions', () => {
 
         heldTool.hold();
         await rotateFirstPageCounterclockwise(session);
+        await heldTool.waitUntilHeld();
         await clickPageOperationCancel(session);
 
         await expect.poll(async () => (
