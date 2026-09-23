@@ -173,6 +173,45 @@ describe('ci-health commit attribution', () => {
         expect(text).toContain('bisect the candidates before blaming this commit');
     });
 
+    it('reports a range for an inherited streak whose start follows superseded runs', () => {
+        const red = {
+            'Native And Build Safety': 'failure',
+            'Tree Lint': 'success',
+        };
+        const inspected = [
+            recordRun(1, 'a'.repeat(40), 'success', {
+                'Native And Build Safety': 'success',
+                'Tree Lint': 'success',
+            }),
+            recordRun(2, 'b'.repeat(40), 'cancelled', {
+                'Native And Build Safety': 'cancelled',
+                'Tree Lint': 'success',
+            }),
+            recordRun(3, 'c'.repeat(40), 'failure', red),
+            recordRun(4, 'd'.repeat(40), 'failure', red),
+        ];
+
+        const report = classifyShaJobs(inspected, 'd'.repeat(40));
+        const native = requireJob(report, 'Native And Build Safety');
+
+        expect(native.attribution).toBe('INHERITED');
+        expect(native.firstBad?.sha).toBe('c'.repeat(10));
+        expect(native.lastGood).toBe('a'.repeat(10));
+        expect(native.firstBadCandidates).toEqual([
+            'b'.repeat(10),
+            'c'.repeat(10),
+        ]);
+        const text = formatShaReport([{
+            ...report,
+            tier: 'extended',
+            workflow: 'ci-extended.yml',
+        }], 'd'.repeat(40));
+        expect(text).toContain(
+            'INHERITED Native And Build Safety: broke in one of bbbbbbbbbb, cccccccccc (last green aaaaaaaaaa',
+        );
+        expect(text).toContain('verdict: every failure is inherited');
+    });
+
     it('still names the commit when the run directly before it was green', () => {
         const inspected = [
             recordRun(1, 'a'.repeat(40), 'cancelled', {'Electron E2E Regression': 'cancelled'}),

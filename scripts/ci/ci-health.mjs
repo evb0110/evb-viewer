@@ -40,7 +40,7 @@ import {parseArgs} from 'node:util';
 /** @typedef {{name: string, state: 'streak' | 'flapping', firstRed: {sha: string, subject: string, runNumber: number, date: string}, olderThanWindow: boolean, redRuns: number, greenRuns: number, evidence: {lines: string[], more: number, unavailable: boolean}}} IAttribution */
 /** @typedef {IAttribution & {firstRedRunId: number, firstRedJobId: number}} IRawAttribution */
 /** @typedef {{sha: string, subject: string, runNumber: number, date: string}} IFirstBad */
-/** @typedef {{name: string, conclusion: string | null | undefined, attribution: 'NEW' | 'INHERITED' | 'UNDETERMINED' | null, firstBad: IFirstBad | null, olderThanWindow: boolean, candidates?: string[], lastGood?: string | null}} IShaJobVerdict */
+/** @typedef {{name: string, conclusion: string | null | undefined, attribution: 'NEW' | 'INHERITED' | 'UNDETERMINED' | null, firstBad: IFirstBad | null, olderThanWindow: boolean, candidates?: string[], lastGood?: string | null, firstBadCandidates?: string[]}} IShaJobVerdict */
 /** @typedef {{tier: string, workflow: string, found: boolean, run: IRun | null, jobs: IShaJobVerdict[]}} IShaTier */
 
 // The tiers a commit is judged by. The required tier is the verdict branch
@@ -452,7 +452,9 @@ export function summarizeAttribution(inspected) {
  * directly before this one. When runs in between were superseded or skipped the
  * job, the break is somewhere in that range and the answer is `UNDETERMINED`
  * with its candidates: naming this commit would blame whichever push happened
- * to finish first.
+ * to finish first. The same holds for the start of an inherited streak: when
+ * superseded runs sit between its first red verdict and the green before it,
+ * `firstBadCandidates` lists that range instead of trusting the first red.
  *
  * @param {{run: IRun, jobs: IJob[]}[]} inspected
  * @param {string} sha
@@ -506,6 +508,22 @@ export function classifyShaJobs(inspected, sha) {
                 }
                 const lastVerdict = history.at(-1);
                 const inherited = lastVerdict?.verdict === 'failure';
+                const greenBeforeStreak = index >= 0 ? history[index].entry : null;
+                const unjudgedBeforeStreak = greenBeforeStreak
+                    ? chronological.slice(
+                        chronological.indexOf(greenBeforeStreak) + 1,
+                        chronological.indexOf(firstBad),
+                    )
+                    : [];
+                const streakRange = inherited && unjudgedBeforeStreak.length > 0 && greenBeforeStreak
+                    ? {
+                        firstBadCandidates: [
+                            ...unjudgedBeforeStreak.map(entry => entry.run.head_sha.slice(0, 10)),
+                            firstBad.run.head_sha.slice(0, 10),
+                        ],
+                        lastGood: greenBeforeStreak.run.head_sha.slice(0, 10),
+                    }
+                    : {};
                 // Runs after the last verdict that never judged this job.
                 const unjudged = lastVerdict
                     ? earlier.slice(earlier.indexOf(lastVerdict.entry) + 1)
@@ -526,7 +544,7 @@ export function classifyShaJobs(inspected, sha) {
                             ],
                             lastGood: lastVerdict ? lastVerdict.entry.run.head_sha.slice(0, 10) : null,
                         }
-                        : {}),
+                        : streakRange),
                     conclusion: job.conclusion,
                     firstBad: {
                         date: runDate(firstBad.run.created_at),
@@ -572,6 +590,14 @@ export function formatShaReport(tiers, sha) {
                 continue;
             }
             (job.attribution === 'NEW' ? newFailures : inheritedFailures).push(job.name);
+            if (job.firstBadCandidates) {
+                lines.push(
+                    `    ${job.attribution} ${job.name}: broke in one of ${job.firstBadCandidates.join(', ')} `
+                    + `(last green ${job.lastGood}; the runs before the first red run `
+                    + `#${job.firstBad?.runNumber} were superseded)`,
+                );
+                continue;
+            }
             const since = job.olderThanWindow ? 'first bad at or before' : 'first bad';
             lines.push(
                 `    ${job.attribution} ${job.name}: ${since} ${job.firstBad?.sha} `

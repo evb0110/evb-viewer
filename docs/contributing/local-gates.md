@@ -104,7 +104,8 @@ node scripts/ci/ci-health.mjs --sha <sha>
 ```
 
 It prints each required and extended job as `NEW` or `INHERITED` and names the
-first bad SHA per failing job. An `INHERITED` failure is another commit's
+first bad SHA per failing job. When superseded runs hide where a job broke, it
+lists the pushes the break could be in instead of one SHA. An `INHERITED` failure is another commit's
 defect; do not re-diagnose it and do not treat it as a reason to stop pushing.
 A `NEW` failure is fixed in the next commit or reverted. Neither case justifies
 widening a tolerance, adding a retry, or marking a step `continue-on-error`.
