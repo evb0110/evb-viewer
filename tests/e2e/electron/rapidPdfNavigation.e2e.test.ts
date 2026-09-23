@@ -2715,7 +2715,7 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             `sidebar-thumbnail-navigation-${Date.now()}.pdf`,
             200,
             0,
-            6,
+            3,
         );
         await openPdfInApp(page, pdfPath, 60_000);
         await waitForVisibleMountedPdfCanvases(page, 30_000);
@@ -2896,7 +2896,7 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
             `sidebar-centre-anchor-${Date.now()}.pdf`,
             200,
             0,
-            6,
+            3,
         );
         await openPdfInApp(page, pdfPath, 60_000);
         await waitForVisibleMountedPdfCanvases(page, 30_000);
