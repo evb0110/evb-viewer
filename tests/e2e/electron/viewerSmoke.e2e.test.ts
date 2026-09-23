@@ -1434,8 +1434,8 @@ describe('Electron E2E - Viewer Smoke', () => {
                             clientHeight: viewer.clientHeight,
                         },
                         trace: trace
-                            .filter(entry => /^(navigation-|resize-|workspace-go-to-page|workspace-bookmark|workspace-viewer-current-page)/.test(entry.event))
-                            .slice(-120),
+                            .filter(entry => /^(navigation-|resize-|workspace-|pdf-open-|document-open-|pdf-document-get-document)/.test(entry.event))
+                            .slice(-160),
                     };
                 });
                 // Printed as well: a superseded CI run is cancelled before the

@@ -3,6 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -108,6 +109,17 @@ export const useWorkspaceSidebarOpenGeneration = (
             || openingPreviewPresented.value
         )
     ));
+    watch(toolbarShowSidebarForDisplay, (shown) => {
+        logPdfRenderTrace('workspace-sidebar-presentation', () => ({
+            shown,
+            presentationEnabled: options.sidebarPresentationEnabled.value,
+            suspendedForDocumentOpen: sidebarSuspendedForDocumentOpen.value,
+            opening: options.isOpeningDocumentForToolbar.value,
+            phase: options.openSurfaceSnapshot.value.phase,
+            generation: options.openSurfaceSnapshot.value.generation,
+            ready: options.initialDocumentVisualReady.value,
+        }));
+    }, {flush: 'sync'});
 
     return {
         sidebarSuspendedForDocumentOpen,
