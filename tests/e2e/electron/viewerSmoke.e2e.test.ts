@@ -27,8 +27,10 @@ import {
     createMixedSizeTextFixturePdf,
     createNativeDjvuLatePageSearchFixture,
     createMultiPageTextFixturePdf,
+    createNonEmbeddedCjkSearchFixturePdf,
     createOutlinePageLabelFixturePdf,
     createPngFixture,
+    NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY,
     readPdfAnnotationSummary,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
@@ -3006,6 +3008,75 @@ describe('Electron E2E - Viewer Smoke', () => {
             return Math.min(viewerRect.bottom, pageRect.bottom) - Math.max(viewerRect.top, pageRect.top) > 8
                 && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
         }, {timeout: 15_000});
+    });
+
+    it('finds text set in a non-embedded CJK font on a later page', async () => {
+        let session = sessionFixture.getSession();
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-cjk-cmap-search-${Date.now()}`,
+        });
+
+        const fixturePath = await createNonEmbeddedCjkSearchFixturePdf(
+            `viewer-cjk-cmap-search-${Date.now()}.pdf`,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        await waitForFunctionInPage(session.page, () => {
+            const input = document.querySelector<HTMLInputElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
+            );
+            return Boolean(input && input.getBoundingClientRect().width > 0);
+        }, { timeout: 10_000 });
+        const searchInput = await session.page.$(
+            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
+        );
+        expect(searchInput).not.toBeNull();
+        await searchInput!.type(NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY);
+        const searchStarted = await session.page.evaluate(() => {
+            const button = document.querySelector<HTMLButtonElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
+            );
+            if (!button || button.disabled) {
+                return false;
+            }
+            button.click();
+            return true;
+        });
+        expect(searchStarted).toBe(true);
+
+        // The page's text is only readable through the CMap files shipped with
+        // PDF.js. The Latin first page keeps the index from falling back to
+        // another extractor, so a missing CMap shows "No results found".
+        await waitForFunctionInPage(session.page, () => {
+            const results = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results',
+            );
+            const spinner = results?.querySelector('.document-search-results-spinner');
+            const summary = results?.querySelector('.document-search-results-header-summary');
+            return Boolean(results && !spinner && (
+                (summary?.textContent?.trim().length ?? 0) > 0
+                || !results.querySelector('.document-search-results-list-shell')
+            ));
+        }, { timeout: 30_000 });
+        const searchOutcome = await session.page.evaluate(() => {
+            const results = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results',
+            );
+            return {
+                panel: results?.innerText.split('\n').map(line => line.trim()).find(Boolean) ?? '',
+                resultPages: Array.from(results?.querySelectorAll<HTMLElement>(
+                    '.document-search-results-group-toggle',
+                ) ?? []).map(group => group.dataset.pageNumber ?? ''),
+            };
+        });
+        expect(searchOutcome).toEqual({
+            panel: expect.stringMatching(/^1 result/u),
+            resultPages: ['2'],
+        });
     });
 
     it('keeps a visible search result at its clicked position', async () => {

@@ -31,9 +31,14 @@ import {
     PDFRef,
     PDFString,
     StandardFonts,
+    beginText,
     degrees,
     drawImage,
+    endText,
+    moveText,
     rgb,
+    setFontAndSize,
+    showText,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {createCanvas} from '@napi-rs/canvas';
@@ -661,6 +666,82 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     const bytes = await doc.save();
     writeFileSync(filePath, bytes);
 
+    return filePath;
+}
+
+export const NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY = '中文检索';
+
+/**
+ * A Latin text page followed by a page whose text uses a non-embedded CJK font
+ * with the predefined UniGB-UCS2-H CMap. Reading that page's text needs the
+ * CMap files that ship with PDF.js; the Latin page keeps search indexing from
+ * falling back to another extractor for the whole document.
+ */
+export async function createNonEmbeddedCjkSearchFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const latinFont = await doc.embedFont(StandardFonts.Helvetica);
+    doc.addPage([
+        612,
+        792,
+    ]).drawText('Latin page before the CJK page', {
+        x: 70,
+        y: 700,
+        size: 20,
+        font: latinFont,
+    });
+    const descriptor = doc.context.obj({
+        Type: 'FontDescriptor',
+        FontName: 'STSong-Light',
+        Flags: 6,
+        FontBBox: [
+            -25,
+            -254,
+            1000,
+            880,
+        ],
+        ItalicAngle: 0,
+        Ascent: 880,
+        Descent: -120,
+        CapHeight: 880,
+        StemV: 93,
+    });
+    const descendant = doc.context.obj({
+        Type: 'Font',
+        Subtype: 'CIDFontType0',
+        BaseFont: 'STSong-Light',
+        CIDSystemInfo: {
+            Registry: PDFString.of('Adobe'),
+            Ordering: PDFString.of('GB1'),
+            Supplement: 4,
+        },
+        FontDescriptor: doc.context.register(descriptor),
+        DW: 1000,
+    });
+    const cjkFont = doc.context.register(doc.context.obj({
+        Type: 'Font',
+        Subtype: 'Type0',
+        BaseFont: 'STSong-Light',
+        Encoding: 'UniGB-UCS2-H',
+        DescendantFonts: [doc.context.register(descendant)],
+    }));
+    const cjkPage = doc.addPage([
+        612,
+        792,
+    ]);
+    cjkPage.node.setFontDictionary(PDFName.of('FCjk'), cjkFont);
+    cjkPage.pushOperators(
+        beginText(),
+        setFontAndSize('FCjk', 36),
+        moveText(72, 700),
+        showText(PDFHexString.of(Array.from(
+            NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY,
+            character => character.codePointAt(0)!.toString(16).padStart(4, '0'),
+        ).join(''))),
+        endText(),
+    );
+    writeFileSync(filePath, await doc.save());
     return filePath;
 }
 

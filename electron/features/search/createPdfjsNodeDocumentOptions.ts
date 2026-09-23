@@ -3,7 +3,6 @@ import {
     join,
     sep,
 } from 'path';
-import { pathToFileURL } from 'url';
 import type { DocumentInitParameters } from 'pdfjs-dist/types/src/display/api';
 
 interface IPdfjsRuntimeWithVerbosity { VerbosityLevel?: {ERRORS?: number;}; }
@@ -48,9 +47,11 @@ function resolvePdfjsAssetRoot() {
     throw new Error(`PDF.js asset root is missing. Checked: ${getPdfjsAssetRootCandidates().join(', ')}`);
 }
 
-function toDirectoryFileUrl(path: string) {
-    const pathWithTrailingSeparator = path.endsWith(sep) ? path : `${path}${sep}`;
-    return pathToFileURL(pathWithTrailingSeparator).href;
+// PDF.js in Node reads these assets with fs.readFile(`${directory}${name}`),
+// and fs does not open a `file://` string, so the value stays a filesystem
+// path. PDF.js still requires the trailing '/', which Windows fs also accepts.
+function toPdfjsNodeAssetDirectory(path: string) {
+    return path.endsWith('/') || path.endsWith(sep) ? `${path.slice(0, -1)}/` : `${path}/`;
 }
 
 function resolvePdfjsAssetDirUrl(directoryName: string) {
@@ -58,7 +59,7 @@ function resolvePdfjsAssetDirUrl(directoryName: string) {
     if (!existsSync(assetDir)) {
         throw new Error(`PDF.js asset directory is missing: ${assetDir}`);
     }
-    return toDirectoryFileUrl(assetDir);
+    return toPdfjsNodeAssetDirectory(assetDir);
 }
 
 export function createPdfjsNodeDocumentOptions(

@@ -1,8 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import {
-    resolve,
-    sep,
-} from 'node:path';
+import { resolve } from 'node:path';
 import {
     DOMMatrix,
     ImageData,
@@ -29,6 +26,12 @@ export function isPdfCanvasInkCoverageSane(metrics: IPdfCanvasFidelityMetrics) {
         && metrics.inkPixelRatio <= PDF_CANVAS_INK_RATIO_MAX;
 }
 
+// PDF.js in Node reads assets with fs.readFile(`${directory}${name}`), which
+// needs a filesystem path, and requires the directory to end in '/'.
+function vendoredPdfjsDirectory(relativePath: string) {
+    return `${resolve(process.cwd(), relativePath)}/`;
+}
+
 export async function renderPdfCanvasFidelityMetrics(
     path: string,
     pageNumber = 1,
@@ -45,12 +48,12 @@ export async function renderPdfCanvasFidelityMetrics(
         // The legacy build still accepts this Node option although current
         // PDF.js declarations omit it.
         disableWorker: true,
-        wasmUrl: `${resolve(process.cwd(), 'public/pdf/wasm')}${sep}`,
+        wasmUrl: vendoredPdfjsDirectory('public/pdf/wasm'),
         // Fidelity fixtures contain unembedded standard fonts. Resolve those
         // from the same vendored PDF.js payload as the app so this corpus
         // measures rendering rather than whichever Helvetica substitute is
         // installed on the current macOS/Linux runner image.
-        standardFontDataUrl: `${resolve(process.cwd(), 'public/pdf/standard_fonts')}${sep}`,
+        standardFontDataUrl: vendoredPdfjsDirectory('public/pdf/standard_fonts'),
         useSystemFonts: false,
         useWorkerFetch: false,
     } satisfies Extract<Parameters<typeof pdfjs.getDocument>[0], {data?: unknown}> & {disableWorker: boolean};
