@@ -850,12 +850,8 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             1_024,
         ]);
         expect(renderPage).not.toHaveBeenCalled();
-        // Each page renders on its own so the admitted concurrency reaches
-        // Poppler; the window still bounds how many a manifest stages ahead
-        // of a sidecar that never leases one.
-        const renderedPages = renderPageBatch.mock.calls.flatMap(([input]) => input.targets.map(target => target.pageNumber));
-        expect(renderPageBatch.mock.calls.every(([input]) => input.targets.length === 1)).toBe(true);
-        expect(renderedPages.filter(pageNumber => pageNumber <= 1_024).length).toBeLessThanOrEqual(16);
+        expect(renderPageBatch).toHaveBeenCalledTimes(2);
+        expect(renderPageBatch.mock.calls.every(([input]) => input.targets.length <= 16)).toBe(true);
         const detectingPublishes = publish.mock.calls.filter(([
             _results,
             progress,

@@ -49,33 +49,6 @@ largest analysis raster and the memory bound stays a fact about the document.
 A manifest without `stagedInputWindow` keeps the direct-CLI contract: every
 Analyze input must already exist on disk, and no lease frame is ever emitted.
 
-## Keeping rendering ahead of analysis
-
-Rendering and analysis overlap, so detection takes about as long as the slower
-of the two rather than their sum.
-
-- Each page renders in its own Poppler process under the admitted render
-  concurrency. A page is readable as soon as its render publishes it, never
-  after the rest of a range.
-- Releasing a lease drops that raster at once and refills the freed slot with
-  the next unread page, so the window stays full ahead of the reader.
-- A lease still waiting for a slot comes first: the producer starts no
-  read-ahead while one waits. Otherwise read-ahead could fill the window with
-  pages nobody is reading yet, which the window may not drop because the
-  sidecar can open them before their lease frame arrives, and the lease would
-  wait forever.
-- A waiter re-checks any slot change that happened while it was deciding to
-  wait, so a slot freed in parallel is never missed.
-- Read-ahead stops at a page it failed to stage instead of skipping it, so the
-  window never fills past a page whose own lease still has to render it.
-
-The sidecar publishes each page's `page-analyzed` verdict as soon as that page
-finishes, with `completedPages` counting distinct analyzed pages. Verdicts can
-therefore arrive in any page order while the count only grows, and one slow
-page no longer holds back every later verdict. `page-complete` keeps its
-source-order meaning for render work and for the final reconciled Analyze
-results.
-
 ## One ownership rule
 
 **The detection window owns every raster it staged for the whole run.**
@@ -150,8 +123,6 @@ concurrency, and whether the run was admitted.
 | Identical results at window sizes one, two and normal concurrency | same |
 | Cancellation and a failed page leave no staged raster and publish nothing | same |
 | Residency never exceeds the window, including under concurrent leases | `tests/unit/electron/scanCleanupStagedRasterWindow.test.ts` |
-| Read-ahead fills free slots concurrently and never starves a waiting lease | `tests/unit/electron/scanCleanupStagedRasterWindow.test.ts` |
-| A later page's verdict is published before an earlier page is even staged, and the count stays monotone | `native/scan-cleanup/tests/page_cli.rs` |
 | Window admission, narrowing and the refusal figures | `tests/unit/electron/resolveRasterHandoff.test.ts` |
 | Lease frames are transport only, and are rejected without page identity | `tests/unit/electron/scanCleanupNativeProtocolCodec.test.ts`, `native/scan-cleanup/src/protocol/progress.rs` |
 | Only a staged manifest admits an Analyze input that is absent at execution | `native/scan-cleanup/src/protocol/manifest_v3.rs` |

@@ -98,11 +98,10 @@ const DETECTION_READ_ONLY_PROGRESS_INTERVAL_MS = 250;
 
 /**
  * The progress contract accepts a page list only when it is exactly the
- * completed count or explicitly marked as a bounded list. Pages the native
+ * completed count or explicitly marked as a bounded prefix. Pages the native
  * detector processes without a classification count as completed but never
  * enter the list, and a document-sized list would breach the IPC entry cap,
- * so the list is capped in verdict-arrival order and flagged whenever it is
- * not the full set.
+ * so the list is capped and flagged whenever it is not the full set.
  */
 export function completedPageProgress(
     reportedPageNumbers: ReadonlySet<number>,
@@ -1121,14 +1120,6 @@ async function runBatchedScanCleanupDetection<TDocument>(
             log,
             stage: pageNumber => renderSlot(async () => {
                 operationSignal.throwIfAborted();
-                if (batchRenderer !== undefined) {
-                    // Staged renders use independent page ranges. The window's
-                    // admitted render concurrency therefore reaches Poppler,
-                    // and each page becomes readable as soon as its process
-                    // finishes instead of waiting for one large range.
-                    await renderAndRetainBatch([pageNumber]);
-                    return;
-                }
                 const scratchPath = await retention.rasterScratchPath(document, pageNumber, DETECTION_DPI);
                 try {
                     const dimensions = await renderRasterToDisk(
@@ -1174,6 +1165,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     throw error;
                 }
             }),
+            ...(batchRenderer === undefined
+                ? {}
+                : {stageBatch: renderAndRetainBatch}),
             unstage: pageNumber => retention.releaseRaster(
                 document,
                 pageNumber,

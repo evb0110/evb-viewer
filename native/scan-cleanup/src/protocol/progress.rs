@@ -163,9 +163,6 @@ pub enum ProgressStage {
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub stage: ProgressStage,
-    /// `page-analyzed` carries the distinct analyzed-page count, so its
-    /// `page_number` can be out of source order. `page-complete` carries the
-    /// source-order completed prefix for render work and final Analyze results.
     pub completed_pages: usize,
     pub total_pages: usize,
     #[serde(skip_serializing_if = "Option::is_none")]

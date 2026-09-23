@@ -1958,35 +1958,22 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`incremental-detection-${Date.now()}`);
 
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
-        const analyses = [
-            {
-                pageNumber: 2,
-                classification: 'page-with-offcut',
-            },
-            {
-                pageNumber: 1,
-                classification: 'two-page-spread',
-            },
-            {
-                pageNumber: 3,
-                classification: 'single-uncut-page',
-            },
+        const classifications = [
+            'two-page-spread',
+            'page-with-offcut',
+            'single-uncut-page',
         ] as const;
-        analyses.forEach(({
-            pageNumber, classification,
-        }, index) => {
-            const completedUnits = index + 1;
+        classifications.forEach((classification, index) => {
+            const pageNumber = index + 1;
             harness.emitDetection({
                 jobId: requireJobId('detect-1'),
                 status: 'running',
                 progress: {
                     stage: 'detecting',
-                    completedUnits,
+                    completedUnits: pageNumber,
                     totalUnits: 3,
-                    percent: completedUnits / 3 * 100,
-                    completedPageNumbers: analyses
-                        .slice(0, completedUnits)
-                        .map(analysis => analysis.pageNumber),
+                    percent: pageNumber / 3 * 100,
+                    completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
                 },
                 results: [{
                     pageNumber: requirePageNumber(pageNumber),
@@ -1998,14 +1985,12 @@ describe('scan cleanup workspace session detection guidance', () => {
                     clusterAgreement: 0,
                     documentPrior: null,
                 }],
-                updatedAtMs: requireEpochMs(Date.now() + completedUnits),
+                updatedAtMs: requireEpochMs(Date.now() + pageNumber),
             });
         });
         await nextTick();
 
-        // Verdicts arrive as pages finish, not in page order.
-        expect([...mounted.session.detection.authoritativeLayoutByPage.value]
-            .sort(([left], [right]) => left - right)).toEqual([
+        expect([...mounted.session.detection.authoritativeLayoutByPage.value]).toEqual([
             [
                 1,
                 'two-page-spread',
@@ -2019,7 +2004,6 @@ describe('scan cleanup workspace session detection guidance', () => {
                 'single-uncut-page',
             ],
         ]);
-        expect(mounted.session.detection.progress.value.completedUnits).toBe(3);
         mounted.unmount();
     });
 
