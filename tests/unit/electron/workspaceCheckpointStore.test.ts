@@ -9,6 +9,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import type * as NodeFs from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -284,14 +285,14 @@ describe('workspace checkpoint store', () => {
     });
 
     it('does not treat a reused webContents id as the saved owner', async () => {
-        const ownerA = {
+        const ownerA = Object.assign(new EventEmitter(), {
             id: 11,
             isDestroyed: () => false,
-        } as Electron.WebContents;
-        const ownerB = {
+        }) as Electron.WebContents;
+        const ownerB = Object.assign(new EventEmitter(), {
             id: 11,
             isDestroyed: () => false,
-        } as Electron.WebContents;
+        }) as Electron.WebContents;
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
         state.liveOwners.add(11);
@@ -321,6 +322,32 @@ describe('workspace checkpoint store', () => {
             ownerRecoveryId: claimedRecord.ownerRecoveryId,
             checkpoint: {capturedAt: 124},
         });
+    });
+
+    it('lets a renderer that reloads twice recover the session its previous load claimed', async () => {
+        const window = Object.assign(new EventEmitter(), {
+            id: 11,
+            isDestroyed: () => false,
+        }) as Electron.WebContents;
+        const reloadRenderer = () => window.emit('did-start-navigation', {}, 'app://electron', false, true);
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.liveOwners.add(11);
+        state.webContentsById.set(11, window);
+
+        await saveWorkspaceCheckpoint(checkpoint, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer();
+        await expect(claimWorkspaceCheckpoint(11, window)).resolves.toEqual(checkpoint);
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(124),
+        }, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer();
+
+        await expect(claimWorkspaceCheckpoint(11, window)).resolves.toMatchObject({capturedAt: 124});
     });
 
     it('publishes annotation recovery as a fenced artifact and retires it after acknowledgement', async () => {
