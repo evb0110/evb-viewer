@@ -41,6 +41,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         id: number;
         pages: number[];
         expectedDocumentRevision?: string;
+        rotationOnly?: boolean;
     } | null>(null);
     let thumbnailInvalidationRequestId = 0;
 
@@ -57,12 +58,17 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         // the last bounded mirror when the compact model cannot fit there.
     }
 
-    function requestThumbnailInvalidation(pages: number[], expectedDocumentRevision?: string) {
+    function requestThumbnailInvalidation(
+        pages: number[],
+        expectedDocumentRevision?: string,
+        options: {rotationOnly?: boolean} = {},
+    ) {
         thumbnailInvalidationRequestId += 1;
         thumbnailInvalidationRequest.value = {
             id: thumbnailInvalidationRequestId,
             pages: [...pages],
             ...(expectedDocumentRevision === undefined ? {} : {expectedDocumentRevision}),
+            ...(options.rotationOnly ? {rotationOnly: true} : {}),
         };
     }
 

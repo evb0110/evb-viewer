@@ -416,13 +416,35 @@ function markManualThumbnailScroll(reason: string) {
     markUserInteraction(reason);
 }
 
-function captureThumbnailLayoutAnchor(): IDocumentThumbnailLayoutAnchor | null {
-    if (!isResizing && manualScrollSourceCycleId !== thumbnailSourceCycleId) {
+/**
+ * While the current page's thumbnail is fully on screen, a geometry change
+ * (such as rotating every page) keeps that thumbnail where the user sees it.
+ * Anchoring on the first visible row instead let every resized row above the
+ * current one push it along.
+ */
+function captureVisibleCurrentPageAnchor(container: HTMLElement): IDocumentThumbnailLayoutAnchor | null {
+    const page = clampPage(currentPage);
+    if (!isThumbnailElementFullyVisible(container, page)) {
         return null;
     }
+    return {
+        page,
+        offset: container.scrollTop - getThumbnailTop(page),
+    };
+}
 
+function captureThumbnailLayoutAnchor(): IDocumentThumbnailLayoutAnchor | null {
     const container = resolveVisibleContainer('thumbnail-measure-anchor');
     if (!container) {
+        return null;
+    }
+    if (!isResizing && !thumbnailResizeAnchorLifecycle.isActive()) {
+        const currentPageAnchor = captureVisibleCurrentPageAnchor(container);
+        if (currentPageAnchor) {
+            return currentPageAnchor;
+        }
+    }
+    if (!isResizing && manualScrollSourceCycleId !== thumbnailSourceCycleId) {
         return null;
     }
 
@@ -837,6 +859,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
         scheduleActivePaneRefresh,
     },
     layout: {
+        getPageRotation: page => pageGeometry?.metrics[page - 1]?.rotation,
         getThumbnailAspectRatio,
         resetThumbnailLayout,
         resolveViewportAnchorPage,
@@ -861,6 +884,9 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
     },
 });
 const { scheduleVisibleThumbnailRender } = thumbnailRenderRuntime;
+// The geometry watcher above lays the frames out; this one turns the pixels
+// they already present in the same flush, before either is painted.
+watch(() => pageGeometry?.version, () => thumbnailRenderRuntime.alignRasterRotations());
 getThumbnailRenderSummary = thumbnailRenderRuntime.getRenderSummary;
 const {
     applyScrollTop: applyThumbnailScrollTop,

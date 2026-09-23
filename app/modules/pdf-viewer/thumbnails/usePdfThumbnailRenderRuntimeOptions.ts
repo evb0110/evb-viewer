@@ -15,6 +15,7 @@ interface IPdfThumbnailRenderRuntimeSource {
         id: number;
         pages: number[];
         expectedDocumentRevision?: string;
+        rotationOnly?: boolean;
     } | null | undefined>;
     isActive: ComputedRef<boolean>;
     pdfDocument: ComputedRef<IPdfDocument | null>;
@@ -30,6 +31,8 @@ interface IPdfThumbnailRenderRuntimeVisuals {
 
 interface IPdfThumbnailRenderRuntimeLayout {
     getThumbnailAspectRatio: (page: number) => number;
+    /** Presented page rotation from the document session's geometry, when known. */
+    getPageRotation: (page: number) => number | undefined;
     resetThumbnailLayout: () => void;
     shouldPreferVisibleAnchorOverCurrentPage: () => boolean;
     resolveViewportAnchorPage: () => number | null;

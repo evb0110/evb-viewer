@@ -231,6 +231,7 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
                 scheduleActivePaneRefresh: () => {},
             },
             layout: {
+                getPageRotation: () => undefined,
                 getThumbnailAspectRatio: () => 1.4,
                 resetThumbnailLayout: () => {},
                 resolveViewportAnchorPage: () => 1,

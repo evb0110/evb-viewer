@@ -35,7 +35,13 @@ export interface IPdfThumbnailsProps {
     invalidationRequest?: {
         id: number;
         pages: number[];
+        /** The revision that carries the change; kept pixels wait for it. */
         expectedDocumentRevision?: string;
+        /**
+         * Only the pages' rotation changed. Their content is the same in both
+         * revisions, so pixels from the current one stay valid once turned.
+         */
+        rotationOnly?: boolean;
     } | null | undefined;
     hiddenAnnotationIds?: string[] | undefined;
     annotationComments?: IAnnotationCommentSummary[] | undefined;

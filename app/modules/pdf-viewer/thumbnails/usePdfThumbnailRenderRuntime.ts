@@ -69,6 +69,10 @@ interface IPreparedThumbnailRaster {
     renderKey: string;
 }
 
+function normalizeQuarterTurn(rotation: number) {
+    return ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
+}
+
 function normalizeThumbnailPage(page: number, totalPages: number) {
     return totalPages <= 0 ? 0 : clamp(Math.trunc(page), 1, totalPages);
 }
@@ -188,6 +192,7 @@ export const usePdfThumbnailRenderRuntime = (
     let activeDocument: IPdfDocument | null = null;
     let pendingInvalidation: number[] | null = null;
     let pendingInvalidationRevision: string | null = null;
+    let deferredRotationInvalidation: number[] | null = null;
 
     const editedTextMarkupCommentsByPage = computed(() => groupBy(
         getEditedTextMarkupThumbnailComments(visuals.annotationComments.value),
@@ -249,6 +254,7 @@ export const usePdfThumbnailRenderRuntime = (
         canvas.height = 0;
         delete canvas.dataset.thumbnailRendered;
         delete canvas.dataset.thumbnailPreservedBitmap;
+        delete canvas.dataset.thumbnailRasterRotation;
         if (renderKey) {
             canvas.dataset.thumbnailRenderKey = renderKey;
         } else {
@@ -275,10 +281,29 @@ export const usePdfThumbnailRenderRuntime = (
         );
     }
 
-    function resolveThumbnailRenderMetrics(page: IPdfPage) {
-        const viewport = page.getViewport({scale: 1});
+    function resolvePresentedRotation(pageNumber: number) {
+        const rotation = layout.getPageRotation(pageNumber);
+        return rotation === undefined ? undefined : normalizeQuarterTurn(rotation);
+    }
+
+    /**
+     * The document session's geometry decides the orientation a page is
+     * presented in; its frame is laid out from that geometry. A rotation
+     * preview changes the geometry before the rewritten document exists, so
+     * the raster must follow the geometry rather than the loaded page.
+     */
+    function resolveThumbnailRenderMetrics(page: IPdfPage, pageNumber: number) {
+        const rotation = resolvePresentedRotation(pageNumber);
+        const rotationOption = rotation === undefined ? {} : {rotation};
+        const viewport = page.getViewport({
+            scale: 1,
+            ...rotationOption,
+        });
         const scale = layout.thumbnailRenderWidth.value / viewport.width;
-        const scaledViewport = page.getViewport({scale});
+        const scaledViewport = page.getViewport({
+            scale,
+            ...rotationOption,
+        });
         const outputScale = resolveThumbnailOutputScale();
         const dimensions = resolveBoundedRasterDimensions({
             width: scaledViewport.width * outputScale,
@@ -336,7 +361,7 @@ export const usePdfThumbnailRenderRuntime = (
             } else {
                 clearThumbnailCanvas(demand.pageNumber, canvas, renderKey);
             }
-            const metrics = resolveThumbnailRenderMetrics(page);
+            const metrics = resolveThumbnailRenderMetrics(page, demand.pageNumber);
             const renderCanvas = preserveBitmap
                 ? document.createElement('canvas')
                 : canvas;
@@ -394,7 +419,16 @@ export const usePdfThumbnailRenderRuntime = (
                 prepared.renderCanvas.remove();
                 delete prepared.canvas.dataset.thumbnailPreservedBitmap;
             }
+            prepared.canvas.dataset.thumbnailRasterRotation = String(
+                normalizeQuarterTurn(prepared.metrics.scaledViewport.rotation),
+            );
+            // The geometry may have turned while this raster was rendering.
+            alignThumbnailRasterRotation(prepared.pageNumber, prepared.canvas);
             prepared.canvas.dataset.thumbnailRendered = 'true';
+            if (pendingInvalidationRevision !== null) {
+                // Keep these pixels through teardown of the current source.
+                prepared.canvas.dataset.thumbnailPreservedBitmap = 'true';
+            }
             renderedCanvases.set(prepared.pageNumber, prepared.canvas);
             logPdfRenderTrace('thumbnail-finalize-rendered', {
                 demand: prepared.pageNumber === source.currentPage.value
@@ -428,6 +462,7 @@ export const usePdfThumbnailRenderRuntime = (
                 canvas
                 && pendingInvalidationRevision !== null
                 && pendingInvalidation?.includes(pageNumber)
+                && shouldPreserveThumbnailBitmap(canvas)
             ) {
                 // Keep the last committed pixels through teardown of the old
                 // PDF.js source; the matching revision will replace them offscreen.
@@ -454,6 +489,77 @@ export const usePdfThumbnailRenderRuntime = (
             }
         },
     };
+
+    /**
+     * Turns the pixels a canvas already presents to the orientation the page
+     * geometry now describes. A quarter turn of a bitmap is lossless, so a
+     * rotation preview shows the page upright in its new frame from the first
+     * frame, and a cancelled preview turns the same pixels back. The canvas
+     * keeps its render state; a later render replaces the bitmap offscreen.
+     */
+    function alignThumbnailRasterRotation(pageNumber: number, canvas: HTMLCanvasElement) {
+        const presentedRotation = resolvePresentedRotation(pageNumber);
+        const rasterRotation = canvas.dataset.thumbnailRasterRotation;
+        if (
+            presentedRotation === undefined
+            || rasterRotation === undefined
+            || canvas.width <= 0
+            || canvas.height <= 0
+        ) {
+            return false;
+        }
+        const turn = normalizeQuarterTurn(presentedRotation - Number(rasterRotation));
+        if (turn === 0) {
+            return false;
+        }
+        const source = document.createElement('canvas');
+        source.width = canvas.width;
+        source.height = canvas.height;
+        const sourceContext = source.getContext('2d');
+        const context = canvas.getContext('2d');
+        if (!sourceContext || !context) {
+            source.width = 0;
+            source.height = 0;
+            return false;
+        }
+        sourceContext.drawImage(canvas, 0, 0);
+        const isQuarterTurn = turn === 90 || turn === 270;
+        const turnedWidth = isQuarterTurn ? source.height : source.width;
+        const turnedHeight = isQuarterTurn ? source.width : source.height;
+        // A landscape raster turned upright is narrower than the frame needs.
+        // Upsample it here so the bitmap stays presentable, and preserved, while
+        // its sharper replacement renders offscreen.
+        const upsample = Math.max(
+            1,
+            Math.ceil(layout.thumbnailRenderWidth.value * resolveThumbnailOutputScale()) / turnedWidth,
+        );
+        canvas.width = Math.ceil(turnedWidth * upsample);
+        canvas.height = Math.ceil(turnedHeight * upsample);
+        context.translate(canvas.width / 2, canvas.height / 2);
+        context.rotate(turn * Math.PI / 180);
+        context.scale(upsample, upsample);
+        context.drawImage(source, -source.width / 2, -source.height / 2);
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        source.width = 0;
+        source.height = 0;
+        canvas.dataset.thumbnailRasterRotation = String(presentedRotation);
+        return true;
+    }
+
+    function alignRasterRotations() {
+        for (const pageNumber of layout.virtualPages.value) {
+            const canvas = dom.getCanvas(pageNumber);
+            if (
+                canvas
+                && (
+                    canvas.dataset.thumbnailRendered === 'true'
+                    || canvas.dataset.thumbnailPreservedBitmap === 'true'
+                )
+            ) {
+                alignThumbnailRasterRotation(pageNumber, canvas);
+            }
+        }
+    }
 
     function estimateThumbnailPixels(pageNumber: number) {
         const width = Math.max(1, layout.thumbnailRenderWidth.value);
@@ -595,7 +701,50 @@ export const usePdfThumbnailRenderRuntime = (
         effects.resetMeasurementState();
     }
 
-    function invalidatePages(pages: readonly number[], expectedDocumentRevision?: string) {
+    function markThumbnailPagesStale(pages: readonly number[]) {
+        for (const pageNumber of pages) {
+            pageRenderEpochs.set(
+                pageNumber,
+                (pageRenderEpochs.get(pageNumber) ?? 0) + 1,
+            );
+            const canvas = dom.getCanvas(pageNumber);
+            // Only pixels the canvas already presents are worth keeping. An
+            // unrendered canvas marked as preserved would replace the loading
+            // placeholder with an empty white box until the new raster lands.
+            if (canvas && shouldPreserveThumbnailBitmap(canvas)) {
+                canvas.dataset.thumbnailPreservedBitmap = 'true';
+                delete canvas.dataset.thumbnailRendered;
+            }
+            renderedCanvases.delete(pageNumber);
+        }
+        thumbnailKeySignal.value += 1;
+    }
+
+    /**
+     * A rotation leaves page content unchanged, so the current revision's
+     * pixels, turned to the new geometry, stay exact. They remain on screen and
+     * renders already under way still land until the rewritten revision is
+     * shown; only then do the rotated pages re-render from it.
+     */
+    function deferRotationInvalidation(pages: readonly number[], expectedDocumentRevision: string) {
+        pendingInvalidation = null;
+        pendingInvalidationRevision = expectedDocumentRevision;
+        deferredRotationInvalidation = [...pages];
+        for (const canvas of renderedCanvases.values()) {
+            canvas.dataset.thumbnailPreservedBitmap = 'true';
+        }
+    }
+
+    function invalidatePages(
+        pages: readonly number[],
+        expectedDocumentRevision?: string,
+        rotationOnly = false,
+    ) {
+        if (rotationOnly && expectedDocumentRevision) {
+            deferRotationInvalidation(pages, expectedDocumentRevision);
+            return;
+        }
+        deferredRotationInvalidation = null;
         pendingInvalidation = expectedDocumentRevision ? [...pages] : null;
         pendingInvalidationRevision = expectedDocumentRevision ?? null;
         const invalidatedPages = new Set(pages);
@@ -607,19 +756,7 @@ export const usePdfThumbnailRenderRuntime = (
                 canvas.dataset.thumbnailPreservedBitmap = 'true';
             }
         }
-        for (const pageNumber of pages) {
-            pageRenderEpochs.set(
-                pageNumber,
-                (pageRenderEpochs.get(pageNumber) ?? 0) + 1,
-            );
-            const canvas = dom.getCanvas(pageNumber);
-            if (canvas) {
-                canvas.dataset.thumbnailPreservedBitmap = 'true';
-                delete canvas.dataset.thumbnailRendered;
-            }
-            renderedCanvases.delete(pageNumber);
-        }
-        thumbnailKeySignal.value += 1;
+        markThumbnailPagesStale(pages);
         activeScheduler?.invalidate({
             pages,
             reason: 'thumbnail-pages-invalidated',
@@ -666,13 +803,14 @@ export const usePdfThumbnailRenderRuntime = (
                 return;
             }
             if (document !== previousDocument) {
-                if (expectedRevisionMatches) {
-                    pendingInvalidation = null;
-                    pendingInvalidationRevision = null;
-                } else {
-                    pendingInvalidation = null;
-                    pendingInvalidationRevision = null;
+                const rotatedPages = deferredRotationInvalidation;
+                pendingInvalidation = null;
+                pendingInvalidationRevision = null;
+                deferredRotationInvalidation = null;
+                if (!expectedRevisionMatches) {
                     clearRenderedState();
+                } else if (rotatedPages) {
+                    markThumbnailPagesStale(rotatedPages);
                 }
             }
             void nextTick(() => {
@@ -739,9 +877,13 @@ export const usePdfThumbnailRenderRuntime = (
     watch(
         () => source.invalidationRequest.value?.id,
         () => {
-            const pages = source.invalidationRequest.value?.pages;
-            if (pages?.length) {
-                invalidatePages(pages, source.invalidationRequest.value?.expectedDocumentRevision);
+            const request = source.invalidationRequest.value;
+            if (request?.pages.length) {
+                invalidatePages(
+                    request.pages,
+                    request.expectedDocumentRevision,
+                    request.rotationOnly === true,
+                );
             }
         },
         {flush: 'sync'},
@@ -787,6 +929,7 @@ export const usePdfThumbnailRenderRuntime = (
     });
 
     return {
+        alignRasterRotations,
         cancelAllRenders: () => activeScheduler?.cancelSource(THUMBNAIL_RASTER_SOURCE_ID),
         getRenderSummary: () => {
             const snapshot = activeScheduler?.snapshot();

@@ -36,7 +36,11 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     canSave: Ref<boolean>;
     hasSaveFailure: TReadableRef<boolean>;
     handleSave: () => Promise<unknown>;
-    requestThumbnailInvalidation: (pages: number[], expectedDocumentRevision?: string) => void;
+    requestThumbnailInvalidation: (
+        pages: number[],
+        expectedDocumentRevision?: string,
+        options?: {rotationOnly?: boolean},
+    ) => void;
     pdfViewerRef: Ref<IWorkspacePdfViewerDocumentControlsPort | null>;
     canMutatePages: Ref<boolean>;
     handleExportImages: (pages: number[] | TPageSelection) => Promise<void>;

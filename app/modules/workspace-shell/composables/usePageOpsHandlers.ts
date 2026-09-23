@@ -85,7 +85,11 @@ export interface IPageOpsHandlersDeps {
     setSelectedThumbnailPages: (pages: number[]) => void;
     selectedPageSelection?: Ref<TPageSelection | null>;
     setSelectedPageSelection?: (selection: TPageSelection) => void;
-    invalidateThumbnailPages: (pages: number[], expectedDocumentRevision?: string) => void;
+    invalidateThumbnailPages: (
+        pages: number[],
+        expectedDocumentRevision?: string,
+        options?: {rotationOnly?: boolean},
+    ) => void;
     pdfViewerRef: Ref<IPdfViewerForPageOps | null>;
     pageContextMenu: Ref<{
         visible: boolean;
@@ -194,7 +198,14 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             const expectedDocumentRevision = result.documentRevision?.documentRef === path
                 ? result.documentRevision.token
                 : undefined;
-            deps.invalidateThumbnailPages(invalidatedPages, expectedDocumentRevision);
+            const rotationDelta = pageOperationPresentation.value?.kind === 'rotate'
+                ? pageOperationPresentation.value.rotationDelta
+                : undefined;
+            deps.invalidateThumbnailPages(
+                invalidatedPages,
+                expectedDocumentRevision,
+                {rotationOnly: rotationDelta !== undefined},
+            );
             const delta = result.pageIdentityDelta;
             if (delta) {
                 const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
@@ -206,9 +217,6 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     ?? Math.min(currentPage.value, nextPageCount ?? currentPage.value);
                 stagedPageIdentityDelta = delta;
             }
-            const rotationDelta = pageOperationPresentation.value?.kind === 'rotate'
-                ? pageOperationPresentation.value.rotationDelta
-                : undefined;
             if (result.documentRevision?.documentRef !== path) {
                 if (rotationDelta !== undefined) {
                     await deps.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});

@@ -36,6 +36,8 @@ const TEST_TIMEOUT_MS = 10 * 60 * 1_000;
 
 interface IPageMutationFrame {
     elapsedMs: number;
+    /** Top of the rotated page relative to the viewport; null when unmounted. */
+    pageTopInViewport: number | null;
     msSinceClick: number | null;
     toolbar: string | null;
     zoom: string | null;
@@ -61,6 +63,10 @@ interface IPageMutationFrame {
         aspectError: number | null;
     };
     targetThumbnailPainted: boolean;
+    targetThumbnail: {
+        frameLandscape: boolean | null;
+        bitmapLandscape: boolean | null;
+    };
     pageSkeletonVisible: boolean;
     neighbourThumbnails: Array<{
         page: number;
@@ -787,9 +793,11 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 const targetThumbnail = activeHost?.querySelector<HTMLElement>(
                     '[data-document-thumbnail-item][data-page="2"]',
                 ) ?? null;
-                const targetThumbnailPaint = inspectCanvas(
-                    targetThumbnail?.querySelector<HTMLCanvasElement>('canvas') ?? null,
-                );
+                const targetThumbnailCanvas = targetThumbnail?.querySelector<HTMLCanvasElement>('canvas') ?? null;
+                const targetThumbnailPaint = inspectCanvas(targetThumbnailCanvas);
+                const targetThumbnailFrameRect = targetThumbnail
+                    ?.querySelector<HTMLElement>('[data-document-thumbnail-frame]')
+                    ?.getBoundingClientRect();
                 const neighbourThumbnails = [
                     1,
                     3,
@@ -851,9 +859,22 @@ describe('Electron E2E, compact page labels through structural operations', () =
                         aspectError: mainRasterAspectError,
                     },
                     targetThumbnailPainted: targetThumbnailPaint.painted,
+                    targetThumbnail: {
+                        frameLandscape: targetThumbnailFrameRect && targetThumbnailFrameRect.height > 0
+                            ? targetThumbnailFrameRect.width > targetThumbnailFrameRect.height
+                            : null,
+                        // The frame is laid out from the page geometry; a bitmap
+                        // of the other orientation is drawn squeezed or cropped.
+                        bitmapLandscape: targetThumbnailPaint.contentAspect === null
+                            ? null
+                            : targetThumbnailPaint.contentAspect > 1,
+                    },
                     pageSkeletonVisible: isVisible(pageSkeleton),
                     neighbourThumbnails,
                     scrollTop: viewer?.scrollTop ?? null,
+                    pageTopInViewport: target && viewer
+                        ? target.getBoundingClientRect().top - viewer.getBoundingClientRect().top
+                        : null,
                     operationBusy: operationState?.isPageOperationInProgress ?? null,
                 };
                 frameSamples.push(frame);
@@ -861,6 +882,28 @@ describe('Electron E2E, compact page labels through structural operations', () =
             };
             requestAnimationFrame(sample);
         });
+
+        // A reader's own scroll ends the toolbar navigation's anchor upkeep, so
+        // the rotation has to keep the page in place by itself.
+        const viewerPoint = await session.page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .document-viewer-viewport',
+            );
+            const rect = viewer?.getBoundingClientRect();
+            return rect && rect.width > 0 && rect.height > 0
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        });
+        expect(viewerPoint).not.toBeNull();
+        if (!viewerPoint) {
+            return;
+        }
+        await session.page.mouse.move(viewerPoint.x, viewerPoint.y);
+        await session.page.mouse.wheel({deltaY: 40});
+        await waitForAnimationFrames(session.page, 30);
 
         const thumbnailPoint = await session.page.evaluate(() => {
             const item = document.querySelector<HTMLElement>(
@@ -963,6 +1006,34 @@ describe('Electron E2E, compact page labels through structural operations', () =
         expect(postClickFrames.every(frame => frame.mainRaster.painted), JSON.stringify(
             postClickFrames.filter(frame => !frame.mainRaster.painted).slice(0, 6),
         )).toBe(true);
+        const preClickFrame = sampledFrames.filter(frame => frame.msSinceClick === null || frame.msSinceClick < 0).at(-1);
+        const viewportHeight = await session.page.evaluate(() => document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .document-viewer-viewport',
+        )?.clientHeight ?? 0);
+        const pageOutOfViewFrames = postClickFrames.filter(frame => (
+            frame.pageTopInViewport === null
+            || frame.pageRect === null
+            || frame.pageTopInViewport + frame.pageRect.height <= 0
+            || frame.pageTopInViewport >= viewportHeight
+        ));
+        expect(pageOutOfViewFrames, JSON.stringify(pageOutOfViewFrames.slice(0, 4).map(frame => ({
+            msSinceClick: frame.msSinceClick,
+            pageTopInViewport: frame.pageTopInViewport,
+            scrollTop: frame.scrollTop,
+        })))).toEqual([]);
+        // The rotated page keeps its place: its top may settle to the page
+        // edge the swap restores, but never drifts by the size change of the
+        // pages above it.
+        const pageDrift = postClickFrames.map(frame => ({
+            msSinceClick: frame.msSinceClick,
+            drift: Math.abs((frame.pageTopInViewport ?? Number.POSITIVE_INFINITY)
+                - (preClickFrame?.pageTopInViewport ?? Number.NaN)),
+        }));
+        const driftedFrames = pageDrift.filter(frame => !(frame.drift <= 64));
+        expect(driftedFrames, JSON.stringify({
+            preClickTop: preClickFrame?.pageTopInViewport,
+            drifted: driftedFrames.slice(0, 6),
+        })).toEqual([]);
         const stretchedFrames = postClickFrames.filter(frame => (
             frame.mainRaster.painted
             && frame.mainRaster.aspectError !== null
@@ -981,6 +1052,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
             );
         }
         expect(maximumBlankThumbnailFrames).toBeLessThanOrEqual(1);
+        const distortedThumbnailFrames = postClickFrames.filter(frame => (
+            frame.targetThumbnailPainted
+            && frame.targetThumbnail.bitmapLandscape !== frame.targetThumbnail.frameLandscape
+        ));
+        expect(distortedThumbnailFrames, JSON.stringify(distortedThumbnailFrames.slice(0, 6).map(frame => ({
+            msSinceClick: frame.msSinceClick,
+            revision: frame.revision,
+            targetThumbnail: frame.targetThumbnail,
+        })))).toEqual([]);
+        expect(initialFrame.targetThumbnail.frameLandscape).toBe(false);
+        expect(finalFrame.targetThumbnail.frameLandscape).toBe(true);
         const firstFinalScaleFrame = postClickFrames.find(frame => (
             frame.pageRect !== null
             && frame.pageRect.width > frame.pageRect.height
