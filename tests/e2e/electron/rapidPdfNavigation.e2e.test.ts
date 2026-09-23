@@ -2477,11 +2477,46 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             expect(misalignments.length).toBeGreaterThanOrEqual(10);
             expect(Math.max(...misalignments)).toBeLessThanOrEqual(2);
 
+            // The strip hides once its hold after the fling has run out.
             await session.page.waitForFunction(() => {
                 const strip = document.querySelector<HTMLElement>('.document-viewer-fling-backdrop__strip');
                 return strip !== null && Number(window.getComputedStyle(strip).opacity) === 0;
             }, {timeout: 5_000});
-            await waitForAnimationFrames(session.page, 5);
+            // Rest is judged by the pixels the user sees, once the pages are
+            // painted and the fling no longer moves the viewport.
+            await session.page.waitForFunction(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                if (!viewport) {
+                    return false;
+                }
+                const bounds = viewport.getBoundingClientRect();
+                const visible = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container'))
+                    .filter(page => {
+                        const rect = page.getBoundingClientRect();
+                        return rect.bottom > bounds.top && rect.top < bounds.bottom;
+                    });
+                return visible.length > 0
+                    && visible.every(page => page.dataset.pageVisual === 'ready' && page.querySelector('canvas'));
+            }, {timeout: 10_000});
+            // The fling has stopped moving the viewport.
+            await session.page.waitForFunction(() => new Promise<boolean>((resolve) => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const start = viewport?.scrollTop ?? -1;
+                let frames = 0;
+                const check = () => {
+                    if ((viewport?.scrollTop ?? -1) !== start) {
+                        resolve(false);
+                        return;
+                    }
+                    frames += 1;
+                    if (frames >= 10) {
+                        resolve(true);
+                        return;
+                    }
+                    requestAnimationFrame(check);
+                };
+                requestAnimationFrame(check);
+            }), {timeout: 10_000});
 
             const rest = await session.page.evaluate(() => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
@@ -2529,6 +2564,60 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             marginPixel.forEach((channel, index) => {
                 expect(Math.abs(channel - (rest.background[index] ?? 0))).toBeLessThanOrEqual(3);
             });
+
+            // Nothing of the strip shows at rest: the viewport paints the same
+            // pixels with the strip hidden.
+            const viewportClip = await session.page.$eval('#pdf-viewer', (viewer) => {
+                const rect = viewer.getBoundingClientRect();
+                return {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                };
+            });
+            const restScrollTop = await session.page.$eval('#pdf-viewer', viewer => viewer.scrollTop);
+            const withStrip = await session.page.screenshot({
+                type: 'png',
+                clip: viewportClip,
+                // A capture beyond the viewport resizes the page for the shot,
+                // and the viewer re-anchors its scroll on a resize.
+                captureBeyondViewport: false,
+            });
+            const hideStrip = await session.page.addStyleTag({content: '.document-viewer-fling-backdrop__strip { visibility: hidden !important; }'});
+            await waitForAnimationFrames(session.page, 5);
+            const withoutStrip = await session.page.screenshot({
+                type: 'png',
+                clip: viewportClip,
+                captureBeyondViewport: false,
+            });
+            await hideStrip.evaluate(style => style.remove());
+            expect(await session.page.$eval('#pdf-viewer', viewer => viewer.scrollTop)).toBe(restScrollTop);
+            const [
+                shown,
+                hidden,
+            ] = await Promise.all([
+                loadImage(Buffer.from(withStrip)),
+                loadImage(Buffer.from(withoutStrip)),
+            ]);
+            const pixelsOf = (source: typeof shown) => {
+                const target = createCanvas(source.width, source.height).getContext('2d');
+                target.drawImage(source, 0, 0);
+                return target.getImageData(0, 0, source.width, source.height).data;
+            };
+            const shownPixels = pixelsOf(shown);
+            const hiddenPixels = pixelsOf(hidden);
+            let strayPixels = 0;
+            for (let index = 0; index < shownPixels.length; index += 4) {
+                if ([
+                    0,
+                    1,
+                    2,
+                ].some(channel => Math.abs((shownPixels[index + channel] ?? 0) - (hiddenPixels[index + channel] ?? 0)) > 3)) {
+                    strayPixels += 1;
+                }
+            }
+            expect(strayPixels).toBe(0);
         } finally {
             await session.page.evaluate(() => {
                 const probeWindow = window as IFlingBackdropProbeWindow;

@@ -144,15 +144,21 @@ pages shows in that backdrop. A scroll timeline moves it on the compositor, one
 row per row of scroll, so it stays in phase with the page track without new
 raster. The renderer publishes the row geometry through its viewport feature
 binding (`resolvePdfFlingBackdrop`). The strip is transparent at rest, because
-on documents with mixed page sizes it can only match the current row, and even
-matching rows would darken every page edge with a second shadow.
+on documents with mixed page sizes it can only match the current row. It is
+clipped to the viewport's client area, since the scroll bar tracks are
+transparent too.
 
-The main thread shows the strip, so the first frame or two of a fling that
+The main thread shows the strip, so the first frame or two of a burst that
 outruns raster at once can still show bare background: the compositor applies
 the first scroll before the opacity change is committed. The scroll timeline
-stays bound at rest so that showing the strip costs only that commit. A layer
-that paints the background inside the scroll content cannot hide the strip
-instead, because the compositor then fills missing tiles with that color.
+stays bound at rest, and a resize observer keeps its iterations on the current
+scroll range, so showing the strip costs only that commit. Keeping the strip
+shown at rest behind matching pages would remove those frames, but it cannot be
+kept in phase there: with a fractional row pitch the compositor's repeating
+scroll animation drifts by several pixels over a long document, which shows
+beside every page. A layer that paints the background inside the scroll content
+cannot hide the strip instead, because the compositor fills missing tiles of an
+opaque layer with its color.
 
 Keep per-frame mount cost small as well: a fast scroll mounts a dozen pages a
 frame, so a page skeleton is plain elements with one pulse per page.

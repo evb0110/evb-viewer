@@ -2,27 +2,32 @@
     <div class="document-viewer-fling-backdrop" aria-hidden="true">
         <div
             v-if="strip"
-            ref="stripElement"
-            class="document-viewer-fling-backdrop__strip"
-            :class="{'document-viewer-fling-backdrop__strip--visible': active}"
-            :style="strip.style"
+            class="document-viewer-fling-backdrop__client"
+            :style="strip.clientStyle"
         >
             <div
-                v-for="row in strip.rows"
-                :key="row"
-                class="document-viewer-fling-backdrop__row"
-                :style="strip.rowStyle"
+                ref="stripElement"
+                class="document-viewer-fling-backdrop__strip"
+                :class="{'document-viewer-fling-backdrop__strip--visible': active}"
+                :style="strip.style"
             >
                 <div
-                    v-for="(shell, index) in backdrop.pages"
-                    :key="index"
-                    class="document-viewer-fling-backdrop__page"
-                    :style="{
-                        width: `${shell.width}px`,
-                        height: `${shell.height}px`,
-                    }"
+                    v-for="row in strip.rows"
+                    :key="row"
+                    class="document-viewer-fling-backdrop__row"
+                    :style="strip.rowStyle"
                 >
-                    <DocumentPageSkeleton :content-height="shell.height" />
+                    <div
+                        v-for="(shell, index) in backdrop.pages"
+                        :key="index"
+                        class="document-viewer-fling-backdrop__page"
+                        :style="{
+                            width: `${shell.width}px`,
+                            height: `${shell.height}px`,
+                        }"
+                    >
+                        <DocumentPageSkeleton :content-height="shell.height" />
+                    </div>
                 </div>
             </div>
         </div>
@@ -60,6 +65,8 @@ const FLING_HOLD_MS = 400;
 const active = ref(false);
 const viewportWidth = ref(0);
 const viewportHeight = ref(0);
+const viewportClientLeft = ref(0);
+const viewportClientTop = ref(0);
 const stripElement = shallowRef<HTMLElement | null>(null);
 let lastScrollTop: number | null = null;
 let lastUserWheelAt = Number.NEGATIVE_INFINITY;
@@ -92,6 +99,14 @@ const strip = computed(() => {
     }
     return {
         rows: rowCount.value,
+        // The strip stays inside the client area: the scroll bar tracks are
+        // transparent, and wide pages would otherwise show through them.
+        clientStyle: {
+            left: `${viewportClientLeft.value}px`,
+            top: `${viewportClientTop.value}px`,
+            width: `${viewportWidth.value}px`,
+            height: `${viewportHeight.value}px`,
+        },
         style: {
             width: `${viewportWidth.value}px`,
             top: `${phase.value - pitch.value}px`,
@@ -120,7 +135,7 @@ function syncScrollRange() {
         bindRevision.value += 1;
         return;
     }
-    if (!viewport) {
+    if (!viewport || !viewport.isConnected) {
         return;
     }
     const scrollRange = viewport.scrollHeight - viewport.clientHeight;
@@ -131,7 +146,6 @@ function syncScrollRange() {
 }
 
 function showStrip() {
-    syncScrollRange();
     active.value = true;
     releaseHold();
     holdTimer = setTimeout(() => {
@@ -179,15 +193,40 @@ watch(() => viewport, (element, _previous, onCleanup) => {
     };
     element.addEventListener('scroll', handleScroll, {passive: true});
     element.addEventListener('wheel', handleWheel, {passive: true});
+    // The content resizes without the viewport when pages are added or
+    // removed. Resize callbacks run before paint, so the iterations never lag
+    // the scroll range by a visible frame.
     const observer = new ResizeObserver(() => {
         viewportWidth.value = element.clientWidth;
         viewportHeight.value = element.clientHeight;
+        viewportClientLeft.value = element.clientLeft;
+        viewportClientTop.value = element.clientTop;
+        syncScrollRange();
     });
     observer.observe(element);
+    for (const child of element.children) {
+        observer.observe(child);
+    }
+    const contentObserver = new MutationObserver((records) => {
+        for (const record of records) {
+            for (const node of record.removedNodes) {
+                if (node instanceof Element) {
+                    observer.unobserve(node);
+                }
+            }
+            for (const node of record.addedNodes) {
+                if (node instanceof Element && node.parentElement === element) {
+                    observer.observe(node);
+                }
+            }
+        }
+    });
+    contentObserver.observe(element, {childList: true});
     onCleanup(() => {
         element.removeEventListener('scroll', handleScroll);
         element.removeEventListener('wheel', handleWheel);
         observer.disconnect();
+        contentObserver.disconnect();
     });
 }, {immediate: true});
 
@@ -196,8 +235,7 @@ watch(() => viewport, (element, _previous, onCleanup) => {
 // so the rows stay in phase with the page track without new raster. It stays
 // bound while the strip is transparent: a fling can outrun raster in its first
 // frame, before the main thread shows the strip, and binding it then would
-// cost more frames. Showing the strip refreshes the iterations when the scroll
-// range has changed since.
+// cost more frames. The iterations follow the scroll range as it changes.
 watchEffect((onCleanup) => {
     const element = stripElement.value;
     const source = viewport;
@@ -244,6 +282,11 @@ onBeforeUnmount(releaseHold);
     overflow: hidden;
     pointer-events: none;
     background: var(--app-document-viewer-bg);
+}
+
+.document-viewer-fling-backdrop__client {
+    position: absolute;
+    overflow: hidden;
 }
 
 .document-viewer-fling-backdrop__strip {
