@@ -241,6 +241,23 @@ where
 }
 
 pub(crate) fn page_worker_threads<M: PlanningManifest>(manifest: &M) -> Result<usize, NativeError> {
+    page_worker_threads_on(manifest, host_parallelism())
+}
+
+/// Tests that assert a pool width size it for this many logical CPUs rather
+/// than the host's: the product halves the CPU count, so a two-CPU runner (the
+/// Windows VM, small CI machines) legitimately admits a single page worker.
+#[cfg(test)]
+const TEST_PARALLELISM: usize = 8;
+
+fn host_parallelism() -> usize {
+    std::thread::available_parallelism().map_or(2, usize::from)
+}
+
+fn page_worker_threads_on<M: PlanningManifest>(
+    manifest: &M,
+    available_parallelism: usize,
+) -> Result<usize, NativeError> {
     if (0..manifest.page_count()).any(|index| manifest.page(index).stream_input) {
         // FIFO readers block an OS thread until their producer opens the
         // matching pipe. Running a page-sized Rayon pool over ordered streams
@@ -249,7 +266,7 @@ pub(crate) fn page_worker_threads<M: PlanningManifest>(manifest: &M) -> Result<u
         // 180-second pdftoppm timeouts near the end of large documents.
         Ok(1)
     } else if manifest.page_count() > 1 {
-        let threads = manifest_worker_threads(manifest)?;
+        let threads = manifest_worker_threads_on(manifest, available_parallelism)?;
         // Never lease more staged inputs than the owning process promised to
         // keep on disk: a wider page pool would demand a wider raster window
         // than the scratch budget admitted.
@@ -264,10 +281,10 @@ pub(crate) const FALLBACK_SYSTEM_MEMORY_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 pub(crate) const GRAY_PEAK_BYTES_PER_PIXEL: u64 = 40;
 pub(crate) const COLOR_PEAK_BYTES_PER_PIXEL: u64 = 80;
 
-pub(crate) fn manifest_worker_threads<M: PlanningManifest>(
+fn manifest_worker_threads_on<M: PlanningManifest>(
     manifest: &M,
+    available: usize,
 ) -> Result<usize, NativeError> {
-    let available = std::thread::available_parallelism().map_or(2, usize::from);
     let staged_inputs = manifest.staged_input_window().is_some();
     let measured_peak_page_bytes = (0..manifest.page_count())
         .map(|index| {
@@ -906,12 +923,12 @@ mod tests {
                 .collect(),
         };
 
-        assert!(manifest_worker_threads(&manifest).unwrap() > 1);
+        assert!(manifest_worker_threads_on(&manifest, TEST_PARALLELISM).unwrap() > 1);
         let samples = run_page_jobs_with_worker_threads(
             &manifest,
             &NEVER_CANCELED,
             |(_, page)| derive_page_ink_sample(page),
-            page_worker_threads(&manifest).unwrap(),
+            page_worker_threads_on(&manifest, TEST_PARALLELISM).unwrap(),
             processing_worker_threads(),
         )
         .unwrap();
@@ -947,7 +964,10 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let manifest = scheduler_test_manifest(&dir, 4);
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+        assert_eq!(
+            page_worker_threads_on(&manifest, TEST_PARALLELISM).unwrap(),
+            2
+        );
 
         let live = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
@@ -1058,7 +1078,10 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let manifest = scheduler_test_manifest(&dir, 5);
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+        assert_eq!(
+            page_worker_threads_on(&manifest, TEST_PARALLELISM).unwrap(),
+            2
+        );
 
         let live = Arc::new(AtomicUsize::new(0));
         let started = Arc::new(Mutex::new(Vec::new()));
@@ -1114,7 +1137,10 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let manifest = scheduler_test_manifest(&dir, 5);
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+        assert_eq!(
+            page_worker_threads_on(&manifest, TEST_PARALLELISM).unwrap(),
+            2
+        );
 
         let live = Arc::new(AtomicUsize::new(0));
         let started = Arc::new(Mutex::new(Vec::new()));
@@ -1209,16 +1235,27 @@ mod tests {
         };
 
         assert_eq!(
-            manifest_worker_threads(&manifest(PlanningOperation::Render, OutputMode::Bw)).unwrap(),
+            manifest_worker_threads_on(
+                &manifest(PlanningOperation::Render, OutputMode::Bw),
+                TEST_PARALLELISM
+            )
+            .unwrap(),
             2
         );
         assert_eq!(
-            manifest_worker_threads(&manifest(PlanningOperation::Analyze, OutputMode::Bw)).unwrap(),
+            manifest_worker_threads_on(
+                &manifest(PlanningOperation::Analyze, OutputMode::Bw),
+                TEST_PARALLELISM
+            )
+            .unwrap(),
             1
         );
         assert_eq!(
-            manifest_worker_threads(&manifest(PlanningOperation::Render, OutputMode::Auto))
-                .unwrap(),
+            manifest_worker_threads_on(
+                &manifest(PlanningOperation::Render, OutputMode::Auto),
+                TEST_PARALLELISM
+            )
+            .unwrap(),
             1
         );
 
@@ -1247,8 +1284,12 @@ mod tests {
                     .collect(),
             )
         };
-        let constrained = manifest_worker_threads(&manifest(Some(64 * 1024 * 1024))).unwrap();
-        let roomy = manifest_worker_threads(&manifest(Some(32 * 1024 * 1024 * 1024))).unwrap();
+        let constrained =
+            manifest_worker_threads_on(&manifest(Some(64 * 1024 * 1024)), TEST_PARALLELISM)
+                .unwrap();
+        let roomy =
+            manifest_worker_threads_on(&manifest(Some(32 * 1024 * 1024 * 1024)), TEST_PARALLELISM)
+                .unwrap();
 
         assert_eq!(constrained, 1);
         assert!(
@@ -1256,8 +1297,12 @@ mod tests {
             "a roomy host must not be sized like a 64 MiB one (roomy={roomy})"
         );
         assert_eq!(
-            manifest_worker_threads(&manifest(None)).unwrap(),
-            manifest_worker_threads(&manifest(Some(FALLBACK_SYSTEM_MEMORY_BYTES))).unwrap()
+            manifest_worker_threads_on(&manifest(None), TEST_PARALLELISM).unwrap(),
+            manifest_worker_threads_on(
+                &manifest(Some(FALLBACK_SYSTEM_MEMORY_BYTES)),
+                TEST_PARALLELISM
+            )
+            .unwrap()
         );
 
         let _ = fs::remove_dir_all(&dir);
@@ -1341,7 +1386,10 @@ mod moved_tests {
         // the duplicated unused values, while the worker bound still follows
         // the memory-derived page limit instead of a destination scan.
         manifest.validate().unwrap();
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+        assert_eq!(
+            page_worker_threads_on(&manifest, TEST_PARALLELISM).unwrap(),
+            2
+        );
         let _ = fs::remove_dir_all(dir);
     }
 }

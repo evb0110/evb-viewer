@@ -303,6 +303,13 @@ fn multi_page_analysis_reports_progress_before_reconciliation_completes() {
 
 #[test]
 fn analysis_publishes_a_later_ready_page_before_the_first_page_is_staged() {
+    // Overtaking needs two page workers, and the sidecar sizes its pool to half
+    // the logical CPUs. A two-CPU host (the BGK Windows VM, small runners)
+    // correctly runs one worker, which waits for page 1 in order.
+    if std::thread::available_parallelism().map_or(1, usize::from) < 4 {
+        eprintln!("skipped: out-of-order page analysis needs at least four logical CPUs");
+        return;
+    }
     let scratch = Scratch::new("analysis-progress-out-of-order");
     let first_input = scratch.path("analysis-gated-input-1.png");
     let second_input = scratch.path("analysis-gated-input-2.png");
@@ -1936,22 +1943,39 @@ fn failed_second_page_rolls_back_every_manifest_destination() {
 fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal() {
     let scratch = Scratch::new("publication-cancel");
     let input = scratch.path("publication-cancel-input.png");
+    let slow_input = scratch.path("publication-cancel-slow-input.png");
     let manifest = scratch.path("publication-cancel-manifest.json");
     let output = scratch.path("publication-cancel-output.png");
     let metadata = scratch.path("publication-cancel-output.json");
     let page_metadata = scratch.path("publication-cancel-page.json");
+    let slow_output = scratch.path("publication-cancel-slow-output.png");
+    let slow_metadata = scratch.path("publication-cancel-slow-output.json");
+    let slow_page_metadata = scratch.path("publication-cancel-slow-page.json");
     let journal = PathBuf::from(format!(
         "{}{}",
         manifest.display(),
         ".evb-publication-journal.json"
     ));
     let original = b"previous output survives cancellation";
+    fs::write(&input, encode_gray(&GrayImage::new(160, 120, 220)).unwrap()).unwrap();
+    // The cancellation lands while this much larger second page still renders.
+    // With a single page the batch reaches its last checkpoint within
+    // microseconds of publishing, so an observer thread on a loaded two-CPU
+    // host routinely cancelled a batch that had already committed.
     fs::write(
-        &input,
-        encode_gray(&GrayImage::new(1_600, 1_200, 220)).unwrap(),
+        &slow_input,
+        encode_gray(&GrayImage::new(3_200, 2_400, 220)).unwrap(),
     )
     .unwrap();
     fs::write(&output, original).unwrap();
+    let options = CleanupOptions {
+        output_mode: OutputMode::Grayscale,
+        layout: LayoutMode::Single,
+        normalize_illumination: false,
+        crop_content: false,
+        match_page_size: false,
+        ..CleanupOptions::default()
+    };
     fs::write(
         &manifest,
         serde_json::to_vec_pretty(&serde_json::json!({
@@ -1963,17 +1987,19 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
                 "inputPath": input,
                 "sourcePageIndex": 0,
                 "pageMetadataPath": page_metadata,
-                "options": CleanupOptions {
-                    output_mode: OutputMode::Grayscale,
-                    layout: LayoutMode::Single,
-                    normalize_illumination: false,
-                    crop_content: false,
-                    match_page_size: false,
-                    ..CleanupOptions::default()
-                },
+                "options": options,
                 "outputs": [{
                     "outputPath": output,
                     "metadataPath": metadata,
+                }],
+            }, {
+                "inputPath": slow_input,
+                "sourcePageIndex": 1,
+                "pageMetadataPath": slow_page_metadata,
+                "options": options,
+                "outputs": [{
+                    "outputPath": slow_output,
+                    "metadataPath": slow_metadata,
                 }],
             }]
         }))
@@ -2028,6 +2054,9 @@ fn run_with_cancellation_during_publication_rolls_back_destinations_and_journal(
     assert_eq!(fs::read(&output).unwrap(), original);
     assert!(!metadata.exists());
     assert!(!page_metadata.exists());
+    for path in [&slow_output, &slow_metadata, &slow_page_metadata] {
+        assert!(!path.exists(), "{} survived rollback", path.display());
+    }
     assert!(!journal.exists());
     assert!(fs::read_dir(scratch.dir.clone()).unwrap().all(|entry| {
         !entry

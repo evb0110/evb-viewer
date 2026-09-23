@@ -1575,6 +1575,21 @@ mod tests {
             .contains("positive finite"));
     }
 
+    /// The protocol fixtures name POSIX-rooted destinations such as
+    /// `/fixtures/output/page-1.json`. Windows correctly treats those as
+    /// drive-relative, so execution validation would stop at "must be absolute"
+    /// before reaching the input contract under test.
+    fn root_fixture_destinations(manifest: &mut ManifestV3, dir: &Path) {
+        let rooted = |path: &mut PathBuf| *path = dir.join(path.file_name().unwrap());
+        for page in &mut manifest.pages {
+            rooted(&mut page.page_metadata_path);
+            for output in &mut page.outputs {
+                rooted(&mut output.output_path);
+                rooted(&mut output.metadata_path);
+            }
+        }
+    }
+
     #[test]
     fn analyze_rejects_nonregular_input_but_render_keeps_stream_input_allowed() {
         let scratch = std::env::temp_dir().join(format!(
@@ -1592,6 +1607,7 @@ mod tests {
         )
         .unwrap();
         let mut analyze: ManifestV3 = serde_json::from_slice(&analyze_bytes).unwrap();
+        root_fixture_destinations(&mut analyze, &scratch);
         analyze.pages[0].input_path = nonregular.clone();
         let input_error = analyze.validate().unwrap_err();
         assert!(input_error.message.contains("Page 1"));
@@ -1612,6 +1628,7 @@ mod tests {
         )
         .unwrap();
         let mut render: ManifestV3 = serde_json::from_slice(&render_bytes).unwrap();
+        root_fixture_destinations(&mut render, &scratch);
         render.pages[0].input_path = nonregular.clone();
         render.pages[0].analysis_input_path = Some(nonregular.clone());
         render.pages[0].analysis_dpi = Some(150.0);
