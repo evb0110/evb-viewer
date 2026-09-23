@@ -274,7 +274,7 @@ describe('workingCopy', () => {
         const realParent = join(tempRoot, 'real-parent');
         const linkedParent = join(tempRoot, 'linked-parent');
         mkdirSync(realParent);
-        symlinkSync(realParent, linkedParent);
+        symlinkSync(realParent, linkedParent, process.platform === 'win32' ? 'junction' : 'dir');
         const linkedWorkingPath = join(linkedParent, 'pdf-work-lazy', 'document.pdf');
 
         const keyBeforeFileExists = normalizePathForLookup(linkedWorkingPath);
@@ -282,7 +282,7 @@ describe('workingCopy', () => {
         writeFileSync(linkedWorkingPath, 'lazy working copy');
 
         expect(normalizePathForLookup(linkedWorkingPath)).toBe(keyBeforeFileExists);
-        expect(keyBeforeFileExists).toBe(join(realpathSync.native(realParent), 'pdf-work-lazy', 'document.pdf'));
+        expect(keyBeforeFileExists).toBe(normalizePathForLookup(join(realParent, 'pdf-work-lazy', 'document.pdf')));
     });
 
     it('uses background materialization by default after publishing lazy state', async () => {

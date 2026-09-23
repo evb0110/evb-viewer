@@ -184,7 +184,7 @@ describe('release checksum manifest', () => {
     it.skipIf(process.platform === 'win32')('rejects unsafe Unix socket entries as non-regular files', async () => {
         // A Unix socket path is capped near 104 bytes; a long TMPDIR cannot
         // hold one, so the socket fixture falls back to the system /tmp.
-        const socketRoot = join(tmpdir(), 'evb-release-checksums-socket-XXXXXX', 'release.sock ').length <= 100
+        const socketRoot = Buffer.byteLength(join(tmpdir(), 'evb-release-checksums-socket-XXXXXX', 'release.sock ')) <= 100
             ? tmpdir()
             : '/tmp';
         const socketDirectory = await mkdtemp(join(socketRoot, 'evb-release-checksums-socket-'));
