@@ -239,6 +239,26 @@ export function createDocumentPersistence(
         createCancelledPersistResult,
     } = createDocumentPersistResults(() => state.originalPath.value);
 
+    /**
+     * A refused write is reported by the save flow in the user's language with
+     * an error ID; its raw cause travels as that record's diagnostics. The
+     * document's error state belongs to a failed open, so a save never writes it.
+     */
+    function refusedPersistFailure(
+        channel: string,
+        phase: string,
+        reason: IPdfPersistFailure['reason'],
+        detail: Pick<IPdfPersistFailure, 'message' | 'validation'>,
+    ): IPdfPersistFailure {
+        return {
+            channel,
+            operation: 'persist',
+            phase,
+            reason,
+            ...detail,
+        };
+    }
+
     function roundDurationMs(durationMs: number) {
         return Math.round(durationMs * 10) / 10;
     }
@@ -287,8 +307,12 @@ export function createDocumentPersistence(
             if (isStaleRevisionError(e)) {
                 throw e;
             }
-            state.error.value = e instanceof Error ? getErrorMessage(e) : deps.t('errors.file.save');
-            return createFailedPersistResult(saveMode, didSaveAs);
+            return createFailedPersistResult(saveMode, didSaveAs, refusedPersistFailure(
+                'persist',
+                'write',
+                'write-failed',
+                {message: getErrorMessage(e)},
+            ));
         }
     }
 
@@ -372,9 +396,6 @@ export function createDocumentPersistence(
                 ...(result.message === undefined ? {} : {message: result.message}),
                 ...(result.validation === undefined ? {} : {validation: result.validation}),
             };
-            state.error.value = result.validation?.errors.join('\n')
-                ?? result.message
-                ?? deps.t('errors.file.save');
             return {
                 ok: false,
                 failure,
@@ -443,8 +464,12 @@ export function createDocumentPersistence(
                 return createStalePersistResult(requestedSaveMode, false);
             }
             if (!validation.isValid) {
-                state.error.value = validation.errors.join('\n') || deps.t('errors.file.save');
-                return createFailedPersistResult(requestedSaveMode, false);
+                return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
+                    'file:write',
+                    'validate-output',
+                    'validation-failed',
+                    {validation},
+                ));
             }
             const commitOptions = opts?.preserveLoadedSource
                 ? { preserveLoadedSource: true }
@@ -541,8 +566,12 @@ export function createDocumentPersistence(
                 return createStalePersistResult(requestedSaveMode, false);
             }
             if (!validation.isValid) {
-                state.error.value = validation.errors.join('\n') || deps.t('errors.file.save');
-                return createFailedPersistResult(requestedSaveMode, false);
+                return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
+                    'file:repairPdf',
+                    'validate-output',
+                    'validation-failed',
+                    {validation},
+                ));
             }
             if (!await commitPersistedPdfState(undefined, workingPath)) {
                 return createStalePersistResult(requestedSaveMode, false);
@@ -591,8 +620,12 @@ export function createDocumentPersistence(
                 return createStalePersistResult(requestedSaveMode, false);
             }
             if (!validation.isValid) {
-                state.error.value = validation.errors.join('\n') || deps.t('errors.file.save');
-                return createFailedPersistResult(requestedSaveMode, false);
+                return createFailedPersistResult(requestedSaveMode, false, refusedPersistFailure(
+                    'file:optimizePdfForInteraction',
+                    'validate-output',
+                    'validation-failed',
+                    {validation},
+                ));
             }
             if (!await commitPersistedPdfState(undefined, workingPath)) {
                 return createStalePersistResult(requestedSaveMode, false);
@@ -628,8 +661,12 @@ export function createDocumentPersistence(
                 ),
             );
             if (optimizeResult.validation && !optimizeResult.validation.isValid) {
-                state.error.value = optimizeResult.validation.errors.join('\n') || deps.t('errors.file.save');
-                return createFailedPersistResult(requestedSaveMode, true);
+                return createFailedPersistResult(requestedSaveMode, true, refusedPersistFailure(
+                    'file:optimizePdfAsCopy',
+                    'validate-output',
+                    'validation-failed',
+                    {validation: optimizeResult.validation},
+                ));
             }
             if (!state.isActiveWorkingCopy(previousWorkingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale optimized-copy completion', {

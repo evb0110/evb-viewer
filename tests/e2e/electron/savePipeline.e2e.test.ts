@@ -2,15 +2,22 @@ import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {
+    chmod,
+    mkdir,
     open,
     readFile,
 } from 'node:fs/promises';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {promisify} from 'node:util';
 import {
     afterEach,
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
@@ -519,6 +526,66 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         );
         expect(await hashFile(sourcePath)).toBe(sourceBeforeHash);
         await expect(readFile(sourcePath)).resolves.toEqual(sourceBeforeBytes);
+    }, E2E_TIMEOUT_MS);
+
+    it('reports a refused Save As once and leaves the open document unmarked', async () => {
+        const sourcePath = await createMultiPageTextFixturePdf(
+            `save-as-refused-source-${Date.now()}.pdf`,
+            2,
+        );
+        const readOnlyDirectory = join(dirname(sourcePath), `save-as-refused-read-only-${Date.now()}`);
+        await mkdir(readOnlyDirectory, {recursive: true});
+        await chmod(readOnlyDirectory, 0o555);
+        onTestFinished(() => chmod(readOnlyDirectory, 0o755).catch(() => undefined));
+        session = await startElectronE2ESession(`e2e-save-as-refused-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: `${readOnlyDirectory}/refused.pdf`},
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForOpenedPdf(session.page, sourcePath);
+
+        // A notification can close before the command resolves, so every one
+        // shown while Save As runs is recorded as it appears.
+        await session.page.evaluate(() => {
+            const shown: string[] = [];
+            const seen = new WeakSet<Element>();
+            const selector = '[role="status"], [role="alert"]';
+            Reflect.set(window, '__refusedSaveAsNotifications', shown);
+            new MutationObserver(() => {
+                for (const notification of document.querySelectorAll(selector)) {
+                    // One notification nests several live regions; count the
+                    // outermost element once, however often its text changes.
+                    if (seen.has(notification) || notification.parentElement?.closest(selector)) continue;
+                    const text = notification.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
+                    if (!text) continue;
+                    seen.add(notification);
+                    shown.push(text);
+                }
+            }).observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true,
+            });
+        });
+        await expect(callWorkspaceCommand<boolean>(session.page, 'handleSaveAs')).resolves.toEqual({
+            called: true,
+            value: false,
+        });
+        // The refusal is told once, as a save failure in the user's language
+        // (contract I4). The document is still open and intact, so it must not
+        // also carry the raw IPC text as an open failure (#837).
+        await session.page.waitForFunction(() => (
+            (Reflect.get(window, '__refusedSaveAsNotifications') as string[])
+                .some(text => text.includes('Failed to save file'))
+        ), {timeout: SAVE_TIMEOUT_MS});
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: SAVE_TIMEOUT_MS});
+        expect((await session.page.evaluate(() => (
+            Reflect.get(window, '__refusedSaveAsNotifications') as string[]
+        ))).filter(text => text.includes('Failed to save file'))).toHaveLength(1);
+        expect(await session.page.evaluate(() => (
+            document.querySelector('[data-testid="workspace-document-pdf-error"]')?.textContent ?? null
+        ))).toBeNull();
+        expect(existsSync(`${readOnlyDirectory}/refused.pdf`)).toBe(false);
     }, E2E_TIMEOUT_MS);
 
     it('uses the configured Unicode display name as the native annotation author', async () => {

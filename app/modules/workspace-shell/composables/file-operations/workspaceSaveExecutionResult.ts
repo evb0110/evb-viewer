@@ -137,6 +137,11 @@ export function abortReasonForPersistResult(persisted: IPdfPersistResult): TWork
     if (persisted.abortReason === 'stale') {
         return 'document-changed';
     }
+    // The output failed its validity check; the user is told nothing was
+    // written for that reason rather than that the save did not complete.
+    if (persisted.failure?.reason === 'validation-failed') {
+        return 'validation-rejected';
+    }
     return 'persist-rejected';
 }
 
