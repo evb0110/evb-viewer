@@ -9,16 +9,13 @@ import {
     startElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
+// The emulation lives on the page's own session so it survives the reload
+// below; one set on a separate CDP session ends when that session detaches.
 async function setReducedMotionPreference(page: Parameters<typeof stabilizeSharedRendererClient>[0]) {
-    const client = await page.createCDPSession();
-    try {
-        await client.send('Emulation.setEmulatedMedia', {features: [{
-            name: 'prefers-reduced-motion',
-            value: 'no-preference',
-        }]});
-    } finally {
-        await client.detach();
-    }
+    await page.emulateMediaFeatures([{
+        name: 'prefers-reduced-motion',
+        value: 'no-preference',
+    }]);
 }
 
 export async function startConfiguredElectronE2ESession(
