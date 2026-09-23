@@ -1478,6 +1478,7 @@ export default {
         'canceling': 'Annuleren…',
         'finishing': 'Bezig met afronden…',
         'canceled': 'Paginabewerking geannuleerd. Het document is niet gewijzigd.',
+        'elapsed': '{time} verstreken',
         'exportPages': 'Pagina\'s exporteren',
     },
     'about': {

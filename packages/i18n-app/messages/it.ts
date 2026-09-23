@@ -1478,6 +1478,7 @@ export default {
         'canceling': 'Annullamento…',
         'finishing': 'Completamento…',
         'canceled': 'Operazione sulle pagine annullata. Il documento non è stato modificato.',
+        'elapsed': '{time} trascorsi',
         'exportPages': 'Esporta pagine',
     },
     'about': {

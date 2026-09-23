@@ -16,9 +16,15 @@
 </template>
 
 <script setup lang="ts">
-import { useTimeoutFn } from '@vueuse/core';
+import {
+    useIntervalFn,
+    useTimeoutFn,
+} from '@vueuse/core';
 import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
-import { displayProcessedCount } from '@app/utils/progressFormatting';
+import {
+    displayProcessedCount,
+    formatEtaDuration,
+} from '@app/utils/progressFormatting';
 import type { IPageOperationPresentation } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import type { TPageOperationCancelState } from '@app/modules/pdf-viewer/public';
 
@@ -115,14 +121,35 @@ const operationTitle = computed(() => {
     return resolveOperationTitle(operation);
 });
 
+// Without a measurable count the panel shows an elapsed clock, so long work
+// keeps visibly moving (behavior contract I4).
+const operationStartedAt = ref<number | null>(null);
+const now = ref(Date.now());
+const {
+    pause: pauseElapsedClock,
+    resume: resumeElapsedClock,
+} = useIntervalFn(() => {
+    now.value = Date.now();
+}, 1_000, {immediate: false});
+const elapsedText = computed(() => (
+    operationStartedAt.value === null
+        ? null
+        : formatEtaDuration(now.value - operationStartedAt.value)
+));
+
 watch(() => isPageOperationInProgress, (inProgress) => {
     stopProgressDelay();
     delayedProgressVisible.value = false;
     if (inProgress) {
         userRequestedCancel = false;
+        operationStartedAt.value = Date.now();
+        now.value = operationStartedAt.value;
+        resumeElapsedClock();
         startProgressDelay();
         return;
     }
+    pauseElapsedClock();
+    operationStartedAt.value = null;
     if (userRequestedCancel && lastOutcomeStatus === 'canceled') {
         toast.add({
             color: 'neutral',
@@ -134,6 +161,7 @@ watch(() => isPageOperationInProgress, (inProgress) => {
 
 onBeforeUnmount(() => {
     stopProgressDelay();
+    pauseElapsedClock();
 });
 
 const detailText = computed(() => {
@@ -146,9 +174,14 @@ const detailText = computed(() => {
     });
 });
 
-const subDetailText = computed(() => etaText
-    ? t('emptyState.preparingBatchEta', { eta: etaText })
-    : '');
+const subDetailText = computed(() => {
+    if (etaText) {
+        return t('emptyState.preparingBatchEta', { eta: etaText });
+    }
+    return !progress && elapsedText.value
+        ? t('pageOps.elapsed', {time: elapsedText.value})
+        : '';
+});
 </script>
 
 <style scoped>

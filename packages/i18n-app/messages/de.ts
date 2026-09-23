@@ -1478,6 +1478,7 @@ export default {
         'canceling': 'Wird abgebrochen…',
         'finishing': 'Wird abgeschlossen…',
         'canceled': 'Seitenvorgang abgebrochen. Das Dokument ist unverändert.',
+        'elapsed': '{time} vergangen',
         'exportPages': 'Seiten exportieren',
     },
     'about': {

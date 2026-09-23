@@ -1518,6 +1518,7 @@ export default {
         'canceling': 'Отмена…',
         'finishing': 'Завершение…',
         'canceled': 'Операция со страницами отменена. Документ не изменён.',
+        'elapsed': 'прошло {time}',
         'exportPages': 'Экспортировать страницы',
     },
     'about': {
