@@ -274,6 +274,19 @@ describe('pdfOptimization', () => {
                 percent: 100,
             }),
         ]));
+        // One bar spans the whole job: it never moves backward across chunks
+        // or stages, page work fills it to 80%, and the uncounted structure
+        // pass and validity check that follow only then take it further.
+        const reported = progress as Array<{
+            phase: string;
+            percent: number;
+        }>;
+        const percents = reported.map(entry => entry.percent);
+        expect(percents).toEqual([...percents].sort((left, right) => left - right));
+        expect(reported.filter(entry => entry.phase === 'rendering' || entry.phase === 'assembling')
+            .every(entry => entry.percent <= 80)).toBe(true);
+        expect(reported.find(entry => entry.phase === 'optimizing')?.percent).toBe(80);
+        expect(reported.find(entry => entry.phase === 'validating')?.percent).toBe(90);
     });
 
     it('propagates unproven image termination and retains scan scratch', async () => {

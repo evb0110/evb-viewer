@@ -75,7 +75,29 @@ interface IOptimizeProgressContext {
     preset: TPdfOptimizePreset;
     signal?: AbortSignal;
     emit?: (progress: IPdfOptimizeProgress) => void;
+    /** Pages rendered and assembled so far; they only grow, so the bar only moves forward. */
+    pages?: {
+        total: number;
+        rendered: number;
+        assembled: number;
+    };
 }
+
+/**
+ * The bar's share for each stage. Rendering and assembling pages is most of
+ * the work and advances per page; the structure pass and the validity check
+ * that follow have no count, so the dialog shows their elapsed time instead.
+ */
+const OPTIMIZE_PAGE_WORK_PERCENT = 80;
+const OPTIMIZE_RENDER_WEIGHT = 3;
+const OPTIMIZE_ASSEMBLE_WEIGHT = 1;
+const OPTIMIZE_STAGE_PERCENT = {
+    preparing: 0,
+    optimizing: OPTIMIZE_PAGE_WORK_PERCENT,
+    validating: 90,
+    complete: 100,
+} as const;
+const RENDERED_PAGE_POLL_MS = 300;
 
 interface IOptimizePdfToFileOptions {
     cancelGroup?: string;
@@ -150,8 +172,24 @@ function clampProgress(processed: number, total: number) {
     return {
         processed: normalizedProcessed,
         total: normalizedTotal,
-        percent: Math.round((normalizedProcessed / normalizedTotal) * 100),
     };
+}
+
+/** Percent of the whole optimization, not of the current stage. */
+function resolveOverallPercent(
+    context: IOptimizeProgressContext,
+    phase: IPdfOptimizeProgress['phase'],
+) {
+    if (phase !== 'rendering' && phase !== 'assembling') {
+        return OPTIMIZE_STAGE_PERCENT[phase];
+    }
+    const pages = context.pages;
+    if (pages === undefined || pages.total <= 0) {
+        return OPTIMIZE_STAGE_PERCENT.preparing;
+    }
+    const work = OPTIMIZE_RENDER_WEIGHT * pages.rendered + OPTIMIZE_ASSEMBLE_WEIGHT * pages.assembled;
+    const totalWork = (OPTIMIZE_RENDER_WEIGHT + OPTIMIZE_ASSEMBLE_WEIGHT) * pages.total;
+    return Math.min(OPTIMIZE_PAGE_WORK_PERCENT, Math.floor(OPTIMIZE_PAGE_WORK_PERCENT * work / totalWork));
 }
 
 function emitProgress(
@@ -161,12 +199,48 @@ function emitProgress(
     total: number,
 ) {
     const progress = clampProgress(processed, total);
+    if (context.pages !== undefined) {
+        if (phase === 'rendering') {
+            context.pages.rendered = Math.max(context.pages.rendered, progress.processed);
+        } else if (phase === 'assembling') {
+            context.pages.assembled = Math.max(context.pages.assembled, progress.processed);
+        }
+    }
     context.emit?.({
         requestId: context.requestId,
         preset: context.preset,
         phase,
         ...progress,
+        percent: resolveOverallPercent(context, phase),
     });
+}
+
+/**
+ * pdftoppm renders a whole page range before it returns, so the pages it has
+ * already written are counted while it runs; otherwise the first stage of a
+ * large chunk shows no movement for many seconds.
+ */
+function watchRenderedPageCount(renderDir: string, onCount: (count: number) => void) {
+    let reported = 0;
+    let reading = false;
+    const timer = setInterval(() => {
+        if (reading) {
+            return;
+        }
+        reading = true;
+        void collectRenderedJpegPages(renderDir)
+            .then(pages => {
+                if (pages.length > reported) {
+                    reported = pages.length;
+                    onCount(reported);
+                }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                reading = false;
+            });
+    }, RENDERED_PAGE_POLL_MS);
+    return () => clearInterval(timer);
 }
 
 function parsePageNumber(fileName: string) {
@@ -344,6 +418,12 @@ async function optimizeRasterCopy(
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-optimize-'));
     const chunkPaths: string[] = [];
     let processedPages = 0;
+    context.pages = {
+        total: pageCount,
+        rendered: 0,
+        assembled: 0,
+    };
+    emitProgress(context, 'rendering', 0, pageCount);
     let retainNativeCleanup = false;
 
     try {
@@ -351,14 +431,26 @@ async function optimizeRasterCopy(
             const actualRenderDir = await mkdtemp(join(tempDir, 'render-pages-'));
             let retainRenderCleanup = false;
             try {
-                const renderedPages = await renderPdfRangeToJpegPages(
-                    inputPath,
-                    actualRenderDir,
-                    range,
-                    preset,
-                    context.signal,
-                    context.cancelGroup,
-                );
+                const pagesBeforeRange = processedPages;
+                const stopWatching = watchRenderedPageCount(actualRenderDir, count => emitProgress(
+                    context,
+                    'rendering',
+                    pagesBeforeRange + count,
+                    pageCount,
+                ));
+                let renderedPages: string[];
+                try {
+                    renderedPages = await renderPdfRangeToJpegPages(
+                        inputPath,
+                        actualRenderDir,
+                        range,
+                        preset,
+                        context.signal,
+                        context.cancelGroup,
+                    );
+                } finally {
+                    stopWatching();
+                }
                 processedPages += renderedPages.length;
                 emitProgress(context, 'rendering', processedPages, pageCount);
 
@@ -387,6 +479,7 @@ async function optimizeRasterCopy(
             }
         }
 
+        emitProgress(context, 'optimizing', pageCount, pageCount);
         await mergePdfChunks(chunkPaths, tempOutputPath, context);
         return await finalizeOptimizedPdf(tempOutputPath, outputPath, context, pageCount);
     } catch (error) {

@@ -1,5 +1,6 @@
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
+import {formatElapsedClock} from '@app/utils/progressFormatting';
 import {
     type IScanCleanupActivity,
     type IScanCleanupActivityCount,
@@ -23,15 +24,7 @@ export const formatScanCleanupEta = (etaSeconds: number, t: TTranslateFn) => (
 );
 
 /** A clock reading such as 0:07 or 1:02:30; digits need no translation. */
-export const formatScanCleanupDuration = (durationMs: number) => {
-    const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor(totalSeconds / 60) % 60;
-    const seconds = String(totalSeconds % 60).padStart(2, '0');
-    return hours > 0
-        ? `${String(hours)}:${String(minutes).padStart(2, '0')}:${seconds}`
-        : `${String(minutes)}:${seconds}`;
-};
+export const formatScanCleanupDuration = formatElapsedClock;
 
 /** The widest time text, so the time slot can reserve its box. */
 export const resolveScanCleanupTimeWidestText = (t: TTranslateFn) => [
