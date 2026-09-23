@@ -382,6 +382,9 @@ function writeExecutable(filePath: string, lines: string[]): void {
 }
 
 function createFakeDmgNotaryTools(binDir: string): string {
+    // The fake tools are extensionless CommonJS scripts. A temp directory
+    // inside this repository would otherwise inherit its `"type": "module"`.
+    writeFileSync(join(binDir, 'package.json'), '{"type": "commonjs"}\n');
     writeExecutable(join(binDir, 'codesign'), [
         '#!/usr/bin/env node',
         'const args = process.argv.slice(2);',

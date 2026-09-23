@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import {
     mkdtemp,
+    rm,
     mkdir,
     readFile,
     symlink,
@@ -181,7 +182,12 @@ describe('release checksum manifest', () => {
     });
 
     it.skipIf(process.platform === 'win32')('rejects unsafe Unix socket entries as non-regular files', async () => {
-        const socketDirectory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-socket-'));
+        // A Unix socket path is capped near 104 bytes; a long TMPDIR cannot
+        // hold one, so the socket fixture falls back to the system /tmp.
+        const socketRoot = join(tmpdir(), 'evb-release-checksums-socket-XXXXXX', 'release.sock ').length <= 100
+            ? tmpdir()
+            : '/tmp';
+        const socketDirectory = await mkdtemp(join(socketRoot, 'evb-release-checksums-socket-'));
         await writeFile(join(socketDirectory, 'asset.zip'), 'asset');
         const socketPath = join(socketDirectory, 'release.sock ');
         const server = createServer();
@@ -195,6 +201,10 @@ describe('release checksum manifest', () => {
             const closePromise = once(server, 'close');
             server.close();
             await closePromise;
+            await rm(socketDirectory, {
+                recursive: true,
+                force: true,
+            });
         }
     });
 });

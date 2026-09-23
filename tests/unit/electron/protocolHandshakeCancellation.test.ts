@@ -25,6 +25,16 @@ let activeController: AbortController | null = null;
 let activeOperation: Promise<unknown> | null = null;
 let activeChildPid: number | null = null;
 
+// The fake helpers are extensionless CommonJS scripts. A temp directory inside
+// this repository would otherwise inherit its `"type": "module"`.
+async function createProbeRoot(prefix: string) {
+    const root = join(tmpdir(), `${prefix}-${process.pid}-${Date.now()}`);
+    probeRoots.push(root);
+    await mkdir(root, {recursive: true});
+    await writeFile(join(root, 'package.json'), '{"type": "commonjs"}\n');
+    return root;
+}
+
 afterEach(async () => {
     activeController?.abort(new Error('protocol handshake test cleanup'));
     await activeOperation?.catch(() => undefined);
@@ -46,11 +56,9 @@ afterEach(async () => {
 
 describe('protocol handshake cancellation', () => {
     it('kills a sleeping --protocol-version helper before the caller rejects', async () => {
-        const root = join(tmpdir(), `evb-protocol-cancel-${process.pid}-${Date.now()}`);
+        const root = await createProbeRoot('evb-protocol-cancel');
         const helper = join(root, 'evb-pdf-page-ops');
         const pidFile = join(root, 'child.pid');
-        probeRoots.push(root);
-        await mkdir(root, {recursive: true});
         await writeFile(helper, `#!/usr/bin/env node
 const fs = require('node:fs');
 fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
@@ -98,10 +106,8 @@ else process.stdout.write('1\\n');
     });
 
     it('negotiates the legacy integer handshake and gates optional warning events', async () => {
-        const root = join(tmpdir(), `evb-protocol-capability-${process.pid}-${Date.now()}`);
+        const root = await createProbeRoot('evb-protocol-capability');
         const helper = join(root, 'evb-scan-cleanup');
-        probeRoots.push(root);
-        await mkdir(root, {recursive: true});
         await writeFile(helper, `#!/usr/bin/env node
 if (process.argv[2] === '--protocol-version') process.stdout.write('9\\n');
 `);
@@ -115,10 +121,8 @@ if (process.argv[2] === '--protocol-version') process.stdout.write('9\\n');
     });
 
     it('rejects malformed structured capability fields with a typed error', async () => {
-        const root = join(tmpdir(), `evb-protocol-malformed-${process.pid}-${Date.now()}`);
+        const root = await createProbeRoot('evb-protocol-malformed');
         const helper = join(root, 'evb-scan-cleanup');
-        probeRoots.push(root);
-        await mkdir(root, {recursive: true});
         await writeFile(helper, `#!/usr/bin/env node
 if (process.argv[2] === '--protocol-version') process.stdout.write(JSON.stringify({protocolVersion: 10, capabilities: [7]}) + '\\n');
 `);

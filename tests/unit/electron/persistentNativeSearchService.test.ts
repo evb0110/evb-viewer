@@ -17,9 +17,17 @@ import {
 
 const temporaryDirectories: string[] = [];
 
-async function createWrongProtocolService() {
+// The fake daemons are extensionless CommonJS scripts. A temp directory inside
+// this repository would otherwise inherit its `"type": "module"`.
+async function createServiceDirectory() {
     const directory = await mkdtemp(join(tmpdir(), 'evb-search-service-'));
     temporaryDirectories.push(directory);
+    await writeFile(join(directory, 'package.json'), '{"type": "commonjs"}\n', 'utf8');
+    return directory;
+}
+
+async function createWrongProtocolService() {
+    const directory = await createServiceDirectory();
     const markerPath = join(directory, 'starts.txt');
     const executablePath = join(directory, 'evb-pdf-search');
     await writeFile(executablePath, `#!/usr/bin/env node
@@ -37,8 +45,7 @@ process.stdin.resume();
 }
 
 async function createSearchService(source: string) {
-    const directory = await mkdtemp(join(tmpdir(), 'evb-search-service-'));
-    temporaryDirectories.push(directory);
+    const directory = await createServiceDirectory();
     const executablePath = join(directory, 'evb-pdf-search');
     await writeFile(executablePath, `#!/usr/bin/env node\n${source}\n`, 'utf8');
     await chmod(executablePath, 0o755);
