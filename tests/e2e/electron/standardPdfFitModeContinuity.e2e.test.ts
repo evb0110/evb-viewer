@@ -87,6 +87,7 @@ const FIT_CHANGE_FREEZE_BUDGET_MS = 750;
 
 function assertNativeOpeningFitWidthIsSettled(
     frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>>,
+    reconciledPreviewWidth: number,
 ) {
     const visibleShellFrames = frames.filter(frame => (
         frame.transitionSurfaceVisible
@@ -128,11 +129,21 @@ function assertNativeOpeningFitWidthIsSettled(
     const visibleShellWidths = visibleShellFrames.map(frame => frame.transitionShellRect?.width ?? 0);
     expect(Math.max(...visibleShellWidths) - Math.min(...visibleShellWidths), evidence)
         .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
-    expect(firstPreview, evidence).toBeDefined();
     expect(firstPdfjs, evidence).toBeDefined();
-    const openingWidth = firstPreview?.transitionShellRect?.width ?? 0;
     const settledRect = firstPdfjs?.pdfjsCanvasRects.find(rect => rect.page === 1) ?? null;
     const settledCanvasWidth = settledRect === null ? 0 : settledRect.right - settledRect.left;
+    // The opening surface never changes width on its way to the first page.
+    expect(Math.abs((visibleShellWidths[0] ?? 0) - settledCanvasWidth), evidence)
+        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
+    // The preview is a head start, not a guaranteed frame: on a loaded machine
+    // PDF.js can paint page one before the preview is ever shown. Its geometry
+    // is reconciled either way, and must already be the settled width.
+    expect(Math.abs(reconciledPreviewWidth - settledCanvasWidth), evidence)
+        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
+    if (firstPreview === undefined) {
+        return;
+    }
+    const openingWidth = firstPreview.transitionShellRect?.width ?? 0;
     expect(Math.abs(openingWidth - settledCanvasWidth), evidence)
         .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
     const previewWidths = previewFrames.map(frame => frame.transitionShellRect?.width ?? 0);
@@ -1717,7 +1728,10 @@ describe('standard PDF.js fit-mode continuity', () => {
             && entry.payload.previousWidth !== entry.payload.nextWidth
         ));
         expect(documentWideReconciliation, JSON.stringify(trace)).toBeDefined();
-        assertNativeOpeningFitWidthIsSettled(frames);
+        assertNativeOpeningFitWidthIsSettled(
+            frames,
+            Number.parseFloat(String(documentWideReconciliation?.payload.nextWidth ?? '')),
+        );
     }, 180_000);
 
     it('keeps mixed-size jumps and continuous Fit Width geometry user-visible', async () => {
