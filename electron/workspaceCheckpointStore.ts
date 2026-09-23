@@ -48,8 +48,12 @@ import {
     type TWorkingCopyRole,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
-import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
+import {
+    isOpenPathAccessible,
+    requireOpenPath,
+} from '@electron/file-access/openPathCapabilities';
 import {touchScanCleanupGeneratedOutput} from '@electron/features/scan-cleanup/public/generatedOutputs';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 
 const log = createLogger('workspace-checkpoint-store');
 
@@ -132,6 +136,10 @@ const trailingCheckpointSaves = new Map<string, ITrailingWorkspaceCheckpointSave
 const lastCheckpointSaveStartedAtMs = new Map<string, number>();
 let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
 const recoveryOwnerIdsByWebContents = new WeakMap<WebContents, string>();
+// Recovery identities whose renderer load has ended by navigation or a lost
+// render process while the WebContents lives on. The next claim from that
+// identity is a new load and may take over what the ended load claimed.
+const endedRecoveryOwnerLoads = new Set<string>();
 const claimedWorkspaceCheckpointOwners = new Map<string, {
     claimantRecoveryId: string;
     claimantWebContentsId: number;
@@ -186,9 +194,22 @@ function getWorkspaceRecoveryOwnerId(
         }
         const recoveryId = randomUUID();
         recoveryOwnerIdsByWebContents.set(owner, recoveryId);
+        const loadKey = getRecoveryOwnerLoadKey(recoveryId, owner.id);
+        const stopWatching = onSenderLifetimeEnd(owner, (end) => {
+            if (end === 'destroyed') {
+                stopWatching();
+                endedRecoveryOwnerLoads.delete(loadKey);
+                return;
+            }
+            endedRecoveryOwnerLoads.add(loadKey);
+        }, {navigation: true});
         return recoveryId;
     }
     return getLegacyRecoveryOwnerId(ownerWebContentsId);
+}
+
+function getRecoveryOwnerLoadKey(recoveryId: string, webContentsId: number) {
+    return `${recoveryId}\u0000${webContentsId}`;
 }
 
 function getKnownWorkspaceRecoveryOwnerId(owner: WebContents, fallbackWebContentsId?: number) {
@@ -253,10 +274,11 @@ async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoin
     )));
 }
 
-// A renderer claims once, when it loads. The recovery identity belongs to the
-// WebContents and survives a reload, so a claim that identity still holds
-// came from its previous load, which a reload or a replaced render process
-// ended. The new load takes that session over instead of finding it held.
+// The recovery identity belongs to the WebContents and survives a reload, which
+// the automation checkpoint reset relies on. Once that WebContents' load has
+// ended, the claims its identity still holds came from the ended load, so the
+// new load takes that session over instead of finding it held. A repeated
+// claim within one load keeps its claim, so a checkpoint is delivered once.
 function releaseClaimsOfPreviousLoad(claimantRecoveryId: string, claimantWebContentsId: number) {
     for (const [
         recordOwner,
@@ -732,10 +754,50 @@ function canonicalizeCheckpointSources(
     } satisfies IWorkspaceCheckpoint;
 }
 
+function findDurableSourceProvenance(
+    durable: IStoredWorkspaceCheckpoint | null,
+    tab: IWorkspaceCheckpoint['tabs'][number],
+    ownerWebContentsId: number,
+) {
+    return durable?.sourceProvenance?.find(entry => (
+        entry.sourceRef === tab.sourceRef
+        && entry.ownerWebContentsId === ownerWebContentsId
+        && (entry.workingCopyRef ?? null) === (tab.workingCopyRef ?? null)
+    )) ?? null;
+}
+
+// A source-only tab can name a file that is not there right now: a generated
+// PDF still opening under its future Save As name, or a file on a drive that
+// went away. One such tab must not stop every other tab from being saved. A
+// source this record already authorized keeps that authorization, so it can
+// be restored once the file is back; one never authorized has nothing to
+// restore and is saved without a source.
+function detachUnreachableSources(
+    checkpoint: IWorkspaceCheckpoint,
+    durable: IStoredWorkspaceCheckpoint | null,
+    ownerWebContentsId: number,
+) {
+    return {
+        ...checkpoint,
+        tabs: checkpoint.tabs.map(tab => (
+            tab.sourceRef
+            && !tab.workingCopyRef
+            && !isOpenPathAccessible(tab.sourceRef)
+            && !findDurableSourceProvenance(durable, tab, ownerWebContentsId)
+                ? {
+                    ...tab,
+                    sourceRef: null,
+                }
+                : tab
+        )),
+    } satisfies IWorkspaceCheckpoint;
+}
+
 function buildSourceProvenance(
     checkpoint: IWorkspaceCheckpoint,
     ownerWebContentsId: number,
     sourceAuthorizationOwner: number | WebContents | undefined,
+    durable: IStoredWorkspaceCheckpoint | null,
 ) {
     const sourceAuthorizationOwnerId = sourceAuthorizationOwner === undefined
         ? undefined
@@ -761,6 +823,13 @@ function buildSourceProvenance(
         }
         if (sourceAuthorizationOwnerId !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint source has no sender-bound authorization');
+        }
+        const carriedProvenance = !tab.workingCopyRef && !isOpenPathAccessible(tab.sourceRef)
+            ? findDurableSourceProvenance(durable, tab, ownerWebContentsId)
+            : null;
+        if (carriedProvenance) {
+            provenance.set(`${tab.workingCopyRef ?? ''}\u0000${tab.sourceRef}`, carriedProvenance);
+            continue;
         }
         requireOpenPath(tab.sourceRef, sourceAuthorizationOwner);
         provenance.set(`${tab.workingCopyRef ?? ''}\u0000${tab.sourceRef}`, {
@@ -1261,15 +1330,20 @@ export async function saveWorkspaceCheckpoint(
     }
     const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
     const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
-    const canonicalCheckpoint = canonicalizeCheckpointSources(
-        checkpointWithArtifacts,
+    const canonicalCheckpoint = detachUnreachableSources(
+        canonicalizeCheckpointSources(
+            checkpointWithArtifacts,
+            ownerWebContentsId,
+            {rejectUnmappedWorkingCopy: true},
+        ),
+        durable,
         ownerWebContentsId,
-        {rejectUnmappedWorkingCopy: true},
     );
     const sourceProvenance = buildSourceProvenance(
         canonicalCheckpoint,
         ownerWebContentsId,
         sourceAuthorizationOwner,
+        durable,
     );
     const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
     const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
@@ -1436,13 +1510,21 @@ export async function claimWorkspaceCheckpoint(
     const newOwnerRecoveryId = getWorkspaceRecoveryOwnerId(newOwnerWebContentsId, newOwner);
     return enqueueWorkspaceCheckpointBarrier(async () => {
         releaseDestroyedWorkspaceClaims();
-        releaseClaimsOfPreviousLoad(newOwnerRecoveryId, newOwnerWebContentsId);
+        const loadKey = getRecoveryOwnerLoadKey(newOwnerRecoveryId, newOwnerWebContentsId);
+        const previousLoadEnded = endedRecoveryOwnerLoads.delete(loadKey);
+        if (previousLoadEnded) {
+            releaseClaimsOfPreviousLoad(newOwnerRecoveryId, newOwnerWebContentsId);
+        }
         const recovery = await readWorkspaceJournalForRecovery();
         if (!recovery) {
             return null;
         }
         const stored = recovery.journal.records.filter((candidate) => {
-            return isClaimableWorkspaceCheckpoint(candidate, newOwnerRecoveryId, newOwnerWebContentsId);
+            return isClaimableWorkspaceCheckpoint(
+                candidate,
+                newOwnerRecoveryId,
+                previousLoadEnded ? newOwnerWebContentsId : undefined,
+            );
         }).reduce<IStoredWorkspaceCheckpoint | null>((newest, candidate) => (
             newest === null || candidate.checkpoint.capturedAt > newest.checkpoint.capturedAt
                 ? candidate

@@ -211,6 +211,11 @@ function isAllowedPath(
     return true;
 }
 
+/** Whether a path resolves to an existing file, independent of any grant. */
+export function isOpenPathAccessible(rawPath: string) {
+    return normalizeOpenPath(rawPath) !== null;
+}
+
 export function requireOpenPath(rawPath: string, owner?: number | WebContents): TOpenPath {
     if (typeof rawPath !== 'string' || rawPath.trim() === '') {
         throw new Error('Path not accessible');

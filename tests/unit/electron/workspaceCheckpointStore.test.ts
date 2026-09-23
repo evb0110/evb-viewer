@@ -9,6 +9,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import type * as NodeFs from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -207,6 +208,17 @@ const checkpoint: IWorkspaceCheckpoint = {
     }],
 };
 
+function createWebContents(id: number) {
+    return Object.assign(new EventEmitter(), {
+        id,
+        isDestroyed: () => false,
+    }) as Electron.WebContents;
+}
+
+function reloadRenderer(window: Electron.WebContents) {
+    window.emit('did-start-navigation', {}, 'app://electron', false, true);
+}
+
 describe('workspace checkpoint store', () => {
     beforeEach(async () => {
         state.userDataPath = await mkdtemp(join(tmpdir(), 'evb-workspace-checkpoint-'));
@@ -287,14 +299,8 @@ describe('workspace checkpoint store', () => {
     });
 
     it('does not treat a reused webContents id as the saved owner', async () => {
-        const ownerA = {
-            id: 11,
-            isDestroyed: () => false,
-        } as Electron.WebContents;
-        const ownerB = {
-            id: 11,
-            isDestroyed: () => false,
-        } as Electron.WebContents;
+        const ownerA = createWebContents(11);
+        const ownerB = createWebContents(11);
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
         state.liveOwners.add(11);
@@ -327,10 +333,7 @@ describe('workspace checkpoint store', () => {
     });
 
     it('lets a renderer that reloads twice recover the session its previous load claimed', async () => {
-        const window = {
-            id: 11,
-            isDestroyed: () => false,
-        } as Electron.WebContents;
+        const window = createWebContents(11);
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
         state.liveOwners.add(11);
@@ -338,37 +341,46 @@ describe('workspace checkpoint store', () => {
 
         await saveWorkspaceCheckpoint(checkpoint, 11, window);
         await flushPendingWorkspaceCheckpointSave();
-        // Each renderer load claims once at startup; the WebContents survives.
+        reloadRenderer(window);
         await expect(claimWorkspaceCheckpoint(11, window)).resolves.toEqual(checkpoint);
         await expect(hasRecoverableWorkspaceCheckpoints(11, window)).resolves.toBe(false);
+        // A second claim within the same load must not deliver it again.
+        await expect(claimWorkspaceCheckpoint(11, window)).resolves.toBeNull();
 
         await saveWorkspaceCheckpoint({
             ...checkpoint,
             capturedAt: requireEpochMs(124),
         }, 11, window);
         await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer(window);
 
         await expect(claimWorkspaceCheckpoint(11, window)).resolves.toMatchObject({capturedAt: 124});
         await expect(hasRecoverableWorkspaceCheckpoints(11, window)).resolves.toBe(false);
     });
 
-    it('resumes a discarded checkpoint after the renderer reloads', async () => {
-        const window = {
-            id: 11,
-            isDestroyed: () => false,
-        } as Electron.WebContents;
+    it('resumes checkpoint saving after a discard spans a renderer reload', async () => {
+        const window = createWebContents(11);
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
         state.liveOwners.add(11);
         state.webContentsById.set(11, window);
         await saveWorkspaceCheckpoint(checkpoint, 11, window);
         await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer(window);
         await claimWorkspaceCheckpoint(11, window);
 
         const discardToken = await discardWorkspaceCheckpoint(11, window);
+        reloadRenderer(window);
         await expect(claimWorkspaceCheckpoint(11, window)).resolves.toBeNull();
+        resumeWorkspaceCheckpoint(11, discardToken, window);
 
-        expect(() => resumeWorkspaceCheckpoint(11, discardToken, window)).not.toThrow();
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(125),
+        }, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer(window);
+        await expect(claimWorkspaceCheckpoint(11, window)).resolves.toMatchObject({capturedAt: 125});
     });
 
     it('publishes annotation recovery as a fenced artifact and retires it after acknowledgement', async () => {
@@ -832,6 +844,78 @@ describe('workspace checkpoint store', () => {
             .rejects.toThrow('no sender-bound authorization');
         expect(JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')).checkpoint)
             .toEqual(grantedCheckpoint);
+    });
+
+    it('keeps saving the workspace when a tab points at a file that does not exist yet', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        const unsavedOutputPath = join(state.userDataPath, 'combined-unsaved.pdf');
+        const workspaceWithOpeningOutput: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            panes: [{
+                ...checkpoint.panes[0]!,
+                tabIds: [
+                    requireTabId('tab-1'),
+                    requireTabId('tab-2'),
+                ],
+            }],
+            tabs: [
+                checkpoint.tabs[0]!,
+                {
+                    ...checkpoint.tabs[0]!,
+                    tabId: requireTabId('tab-2'),
+                    fileName: 'combined-unsaved.pdf',
+                    sourceRef: requireDocumentRef(unsavedOutputPath),
+                    workingCopyRef: null,
+                    isDirty: false,
+                },
+            ],
+        };
+
+        await saveWorkspaceCheckpoint(workspaceWithOpeningOutput, 11, 11);
+        await flushPendingWorkspaceCheckpointSave();
+
+        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const storedRecord = stored.records?.[0] ?? stored;
+        expect(storedRecord.checkpoint.tabs).toMatchObject([
+            {
+                tabId: 'tab-1',
+                sourceRef: '/documents/draft.pdf',
+            },
+            {
+                tabId: 'tab-2',
+                sourceRef: null,
+            },
+        ]);
+    });
+
+    it('keeps an authorized source while its file is temporarily unavailable', async () => {
+        const sourcePath = join(state.userDataPath, 'on-removable-drive.pdf');
+        await writeFile(sourcePath, '%PDF-1.7 synthetic checkpoint fixture');
+        const sourceOnlyCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(sourcePath),
+                workingCopyRef: null,
+                isDirty: false,
+            }],
+        };
+        allowOpenPath(sourcePath, 11);
+        await saveWorkspaceCheckpoint(sourceOnlyCheckpoint, 11, 11);
+        await flushPendingWorkspaceCheckpointSave();
+
+        await rm(sourcePath);
+        await saveWorkspaceCheckpoint({
+            ...sourceOnlyCheckpoint,
+            capturedAt: requireEpochMs(124),
+        }, 11, 11);
+        await flushPendingWorkspaceCheckpointSave();
+
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({
+            capturedAt: 124,
+            tabs: [{sourceRef: sourcePath}],
+        });
     });
 
     it('claims a granted source-only tab that has no working copy', async () => {
