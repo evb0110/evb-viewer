@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
     combinePdfFiles: vi.fn(),
     isCombineCancellationSupported: vi.fn(),
     savePdfAs: vi.fn(),
+    cleanupFile: vi.fn(async () => {}),
     logError: vi.fn(),
     failure: {
         eventId: '0123456789abcdef0123456789abcdef',
@@ -53,7 +54,10 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
         maxTotalInputBytes: 64 * 1024 * 1024,
     }),
 }));
-const platformApi = createElectronPlatformApiFixture({documentFiles: {savePdfAs: mocks.savePdfAs}});
+const platformApi = createElectronPlatformApiFixture({
+    documentFiles: {savePdfAs: mocks.savePdfAs},
+    documentWorkingCopy: {cleanupFile: mocks.cleanupFile},
+});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
@@ -253,9 +257,12 @@ describe('mounted Combine PDF page state machine', () => {
         (page.host.querySelector('.remove') as HTMLButtonElement).click();
         expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
 
+        expect(mocks.cleanupFile).not.toHaveBeenCalled();
         (page.host.querySelector('.save-as') as HTMLButtonElement).click();
         await flushUpdates();
         expect(mocks.savePdfAs).toHaveBeenCalledWith('/tmp/combined-working.pdf', undefined);
+        // Saved elsewhere, the temporary combined file has no owner left.
+        expect(mocks.cleanupFile).toHaveBeenCalledWith('/tmp/combined-working.pdf');
 
         expect(page.host.querySelector('.save-as')).toBeNull();
         expect(page.host.querySelector('.combine')?.textContent).not.toContain('Retry');
@@ -357,12 +364,52 @@ describe('mounted Combine PDF page state machine', () => {
         });
         await flushUpdates();
 
+        expect(mocks.cleanupFile).not.toHaveBeenCalled();
         (page.host.querySelector('.discard') as HTMLButtonElement).click();
         await nextTick();
 
         expect(page.host.querySelector('.discard')).toBeNull();
         expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
         expect((page.host.querySelector('.clear') as HTMLButtonElement).disabled).toBe(false);
+        expect(mocks.cleanupFile).toHaveBeenCalledWith('/tmp/combined-working.pdf');
         page.unmount();
+        expect(mocks.cleanupFile).toHaveBeenCalledOnce();
+    });
+
+    it('removes a pending combined file when the page goes away', async () => {
+        const combined = deferred<TOpenFileResult>();
+        mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(false));
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        combined.resolve({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        await flushUpdates();
+        expect(page.host.querySelector('.combine')?.textContent).toBe('Retry');
+
+        page.unmount();
+        expect(mocks.cleanupFile).toHaveBeenCalledWith('/tmp/combined-working.pdf');
+    });
+
+    it('leaves the combined file to the document that opened it', async () => {
+        const combined = deferred<TOpenFileResult>();
+        mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);
+        const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
+
+        (page.host.querySelector('.combine') as HTMLButtonElement).click();
+        combined.resolve({
+            kind: 'pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            isGenerated: true,
+        });
+        await flushUpdates();
+        page.unmount();
+
+        expect(mocks.cleanupFile).not.toHaveBeenCalled();
     });
 });
