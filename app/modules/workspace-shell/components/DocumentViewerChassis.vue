@@ -590,8 +590,13 @@ const shouldShowChassisNativePreviewLoadingOverlay = computed(() => {
 });
 const shouldShowChassisOpeningPageSkeleton = computed(() => {
     const viewportSession = chassisAuthority.openSurface.viewportSession.value;
+    const navigationTicket = chassisAuthority.navigationTicket.value;
+    // The observed page adopts the target before its canvas commits, so a
+    // pending non-opening ticket also marks the target as queued. Otherwise the
+    // deferred large-PDF lane hides the only owner and the viewport is blank.
     const hasQueuedNavigationTarget = viewportSession.requestedPage
-        !== chassisAuthority.currentPage.value;
+        !== chassisAuthority.currentPage.value
+        || navigationTicket !== null && navigationTicket.request.source !== 'restore';
     return (
         snapshotNativeOpeningPreviewState.value !== 'failed'
         && (
