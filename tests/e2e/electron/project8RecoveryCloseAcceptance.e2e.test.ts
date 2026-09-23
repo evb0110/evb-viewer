@@ -1,3 +1,4 @@
+import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     chmodSync,
@@ -48,6 +49,11 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRunId';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
+import {runElectronE2ETeardown} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
 const E2E_TIMEOUT_MS = 240_000;
 
@@ -83,60 +89,70 @@ async function createRecoveredSession(
         extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         initialOpenPaths: [pdfPath],
     });
-    await waitForPdfLoaded(session.page, 60_000);
-    await waitForViewerInteractive(session.page, 60_000);
-    await createCanonicalTextBoxWithPointer(session.page, RECOVERED_ANNOTATION_TEXT, {
-        x: 0.4,
-        y: 0.3,
-    });
-    const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-    await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
-    await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
-    const checkpointPath = workspaceCrashCheckpointPath(session.name);
-    await expect.poll(async () => {
-        if (!existsSync(checkpointPath)) {
-            return null;
-        }
-        const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
-            isDirty?: boolean;
-            workingCopyRef?: string | null
-        }>};};
-        return stored.checkpoint?.tabs?.[0] ?? null;
-    }, {timeout: 60_000}).toMatchObject({
-        isDirty: true,
-        workingCopyRef: expect.any(String),
-    });
-    expect((await readPdfPageSnapshots(workingCopyPath))[0]?.rotation).toBe(90);
+    // Callers own the session only after this returns, so a failed setup
+    // stops it here.
+    try {
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await createCanonicalTextBoxWithPointer(session.page, RECOVERED_ANNOTATION_TEXT, {
+            x: 0.4,
+            y: 0.3,
+        });
+        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+        const checkpointPath = workspaceCrashCheckpointPath(session.name);
+        await expect.poll(async () => {
+            if (!existsSync(checkpointPath)) {
+                return null;
+            }
+            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+                isDirty?: boolean;
+                workingCopyRef?: string | null
+            }>};};
+            return stored.checkpoint?.tabs?.[0] ?? null;
+        }, {timeout: 60_000}).toMatchObject({
+            isDirty: true,
+            workingCopyRef: expect.any(String),
+        });
+        expect((await readPdfPageSnapshots(workingCopyPath))[0]?.rotation).toBe(90);
 
-    const crashed = session;
-    await crashed.browser.disconnect();
-    await stopSingleSession(crashed.name, {
-        preserveWorkspaceCheckpoint: true,
-        crashElectronBeforeStop: true,
-    });
-    if (options.replacementSourcePath) {
-        await rename(options.replacementSourcePath, pdfPath);
+        const crashed = session;
+        await crashed.browser.disconnect();
+        await stopSingleSession(crashed.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        if (options.replacementSourcePath) {
+            await rename(options.replacementSourcePath, pdfPath);
+        }
+        session = await startElectronE2ESession(sessionName, {
+            clean: false,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await session.page.waitForFunction((expectedText: string) => Array.from(
+            document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+            ),
+        ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {timeout: 60_000}, RECOVERED_ANNOTATION_TEXT);
+        const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
+        expect(state.dirtyState?.fileDirty).toBe(true);
+        const recoveredWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        expect((await readPdfPageSnapshots(recoveredWorkingCopyPath))[0]?.rotation).toBe(90);
+        return {
+            pdfPath,
+            workingCopyPath: recoveredWorkingCopyPath,
+            session,
+        };
+    } catch (error) {
+        await runElectronE2ETeardown(error, [{
+            label: `stop session '${session.name}'`,
+            run: () => session.stop(),
+        }]);
+        throw error;
     }
-    session = await startElectronE2ESession(sessionName, {
-        clean: false,
-        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-    });
-    await waitForPdfLoaded(session.page, 60_000);
-    await waitForViewerInteractive(session.page, 60_000);
-    await session.page.waitForFunction((expectedText: string) => Array.from(
-        document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
-        ),
-    ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {timeout: 60_000}, RECOVERED_ANNOTATION_TEXT);
-    const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
-    expect(state.dirtyState?.fileDirty).toBe(true);
-    const recoveredWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-    expect((await readPdfPageSnapshots(recoveredWorkingCopyPath))[0]?.rotation).toBe(90);
-    return {
-        pdfPath,
-        workingCopyPath: recoveredWorkingCopyPath,
-        session,
-    };
 }
 
 async function clickWindowDecision(
@@ -910,5 +926,56 @@ describe('Project 8 recovered close decisions', () => {
             )));
             return recoveredDirtyStates.every(state => state.dirtyState?.fileDirty === true);
         }, {timeout: 60_000}).toBe(true);
+    }, E2E_TIMEOUT_MS);
+});
+
+describe('Project 8 session owner lifetime', () => {
+    it('stops the session and its Electron when the owning process dies without stopping it', async () => {
+        const sessionName = createE2ERunScopedSessionName(`e2e-project8-owner-lost-${Date.now()}`);
+        const owner = spawn(process.execPath, [
+            '--import',
+            'tsx',
+            join(projectRoot, 'tests', 'e2e', 'electron', 'helpers', 'holdE2ESessionOwner.ts'),
+            sessionName,
+        ], {
+            cwd: projectRoot,
+            stdio: [
+                'ignore',
+                'pipe',
+                'inherit',
+            ],
+        });
+        onTestFinished(async () => {
+            owner.kill('SIGKILL');
+            await stopSingleSession(sessionName);
+        });
+        await new Promise<void>((resolve, reject) => {
+            let output = '';
+            owner.stdout.on('data', (chunk: Buffer) => {
+                output += chunk.toString();
+                if (/^ready$/mu.test(output)) {
+                    resolve();
+                }
+            });
+            owner.once('exit', (code, signal) => reject(new Error(
+                `Session owner exited before readiness (code ${String(code)}, signal ${String(signal)})`,
+            )));
+        });
+        const info = getSessionInfo(sessionName);
+        const sessionPids = [
+            info?.pid,
+            info?.electronPid,
+        ];
+        expect(sessionPids).toEqual([
+            expect.any(Number),
+            expect.any(Number),
+        ]);
+        expect(sessionPids.every(pid => isProcessAlive(pid!))).toBe(true);
+
+        // SIGKILL stands in for a cancelled or crashed Vitest worker: the
+        // owner gets no chance to stop the session.
+        owner.kill('SIGKILL');
+        await expect.poll(() => sessionPids.filter(pid => isProcessAlive(pid!)), {timeout: 30_000}).toEqual([]);
+        expect(getSessionInfo(sessionName)).toBeNull();
     }, E2E_TIMEOUT_MS);
 });

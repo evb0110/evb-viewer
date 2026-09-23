@@ -8,6 +8,7 @@ import {
     spawn,
     type ChildProcess,
 } from 'node:child_process';
+import type { Socket } from 'node:net';
 import { delay } from 'es-toolkit/promise';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 import { DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV } from '@scripts/electron-run/devServerOutputTee';
@@ -152,8 +153,11 @@ export async function startSessionDetached(options: {
             cwd: projectRoot,
             detached: true,
             shell: false,
+            // An E2E session lives only as long as this process: its entry
+            // shuts down when this stdin pipe reaches EOF, which the OS
+            // guarantees once this process exits, even by SIGKILL.
             stdio: [
-                'ignore',
+                owner === 'e2e' ? 'pipe' : 'ignore',
                 logFd,
                 logFd,
             ],
@@ -174,6 +178,7 @@ export async function startSessionDetached(options: {
         closeSync(logFd);
     }
     await waitForDetachedChildSpawn(child);
+    (child.stdin as Socket | null)?.unref();
     child.unref();
 
     const deadline = Date.now() + readyTimeoutMs;

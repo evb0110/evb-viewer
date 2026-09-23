@@ -6,4 +6,4 @@ if (!sessionName) {
     throw new Error('Ephemeral session entry requires a generated E2E session name');
 }
 setCurrentSessionName(assertE2ESessionName(sessionName));
-await startControlledSession(false);
+await startControlledSession(false, {ownerLease: process.stdin});

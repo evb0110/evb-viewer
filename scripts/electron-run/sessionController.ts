@@ -83,6 +83,7 @@ import {
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 let sessionState: ISessionState | null = null;
+let sessionOwnerLost = false;
 
 const handleCommand = createCommandHandler(() => sessionState);
 const ELECTRON_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -187,7 +188,29 @@ async function killStaleElectronForCurrentSession() {
     }
 }
 
-interface IStartSessionOptions {initialOpenPaths?: string[];}
+interface IStartSessionOptions {
+    initialOpenPaths?: string[];
+    /** Stream whose EOF means the owning process exited; see startSessionDetached. */
+    ownerLease?: NodeJS.ReadableStream & {unref?: () => void};
+}
+
+function watchSessionOwnerLease(lease: NonNullable<IStartSessionOptions['ownerLease']>) {
+    const onOwnerLost = () => {
+        if (sessionOwnerLost) {
+            return;
+        }
+        sessionOwnerLost = true;
+        logLauncher('warn', 'session', 'Owner process exited - shutting down session...');
+        // Take the SIGTERM path of whichever phase is active. Startup
+        // cleanup that has not installed its handler yet checks the flag.
+        process.emit('SIGTERM', 'SIGTERM');
+    };
+    lease.once('end', onOwnerLost);
+    lease.once('close', onOwnerLost);
+    lease.once('error', onOwnerLost);
+    lease.resume();
+    lease.unref?.();
+}
 
 async function stopSessionElectronProcess(state: ISessionState | null) {
     if (!state) {
@@ -355,6 +378,9 @@ function installStartupSignalCleanup() {
 
     process.once('SIGINT', handleStartupSignal);
     process.once('SIGTERM', handleStartupSignal);
+    if (sessionOwnerLost) {
+        handleStartupSignal('SIGTERM');
+    }
 
     return {
         disarm() {
@@ -453,6 +479,9 @@ function listenForSessionCommands(options: {
 }
 
 export async function startControlledSession(forceClean = false, options: IStartSessionOptions = {}) {
+    if (options.ownerLease) {
+        watchSessionOwnerLease(options.ownerLease);
+    }
     const outputTee = installDevServerOutputTee();
     if (outputTee) {
         logLauncher('info', 'logs', 'Session logs', {
