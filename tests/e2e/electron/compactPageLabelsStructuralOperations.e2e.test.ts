@@ -577,14 +577,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
             ) {
                 return false;
             }
+            // Read the painted pixels at full size. A 24 x 24 downscale
+            // averages a page of sparse text to near white under an
+            // area-averaging (software) canvas, so a painted page read blank.
             const sample = document.createElement('canvas');
-            sample.width = 24;
-            sample.height = 24;
+            sample.width = pageCanvas.width;
+            sample.height = pageCanvas.height;
             const context = sample.getContext('2d');
             if (!context) {
                 return false;
             }
-            context.drawImage(pageCanvas, 0, 0, sample.width, sample.height);
+            context.drawImage(pageCanvas, 0, 0);
             const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
             for (let index = 0; index < pixels.length; index += 4) {
                 if (pixels[index]! < 240 || pixels[index + 1]! < 240 || pixels[index + 2]! < 240) {
