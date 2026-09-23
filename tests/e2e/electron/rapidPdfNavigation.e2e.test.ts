@@ -2801,6 +2801,13 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
     it('keeps outgoing pages at the new fit width and lands on the thumbnail promptly', async () => {
         const session = sessionFixture.getSession();
         const page = session.page;
+        // The scenario clicks a thumbnail while the sliding sidebar narrows
+        // the pane. A host that prefers reduced motion opens the sidebar in
+        // one frame, so there is no narrowing to click into.
+        await page.emulateMediaFeatures([{
+            name: 'prefers-reduced-motion',
+            value: 'no-preference',
+        }]);
         // A heavy scan makes each page raster slow, so the outgoing page is
         // still showing its pre-sidebar raster when the thumbnail is clicked.
         const pdfPath = await createLargeScannedFixturePdf(
