@@ -50,7 +50,6 @@ import {
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
 import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
 import {touchScanCleanupGeneratedOutput} from '@electron/features/scan-cleanup/public/generatedOutputs';
-import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 
 const log = createLogger('workspace-checkpoint-store');
 
@@ -187,16 +186,6 @@ function getWorkspaceRecoveryOwnerId(
         }
         const recoveryId = randomUUID();
         recoveryOwnerIdsByWebContents.set(owner, recoveryId);
-        // A reload or a replaced render process starts a new renderer session
-        // in the same WebContents. It gets its own recovery identity, so the
-        // records and claims of the session that ended read as recoverable
-        // instead of as held by a live claimant.
-        const stopWatching = onSenderLifetimeEnd(owner, () => {
-            stopWatching();
-            if (recoveryOwnerIdsByWebContents.get(owner) === recoveryId) {
-                recoveryOwnerIdsByWebContents.delete(owner);
-            }
-        }, {navigation: true});
         return recoveryId;
     }
     return getLegacyRecoveryOwnerId(ownerWebContentsId);
