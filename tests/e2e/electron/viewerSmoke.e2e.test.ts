@@ -61,6 +61,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -1356,6 +1357,9 @@ describe('Electron E2E - Viewer Smoke', () => {
             entry('Same page', 3),
         ]);
         await writeFile(fixture, await pdf.save());
+        // Only the macOS CI runner lands short of the first bookmark's page;
+        // a failed wait reports the viewport timeline that moved it.
+        await enablePdfDiagnosticSession(page, {render: true});
         await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await ensureSidebarOpen(page);
@@ -1411,7 +1415,32 @@ describe('Electron E2E - Viewer Smoke', () => {
         }
 
         async function expectActive(title: string, pageNumber: number) {
-            await waitForToolbarCurrentPage(page, pageNumber);
+            try {
+                await waitForToolbarCurrentPage(page, pageNumber);
+            } catch (error) {
+                const timeline = await page.evaluate(() => {
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+                    const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{
+                        event: string;
+                        payload?: unknown
+                    }>;}).__getPdfRenderTrace?.() ?? [];
+                    return {
+                        viewer: viewer && {
+                            scrollTop: viewer.scrollTop,
+                            scrollHeight: viewer.scrollHeight,
+                            clientWidth: viewer.clientWidth,
+                            clientHeight: viewer.clientHeight,
+                        },
+                        trace: trace
+                            .filter(entry => /^(navigation-|resize-|workspace-go-to-page|workspace-bookmark|workspace-viewer-current-page)/.test(entry.event))
+                            .slice(-120),
+                    };
+                });
+                // Printed as well: a superseded CI run is cancelled before the
+                // failure report, but streamed test output survives.
+                console.log(`BOOKMARK_VIEWPORT_TIMELINE ${JSON.stringify(timeline)}`);
+                throw new Error(`${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(timeline)}`, {cause: error});
+            }
             await waitForViewportQuiet(page);
             const observation = await page.evaluate((expectedPage) => {
                 const active = Array.from(document.querySelectorAll<HTMLElement>(
