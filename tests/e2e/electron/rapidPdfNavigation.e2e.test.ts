@@ -2789,6 +2789,10 @@ interface ISidebarNavigationFrame {
 interface ISidebarNavigationProbeWindow extends Window {
     __sidebarNavigationFrames?: ISidebarNavigationFrame[];
     __sidebarNavigationSampling?: boolean;
+    __sidebarThumbnailPoint?: {
+        x: number;
+        y: number;
+    } | null;
 }
 
 describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
@@ -2876,46 +2880,55 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             window.requestAnimationFrame(sample);
         });
 
+        // Click while the pane is still narrowing, as soon as the thumbnail is
+        // the element under the pointer. The slide lasts a few hundred ms, so
+        // the rail scroll and the hit test run in the page on every frame
+        // from the toggle click; a round trip per step can outlast the slide.
+        await page.evaluate((target) => {
+            const probe = window as ISidebarNavigationProbeWindow;
+            probe.__sidebarThumbnailPoint = null;
+            let lastPaneWidth: number | undefined;
+            const hunt = () => {
+                const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+                const paneWidth = viewer?.clientWidth ?? 0;
+                // Well before the easing tail, so the pane keeps narrowing
+                // after the navigation lands.
+                const paneMoving = lastPaneWidth !== undefined && lastPaneWidth - paneWidth >= 12;
+                lastPaneWidth = paneWidth;
+                const item = document.querySelector<HTMLElement>(`[data-document-thumbnail-item][data-page="${target}"]`);
+                // The rail reveals the current page while its rows are still
+                // being measured, which resets an earlier scroll. Keep
+                // scrolling toward the target until its row is mounted.
+                const rail = document.querySelector<HTMLElement>('.pdf-thumbnails');
+                if (!item && rail && rail.scrollHeight > rail.clientHeight) {
+                    rail.scrollTop = rail.scrollHeight * ((target - 1) / 200);
+                }
+                if (item && paneMoving) {
+                    item.scrollIntoView({block: 'center'});
+                    const rect = item.getBoundingClientRect();
+                    const point = {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2,
+                    };
+                    if (rect.height > 0 && item.contains(document.elementFromPoint(point.x, point.y))) {
+                        probe.__sidebarThumbnailPoint = point;
+                        return;
+                    }
+                }
+                window.requestAnimationFrame(hunt);
+            };
+            window.requestAnimationFrame(hunt);
+        }, SIDEBAR_TARGET_PAGE);
+
         const toggle = await readToggleCenter();
         expect(toggle).not.toBeNull();
         await page.mouse.click(toggle!.x, toggle!.y);
-        await page.waitForFunction(() => document.querySelector('.pdf-thumbnails'), {
+        const thumbnailHandle = await page.waitForFunction(() => (
+            (window as ISidebarNavigationProbeWindow).__sidebarThumbnailPoint ?? null
+        ), {
             timeout: 10_000,
             polling: 'raf',
         });
-        await page.evaluate((target) => {
-            const rail = document.querySelector<HTMLElement>('.pdf-thumbnails');
-            if (rail) {
-                rail.scrollTop = rail.scrollHeight * ((target - 1) / 200);
-            }
-        }, SIDEBAR_TARGET_PAGE);
-        // Click while the pane is still narrowing, as soon as the thumbnail is
-        // the element under the pointer. The sidebar slides in, so its
-        // thumbnails are laid out before they can be hit.
-        const thumbnailHandle = await page.waitForFunction((target) => {
-            const probe = window as ISidebarNavigationProbeWindow & {__sidebarNavigationLastPaneWidth?: number};
-            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
-            const paneWidth = viewer?.clientWidth ?? 0;
-            // Well before the easing tail, so the pane keeps narrowing after
-            // the navigation lands.
-            const paneMoving = probe.__sidebarNavigationLastPaneWidth !== undefined
-                && probe.__sidebarNavigationLastPaneWidth - paneWidth >= 12;
-            probe.__sidebarNavigationLastPaneWidth = paneWidth;
-            const item = document.querySelector<HTMLElement>(`[data-document-thumbnail-item][data-page="${target}"]`);
-            if (!item || !paneMoving) {
-                return null;
-            }
-            item.scrollIntoView({block: 'center'});
-            const rect = item.getBoundingClientRect();
-            const point = {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            };
-            return rect.height > 0 && item.contains(document.elementFromPoint(point.x, point.y)) ? point : null;
-        }, {
-            timeout: 10_000,
-            polling: 'raf',
-        }, SIDEBAR_TARGET_PAGE);
         const thumbnail = await thumbnailHandle.jsonValue();
         expect(thumbnail).not.toBeNull();
         const clickAtMs = await page.evaluate(() => {
