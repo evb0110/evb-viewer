@@ -93,7 +93,13 @@ function appendInsert(
     });
 }
 
-/** Converts a bounded legacy permutation into the range form expected by OCR v4. */
+/**
+ * Converts a page identity delta into the range form expected by OCR v4.
+ * An inline `pages` permutation is already bounded by the delta decoder, and
+ * the conversion is linear, so it applies at every document size. Capping it at
+ * the v3 direct-remap limit made every page op fail on OCR'd documents between
+ * that limit and `PAGE_IDENTITY_INLINE_PAGE_COUNT`.
+ */
 export function createOcrRangeDelta(delta: IPageIdentityDelta): IOcrRangeIdentityDelta | null {
     if (delta.pages === undefined) {
         if (delta.ranges === undefined || delta.nextPageCount === undefined) {
@@ -104,9 +110,6 @@ export function createOcrRangeDelta(delta: IPageIdentityDelta): IOcrRangeIdentit
             nextPageCount: delta.nextPageCount,
             ranges: delta.ranges,
         };
-    }
-    if (delta.pages.length > OCR_V3_DIRECT_REMAP_PAGE_LIMIT) {
-        return null;
     }
     const nextPageCount = delta.pages.length;
     if (delta.nextPageCount !== undefined && delta.nextPageCount !== nextPageCount) {
