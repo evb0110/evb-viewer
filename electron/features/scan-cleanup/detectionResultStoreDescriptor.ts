@@ -22,6 +22,7 @@ const DESCRIPTOR_FORMAT = 'evb-scan-cleanup-detection-result-store';
 const DESCRIPTOR_SCHEMA_VERSION = 2;
 const RESULT_RECORD_MAX_BYTES = 4 * 1024 * 1024;
 const HANDOFF_DIRECTORY_PREFIX = 'scan-cleanup-detection-handoff-';
+const HANDOFF_WRITE_BATCH_BYTES = 1024 * 1024;
 
 function isSafeInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value);
@@ -110,6 +111,29 @@ export async function persistScanCleanupDetectionResultStore(
         let expectedPageNumber = 1;
         let resultCount = 0;
         let nextOffset = 0;
+        // Pages arrive in order, so records and index entries are both
+        // contiguous. Buffer them and write in batches: two awaited writes
+        // per page made the handoff of a long book thousands of round trips
+        // on the path between Clean up and the worker starting.
+        let pendingLines: Buffer[] = [];
+        let pendingLineBytes = 0;
+        let pendingIndexEntries: Buffer[] = [];
+        let pendingFirstPageNumber = 1;
+        const flush = async () => {
+            if (pendingLines.length === 0) {
+                return;
+            }
+            await writeFully(recordsHandle!, Buffer.concat(pendingLines, pendingLineBytes));
+            await writeFully(
+                indexHandle!,
+                Buffer.concat(pendingIndexEntries),
+                (pendingFirstPageNumber - 1) * RESULT_STORE_INDEX_BYTES,
+            );
+            pendingFirstPageNumber += pendingLines.length;
+            pendingLines = [];
+            pendingLineBytes = 0;
+            pendingIndexEntries = [];
+        };
         await store.forEachChunk(async results => {
             for (const result of results) {
                 if (result.pageNumber !== expectedPageNumber) {
@@ -117,24 +141,24 @@ export async function persistScanCleanupDetectionResultStore(
                         `Scan cleanup detection result store returned page ${String(result.pageNumber)} where page ${String(expectedPageNumber)} was expected`,
                     );
                 }
-                const line = serialize(result);
+                const encodedLine = Buffer.from(serialize(result), 'utf8');
                 const encodedOffset = Buffer.alloc(RESULT_STORE_INDEX_BYTES);
                 encodedOffset.writeBigUInt64LE(BigInt(nextOffset) + 1n, 0);
-                await writeFully(
-                    indexHandle!,
-                    encodedOffset,
-                    (result.pageNumber - 1) * RESULT_STORE_INDEX_BYTES,
-                );
-                const encodedLine = Buffer.from(line, 'utf8');
-                await writeFully(recordsHandle!, encodedLine);
+                pendingLines.push(encodedLine);
+                pendingLineBytes += encodedLine.byteLength;
+                pendingIndexEntries.push(encodedOffset);
                 nextOffset += encodedLine.byteLength;
                 if (!Number.isSafeInteger(nextOffset)) {
                     throw new RangeError('Scan cleanup detection result handoff exceeds the offset limit');
                 }
                 expectedPageNumber += 1;
                 resultCount += 1;
+                if (pendingLineBytes >= HANDOFF_WRITE_BATCH_BYTES) {
+                    await flush();
+                }
             }
         });
+        await flush();
         if (expectedPageNumber !== store.pageCount + 1 || resultCount !== store.resultCount) {
             throw new Error('Scan cleanup detection result store is incomplete');
         }
