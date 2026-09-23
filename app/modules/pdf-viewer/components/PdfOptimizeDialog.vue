@@ -94,9 +94,8 @@
 
 <script setup lang="ts">
 import AppFailureAlert from '@app/components/AppFailureAlert.vue';
-import { useNow } from '@vueuse/core';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
-import { formatElapsedClock } from '@app/utils/progressFormatting';
+import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
 import type {
     IPdfOptimizeOptions,
     IPdfOptimizeProgress,
@@ -162,25 +161,14 @@ const presetOptions = computed(() => [
 const selectedPresetDestructive = computed(() => preset.value !== 'lossless');
 
 // Stages without a page count still show movement: their elapsed time.
-const UNCOUNTED_PHASES: ReadonlySet<IPdfOptimizeProgress['phase']> = new Set([
-    'preparing',
-    'optimizing',
-    'validating',
-]);
-const now = useNow({interval: 1000});
-const phaseStartedAtMs = ref<number | null>(null);
-watch(() => (isRunning ? progress?.phase ?? 'preparing' : null), (phase, previousPhase) => {
-    if (phase !== previousPhase) {
-        phaseStartedAtMs.value = phase === null ? null : Date.now();
-    }
-}, {immediate: true});
-const phaseClock = computed(() => {
-    const phase = progress?.phase ?? 'preparing';
-    if (!isRunning || phaseStartedAtMs.value === null || !UNCOUNTED_PHASES.has(phase)) {
-        return '';
-    }
-    return formatElapsedClock(now.value.getTime() - phaseStartedAtMs.value);
-});
+const phaseClock = useStageElapsedClock(
+    () => (isRunning ? progress?.phase ?? 'preparing' : null),
+    new Set<IPdfOptimizeProgress['phase']>([
+        'preparing',
+        'optimizing',
+        'validating',
+    ]),
+);
 const progressPercent = computed(() => progress?.percent ?? 0);
 const progressPercentLabel = computed(() => `${Math.max(0, Math.min(100, progressPercent.value))}%`);
 const progressStatus = computed(() => {

@@ -3,6 +3,7 @@
         :open="isConverting"
         :title="overlayTitle"
         :value="percent"
+        :sub-detail="stageClock"
         modal
         :cancel-label="t('common.cancel')"
         @cancel="emit('cancel')"
@@ -11,6 +12,7 @@
 
 <script setup lang="ts">
 import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
+import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
 
 const { t } = useTypedI18n();
 
@@ -25,6 +27,17 @@ const {
 }>();
 
 const emit = defineEmits<{cancel: [];}>();
+
+// Bookmarks and the interaction pass have no page count; their elapsed time
+// keeps the overlay moving on a long book.
+const stageClock = useStageElapsedClock(
+    () => (isConverting ? phase ?? 'preparing' : null),
+    new Set([
+        'preparing',
+        'bookmarks',
+        'optimizing',
+    ] as const),
+);
 
 const overlayTitle = computed(() => {
     if (phase === 'converting') {
