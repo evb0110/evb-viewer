@@ -504,7 +504,7 @@ describe('Project 8 recovered close decisions', () => {
     it('Discard closes without committing recovered bytes', async () => {
         const recovered = await createRecoveredSession('discard');
         session = recovered.session;
-        await clickWindowDecision(session, 'Discard Changes', {waitForClose: true});
+        await clickWindowDecision(session, 'Discard changes', {waitForClose: true});
         await expect.poll(async () => (await readPdfPageSnapshots(recovered.pdfPath))[0]?.rotation, {timeout: 60_000}).toBe(0);
     }, E2E_TIMEOUT_MS);
 

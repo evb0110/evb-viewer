@@ -14,6 +14,7 @@ import {
 import { PDFDocument } from 'pdf-lib';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import {mkdirSync} from 'node:fs';
 import {
@@ -2295,21 +2296,39 @@ describe('Electron E2E - Viewer Smoke', () => {
             `viewer-disabled-selected-toolbar-${Date.now()}.pdf`,
             2,
         );
-        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await session.page.evaluate(() => {
-            document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close')?.click();
+        // A document that is still opening shows the tools the user selected,
+        // disabled until it is ready. The New Tab screen has no document
+        // toolbar, so the open is held to keep that state on screen while each
+        // control is hovered.
+        expect(await session.page.evaluate(path => (
+            window.__deferDocumentOpenForAutomation?.(path) ?? false
+        ), requireDocumentRef(fixturePath))).toBe(true);
+        onTestFinished(async () => {
+            await session.page.evaluate(path => (
+                window.__releaseDocumentOpenForAutomation?.(path) ?? false
+            ), requireDocumentRef(fixturePath)).catch(() => undefined);
         });
-        await waitForWorkspaceToolbarSnapshot(
-            session.page,
-            {hasPdf: false},
-            {timeoutMs: VIEWER_SMOKE_OPEN_TIMEOUT_MS},
-        );
-        await session.page.waitForSelector('.toolbar-btn.is-active:disabled', {
-            timeout: 10_000,
-            visible: true,
-        });
-        const buttons = await session.page.$$('.toolbar-btn.is-active:disabled');
+        void session.page.evaluate(async (path: string) => {
+            const automationWindow = window as typeof window & {
+                __allowRendererFileOpenForAutomation?: (value: string) => Promise<void>;
+                __openFileDirect?: (value: string) => Promise<boolean>;
+            };
+            await automationWindow.__allowRendererFileOpenForAutomation?.(path);
+            await automationWindow.__openFileDirect?.(path);
+        }, fixturePath).catch(() => undefined);
+        await waitForFunctionInPage(session.page, () => (
+            Array.from(document.querySelectorAll<HTMLElement>('.toolbar-btn.is-active:disabled'))
+                .filter(button => button.getBoundingClientRect().width > 0)
+                .length >= 3
+        ), {timeout: 10_000});
+        // Collapsed-toolbar copies of the same controls are in the DOM but not
+        // laid out; only the controls a user can point at are sampled.
+        const buttons = [];
+        for (const handle of await session.page.$$('.toolbar-btn.is-active:disabled')) {
+            if (await handle.boundingBox()) {
+                buttons.push(handle);
+            }
+        }
         expect(buttons.length).toBeGreaterThanOrEqual(3);
 
         const visualSamples = [];

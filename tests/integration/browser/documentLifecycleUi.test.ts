@@ -491,7 +491,12 @@ describe('browser document lifecycle UI', () => {
                 return api.getActiveToolbarSnapshot?.() ?? null;
             });
             expect(provisional?.canSave).toBe(false);
-            expect(await target.getByRole('button', {name: /sticky note/i}).first().isDisabled()).toBe(true);
+            // Until the target reads back authority it offers no way to edit:
+            // its note tool is disabled, or absent while it has no document.
+            expect(await target.getByRole('button', {
+                name: /sticky note/i,
+                disabled: false,
+            }).count()).toBe(0);
             await source.close();
             await target.evaluate(() => {
                 const release = Reflect.get(window, '__evbReleaseTransferAuthorityCommittedReadBarrier');
