@@ -52,6 +52,7 @@ import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import { createLogger } from '@electron/utils/createLogger';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { acquireNativePdfPreviewAdmission } from '@electron/features/documents/main/acquireNativePdfPreviewAdmission';
 import { QPDF_TIMEOUT_MS } from '@electron/features/page-ops/publicNative';
 import {
@@ -481,28 +482,9 @@ export function registerNativePdfSenderCleanup(
         return () => undefined;
     }
 
-    const handleDestroyed = () => abort('Renderer lifecycle ended');
-    const handleRenderProcessGone = () => abort('Renderer lifecycle ended');
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            abort(navigationReason);
-        }
-    };
-
-    sender.once('destroyed', handleDestroyed);
-    sender.once('render-process-gone', handleRenderProcessGone);
-    sender.on('did-start-navigation', handleNavigation);
-
-    return () => {
-        sender.removeListener('destroyed', handleDestroyed);
-        sender.removeListener('render-process-gone', handleRenderProcessGone);
-        sender.removeListener('did-start-navigation', handleNavigation);
-    };
+    return onSenderLifetimeEnd(sender, (end) => {
+        abort(end === 'main-frame-navigation' ? navigationReason : 'Renderer lifecycle ended');
+    }, {navigation: true});
 }
 
 function createNativePdfPreviewRequestLifecycle(

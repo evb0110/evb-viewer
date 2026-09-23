@@ -37,6 +37,7 @@ import {parseDocumentRef} from '@contracts/documentRef';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import {
     assertOpenInputPathCount,
@@ -126,31 +127,14 @@ function createOpenInputPathsAbortLifecycle(
         abortFromExternalSignal();
     }
 
-    let handleDestroyed: (() => void) | null = null;
-    let handleRenderProcessGone: (() => void) | null = null;
-    let handleNavigation: ((
-        event: Electron.Event,
-        url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => void) | null = null;
+    let stopSenderLifetime: () => void = () => undefined;
 
     if (isWebContentsOwner(owner)) {
-        handleDestroyed = () => abort('Renderer lifecycle ended');
-        handleRenderProcessGone = () => abort('Renderer lifecycle ended');
-        handleNavigation = (
-            _event: Electron.Event,
-            _url: string,
-            isInPlace: boolean,
-            isMainFrame: boolean,
-        ) => {
-            if (isMainFrame && !isInPlace) {
-                abort('Renderer navigation canceled open input paths operation');
-            }
-        };
-        owner.once('destroyed', handleDestroyed);
-        owner.once('render-process-gone', handleRenderProcessGone);
-        owner.on('did-start-navigation', handleNavigation);
+        stopSenderLifetime = onSenderLifetimeEnd(owner, (end) => {
+            abort(end === 'main-frame-navigation'
+                ? 'Renderer navigation canceled open input paths operation'
+                : 'Renderer lifecycle ended');
+        }, {navigation: true});
     }
 
     return {
@@ -158,17 +142,7 @@ function createOpenInputPathsAbortLifecycle(
         cleanup: () => {
             mainOperation.signal.removeEventListener('abort', abortFromMainOperation);
             externalSignal?.removeEventListener('abort', abortFromExternalSignal);
-            if (isWebContentsOwner(owner)) {
-                if (handleDestroyed) {
-                    owner.removeListener('destroyed', handleDestroyed);
-                }
-                if (handleRenderProcessGone) {
-                    owner.removeListener('render-process-gone', handleRenderProcessGone);
-                }
-                if (handleNavigation) {
-                    owner.removeListener('did-start-navigation', handleNavigation);
-                }
-            }
+            stopSenderLifetime();
             mainOperation.complete();
         },
     };

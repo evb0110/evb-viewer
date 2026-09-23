@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import type * as TCreateLoggerModule from '@electron/utils/createLogger';
 import {
     beforeEach,
@@ -93,16 +94,12 @@ vi.mock('@electron/utils/createLogger', async (importOriginal) => ({
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'https://trusted.example/electron'}}}));
 
 function createSender(id: number) {
-    const once = vi.fn();
-    const removeListener = vi.fn();
-    const sender = {
+    const sender = Object.assign(new EventEmitter(), {
         id,
-        once,
-        removeListener,
         isDestroyed: () => false,
         getURL: () => 'https://trusted.example/electron',
         mainFrame: null,
-    };
+    });
     mocks.registeredWindowsById.set(id, {
         id,
         webContents: sender,
@@ -150,11 +147,7 @@ describe('renderer log registry', () => {
             }
 
             expect(mocks.writeLogRecord).toHaveBeenCalledTimes(120);
-            expect(firstSender.once).toHaveBeenCalledTimes(2);
-
-            const destroyedHandler = firstSender.once.mock.calls
-                .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
-            destroyedHandler?.();
+            firstSender.emit('destroyed');
 
             const secondSender = createSender(7);
             handler?.({
@@ -167,14 +160,13 @@ describe('renderer log registry', () => {
                 timestamp: '2026-03-21T00:00:00.000Z',
             });
 
-            expect(secondSender.once).toHaveBeenCalledTimes(2);
             expect(mocks.writeLogRecord).toHaveBeenCalledTimes(121);
         } finally {
             vi.useRealTimers();
         }
     }, rendererLogRegistryImportTimeoutMs);
 
-    it('removes the counterpart cleanup listener when a sender lifecycle event fires', async () => {
+    it('releases its sender lifecycle listeners when the render process is gone', async () => {
         const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
         registerIpcHandlers();
 
@@ -192,15 +184,11 @@ describe('renderer log registry', () => {
             timestamp: '2026-03-21T00:00:00.000Z',
         });
 
-        const destroyedHandler = sender.once.mock.calls
-            .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
-        const renderGoneHandler = sender.once.mock.calls
-            .find(call => call[0] === 'render-process-gone')?.[1] as (() => void) | undefined;
+        expect(sender.listenerCount('destroyed')).toBe(1);
+        sender.emit('render-process-gone');
 
-        destroyedHandler?.();
-
-        expect(sender.removeListener).toHaveBeenCalledWith('destroyed', destroyedHandler);
-        expect(sender.removeListener).toHaveBeenCalledWith('render-process-gone', renderGoneHandler);
+        expect(sender.listenerCount('destroyed')).toBe(0);
+        expect(sender.listenerCount('render-process-gone')).toBe(0);
     });
 
     it('keeps nested renderer payloads structured instead of collapsing them to [Object]', async () => {

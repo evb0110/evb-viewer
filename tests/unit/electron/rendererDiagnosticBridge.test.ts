@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import {
     describe,
     expect,
@@ -29,11 +30,7 @@ const record: DiagnosticRecord<'UNCLASSIFIED_RENDERER_ERROR'> = {
 };
 
 function createEvent(senderId = 7) {
-    const sender = {
-        id: senderId,
-        once: vi.fn(),
-        removeListener: vi.fn(),
-    };
+    const sender = Object.assign(new EventEmitter(), {id: senderId});
     return {
         event: {
             sender,
@@ -141,7 +138,10 @@ describe('renderer diagnostic bridge', () => {
             schemaDropped: 0,
             untrustedDropped: 0,
         });
-        expect(first.sender.once).toHaveBeenCalledTimes(2);
+        first.sender.emit('destroyed');
+        expect(first.sender.listenerCount('destroyed')).toBe(0);
+        listener?.(first.event, record);
+        expect(captureRecord).toHaveBeenCalledTimes(3);
     });
 
     it('rejects malformed summary counts and survives malformed events or a throwing clock', () => {

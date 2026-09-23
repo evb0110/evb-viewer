@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@electron/utils/error';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import type { WebContents } from 'electron';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
@@ -125,28 +126,8 @@ function sendDjvuTextSearchProgress(
         logger.debug(`Failed to send DjVu text search progress: ${String(error)}`);
     }
 }
-const previewSenderCleanupById = new Map<number, {
-    handleDestroyed: () => void;
-    handleNavigation: (
-        event: Electron.Event,
-        url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => void;
-    handleRenderProcessGone: () => void;
-    sender: WebContents;
-}>();
-const estimateSenderCleanupById = new Map<number, {
-    handleDestroyed: () => void;
-    handleNavigation: (
-        event: Electron.Event,
-        url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => void;
-    handleRenderProcessGone: () => void;
-    sender: WebContents;
-}>();
+const previewSenderCleanupById = new Map<number, {stop: () => void}>();
+const estimateSenderCleanupById = new Map<number, {stop: () => void}>();
 function getPreviewState(senderId: number) {
     const existingState = previewStateBySender.get(senderId);
     if (existingState) {
@@ -261,9 +242,7 @@ function unregisterPreviewSenderCleanupIfIdle(ownerWebContentsId: number) {
     if (!cleanup) {
         return;
     }
-    cleanup.sender.removeListener('destroyed', cleanup.handleDestroyed);
-    cleanup.sender.removeListener('render-process-gone', cleanup.handleRenderProcessGone);
-    cleanup.sender.removeListener('did-start-navigation', cleanup.handleNavigation);
+    cleanup.stop();
     previewSenderCleanupById.delete(ownerWebContentsId);
 }
 
@@ -277,27 +256,12 @@ function registerPreviewSenderCleanup(sender: WebContents) {
         cancelPreviewOperationsForSender(ownerWebContentsId, reason);
         unregisterPreviewSenderCleanupIfIdle(ownerWebContentsId);
     };
-    const handleDestroyed = () => cancel('Renderer lifecycle ended');
-    const handleRenderProcessGone = () => cancel('Renderer lifecycle ended');
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cancel('Renderer navigation canceled DjVu preview operations');
-        }
-    };
-    sender.once('destroyed', handleDestroyed);
-    sender.once('render-process-gone', handleRenderProcessGone);
-    sender.on('did-start-navigation', handleNavigation);
-    previewSenderCleanupById.set(ownerWebContentsId, {
-        handleDestroyed,
-        handleNavigation,
-        handleRenderProcessGone,
-        sender,
-    });
+    const stop = onSenderLifetimeEnd(sender, (end) => {
+        cancel(end === 'main-frame-navigation'
+            ? 'Renderer navigation canceled DjVu preview operations'
+            : 'Renderer lifecycle ended');
+    }, {navigation: true});
+    previewSenderCleanupById.set(ownerWebContentsId, {stop});
 }
 
 function cancelEstimateOperationsForSender(
@@ -332,9 +296,7 @@ function unregisterEstimateSenderCleanupIfIdle(ownerWebContentsId: number) {
     if (!cleanup) {
         return;
     }
-    cleanup.sender.removeListener('destroyed', cleanup.handleDestroyed);
-    cleanup.sender.removeListener('render-process-gone', cleanup.handleRenderProcessGone);
-    cleanup.sender.removeListener('did-start-navigation', cleanup.handleNavigation);
+    cleanup.stop();
     estimateSenderCleanupById.delete(ownerWebContentsId);
 }
 
@@ -347,27 +309,12 @@ function registerEstimateSenderCleanup(sender: WebContents) {
         cancelEstimateOperationsForSender(ownerWebContentsId, reason);
         unregisterEstimateSenderCleanupIfIdle(ownerWebContentsId);
     };
-    const handleDestroyed = () => cancel('Renderer lifecycle ended');
-    const handleRenderProcessGone = () => cancel('Renderer lifecycle ended');
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cancel('Renderer navigation canceled DjVu estimate operations');
-        }
-    };
-    sender.once('destroyed', handleDestroyed);
-    sender.once('render-process-gone', handleRenderProcessGone);
-    sender.on('did-start-navigation', handleNavigation);
-    estimateSenderCleanupById.set(ownerWebContentsId, {
-        handleDestroyed,
-        handleNavigation,
-        handleRenderProcessGone,
-        sender,
-    });
+    const stop = onSenderLifetimeEnd(sender, (end) => {
+        cancel(end === 'main-frame-navigation'
+            ? 'Renderer navigation canceled DjVu estimate operations'
+            : 'Renderer lifecycle ended');
+    }, {navigation: true});
+    estimateSenderCleanupById.set(ownerWebContentsId, {stop});
 }
 
 function cancelSupersededActivePreviewOperations(state: IDjvuPreviewSenderState, ownerWebContentsId: number) {
@@ -742,9 +689,9 @@ export async function handleDjvuSearchText(
             canceled: true,
         });
     };
-    const handleSenderGone = () => abortController.abort(new Error('Renderer lifecycle ended'));
-    context.sender.once('destroyed', handleSenderGone);
-    context.sender.once('render-process-gone', handleSenderGone);
+    const stopSenderLifetime = onSenderLifetimeEnd(context.sender, () => {
+        abortController.abort(new Error('Renderer lifecycle ended'));
+    });
 
     try {
         const response = await searchDjvuText(normalizedDjvuPath, {
@@ -808,8 +755,7 @@ export async function handleDjvuSearchText(
         if (isCurrentGeneration()) {
             activeTextSearchesBySenderRequestKey.delete(operationKey);
         }
-        context.sender.removeListener('destroyed', handleSenderGone);
-        context.sender.removeListener('render-process-gone', handleSenderGone);
+        stopSenderLifetime();
     }
 }
 

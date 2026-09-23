@@ -3,6 +3,7 @@ import {
     resolve,
 } from 'path';
 import type { WebContents } from 'electron';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
 const DJVU_WRITE_PATH_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_DJVU_WRITE_PATH_MAX_ENTRIES ?? '64', 10);
@@ -104,31 +105,15 @@ function registerOwnerCleanup(owner: TDjvuWriteCapabilityOwner, ownerWebContents
         return;
     }
 
-    if (typeof owner.once !== 'function') {
+    if (typeof owner.on !== 'function') {
         return;
     }
 
-    const cleanup = () => {
-        owner.removeListener?.('destroyed', cleanup);
-        owner.removeListener?.('render-process-gone', cleanup);
-        owner.removeListener?.('did-start-navigation', handleNavigation);
-        removeAllowedDjvuWritePathsForOwner(ownerWebContentsId);
-    };
-    function handleNavigation(
-        _event: unknown,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) {
-        if (isMainFrame && !isInPlace) {
-            cleanup();
-        }
-    }
-
     ownerCleanupRegistered.add(ownerWebContentsId);
-    owner.once('destroyed', cleanup);
-    owner.once('render-process-gone', cleanup);
-    owner.on?.('did-start-navigation', handleNavigation);
+    const stop = onSenderLifetimeEnd(owner, () => {
+        stop();
+        removeAllowedDjvuWritePathsForOwner(ownerWebContentsId);
+    }, {navigation: true});
 }
 
 export function allowDjvuWritePath(filePath: string, owner?: TDjvuWriteCapabilityOwner) {

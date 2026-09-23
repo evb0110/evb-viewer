@@ -20,6 +20,7 @@ import { tmpdir } from 'os';
 import { sortBy } from 'es-toolkit/array';
 import { range } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -688,13 +689,13 @@ function waitForPdfPluginReadyToPrint(printWindow: BrowserWindow, signal?: Abort
     const promise = new Promise<void>((resolve, reject) => {
         let timeout: ReturnType<typeof setTimeout> | undefined;
         let settled = false;
+        let stopSenderLifetime: () => void = () => undefined;
         const cleanup = () => {
             if (timeout) {
                 clearTimeout(timeout);
             }
             webContents.removeListener('-pdf-ready-to-print', handleReady);
-            webContents.removeListener('render-process-gone', handleRendererGone);
-            webContents.removeListener('destroyed', handleDestroyed);
+            stopSenderLifetime();
             printWindow.removeListener('closed', handleClosed);
             signal?.removeEventListener('abort', handleAbort);
         };
@@ -718,14 +719,6 @@ function waitForPdfPluginReadyToPrint(printWindow: BrowserWindow, signal?: Abort
             logger.debug('Print handoff phase: closed-before-pdf-ready');
             finish(new Error('Print window closed before the PDF viewer became ready'));
         };
-        const handleRendererGone = () => {
-            logger.debug('Print handoff phase: renderer-gone-before-pdf-ready');
-            finish(new Error('Print renderer exited before the PDF viewer became ready'));
-        };
-        const handleDestroyed = () => {
-            logger.debug('Print handoff phase: destroyed-before-pdf-ready');
-            finish(new Error('Print web contents destroyed before the PDF viewer became ready'));
-        };
         const handleAbort = () => {
             const error = new Error('Print handoff canceled');
             error.name = 'AbortError';
@@ -745,8 +738,15 @@ function waitForPdfPluginReadyToPrint(printWindow: BrowserWindow, signal?: Abort
         };
 
         webContents.once('-pdf-ready-to-print', handleReady);
-        webContents.once('render-process-gone', handleRendererGone);
-        webContents.once('destroyed', handleDestroyed);
+        stopSenderLifetime = onSenderLifetimeEnd(printWindow.webContents, (end) => {
+            if (end === 'destroyed') {
+                logger.debug('Print handoff phase: destroyed-before-pdf-ready');
+                finish(new Error('Print web contents destroyed before the PDF viewer became ready'));
+            } else if (end === 'render-process-gone') {
+                logger.debug('Print handoff phase: renderer-gone-before-pdf-ready');
+                finish(new Error('Print renderer exited before the PDF viewer became ready'));
+            }
+        });
         printWindow.once('closed', handleClosed);
         signal?.addEventListener('abort', handleAbort, {once: true});
         if (signal?.aborted) {

@@ -12,6 +12,7 @@ import { getDjvuPageSourceInfoForViewing } from '@electron/features/djvu/main/pa
 import { isAllowedDjvuTempPdfPath } from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
@@ -86,25 +87,13 @@ function registerSenderCleanup(context: IDjvuOperationContext) {
     const cleanup = () => {
         allowedDjvuViewingPathsBySender.delete(senderId);
         senderCleanupRegistered.delete(senderId);
-        sender.removeListener('destroyed', cleanup);
-        sender.removeListener('render-process-gone', cleanup);
-        sender.removeListener('did-start-navigation', handleNavigation);
-    };
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cleanup();
-        }
     };
 
     senderCleanupRegistered.add(senderId);
-    sender.once('destroyed', cleanup);
-    sender.once('render-process-gone', cleanup);
-    sender.on('did-start-navigation', handleNavigation);
+    const stop = onSenderLifetimeEnd(sender, () => {
+        stop();
+        cleanup();
+    }, {navigation: true});
 }
 
 export function adoptDjvuViewingPath(context: IDjvuOperationContext, djvuPath: string) {

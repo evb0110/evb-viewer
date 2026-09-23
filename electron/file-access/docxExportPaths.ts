@@ -3,6 +3,7 @@ import {
     resolve,
 } from 'path';
 import type { WebContents } from 'electron';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
 const DOCX_WRITE_PATH_MAX_ENTRIES = (() => {
     const parsed = Number.parseInt(process.env.EVB_DOCX_WRITE_PATH_MAX_ENTRIES ?? '64', 10);
@@ -92,31 +93,15 @@ function registerOwnerCleanup(owner: TDocxWritePathOwner, senderWebContentsId: n
         return;
     }
 
-    if (typeof owner.once !== 'function') {
+    if (typeof owner.on !== 'function') {
         return;
     }
 
-    const cleanup = () => {
-        owner.removeListener('destroyed', cleanup);
-        owner.removeListener('render-process-gone', cleanup);
-        owner.removeListener('did-start-navigation', handleNavigation);
-        removeAllowedDocxWritePathsForOwner(senderWebContentsId);
-    };
-    function handleNavigation(
-        _event: unknown,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) {
-        if (isMainFrame && !isInPlace) {
-            cleanup();
-        }
-    }
-
     ownerCleanupRegistered.add(senderWebContentsId);
-    owner.once('destroyed', cleanup);
-    owner.once('render-process-gone', cleanup);
-    owner.on('did-start-navigation', handleNavigation);
+    const stop = onSenderLifetimeEnd(owner, () => {
+        stop();
+        removeAllowedDocxWritePathsForOwner(senderWebContentsId);
+    }, {navigation: true});
 }
 
 export function allowDocxWritePath(filePath: string, owner: TDocxWritePathOwner) {

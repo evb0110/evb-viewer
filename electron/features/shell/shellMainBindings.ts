@@ -5,6 +5,7 @@ import {
 } from 'electron';
 import type { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
 const SHELL_OPEN_EXTERNAL_MIN_INTERVAL_MS = 1_000;
 const shellOpenExternalLastOpenedAtBySender = new Map<number, number>();
@@ -17,14 +18,11 @@ function registerSenderCleanup(sender: WebContents) {
     }
 
     shellOpenExternalCleanupRegisteredBySender.add(senderId);
-    const cleanup = () => {
+    const stop = onSenderLifetimeEnd(sender, () => {
+        stop();
         shellOpenExternalLastOpenedAtBySender.delete(senderId);
         shellOpenExternalCleanupRegisteredBySender.delete(senderId);
-        sender.removeListener('destroyed', cleanup);
-        sender.removeListener('render-process-gone', cleanup);
-    };
-    sender.once('destroyed', cleanup);
-    sender.once('render-process-gone', cleanup);
+    });
 }
 
 function assertRateLimit(sender: WebContents) {

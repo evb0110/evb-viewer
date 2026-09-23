@@ -26,6 +26,7 @@ import {
     sendAgentWorkspaceSnapshotRequest,
 } from '@electron/features/agent/main/agentRendererEvents';
 import { getErrorMessage } from '@electron/utils/error';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
 export const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 10_000;
 export const LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS = 180_000;
@@ -117,26 +118,14 @@ function createTargetWindowLifecycleCleanup<TResponse>(
         );
     };
     const handleClosed = () => rejectForLifecycle('closed');
-    const handleRenderGone = () => rejectForLifecycle('renderer exited');
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            rejectForLifecycle('navigated');
-        }
-    };
-
     window.once('closed', handleClosed);
-    window.webContents.once('render-process-gone', handleRenderGone);
-    window.webContents.on('did-start-navigation', handleNavigation);
+    const stopSenderLifetime = onSenderLifetimeEnd(window.webContents, (end) => {
+        rejectForLifecycle(end === 'main-frame-navigation' ? 'navigated' : 'renderer exited');
+    }, {navigation: true});
 
     return () => {
         window.removeListener('closed', handleClosed);
-        window.webContents.removeListener('render-process-gone', handleRenderGone);
-        window.webContents.removeListener('did-start-navigation', handleNavigation);
+        stopSenderLifetime();
     };
 }
 
@@ -174,31 +163,18 @@ function createWorkspaceSnapshotLifecycle(window: BrowserWindow, generation: num
     function handleClosed() {
         handleInvalidation('closed');
     }
-    function handleRenderGone() {
-        handleInvalidation('renderer exited');
-    }
-    function handleNavigation(
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) {
-        if (isMainFrame && !isInPlace) {
-            handleInvalidation('navigated');
-        }
-    }
+    const stopSenderLifetime = onSenderLifetimeEnd(window.webContents, (end) => {
+        handleInvalidation(end === 'main-frame-navigation' ? 'navigated' : 'renderer exited');
+    }, {navigation: true});
     const lifecycle: IWorkspaceSnapshotLifecycle = {
         generation,
         cleanup: () => {
             window.removeListener('closed', handleClosed);
-            window.webContents.removeListener('render-process-gone', handleRenderGone);
-            window.webContents.removeListener('did-start-navigation', handleNavigation);
+            stopSenderLifetime();
         },
     };
 
     window.once('closed', handleClosed);
-    window.webContents.once('render-process-gone', handleRenderGone);
-    window.webContents.on('did-start-navigation', handleNavigation);
     return lifecycle;
 }
 

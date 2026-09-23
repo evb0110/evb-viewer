@@ -1,5 +1,4 @@
 import {isAbsolute} from 'path';
-import type {Event} from 'electron';
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupDetectionResult,
@@ -52,6 +51,7 @@ import type {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {createLogger} from '@electron/utils/createLogger';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -344,17 +344,10 @@ export function scanCleanupDetectionOwner(
             }
             closed = true;
             resultStoreOwnerBindings.delete(ownerKey);
-            sender.removeListener('destroyed', close);
-            sender.removeListener('render-process-gone', close);
-            sender.removeListener('did-start-navigation', navigation);
+            stop();
             await releaseScanCleanupDetectionResultStoreOwner(owner.ownerId);
         };
-        const navigation = (_event: Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
-            if (isMainFrame && !isInPlace) void close();
-        };
-        sender.once('destroyed', close);
-        sender.once('render-process-gone', close);
-        sender.on('did-start-navigation', navigation);
+        const stop = onSenderLifetimeEnd(sender, () => void close(), {navigation: true});
         resultStoreOwnerBindings.set(ownerKey, {close});
         if (sender.isDestroyed()) void close();
     };

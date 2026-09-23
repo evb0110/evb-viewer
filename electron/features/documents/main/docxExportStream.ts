@@ -18,6 +18,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import {
     createSessionId,
@@ -109,26 +110,7 @@ function registerSessionSenderCleanup(session: IDocxExportStreamSession) {
             void abortSession(session);
         }
     };
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cleanup();
-        }
-    };
-
-    session.sender.once('destroyed', cleanup);
-    session.sender.once('render-process-gone', cleanup);
-    session.sender.on('did-start-navigation', handleNavigation);
-
-    return () => {
-        session.sender.removeListener('destroyed', cleanup);
-        session.sender.removeListener('render-process-gone', cleanup);
-        session.sender.removeListener('did-start-navigation', handleNavigation);
-    };
+    return onSenderLifetimeEnd(session.sender, cleanup, {navigation: true});
 }
 
 async function closeAndRemoveTemp(session: IDocxExportStreamSession) {

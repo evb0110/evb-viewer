@@ -30,6 +30,7 @@ import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand'
 import {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 import {getAppTempDir} from '@electron/utils/appTempDir';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {
     getWorkingCopyBackingEntry,
@@ -287,6 +288,7 @@ export function scanCleanupPreviewLifecycle(
     interface IWatchedSender {
         sender: IScanCleanupDetectionSubscriber;
         handleGone: () => void;
+        stop: () => void;
     }
     const watchedSenders = new Map<number, IWatchedSender>();
     const pendingPreviews = new Map<number, Set<Promise<unknown>>>();
@@ -298,22 +300,20 @@ export function scanCleanupPreviewLifecycle(
         if (disposed) return;
         const previous = watchedSenders.get(sender.id);
         if (previous?.sender === sender) return;
-        previous?.sender.removeListener('destroyed', previous.handleGone);
-        previous?.sender.removeListener('render-process-gone', previous.handleGone);
+        previous?.stop();
         const handleGone = () => {
-            if (watchedSenders.get(sender.id)?.handleGone !== handleGone) return;
+            const watched = watchedSenders.get(sender.id);
+            if (watched?.handleGone !== handleGone) return;
             watchedSenders.delete(sender.id);
-            sender.removeListener('destroyed', handleGone);
-            sender.removeListener('render-process-gone', handleGone);
+            watched.stop();
             rendering.invalidateSender?.(sender.id);
             rawRasterRetention.invalidateSender(sender.id);
         };
         watchedSenders.set(sender.id, {
             sender,
             handleGone,
+            stop: onSenderLifetimeEnd(sender, handleGone),
         });
-        sender.once('destroyed', handleGone);
-        sender.once('render-process-gone', handleGone);
         if (sender.isDestroyed()) handleGone();
     };
     const watchSenderAfterPreviewsSettle = (
@@ -352,12 +352,8 @@ export function scanCleanupPreviewLifecycle(
         async dispose() {
             disposed = true;
             pendingPreviews.clear();
-            for (const {
-                sender,
-                handleGone,
-            } of watchedSenders.values()) {
-                sender.removeListener('destroyed', handleGone);
-                sender.removeListener('render-process-gone', handleGone);
+            for (const {stop} of watchedSenders.values()) {
+                stop();
             }
             watchedSenders.clear();
             await rendering.dispose();

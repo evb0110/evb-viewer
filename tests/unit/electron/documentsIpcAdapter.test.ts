@@ -462,7 +462,6 @@ describe('documents ipc adapter', () => {
         } = createRegistrationHarness();
         const sender = new EventEmitter() as EventEmitter & { id: number; };
         sender.id = 44;
-        const removeListenerSpy = vi.spyOn(sender, 'removeListener');
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
@@ -483,7 +482,9 @@ describe('documents ipc adapter', () => {
                 },
             )).resolves.toBe(false);
             expect(mocks.allowOpenPath).not.toHaveBeenCalled();
-            expect(removeListenerSpy).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
+            expect(sender.listenerCount('destroyed')).toBe(0);
+            expect(sender.listenerCount('render-process-gone')).toBe(0);
+            expect(sender.listenerCount('did-start-navigation')).toBe(0);
         } finally {
             rmSync(tempRoot, {
                 force: true,

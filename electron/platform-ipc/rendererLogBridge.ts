@@ -22,6 +22,7 @@ import {
     type TLogData,
 } from '@contracts/logRecord';
 import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
 interface IRendererLogRateState {
     tokens: number;
@@ -180,14 +181,11 @@ function registerRendererLogSenderCleanup(sender: Electron.WebContents) {
     }
 
     rendererLogCleanupRegisteredBySender.add(senderId);
-    const cleanup = () => {
+    const stop = onSenderLifetimeEnd(sender, () => {
+        stop();
         rendererLogRateStateBySender.delete(senderId);
         rendererLogCleanupRegisteredBySender.delete(senderId);
-        sender.removeListener('destroyed', cleanup);
-        sender.removeListener('render-process-gone', cleanup);
-    };
-    sender.once('destroyed', cleanup);
-    sender.once('render-process-gone', cleanup);
+    });
 }
 
 interface INormalizedRendererLogEntry {

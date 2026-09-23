@@ -2,6 +2,7 @@ import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import { decodeDiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import { decodeDiagnosticsSuppressedCount } from '@contracts/diagnostics/diagnosticsCapability';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
 const RENDERER_DIAGNOSTIC_MAX_PAYLOAD_BYTES = 16 * 1024;
 const RENDERER_DIAGNOSTIC_RATE_PER_SECOND = 20;
@@ -122,17 +123,14 @@ export function registerRendererDiagnosticBridge(options: IRendererDiagnosticBri
         const cleanup = () => {
             rateBySender.delete(senderId);
             cleanupRegistered.delete(senderId);
-            try {
-                sender.removeListener('destroyed', cleanup);
-                sender.removeListener('render-process-gone', cleanup);
-            } catch {
-                // Sender teardown is best effort only.
-            }
         };
         try {
-            sender.once('destroyed', cleanup);
-            sender.once('render-process-gone', cleanup);
+            const stop = onSenderLifetimeEnd(sender, () => {
+                stop();
+                cleanup();
+            });
         } catch {
+            // Sender teardown is best effort only.
             cleanup();
         }
     }

@@ -1288,7 +1288,6 @@ describe('serializedPdfPersistence', () => {
         const targetPath = join(tempRoot, `${event}.pdf`);
         const tempPath = `${targetPath}.tmp.pdf`;
         const sender = new FakeSender(senderId);
-        const removeListenerSpy = vi.spyOn(sender, 'removeListener');
         const {
             beginSerializedPdfSaveAs,
             shutdownSerializedPdfPersistence,
@@ -1308,11 +1307,9 @@ describe('serializedPdfPersistence', () => {
         sender.emit(event, ...args);
         await shutdownSerializedPdfPersistence();
         expect(existsSync(tempPath)).toBe(false);
-        expect(removeListenerSpy).toHaveBeenCalledWith('destroyed', expect.any(Function));
-        expect(removeListenerSpy).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
-        if (event === 'did-start-navigation') {
-            expect(removeListenerSpy).toHaveBeenCalledWith(event, expect.any(Function));
-        }
+        expect(sender.listenerCount('destroyed')).toBe(0);
+        expect(sender.listenerCount('render-process-gone')).toBe(0);
+        expect(sender.listenerCount('did-start-navigation')).toBe(0);
     });
 
     it('rejects new streams above the per-sender active session limit', async () => {

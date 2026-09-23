@@ -50,6 +50,7 @@ import {
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import { requireManagedWorkingCopyPath } from '@electron/file-access/workingCopyCreation';
 import { createLogger } from '@electron/utils/createLogger';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
@@ -173,29 +174,17 @@ function registerDocumentsSenderCleanup(event: Pick<IpcMainInvokeEvent, 'sender'
 
     rendererFileOpenTokenCleanupSenders.add(senderId);
     const cleanup = (lifecycleEvent: TMainOperationOwnerEndEvent, reason: string) => {
-        event.sender.removeListener('destroyed', handleDestroyed);
-        event.sender.removeListener('render-process-gone', handleRenderProcessGone);
-        event.sender.removeListener('did-start-navigation', handleNavigation);
         rendererFileOpenTokens.delete(senderId);
         cancelMainOperationsForOwner(senderId, reason, lifecycleEvent);
         revokeManagedTempFileHandlesForSender(senderId);
         rendererFileOpenTokenCleanupSenders.delete(senderId);
     };
-    const handleNavigation = (
-        _event: unknown,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cleanup('mainFrameNavigation', 'Renderer main frame navigated');
-        }
-    };
-    const handleDestroyed = () => cleanup('destroyed', 'Renderer destroyed');
-    const handleRenderProcessGone = () => cleanup('renderProcessGone', 'Renderer process gone');
-    event.sender.once('destroyed', handleDestroyed);
-    event.sender.once('render-process-gone', handleRenderProcessGone);
-    event.sender.on('did-start-navigation', handleNavigation);
+    const stop = onSenderLifetimeEnd(event.sender, (end) => {
+        stop();
+        if (end === 'destroyed') cleanup('destroyed', 'Renderer destroyed');
+        else if (end === 'render-process-gone') cleanup('renderProcessGone', 'Renderer process gone');
+        else cleanup('mainFrameNavigation', 'Renderer main frame navigated');
+    }, {navigation: true});
 }
 
 function consumeRendererFileOpenToken(senderId: number, token: string) {

@@ -118,6 +118,16 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         expect(jobs.get('terminal-retained', actor)).toMatchObject({status: 'completed'});
         expect(jobs.subscribe('terminal-retained', actor, vi.fn())).not.toBeNull();
     });
+    it('keeps renderer lifecycle listeners bounded across concurrent owner jobs', async () => {
+        const jobs = registry(undefined, undefined, true); const ownerSender = sender(60); const actor = {sender: ownerSender}; const runners = Array.from({length: 24}, () => deferred<IResult>());
+        const handles = runners.map((runner, index) => start(jobs, actor, `concurrent-${index}`, () => runner.promise));
+
+        expect(ownerSender.listenerCount('render-process-gone')).toBe(1);
+        runners.forEach(runner => runner.resolve({value: 'done'}));
+        await Promise.all(handles.map(handle => handle.settled));
+
+        expect(ownerSender.listenerCount('render-process-gone')).toBe(0);
+    });
     it('replays latest active and terminal progress on distinct retention clocks', async () => {
         let clock = 1_000; const jobs = registry({eventReplayTtlMs: 30_000, terminalRecordTtlMs: 60_000}, () => clock);
         const ownerSender = sender(4); const actor = {sender: ownerSender}; const runner = deferred<IResult>(); let publish!: TContext['publish'];

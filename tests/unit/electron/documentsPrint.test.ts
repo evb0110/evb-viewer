@@ -87,7 +87,11 @@ const mocks = vi.hoisted(() => {
                 toBitmap: () => mocks.printSurfaceBitmap,
             })),
             executeJavaScript: vi.fn(async () => true),
-            on: vi.fn(),
+            on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+                const handlers = this.webContentsEventHandlers.get(event) ?? new Set();
+                handlers.add(handler);
+                this.webContentsEventHandlers.set(event, handlers);
+            }),
             print: vi.fn(printHandler),
             printToPDF: vi.fn(async () => Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')),
             once: vi.fn((event: string, handler: (...args: unknown[]) => void) => {

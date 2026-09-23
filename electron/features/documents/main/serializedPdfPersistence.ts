@@ -60,6 +60,7 @@ import {
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { getErrorMessage } from '@electron/utils/error';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {
@@ -351,33 +352,7 @@ function registerSessionSenderCleanup(sender: WebContents, getSession: () => ISe
             void cleanupSession(session);
         }
     };
-
-    const handleDestroyed = () => {
-        cleanup();
-    };
-    const handleRenderProcessGone = () => {
-        cleanup();
-    };
-    const handleNavigation = (
-        _event: Electron.Event,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cleanup();
-        }
-    };
-
-    sender.once('destroyed', handleDestroyed);
-    sender.once('render-process-gone', handleRenderProcessGone);
-    sender.on('did-start-navigation', handleNavigation);
-
-    return () => {
-        sender.removeListener('destroyed', handleDestroyed);
-        sender.removeListener('render-process-gone', handleRenderProcessGone);
-        sender.removeListener('did-start-navigation', handleNavigation);
-    };
+    return onSenderLifetimeEnd(sender, cleanup, {navigation: true});
 }
 
 async function createSession(options: {

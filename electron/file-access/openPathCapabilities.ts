@@ -1,6 +1,7 @@
 import type { WebContents } from 'electron';
 import { sep } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { Tagged } from 'type-fest';
 
@@ -107,30 +108,15 @@ function registerOwnerCleanup(owner: number | WebContents, ownerId: number) {
         return;
     }
 
-    if (typeof owner.once !== 'function') {
+    if (typeof owner.on !== 'function') {
         return;
     }
 
     ownerCleanupRegistered.add(ownerId);
-    const cleanup = () => {
-        owner.removeListener('destroyed', cleanup);
-        owner.removeListener('render-process-gone', cleanup);
-        owner.removeListener('did-start-navigation', handleNavigation);
+    const stop = onSenderLifetimeEnd(owner, () => {
+        stop();
         removeAllowedPathsForOwner(ownerId);
-    };
-    const handleNavigation = (
-        _event: unknown,
-        _url: string,
-        isInPlace: boolean,
-        isMainFrame: boolean,
-    ) => {
-        if (isMainFrame && !isInPlace) {
-            cleanup();
-        }
-    };
-    owner.once('destroyed', cleanup);
-    owner.once('render-process-gone', cleanup);
-    owner.on('did-start-navigation', handleNavigation);
+    }, {navigation: true});
 }
 
 function isDestroyedOwner(owner: number | WebContents) {

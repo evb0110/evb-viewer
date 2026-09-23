@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import {
     beforeEach,
     describe,
@@ -199,14 +200,12 @@ function createEvent(url: string): IRegisteredEvent {
     const mainFrame = {url};
     const senderId = nextSenderId;
     nextSenderId += 1;
-    const sender = {
+    const sender = Object.assign(new EventEmitter(), {
         id: senderId,
-        once: vi.fn(),
-        removeListener: vi.fn(),
         isDestroyed: () => false,
         getURL: () => url,
         mainFrame,
-    };
+    });
     const window = {
         id: sender.id,
         webContents: sender,
@@ -641,10 +640,7 @@ describe('IPC registry sender trust', () => {
             .rejects
             .toThrow('External URL opens are being requested too frequently.');
 
-        const sender = event.sender as { once: ReturnType<typeof vi.fn> };
-        const destroyedHandler = sender.once.mock.calls
-            .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
-        destroyedHandler?.();
+        (event.sender as EventEmitter).emit('destroyed');
 
         await expect(handler?.(event, 'https://example.test/after-destroy')).resolves.toBeUndefined();
         expect(mocks.shellOpenExternal).toHaveBeenCalledTimes(2);

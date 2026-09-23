@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import {
     afterEach,
     beforeEach,
@@ -15,49 +16,32 @@ import {
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-interface ITestOwner {
+interface ITestOwner extends EventEmitter {
     id: number;
     destroyed: boolean;
-    once: ReturnType<typeof vi.fn>;
-    on: ReturnType<typeof vi.fn>;
-    removeListener: ReturnType<typeof vi.fn>;
     isDestroyed: () => boolean;
 }
 
 function createOwner(id: number): ITestOwner {
-    const owner: ITestOwner = {
+    const owner: ITestOwner = Object.assign(new EventEmitter(), {
         id,
         destroyed: false,
-        once: vi.fn(),
-        on: vi.fn(),
-        removeListener: vi.fn(),
         isDestroyed: () => owner.destroyed,
-    };
+    });
 
     return owner;
 }
 
 function triggerDestroyed(owner: ITestOwner) {
-    const destroyedHandler = owner.once.mock.calls
-        .find(call => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
-    destroyedHandler?.();
+    owner.emit('destroyed');
 }
 
 function triggerRenderProcessGone(owner: ITestOwner) {
-    const handler = owner.once.mock.calls
-        .find(call => call[0] === 'render-process-gone')?.[1] as (() => void) | undefined;
-    handler?.();
+    owner.emit('render-process-gone');
 }
 
 function triggerMainFrameNavigation(owner: ITestOwner) {
-    const handler = owner.on.mock.calls
-        .find(call => call[0] === 'did-start-navigation')?.[1] as ((
-            event: unknown,
-            url: string,
-            isInPlace: boolean,
-            isMainFrame: boolean,
-        ) => void) | undefined;
-    handler?.({}, 'app://reload', false, true);
+    owner.emit('did-start-navigation', {}, 'app://reload', false, true);
 }
 
 describe('open path capabilities', () => {
@@ -216,9 +200,8 @@ describe('open path capabilities', () => {
         allowOpenPath(firstPath, owner as never);
         allowOpenPath(secondPath, owner as never);
 
-        expect(owner.once).toHaveBeenCalledTimes(2);
-        expect(owner.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
-        expect(owner.once).toHaveBeenCalledWith('render-process-gone', expect.any(Function));
-        expect(owner.on).toHaveBeenCalledWith('did-start-navigation', expect.any(Function));
+        expect(owner.listenerCount('destroyed')).toBe(1);
+        expect(owner.listenerCount('render-process-gone')).toBe(1);
+        expect(owner.listenerCount('did-start-navigation')).toBe(1);
     });
 });

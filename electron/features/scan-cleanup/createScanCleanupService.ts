@@ -30,6 +30,7 @@ import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWi
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import { runScanCleanupWorkerTask } from '@electron/features/scan-cleanup/runScanCleanupWorkerTask';
@@ -131,11 +132,9 @@ export function grantScanCleanupOutputAccess(
 }
 
 interface IScanCleanupOutputAccessRegistration {
-    handleDestroyed: () => void;
-    handleNavigation: (_event: unknown, _url: string, isInPlace: boolean, isMainFrame: boolean) => void;
-    handleRenderProcessGone: () => void;
     paths: Map<string, number>;
     sender: WebContents;
+    stop: () => void;
 }
 
 interface IScanCleanupProgressSubscription {unsubscribe: (() => void) | null;}
@@ -152,28 +151,22 @@ function removeOutputAccessRegistration(senderId: number, expected?: IScanCleanu
     if (!registration || (expected && registration !== expected)) {
         return;
     }
-    registration.sender.removeListener('destroyed', registration.handleDestroyed);
-    registration.sender.removeListener('render-process-gone', registration.handleRenderProcessGone);
-    registration.sender.removeListener('did-start-navigation', registration.handleNavigation);
+    registration.stop();
     outputAccessRegistrations.delete(senderId);
 }
 
 function createOutputAccessRegistration(sender: WebContents) {
+    const senderId = sender.id;
     const registration: IScanCleanupOutputAccessRegistration = {
-        handleDestroyed: () => removeOutputAccessRegistration(sender.id, registration),
-        handleRenderProcessGone: () => removeOutputAccessRegistration(sender.id, registration),
-        handleNavigation: (_event, _url, isInPlace, isMainFrame) => {
-            if (isMainFrame && !isInPlace) {
-                removeOutputAccessRegistration(sender.id, registration);
-            }
-        },
         paths: new Map(),
         sender,
+        stop: onSenderLifetimeEnd(
+            sender,
+            () => removeOutputAccessRegistration(senderId, registration),
+            {navigation: true},
+        ),
     };
-    outputAccessRegistrations.set(sender.id, registration);
-    sender.once('destroyed', registration.handleDestroyed);
-    sender.once('render-process-gone', registration.handleRenderProcessGone);
-    sender.on('did-start-navigation', registration.handleNavigation);
+    outputAccessRegistrations.set(senderId, registration);
     return registration;
 }
 

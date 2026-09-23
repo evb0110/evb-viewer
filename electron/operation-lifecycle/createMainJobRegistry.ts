@@ -1,9 +1,7 @@
 import { getErrorMessage } from '@electron/utils/error';
+import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import {randomUUID} from 'node:crypto';
-import type {
-    Event,
-    WebContents,
-} from 'electron';
+import type {WebContents} from 'electron';
 import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
 import {
     registerMainOperation,
@@ -205,9 +203,7 @@ export function createMainJobRegistry<
     interface IBinding {
         sender: TSender;
         records: Set<IRecord>;
-        destroyed: () => void;
-        gone: () => void;
-        navigation: (_event: Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => void;
+        stop: () => void;
     }
     const now = options.now ?? Date.now;
     const records = new Map<string, IRecord>(); const bindings = new Map<number, IBinding>();
@@ -264,7 +260,7 @@ export function createMainJobRegistry<
         const binding = bindings.get(record.owner.webContentsId); if (!binding || !binding.records.delete(record) || binding.records.size > 0) {
             return;
         }
-        binding.sender.removeListener('destroyed', binding.destroyed); binding.sender.removeListener('render-process-gone', binding.gone); binding.sender.removeListener('did-start-navigation', binding.navigation); bindings.delete(record.owner.webContentsId);
+        binding.stop(); bindings.delete(record.owner.webContentsId);
     }
     function remove(record: IRecord) { if (records.get(record.snapshot.jobId) !== record) {
         return;
@@ -335,12 +331,13 @@ export function createMainJobRegistry<
             binding = {
                 sender,
                 records: new Set(),
-                destroyed: () => dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON),
-                gone: () => dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON),
-                navigation: (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) dispatch('mainFrameNavigation', 'Renderer main frame navigated'); },
+                stop: onSenderLifetimeEnd(sender, (end) => {
+                    if (end === 'destroyed') dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON);
+                    else if (end === 'render-process-gone') dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON);
+                    else dispatch('mainFrameNavigation', 'Renderer main frame navigated');
+                }, {navigation: true}),
             };
-            bindings.set(sender.id, binding); sender.once('destroyed', binding.destroyed);
-            sender.once('render-process-gone', binding.gone); sender.on('did-start-navigation', binding.navigation);
+            bindings.set(sender.id, binding);
         }
         binding.records.add(record);
         if (record.actor.sender.isDestroyed()) ownerEnd(record, record.lifecycle.destroyed, RENDERER_DESTROYED_CANCELLATION_REASON);
@@ -519,18 +516,11 @@ export function createMainJobRegistry<
                     : actor.sender.send(channel, progress),
             };
             const unsubscribe = pump.subscribe(target) ?? (() => {});
-            const navigation = (_event: Event, _url: string, isInPlace: boolean, isMainFrame: boolean) => {
-                if (isMainFrame && !isInPlace) cleanup();
-            };
+            const stop = onSenderLifetimeEnd(actor.sender, () => cleanup(), {navigation: true});
             const cleanup = () => {
                 unsubscribe();
-                actor.sender.removeListener('destroyed', cleanup);
-                actor.sender.removeListener('render-process-gone', cleanup);
-                actor.sender.removeListener('did-start-navigation', navigation);
+                stop();
             };
-            actor.sender.once('destroyed', cleanup);
-            actor.sender.once('render-process-gone', cleanup);
-            actor.sender.on('did-start-navigation', navigation);
             return cleanup;
         },
         cancel: (jobId, actor, reason) => {
