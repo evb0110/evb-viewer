@@ -253,6 +253,24 @@ async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoin
     )));
 }
 
+// A renderer claims once, when it loads. The recovery identity belongs to the
+// WebContents and survives a reload, so a claim that identity still holds
+// came from its previous load, which a reload or a replaced render process
+// ended. The new load takes that session over instead of finding it held.
+function releaseClaimsOfPreviousLoad(claimantRecoveryId: string, claimantWebContentsId: number) {
+    for (const [
+        recordOwner,
+        claimant,
+    ] of claimedWorkspaceCheckpointOwners) {
+        if (
+            claimant.claimantRecoveryId === claimantRecoveryId
+            && claimant.claimantWebContentsId === claimantWebContentsId
+        ) {
+            claimedWorkspaceCheckpointOwners.delete(recordOwner);
+        }
+    }
+}
+
 function releaseDestroyedWorkspaceClaims() {
     for (const [
         recordOwner,
@@ -1357,6 +1375,7 @@ function isLiveWorkspaceClaimant(stored: IStoredWorkspaceCheckpoint) {
 function isClaimableWorkspaceCheckpoint(
     stored: IStoredWorkspaceCheckpoint,
     newOwnerRecoveryId: string,
+    reclaimingWebContentsId?: number,
 ) {
     const inMemoryClaim = claimedWorkspaceCheckpointOwners.get(stored.ownerRecoveryId);
     if (inMemoryClaim) {
@@ -1365,6 +1384,10 @@ function isClaimableWorkspaceCheckpoint(
     if (
         stored.claimedByRecoveryId !== undefined
         && isLiveWorkspaceClaimant(stored)
+        && !(
+            stored.claimedByRecoveryId === newOwnerRecoveryId
+            && stored.claimedByWebContentsId === reclaimingWebContentsId
+        )
     ) {
         return false;
     }
@@ -1413,12 +1436,13 @@ export async function claimWorkspaceCheckpoint(
     const newOwnerRecoveryId = getWorkspaceRecoveryOwnerId(newOwnerWebContentsId, newOwner);
     return enqueueWorkspaceCheckpointBarrier(async () => {
         releaseDestroyedWorkspaceClaims();
+        releaseClaimsOfPreviousLoad(newOwnerRecoveryId, newOwnerWebContentsId);
         const recovery = await readWorkspaceJournalForRecovery();
         if (!recovery) {
             return null;
         }
         const stored = recovery.journal.records.filter((candidate) => {
-            return isClaimableWorkspaceCheckpoint(candidate, newOwnerRecoveryId);
+            return isClaimableWorkspaceCheckpoint(candidate, newOwnerRecoveryId, newOwnerWebContentsId);
         }).reduce<IStoredWorkspaceCheckpoint | null>((newest, candidate) => (
             newest === null || candidate.checkpoint.capturedAt > newest.checkpoint.capturedAt
                 ? candidate
