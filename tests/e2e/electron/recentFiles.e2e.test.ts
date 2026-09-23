@@ -70,6 +70,7 @@ interface IRecentOpenDomState {
 }
 interface IToolbarTransitionSample {
     atMs: number;
+    atPageMs: number;
     hasShell: boolean;
     hasWorkspace: boolean;
     owner: 'shell' | 'workspace' | 'none';
@@ -165,6 +166,7 @@ async function startToolbarTransitionSampling(session: IElectronE2ESession) {
 
             samples.push({
                 atMs: Math.round(performance.now() - startedAt),
+                atPageMs: performance.now(),
                 hasShell: Boolean(shell),
                 hasWorkspace: Boolean(workspace),
                 owner,
@@ -197,7 +199,10 @@ async function stopToolbarTransitionSampling(session: IElectronE2ESession) {
     });
 }
 
-function assertToolbarTransitionStable(samples: IToolbarTransitionSample[]) {
+function assertToolbarTransitionStable(
+    samples: IToolbarTransitionSample[],
+    openClickAtPageMs: number | null,
+) {
     const relevantSamples = samples.filter(sample => sample.hasShell && sample.hasWorkspace);
     expect(relevantSamples.length, JSON.stringify(samples)).toBeGreaterThan(5);
 
@@ -211,8 +216,13 @@ function assertToolbarTransitionStable(samples: IToolbarTransitionSample[]) {
     ));
     expect(absentToolbarSamples, JSON.stringify(samples)).toEqual([]);
 
+    // Before the Recent click the tab is the New Tab screen, whose toolbar
+    // deliberately shows only its shell actions (13e432ddd). The document
+    // toolbar must be full from the click that starts the open.
+    expect(openClickAtPageMs, JSON.stringify(samples)).not.toBeNull();
     const sparseToolbarSamples = relevantSamples.filter(sample => (
-        sample.visibleControlCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT
+        sample.atPageMs >= openClickAtPageMs!
+        && sample.visibleControlCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT
         && sample.visibleIconCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT
     ));
     expect(sparseToolbarSamples, JSON.stringify(samples)).toEqual([]);
@@ -823,7 +833,7 @@ describe('Electron E2E - Recent Files', () => {
                 openingShellState,
             })).toBeLessThanOrEqual(0.5);
         }
-        assertToolbarTransitionStable(await stopToolbarTransitionSampling(session));
+        assertToolbarTransitionStable(await stopToolbarTransitionSampling(session), immediateOpen.clickAtMs);
         await delay(250);
         const committedSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
         const postClickFrames = committedSurfaceTrace.frames.filter(
