@@ -793,7 +793,7 @@ async function handleClearRecentFromPlaceholder() {
 }
 
 async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
-    return activeDocumentSession.value.open({
+    const opened = await activeDocumentSession.value.open({
         action: 'openCombineResultFromPlaceholder',
         acceptDocumentWithoutVisual: acceptsDocumentWithoutVisual(result),
         target: buildPendingTabDocumentHint(result),
@@ -802,6 +802,21 @@ async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
         workspace => workspace.handleOpenFileWithResult(result),
         signal,
     ));
+    // The Combine page reports the failure and keeps the result for Retry and
+    // Save As, so the tab goes back to empty instead of keeping a hidden open
+    // error under the combined file's name. Only a workspace that never adopted
+    // the result's working copy is closed; closing deletes an adopted copy.
+    const workspace = mountedWorkspace.value;
+    if (
+        !opened
+        && workspace
+        && workspace.getToolbarSnapshot().hasOpenError
+        && !workspaceHasOpenedDocument()
+        && workspace.getAutomationStateSnapshot().workingCopyPath === null
+    ) {
+        await activeDocumentSession.value.close({persist: false});
+    }
+    return opened;
 }
 
 async function handleOpenFileFromUi() {
