@@ -52,6 +52,8 @@ interface IPdfNavigationFrame {
     viewportScrollHeight: number | null;
     viewportScrollTop: number | null;
     visibleCanvasPages: number[];
+    /** Pages whose painted page frame (the shell) intersects the viewport. */
+    visibleShellPages: number[];
     visibleSkeletonCount: number;
     visibleSkeletonPages: number[];
 }
@@ -140,6 +142,14 @@ async function installPdfNavigationSampler(page: Page) {
                 visibleCanvasPages: renderedCanvases.filter(({canvas}) => (
                     intersectsViewport(canvas)
                 )).map(({page: pageNumber}) => pageNumber).filter(pageNumber => pageNumber > 0),
+                visibleShellPages: mountedPages.filter((pageElement) => {
+                    const frameElement = pageElement.querySelector<HTMLElement>('.page_canvas') ?? pageElement;
+                    const background = getComputedStyle(frameElement).backgroundColor;
+                    return isVisible(pageElement)
+                        && intersectsViewport(pageElement)
+                        && background !== 'transparent'
+                        && background !== 'rgba(0, 0, 0, 0)';
+                }).map(pageElement => Number(pageElement.dataset.page ?? 0)).filter(pageNumber => pageNumber > 0),
                 visibleSkeletonCount: visibleSkeletonPages.length,
                 visibleSkeletonPages,
             });
@@ -534,9 +544,7 @@ async function assertFinalPdfjsCapabilities(
     await waitForWorkspaceToolbarSnapshot(page, {showSidebar: false}, {timeoutMs: 30_000});
 }
 
-async function assertSkeletonFreePageJump(page: Page, targetPage: number) {
-    const before = await getWorkspaceToolbarSnapshot(page);
-    const previousPage = before?.currentPage ?? 1;
+async function assertOwnedPageJump(page: Page, targetPage: number) {
     await installPdfNavigationSampler(page);
     let frames: IPdfNavigationFrame[] = [];
     let navigationError: unknown = null;
@@ -624,11 +632,15 @@ async function assertSkeletonFreePageJump(page: Page, targetPage: number) {
     expect(firstTargetRequest, evidence).toBeGreaterThanOrEqual(0);
     expect(firstTargetCommit, evidence).toBeGreaterThan(firstTargetRequest);
     const transitionFrames = frames.slice(firstTargetRequest, firstTargetCommit + 1);
-    expect(transitionFrames.every(frame => frame.visibleSkeletonCount === 0), evidence).toBe(true);
-    expect(transitionFrames.every(frame => frame.visibleCanvasPages.length > 0), evidence).toBe(true);
-    expect(transitionFrames.some(frame => (
-        frame.committedPage === previousPage
-        && frame.visibleCanvasPages.includes(previousPage)
+    // Behavior contract R2 and L2: the jump shows a painted page or the
+    // destination's page shell in every frame, and a loading skeleton only
+    // inside that destination, until the destination paints.
+    expect(transitionFrames.every(frame => (
+        frame.visibleCanvasPages.length > 0
+        || frame.visibleShellPages.includes(targetPage)
+    )), evidence).toBe(true);
+    expect(transitionFrames.every(frame => (
+        frame.visibleSkeletonPages.every(pageNumber => pageNumber === targetPage)
     )), evidence).toBe(true);
     expect(transitionFrames.at(-1)?.visibleCanvasPages, evidence).toContain(targetPage);
 }
@@ -658,7 +670,7 @@ exactNativePreviewDescribe('Electron E2E - Large PDF native opening preview hand
             );
             assertAtomicNativeToPdfjsHandoff(trace);
             await assertFinalPdfjsCapabilities(session.page, sourceIdentity.pages, 4);
-            await assertSkeletonFreePageJump(session.page, NAVIGATION_ACCEPTANCE_PAGE);
+            await assertOwnedPageJump(session.page, NAVIGATION_ACCEPTANCE_PAGE);
         },
         LARGE_PDF_TIMEOUT_MS,
     );
