@@ -354,8 +354,37 @@ describe('workspace checkpoint store', () => {
         await flushPendingWorkspaceCheckpointSave();
         reloadRenderer(window);
 
+        await expect(hasRecoverableWorkspaceCheckpoints(11, window)).resolves.toBe(true);
         await expect(claimWorkspaceCheckpoint(11, window)).resolves.toMatchObject({capturedAt: 124});
         await expect(hasRecoverableWorkspaceCheckpoints(11, window)).resolves.toBe(false);
+    });
+
+    it('keeps a reloaded renderer\'s takeover when its first claim cannot read the journal', async () => {
+        const window = createWebContents(11);
+        const checkpointPath = join(state.userDataPath, 'workspace-checkpoint.json');
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.liveOwners.add(11);
+        state.webContentsById.set(11, window);
+        await saveWorkspaceCheckpoint(checkpoint, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer(window);
+        await claimWorkspaceCheckpoint(11, window);
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(126),
+        }, 11, window);
+        await flushPendingWorkspaceCheckpointSave();
+        reloadRenderer(window);
+
+        const journal = await readFile(checkpointPath, 'utf8');
+        await rm(checkpointPath);
+        await mkdir(checkpointPath);
+        await expect(claimWorkspaceCheckpoint(11, window)).rejects.toMatchObject({code: 'WORKSPACE_CHECKPOINT_READ_FAILED'});
+        await rm(checkpointPath, {recursive: true});
+        await writeFile(checkpointPath, journal);
+
+        await expect(claimWorkspaceCheckpoint(11, window)).resolves.toMatchObject({capturedAt: 126});
     });
 
     it('resumes checkpoint saving after a discard spans a renderer reload', async () => {
