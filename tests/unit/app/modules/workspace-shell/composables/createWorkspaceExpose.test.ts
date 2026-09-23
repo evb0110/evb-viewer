@@ -48,6 +48,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         openingPreviewReady: ref(false),
         initialVisualReady: ref(false),
         hasOpenError: ref(false),
+        openFailure: ref(null),
         isPreparingPrint: ref(false),
         isPreparingCurrentPagePrint: ref(false),
         canSave: ref(false),

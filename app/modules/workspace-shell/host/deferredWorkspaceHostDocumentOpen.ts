@@ -14,6 +14,7 @@ import {
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
+import { isRestoreDocumentOpenAction } from '@app/modules/workspace-shell/document-sessions/isRestoreDocumentOpenAction';
 import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
 import { toolbarSnapshotHasAcceptedDocument } from '@app/modules/workspace-shell/host/toolbarSnapshotHasAcceptedDocument';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -199,7 +200,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 provisional: true,
             };
             const initialViewState = openHost.getInitialViewState();
-            const restoredInitialPage = intent.action.toLowerCase().includes('restore')
+            const restoredInitialPage = isRestoreDocumentOpenAction(intent.action)
                 ? Math.max(1, Math.trunc(initialViewState?.currentPage ?? 1))
                 : null;
             const ownedOpeningGeometry = restoredInitialPage === null
@@ -369,12 +370,17 @@ export function createWorkspaceDocumentOpenTransactions(options: {
     function finishDocumentOpenPresentation(openHost: IWorkspaceDocumentOpenHost,
         transaction: IDocumentOpenTransactionRun, opened: boolean) {
         pendingPreOwnerGoToPage = null;
+        // A failed open with nothing on screen gives the tab back to Start, so
+        // its seeded name goes too; left behind, the name reads as a document
+        // to restore and the same file is opened again. A failed restore keeps
+        // its name as the record of what the tab owned.
         if (
             !opened
             && transaction.seededTabHint
             && !transaction.preserveDirtyOnFailure
             && openHost.getActiveTransactionId() === transaction.transactionId
-            && !openHost.hasDocumentOrOpenError()
+            && !openHost.hasOpenedDocument()
+            && (!openHost.hasDocumentOrOpenError() || !isRestoreDocumentOpenAction(transaction.action))
         ) {
             openHost.publishDocumentRecord(createWorkspaceDocumentRecord());
         }

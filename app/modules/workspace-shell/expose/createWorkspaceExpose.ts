@@ -32,6 +32,7 @@ import type {
     IWorkspaceExpose,
     IWorkspaceFilePort,
     IWorkspaceAutomationStateSnapshot,
+    IWorkspaceOpenFailure,
     IWorkspaceToolbarSnapshot,
     IWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
@@ -65,6 +66,7 @@ export interface ICreateWorkspaceExposeDeps extends
     initialVisualReady: Ref<boolean>;
     openingPreviewReady: Ref<boolean>;
     hasOpenError: Ref<boolean>;
+    openFailure: Ref<IWorkspaceOpenFailure | null>;
     isPreparingPrint: Ref<boolean>;
     isPreparingCurrentPagePrint: Ref<boolean>;
     canSave: Ref<boolean>;
@@ -615,6 +617,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             void deps.handleOpenFileFromUi();
         },
         getToolbarSnapshot,
+        getOpenFailure: () => deps.openFailure.value,
         getAutomationStateSnapshot,
         createRecoverySnapshotBytes: deps.createRecoverySnapshotBytes
             ?? (() => Promise.resolve(null)),
@@ -701,6 +704,15 @@ export function createWorkspaceExposeFromOwners(
         openingPreviewReady: options.openingPreviewReady,
         isOpeningDocument: options.isOpeningDocument,
         hasOpenError: computed(() => Boolean(fileLifecycle.pdfError.value) || Boolean(fileLifecycle.djvuError.value)),
+        openFailure: computed(() => {
+            const message = fileLifecycle.pdfError.value ?? fileLifecycle.djvuError.value;
+            return message
+                ? {
+                    message: String(message),
+                    failure: fileLifecycle.pdfFailurePresentation.value?.failure ?? null,
+                }
+                : null;
+        }),
         canRepairSave: options.canRepairSave,
         canOptimizePdf: options.canOptimizePdf,
         canExportDocx: options.canExportDocx,

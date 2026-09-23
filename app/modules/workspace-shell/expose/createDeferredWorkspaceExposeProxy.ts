@@ -467,6 +467,7 @@ export function createDeferredWorkspaceExposeProxy(
             return result === true;
         },
         getToolbarSnapshot: () => deps.getMounted()?.getToolbarSnapshot() ?? createDefaultWorkspaceToolbarSnapshot(),
+        getOpenFailure: () => deps.getMounted()?.getOpenFailure() ?? null,
     };
 
     const commandHandlers = createWorkspaceExposeCommandHandlers((descriptor) => {

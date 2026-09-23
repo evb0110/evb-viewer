@@ -22,6 +22,7 @@ import type {
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
@@ -228,9 +229,16 @@ export interface IWorkspaceSplitTransferPort {
     restoreSplitPayload: (payload: TSplitPayload) => Promise<TDocumentOpenOutcome>;
 }
 
+/** Why the last open failed, while the workspace still holds that failure. */
+export interface IWorkspaceOpenFailure {
+    message: string;
+    failure: FailureReceipt | null;
+}
+
 export interface IWorkspaceUiPort {
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
+    getOpenFailure: () => IWorkspaceOpenFailure | null;
     waitForDocumentOpenSettled: (options?: {
         acceptDocumentWithoutVisual?: boolean;
         signal?: AbortSignal;

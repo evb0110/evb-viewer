@@ -78,6 +78,7 @@ describe('PdfEmptyState recent-file order', () => {
             setup: props => () => h('button', props.label),
         }));
         app.component('UInput', defineComponent({setup: () => () => h('input')}));
+        app.component('UAlert', defineComponent({setup: () => () => h('div')}));
         app.component('AppTooltip', defineComponent({setup: (_, {slots}) => () => h('span', slots.default?.())}));
         app.component('UModal', defineComponent({setup: () => () => null}));
 

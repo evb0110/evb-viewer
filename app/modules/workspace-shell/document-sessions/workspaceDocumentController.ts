@@ -47,6 +47,7 @@ import {
     createWorkspaceDocumentOpenTransactions,
     type IWorkspaceDocumentOpenHost,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
+import { isRestoreDocumentOpenAction } from '@app/modules/workspace-shell/document-sessions/isRestoreDocumentOpenAction';
 
 import type {
     IWorkspaceDocumentIdentity,
@@ -1150,7 +1151,7 @@ export function createWorkspaceDocumentController(
         run: (signal: AbortSignal) => Promise<T>,
     ) {
         return runOpenTransaction(
-            intent.action.toLowerCase().includes('restore') ? 'restore' : 'open',
+            isRestoreDocumentOpenAction(intent.action) ? 'restore' : 'open',
             intent,
             run,
         );

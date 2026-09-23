@@ -51,6 +51,24 @@
             </aside>
 
             <main class="start-main">
+                <AppFailureAlert
+                    v-if="openFailurePresentation"
+                    :presentation="openFailurePresentation"
+                    class="start-open-failure"
+                    data-testid="start-open-failure"
+                />
+                <UAlert
+                    v-else-if="openFailure"
+                    color="neutral"
+                    variant="soft"
+                    icon="i-ph-warning"
+                    class="start-open-failure"
+                    data-testid="start-open-failure"
+                    :title="t('errors.file.open')"
+                    :description="openFailureDescription"
+                    :actions="[openFailureDismissAction]"
+                />
+
                 <template v-if="activeSection === 'recent'">
                     <section class="start-open-panel" :aria-labelledby="openPanelButtonId">
                         <span class="open-panel-art" aria-hidden="true">
@@ -316,13 +334,21 @@
 <script setup lang="ts">
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
+import type {
+    FailurePresentation,
+    IFailureToastAction,
+} from '@app/composables/useFailureToast';
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import { useElementSize } from '@vueuse/core';
 import { formatRelativeTime } from '@app/utils/formatters';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { isBrowserPlatformActive } from '@app/utils/platform';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
-import type { TStartSection } from '@app/types/startSection';
+import type {
+    IStartOpenFailure,
+    TStartSection,
+} from '@app/types/startSection';
 import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
 import PdfOpenBatchProgress from '@app/modules/pdf-viewer/components/PdfOpenBatchProgress.vue';
 import type { IPdfOpenBatchProgress } from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
@@ -338,6 +364,7 @@ const {
     recentFiles,
     recentFilesResolved = true,
     recentFilesError = null,
+    openFailure = null,
     openBatchProgress = null,
     openInProgress = false,
     isRecentOpenReady = () => true,
@@ -349,6 +376,7 @@ const {
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
     recentFilesError?: string | null | undefined;
+    openFailure?: IStartOpenFailure | null | undefined;
     openBatchProgress?: IPdfOpenBatchProgress | null | undefined;
     openInProgress?: boolean | undefined;
     isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
@@ -365,6 +393,7 @@ const emit = defineEmits<{
     'reveal-recent': [file: IRecentFile];
     'clear-recent': [];
     'retry-recent': [];
+    'dismiss-open-failure': [];
 }>();
 const { t } = useTypedI18n();
 const recentSkeletonRows = 5;
@@ -379,6 +408,25 @@ const { width: rootWidth } = useElementSize(rootRef);
 const isRecentControlsCompact = computed(() => rootWidth.value > 0 && rootWidth.value <= 520);
 const recentClearLabelProps = computed(() => (
     isRecentControlsCompact.value ? {} : { label: t('emptyState.clearHistory') }
+));
+const openFailureDescription = computed(() => (
+    openFailure?.fileName ? `${openFailure.fileName}: ${openFailure.message}` : openFailure?.message ?? ''
+));
+const openFailureDismissAction: IFailureToastAction = {
+    label: t('errors.runtime.dismiss'),
+    color: 'neutral',
+    variant: 'outline',
+    onClick: () => emit('dismiss-open-failure'),
+};
+const openFailurePresentation = computed<FailurePresentation | null>(() => (
+    openFailure?.failure
+        ? {
+            failure: openFailure.failure,
+            title: t('errors.file.open'),
+            description: openFailureDescription.value,
+            actions: [openFailureDismissAction],
+        }
+        : null
 ));
 const displayedRecentFiles = computed(() => recentFilesBeforeOpen.value ?? recentFiles);
 const filteredRecentFiles = computed(() => {
@@ -662,6 +710,10 @@ watch(() => openInProgress, (isOpening) => {
     min-width: 0;
     height: 100%;
     min-height: 0;
+}
+
+.start-open-failure {
+    flex: none;
 }
 
 .start-tool-page {

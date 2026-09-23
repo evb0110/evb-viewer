@@ -96,6 +96,7 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         initialVisualReady: ref(false),
         openingPreviewReady: ref(false),
         hasOpenError: ref(false),
+        openFailure: ref(null),
         isPreparingPrint: ref(false),
         isPreparingCurrentPagePrint: ref(false),
         canSave: ref(false),

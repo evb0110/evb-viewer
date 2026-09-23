@@ -13,6 +13,7 @@ const defaultWorkspaceExpose = {
     getAutomationStateSnapshot: unimplementedWorkspaceExposeMethod,
     getDeletedEmbeddedShapeAnnotationIds: unimplementedWorkspaceExposeMethod,
     getDeletedEmbeddedShapeStableKeys: unimplementedWorkspaceExposeMethod,
+    getOpenFailure: unimplementedWorkspaceExposeMethod,
     getToolbarSnapshot: unimplementedWorkspaceExposeMethod,
     handleCloseFileFromUi: unimplementedWorkspaceExposeMethod,
     handleCombineImages: unimplementedWorkspaceExposeMethod,

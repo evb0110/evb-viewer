@@ -647,6 +647,13 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         deferred: 'custom',
     },
     {
+        name: 'getOpenFailure',
+        kind: 'sync',
+        group: 'ui',
+        real: 'custom',
+        deferred: 'custom',
+    },
+    {
         name: 'waitForDocumentOpenSettled',
         kind: 'async',
         group: 'ui',

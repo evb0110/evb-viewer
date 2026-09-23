@@ -50,6 +50,7 @@
                 :recent-files="recentFiles"
                 :recent-files-resolved="isResolved"
                 :recent-files-error="recentFilesError"
+                :open-failure="startOpenFailure"
                 :open-batch-progress="null"
                 :open-in-progress="isOpenUiBusy"
                 :is-recent-open-ready="isRecentFileOpenReady"
@@ -64,6 +65,7 @@
                 @reveal-recent="handleRevealRecentFromPlaceholder"
                 @clear-recent="handleClearRecentFromPlaceholder"
                 @retry-recent="handleRetryRecentFilesFromPlaceholder"
+                @dismiss-open-failure="startOpenFailure = null"
             />
         </div>
 
@@ -115,7 +117,12 @@ import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/b
 import { acceptsDocumentWithoutVisual } from '@app/modules/workspace-shell/document-sessions/acceptsDocumentWithoutVisual';
 import { toolbarSnapshotHasAcceptedDocument } from '@app/modules/workspace-shell/host/toolbarSnapshotHasAcceptedDocument';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
-import type { TStartSection } from '@app/types/startSection';
+import type {
+    IStartOpenFailure,
+    TStartSection,
+} from '@app/types/startSection';
+import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
+import { isRestoreDocumentOpenAction } from '@app/modules/workspace-shell/document-sessions/isRestoreDocumentOpenAction';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -711,6 +718,49 @@ async function pickFileFromUi() {
     }
 }
 
+// An open that fails on an empty tab hands the tab back to Start, which would
+// otherwise cover a failure the workspace still holds: the tab kept the failed
+// file's name, counted as occupied and showed no error. The failed open is
+// closed so the tab is empty again, and Start reports why the file did not
+// open. A generated combine result belongs to the Combine page, which reports
+// its own failure and keeps the file for Retry and Save As; closing deletes an
+// adopted working copy, so that failure is released only when none was
+// adopted. Restores and recovery opens keep their own failure handling.
+const startOpenFailure = shallowRef<IStartOpenFailure | null>(null);
+
+async function openDocument<T>(intent: IDocumentOpenIntent, run: (signal: AbortSignal) => Promise<T>) {
+    startOpenFailure.value = null;
+    const result = await activeDocumentSession.value.open(intent, run);
+    if (result === false) {
+        await releaseFailedOpen(intent);
+    }
+    return result;
+}
+
+async function releaseFailedOpen(intent: IDocumentOpenIntent) {
+    const workspace = mountedWorkspace.value;
+    const openFailure = workspace?.getOpenFailure() ?? null;
+    const isGeneratedResult = intent.acceptDocumentWithoutVisual === true;
+    if (
+        !workspace
+        || !openFailure
+        || intent.preserveDirtyOnFailure === true
+        || isRestoreDocumentOpenAction(intent.action)
+        || workspaceHasOpenedDocument()
+        || !isPlaceholderVisible.value
+        || (isGeneratedResult && workspace.getAutomationStateSnapshot().workingCopyPath !== null)
+    ) {
+        return;
+    }
+    const closed = await activeDocumentSession.value.close({persist: false});
+    if (closed && !isGeneratedResult) {
+        startOpenFailure.value = {
+            ...openFailure,
+            fileName: intent.target?.fileName ?? null,
+        };
+    }
+}
+
 async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item clicked from placeholder', {
         tabId: tabId,
@@ -744,7 +794,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     const statMatches = sourceStat !== null
         && sourceStat.fileSize === file.fileSize
         && sourceStat.modifiedAt === file.modifiedAt;
-    const result = await activeDocumentSession.value.open({
+    const result = await openDocument({
         action: 'openRecentFromPlaceholder',
         ...(statMatches
             ? {
@@ -793,7 +843,7 @@ async function handleClearRecentFromPlaceholder() {
 }
 
 async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
-    const opened = await activeDocumentSession.value.open({
+    return openDocument({
         action: 'openCombineResultFromPlaceholder',
         acceptDocumentWithoutVisual: acceptsDocumentWithoutVisual(result),
         target: buildPendingTabDocumentHint(result),
@@ -802,21 +852,6 @@ async function handleOpenCombineResultFromPlaceholder(result: TOpenFileResult) {
         workspace => workspace.handleOpenFileWithResult(result),
         signal,
     ));
-    // The Combine page reports the failure and keeps the result for Retry and
-    // Save As, so the tab goes back to empty instead of keeping a hidden open
-    // error under the combined file's name. Only a workspace that never adopted
-    // the result's working copy is closed; closing deletes an adopted copy.
-    const workspace = mountedWorkspace.value;
-    if (
-        !opened
-        && workspace
-        && workspace.getToolbarSnapshot().hasOpenError
-        && !workspaceHasOpenedDocument()
-        && workspace.getAutomationStateSnapshot().workingCopyPath === null
-    ) {
-        await activeDocumentSession.value.close({persist: false});
-    }
-    return opened;
 }
 
 async function handleOpenFileFromUi() {
@@ -825,7 +860,7 @@ async function handleOpenFileFromUi() {
         return false;
     }
 
-    return activeDocumentSession.value.open({
+    return openDocument({
         action: 'handleOpenFileWithResultFromUi',
         preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
         target: buildPendingTabDocumentHint(result),
@@ -878,7 +913,7 @@ onUnmounted(() => {
 
 const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
     documentSession: activeDocumentSession.value,
-    enqueueDocumentOpen: (intent, run) => activeDocumentSession.value.open(intent, run),
+    enqueueDocumentOpen: openDocument,
     getMounted: () => mountedWorkspace.value,
     log: (action, error) => {
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {

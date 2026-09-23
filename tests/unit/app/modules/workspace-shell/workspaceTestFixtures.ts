@@ -37,6 +37,7 @@ export function createWorkspaceExposeFixture(
 
     return createWorkspaceExposeFromCommandHandlers(hasPdf, handlers, {
         getToolbarSnapshot: () => createDefaultWorkspaceToolbarSnapshot(),
+        getOpenFailure: () => null,
         getAutomationStateSnapshot: () => createWorkspaceAutomationStateSnapshot(),
         ...overrides,
     });
