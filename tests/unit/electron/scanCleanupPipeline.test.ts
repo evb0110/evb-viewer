@@ -1,10 +1,15 @@
 import {
     mkdtemp,
     readFile,
+    rm,
+    stat,
     unlink,
     writeFile,
 } from 'fs/promises';
-import { createHash } from 'node:crypto';
+import {
+    createHash,
+    randomBytes,
+} from 'node:crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -12,6 +17,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import type {WebContents} from 'electron';
@@ -49,6 +55,14 @@ import {
     type IRunScanCleanupPipelineDependencies,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import {observeScanCleanupAnalysisReleasePromises} from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {
+    resolveScanCleanupCombineEnv,mapScanCleanupRasterPages,
+} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
+import {
+    resolveCliNativeToolPath,
+    runCliNativeToolCommand,
+} from '@scripts/scanCleanupCliAdapters';
 import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
 import {
@@ -59,7 +73,6 @@ import {
     SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
-import {mapScanCleanupRasterPages} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {resolveCompactSourcePreservation} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     createArrayBackedPdfPageSizeStore,
@@ -6559,5 +6572,48 @@ describe('scan cleanup pipeline', () => {
         expect(cleanupManifest!.pages).toHaveLength(1);
         expect(cleanupManifest!.pages[0]!.outputs[0]!.outputPath).toMatch(/clean-2-0\.png$/u);
         expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-');
+    });
+});
+
+const COMBINE_LIMIT_PAGE_COUNT = 5;
+const COMBINE_LIMIT_PAGE_SIDE_PX = 1_200;
+
+const combineBinary = resolveCliNativeToolPath(
+    'evb-pdf-image-combine',
+    'pdf-image-combine',
+    process.cwd(),
+    process.env.EVB_PDF_IMAGE_COMBINE_PATH,
+);
+
+describe.skipIf(combineBinary === null)('scan cleanup combine output limit', () => {
+    it('assembles cleaned output larger than the byte-returning cap', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'evb-scan-combine-limit-'));
+        onTestFinished(() => rm(dir, {
+            force: true,
+            recursive: true,
+        }));
+        // Noise does not compress, so five pages exceed 16 MiB the way a
+        // book-length color scan does.
+        const inputs = await Promise.all(Array.from({length: COMBINE_LIMIT_PAGE_COUNT}, async (_, index) => {
+            const path = join(dir, `page-${index + 1}.ppm`);
+            await writeFile(path, Buffer.concat([
+                Buffer.from(`P6\n${COMBINE_LIMIT_PAGE_SIDE_PX} ${COMBINE_LIMIT_PAGE_SIDE_PX}\n255\n`),
+                randomBytes(COMBINE_LIMIT_PAGE_SIDE_PX * COMBINE_LIMIT_PAGE_SIDE_PX * 3),
+            ]));
+            return path;
+        }));
+        const outputPath = join(dir, 'cleaned.pdf');
+
+        await runCliNativeToolCommand(combineBinary!, [
+            '--output',
+            outputPath,
+            '--',
+            ...inputs,
+        ], {env: {
+            ...process.env,
+            ...resolveScanCleanupCombineEnv(COMBINE_LIMIT_PAGE_COUNT),
+        }});
+
+        expect((await stat(outputPath)).size).toBeGreaterThan(PDF_COMBINE_MAX_OUTPUT_BYTES);
     });
 });

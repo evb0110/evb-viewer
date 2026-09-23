@@ -325,6 +325,20 @@ export function resolveCombineOutputByteCap(outputPageCount: number) {
     return Math.max(COMBINE_OUTPUT_BYTES_FLOOR, outputPageCount * COMBINE_OUTPUT_BYTES_PER_PAGE);
 }
 
+/**
+ * The combiner writes cleaned output to a validated file path, so it runs in
+ * file-backed mode. Without that mode the combiner silently clamps any larger
+ * cap back to the 16 MiB byte-returning limit, and a book-length color scan
+ * fails at Build PDF after minutes of cleaning.
+ */
+export function resolveScanCleanupCombineEnv(outputPageCount: number) {
+    return {
+        EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(outputPageCount, 1)),
+        EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(resolveCombineOutputByteCap(outputPageCount)),
+        EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed',
+    };
+}
+
 export async function runRasterProducerConsumer<TResult = void>({
     signal,
     stream,

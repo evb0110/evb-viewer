@@ -164,6 +164,7 @@ import {
     mapScanCleanupRasterPages,
     estimateRawRasterBytes,
     resolveCombineOutputByteCap,
+    resolveScanCleanupCombineEnv,
     resolveRasterHandoff,
     resolveScanCleanupScratchAdmission,
     runRasterProducerConsumer,
@@ -3431,8 +3432,7 @@ export async function runScanCleanupConversion(
             timeoutMs: 10 * 60 * 1000,
             env: {
                 ...process.env,
-                EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(outputPages.length, 1)),
-                EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(resolveCombineOutputByteCap(outputPages.length)),
+                ...resolveScanCleanupCombineEnv(outputPages.length),
             },
             onStdout: createPdfCombineProgressHandler(
                 outputPages.length,
