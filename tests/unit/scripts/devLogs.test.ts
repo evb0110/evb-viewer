@@ -174,15 +174,15 @@ describe('terminal log', () => {
             '    at Session.<anonymous> (node:electron/js2c/browser_init:2:123833)',
         ]}))).toEqual({
             level: 'debug',
-            origin: 'main/ipc',
-            msg: 'IPC handler rejected',
+            origin: 'electron/ipc',
+            msg: 'Electron reported IPC handler rejection',
             data: {
                 channel: 'pdf:nativePagePreview',
                 error: 'Error: Native PDF preview canceled',
                 at: 'abortPreviewController (file:///repo/dist-electron/main.js:4:97072)',
             },
         });
-        expect(classifyElectronStderrBlock({lines: ['Error occurred in handler for \'recentFiles:get\': Error: IPC sender is not trusted']})?.level).toBe('warn');
+        expect(classifyElectronStderrBlock({lines: ['Error occurred in handler for \'recentFiles:get\': Error: IPC sender is not trusted']})?.level).toBe('debug');
         expect(summarize(classifyElectronStderrBlock({lines: ['[1265:0923/012643.135645:ERROR:content/browser/gpu/gpu_process_host.cc:1000] GPU process exited unexpectedly: exit_code=15']}))).toMatchObject({
             level: 'warn',
             origin: 'electron/chromium',
@@ -229,8 +229,8 @@ describe('terminal log', () => {
                 msg: 'plain stdout',
             }),
             expect.objectContaining({
-                level: 'warn',
-                origin: 'main/ipc',
+                level: 'debug',
+                origin: 'electron/ipc',
                 data: expect.objectContaining({channel: 'file:stat'}),
             }),
         ]);

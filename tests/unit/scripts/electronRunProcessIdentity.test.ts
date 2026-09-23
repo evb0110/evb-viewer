@@ -70,8 +70,19 @@ describe('electron run process identity', () => {
         expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session=${sessionName} start`}), expectation)).toBe(true);
         expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs ${join(projectRoot, 'scripts', 'electronRun.ts')} --session=${sessionName} start`}), expectation)).toBe(true);
         expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs scripts/electronRun.ts --session=${sessionName} start`}), expectation)).toBe(true);
+        expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session ${sessionName} start`}), expectation)).toBe(true);
+        expect(matchesSessionProcessIdentity(snapshot({command: `node /repo/node_modules/tsx/dist/cli.mjs scripts/electronRun.ts -s ${sessionName} start`}), expectation)).toBe(true);
         expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session=${sessionName}-reused start`}), expectation)).toBe(false);
+        expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session ${sessionName}-reused start`}), expectation)).toBe(false);
         expect(matchesSessionProcessIdentity(snapshot({command: '/usr/bin/sleep 3600'}), expectation)).toBe(false);
+
+        const defaultExpectation = {
+            kind: 'controller' as const,
+            sessionName: 'default',
+        };
+        expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run start`}), defaultExpectation)).toBe(true);
+        expect(matchesSessionProcessIdentity(snapshot({command: `pnpm -s --dir ${projectRoot} electron:run start`}), defaultExpectation)).toBe(true);
+        expect(matchesSessionProcessIdentity(snapshot({command: `pnpm --dir ${projectRoot} electron:run --session ${sessionName} start`}), defaultExpectation)).toBe(false);
     });
 
     it('accepts the detached E2E controller only with its exact entry, session, and project identity', () => {

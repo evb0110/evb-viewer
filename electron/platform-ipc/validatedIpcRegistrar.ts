@@ -17,12 +17,33 @@ import {
     isTrustedWebContentsSender,
 } from '@electron/platform-ipc/trustedIpcSender';
 import { getErrorMessage } from '@electron/utils/error';
+import { isAbortError } from '@electron/utils/abort';
+import { createLogger } from '@electron/utils/createLogger';
 import {
     decodeIpcInvokeRequestId,
     IPC_INVOKE_REQUEST_ID_FIELD,
 } from '@electron/platform-ipc/coreContract';
 import {beginIpcInvokeCancellation} from '@electron/platform-ipc/ipcInvokeCancellation';
 import {runWithMainOperationCancellationSignal} from '@electron/operation-lifecycle/mainOperationLifecycle';
+
+const ipcLogger = createLogger('ipc');
+const IPC_CANCELLATION_PATTERN = /\b(?:cancel(?:l)?ed|aborted|Renderer destroyed)\b/iu;
+
+/**
+ * Electron prints a rejected invoke to stderr only. Record it here so the
+ * failing channel and cause reach `app.ndjson` next to the operation's logs.
+ */
+function logIpcHandlerRejection(channel: string, error: unknown) {
+    const data = {
+        channel,
+        error,
+    };
+    if (isAbortError(error) || IPC_CANCELLATION_PATTERN.test(getErrorMessage(error))) {
+        ipcLogger.debug('IPC handler rejected', data);
+        return;
+    }
+    ipcLogger.warn('IPC handler rejected', data);
+}
 
 const registeredInvokeChannels = new Map<string, symbol>();
 const registeredEventChannels = new Map<string, symbol>();
@@ -218,7 +239,7 @@ export function createValidatedIpcMainRegistrar(
             }
             const release = channelClaimer.claim(channel);
             try {
-                registrar.handle(channel, async (event, ...args: unknown[]) => {
+                const handleInvoke = async (event: IpcMainInvokeEvent, args: unknown[]) => {
                     if (!isTrustedIpcInvokeSender(event, channel)) {
                         throw new Error('IPC sender is not trusted');
                     }
@@ -257,6 +278,14 @@ export function createValidatedIpcMainRegistrar(
                             : await runWithMainOperationCancellationSignal(cancellation.signal, invokeHandler);
                     } finally {
                         cancellation?.complete();
+                    }
+                };
+                registrar.handle(channel, async (event, ...args: unknown[]) => {
+                    try {
+                        return await handleInvoke(event, args);
+                    } catch (error) {
+                        logIpcHandlerRejection(channel, error);
+                        throw error;
                     }
                 });
             } catch (error) {

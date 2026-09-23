@@ -1135,7 +1135,9 @@ describe('search IPC worker resource limits', () => {
                 expect(mocks.workerRecords[0]?.postMessageCalls).not.toContainEqual(
                     expect.objectContaining({type: 'shutdown'}),
                 );
+                expect(mocks.logger.warn).toHaveBeenCalledWith('IPC handler rejected', expect.objectContaining({channel: 'pdf:search'}));
                 sender.send.mockClear();
+                mocks.logger.warn.mockClear();
             }
 
             emitWorkerProgressWithResults(0, requestId, [buildSearchMatch({pageNumber: 999})]);

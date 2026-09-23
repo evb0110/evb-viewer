@@ -76,8 +76,11 @@ How records reach the terminal:
   print twice.
 - Electron stderr: `scripts/electron-run/terminalLog.ts` classifies it.
   - Chromium's console echo is dropped as a duplicate.
-  - `Error occurred in handler for '<channel>'` becomes one `main/ipc` warning
-    with the channel and first app frame. Cancellations become debug.
+  - `Error occurred in handler for '<channel>'` becomes a debug
+    `electron/ipc` record. The validated IPC registrar already logs every
+    rejected invoke as a `main/ipc` record with the channel and error, at
+    debug for cancellations and warn otherwise, so it also lands in
+    `app.ndjson`.
   - Chromium warnings and errors become `electron/chromium` warnings. GPU and
     network-service crashes surface this way.
   - Known macOS and Chromium noise becomes debug.

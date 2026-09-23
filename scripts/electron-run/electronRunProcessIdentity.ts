@@ -167,6 +167,26 @@ function hasExactArgument(command: string, argument: string) {
     return new RegExp(`(?:^|\\s)(?:${escaped}|'${escaped}'|"${escaped}")(?:\\s|$)`).test(command);
 }
 
+const CONTROLLER_ARGUMENT_MARKERS = [
+    'electronRun.ts',
+    'electron:run',
+] as const;
+const SESSION_ARGUMENT_PATTERN = /(?:^|\s)["']?(?:--session=|(?:--session|-s)["']?\s+["']?)([^\s"']+)["']?(?=\s|$)/gu;
+
+/**
+ * Session names a controller command line selects, in every form `runCli`
+ * accepts: `--session=<name>`, `--session <name>` and `-s <name>`. Only the
+ * arguments after the controller entry count, so a wrapper's own `-s`
+ * (pnpm's `--silent`) is never read as a session.
+ */
+function readControllerSessionNames(command: string) {
+    const entryEnd = Math.max(...CONTROLLER_ARGUMENT_MARKERS.map((marker) => {
+        const index = command.lastIndexOf(marker);
+        return index < 0 ? 0 : index + marker.length;
+    }));
+    return [...command.slice(entryEnd).matchAll(SESSION_ARGUMENT_PATTERN)].map(match => match[1]);
+}
+
 function hasEnvironmentValue(environment: string, name: string, value: string | number) {
     const token = `${name}=${value}`;
     return environment.split(/\s+/).includes(token);
@@ -194,11 +214,10 @@ export function matchesSessionProcessIdentity(
             || hasExactArgument(snapshot.command, projectRoot)
             || hasAbsoluteEphemeralControllerEntry
             || (snapshot.platform === 'win32' && (hasControllerEntry || hasEphemeralControllerEntry));
-        const hasExplicitSessionArgument = /(?:^|\s)(?:--session=(?:[^\s"']+|'[^']*'|"[^"]*")|["']--session=[^\s"']+["'])(?:\s|$)/u
-            .test(snapshot.command);
+        const sessionNames = readControllerSessionNames(snapshot.command);
         const hasExpectedSession = expectation.sessionName === 'default'
-            ? !hasExplicitSessionArgument || hasExactArgument(snapshot.command, '--session=default')
-            : hasExactArgument(snapshot.command, `--session=${expectation.sessionName}`);
+            ? sessionNames.length === 0 || sessionNames.at(-1) === 'default'
+            : sessionNames.at(-1) === expectation.sessionName;
         const isLegacyController = (snapshot.command.includes('electron:run') || hasControllerEntry)
             && hasExpectedSession
             && hasExactArgument(snapshot.command, 'start');

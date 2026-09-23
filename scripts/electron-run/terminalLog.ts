@@ -187,7 +187,6 @@ const IPC_HANDLER_ERROR_PATTERN = /^Error occurred in handler for '([^']+)': (.*
 const NODE_WARNING_PATTERN = /^\(node:\d+\) (?:\[[^\]]+\] )?([A-Za-z]*Warning): (.*)$/u;
 const APPKIT_LINE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ Electron\[\d+:\d+\] (.*)$/u;
 const CHROMIUM_CONSOLE_END_PATTERN = /", source: \S.* \(\d+\)$/u;
-const CANCELLATION_PATTERN = /\b(?:cancel(?:l)?ed|AbortError|aborted|Renderer destroyed)\b/iu;
 
 // Chromium ERROR lines that are routine on macOS and say nothing about EVB.
 const CHROMIUM_NOISE: readonly RegExp[] = [
@@ -237,14 +236,16 @@ export function classifyElectronStderrBlock(block: IStderrBlock): ILogRecord | n
 
     const ipc = IPC_HANDLER_ERROR_PATTERN.exec(header);
     if (ipc) {
+        // The validated IPC registrar already logged this rejection as a
+        // structured `main/ipc` record; keep Electron's copy as detail only.
         const error = ipc[2] ?? '';
         const frame = firstAppFrame(detail);
         const properties = detail.filter(line => !line.trim().startsWith('at '));
         return createLogRecord(
-            CANCELLATION_PATTERN.test(error) ? 'debug' : 'warn',
-            'main',
+            'debug',
+            'electron',
             'ipc',
-            'IPC handler rejected',
+            'Electron reported IPC handler rejection',
             {
                 channel: ipc[1],
                 error,

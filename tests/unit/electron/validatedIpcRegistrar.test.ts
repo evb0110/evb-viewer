@@ -22,8 +22,15 @@ const mocks = vi.hoisted(() => ({
     isTrustedIpcInvokeSender: vi.fn(() => true),
     isTrustedWebContentsSender: vi.fn(() => true),
 }));
+const logger = vi.hoisted(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+}));
 
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => mocks);
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => logger}));
 
 type TRegisteredHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
@@ -141,6 +148,10 @@ describe('validated IPC registrar argument policy', () => {
             .rejects
             .toThrow('Invalid IPC arguments for test:no-args: expected no arguments');
         expect(handler).toHaveBeenCalledOnce();
+        expect(logger.warn).toHaveBeenCalledWith('IPC handler rejected', expect.objectContaining({
+            channel: 'test:no-args',
+            error: expect.objectContaining({name: 'IpcArgumentValidationError'}),
+        }));
     });
 
     it('rejects policy entries outside the registrar channel allowlist', async () => {
