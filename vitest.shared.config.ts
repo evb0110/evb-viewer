@@ -69,7 +69,7 @@ const electronE2ESmokeTestFiles = [
     'tests/e2e/electron/recentFiles.e2e.test.ts',
     'tests/e2e/electron/viewerSmoke.e2e.test.ts',
     'tests/e2e/electron/zoomMenuLayout.e2e.test.ts',
-    'tests/e2e/electron/printDialogLayoutStability.e2e.test.ts',
+    'tests/e2e/electron/dialogLayoutStability.e2e.test.ts',
     'tests/e2e/electron/djvuPrintHandoff.e2e.test.ts',
     'tests/e2e/electron/inactivePdfTabs.e2e.test.ts',
     'tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts',

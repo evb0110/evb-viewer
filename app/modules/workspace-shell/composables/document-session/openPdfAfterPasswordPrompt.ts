@@ -26,6 +26,7 @@ interface IOpenPdfAfterPasswordPromptDeps {
         fileName: string,
         errorMessage?: string | null,
     ) => Promise<string | null>;
+    closePasswordPrompt: (request: Promise<string | null>) => void;
     isCurrentOpenRequest: (requestId: number) => boolean;
     openDocumentDirect: (
         path: TDocumentRef,
@@ -64,11 +65,13 @@ export async function openPdfAfterPasswordPrompt(
             return deps.reportUnsupportedEncryption(openRequestId);
         }
 
-        const password = await deps.requestPassword(
+        const request = deps.requestPassword(
             getDocumentRefBaseName(initialFailure.originalPath) ?? initialFailure.originalPath,
             retryError,
         );
+        const password = await request;
         if (!deps.isCurrentOpenRequest(openRequestId)) {
+            deps.closePasswordPrompt(request);
             return {
                 status: 'stale',
                 result: initialFailure,
@@ -78,7 +81,18 @@ export async function openPdfAfterPasswordPrompt(
             return { status: 'cancelled' };
         }
 
-        const result = await deps.openDocumentDirect(initialFailure.originalPath, password);
+        // The prompt stays open while the password is checked. A wrong
+        // password asks again in the same dialog; anything else closes it.
+        let result: TOpenFileResult | null;
+        try {
+            result = await deps.openDocumentDirect(initialFailure.originalPath, password);
+        } catch (error) {
+            deps.closePasswordPrompt(request);
+            throw error;
+        }
+        if (!deps.isCurrentOpenRequest(openRequestId) || result?.kind !== 'pdf-needs-password') {
+            deps.closePasswordPrompt(request);
+        }
         if (!deps.isCurrentOpenRequest(openRequestId)) {
             if (result) {
                 await deps.cleanupAbandonedPdfWorkingCopy(result, 'stale-password-retry-result');

@@ -3,6 +3,8 @@
         :open="open"
         :title="t('errors.file.passwordPromptTitle')"
         :ui="{ footer: 'justify-end gap-2' }"
+        :dismissible="!checking"
+        :close="{ disabled: checking }"
         @update:open="handleOpenUpdate"
     >
         <template #description>
@@ -26,10 +28,12 @@
                     :help="'\u00A0'"
                 >
                     <UInput
+                        ref="passwordInput"
                         v-model="password"
                         type="password"
                         autocomplete="current-password"
                         autofocus
+                        :disabled="checking"
                         class="w-full"
                         @keydown.enter.prevent="handleSubmit"
                     />
@@ -43,12 +47,14 @@
                 color="neutral"
                 variant="outline"
                 type="button"
+                :disabled="checking"
                 @click="handleCancel"
             />
             <UButton
                 :label="t('errors.file.passwordPromptOpen')"
                 color="primary"
                 type="submit"
+                :disabled="checking"
                 @click="handleSubmit"
             />
         </template>
@@ -62,16 +68,27 @@ const { t } = useTypedI18n();
 const {
     open,
     fileName,
+    checking,
     errorMessage,
     submitPassword,
     cancelPasswordPrompt,
 } = useDocumentPasswordPrompt();
 const password = ref('');
+const passwordInput = useTemplateRef<{inputRef: HTMLInputElement | null}>('passwordInput');
 
-watch(open, (isOpen) => {
-    if (isOpen) {
-        password.value = '';
+watch(open, () => {
+    password.value = '';
+});
+
+// A wrong password keeps the dialog open; clear the field and hand focus back
+// once the check finishes.
+watch(checking, async (isChecking) => {
+    if (isChecking || !open.value) {
+        return;
     }
+    password.value = '';
+    await nextTick();
+    passwordInput.value?.inputRef?.focus();
 });
 
 function handleOpenUpdate(open: boolean) {
@@ -81,8 +98,10 @@ function handleOpenUpdate(open: boolean) {
 }
 
 function handleSubmit() {
+    if (checking.value) {
+        return;
+    }
     submitPassword(password.value);
-    password.value = '';
 }
 
 function handleCancel() {

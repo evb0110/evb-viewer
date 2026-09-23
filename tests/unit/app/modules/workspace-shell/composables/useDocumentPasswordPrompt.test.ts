@@ -12,7 +12,7 @@ describe('useDocumentPasswordPrompt', () => {
         useDocumentPasswordPrompt().cancelPasswordPrompt();
     });
 
-    it('resolves with the entered password and clears the prompt state', async () => {
+    it('stays open while the password is checked and clears state when closed', async () => {
         const prompt = useDocumentPasswordPrompt();
         const pending = prompt.requestPassword('protected.pdf');
 
@@ -22,26 +22,49 @@ describe('useDocumentPasswordPrompt', () => {
         prompt.submitPassword('correct horse battery staple');
 
         await expect(pending).resolves.toBe('correct horse battery staple');
+        expect(prompt.open.value).toBe(true);
+        expect(prompt.checking.value).toBe(true);
+
+        prompt.closePasswordPrompt(pending);
+
         expect(prompt.open.value).toBe(false);
+        expect(prompt.checking.value).toBe(false);
         expect(prompt.fileName.value).toBe('');
         expect(prompt.errorMessage.value).toBeNull();
     });
 
-    it('keeps retry state visible with an inline error', async () => {
+    it('keeps the dialog open between a wrong password and the retry', async () => {
         const prompt = useDocumentPasswordPrompt();
         const firstAttempt = prompt.requestPassword('protected.pdf');
         prompt.submitPassword('wrong');
         await expect(firstAttempt).resolves.toBe('wrong');
+        expect(prompt.open.value).toBe(true);
 
         const retryAttempt = prompt.requestPassword(
             'protected.pdf',
             'That password is incorrect. Try again.',
         );
         expect(prompt.open.value).toBe(true);
+        expect(prompt.checking.value).toBe(false);
         expect(prompt.errorMessage.value).toBe('That password is incorrect. Try again.');
         prompt.submitPassword('right');
 
         await expect(retryAttempt).resolves.toBe('right');
+    });
+
+    it('does not let an earlier request close a newer prompt', async () => {
+        const prompt = useDocumentPasswordPrompt();
+        const firstAttempt = prompt.requestPassword('first.pdf');
+        prompt.submitPassword('first');
+        await firstAttempt;
+        const secondAttempt = prompt.requestPassword('second.pdf');
+
+        prompt.closePasswordPrompt(firstAttempt);
+
+        expect(prompt.open.value).toBe(true);
+        expect(prompt.fileName.value).toBe('second.pdf');
+        prompt.cancelPasswordPrompt();
+        await expect(secondAttempt).resolves.toBeNull();
     });
 
     it('allows an unbounded number of retries', async () => {

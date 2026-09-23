@@ -960,6 +960,7 @@ describe('createDocumentOpenFlow', () => {
             status: 'opened',
             result: openedPdf,
         });
+        expect(prompt.open.value).toBe(false);
         expect(mocks.documentOpen.openDocumentDirect).toHaveBeenNthCalledWith(
             1,
             protectedPath,

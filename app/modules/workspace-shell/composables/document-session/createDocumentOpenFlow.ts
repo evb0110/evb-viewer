@@ -145,6 +145,7 @@ export function createDocumentOpenFlow(
     const {
         requestPassword,
         cancelPasswordPrompt,
+        closePasswordPrompt,
     } = useDocumentPasswordPrompt();
     function assertPdfHasBytes(size: number) {
         if (size > 0) {
@@ -509,6 +510,7 @@ export function createDocumentOpenFlow(
     ) {
         return runPasswordPromptFlow(openRequestId, initialFailure, openMethod, options, {
             requestPassword,
+            closePasswordPrompt,
             isCurrentOpenRequest,
             openDocumentDirect: (path, password) => getDocumentOpenCapability().openDocumentDirect(path, password),
             cleanupAbandonedPdfWorkingCopy,
