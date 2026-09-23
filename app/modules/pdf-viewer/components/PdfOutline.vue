@@ -57,8 +57,9 @@
             {{ outlinePersistenceRefusalMessage }}
         </div>
 
+        <!-- A loading outline shows no rows: they are not in their final layout yet. -->
         <div
-            v-else-if="isEditMode"
+            v-else-if="bookmarkStatus !== 'loading' && isEditMode"
             class="pdf-bookmarks-tree flex flex-col app-scrollbar app-scroll-region--balanced"
             @click="closeBookmarkContextMenu"
         >
@@ -88,7 +89,7 @@
         </div>
 
         <DocumentBookmarkTree
-            v-else
+            v-else-if="bookmarkStatus !== 'loading'"
             :items="sharedBookmarkItems"
             :active-id="activeItemId"
             :display-mode="displayMode"
@@ -149,7 +150,6 @@ import {
 } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { usePdfOutlineDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
 import { usePdfOutlineEditing } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
 import { usePdfOutlineContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu';
@@ -197,9 +197,6 @@ const isLoading = ref(false);
 const isLoadingIndicatorVisible = ref(false);
 const outlineError = ref(false);
 const activeItemId = ref<string | null>(null);
-function describeBookmark(id: string | null | undefined) {
-    return id ? flatBookmarks.value.find(item => item.id === id)?.title ?? id : null;
-}
 const displayMode = ref<TBookmarkDisplayMode>('current-expanded');
 const expandedBookmarkIds = ref<Set<string>>(new Set());
 const nativeBookmarkDepthLimit = PDF_NATIVE_MUTATION_LIMITS.bookmarkDepth;
@@ -313,6 +310,9 @@ function createBookmarkIdentity() {
 let bookmarkIdentity = createBookmarkIdentity();
 
 const BOOKMARK_LOADING_INDICATOR_DELAY_MS = 150;
+// The first rows wait this long at most for the current page's selection. A
+// destination lookup that stalls must not keep the outline hidden.
+const BOOKMARK_INITIAL_SELECTION_BUDGET_MS = 1_000;
 let loadingIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
 
 function cancelLoadingIndicatorDelay() {
@@ -680,11 +680,6 @@ async function updateActiveItemFromCurrentPage() {
         activeItemId.value,
         item => pageIndexes.get(item) ?? null,
     );
-    logPdfRenderTrace('pdf-outline-active-resolved', () => ({
-        currentPage,
-        previous: describeBookmark(activeItemId.value),
-        next: active?.title ?? null,
-    }));
     activeItemId.value = active?.id ?? null;
     if (!isEditMode.value) {
         if (activeItemId.value) {
@@ -722,11 +717,6 @@ function applyPendingBookmarkItems(
         return;
     }
 
-    logPdfRenderTrace('pdf-outline-reset', () => ({
-        reason: 'pending-items',
-        currentPage: props.currentPage,
-        previous: describeBookmark(activeItemId.value),
-    }));
     invalidateBookmarkNavigationRequests();
     resetBookmarkIdentity();
     bookmarks.value = buildOutlineFromBookmarkEntries(entries, createBookmarkId);
@@ -800,21 +790,29 @@ async function resolveBookmarksFromPdf(pdfDocument: IPdfDocument) {
     );
 }
 
-function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
+async function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
     if (applyPendingBookmarkItemsIfDirty()) {
         return;
     }
 
-    logPdfRenderTrace('pdf-outline-reset', () => ({
-        reason: 'loaded',
-        currentPage: props.currentPage,
-        previous: describeBookmark(activeItemId.value),
-    }));
     outlineError.value = false;
     bookmarks.value = resolved;
     activeItemId.value = null;
-    void updateActiveItemFromCurrentPage();
+    const initialSelection = updateActiveItemFromCurrentPage().catch((error: unknown) => {
+        // Passive selection is a convenience; its failure must not hide the outline.
+        BrowserLogger.debug('pdfOutline', 'Initial bookmark selection failed', error);
+    });
     setBookmarkBaseline();
+    let budgetTimer: ReturnType<typeof setTimeout> | null = null;
+    await Promise.race([
+        initialSelection,
+        new Promise<void>((resolve) => {
+            budgetTimer = setTimeout(resolve, BOOKMARK_INITIAL_SELECTION_BUDGET_MS);
+        }),
+    ]);
+    if (budgetTimer !== null) {
+        clearTimeout(budgetTimer);
+    }
 }
 
 function handleOutlineLoadError(
@@ -853,7 +851,11 @@ async function loadUsableOutline(pdfDocument: IPdfDocument, runId: number) {
     try {
         const resolved = await resolveBookmarksFromPdf(pdfDocument);
         if (!isStaleOutlineRun(runId, pdfDocument)) {
-            applyLoadedBookmarks(resolved);
+            // Rows stay behind the loading state until the passive selection
+            // for the current page is known. In the current-expanded mode that
+            // selection expands its section; publishing the rows first moved
+            // them under the reader's first click.
+            await applyLoadedBookmarks(resolved);
         }
     } catch (error) {
         handleOutlineLoadError(error, runId, pdfDocument);
@@ -893,11 +895,6 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
 }
 
 function handleActivate(payload: IBookmarkActivatePayload) {
-    logPdfRenderTrace('pdf-outline-activate', () => ({
-        currentPage: props.currentPage,
-        previous: describeBookmark(activeItemId.value),
-        next: describeBookmark(payload.id),
-    }));
     cancelActiveItemResolution();
     activeItemId.value = payload.id;
     if (isEditMode.value) {
@@ -972,14 +969,7 @@ function handleTreeEndDrop() {
 
 watch(
     () => props.pdfDocument,
-    (pdfDocument, previousDocument) => {
-        logPdfRenderTrace('pdf-outline-document', () => ({
-            hasDocument: pdfDocument !== null,
-            replaced: previousDocument !== undefined && previousDocument !== null,
-            currentPage: props.currentPage,
-        }));
-        void loadOutline();
-    },
+    () => loadOutline(),
     { immediate: true },
 );
 
@@ -1002,14 +992,7 @@ watch(
 
 watch(
     () => props.currentPage,
-    (currentPage, previousPage) => {
-        logPdfRenderTrace('pdf-outline-current-page', () => ({
-            previousPage,
-            currentPage,
-            active: describeBookmark(activeItemId.value),
-        }));
-        void updateActiveItemFromCurrentPage();
-    },
+    () => updateActiveItemFromCurrentPage(),
 );
 
 watch(

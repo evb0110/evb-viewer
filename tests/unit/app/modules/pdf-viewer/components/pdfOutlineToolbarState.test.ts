@@ -206,22 +206,32 @@ describe('PdfOutline bookmark toolbar state', () => {
             .toBe('bookmarks.noBookmarks');
     });
 
-    it('publishes the raw outline before destination resolution', async () => {
-        const getDestination = vi.fn(() => new Promise<unknown[]>(() => undefined));
-        const outline = await mountOutline(() => Promise.resolve([{
-            title: 'Chapter 1',
-            dest: 'chapter-1',
-        }]), getDestination);
+    it('publishes the outline when its current-page selection stalls', async () => {
+        vi.useFakeTimers();
+        try {
+            const getDestination = vi.fn(() => new Promise<unknown[]>(() => undefined));
+            const outline = await mountOutline(() => Promise.resolve([{
+                title: 'Chapter 1',
+                dest: 'chapter-1',
+            }]), getDestination);
 
-        await outline.settle();
+            // Rows wait for the selection that decides their first layout.
+            await vi.advanceTimersByTimeAsync(999);
+            await nextTick();
+            expect(outline.host.querySelector('[data-bookmark-tree-stub]')).toBeNull();
+            expect(getDestination).toHaveBeenCalledWith('chapter-1');
 
-        expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-item-count'))
-            .toBe('1');
-        expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-first-title'))
-            .toBe('Chapter 1');
-        expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
-        // Selection metadata can resolve in the background while the tree is usable.
-        expect(getDestination).toHaveBeenCalledWith('chapter-1');
+            // A lookup that never answers must not keep the outline hidden.
+            await vi.advanceTimersByTimeAsync(1);
+            await nextTick();
+            expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-item-count'))
+                .toBe('1');
+            expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-first-title'))
+                .toBe('Chapter 1');
+            expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('keeps more than 10000 outline entries editable for native continuation', async () => {

@@ -311,7 +311,8 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
             bookmarkItems: [],
             pdfDocument: document,
         });
-        await vi.waitFor(() => expect(treeStub.items).toHaveLength(2));
+        // The pending lookup holds the first rows for the initial-selection budget.
+        await vi.waitFor(() => expect(treeStub.items).toHaveLength(2), {timeout: 3_000});
         const selectedId = treeStub.items[1]!.id;
         treeStub.activate(selectedId);
         await outline.applyExternalBookmarks([

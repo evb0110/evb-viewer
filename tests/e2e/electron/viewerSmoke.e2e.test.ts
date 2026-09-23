@@ -61,7 +61,6 @@ import {
 } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
-import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -1357,13 +1356,36 @@ describe('Electron E2E - Viewer Smoke', () => {
             entry('Same page', 3),
         ]);
         await writeFile(fixture, await pdf.save());
-        // The outline lifecycle explains a wrong selection that only a slow
-        // host shows; the trace is attached to the selection assertion.
-        await enablePdfDiagnosticSession(page, {render: true});
         await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await ensureSidebarOpen(page);
+        // Record every painted row layout from the moment the outline opens.
+        // Rows that a reader can already click must not move afterwards: a
+        // late passive expansion put "Child" under a click aimed at "Appendix".
+        await page.evaluate(() => {
+            const layouts: string[] = [];
+            (window as Window & {__bookmarkRowLayouts?: string[]}).__bookmarkRowLayouts = layouts;
+            const sample = () => {
+                const layout = Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'))
+                    .filter(row => row.getBoundingClientRect().width > 0)
+                    .map(row => `${row.textContent?.trim() ?? ''}@${Math.round(row.getBoundingClientRect().top)}`)
+                    .join('|');
+                if (layout && layouts.at(-1) !== layout) {
+                    layouts.push(layout);
+                }
+                if (layouts.length < 20) {
+                    requestAnimationFrame(sample);
+                }
+            };
+            requestAnimationFrame(sample);
+        });
         await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForFunctionInPage(page, () => document.querySelectorAll('.document-bookmark-item__row').length > 0, {timeout: 10_000});
+        await waitForViewportQuiet(page);
+        const rowLayouts = await page.evaluate(() => (
+            window as Window & {__bookmarkRowLayouts?: string[]}
+        ).__bookmarkRowLayouts ?? []);
+        expect(rowLayouts, JSON.stringify(rowLayouts)).toHaveLength(1);
 
         async function activate(title: string, key?: 'Enter' | 'Space') {
             // The outline loads after its tab opens; a user can only click a row it shows.
@@ -1406,18 +1428,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                     textVisible: Boolean(rect && viewport && rect.bottom > viewport.top && rect.top < viewport.bottom),
                 };
             }, pageNumber);
-            if (JSON.stringify(observation.titles) !== JSON.stringify([title])) {
-                const trace = await page.evaluate(() => (
-                    window as Window & {__getPdfRenderTrace?: () => Array<{
-                        event: string;
-                        payload?: unknown
-                    }>}
-                ).__getPdfRenderTrace?.() ?? []);
-                const outlineTrace = trace
-                    .filter(entry => /^(pdf-outline-|workspace-go-to-page|navigation-viewport-authority-applied|navigation-retained-anchor-cleared|workspace-viewer-current-page-update)/.test(entry.event))
-                    .slice(-80);
-                expect(observation.titles, JSON.stringify(outlineTrace)).toEqual([title]);
-            }
+            expect(observation.titles).toEqual([title]);
             expect(observation.borders).not.toContain('rgba(0, 0, 0, 0)');
             expect(observation.destinationText).toBe(`Metadata matrix page ${pageNumber}`);
             expect(observation.textVisible).toBe(true);
