@@ -85,6 +85,22 @@ export function shouldDisableMacOSAutomationGpu(
     return platform === 'darwin' && env.EVB_AUTOMATION_HIDE_WINDOW === '1';
 }
 
+// With "Show scroll bars: automatically", macOS switches between overlay and
+// classic scroll bars as a mouse connects or sleeps, which changes every
+// viewport width by the scroll bar. Hidden sessions pin classic scroll bars,
+// as hosted runners use, through AppKit's argument domain.
+export function resolveMacOSAutomationScrollBarArgs(
+    env: NodeJS.ProcessEnv = process.env,
+    platform = process.platform,
+) {
+    return platform === 'darwin' && env.EVB_AUTOMATION_HIDE_WINDOW === '1'
+        ? [
+            '-AppleShowScrollBars',
+            'Always',
+        ]
+        : [];
+}
+
 export const AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV = 'EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES';
 
 /**
@@ -123,6 +139,9 @@ export function buildElectronAutomationArgs(options: {
         `--user-data-dir=${options.automationUserDataDir}`,
         '--disable-http-cache',
         options.mainJs,
+        // After the entry script, which Electron takes from the first operand,
+        // and before `--`, after which operands are files to open.
+        ...resolveMacOSAutomationScrollBarArgs(options.env, options.platform),
         ...(initialOpenPaths.length > 0
             ? [
                 '--',

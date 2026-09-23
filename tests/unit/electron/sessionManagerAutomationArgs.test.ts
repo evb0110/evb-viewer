@@ -198,6 +198,46 @@ describe('sessionManager automation launch args', () => {
         expect(hiddenLinuxArgs).not.toContain('--disable-gpu');
     });
 
+    it('pins classic scroll bars for hidden macOS automation between the entry script and open paths', () => {
+        const hiddenEnv = {
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_USE_HIDDEN_APP_BUNDLE: '1',
+        };
+        expect(buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            initialOpenPaths: ['/tmp/a.pdf'],
+            env: hiddenEnv,
+            platform: 'darwin',
+        })).toEqual([
+            '--disable-gpu',
+            '--remote-debugging-port=9222',
+            '--user-data-dir=/tmp/evb-user-data',
+            '--disable-http-cache',
+            '/tmp/main.js',
+            '-AppleShowScrollBars',
+            'Always',
+            '--',
+            '/tmp/a.pdf',
+        ]);
+        expect(buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: {EVB_AUTOMATION_HIDE_WINDOW: '0'},
+            platform: 'darwin',
+        })).not.toContain('-AppleShowScrollBars');
+        expect(buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: hiddenEnv,
+            platform: 'linux',
+        })).not.toContain('-AppleShowScrollBars');
+    });
+
     it('can force a neutral reduced-motion baseline for profile E2E sessions', () => {
         expect(buildElectronAutomationArgs({
             cdpPort: 9222,

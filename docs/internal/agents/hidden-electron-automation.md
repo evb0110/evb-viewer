@@ -34,6 +34,10 @@ The launcher verifies that value before every launch, including cached bundles.
 If preparation or verification fails, stop and fix the harness. Do not retry
 through stock Electron, a direct original app executable, or raw `open -a`.
 
+Hidden macOS sessions also pass `-AppleShowScrollBars Always`. With the
+system's automatic setting, scroll bars switch between overlay and classic as
+a mouse connects or sleeps, and every viewport width changes with them.
+
 ## Packaged runs
 
 Use the shared runner with an unused task-owned directory and a free CDP port:
