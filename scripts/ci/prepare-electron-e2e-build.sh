@@ -60,10 +60,13 @@ if [ "${#missing_paths[@]}" -gt 0 ]; then
   exit 1
 fi
 
-if [ "${#native_paths[@]}" -gt 0 ]; then
-  for native_path in "${native_paths[@]}"; do
+# Artifacts drop the executable bit, and the e2e preflight probes every helper
+# staged under .tmp, not only the ones this project requires. Restore it on
+# every helper the shared build carries.
+for native_path in .tmp/*/"$platform_arch"/bin/evb-*; do
+  if [ -f "$native_path" ]; then
     chmod +x "$native_path"
-  done
-fi
+  fi
+done
 
 printf '%s\n' "[electron-e2e-build] Prepared shared build for $target_project ($platform_arch)."
