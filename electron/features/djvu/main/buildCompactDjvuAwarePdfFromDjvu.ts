@@ -304,6 +304,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                     }));
                     await activeQuotaMonitor.checkNow();
                     throwIfAborted(activeQuotaMonitor.signal);
+                    // Count each page as it finishes; a window holds up to 32
+                    // pages, so counting per window left short books at 0%.
+                    completedPageCount += 1;
+                    emitProgress(Math.round((completedPageCount / selectedPageCount) * PROGRESS_EXTRACTION_CAP));
                     return pageSpec;
                 }, workerCount);
 
@@ -331,8 +335,6 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                     if (pageSpec.kind === 'bitonal') bitonalCount += 1;
                     if (pageSpec.kind === 'photo') photoCount += 1;
                 }
-                completedPageCount += pageSpecs.length;
-                emitProgress(Math.round((completedPageCount / selectedPageCount) * PROGRESS_EXTRACTION_CAP));
                 await activeQuotaMonitor.checkNow();
             } finally {
                 await quotaMonitor?.stop();

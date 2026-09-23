@@ -422,6 +422,9 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
 
         expect(result.success).toBe(true);
         expect(progress).toEqual(expect.arrayContaining([
+            22,
+            43,
+            65,
             86,
             88,
             90,
