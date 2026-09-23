@@ -1,4 +1,7 @@
 import {
+    dirname,
+    join,
+    relative,
     resolve,
     win32,
 } from 'path';
@@ -242,18 +245,26 @@ export function normalizePathForLookup(filePath: string) {
     }
 
     const resolvedPath = resolve(filePath);
-    const stableResolvedPath = process.platform === 'darwin' && (
-        resolvedPath === '/var'
-        || resolvedPath.startsWith('/var/')
-    )
-        ? `/private${resolvedPath}`
-        : resolvedPath;
-
     try {
-        return realpathSync.native(stableResolvedPath);
+        return realpathSync.native(resolvedPath);
     } catch {
-        return stableResolvedPath;
+        return resolvePosixMissingLeafLookup(resolvedPath);
     }
+}
+
+// A lazy working copy is registered before its leaf exists. Resolving the
+// nearest existing ancestor keeps one key before and after the leaf appears
+// when a parent is a symlink, such as macOS /var and /tmp.
+function resolvePosixMissingLeafLookup(resolvedPath: string) {
+    let ancestorPath = dirname(resolvedPath);
+    while (ancestorPath !== dirname(ancestorPath)) {
+        try {
+            return join(realpathSync.native(ancestorPath), relative(ancestorPath, resolvedPath));
+        } catch {
+            ancestorPath = dirname(ancestorPath);
+        }
+    }
+    return resolvedPath;
 }
 
 class TCanonicalWorkingCopyMap<TValue> extends Map<string, TValue> {

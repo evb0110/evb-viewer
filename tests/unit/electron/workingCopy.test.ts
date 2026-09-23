@@ -269,6 +269,22 @@ describe('workingCopy', () => {
         }
     }, 30_000);
 
+    it('keeps one lookup key under a symlinked parent before and after the working copy file exists', async () => {
+        const {normalizePathForLookup} = await import('@electron/file-access/workingCopyStore');
+        const realParent = join(tempRoot, 'real-parent');
+        const linkedParent = join(tempRoot, 'linked-parent');
+        mkdirSync(realParent);
+        symlinkSync(realParent, linkedParent);
+        const linkedWorkingPath = join(linkedParent, 'pdf-work-lazy', 'document.pdf');
+
+        const keyBeforeFileExists = normalizePathForLookup(linkedWorkingPath);
+        mkdirSync(dirname(linkedWorkingPath));
+        writeFileSync(linkedWorkingPath, 'lazy working copy');
+
+        expect(normalizePathForLookup(linkedWorkingPath)).toBe(keyBeforeFileExists);
+        expect(keyBeforeFileExists).toBe(join(realpathSync.native(realParent), 'pdf-work-lazy', 'document.pdf'));
+    });
+
     it('uses background materialization by default after publishing lazy state', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
