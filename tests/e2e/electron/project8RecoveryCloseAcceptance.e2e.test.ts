@@ -554,6 +554,10 @@ describe('Project 8 recovered close decisions', () => {
         heldTool.hold();
         await rotateFirstPageCounterclockwise(session);
         await heldTool.waitUntilHeld();
+        // A write with no measurable count keeps visibly moving (contract I4).
+        await expect.poll(() => session!.page.evaluate(() => (
+            document.querySelector('.workspace-page-op-progress-overlay')?.textContent?.replace(/\s+/gu, ' ') ?? ''
+        )), {timeout: 5_000}).toMatch(/\d+:\d{2} elapsed/u);
         await clickPageOperationCancel(session);
 
         await expect.poll(async () => (
