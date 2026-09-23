@@ -812,6 +812,7 @@ mod tests {
         time::Duration,
     };
 
+    #[cfg(unix)]
     fn staged_page(
         input_path: PathBuf,
         metadata_path: PathBuf,
@@ -828,6 +829,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn staged_batch(pages: Vec<StagedPageDescriptor>, raster_window: usize) -> StagedInputBatch {
         StagedInputBatch {
             raster_window,
@@ -1390,22 +1392,25 @@ mod tests {
 #[cfg(test)]
 mod moved_tests {
     use super::*;
-    use crate::engine::resource_planning::{
-        manifest_cache, page_cache_for, PlanningManifest, PlanningOperation,
-    };
+    use crate::engine::resource_planning::{manifest_cache, page_cache_for, PlanningOperation};
+    use std::{fs, path::PathBuf};
+    // The path-safety and FIFO tests below exercise POSIX filesystem features
+    // (symlinks, hard links, FIFOs), so their fixtures exist only there.
+    #[cfg(unix)]
+    use crate::engine::resource_planning::PlanningManifest;
+    #[cfg(unix)]
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, DetailPixelRect, DetailRenderPlan, ManifestV3, Operation,
         Page, PageOutput, RenderMode, VERSION,
     };
+    #[cfg(unix)]
     use crate::CleanupOptions;
+    #[cfg(unix)]
     use evb_native_support::NativeError;
-    use std::{
-        fs,
-        io::Write,
-        path::{Path, PathBuf},
-        thread,
-    };
+    #[cfg(unix)]
+    use std::{io::Write, path::Path, thread};
 
+    #[cfg(unix)]
     fn assert_manifest_paths_within_root(
         manifest: &ManifestV3,
         root: &Path,
@@ -1413,6 +1418,7 @@ mod moved_tests {
         super::assert_paths_within_root(&super::staged_path_plan(manifest), root)
     }
 
+    #[cfg(unix)]
     fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
         super::preflight_paths(&super::staged_path_plan(manifest))
     }

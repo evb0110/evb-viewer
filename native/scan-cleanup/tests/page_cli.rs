@@ -18,7 +18,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Barrier,
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 struct Scratch {
@@ -3377,6 +3377,8 @@ fn parallel_batch_outputs_and_progress_are_deterministic() {
 #[cfg(unix)]
 #[test]
 fn sigterm_terminates_parallel_batch_promptly() {
+    use std::time::Instant;
+
     let scratch = Scratch::new("sigterm");
     let input = scratch.path("sigterm-input.png");
     let manifest = scratch.path("sigterm-manifest.json");

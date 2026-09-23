@@ -528,7 +528,7 @@ mod moved_tests {
     use crate::split::{ClusterDimensions, DocumentPrior, LayoutClassification};
     use crate::{CleanupOptions, OrthogonalRotation};
     use scan_primitives::{GrayImage, Point};
-    use std::{fs, path::PathBuf};
+    use std::fs;
 
     #[test]
     fn prior_rerun_preserves_unbiased_tier1_provenance() {
@@ -831,6 +831,8 @@ mod moved_tests {
     #[cfg(unix)]
     #[test]
     fn reconciliation_does_not_skip_a_prior_rerun_for_nonregular_input() {
+        use std::path::PathBuf;
+
         let dir = PathBuf::from(format!("/tmp/evb-scan-reconcile-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let input = dir.join("already-consumed-input");

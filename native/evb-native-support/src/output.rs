@@ -596,45 +596,15 @@ fn file_identity(_file: &File) -> io::Result<Option<FileIdentity>> {
     Ok(None)
 }
 
-#[cfg(not(windows))]
+/// Replaces the destination's directory entry with the staged file.
+///
+/// On Windows, std's rename uses POSIX rename semantics where the file system
+/// supports them, so the destination is replaced even while another handle,
+/// such as a revision witness or a reader, still holds it open with delete
+/// sharing. The classic MoveFileEx replacement refuses that case with "Access
+/// is denied", which failed every publication over an existing output.
 fn replace_file_atomically(temporary_path: &Path, destination_path: &Path) -> io::Result<()> {
     fs::rename(temporary_path, destination_path)
-}
-
-#[cfg(windows)]
-fn replace_file_atomically(temporary_path: &Path, destination_path: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
-    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
-    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-    }
-
-    let existing: Vec<u16> = temporary_path
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect();
-    let replacement: Vec<u16> = destination_path
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect();
-    // The temporary handle is closed before replacement so Windows can publish it.
-    let result = unsafe {
-        MoveFileExW(
-            existing.as_ptr(),
-            replacement.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    };
-    if result == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
 }
 
 #[cfg(unix)]
@@ -654,11 +624,14 @@ mod tests {
     use std::{
         collections::HashSet,
         env, fs,
-        io::{BufWriter, Read, Write},
+        io::{Read, Write},
         process,
         sync::{Arc, Barrier},
         thread,
     };
+    // Only the POSIX write-failure fixtures (a closed Unix socket as the file) buffer.
+    #[cfg(unix)]
+    use std::io::BufWriter;
 
     use serde::Serializer;
 
@@ -915,6 +888,24 @@ mod tests {
 
         write_bytes_atomically(&destination, b"new-output").unwrap();
 
+        assert_eq!(fs::read(&destination).unwrap(), b"new-output");
+        assert_no_sibling_temporary(&destination);
+        fs::remove_file(destination).unwrap();
+    }
+
+    #[test]
+    fn replaces_a_destination_another_reader_still_holds_open() {
+        let destination = test_path("replacement-held-open");
+        fs::write(&destination, b"old-output").unwrap();
+        let mut reader = File::open(&destination).unwrap();
+
+        write_bytes_atomically(&destination, b"new-output").unwrap();
+
+        // The reader keeps the revision it opened; the path shows the new one.
+        let mut held = Vec::new();
+        reader.read_to_end(&mut held).unwrap();
+        assert_eq!(held, b"old-output");
+        drop(reader);
         assert_eq!(fs::read(&destination).unwrap(), b"new-output");
         assert_no_sibling_temporary(&destination);
         fs::remove_file(destination).unwrap();
