@@ -181,7 +181,7 @@ const phaseClock = computed(() => {
     }
     return formatElapsedClock(now.value.getTime() - phaseStartedAtMs.value);
 });
-const progressPercent = computed(() => progress?.percent ?? (isRunning ? 5 : 0));
+const progressPercent = computed(() => progress?.percent ?? 0);
 const progressPercentLabel = computed(() => `${Math.max(0, Math.min(100, progressPercent.value))}%`);
 const progressStatus = computed(() => {
     if (!progress) {

@@ -223,14 +223,17 @@ function emitProgress(
 function watchRenderedPageCount(renderDir: string, onCount: (count: number) => void) {
     let reported = 0;
     let reading = false;
+    let stopped = false;
     const timer = setInterval(() => {
-        if (reading) {
+        if (reading || stopped) {
             return;
         }
         reading = true;
         void collectRenderedJpegPages(renderDir)
             .then(pages => {
-                if (pages.length > reported) {
+                // A read that finishes after the range returned would report a
+                // stale rendering stage over the assembly that followed it.
+                if (!stopped && pages.length > reported) {
                     reported = pages.length;
                     onCount(reported);
                 }
@@ -240,7 +243,10 @@ function watchRenderedPageCount(renderDir: string, onCount: (count: number) => v
                 reading = false;
             });
     }, RENDERED_PAGE_POLL_MS);
-    return () => clearInterval(timer);
+    return () => {
+        stopped = true;
+        clearInterval(timer);
+    };
 }
 
 function parsePageNumber(fileName: string) {
