@@ -37,10 +37,7 @@ import {
     createPdfPageScale,
 } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
-import {
-    createAnchorPageWindow,
-    expandVirtualWindowForAnchor,
-} from '@app/modules/document-viewer/public';
+import { createAnchorPageWindow } from '@app/modules/document-viewer/public';
 
 export interface IZoomVirtualizationFreeze {
     sessionId: number | null;
@@ -444,17 +441,14 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return null;
         }
 
-        const anchorPage = resizeTransitionAnchorPage.value;
-        if (anchorPage === null) {
-            return null;
-        }
-
-        return expandVirtualWindowForAnchor({
-            baseStart: baseVirtualWindowStart.value,
-            baseEnd: baseVirtualWindowEnd.value,
-            anchorPage,
+        // A fit change rewrites every row top before the viewport is
+        // re-anchored, so the visible range can briefly name a page hundreds
+        // of rows away from the anchor. Keep the anchor as its own window;
+        // spanning the gap would mount every page in between.
+        return createAnchorPageWindow({
+            anchorPage: resizeTransitionAnchorPage.value,
             totalPages: numPages.value,
-            buffer: virtualMountBuffer.value,
+            radiusPages: virtualMountBuffer.value,
         });
     });
 
@@ -610,7 +604,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return getPagedPagesToRender();
         }
 
-        if (navigationAnchorWindow.value) {
+        const anchorWindow = navigationAnchorWindow.value
+            ?? (activeZoomVirtualizationFreeze.value ? null : resizeTransitionWindow.value);
+        if (anchorWindow) {
             // This list is intentionally non-contiguous. Consumers that need
             // DOM spacing use virtualPageSegments below; raster demand may
             // safely iterate the flattened page identities.
@@ -619,7 +615,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                     start: baseVirtualWindowStart.value,
                     end: baseVirtualWindowEnd.value,
                 },
-                navigationAnchorWindow.value,
+                anchorWindow,
             ]).flatMap(window => range(window.start, window.end + 1));
         }
 

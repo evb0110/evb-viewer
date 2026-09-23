@@ -26,7 +26,7 @@ export {
     createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfacePageGeometrySeed, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentNativeOpeningPreviewState, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export {
-    createAnchorPageWindow, createLazyIndexedCollection, expandVirtualWindowForAnchor, isLazyIndexedCollection, type ILazyIndexedCollection,
+    createAnchorPageWindow, createLazyIndexedCollection, isLazyIndexedCollection, type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 export { createBoundedLruCache } from '@app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache';
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';

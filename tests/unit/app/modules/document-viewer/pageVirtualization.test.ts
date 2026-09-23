@@ -7,7 +7,6 @@ import {
     createAnchorFirstPageOrder,
     createAnchorPageWindow,
     createPageNumbersForWindow,
-    expandVirtualWindowForAnchor,
     normalizeDocumentViewerPageRange,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 
@@ -55,45 +54,6 @@ describe('document viewer page virtualization', () => {
             totalPages: 5,
             radiusPages: 4,
         })).toBeNull();
-    });
-
-    it('keeps the existing window when no resize anchor page is provided', () => {
-        expect(expandVirtualWindowForAnchor({
-            baseStart: 10,
-            baseEnd: 20,
-            anchorPage: null,
-            totalPages: 100,
-            buffer: 6,
-        })).toEqual({
-            start: 10,
-            end: 20,
-        });
-    });
-
-    it('expands the window to keep an anchor page mounted', () => {
-        expect(expandVirtualWindowForAnchor({
-            baseStart: 40,
-            baseEnd: 52,
-            anchorPage: 30,
-            totalPages: 100,
-            buffer: 6,
-        })).toEqual({
-            start: 24,
-            end: 52,
-        });
-    });
-
-    it('clamps expanded windows into document bounds', () => {
-        expect(expandVirtualWindowForAnchor({
-            baseStart: 3,
-            baseEnd: 10,
-            anchorPage: 1,
-            totalPages: 12,
-            buffer: 8,
-        })).toEqual({
-            start: 1,
-            end: 10,
-        });
     });
 
     it('prioritizes pages in the forward scroll direction', () => {

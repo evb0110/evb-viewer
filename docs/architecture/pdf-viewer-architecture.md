@@ -154,6 +154,13 @@ once per burst of commands: a command that lands while the skeleton already
 shows keeps it for the new target, and one that lands while the delay runs
 keeps the running deadline.
 
+A fit change rewrites every row top before the viewport is re-anchored, so for
+a moment the visible range can name a page hundreds of rows from the one the
+user reads. The resize transition keeps that page mounted as its own window,
+the way a navigation keeps its target. A single window spanning both would
+mount every page in between: about 700 pages and a two-second freeze for Fit
+Height on a 1,200-page document.
+
 ## Wheel gestures and explicit commands
 
 Viewport intent is ordered by when the user expressed it, not by when its

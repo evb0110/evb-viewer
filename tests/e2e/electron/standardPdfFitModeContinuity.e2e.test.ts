@@ -79,6 +79,11 @@ const OPENING_WIDTH_TOLERANCE_PX = 0.5;
 // about 1fps. Convergence itself is still asserted exactly; only the patience
 // is generous.
 const RENDER_SETTLE_TIMEOUT_MS = 45_000;
+// Longest time the renderer may stay unresponsive while a fit change replaces
+// page geometry. Measured by the fit probe on headless Linux: 125-129ms, and
+// 1,927-1,929ms when Fit Height mounted every row between the stale and the
+// re-anchored scroll position.
+const FIT_CHANGE_FREEZE_BUDGET_MS = 750;
 
 function assertNativeOpeningFitWidthIsSettled(
     frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>>,
@@ -1344,6 +1349,25 @@ describe('standard PDF.js fit-mode continuity', () => {
         expect(skeletonFrames, JSON.stringify(skeletonFrames.slice(0, 8))).toEqual([]);
         expect(uncommittedFrames, JSON.stringify(uncommittedFrames.slice(0, 8))).toEqual([]);
         expect(strayPageFrames, JSON.stringify(strayPageFrames.slice(0, 8))).toEqual([]);
+        // The probe samples every 16ms, so a gap between two samples is time
+        // the viewer could not repaint or answer input.
+        const longestFreeze = frames.reduce<{
+            checkpoint: string;
+            gapMs: number;
+        }>((longest, frame, index) => {
+            const gapMs = frame.elapsedMs - (frames[index - 1]?.elapsedMs ?? frame.elapsedMs);
+            return gapMs > longest.gapMs
+                ? {
+                    checkpoint: frame.checkpoint,
+                    gapMs,
+                }
+                : longest;
+        }, {
+            checkpoint: 'none',
+            gapMs: 0,
+        });
+        console.info(`[standard-pdf-fit-freeze] ${JSON.stringify(longestFreeze)}`);
+        expect(longestFreeze.gapMs, JSON.stringify(longestFreeze)).toBeLessThan(FIT_CHANGE_FREEZE_BUDGET_MS);
     }, 300_000);
 
     it('hands the sidebar to the opening document and keeps an invalid open recoverable', async () => {

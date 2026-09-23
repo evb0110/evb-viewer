@@ -1,5 +1,3 @@
-import { clamp } from 'es-toolkit/math';
-
 export interface ILazyIndexedCollection<T> extends Array<T> {
     readonly get: (index: number) => T | undefined;
     readonly map: <U>(
@@ -144,14 +142,6 @@ interface ICreateAnchorPageWindowOptions {
     radiusPages: number;
 }
 
-interface IExpandVirtualWindowForAnchorOptions {
-    baseStart: number;
-    baseEnd: number;
-    anchorPage: number | null;
-    totalPages: number;
-    buffer: number;
-}
-
 interface ICreateAnchorFirstPageOrderOptions {
     anchorPage: number;
     direction?: TDocumentViewerPageDirection;
@@ -273,27 +263,6 @@ export function createAnchorPageWindow(options: ICreateAnchorPageWindowOptions):
     return {
         start: clampPageNumber(anchorPage - radiusPages, 1, totalPages),
         end: clampPageNumber(anchorPage + radiusPages, 1, totalPages),
-    };
-}
-
-export function expandVirtualWindowForAnchor(options: IExpandVirtualWindowForAnchorOptions) {
-    const baseStart = Math.max(1, Math.trunc(options.baseStart));
-    const baseEnd = Math.max(baseStart, Math.trunc(options.baseEnd));
-    const totalPages = Math.max(baseEnd, Math.trunc(options.totalPages));
-    const anchorPage = typeof options.anchorPage === 'number' && Number.isFinite(options.anchorPage)
-        ? clamp(Math.trunc(options.anchorPage), 1, totalPages)
-        : null;
-    if (anchorPage === null) {
-        return {
-            start: baseStart,
-            end: Math.min(totalPages, baseEnd),
-        };
-    }
-
-    const buffer = Math.max(0, Math.trunc(options.buffer));
-    return {
-        start: clamp(anchorPage - buffer, 1, baseStart),
-        end: clamp(anchorPage + buffer, baseEnd, totalPages),
     };
 }
 

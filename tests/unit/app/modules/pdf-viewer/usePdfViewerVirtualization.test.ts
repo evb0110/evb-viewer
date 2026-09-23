@@ -214,6 +214,42 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.virtualScrollHeight.value).toBe(0);
     });
 
+    it('keeps a far resize anchor mounted without the pages between it and the visible range', () => {
+        const visibleRange = ref({
+            start: 1195,
+            end: 1196,
+        });
+        const resizeTransitionAnchorPage = ref<number | null>(500);
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(1200),
+            currentPage: ref(500),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            pageMetrics: ref([]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange,
+            navigationAnchorPage: ref(null),
+            resizeTransitionAnchorPage,
+            zoomVirtualizationFreeze: ref(null),
+        });
+        const pages = virtualization.pagesToRender.value;
+        expect(pages).toContain(500);
+        expect(pages).toContain(1195);
+        expect(pages).not.toContain(800);
+        expect(pages.length).toBeLessThan(40);
+        expect(virtualization.virtualPageSegments.value).toHaveLength(2);
+        expect(virtualization.virtualScrollHeight.value).toBeCloseTo(1200 * 792 + 1201 * 20);
+        resizeTransitionAnchorPage.value = null;
+        expect(virtualization.pagesToRender.value).not.toContain(500);
+        expect(virtualization.virtualPageSegments.value).toHaveLength(1);
+    });
+
     it('keeps virtualization enabled for facing spread modes and aligns render rows', () => {
         const virtualization = createVirtualizationHarness('facing');
 
