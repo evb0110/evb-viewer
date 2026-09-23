@@ -11,7 +11,10 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import {
+    basename,
+    join,
+} from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -393,6 +396,32 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect(queueState.mountedRowCount).toBeLessThan(100);
         expect(queueState.scrollHeight).toBeGreaterThan(30_000);
         expect(queueState.firstRowIndex).toBe('0');
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
+    it('returns an empty tab to Start with a visible error when a launch path cannot be opened', async () => {
+        const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-open-${process.pid}-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(brokenPath, {force: true}));
+        writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+
+        session = await startElectronE2ESession(`e2e-blocking-broken-open-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [brokenPath],
+        });
+        const {page} = session;
+
+        await page.waitForSelector('[data-testid="start-open-failure"]', {
+            visible: true,
+            timeout: 45_000,
+        });
+        const shownState = await page.evaluate(() => ({
+            alert: document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? '',
+            activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
+            startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
+        }));
+        expect(shownState.alert).toContain(basename(brokenPath));
+        expect(shownState.activeTab).not.toContain(basename(brokenPath));
+        expect(shownState.startVisible).toBe(true);
+        expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
