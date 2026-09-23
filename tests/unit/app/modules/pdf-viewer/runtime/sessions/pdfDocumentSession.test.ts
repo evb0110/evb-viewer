@@ -1,5 +1,6 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     beforeEach,
     describe,
@@ -273,6 +274,84 @@ describe('PdfDocumentSession range loading', () => {
             iccUrl: getPdfjsAssetDir('iccs'),
             useSystemFonts: false,
         }));
+    });
+
+    it('places a page from exact native geometry while PDF.js is still busy with another page', async () => {
+        const pageCount = 6;
+        const revision = requireDocumentRevisionToken('rev-native-geometry');
+        const path = requireDocumentRef('/tmp/native-geometry.pdf');
+        const getPage = vi.fn((pageNumber: number) => (pageNumber === 1
+            ? Promise.resolve({
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 612,
+                    height: 792,
+                })),
+            })
+            // The single PDF.js worker is still rasterizing another page.
+            : new Promise(() => {})));
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: pageCount,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+        const getPdfNativePageSizes = vi.fn(async () => ({
+            kind: 'exact' as const,
+            documentRef: path,
+            documentRevisionToken: revision,
+            pageCount,
+            pages: Array.from({length: pageCount}, (_, index) => ({
+                pageNumber: requirePageNumber(index + 1),
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0 as const,
+                userUnit: 1,
+            })),
+        }));
+        Reflect.set(electronApi.documentFiles, 'getPdfNativePageSizes', getPdfNativePageSizes);
+        try {
+            const documentState = createPdfDocumentSession();
+            const result = await documentState.loadPdf({
+                kind: 'path',
+                path,
+                size: 2048,
+                revision,
+            });
+            expect(result).not.toBeNull();
+            expect(getPdfNativePageSizes).toHaveBeenCalled();
+
+            const settled = vi.fn();
+            void documentState.ensureNavigationPageMetrics(4, 5).then(settled);
+            await vi.waitFor(() => expect(settled).toHaveBeenCalledWith(false));
+
+            // Rendering still needs the PDF.js page, so its metric wait stays open.
+            const rendered = vi.fn();
+            void documentState.ensurePageMetricsInRange(4, 4).then(rendered);
+            await Promise.resolve();
+            expect(rendered).not.toHaveBeenCalled();
+
+            // A page refreshed after a mutation has no trusted size until PDF.js
+            // measures it again, so navigation waits for it.
+            void documentState.ensurePageMetricsInRange(5, 5, [5]);
+            const refreshed = vi.fn();
+            void documentState.ensureNavigationPageMetrics(5, 5).then(refreshed);
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(refreshed).not.toHaveBeenCalled();
+        } finally {
+            Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
+        }
     });
 
     it('does not impose a total-page product cap on path-backed PDFs', async () => {

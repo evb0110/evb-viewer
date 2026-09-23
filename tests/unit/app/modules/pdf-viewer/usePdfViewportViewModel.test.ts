@@ -135,8 +135,10 @@ describe('usePdfViewportViewModel', () => {
         scope.stop();
     });
 
-    it('keeps an outgoing facing spread wide during pending navigation', () => {
+    it('keeps an outgoing facing spread wide during pending navigation', async () => {
         const scope = effectScope();
+        const effectiveScale = ref(1);
+        const navigationAnchorPage = ref<number | null>(null);
         const writePort = createTestPdfViewportWritePort();
         const container = document.createElement('div');
         Object.defineProperty(container, 'clientWidth', {
@@ -181,13 +183,13 @@ describe('usePdfViewportViewModel', () => {
             ]),
             pageMetricsVersion: ref(0),
             doesFitHeightSpreadFitWidth: () => false,
-            effectiveScale: ref(0.7),
+            effectiveScale,
             scaledMargin: ref(20),
             visibleRange: ref({
                 start: 1,
                 end: 2,
             }),
-            navigationAnchorPage: computed(() => 3),
+            navigationAnchorPage: computed(() => navigationAnchorPage.value),
             getCommittedPageScale: pageNumber => pageNumber <= 2 ? 1 : null,
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
@@ -209,6 +211,11 @@ describe('usePdfViewportViewModel', () => {
             if (!viewModel) {
                 throw new Error('Failed to create viewport view model');
             }
+            // The spread was laid out at scale 1; the navigation and the
+            // narrower fit arrive together.
+            await nextTick();
+            navigationAnchorPage.value = 3;
+            effectiveScale.value = 0.7;
 
             expect(viewModel.viewerClass.value['pdfViewer--active-spread-fits-width']).toBe(false);
 

@@ -265,7 +265,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             viewMode: options.viewMode.value,
             totalPages: numPages.value,
         });
-        await documentSession.ensurePageMetricsInRange(range.start, range.end);
+        await documentSession.ensureNavigationPageMetrics(range.start, range.end);
         if (signal.aborted || options.zoomMode.value === 'custom') {
             return;
         }
@@ -383,7 +383,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         updateCurrentPage: scroll.updateCurrentPage,
         commitVisibleRange: (range, commitOptions) => transactionController.commitVisibleRange(range, commitOptions),
         renderVisiblePages: (range, renderOptions) => requestMandatoryRaster(range, renderOptions),
-        ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
+        ensureNavigationPageMetrics: documentSession.ensureNavigationPageMetrics,
         prepareNavigationLayout,
         isPageFreshlyRenderedForNavigation: options.isPageFreshlyRenderedForNavigation,
         waitForPageTextLayerReady: options.waitForPageTextLayerReady,

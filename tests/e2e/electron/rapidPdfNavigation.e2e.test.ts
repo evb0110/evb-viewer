@@ -2683,3 +2683,347 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(blankVisiblePages).toEqual([]);
     }, 60_000);
 });
+
+interface ISidebarNavigationFrame {
+    ms: number;
+    paneWidth: number;
+    pageWidth: number | null;
+    overflowPx: number;
+    visiblePages: number[];
+    toolbarText: string;
+    resizeTransition: boolean;
+}
+
+interface ISidebarNavigationProbeWindow extends Window {
+    __sidebarNavigationFrames?: ISidebarNavigationFrame[];
+    __sidebarNavigationSampling?: boolean;
+}
+
+describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
+    const SIDEBAR_TARGET_PAGE = 120;
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-sidebar-thumbnail-navigation-${Date.now()}`,
+        timeoutMs: 180_000,
+    });
+
+    it('keeps outgoing pages at the new fit width and lands on the thumbnail promptly', async () => {
+        const session = sessionFixture.getSession();
+        const page = session.page;
+        // A heavy scan makes each page raster slow, so the outgoing page is
+        // still showing its pre-sidebar raster when the thumbnail is clicked.
+        const pdfPath = await createLargeScannedFixturePdf(
+            `sidebar-thumbnail-navigation-${Date.now()}.pdf`,
+            200,
+            0,
+            6,
+        );
+        await openPdfInApp(page, pdfPath, 60_000);
+        await waitForVisibleMountedPdfCanvases(page, 30_000);
+
+        const readSidebarOpen = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
+            .some(element => element.getBoundingClientRect().width > 10));
+        const readToggleCenter = () => page.evaluate(() => {
+            const toggle = [...document.querySelectorAll<HTMLButtonElement>('button')]
+                .find(button => /toggle sidebar/iu.test(button.getAttribute('aria-label') ?? '') && button.getBoundingClientRect().width > 0);
+            if (!toggle) {
+                return null;
+            }
+            const rect = toggle.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        if (await readSidebarOpen()) {
+            const toggle = await readToggleCenter();
+            expect(toggle).not.toBeNull();
+            await page.mouse.click(toggle!.x, toggle!.y);
+            await page.waitForFunction(() => ![...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
+                .some(element => element.getBoundingClientRect().width > 10), {timeout: 10_000});
+            await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
+                ?.classList.contains('pdfViewer--resize-transition'), {timeout: 15_000});
+            await waitForVisibleMountedPdfCanvases(page, 30_000);
+        }
+
+        await page.evaluate(() => {
+            const probe = window as ISidebarNavigationProbeWindow;
+            const startedAt = performance.now();
+            probe.__sidebarNavigationFrames = [];
+            probe.__sidebarNavigationSampling = true;
+            const sample = () => {
+                const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+                if (viewer) {
+                    const viewerRect = viewer.getBoundingClientRect();
+                    const pages = [...viewer.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)')]
+                        .filter((container) => {
+                            const rect = container.getBoundingClientRect();
+                            return rect.height > 0 && rect.bottom > viewerRect.top && rect.top < viewerRect.bottom;
+                        });
+                    probe.__sidebarNavigationFrames?.push({
+                        ms: performance.now() - startedAt,
+                        paneWidth: viewer.clientWidth,
+                        pageWidth: pages[0]?.getBoundingClientRect().width ?? null,
+                        overflowPx: viewer.scrollWidth - viewer.clientWidth,
+                        visiblePages: pages.map(container => Number(container.dataset.page)),
+                        toolbarText: document.querySelector('.page-controls-display')?.textContent?.replace(/\s+/gu, '') ?? '',
+                        resizeTransition: document.querySelector('[data-pdf-page-track]')
+                            ?.classList.contains('pdfViewer--resize-transition') === true,
+                    });
+                }
+                if (probe.__sidebarNavigationSampling) {
+                    window.requestAnimationFrame(sample);
+                }
+            };
+            window.requestAnimationFrame(sample);
+        });
+
+        const toggle = await readToggleCenter();
+        expect(toggle).not.toBeNull();
+        await page.mouse.click(toggle!.x, toggle!.y);
+        await page.waitForFunction(() => document.querySelector('.pdf-thumbnails'), {
+            timeout: 10_000,
+            polling: 'raf',
+        });
+        await page.evaluate((target) => {
+            const rail = document.querySelector<HTMLElement>('.pdf-thumbnails');
+            if (rail) {
+                rail.scrollTop = rail.scrollHeight * ((target - 1) / 200);
+            }
+        }, SIDEBAR_TARGET_PAGE);
+        // Click while the pane is still narrowing, as soon as the thumbnail is
+        // the element under the pointer. The sidebar slides in, so its
+        // thumbnails are laid out before they can be hit.
+        const thumbnailHandle = await page.waitForFunction((target) => {
+            const probe = window as ISidebarNavigationProbeWindow & {__sidebarNavigationLastPaneWidth?: number};
+            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+            const paneWidth = viewer?.clientWidth ?? 0;
+            // Well before the easing tail, so the pane keeps narrowing after
+            // the navigation lands.
+            const paneMoving = probe.__sidebarNavigationLastPaneWidth !== undefined
+                && probe.__sidebarNavigationLastPaneWidth - paneWidth >= 12;
+            probe.__sidebarNavigationLastPaneWidth = paneWidth;
+            const item = document.querySelector<HTMLElement>(`[data-document-thumbnail-item][data-page="${target}"]`);
+            if (!item || !paneMoving) {
+                return null;
+            }
+            item.scrollIntoView({block: 'center'});
+            const rect = item.getBoundingClientRect();
+            const point = {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+            return rect.height > 0 && item.contains(document.elementFromPoint(point.x, point.y)) ? point : null;
+        }, {
+            timeout: 10_000,
+            polling: 'raf',
+        }, SIDEBAR_TARGET_PAGE);
+        const thumbnail = await thumbnailHandle.jsonValue();
+        expect(thumbnail).not.toBeNull();
+        const clickAtMs = await page.evaluate(() => {
+            const frames = (window as ISidebarNavigationProbeWindow).__sidebarNavigationFrames ?? [];
+            return frames.at(-1)?.ms ?? 0;
+        });
+        await page.mouse.click(thumbnail!.x, thumbnail!.y);
+        await page.waitForFunction((target) => {
+            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+            const container = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${target}"]`);
+            if (!viewer || !container) {
+                return false;
+            }
+            const viewerRect = viewer.getBoundingClientRect();
+            const rect = container.getBoundingClientRect();
+            return rect.bottom > viewerRect.top && rect.top < viewerRect.bottom
+                && !document.querySelector('[data-pdf-page-track]')?.classList.contains('pdfViewer--resize-transition');
+        }, {
+            timeout: 10_000,
+            polling: 'raf',
+        }, SIDEBAR_TARGET_PAGE);
+        await waitForAnimationFrames(page, 30);
+        const frames = await page.evaluate(() => {
+            const probe = window as ISidebarNavigationProbeWindow;
+            probe.__sidebarNavigationSampling = false;
+            return probe.__sidebarNavigationFrames ?? [];
+        });
+
+        const afterClick = frames.filter(frame => frame.ms >= clickAtMs);
+        const widthAtClick = afterClick[0]?.pageWidth ?? null;
+        expect(widthAtClick).not.toBeNull();
+        // The sidebar only ever narrows the pane, so no page may grow back
+        // toward the width it had before the sidebar opened.
+        const regrownFrames = afterClick.filter(frame => (
+            frame.pageWidth !== null && frame.pageWidth > (widthAtClick ?? 0) + 1
+        ));
+        const firstTargetFrame = afterClick.find(frame => frame.visiblePages.includes(SIDEBAR_TARGET_PAGE));
+        // Behavior contract R2: work that started before the navigation, here
+        // the sidebar still sliding in, cannot move the destination away.
+        const driftedFrames = afterClick
+            .filter(frame => firstTargetFrame !== undefined && frame.ms > firstTargetFrame.ms)
+            .filter(frame => !frame.visiblePages.includes(SIDEBAR_TARGET_PAGE))
+            .map(frame => ({
+                ms: Math.round(frame.ms - clickAtMs),
+                visiblePages: frame.visiblePages.slice(0, 3),
+            }));
+        const finalFrame = afterClick.at(-1);
+        expect({
+            driftedFrames: driftedFrames.slice(0, 3),
+            regrownFrames: regrownFrames.slice(0, 3),
+            targetVisibleAfterMs: firstTargetFrame ? Math.round(firstTargetFrame.ms - clickAtMs) : null,
+        }).toEqual({
+            driftedFrames: [],
+            regrownFrames: [],
+            targetVisibleAfterMs: expect.any(Number),
+        });
+        // Behavior contract R2: a thumbnail navigation is acknowledged, with
+        // its destination on screen, within one second.
+        expect(Math.round((firstTargetFrame?.ms ?? Infinity) - clickAtMs)).toBeLessThan(1_000);
+        expect(finalFrame?.overflowPx ?? Infinity).toBeLessThanOrEqual(1);
+        expect(finalFrame?.visiblePages).toContain(SIDEBAR_TARGET_PAGE);
+        expect(finalFrame?.toolbarText).toContain(`${SIDEBAR_TARGET_PAGE}/`);
+    }, 120_000);
+});
+
+describe('Electron E2E - reading point across a sidebar open and a window resize', () => {
+    const SIDEBAR_TARGET_PAGE = 120;
+    const sessionFixture = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-sidebar-centre-anchor-${Date.now()}`,
+        timeoutMs: 180_000,
+    });
+
+    it('keeps the reading point at the viewport centre when the sidebar opens or the window shortens after a navigation', async () => {
+        const session = sessionFixture.getSession();
+        const page = session.page;
+        const pdfPath = await createLargeScannedFixturePdf(
+            `sidebar-centre-anchor-${Date.now()}.pdf`,
+            200,
+            0,
+            6,
+        );
+        await openPdfInApp(page, pdfPath, 60_000);
+        await waitForVisibleMountedPdfCanvases(page, 30_000);
+        const readSidebarOpen = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
+            .some(element => element.getBoundingClientRect().width > 10));
+        const clickSidebarToggle = async () => {
+            const toggle = await page.evaluate(() => {
+                const button = [...document.querySelectorAll<HTMLButtonElement>('button')]
+                    .find(candidate => /toggle sidebar/iu.test(candidate.getAttribute('aria-label') ?? '') && candidate.getBoundingClientRect().width > 0);
+                const rect = button?.getBoundingClientRect();
+                return rect
+                    ? {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2,
+                    }
+                    : null;
+            });
+            expect(toggle).not.toBeNull();
+            await page.mouse.click(toggle!.x, toggle!.y);
+        };
+        const waitForLayoutAtRest = async () => {
+            await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
+                ?.classList.contains('pdfViewer--resize-transition'), {timeout: 15_000});
+            await waitForAnimationFrames(page, 20);
+        };
+        // The document point under the viewport centre, in pixels from its page top.
+        const readCentrePoint = () => page.evaluate(() => {
+            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+            if (!viewer) {
+                return null;
+            }
+            const viewerRect = viewer.getBoundingClientRect();
+            const centreY = viewerRect.top + viewer.clientHeight / 2;
+            const container = [...viewer.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)')]
+                .find((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    return rect.top <= centreY && rect.bottom >= centreY;
+                });
+            if (!container) {
+                return null;
+            }
+            const rect = container.getBoundingClientRect();
+            return {
+                page: Number(container.dataset.page),
+                pageYFraction: (centreY - rect.top) / rect.height,
+                pageHeight: rect.height,
+            };
+        });
+        if (await readSidebarOpen()) {
+            await clickSidebarToggle();
+            await waitForLayoutAtRest();
+        }
+
+        // A deliberate toolbar navigation, with the sidebar opened while the
+        // viewer is still guarding that navigation's arrival.
+        const pageField = await page.evaluate(() => {
+            const button = [...document.querySelectorAll<HTMLButtonElement>('button')]
+                .find(candidate => /^\d+\/200$/u.test(candidate.textContent?.trim() ?? '') && candidate.getBoundingClientRect().width > 0);
+            const rect = button?.getBoundingClientRect();
+            return rect
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        });
+        expect(pageField).not.toBeNull();
+        await page.mouse.click(pageField!.x, pageField!.y);
+        const selectAllModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(selectAllModifier);
+        await page.keyboard.press('a');
+        await page.keyboard.up(selectAllModifier);
+        await page.keyboard.type(String(SIDEBAR_TARGET_PAGE));
+        await page.keyboard.press('Enter');
+        await page.waitForFunction((target) => {
+            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+            const container = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${target}"]`);
+            if (!viewer || !container) {
+                return false;
+            }
+            const viewerRect = viewer.getBoundingClientRect();
+            const rect = container.getBoundingClientRect();
+            return rect.top <= viewerRect.top + viewer.clientHeight / 2 && rect.bottom > viewerRect.top;
+        }, {
+            timeout: 10_000,
+            polling: 'raf',
+        }, SIDEBAR_TARGET_PAGE);
+        await waitForAnimationFrames(page, 30);
+
+        const beforeSidebar = await readCentrePoint();
+        expect(beforeSidebar?.page).toBe(SIDEBAR_TARGET_PAGE);
+        await clickSidebarToggle();
+        await waitForLayoutAtRest();
+        const afterSidebar = await readCentrePoint();
+        await delay(700);
+        const afterSidebarLater = await readCentrePoint();
+
+        // Behavior contract R3: a sidebar open keeps the page and the point at
+        // the unobscured viewport centre, and the place does not change again.
+        const driftPx = (from: typeof beforeSidebar, to: typeof beforeSidebar) => (
+            from && to && from.page === to.page
+                ? Math.round(Math.abs(to.pageYFraction - from.pageYFraction) * to.pageHeight)
+                : Infinity
+        );
+        expect({
+            sidebarDriftPx: driftPx(beforeSidebar, afterSidebar),
+            laterDriftPx: driftPx(afterSidebar, afterSidebarLater),
+        }).toEqual({
+            sidebarDriftPx: expect.any(Number),
+            laterDriftPx: 0,
+        });
+        expect(driftPx(beforeSidebar, afterSidebar)).toBeLessThanOrEqual(3);
+
+        const windowSize = await page.evaluate(() => ({
+            width: window.innerWidth,
+            height: window.innerHeight,
+        }));
+        await session.command('windowResize', [
+            windowSize.width,
+            windowSize.height - 160,
+        ]);
+        await page.waitForFunction((expectedHeight: number) => (
+            Math.abs(window.innerHeight - expectedHeight) < 2
+        ), {timeout: 20_000}, windowSize.height - 160);
+        await waitForLayoutAtRest();
+        const afterShorterWindow = await readCentrePoint();
+        // R3 again: a shorter window keeps the centre point, not the top edge.
+        expect(driftPx(afterSidebarLater, afterShorterWindow)).toBeLessThanOrEqual(3);
+    }, 150_000);
+});

@@ -29,12 +29,24 @@ type TViewerMetrics = ReturnType<typeof summarizeViewerMetrics>;
 export interface IBuildResizeAnchorContextOptions {
     preferredAnchorPage?: number | null;
     trustPreferredAnchorPage?: boolean;
+    /**
+     * The viewport size before the change being handled. A ResizeObserver
+     * reports after the pane already has its new size, so the reading point
+     * is the old viewport's centre, placed at the new centre (contract R3).
+     */
+    previousViewportSize?: {
+        width: number;
+        height: number;
+    } | null;
 }
 
 interface IUsePdfViewerResizeLifecycleOptions {
     submitResizeIntent: (anchor?: IPdfSemanticAnchor | null) => void;
     applyResizeAnchorPreview?: ((anchor?: IPdfSemanticAnchor | null) => boolean | null) | undefined;
-    captureViewportAnchor?: (() => IPdfSemanticAnchor | null) | undefined;
+    captureViewportAnchor?: ((viewportPoint?: {
+        x: number;
+        y: number;
+    }) => IPdfSemanticAnchor | null) | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     isLoading: Ref<boolean>;
     isActive?: Ref<boolean> | undefined;
@@ -298,7 +310,20 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         const preferredAnchorPage = optionsOverride?.trustPreferredAnchorPage
             ? normalizePreferredAnchorPage(optionsOverride.preferredAnchorPage)
             : null;
-        const capturedSemanticAnchor = options.captureViewportAnchor?.() ?? null;
+        const previousViewportSize = optionsOverride?.previousViewportSize ?? null;
+        const previousCentreAnchor = previousViewportSize
+            ? options.captureViewportAnchor?.({
+                x: previousViewportSize.width / 2,
+                y: previousViewportSize.height / 2,
+            }) ?? null
+            : null;
+        const capturedSemanticAnchor = previousCentreAnchor
+            ? {
+                ...previousCentreAnchor,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+            }
+            : options.captureViewportAnchor?.() ?? null;
         const anchorPage = preferredAnchorPage ?? capturedSemanticAnchor?.page ?? currentPage.value;
         // Geometry may already reflect a new scale while scrollTop still
         // belongs to the preceding geometry epoch. Preserve the trusted page
@@ -568,11 +593,12 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             return;
         }
         const preferredAnchorPage = getResizePreferredAnchorPage();
+        const previousViewportSize = lastObservedViewportSize;
         const resizeAnchor = buildResizeAnchorContext({
             preferredAnchorPage,
             trustPreferredAnchorPage: true,
+            previousViewportSize,
         });
-        const previousViewportSize = lastObservedViewportSize;
         const viewportGeometryChanged = consumeViewportGeometryChange();
         const updated = computeFitWidthScale(viewerContainer.value, {page: resizeAnchor.page});
         if (!updated && !viewportGeometryChanged) {

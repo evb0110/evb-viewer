@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     computed,
+    nextTick,
     ref,
 } from 'vue';
 import type { TPdfViewMode } from '@contracts/shared';
@@ -356,9 +357,10 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.isPageBuffered(requirePageNumber(18))).toBe(false);
     });
 
-    it('keeps committed outgoing geometry until the pending target row is ready', () => {
-        const navigationAnchorPage = ref<number | null>(2);
-        const navigationVisualHandoffTargetPage = ref<number | null>(2);
+    it('keeps committed outgoing geometry until the pending target row is ready', async () => {
+        const navigationAnchorPage = ref<number | null>(null);
+        const navigationVisualHandoffTargetPage = ref<number | null>(null);
+        const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
@@ -379,7 +381,7 @@ describe('usePdfViewerVirtualization', () => {
                 },
             ]),
             pageMetricsVersion: ref(0),
-            effectiveScale: ref(0.8),
+            effectiveScale,
             scaledMargin: ref(20),
             visibleRange: ref({
                 start: 1,
@@ -391,6 +393,10 @@ describe('usePdfViewerVirtualization', () => {
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });
+        await nextTick();
+        navigationAnchorPage.value = 2;
+        navigationVisualHandoffTargetPage.value = 2;
+        effectiveScale.value = 0.8;
 
         expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
@@ -421,9 +427,80 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
-    it('treats a cleared visual handoff as authoritative over a retained navigation anchor', () => {
-        const navigationAnchorPage = ref<number | null>(2);
-        const navigationVisualHandoffTargetPage = ref<number | null>(2);
+    it('keeps an outgoing page at its laid-out scale when its raster is older', async () => {
+        // A sidebar opened and fit-width shrank the boxes while page 1 still
+        // shows its wider raster, stretched to the new box. A navigation that
+        // starts now must not put page 1 back to the raster's width.
+        const navigationVisualHandoffTargetPage = ref<number | null>(null);
+        const effectiveScale = ref(2.87);
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(3),
+            currentPage: ref(1),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(100),
+            basePageHeight: ref(160),
+            pageMetrics: ref([
+                {
+                    width: 100,
+                    height: 160,
+                },
+                {
+                    width: 100,
+                    height: 160,
+                },
+                {
+                    width: 100,
+                    height: 160,
+                },
+            ]),
+            pageMetricsVersion: ref(0),
+            effectiveScale,
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            navigationAnchorPage: ref(null),
+            navigationVisualHandoffTargetPage,
+            getCommittedPageScale: pageNumber => pageNumber === 1 ? 2.87 : null,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+        await nextTick();
+        effectiveScale.value = 2.29;
+        await nextTick();
+        navigationVisualHandoffTargetPage.value = 3;
+
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
+            width: '229px',
+            '--scale-factor': '2.29',
+        });
+
+        // A scale that arrives with the navigation is not what page 1 shows yet.
+        effectiveScale.value = 2;
+
+        expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 2.29});
+        expect(virtualization.getPageScale(requirePageNumber(3))).toMatchObject({scaleFactor: 2});
+
+        navigationVisualHandoffTargetPage.value = null;
+        await nextTick();
+
+        expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 2});
+
+        // The next handoff starts from the scale the boxes took after release.
+        navigationVisualHandoffTargetPage.value = 2;
+        effectiveScale.value = 1.5;
+
+        expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 2});
+    });
+
+    it('treats a cleared visual handoff as authoritative over a retained navigation anchor', async () => {
+        const navigationAnchorPage = ref<number | null>(null);
+        const navigationVisualHandoffTargetPage = ref<number | null>(null);
+        const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
@@ -444,7 +521,7 @@ describe('usePdfViewerVirtualization', () => {
                 },
             ]),
             pageMetricsVersion: ref(0),
-            effectiveScale: ref(0.8),
+            effectiveScale,
             scaledMargin: ref(20),
             visibleRange: ref({
                 start: 1,
@@ -456,6 +533,10 @@ describe('usePdfViewerVirtualization', () => {
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });
+        await nextTick();
+        navigationAnchorPage.value = 2;
+        navigationVisualHandoffTargetPage.value = 2;
+        effectiveScale.value = 0.8;
 
         expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 1});
 
@@ -476,8 +557,9 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
-    it('keeps committed outgoing continuous-scroll pages stable until navigation applies', () => {
-        const navigationVisualHandoffTargetPage = ref<number | null>(1);
+    it('keeps committed outgoing continuous-scroll pages stable until navigation applies', async () => {
+        const navigationVisualHandoffTargetPage = ref<number | null>(null);
+        const effectiveScale = ref(0.9);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
@@ -498,7 +580,7 @@ describe('usePdfViewerVirtualization', () => {
                 },
             ]),
             pageMetricsVersion: ref(0),
-            effectiveScale: ref(1),
+            effectiveScale,
             scaledMargin: ref(20),
             visibleRange: ref({
                 start: 1,
@@ -510,6 +592,9 @@ describe('usePdfViewerVirtualization', () => {
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });
+        await nextTick();
+        navigationVisualHandoffTargetPage.value = 1;
+        effectiveScale.value = 1;
 
         expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
@@ -536,7 +621,9 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
-    it('prepares a continuous-scroll target at the destination scale even when pre-rendered', () => {
+    it('prepares a continuous-scroll target at the destination scale even when pre-rendered', async () => {
+        const navigationAnchorPage = ref<number | null>(null);
+        const effectiveScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
@@ -557,24 +644,28 @@ describe('usePdfViewerVirtualization', () => {
                 },
             ]),
             pageMetricsVersion: ref(0),
-            effectiveScale: ref(0.8),
+            effectiveScale,
             scaledMargin: ref(20),
             visibleRange: ref({
                 start: 1,
                 end: 1,
             }),
-            navigationAnchorPage: ref(2),
+            navigationAnchorPage,
             getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : 0.9,
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });
+        await nextTick();
+        navigationAnchorPage.value = 2;
+        effectiveScale.value = 0.8;
 
         expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 1});
         expect(virtualization.getPageScale(requirePageNumber(2))).toMatchObject({scaleFactor: 0.8});
     });
 
-    it('stages a preceding target as buffered until the outgoing page hands off', () => {
-        const navigationVisualHandoffTargetPage = ref<number | null>(1);
+    it('stages a preceding target as buffered until the outgoing page hands off', async () => {
+        const navigationVisualHandoffTargetPage = ref<number | null>(null);
+        const effectiveScale = ref(0.8);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
@@ -595,7 +686,7 @@ describe('usePdfViewerVirtualization', () => {
                 },
             ]),
             pageMetricsVersion: ref(0),
-            effectiveScale: ref(1),
+            effectiveScale,
             scaledMargin: ref(20),
             visibleRange: ref({
                 start: 10,
@@ -607,6 +698,9 @@ describe('usePdfViewerVirtualization', () => {
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });
+        await nextTick();
+        navigationVisualHandoffTargetPage.value = 1;
+        effectiveScale.value = 1;
 
         expect(virtualization.pagesToRender.value).toContain(1);
         expect(virtualization.pagesToRender.value).toContain(10);

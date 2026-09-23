@@ -273,6 +273,50 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(setResizeTransitionVisible).not.toHaveBeenCalled();
     });
 
+    it('keeps the point that was at the centre before a height change at the new centre', async () => {
+        vi.useFakeTimers();
+        let viewportHeight = 800;
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientWidth: {value: 1200},
+            clientHeight: {get: () => viewportHeight},
+        });
+        const captureViewportAnchor = vi.fn((viewportPoint?: {
+            x: number;
+            y: number;
+        }) => ({
+            affinity: 'center' as const,
+            page: 4,
+            pageXFraction: 0.5,
+            pageYFraction: 0.3,
+            viewportXFraction: (viewportPoint?.x ?? 600) / 1200,
+            viewportYFraction: (viewportPoint?.y ?? viewportHeight / 2) / viewportHeight,
+        }));
+        const {submitResizeIntent} = createResizeLifecycle(ref(true), {
+            computeFitWidthScale: () => false,
+            viewerContainer: ref(viewer),
+            captureViewportAnchor,
+        });
+
+        // The ResizeObserver reports after the pane is already shorter.
+        viewportHeight = 600;
+        resizeObserverMock.callback?.();
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(captureViewportAnchor).toHaveBeenCalledWith({
+            x: 600,
+            y: 400,
+        });
+        expect(submitResizeIntent).toHaveBeenCalledExactlyOnceWith({
+            affinity: 'center',
+            page: 4,
+            pageXFraction: 0.5,
+            pageYFraction: 0.3,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        });
+    });
+
     it('suppresses the initial observer callback when geometry and fit scale are unchanged', async () => {
         vi.useFakeTimers();
         const viewerContainer = ref({

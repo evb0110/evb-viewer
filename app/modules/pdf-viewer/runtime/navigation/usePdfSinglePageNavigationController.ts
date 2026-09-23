@@ -288,7 +288,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 livePageCount(captured.document),
             ));
             captured.page = page;
-            await options.ensurePageMetricsInRange?.(page, page);
+            await options.ensureNavigationPageMetrics?.(page, page);
             requireIntentDocument(intent, signal);
             if (!options.continuousScroll.value || intent.navigation) {
                 await options.prepareNavigationLayout?.(page, signal);
@@ -641,6 +641,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 )
                 || options.viewportWritePort.getInteractionEpoch() !== interactionEpoch
                 || framesRemaining <= 0
+                // A resize, sidebar toggle or zoom that starts afterwards owns
+                // the place from then on (contract R3). Re-projecting the older
+                // navigation anchor on its layout frames would fight that
+                // operation's own anchor and decide the final position by
+                // whichever write happened last.
+                || options.isResizeTransitionActive?.value === true
+                || viewportAuthority.committedAnchor.value !== anchor
             ) {
                 return;
             }
@@ -987,8 +994,24 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             : viewportAuthority.committedAnchor.value;
     }
 
+    /**
+     * A navigation placed its page and now waits for the raster. Layout that
+     * keeps changing meanwhile, such as a sidebar still sliding in, must carry
+     * that destination with it; left alone, the old pixel offset reads as
+     * later and later pages while the fit scale shrinks.
+     */
+    function isPlacedNavigationAnchor(anchor: IPdfSemanticAnchor | null | undefined) {
+        return anchor !== null
+            && anchor !== undefined
+            && viewportAuthority.phase.value === 'awaiting-visual'
+            && viewportAuthority.committedAnchor.value === anchor;
+    }
+
     function applyViewportAnchorPreview(anchor: IPdfSemanticAnchor | null | undefined) {
-        if (currentNavigationTicket() || viewportAuthority.getActiveNavigationRequest()) {
+        if (
+            (currentNavigationTicket() || viewportAuthority.getActiveNavigationRequest())
+            && !isPlacedNavigationAnchor(anchor)
+        ) {
             return null;
         }
         const container = options.viewerContainer.value;

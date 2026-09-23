@@ -207,9 +207,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return false;
         }
 
-        const targetPage = navigationVisualHandoffTargetPage === undefined
-            ? navigationAnchorPage.value
-            : navigationVisualHandoffTargetPage.value;
+        const targetPage = readHandoffTargetPage();
         if (targetPage === null) {
             return false;
         }
@@ -235,20 +233,41 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return pageNumber < targetRow.start || pageNumber > targetRow.end;
     }
 
-    function getCommittedLayoutScale(pageNumber: TPageNumber) {
+    function readHandoffTargetPage() {
+        return navigationVisualHandoffTargetPage === undefined
+            ? navigationAnchorPage.value
+            : navigationVisualHandoffTargetPage.value;
+    }
+
+    // The scale page boxes were last laid out at before a handoff began. A
+    // committed raster can be older than its box: after a resize or fit change
+    // the box follows the new scale at once while the canvas stretches until
+    // its re-render commits. Preserving the raster scale would put an outgoing
+    // page back to a size it no longer had. The post flush observes the scale
+    // after the DOM patch, and a scale that changes in the same tick as a
+    // navigation is not recorded because the handoff is already active.
+    let paintedLayoutScale = effectiveScale.value;
+    watch([
+        effectiveScale,
+        readHandoffTargetPage,
+    ], ([
+        scale,
+        targetPage,
+    ]) => {
+        if (targetPage === null) {
+            paintedLayoutScale = scale;
+        }
+    }, {flush: 'post'});
+
+    function isPageGeometryCommitted(pageNumber: TPageNumber) {
         const committedScale = getCommittedPageScale?.(pageNumber);
         return committedScale !== null && committedScale !== undefined
-            && Number.isFinite(committedScale) && committedScale > 0
-            ? committedScale
-            : null;
+            && Number.isFinite(committedScale) && committedScale > 0;
     }
 
     function getPageLayoutScale(pageNumber: TPageNumber) {
-        if (shouldPreserveCommittedPageGeometry(pageNumber)) {
-            const committedScale = getCommittedLayoutScale(pageNumber);
-            if (committedScale !== null) {
-                return committedScale;
-            }
+        if (shouldPreserveCommittedPageGeometry(pageNumber) && isPageGeometryCommitted(pageNumber)) {
+            return paintedLayoutScale;
         }
 
         return effectiveScale.value;

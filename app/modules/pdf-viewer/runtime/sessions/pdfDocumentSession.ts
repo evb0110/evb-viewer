@@ -220,6 +220,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     const pageMetricLoads = new Map<number, Promise<IPdfPageMetric | null>>();
     const provisionalPageMetrics = new Set<number>();
+    // Revision-checked native sizes stay provisional until PDF.js confirms
+    // them, but they are exact enough to place a page. Navigation trusts a
+    // provisional page only while its metric is still the installed native
+    // object; any replacement or explicit refresh ends that trust.
+    const nativeGeometryMetrics = new Map<number, IPdfPageMetric>();
     let activeLifecycleKey = fallbackLifecycleKey;
     let teardownWaitAbortController: AbortController | null = null;
     let trustedGeometrySeedPending = false;
@@ -391,6 +396,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     function incrementRenderVersion() {
         pageMetricLoads.clear();
         provisionalPageMetrics.clear();
+        nativeGeometryMetrics.clear();
         const version = loadState.value.version + 1;
         loadState.value = {
             ...loadState.value,
@@ -554,6 +560,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         for (const pageNumber of pagesToRefresh) {
             if (Number.isSafeInteger(pageNumber) && pageNumber >= rangeStart && pageNumber <= rangeEnd) {
                 provisionalPageMetrics.add(pageNumber);
+                nativeGeometryMetrics.delete(pageNumber);
             }
         }
         const missingPageCount = rangeEnd - rangeStart + 1;
@@ -590,8 +597,36 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         return version === getRenderVersion() && document === pdfDocument.value;
     }
 
+    function hasNavigablePageGeometry(pageNumber: number) {
+        const metric = pageMetrics.value[pageNumber - 1];
+        return isValidPageMetric(metric)
+            && (!provisionalPageMetrics.has(pageNumber) || nativeGeometryMetrics.get(pageNumber) === metric);
+    }
+
+    /**
+     * Navigation places a page from its size, not from its PDF.js page proxy.
+     * A native size that PDF.js has not confirmed yet is exact, and waiting for
+     * that confirmation can queue behind a long raster in the single PDF.js
+     * worker. Pages without trusted geometry still load their metrics.
+     */
+    async function ensureNavigationPageMetrics(startPage: number, endPage: number) {
+        const totalPages = numPages.value;
+        if (!pdfDocument.value || totalPages <= 0) {
+            return false;
+        }
+        const rangeStart = clamp(Math.min(startPage, endPage), 1, totalPages);
+        const rangeEnd = clamp(Math.max(startPage, endPage), 1, totalPages);
+        for (let pageNumber = rangeStart; pageNumber <= rangeEnd; pageNumber += 1) {
+            if (!hasNavigablePageGeometry(pageNumber)) {
+                return ensurePageMetricsInRange(rangeStart, rangeEnd);
+            }
+        }
+        return false;
+    }
+
     function resetLoadMetadata() {
         provisionalPageMetrics.clear();
+        nativeGeometryMetrics.clear();
         basePageWidth.value = null;
         basePageHeight.value = null;
         pageMetrics.value = [];
@@ -676,7 +711,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         }
         pageMetrics.value = metrics;
         provisionalPageMetrics.clear();
-        for (let page = 1; page <= totalPages; page += 1) provisionalPageMetrics.add(page);
+        nativeGeometryMetrics.clear();
+        for (const [
+            index,
+            metric,
+        ] of metrics.entries()) {
+            provisionalPageMetrics.add(index + 1);
+            nativeGeometryMetrics.set(index + 1, metric);
+        }
         replaceTrustedBaseMetrics();
         bumpPageMetricsVersion();
         return true;
@@ -726,6 +768,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (!isCurrent()) return;
         pageMetrics.value = metrics;
         provisionalPageMetrics.clear();
+        nativeGeometryMetrics.clear();
         replaceTrustedBaseMetrics();
         bumpPageMetricsVersion();
     }
@@ -839,6 +882,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                         // the replacement PDF.js page to refresh this metric
                         // before fit scale is committed for the new revision.
                         provisionalPageMetrics.add(pageNumber);
+                        nativeGeometryMetrics.delete(pageNumber);
                     }
                 }
             }
@@ -1690,6 +1734,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         evictPage: pageCache.evictPage,
         cleanupPageCache: pageCache.cleanupAll,
         ensurePageMetricsInRange,
+        ensureNavigationPageMetrics,
         seedTrustedPageGeometry,
         loadPdf,
         load,
