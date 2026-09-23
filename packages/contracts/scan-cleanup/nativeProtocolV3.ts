@@ -820,6 +820,11 @@ const outputModeDiagnostics = s.object({
     exact: true,
     message: 'Invalid evb-scan-cleanup output mode diagnostics',
 });
+/**
+ * `page-analyzed` is published as each page finishes; its completedPages value
+ * is a monotone count of distinct analyzed pages and pageNumber may move in
+ * either direction. `page-complete` keeps source-order completion semantics.
+ */
 const progress = s.refine(s.refine(s.object({
     stage: s.oneOf([
         'started',

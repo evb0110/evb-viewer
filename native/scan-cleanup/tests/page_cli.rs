@@ -273,11 +273,146 @@ fn multi_page_analysis_reports_progress_before_reconciliation_completes() {
             .all(|index| *index < complete_indices[0]),
         "all provisional analysis events must precede reconciliation: {events:?}"
     );
+    // Verdicts arrive as pages finish, so any page may come first, but the
+    // count only grows and every page reports exactly once.
+    let mut analyzed_pages = analyzed_indices
+        .iter()
+        .map(|index| events[*index]["progress"]["pageNumber"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    let analyzed_counts = analyzed_indices
+        .iter()
+        .map(|index| {
+            events[*index]["progress"]["completedPages"]
+                .as_u64()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        analyzed_counts,
+        (1..=inputs.len() as u64).collect::<Vec<_>>()
+    );
+    analyzed_pages.sort_unstable();
+    assert_eq!(
+        analyzed_pages,
+        (1..=inputs.len() as u64).collect::<Vec<_>>()
+    );
     let first_analyzed = &events[analyzed_indices[0]]["progress"];
-    assert_eq!(first_analyzed["completedPages"], 1);
-    assert_eq!(first_analyzed["pageNumber"], 1);
     assert_eq!(first_analyzed["classification"], "single-uncut-page");
     assert!(first_analyzed["confidence"].is_number());
+}
+
+#[test]
+fn analysis_publishes_a_later_ready_page_before_the_first_page_is_staged() {
+    let scratch = Scratch::new("analysis-progress-out-of-order");
+    let first_input = scratch.path("analysis-gated-input-1.png");
+    let second_input = scratch.path("analysis-gated-input-2.png");
+    let manifest = scratch.path("analysis-gated-manifest.json");
+    let encoded = encode_gray(&GrayImage::new(320, 240, 245)).unwrap();
+    fs::write(&second_input, &encoded).unwrap();
+    let input_paths = [&first_input, &second_input];
+    let payload = serde_json::json!({
+        "version": 3,
+        "operation": "analyze",
+        "renderMode": "preview",
+        "canvasScope": "page",
+        "stagedInputWindow": 2,
+        "stagedInputPeakPixels": 320 * 240,
+        "pages": input_paths
+            .iter()
+            .enumerate()
+            .map(|(index, input)| serde_json::json!({
+                "inputPath": input,
+                "sourcePageIndex": index,
+                "pageMetadataPath": scratch.path(&format!("analysis-gated-page-{index}.json")),
+                "options": CleanupOptions::default(),
+                "outputs": [],
+            }))
+            .collect::<Vec<_>>(),
+    });
+    fs::write(&manifest, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_evb-scan-cleanup"))
+        .args(["--manifest", manifest.to_str().unwrap()])
+        .args(["--allowed-path-root", scratch.dir.to_str().unwrap()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            sender
+                .send(serde_json::from_str::<Value>(&line.unwrap()).unwrap())
+                .unwrap();
+        }
+    });
+
+    let second_page_verdict = loop {
+        match receiver.recv_timeout(Duration::from_secs(20)) {
+            Ok(event) if event["progress"]["stage"] == "page-analyzed" => {
+                assert_eq!(event["progress"]["pageNumber"], 2);
+                break event;
+            }
+            Ok(event) if event["type"] == "result" => {
+                let _ = child.wait();
+                reader.join().unwrap();
+                panic!("analysis exited before the staged page became readable: {event}");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                reader.join().unwrap();
+                panic!("page 2 did not report while page 1 was still absent: {error}");
+            }
+        }
+    };
+    assert_eq!(second_page_verdict["progress"]["completedPages"], 1);
+    assert!(!first_input.exists());
+
+    // Publish atomically: the sidecar reads the page as soon as the path exists.
+    let first_partial = scratch.path("analysis-gated-input-1.partial");
+    fs::write(&first_partial, &encoded).unwrap();
+    fs::rename(&first_partial, &first_input).unwrap();
+    let mut events = vec![second_page_verdict];
+    loop {
+        match receiver.recv_timeout(Duration::from_secs(20)) {
+            Ok(event) => events.push(event),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                reader.join().unwrap();
+                panic!("analysis did not finish after page 1 was staged: {error}");
+            }
+        }
+    }
+    assert!(child.wait().unwrap().success());
+    reader.join().unwrap();
+
+    let analyzed = events
+        .iter()
+        .filter(|event| event["progress"]["stage"] == "page-analyzed")
+        .map(|event| {
+            (
+                event["progress"]["pageNumber"].as_u64().unwrap(),
+                event["progress"]["completedPages"].as_u64().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(analyzed, vec![(2, 1), (1, 2)]);
+    let completed = events
+        .iter()
+        .filter(|event| event["progress"]["stage"] == "page-complete")
+        .map(|event| {
+            (
+                event["progress"]["pageNumber"].as_u64().unwrap(),
+                event["progress"]["completedPages"].as_u64().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(completed, vec![(1, 1), (2, 2)]);
 }
 
 #[test]

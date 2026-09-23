@@ -66,8 +66,8 @@ const progress = s.refine(s.object({
         min: 1,
         message: 'invalid scan-cleanup completed page numbers',
     }))),
-    // A long run reports a bounded prefix of completed pages. Consumers must
-    // use completedUnits for the authoritative count when this is true.
+    // A long detection run reports a bounded list in verdict-arrival order.
+    // Consumers use completedUnits for the authoritative distinct-page count.
     completedPageNumbersTruncated: s.optional(s.boolean()),
 }), value =>
     value.completedUnits <= value.totalUnits

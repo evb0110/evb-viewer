@@ -42,108 +42,46 @@ function createRecordingWindow(
 }
 
 describe('createStagedRasterWindow', () => {
-    it('stages each forward window through one bounded batch', async () => {
+    it('fills free slots concurrently ahead of the first lease', async () => {
         const pages = Array.from({length: 8}, (_, index) => index + 1);
         const resident = new Set<number>();
-        const stage = vi.fn(async (pageNumber: number) => {
-            resident.add(pageNumber);
-        });
-        const stageBatch = vi.fn(async (pageNumbers: readonly number[]) => {
-            for (const pageNumber of pageNumbers) resident.add(pageNumber);
-        });
+        const stageStarted = new Set<number>();
+        const stageGate = Promise.withResolvers<undefined>();
+        let activeStages = 0;
+        let peakActiveStages = 0;
         const controller = createStagedRasterWindow({
             pages,
             window: 4,
-            stage,
-            stageBatch,
-            unstage: vi.fn(async pageNumber => {
+            async stage(pageNumber) {
+                stageStarted.add(pageNumber);
+                if (pageNumber > 1) {
+                    activeStages += 1;
+                    peakActiveStages = Math.max(peakActiveStages, activeStages);
+                    await stageGate.promise;
+                    activeStages -= 1;
+                }
+                resident.add(pageNumber);
+            },
+            unstage: async pageNumber => {
                 resident.delete(pageNumber);
-            }),
-            isStaged: vi.fn(async pageNumber => resident.has(pageNumber)),
+            },
+            isStaged: async pageNumber => resident.has(pageNumber),
         });
 
         await controller.prime();
+        await vi.waitFor(() => expect(stageStarted.size).toBe(4));
+        expect(resident.has(1)).toBe(true);
+        expect(peakActiveStages).toBe(3);
+        expect(controller.peakResidentPages()).toBe(4);
+        stageGate.resolve(undefined);
+        await vi.waitFor(() => expect(resident.size).toBe(4));
+
         for (const pageNumber of pages) {
             await controller.acquire(pageNumber);
+            expect(resident.has(pageNumber)).toBe(true);
+            expect(resident.size).toBeLessThanOrEqual(4);
             controller.release(pageNumber);
         }
-
-        expect(stage).not.toHaveBeenCalled();
-        expect(stageBatch.mock.calls.map(call => call[0])).toEqual([
-            [
-                1,
-                2,
-                3,
-                4,
-            ],
-            [
-                5,
-                6,
-                7,
-                8,
-            ],
-        ]);
-        expect(controller.peakResidentPages()).toBe(4);
-        await controller.dispose();
-        expect(resident.size).toBe(0);
-    });
-
-    it('retains batch pages already confirmed when a later page is missing', async () => {
-        const resident = new Set<number>();
-        let batchCalls = 0;
-        const controller = createStagedRasterWindow({
-            pages: [
-                1,
-                2,
-            ],
-            window: 2,
-            stage: vi.fn(async () => undefined),
-            stageBatch: vi.fn(async pageNumbers => {
-                batchCalls += 1;
-                if (batchCalls === 1) resident.add(pageNumbers[0]!);
-            }),
-            unstage: vi.fn(async pageNumber => {
-                resident.delete(pageNumber);
-            }),
-            isStaged: vi.fn(async pageNumber => resident.has(pageNumber)),
-        });
-
-        await expect(controller.acquire(1)).rejects.toThrow('did not publish page 2');
-        expect(controller.residentPages()).toEqual([1]);
-        expect(resident.has(1)).toBe(true);
-
-        await controller.acquire(1);
-        controller.release(1);
-        await controller.dispose();
-        expect(resident.size).toBe(0);
-    });
-
-    it('reprobes every batch candidate after a partial batch failure', async () => {
-        const resident = new Set<number>();
-        const batchError = new Error('batch publish failed');
-        const controller = createStagedRasterWindow({
-            pages: [
-                1,
-                2,
-            ],
-            window: 2,
-            stage: vi.fn(async () => undefined),
-            stageBatch: vi.fn(async pageNumbers => {
-                resident.add(pageNumbers[0]!);
-                throw batchError;
-            }),
-            unstage: vi.fn(async pageNumber => {
-                resident.delete(pageNumber);
-            }),
-            isStaged: vi.fn(async pageNumber => resident.has(pageNumber)),
-        });
-
-        await expect(controller.acquire(1)).rejects.toBe(batchError);
-        expect(controller.residentPages()).toEqual([1]);
-        expect(resident).toEqual(new Set([1]));
-
-        await controller.acquire(1);
-        controller.release(1);
         await controller.dispose();
         expect(resident.size).toBe(0);
     });
@@ -167,7 +105,7 @@ describe('createStagedRasterWindow', () => {
         expect(harness.resident.size).toBe(0);
     });
 
-    it('never evicts a leased page even when the window is full', async () => {
+    it('waits for a released slot instead of growing residency when all pages are leased', async () => {
         const harness = createRecordingWindow([
             1,
             2,
@@ -176,63 +114,59 @@ describe('createStagedRasterWindow', () => {
         ], 2);
         await harness.controller.acquire(1);
         await harness.controller.acquire(2);
-        // Both slots are leased: admitting a third page overshoots by one
-        // rather than dropping a raster the consumer is still reading.
-        await harness.controller.acquire(3);
-        expect(harness.resident.has(1)).toBe(true);
+        const thirdPage = harness.controller.acquire(3);
+        expect(harness.resident.size).toBe(2);
+        expect(harness.resident.has(3)).toBe(false);
+
+        harness.controller.release(1);
+        await thirdPage;
+        expect(harness.resident.has(1)).toBe(false);
         expect(harness.resident.has(2)).toBe(true);
         expect(harness.resident.has(3)).toBe(true);
-        harness.controller.release(1);
+        expect(harness.resident.size).toBeLessThanOrEqual(2);
+
         harness.controller.release(2);
         harness.controller.release(3);
         await harness.controller.acquire(4);
         expect(harness.resident.size).toBeLessThanOrEqual(2);
-        // Page 4's lease is never handed back. A window abandoned mid-lease
-        // still owns that raster, so disposal drops it rather than leaving a
-        // file behind that nothing will ever release.
         await harness.controller.dispose();
-        expect(harness.resident.has(4)).toBe(false);
-        expect(harness.unstaged).toContain(4);
-        expect(harness.controller.residentPages()).toEqual([]);
+        expect(harness.resident.size).toBe(0);
     });
 
-    it('evicts a released page before a prefetched page the consumer has not read', async () => {
+    it('drops a released page before filling the next forward slot', async () => {
         const harness = createRecordingWindow([
             1,
             2,
             3,
             4,
         ], 2);
-        // Page 1 is read and handed back; page 2 was prefetched behind it and
-        // is the next raster the sidecar will read.
         await harness.controller.acquire(1);
         harness.controller.release(1);
+        await vi.waitFor(() => expect(harness.resident.has(2)).toBe(true));
         await harness.controller.acquire(2);
         harness.controller.release(2);
-        await harness.controller.acquire(3);
-        // Page 3 needs a slot: the released page 1 goes, not the prefetched
-        // page that is still ahead of the reader.
-        expect(harness.unstaged).toEqual([1]);
-        expect(harness.resident.has(3)).toBe(true);
+        await vi.waitFor(() => {
+            expect(harness.resident.has(1)).toBe(false);
+            expect(harness.resident.has(3)).toBe(true);
+        });
+        expect(harness.resident.size).toBeLessThanOrEqual(2);
+        await harness.controller.dispose();
+        expect(harness.resident.size).toBe(0);
     });
 
-    it('keeps a prefetched page near the reader resident and overshoots instead', async () => {
-        const harness = createRecordingWindow(Array.from({length: 12}, (_, index) => index + 4), 3);
-        // Reading page 4 and handing it back prefetches page 5, which the
-        // sidecar may already be reading before this window hears about it.
-        await harness.controller.acquire(4);
-        harness.controller.release(4);
-        await harness.controller.acquire(6);
-        expect(harness.resident.has(5)).toBe(true);
-        // Page 7 needs a slot: the released page 4 goes, never the unread
-        // page 5 sitting one step ahead of the reader.
-        await harness.controller.acquire(7);
-        expect(harness.unstaged).toEqual([4]);
-        // With only page 5 left unleased and inside the band, page 8 overshoots
-        // the window by one raster rather than racing the sidecar's read.
-        await harness.controller.acquire(8);
-        expect(harness.unstaged).toEqual([4]);
-        expect(harness.resident.has(5)).toBe(true);
+    it('keeps a prefetched page readable when another in-window lease advances', async () => {
+        const harness = createRecordingWindow(Array.from({length: 8}, (_, index) => index + 1), 3);
+        await harness.controller.prime();
+        await vi.waitFor(() => expect(harness.resident.size).toBe(3));
+        await harness.controller.acquire(1);
+        harness.controller.release(1);
+        await vi.waitFor(() => expect(harness.resident.has(4)).toBe(true));
+        await harness.controller.acquire(3);
+        expect(harness.resident.has(2)).toBe(true);
+        expect(harness.resident.has(3)).toBe(true);
+        expect(harness.resident.size).toBeLessThanOrEqual(3);
+        harness.controller.release(3);
+        await harness.controller.dispose();
     });
 
     it('re-renders a released page instead of consuming it', async () => {
@@ -243,16 +177,12 @@ describe('createStagedRasterWindow', () => {
         await harness.controller.acquire(1);
         harness.controller.release(1);
         await harness.controller.acquire(2);
-        expect(harness.unstaged).toEqual([1]);
+        expect(harness.unstaged).toContain(1);
         harness.controller.release(2);
         // Reconciliation re-reads page 1 after the window already dropped it.
         await harness.controller.acquire(1);
         expect(harness.resident.has(1)).toBe(true);
-        expect(harness.staged).toEqual([
-            1,
-            2,
-            1,
-        ]);
+        expect(harness.staged).toContain(1);
         await harness.controller.dispose();
     });
 
@@ -349,7 +279,7 @@ describe('createStagedRasterWindow', () => {
             3,
         ], 3);
         await harness.controller.prime();
-        expect(harness.resident.size).toBe(3);
+        await vi.waitFor(() => expect(harness.resident.size).toBe(3));
         await harness.controller.dispose();
         expect(harness.resident.size).toBe(0);
         expect(new Set(harness.unstaged)).toEqual(new Set([
@@ -365,6 +295,7 @@ describe('createStagedRasterWindow', () => {
             2,
         ], 2);
         await harness.controller.prime();
+        await vi.waitFor(() => expect(harness.resident.size).toBe(2));
         await harness.controller.dispose({retainStaged: true});
         expect(harness.resident.size).toBe(2);
         expect(harness.unstaged).toEqual([]);
@@ -478,6 +409,31 @@ describe('createStagedRasterWindow', () => {
             message,
         ]) => level === 'warn' && message.includes('unstage refused for page')).length)
             .toBeGreaterThanOrEqual(3);
+    });
+
+    it('stops read-ahead at a page it could not stage so that page can still be leased', async () => {
+        const pages = Array.from({length: 6}, (_, index) => index + 1);
+        let failPageThree = true;
+        const harness = createRecordingWindow(pages, 2, {stage: async pageNumber => {
+            if (pageNumber === 3 && failPageThree) {
+                failPageThree = false;
+                throw new Error('render failed for page 3');
+            }
+        }});
+        await harness.controller.prime();
+        // One sequential reader that lets read-ahead settle between pages, as
+        // the sidecar does while it analyses one: nothing else will release a
+        // slot while page 3 waits, so read-ahead past the failed page would
+        // strand it. Staging here is microtask-only, so one turn settles it.
+        for (const pageNumber of pages) {
+            await harness.controller.acquire(pageNumber);
+            expect(harness.resident.has(pageNumber)).toBe(true);
+            harness.controller.release(pageNumber);
+            await new Promise(setImmediate);
+        }
+        expect(harness.peak()).toBeLessThanOrEqual(2);
+        await harness.controller.dispose();
+        expect(harness.resident.size).toBe(0);
     });
 
     it('surfaces an on-demand staging failure and swallows a prefetch failure', async () => {

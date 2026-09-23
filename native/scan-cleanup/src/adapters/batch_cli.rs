@@ -321,9 +321,10 @@ fn run_manifest_inner(
     let worker_threads = page_worker_threads(manifest)?;
     let processing_threads = processing_worker_threads();
     let total_pages = manifest.pages.len();
-    // Pages finish out of order under the worker pool, but the progress stream is
-    // a monotone per-page sequence, so each page's event waits for its
-    // predecessors before it is published.
+    // Render completion remains a monotone source-order prefix because its
+    // completedPages field is consumed as a render counter. Analyze uses a
+    // separate distinct-page counter below and publishes each provisional
+    // verdict as soon as its page finishes.
     let pending_progress = Mutex::new((
         manifest.pages.iter().map(|_| None).collect::<Vec<_>>(),
         0usize,
@@ -350,6 +351,34 @@ fn run_manifest_inner(
             })?;
         }
         Ok(())
+    };
+    let analyzed_page_count = Mutex::new((vec![false; total_pages], 0usize));
+    let report_analyzed = |index: usize, mut progress: Progress| -> Result<(), NativeError> {
+        let mut state = analyzed_page_count.lock().map_err(|_| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup analyzed-page progress",
+            )
+        })?;
+        let Some(reported) = state.0.get_mut(index) else {
+            return Err(NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "Unable to publish scan-cleanup progress for an unknown page",
+            ));
+        };
+        if !*reported {
+            *reported = true;
+            state.1 += 1;
+        }
+        // Keep the count update and write under one lock so concurrent pages
+        // cannot put a lower count after a higher one on stdout.
+        progress.completed_pages = state.1;
+        write_progress(progress).map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!("Unable to publish scan-cleanup page progress: {error}"),
+            )
+        })
     };
     let announce_lease = |event: LeaseEvent, page_number: usize, total: usize| {
         let stage = match event {
@@ -408,7 +437,7 @@ fn run_manifest_inner(
             let mut progress = page_complete_progress(&result, index, total_pages);
             progress.stage = ProgressStage::PageAnalyzed;
             progress.output_paths = None;
-            report_page(index, progress)?;
+            report_analyzed(index, progress)?;
             Ok(result)
         };
     let run_one =
