@@ -283,6 +283,11 @@ class TCanonicalWorkingCopyMap<TValue> extends Map<string, TValue> {
     override set(key: string, value: TValue) {
         return super.set(normalizePathForLookup(key), value);
     }
+
+    /** Deletes a key read back from this map, which is already normalized. */
+    deleteStoredKey(storedKey: string) {
+        return super.delete(storedKey);
+    }
 }
 
 export const workingCopyMap = new TCanonicalWorkingCopyMap<IWorkingCopyOriginalEntry>();
@@ -513,7 +518,7 @@ function pruneRetiredWorkingCopyOriginals() {
         entry,
     ] of retiredWorkingCopyOriginalMap.entries()) {
         if (entry.expiresAtMs <= now) {
-            retiredWorkingCopyOriginalMap.delete(workingPath);
+            retiredWorkingCopyOriginalMap.deleteStoredKey(workingPath);
         }
     }
 }

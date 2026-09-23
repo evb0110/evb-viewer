@@ -1,5 +1,6 @@
 import {
     afterEach,
+    beforeAll,
     beforeEach,
     describe,
     expect,
@@ -50,6 +51,14 @@ vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) 
 vi.mock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 1)}));
 
 describe('workingCopy', () => {
+    beforeAll(async () => {
+        // The first import transforms the whole working-copy module graph,
+        // which takes seconds on a loaded machine. Tests re-import it after
+        // resetModules from the transform cache, so pay that cost once here
+        // rather than inside whichever test happens to run first.
+        await import('@electron/file-access/workingCopyCreation');
+    });
+
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
@@ -184,7 +193,9 @@ describe('workingCopy', () => {
                 backingState: 'lazy-original',
                 originalPath: realpathSync.native(originalPath),
             });
-            expect(fingerprintHash).not.toHaveBeenCalled();
+            // Windows admission fingerprints a bounded original by design;
+            // mtime and file identity alone are too weak there.
+            expect(fingerprintHash).toHaveBeenCalledTimes(process.platform === 'win32' ? 1 : 0);
         } finally {
             vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');
         }
@@ -690,7 +701,8 @@ describe('workingCopy', () => {
             }
 
             expect(getPdfPageCount).not.toHaveBeenCalled();
-            expect(fingerprintHash).not.toHaveBeenCalled();
+            // At most one bounded fingerprint per admission, and only on Windows.
+            expect(fingerprintHash).toHaveBeenCalledTimes(process.platform === 'win32' ? 3 : 0);
             await clearAllWorkingCopies();
         } finally {
             vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');

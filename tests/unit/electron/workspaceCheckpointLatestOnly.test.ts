@@ -11,6 +11,12 @@ import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireTabId} from '@contracts/windowTabs';
+import { join } from 'node:path';
+
+// The store joins its file name onto the user data directory with the host's
+// separator, so the expected path must be built the same way.
+const CHECKPOINT_PATH = join('/profile', 'workspace-checkpoint.json');
+const ANNOTATION_RECOVERY_DIRECTORY = join('/profile', 'workspace-annotation-recovery');
 
 function deferred() {
     let resolve: () => void = () => {};
@@ -96,7 +102,7 @@ describe('workspace checkpoint latest-only writer', () => {
         mocks.persisted = null;
         mocks.syncReadError = null;
         mocks.remove.mockImplementation(async (path: string) => {
-            if (path === '/profile/workspace-checkpoint.json') {
+            if (path === CHECKPOINT_PATH) {
                 mocks.persisted = null;
             }
         });
@@ -286,10 +292,10 @@ describe('workspace checkpoint latest-only writer', () => {
             version: 1,
         });
         mocks.remove.mockImplementation(async (path: string) => {
-            if (path.includes('/workspace-annotation-recovery/')) {
+            if (path.startsWith(ANNOTATION_RECOVERY_DIRECTORY)) {
                 throw new Error('recovery artifact retirement failed');
             }
-            if (path === '/profile/workspace-checkpoint.json') {
+            if (path === CHECKPOINT_PATH) {
                 mocks.persisted = null;
                 return;
             }
@@ -300,7 +306,7 @@ describe('workspace checkpoint latest-only writer', () => {
         expect(mocks.persisted).not.toBeNull();
 
         mocks.remove.mockImplementation(async (path: string) => {
-            if (path === '/profile/workspace-checkpoint.json') {
+            if (path === CHECKPOINT_PATH) {
                 mocks.persisted = null;
             }
         });
@@ -539,7 +545,7 @@ describe('workspace checkpoint latest-only writer', () => {
 
         await saveWorkspaceCheckpoint(createCheckpoint(0), 10);
         mocks.remove.mockImplementation(async (path: string) => {
-            if (path === '/profile/workspace-checkpoint.json') {
+            if (path === CHECKPOINT_PATH) {
                 throw new Error('checkpoint delete failed');
             }
         });
