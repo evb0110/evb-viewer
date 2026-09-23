@@ -5,6 +5,11 @@ import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/docum
 export interface IDocumentOpenIntent {
     action: string;
     commandTarget?: TWorkspaceCommandTarget | undefined;
+    /**
+     * Source size known before the open claims its surface. It only informs
+     * the opening-surface policy until the loaded source reports its own size.
+     */
+    declaredSourceSize?: number | undefined;
     preparedOpeningGeometry?: IPdfOpeningGeometry | undefined;
     preparedSourceModifiedAt?: number | undefined;
     preparedSourceSize?: number | undefined;

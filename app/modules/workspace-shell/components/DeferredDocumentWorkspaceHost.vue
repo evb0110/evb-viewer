@@ -801,8 +801,12 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
     const statMatches = sourceStat !== null
         && sourceStat.fileSize === file.fileSize
         && sourceStat.modifiedAt === file.modifiedAt;
+    // A native Recent row is not statted before the claim; its recorded size
+    // is the best pre-claim hint until the loaded source reports its own.
+    const declaredSourceSize = sourceStat?.fileSize ?? file.fileSize;
     const result = await openDocument({
         action: 'openRecentFromPlaceholder',
+        ...(declaredSourceSize === undefined ? {} : {declaredSourceSize}),
         ...(statMatches
             ? {
                 preparedSourceModifiedAt: file.modifiedAt,

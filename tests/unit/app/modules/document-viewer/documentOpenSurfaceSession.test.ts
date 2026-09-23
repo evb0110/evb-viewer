@@ -164,6 +164,19 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.nativeOpeningPreviewState).toBe('inactive');
     });
 
+    it('keeps a declared source size for its opening generation only', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'sized.pdf', 'revision-sized');
+
+        expect(session.declareSourceSize(generation + 1, 1_024)).toBe(false);
+        expect(session.declareSourceSize(generation, -1)).toBe(false);
+        expect(session.declareSourceSize(generation, 1_024)).toBe(true);
+        expect(session.snapshot.value.declaredSourceSize).toBe(1_024);
+
+        beginSurface(session, 'next.pdf', 'revision-next');
+        expect(session.snapshot.value.declaredSourceSize).toBeUndefined();
+    });
+
     it('rejects navigation until an opening session owns the document', () => {
         const session = createDocumentOpenSurfaceSession();
 

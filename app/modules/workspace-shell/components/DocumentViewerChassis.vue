@@ -542,6 +542,7 @@ const shouldDeferLargePdfOpeningSkeleton = computed(() => {
         || snapshot.phase === 'canvas-committed'
         || snapshot.phase === 'viewport-committed';
     return shouldDeferNativePdfOpeningSkeleton({
+        declaredSize: snapshot.declaredSourceSize,
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
         isOpening,
@@ -567,6 +568,7 @@ const shouldHoldLargePdfOpeningShellUntilGeometry = computed(() => {
         || snapshot.phase === 'canvas-committed'
         || snapshot.phase === 'viewport-committed';
     return shouldDeferNativePdfOpeningSkeleton({
+        declaredSize: snapshot.declaredSourceSize,
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
         isOpening,

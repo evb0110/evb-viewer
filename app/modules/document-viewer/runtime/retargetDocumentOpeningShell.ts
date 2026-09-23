@@ -47,6 +47,8 @@ export interface IDocumentOpenSurfaceVisualState {
     nativeOpeningPreviewState?: TDocumentNativeOpeningPreviewState;
     /** Whether the native opening-preview lane has claimed this generation. */
     nativeOpeningPreviewStaged?: boolean;
+    /** Source file size known when the open was claimed, before its source loads. */
+    declaredSourceSize?: number;
     committedViewportPosition: {
         readonly viewportIntentId: string;
         readonly left: number;

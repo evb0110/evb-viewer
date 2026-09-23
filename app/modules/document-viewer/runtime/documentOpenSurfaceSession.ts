@@ -255,6 +255,9 @@ function projectDocumentOpenSurfaceSnapshot(
         ...(visual.nativeOpeningPreviewStaged === undefined
             ? {}
             : {nativeOpeningPreviewStaged: visual.nativeOpeningPreviewStaged}),
+        ...(visual.declaredSourceSize === undefined
+            ? {}
+            : {declaredSourceSize: visual.declaredSourceSize}),
         committedRender,
         committedViewport,
         failure: viewport.failure,
@@ -1000,6 +1003,21 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         commitOpeningPagePreview(generation, preview) {
             return openingPreviewGate.commit(generation, preview);
+        },
+        declareSourceSize(generation, size) {
+            if (
+                snapshot.value.generation !== generation
+                || !isTransitionPhase(snapshot.value.phase)
+                || !Number.isSafeInteger(size)
+                || size < 0
+            ) {
+                return false;
+            }
+            commitVisual(visual => ({
+                ...visual,
+                declaredSourceSize: size,
+            }));
+            return true;
         },
         setNativeOpeningPreviewState(generation, state: TDocumentNativeOpeningPreviewState) {
             const current = snapshot.value;

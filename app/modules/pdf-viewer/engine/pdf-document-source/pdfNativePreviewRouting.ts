@@ -42,6 +42,8 @@ export function shouldStageNativePdfOpeningPreview(
 }
 
 export function shouldDeferNativePdfOpeningSkeleton(input: {
+    /** Size the open transaction knew when it claimed the surface. */
+    declaredSize?: number | undefined;
     documentId: string | null | undefined;
     geometry: IPdfNativeOpeningPreviewGeometry | null | undefined;
     isOpening: boolean;
@@ -56,7 +58,7 @@ export function shouldDeferNativePdfOpeningSkeleton(input: {
         : undefined;
     const isNativePathSource = isPathPdfSource(input.source)
         && !isBrowserDocumentRef(input.source.path);
-    const size = sourceSize ?? input.geometry?.size;
+    const size = sourceSize ?? input.geometry?.size ?? input.declaredSize;
     const isNativeDocument = isNativeLegacyDocumentRef(input.documentId);
     // The opening chassis paints before the source object and trusted geometry
     // are available, and in-memory sources never carry a native path. An

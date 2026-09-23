@@ -23,6 +23,7 @@ import {
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { getErrorMessage } from '@app/utils/error';
+import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
 interface ICreateDeferredWorkspaceExposeProxyDeps {
@@ -169,6 +170,16 @@ export function createDeferredWorkspaceExposeProxy(
         }
     }
 
+    // The opening surface decides between a page shell and the large-PDF
+    // loader from the source size. Read it before the open claims the surface.
+    async function readDeclaredSourceSize(path: TDocumentRef) {
+        try {
+            return (await getDocumentFilesCapability().statFile(path)).size;
+        } catch {
+            return undefined;
+        }
+    }
+
     async function openQueued<T>(
         intent: IDocumentOpenIntent,
         run: (signal: AbortSignal) => Promise<T>,
@@ -249,23 +260,27 @@ export function createDeferredWorkspaceExposeProxy(
             );
         },
         handleOpenFileFromUi: () => Promise.resolve(false),
-        handleOpenFileDirectWithPersist: async (path: TDocumentRef) => openQueued({
-            action: 'handleOpenFileDirectWithPersist',
-            target: buildPendingTabDocumentHint(path),
-        }, async (signal) => {
-            if (deps.openPath) {
-                if (signal.aborted) {
-                    return false;
+        handleOpenFileDirectWithPersist: async (path: TDocumentRef) => {
+            const declaredSourceSize = await readDeclaredSourceSize(path);
+            return openQueued({
+                action: 'handleOpenFileDirectWithPersist',
+                ...(declaredSourceSize === undefined ? {} : {declaredSourceSize}),
+                target: buildPendingTabDocumentHint(path),
+            }, async (signal) => {
+                if (deps.openPath) {
+                    if (signal.aborted) {
+                        return false;
+                    }
+                    return deps.openPath(path, 'handleOpenFileDirectWithPersist');
                 }
-                return deps.openPath(path, 'handleOpenFileDirectWithPersist');
-            }
 
-            return deps.withWorkspace(
-                'handleOpenFileDirectWithPersist',
-                workspace => workspace.handleOpenFileDirectWithPersist(path),
-                signal,
-            );
-        }),
+                return deps.withWorkspace(
+                    'handleOpenFileDirectWithPersist',
+                    workspace => workspace.handleOpenFileDirectWithPersist(path),
+                    signal,
+                );
+            });
+        },
         handleOpenFileDirectBatchWithPersist: async (paths: TDocumentRef[]) => openQueued({
             action: 'handleOpenFileDirectBatchWithPersist',
             target: null,

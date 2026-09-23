@@ -225,6 +225,9 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 });
                 return null;
             }
+            if (intent.declaredSourceSize !== undefined) {
+                openHost.documentOpenSurface.declareSourceSize(generation, intent.declaredSourceSize);
+            }
             if (!preparedOpeningFrame) {
                 openHost.openingPageFrameAuthority.value?.prepareOpeningPageFrame(generation);
             }

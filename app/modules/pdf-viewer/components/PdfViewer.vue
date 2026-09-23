@@ -305,6 +305,7 @@ const shouldDeferLargePdfOpeningSurface = computed(() => {
     }
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     return shouldDeferNativePdfOpeningSkeleton({
+        declaredSize: snapshot.declaredSourceSize,
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
         isOpening: isCommittedInitialPageTransition.value,
@@ -330,6 +331,7 @@ const shouldHoldPdfOpeningSurfaceUntilGeometry = computed(() => {
         return false;
     }
     return shouldDeferNativePdfOpeningSkeleton({
+        declaredSize: snapshot.declaredSourceSize,
         documentId: snapshot.identity?.documentId,
         geometry: snapshot.openingPageGeometry,
         isOpening: isCommittedInitialPageTransition.value,

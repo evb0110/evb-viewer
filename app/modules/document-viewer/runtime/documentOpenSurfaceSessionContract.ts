@@ -79,6 +79,8 @@ export interface IDocumentOpenSurfaceSnapshot {
     readonly nativeOpeningPreviewState?: TDocumentNativeOpeningPreviewState;
     /** Whether the native opening-preview lane has claimed this generation. */
     readonly nativeOpeningPreviewStaged?: boolean;
+    /** Source file size known when the open was claimed, before its source loads. */
+    readonly declaredSourceSize?: number;
     readonly committedRender: IDocumentOpenSurfaceRenderFence | null;
     readonly committedViewport: IDocumentOpenSurfaceViewportCommit | null;
     readonly failure: string | null;
@@ -117,6 +119,7 @@ export interface IDocumentOpenSurfaceSession {
     acquireSource(identity: IDocumentOpenSurfaceIdentity, expectedGeneration: number): number | null;
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
     commitOpeningPagePreview(generation: number, preview: IDocumentOpenSurfacePagePreview): boolean;
+    declareSourceSize(generation: number, size: number): boolean;
     setNativeOpeningPreviewState(
         generation: number,
         state: TDocumentNativeOpeningPreviewState,

@@ -135,6 +135,16 @@ describe('pdfNativePreviewRouting', () => {
         expect(shouldDeferNativePdfOpeningSkeleton({
             ...input,
             geometry: null,
+            declaredSize: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
+        })).toBe(true);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            geometry: null,
+            declaredSize: PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES - 1,
+        })).toBe(false);
+        expect(shouldDeferNativePdfOpeningSkeleton({
+            ...input,
+            geometry: null,
             source: new Blob(['%PDF-1.7']),
         })).toBe(false);
         expect(shouldDeferNativePdfOpeningSkeleton({
