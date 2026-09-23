@@ -5,6 +5,7 @@ import type {
 
 import type {
     IPageIdentityDelta,
+    IPageOpsCancelActiveResult,
     IPageOpsExtractResult,
     IPageOpsInsertResult,
     IPageOpsMetadataSnapshot,
@@ -66,6 +67,7 @@ const PAGE_IDENTITY_TOUCH_REASONS = [
 type TDeleteArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TDeleteRangesArgs = [string, IPageMoveRangeSegment[], number, IPageOpsMutationOptions | undefined];
 type TExtractArgs = [string, TPageOpsPageSelection];
+type TCancelActiveArgs = [string];
 type TReorderArgs = [string, number[], IPageOpsMutationOptions | undefined];
 type TMoveArgs = [string, number, number, number, number, IPageOpsMutationOptions | undefined];
 type TMoveRangesArgs = [string, IPageMoveRangeSegment[], number, number, IPageOpsMutationOptions | undefined];
@@ -583,13 +585,25 @@ function decodePageOpsResult(value: unknown): IPageOpsResult {
     const pageCount = value.pageCount === undefined
         ? undefined
         : decodeSafeInteger([value.pageCount], 0, 'pageCount');
+    const canceled = decodeOptionalBoolean(value.canceled, 'canceled');
     const documentRevision = decodeRevision(value.documentRevision);
     const pageIdentityDelta = decodePageIdentityDelta(value.pageIdentityDelta);
     return {
         success: value.success,
+        ...(canceled === undefined ? {} : {canceled}),
         ...(pageCount === undefined ? {} : {pageCount}),
         ...(documentRevision === undefined ? {} : {documentRevision}),
         ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
+    };
+}
+
+function decodeCancelActiveResult(value: unknown): IPageOpsCancelActiveResult {
+    if (!isRecord(value)) {
+        throw new Error('page operation cancel result must be an object');
+    }
+    return {
+        canceled: decodeSafeInteger([value.canceled], 0, 'canceled'),
+        committing: decodeSafeInteger([value.committing], 0, 'committing'),
     };
 }
 
@@ -674,6 +688,10 @@ const extractResult = s.fromParser(decodeExtractResult, () => ({
     })(),
 }));
 const insertResult = s.fromParser(decodeInsertResult, () => ({success: true}));
+const cancelActiveResult = s.fromParser(decodeCancelActiveResult, () => ({
+    canceled: 1,
+    committing: 0,
+}));
 const pageGeometry = s.fromParser(decodePageGeometry, () => ({
     mediaBox: {
         x: 0,
@@ -1067,6 +1085,26 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 options,
             ],
         ),
+        cancelActive: {
+            ...method(
+                'cancelActive',
+                'page-ops:cancel-active',
+                args<TCancelActiveArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')], () => ['/tmp/fixture.pdf']),
+                cancelActiveResult,
+                (workingCopyPath: string): TCancelActiveArgs => [workingCopyPath],
+            ),
+            // Browser page operations run to completion inside WASM, so
+            // there is nothing for the user to stop there.
+            optionalWhenImplemented: true,
+            required: {
+                browser: false,
+                electron: false,
+            },
+            browser: {
+                unsupported: 'omitted',
+                reason: 'requires-native-backend',
+            },
+        },
         getPageGeometry: method(
             'getPageGeometry',
             'page-ops:get-page-geometry',

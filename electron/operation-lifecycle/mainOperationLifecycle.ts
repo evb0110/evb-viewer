@@ -14,12 +14,42 @@ export interface IMainOperationOwnerLifecyclePolicy {
     mainFrameNavigation?: TMainOperationOwnerEndAction;
 }
 
+/**
+ * Lets the user stop an operation from the renderer that started it. The
+ * owner here only authorizes that request; it does not tie the operation to
+ * the renderer's lifecycle the way `ownerWebContentsId` does.
+ */
+export interface IMainOperationUserCancel {
+    scope: string;
+    ownerWebContentsId: number;
+}
+
+export interface IUserCancelMainOperationsResult {
+    /** Operations that were asked to stop and will roll back. */
+    canceled: number;
+    /** Operations already publishing their result; they finish normally. */
+    committing: number;
+}
+
+/** The abort reason of an operation the user asked to stop. */
+export class MainOperationUserCanceledError extends Error {
+    constructor(message = 'Canceled by the user') {
+        super(message);
+        this.name = 'MainOperationUserCanceledError';
+    }
+}
+
+export function isMainOperationUserCanceled(signal: AbortSignal | null | undefined) {
+    return signal?.aborted === true && signal.reason instanceof MainOperationUserCanceledError;
+}
+
 export interface IMainOperationRegistration {
     kind: TMainOperationKind;
     ownerWebContentsId?: number | undefined;
     workingCopyPath?: string | undefined;
     cancel?: ((reason: string) => void | Promise<void>) | undefined;
     ownerLifecycle?: IMainOperationOwnerLifecyclePolicy | undefined;
+    userCancel?: IMainOperationUserCancel | undefined;
     /**
      * Whether closing `workingCopyPath` may cancel this operation. Long-running
      * work that only consumes the working copy says yes; the pipelines that
@@ -70,6 +100,7 @@ interface IMainOperationRecord {
     workingCopyPath?: string | undefined;
     cancel?: ((reason: string) => void | Promise<void>) | undefined;
     ownerLifecycle?: IMainOperationOwnerLifecyclePolicy | undefined;
+    userCancel?: IMainOperationUserCancel | undefined;
     cancelOnWorkingCopyClose: boolean;
     controller: AbortController;
     commitStarted: boolean;
@@ -110,6 +141,7 @@ export function registerMainOperation(
         workingCopyPath: registration.workingCopyPath,
         cancel: registration.cancel,
         ownerLifecycle: registration.ownerLifecycle,
+        userCancel: registration.userCancel,
         cancelOnWorkingCopyClose: registration.cancelOnWorkingCopyClose ?? registration.kind === 'abortable-work',
         controller,
         commitStarted: false,
@@ -169,9 +201,13 @@ export function beginMainOperationShutdown(message = 'Main process is shutting d
     shutdownAdmissionMessage ??= message;
 }
 
-function requestOperationCancel(operation: IMainOperationRecord, reason: string) {
+function requestOperationCancel(
+    operation: IMainOperationRecord,
+    reason: string,
+    abortReason: Error = new Error(reason),
+) {
     if (!operation.controller.signal.aborted) {
-        operation.controller.abort(new Error(reason));
+        operation.controller.abort(abortReason);
     }
     if (operation.cancel) {
         runDetached(
@@ -215,6 +251,40 @@ export function cancelMainOperationsForOwner(
         }
         requestOperationCancel(operation, reason);
     }
+}
+
+// The user asked to stop the operations they started on this document. A
+// critical write that has begun publishing is left to finish: stopping it would
+// leave a half-written result, so it is reported instead of canceled.
+export function cancelUserCancellableMainOperations(input: {
+    scope: string;
+    ownerWebContentsId: number;
+    workingCopyPath: string;
+}): IUserCancelMainOperationsResult {
+    const normalizedWorkingCopyPath = normalizePathForLookup(input.workingCopyPath) || input.workingCopyPath;
+    const result: IUserCancelMainOperationsResult = {
+        canceled: 0,
+        committing: 0,
+    };
+    for (const operation of operations.values()) {
+        if (
+            operation.userCancel?.scope !== input.scope
+            || operation.userCancel.ownerWebContentsId !== input.ownerWebContentsId
+            || operation.workingCopyPath === undefined
+            || (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) !== normalizedWorkingCopyPath
+        ) {
+            continue;
+        }
+        if (operation.kind === 'critical-write' && operation.commitStarted) {
+            result.committing += 1;
+            continue;
+        }
+        if (!operation.controller.signal.aborted) {
+            requestOperationCancel(operation, 'Canceled by the user', new MainOperationUserCanceledError());
+        }
+        result.canceled += 1;
+    }
+    return result;
 }
 
 // A working copy that is being retired can still be the source of long native

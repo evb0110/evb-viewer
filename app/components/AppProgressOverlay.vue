@@ -27,6 +27,7 @@
                 {{ detail }}
             </div>
             <AppProgressBar
+                v-if="value !== null || showIndeterminateBar"
                 :value="value"
                 class="app-progress-overlay-bar"
             />
@@ -45,7 +46,9 @@
             </div>
             <UButton
                 v-if="cancelLabel"
+                class="app-progress-overlay-cancel"
                 :label="cancelLabel"
+                :disabled="cancelDisabled"
                 variant="outline"
                 color="neutral"
                 size="sm"
@@ -67,14 +70,19 @@ interface IAppProgressOverlayProps {
     detail?: string;
     subDetail?: string;
     cancelLabel?: string;
+    cancelDisabled?: boolean;
     modal?: boolean;
+    /** An animated bar with no value reads as fake progress next to the spinner. */
+    showIndeterminateBar?: boolean;
 }
 
 const {
+    cancelDisabled = false,
     cancelLabel = '',
     detail = '',
     modal = false,
     open,
+    showIndeterminateBar = true,
     subDetail = '',
     value,
 } = defineProps<IAppProgressOverlayProps>();

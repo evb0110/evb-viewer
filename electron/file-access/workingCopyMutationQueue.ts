@@ -8,7 +8,10 @@ import { getErrorMessage } from '@electron/utils/error';
 import { getNativeCompactSearchIndexPath as getCompactSearchIndexPath } from '@electron/features/search/publicNative';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
-import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
+    registerMainOperation,
+    type IMainOperationUserCancel,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const log = createLogger('workingCopyMutationQueue');
@@ -25,6 +28,9 @@ interface IWorkingCopyMutationQueueEntry {
 export interface IWorkingCopyMutationQueueOptions {
     kind?: string;
     ownerWebContentsId?: number;
+    userCancel?: IMainOperationUserCancel;
+    /** Receives the operation's abort signal at enqueue, before it is granted. */
+    onEnqueued?: (signal: AbortSignal) => void;
 }
 
 const workingCopyMutationQueue = new Map<string, IWorkingCopyMutationQueueEntry>();
@@ -193,6 +199,7 @@ export function enqueueWorkingCopyMutation<T>(
         kind: 'critical-write',
         ownerWebContentsId: options.ownerWebContentsId,
         workingCopyPath,
+        userCancel: options.userCancel,
         cancel: () => {
             if (cancelGroup) {
                 cancelNativeCommandGroup(cancelGroup);
@@ -207,6 +214,7 @@ export function enqueueWorkingCopyMutation<T>(
         markCommitStarted: lifecycleOperation.markCommitStarted,
     };
     const isMutationAborted = () => mutationOperation.signal.aborted;
+    options.onEnqueued?.(mutationOperation.signal);
     const entry: IWorkingCopyMutationQueueEntry = {
         tail: Promise.resolve(),
         operationId: lifecycleOperation.id,

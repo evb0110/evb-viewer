@@ -76,7 +76,12 @@ import {
 import { insertPagesFromSourcePaths } from '@electron/features/page-ops/main/insertPagesFromSourcePaths.service';
 import { assertOpenInputPathCount } from '@electron/features/documents/public/assertOpenInputPathCount';
 import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
+import {
+    cancelUserCancellableMainOperations,
+    isMainOperationUserCanceled,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type { IWorkingCopyMutationOperation } from '@electron/file-access/workingCopyMutationQueue';
+import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 import { transitionWorkingCopyContentRevision } from '@electron/file-access/documentRevisionStore';
 import {
     awaitPageIdentityStoreInitialization,
@@ -108,6 +113,7 @@ interface IPageOpsOperationContext {
     sender: WebContents;
     senderId: number;
     parentWindow: BrowserWindow | null;
+    userCancel?: IPageOpUserCancelHandle;
 }
 
 const QPDF_PAGE_BATCH_SIZE = 10_000;
@@ -229,6 +235,12 @@ async function beginQueuedPageMutation(
     };
 }
 
+// Atomic file replaces normally mark a working-copy mutation as committing.
+// Inside a page operation they are either bookkeeping for the current revision
+// or writes the content journal rolls back, so the operation marks its real
+// commit point itself and stays cancellable until then.
+const DEFERRED_COMMIT_SIGNAL = {markCommitStarted: () => undefined};
+
 async function transitionPageMutation<T>(input: {
     workingCopyPath: string;
     senderId?: number;
@@ -242,10 +254,11 @@ async function transitionPageMutation<T>(input: {
         delta: IPageIdentityDelta
     }>;
 }) {
-    await awaitPageIdentityStoreInitialization(input.workingCopyPath);
+    await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () =>
+        awaitPageIdentityStoreInitialization(input.workingCopyPath));
     const values: T[] = [];
     let committedDelta = null as IPageIdentityDelta | null;
-    const documentRevision = await transitionWorkingCopyContentRevision(
+    const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () => transitionWorkingCopyContentRevision(
         input.workingCopyPath,
         'page-ops',
         async nextRevision => {
@@ -279,6 +292,10 @@ async function transitionPageMutation<T>(input: {
                     createNativeOperationOptions(input.operation),
                 );
             }
+            // Publishing the identity delta and revision is the commit point.
+            // A cancel accepted before it rolls the working copy back.
+            input.operation.signal.throwIfAborted();
+            input.operation.markCommitStarted();
             await commitPageIdentityDelta(input.workingCopyPath, mutation.delta, nextRevision);
             committedDelta = mutation.delta;
             values.push(mutation.value);
@@ -286,7 +303,7 @@ async function transitionPageMutation<T>(input: {
         input.senderId,
         undefined,
         input.contentBackupMode,
-    );
+    ));
     if (values.length !== 1) throw new Error('Page operation did not publish a result');
     if (!committedDelta) throw new Error('Page operation did not publish an identity delta');
     const value = values[0]!;
@@ -380,7 +397,7 @@ async function handlePageOpsDelete(
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             nativeOptions,
             pageCount: mainTotalPages,
@@ -426,7 +443,7 @@ async function handlePageOpsDeleteRanges(
     validatePageDeleteRanges(ranges, expectedTotalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             nativeOptions,
             pageCount: mainTotalPages,
@@ -499,7 +516,7 @@ async function handlePageOpsExtract(
         destPath += '.pdf';
     }
 
-    await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         const nativeOptions = {
             ...createNativeOperationOptions(operation),
@@ -533,7 +550,7 @@ async function handlePageOpsReorder(
     validateReorderPermutation(newOrder);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const nativeOptions = createNativeOperationOptions(operation);
         const queuedWorkingCopyPath = await validateWorkingCopyPath(normalizedWorkingCopyPath, context.senderId);
         await assertQueuedWorkingCopyMutationPreconditions(queuedWorkingCopyPath, expectedDocumentRevisionToken);
@@ -575,7 +592,7 @@ async function handlePageOpsMove(
     validatePageMoveRange(startPage, endPage, insertAt, totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             nativeOptions,
             pageCount: actualPageCount,
@@ -641,7 +658,7 @@ async function handlePageOpsMoveRanges(
     validatePageMoveRanges(ranges, insertAt, totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const result = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             nativeOptions,
             pageCount: actualPageCount,
@@ -722,7 +739,7 @@ async function handlePageOpsInsert(
     const trustedSourcePaths = normalizeNonEmptyStringPaths(result.filePaths)
         .map(path => requireOpenPath(path, context.sender));
 
-    const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             nativeOptions,
             pageCount: beforeCount,
@@ -777,7 +794,7 @@ async function handlePageOpsRotate(
         throw new Error(`Invalid rotation angle: ${angle}`);
     }
 
-    const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             nativeOptions,
             pageCount: mainTotalPages,
@@ -855,7 +872,7 @@ async function handlePageOpsInsertFile(
     const normalizedRequestId = parseRequestId(normalizeOptionalIpcRequestId(requestId));
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             nativeOptions,
             pageCount: beforeCount,
@@ -898,7 +915,7 @@ async function handlePageOpsCrop(
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
     const normalizedMargins = normalizeCropMargins(margins);
 
-    const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             pageCount: mainTotalPages,
             queuedWorkingCopyPath,
@@ -943,7 +960,7 @@ async function handlePageOpsRemoveCrop(
     const expectedTotalPages = validateExpectedTotalPages(totalPages);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
-    const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {
+    const mutation = await enqueuePageMutation(context, normalizedWorkingCopyPath, async (operation) => {
         const {
             pageCount: mainTotalPages,
             queuedWorkingCopyPath,
@@ -990,6 +1007,129 @@ async function handlePageOpsGetPageGeometry(
     return getPageGeometry(normalizedWorkingCopyPath, pageNumber, context.senderId);
 }
 
+const PAGE_OPS_USER_CANCEL_SCOPE = 'page-ops';
+
+class PageOperationUserCanceled extends Error {
+    constructor() {
+        super('Page operation canceled by the user');
+        this.name = 'PageOperationUserCanceled';
+    }
+}
+
+/**
+ * Tracks one page-operation call from the moment its handler starts. A cancel
+ * can arrive while the handler is still resolving paths, before the operation
+ * reaches the working-copy queue; the handle carries that request into the
+ * queue admission so it is never lost.
+ */
+interface IPageOpUserCancelHandle {
+    senderId: number;
+    workingCopyPath: unknown;
+    enqueued: boolean;
+    canceled: boolean;
+}
+
+const activePageOpCalls = new Set<IPageOpUserCancelHandle>();
+
+// Page mutations run in the working-copy queue so they serialize with saves.
+// Only the renderer that started one may cancel it, and only through this
+// scope, so a cancel can never reach a save sharing the same queue.
+async function enqueuePageMutation<T>(
+    context: IPageOpsOperationContext,
+    workingCopyPath: string,
+    run: (operation: IWorkingCopyMutationOperation) => Promise<T>,
+): Promise<T> {
+    if (context.userCancel?.canceled) {
+        throw new PageOperationUserCanceled();
+    }
+    let signal: AbortSignal | null = null;
+    try {
+        const mutation = enqueueWorkingCopyMutation(workingCopyPath, run, {
+            kind: 'page-op',
+            userCancel: {
+                scope: PAGE_OPS_USER_CANCEL_SCOPE,
+                ownerWebContentsId: context.senderId,
+            },
+            onEnqueued: (enqueuedSignal) => {
+                signal = enqueuedSignal;
+            },
+        });
+        if (context.userCancel) {
+            context.userCancel.enqueued = true;
+        }
+        return await mutation;
+    } catch (error) {
+        if (isMainOperationUserCanceled(signal)) {
+            throw new PageOperationUserCanceled();
+        }
+        throw error;
+    }
+}
+
+function withUserCancel<TArgs extends [unknown, ...unknown[]], TResult>(
+    handler: (context: IPageOpsOperationContext, ...args: TArgs) => Promise<TResult>,
+) {
+    return async (
+        context: {
+            sender: WebContents;
+            senderId: number;
+        },
+        ...args: TArgs
+    ): Promise<TResult | {
+        success: false;
+        canceled: true
+    }> => {
+        const userCancel: IPageOpUserCancelHandle = {
+            senderId: context.senderId,
+            workingCopyPath: args[0],
+            enqueued: false,
+            canceled: false,
+        };
+        activePageOpCalls.add(userCancel);
+        try {
+            return await handler({
+                ...createPageOpsOperationContext(context),
+                userCancel,
+            }, ...args);
+        } catch (error) {
+            if (error instanceof PageOperationUserCanceled) {
+                return {
+                    success: false,
+                    canceled: true,
+                };
+            }
+            throw error;
+        } finally {
+            activePageOpCalls.delete(userCancel);
+        }
+    };
+}
+
+async function handlePageOpsCancelActive(
+    context: IPageOpsOperationContext,
+    workingCopyPath: string,
+) {
+    // Marked before the first await: a call that has not reached the queue yet
+    // sees the request when it gets there.
+    let canceledBeforeQueue = 0;
+    for (const call of activePageOpCalls) {
+        if (call.senderId === context.senderId && call.workingCopyPath === workingCopyPath && !call.enqueued) {
+            call.canceled = true;
+            canceledBeforeQueue += 1;
+        }
+    }
+    const normalizedWorkingCopyPath = await resolveWorkingCopyPath(workingCopyPath, context.senderId);
+    const queued = cancelUserCancellableMainOperations({
+        scope: PAGE_OPS_USER_CANCEL_SCOPE,
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: normalizedWorkingCopyPath,
+    });
+    return {
+        canceled: canceledBeforeQueue + queued.canceled,
+        committing: queued.committing,
+    };
+}
+
 function createPageOpsOperationContext(context: {
     sender: WebContents;
     senderId: number;
@@ -1001,17 +1141,18 @@ function createPageOpsOperationContext(context: {
 }
 
 export const pageOpsMainBindings = {
-    delete: (context, ...args) => handlePageOpsDelete(createPageOpsOperationContext(context), ...args),
-    deleteRanges: (context, ...args) => handlePageOpsDeleteRanges(createPageOpsOperationContext(context), ...args),
-    extract: (context, ...args) => handlePageOpsExtract(createPageOpsOperationContext(context), ...args),
-    reorder: (context, ...args) => handlePageOpsReorder(createPageOpsOperationContext(context), ...args),
-    move: (context, ...args) => handlePageOpsMove(createPageOpsOperationContext(context), ...args),
-    moveRanges: (context, ...args) => handlePageOpsMoveRanges(createPageOpsOperationContext(context), ...args),
-    insert: (context, ...args) => handlePageOpsInsert(createPageOpsOperationContext(context), ...args),
-    insertFile: (context, ...args) => handlePageOpsInsertFile(createPageOpsOperationContext(context), ...args),
-    rotate: (context, ...args) => handlePageOpsRotate(createPageOpsOperationContext(context), ...args),
-    crop: (context, ...args) => handlePageOpsCrop(createPageOpsOperationContext(context), ...args),
-    removeCrop: (context, ...args) => handlePageOpsRemoveCrop(createPageOpsOperationContext(context), ...args),
+    delete: withUserCancel(handlePageOpsDelete),
+    deleteRanges: withUserCancel(handlePageOpsDeleteRanges),
+    extract: withUserCancel(handlePageOpsExtract),
+    reorder: withUserCancel(handlePageOpsReorder),
+    move: withUserCancel(handlePageOpsMove),
+    moveRanges: withUserCancel(handlePageOpsMoveRanges),
+    insert: withUserCancel(handlePageOpsInsert),
+    insertFile: withUserCancel(handlePageOpsInsertFile),
+    rotate: withUserCancel(handlePageOpsRotate),
+    crop: withUserCancel(handlePageOpsCrop),
+    removeCrop: withUserCancel(handlePageOpsRemoveCrop),
+    cancelActive: (context, ...args) => handlePageOpsCancelActive(createPageOpsOperationContext(context), ...args),
     getPageGeometry: (context, ...args) =>
         handlePageOpsGetPageGeometry(createPageOpsOperationContext(context), ...args),
 } satisfies TFeatureMainBindings<typeof PAGE_OPS_PLATFORM_FEATURE, IpcMainInvokeEvent>;

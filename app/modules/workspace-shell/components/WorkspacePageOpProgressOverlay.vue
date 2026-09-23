@@ -7,6 +7,10 @@
             :detail="detailText"
             :sub-detail="subDetailText"
             :value="progress?.percent ?? null"
+            :show-indeterminate-bar="false"
+            :cancel-label="cancelLabel"
+            :cancel-disabled="cancelState !== 'idle'"
+            @cancel="requestCancel"
         />
     </div>
 </template>
@@ -16,6 +20,7 @@ import { useTimeoutFn } from '@vueuse/core';
 import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
 import { displayProcessedCount } from '@app/utils/progressFormatting';
 import type { IPageOperationPresentation } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
+import type { TPageOperationCancelState } from '@app/modules/pdf-viewer/public';
 
 const {
     progress,
@@ -23,6 +28,9 @@ const {
     hasDocument,
     isPageOperationInProgress,
     operation,
+    canCancel,
+    cancelState,
+    lastOutcomeStatus,
 } = defineProps<{
     progress: {
         processed: number;
@@ -33,9 +41,35 @@ const {
     hasDocument: boolean;
     isPageOperationInProgress: boolean;
     operation: IPageOperationPresentation | null;
+    canCancel: boolean;
+    cancelState: TPageOperationCancelState;
+    lastOutcomeStatus: string | null;
 }>();
 
+const emit = defineEmits<{cancel: [];}>();
+
 const { t } = useTypedI18n();
+const toast = useToast();
+
+const cancelLabel = computed(() => {
+    if (!canCancel) {
+        return '';
+    }
+    switch (cancelState) {
+        case 'canceling':
+            return t('pageOps.canceling');
+        case 'finishing':
+            return t('pageOps.finishing');
+        case 'idle':
+            return t('common.cancel');
+    }
+});
+
+let userRequestedCancel = false;
+function requestCancel() {
+    userRequestedCancel = true;
+    emit('cancel');
+}
 
 const delayedProgressVisible = ref(false);
 const {
@@ -58,7 +92,7 @@ function resolveOperationTitle(activeOperation: IPageOperationPresentation) {
                 return t('pageOps.insertAfter');
             case 'reorder':
             case 'move':
-                return t('combinePdf.dragToReorder');
+                return t('pageOps.movePages');
             case 'rotate':
                 return activeOperation.direction === 'ccw'
                     ? t('pageOps.rotateCcw')
@@ -85,8 +119,17 @@ watch(() => isPageOperationInProgress, (inProgress) => {
     stopProgressDelay();
     delayedProgressVisible.value = false;
     if (inProgress) {
+        userRequestedCancel = false;
         startProgressDelay();
+        return;
     }
+    if (userRequestedCancel && lastOutcomeStatus === 'canceled') {
+        toast.add({
+            color: 'neutral',
+            title: t('pageOps.canceled'),
+        });
+    }
+    userRequestedCancel = false;
 }, {immediate: true});
 
 onBeforeUnmount(() => {
@@ -142,6 +185,10 @@ const subDetailText = computed(() => etaText
 
 :global(.workspace-page-op-progress-overlay .app-progress-overlay-title) {
     white-space: nowrap;
+}
+
+:global(.workspace-page-op-progress-overlay .app-progress-overlay-cancel) {
+    pointer-events: auto;
 }
 
 :global(.workspace-page-op-progress-overlay .app-progress-overlay-bar) {

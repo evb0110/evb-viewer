@@ -1,8 +1,12 @@
 import {createHash} from 'node:crypto';
 import {
+    chmodSync,
     createReadStream,
     existsSync,
+    rmSync,
+    writeFileSync,
 } from 'node:fs';
+import {join} from 'node:path';
 import {
     readFile, rename, stat, utimes,
 } from 'node:fs/promises';
@@ -11,8 +15,10 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import {
+    createFixturePath,
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
     readPdfPageSnapshots,
@@ -313,6 +319,67 @@ async function rotateFirstPageCounterclockwise(session: IElectronE2ESession) {
     await session.page.mouse.click(menuItem.x, menuItem.y);
 }
 
+const ROTATE_FAILURE_TEXT = 'Failed to rotate pages';
+const NATIVE_PDF_PAGE_OPS_PATH = join(
+    process.cwd(),
+    '.tmp',
+    'pdf-page-ops',
+    `${process.platform}-${process.arch}`,
+    'bin',
+    'evb-pdf-page-ops',
+);
+
+/**
+ * Stands in for the page-ops tool so a rotation stays in its native write
+ * until the user cancels it. Every other call, and every call before the test
+ * holds the tool, goes straight to the real binary.
+ */
+function createHeldPageOpsTool(name: string) {
+    const toolPath = createFixturePath(`${name}-page-ops.sh`);
+    const armPath = createFixturePath(`${name}-page-ops.arm`);
+    writeFileSync(toolPath, [
+        '#!/usr/bin/env bash',
+        `if [ "$1" = "save-mutations" ] && [ -e ${JSON.stringify(armPath)} ]; then`,
+        '    exec sleep 600',
+        'fi',
+        `exec ${JSON.stringify(NATIVE_PDF_PAGE_OPS_PATH)} "$@"`,
+        '',
+    ].join('\n'));
+    chmodSync(toolPath, 0o755);
+    onTestFinished(() => {
+        rmSync(toolPath, {force: true});
+        rmSync(armPath, {force: true});
+    });
+    return {
+        toolPath,
+        hold: () => writeFileSync(armPath, ''),
+        release: () => rmSync(armPath, {force: true}),
+    };
+}
+
+async function clickPageOperationCancel(session: IElectronE2ESession) {
+    const button = await session.page.waitForFunction(() => {
+        const candidate = Array.from(document.querySelectorAll<HTMLButtonElement>(
+            '.workspace-page-op-progress-overlay button',
+        )).find(element => element.textContent?.trim() === 'Cancel' && !element.disabled);
+        if (!candidate) {
+            return null;
+        }
+        const bounds = candidate.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0
+            ? {
+                x: bounds.left + bounds.width / 2,
+                y: bounds.top + bounds.height / 2,
+            }
+            : null;
+    }, {timeout: 30_000});
+    const point = await button.jsonValue();
+    if (!point) {
+        throw new Error('Page operation Cancel button was not visible');
+    }
+    await session.page.mouse.click(point.x, point.y);
+}
+
 async function startBusyCloseAndWaitForDecision(session: IElectronE2ESession) {
     await waitForActiveTabCloseEnabled(session);
     await rotateFirstPageCounterclockwise(session);
@@ -462,6 +529,43 @@ describe('Project 8 recovered close decisions', () => {
         await clickActiveTabClose(session);
         await expect.poll(async () => (await getWorkspaceToolbarSnapshot(session!.page))?.hasPdf, {timeout: 10_000}).toBe(false);
         expect(await session.page.$$('[role="dialog"]')).toHaveLength(0);
+    }, E2E_TIMEOUT_MS);
+
+    it.skipIf(process.platform === 'win32')('cancels a running page operation and leaves the document unchanged', async () => {
+        const heldTool = createHeldPageOpsTool(`project8-cancel-page-op-${Date.now()}`);
+        const pdfPath = await createMultiPageTextFixturePdf(`project8-cancel-page-op-${Date.now()}.pdf`, 3);
+        session = await startElectronE2ESession(`e2e-project8-cancel-page-op-${Date.now()}`, {
+            clean: true,
+            extraEnv: {
+                EVB_PDF_PAGE_OPS_ENABLE: '1',
+                EVB_PDF_PAGE_OPS_PATH: heldTool.toolPath,
+            },
+        });
+        await openPdfInApp(session.page, pdfPath, 60_000);
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        const workingCopyDigest = await getFileSha256(workingCopyPath);
+
+        heldTool.hold();
+        await rotateFirstPageCounterclockwise(session);
+        await clickPageOperationCancel(session);
+
+        await expect.poll(async () => (
+            await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(session!.page, ['isPageOperationInProgress'])
+        ).isPageOperationInProgress, {timeout: 30_000}).toBe(false);
+        await expect.poll(() => session!.page.evaluate(() => document.body.innerText), {timeout: 10_000})
+            .toContain('Page operation canceled. The document is unchanged.');
+        expect(await session.page.evaluate(() => document.body.innerText)).not.toContain(ROTATE_FAILURE_TEXT);
+        expect(await getFileSha256(workingCopyPath)).toBe(workingCopyDigest);
+        expect((await readPdfPageSnapshots(workingCopyPath))[0]?.rotation).toBe(0);
+        expect((await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState'])).dirtyState?.fileDirty).toBe(false);
+
+        heldTool.release();
+        await rotateFirstPageCounterclockwise(session);
+        await expect.poll(async () => (
+            await readPdfPageSnapshots(workingCopyPath)
+        )[0]?.rotation, {timeout: 30_000}).toBe(270);
     }, E2E_TIMEOUT_MS);
 
     it('Cancel keeps recovered dirty bytes open', async () => {

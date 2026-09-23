@@ -135,9 +135,18 @@ export function mapPageNumberThroughPageIdentityDelta(
 
 export interface IPageOpsResult {
     readonly success: boolean;
+    /** The user canceled the operation and the document is unchanged. */
+    readonly canceled?: boolean;
     readonly pageCount?: number;
     readonly documentRevision?: IDocumentRevisionInfo;
     readonly pageIdentityDelta?: IPageIdentityDelta;
+}
+
+export interface IPageOpsCancelActiveResult {
+    /** Operations that stop and leave the document unchanged. */
+    readonly canceled: number;
+    /** Operations already writing their result; they finish normally. */
+    readonly committing: number;
 }
 
 export interface IPageOpsExtractResult {

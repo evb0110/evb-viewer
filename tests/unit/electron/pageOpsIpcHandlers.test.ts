@@ -518,6 +518,61 @@ describe('page ops main bindings', () => {
         expect(mocks.commitPageIdentityDelta).not.toHaveBeenCalled();
     });
 
+    it('reports a rotation the user cancels during native work as canceled without publishing it', async () => {
+        const handler = getHandler('page-ops:rotate');
+        const cancelActive = getHandler('page-ops:cancel-active');
+        mocks.rotatePages.mockImplementationOnce((
+            _path: string,
+            _pages: number[],
+            _angle: number,
+            _senderId: number,
+            options: {signal: AbortSignal},
+        ) => new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(new Error('qpdf terminated')), {once: true});
+        }));
+
+        const rotation = handler({sender: {id: 1}}, '/tmp/cancel-rotate.pdf', [1], 3, 90, REVISION_OPTIONS);
+        await vi.waitFor(() => expect(mocks.rotatePages).toHaveBeenCalledOnce());
+
+        await expect(cancelActive({sender: {id: 1}}, '/tmp/cancel-rotate.pdf')).resolves.toEqual({
+            canceled: 1,
+            committing: 0,
+        });
+        await expect(rotation).resolves.toEqual({
+            success: false,
+            canceled: true,
+        });
+        expect(mocks.commitPageIdentityDelta).not.toHaveBeenCalled();
+    });
+
+    it('cancels a rotation that has not reached the working-copy queue yet', async () => {
+        const handler = getHandler('page-ops:rotate');
+        const cancelActive = getHandler('page-ops:cancel-active');
+
+        const rotation = handler({sender: {id: 1}}, '/tmp/early-cancel.pdf', [1], 3, 90, REVISION_OPTIONS);
+        const cancel = cancelActive({sender: {id: 1}}, '/tmp/early-cancel.pdf');
+
+        await expect(cancel).resolves.toMatchObject({canceled: 1});
+        await expect(rotation).resolves.toEqual({
+            success: false,
+            canceled: true,
+        });
+        expect(mocks.rotatePages).not.toHaveBeenCalled();
+        expect(mocks.transitionWorkingCopyContentRevision).not.toHaveBeenCalled();
+    });
+
+    it('does not let another renderer cancel a page operation', async () => {
+        const handler = getHandler('page-ops:rotate');
+        const cancelActive = getHandler('page-ops:cancel-active');
+
+        const rotation = handler({sender: {id: 1}}, '/tmp/owned-rotate.pdf', [1], 3, 90, REVISION_OPTIONS);
+        await expect(cancelActive({sender: {id: 2}}, '/tmp/owned-rotate.pdf')).resolves.toEqual({
+            canceled: 0,
+            committing: 0,
+        });
+        await expect(rotation).resolves.toMatchObject({success: true});
+    });
+
     it('publishes a sparse identity delta for a million-page rotate', async () => {
         const handler = getHandler('page-ops:rotate');
         mocks.getPdfPageCount

@@ -259,6 +259,10 @@
             :eta-text="pageOpBatchEtaText"
             :is-page-operation-in-progress="isPageOperationInProgress"
             :operation="pageOperationPresentation"
+            :can-cancel="canCancelPageOperation"
+            :cancel-state="pageOperationCancelState"
+            :last-outcome-status="lastPageOperationOutcome?.status ?? null"
+            @cancel="cancelActivePageOperation"
         />
         <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" :overlay="exportOverlay" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
@@ -917,6 +921,10 @@ const {
     isPageOperationInProgress,
     pageOperationPresentation,
     pageOpBatchProgress,
+    lastPageOperationOutcome,
+    pageOperationCancelState,
+    canCancelPageOperation,
+    cancelActivePageOperation,
 } = documentControls;
 const {
     hasQueuedSplitRestore,

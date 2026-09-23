@@ -1514,6 +1514,10 @@ export default {
         'deselectPage': 'Снять выделение со страницы {page}',
         'deselect': 'Снять выделение',
         'operationInProgress': 'Обработка страниц...',
+        'movePages': 'Переместить страницы',
+        'canceling': 'Отмена…',
+        'finishing': 'Завершение…',
+        'canceled': 'Операция со страницами отменена. Документ не изменён.',
         'exportPages': 'Экспортировать страницы',
     },
     'about': {

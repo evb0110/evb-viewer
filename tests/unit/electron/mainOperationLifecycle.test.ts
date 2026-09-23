@@ -11,7 +11,9 @@ import {
     cancelAllMainOperations,
     cancelMainOperationsForOwner,
     cancelMainOperationsForClosingWorkingCopy,
+    cancelUserCancellableMainOperations,
     drainCriticalMainOperations,
+    isMainOperationUserCanceled,
     registerMainOperation,
     runWithMainOperationCancellationSignal,
     resetMainOperationLifecycleForTests,
@@ -48,6 +50,54 @@ describe('mainOperationLifecycle', () => {
             ownerWebContentsId: 7,
             aborted: true,
         })]);
+    });
+
+    it('lets a user cancel only their own scoped operations on that working copy', () => {
+        const userCancel = {
+            scope: 'page-ops',
+            ownerWebContentsId: 7,
+        };
+        const pageOp = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/work.pdf',
+            userCancel,
+        });
+        const publishingPageOp = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/work.pdf',
+            userCancel,
+        });
+        publishingPageOp.markCommitStarted();
+        const save = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/work.pdf',
+        });
+        const otherRenderer = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/work.pdf',
+            userCancel: {
+                scope: 'page-ops',
+                ownerWebContentsId: 8,
+            },
+        });
+        const otherDocument = registerMainOperation({
+            kind: 'critical-write',
+            workingCopyPath: '/tmp/other.pdf',
+            userCancel,
+        });
+
+        expect(cancelUserCancellableMainOperations({
+            ...userCancel,
+            workingCopyPath: '/tmp/work.pdf',
+        })).toEqual({
+            canceled: 1,
+            committing: 1,
+        });
+        expect(isMainOperationUserCanceled(pageOp.signal)).toBe(true);
+        expect(publishingPageOp.signal.aborted).toBe(false);
+        expect(save.signal.aborted).toBe(false);
+        expect(otherRenderer.signal.aborted).toBe(false);
+        expect(otherDocument.signal.aborted).toBe(false);
     });
 
     it('cancels operations created inside an IPC invoke cancellation scope', () => {

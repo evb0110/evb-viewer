@@ -46,6 +46,7 @@ import type {
     IPageMoveRangeSegment,
     IPageMoveRanges,
 } from '@contracts/pageNumbers';
+import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 
 const log = createLogger('page-ops-qpdf');
 const E2E_SELECTED_PAGE_QPDF_HOLD_MARKER_ENV = 'EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER';
@@ -69,6 +70,8 @@ interface IQpdfWorkingCopyMaterialization {
 type TRunQpdfCommandOptions = Parameters<typeof runNativeToolCommand>[2]
     & {workingCopyMaterialization?: IQpdfWorkingCopyMaterialization};
 
+const NON_COMMITTING_MATERIALIZATION_SIGNAL = {markCommitStarted: () => undefined};
+
 export async function materializePageOperationWorkingCopy(
     workingCopyPath: string,
     senderWebContentsId?: number,
@@ -80,11 +83,15 @@ export async function materializePageOperationWorkingCopy(
         }
         return workingCopyPath;
     }
-    const result = await ensureWorkingCopyMaterialized(workingCopyPath, {
-        reason: 'page-operation',
-        ...(senderWebContentsId === undefined ? {} : {ownerWebContentsId: senderWebContentsId}),
-        ...(signal ? {signal} : {}),
-    });
+    // Materializing copies the original's bytes into place atomically: it is
+    // not the page operation's commit, and a cancel before or after it leaves
+    // the document's content unchanged.
+    const result = await runWithWorkingCopyMutationCommitSignal(NON_COMMITTING_MATERIALIZATION_SIGNAL, () =>
+        ensureWorkingCopyMaterialized(workingCopyPath, {
+            reason: 'page-operation',
+            ...(senderWebContentsId === undefined ? {} : {ownerWebContentsId: senderWebContentsId}),
+            ...(signal ? {signal} : {}),
+        }));
     return result.physicalWorkingCopyPath;
 }
 

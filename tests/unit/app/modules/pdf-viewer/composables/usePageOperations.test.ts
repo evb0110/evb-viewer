@@ -36,6 +36,7 @@ const pageOpsApi = {
     moveRanges: vi.fn(),
     crop: vi.fn(),
     removeCrop: vi.fn(),
+    cancelActive: vi.fn(),
 };
 
 type TBatchProgressListener = (progress: {
@@ -471,6 +472,70 @@ describe('usePageOperations', () => {
             error: 'msg:errors.pageOps.rotate',
             result: { success: false },
         });
+    });
+
+    it('stops a page operation canceled while it is still preparing without sending it', async () => {
+        const baseline = deferred<boolean>();
+        const {
+            pageOps, reloadWorkingCopyIntoHistory, 
+        } = createHarness('/tmp/work.pdf', {ensureHistoryBaselineForMutation: () => baseline.promise});
+        pageOpsApi.cancelActive.mockResolvedValueOnce({
+            canceled: 0,
+            committing: 0,
+        });
+
+        const rotation = pageOps.rotatePagesDetailed([1], 10, 90);
+        expect(pageOps.canCancelOperation.value).toBe(true);
+        await pageOps.cancelActiveOperation();
+        expect(pageOpsApi.cancelActive).toHaveBeenCalledWith('/tmp/work.pdf');
+        expect(pageOps.cancelState.value).toBe('canceling');
+        baseline.resolve(true);
+
+        await expect(rotation).resolves.toEqual({status: 'canceled'});
+        expect(pageOpsApi.rotate).not.toHaveBeenCalled();
+        expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
+        expect(pageOps.cancelState.value).toBe('idle');
+        expect(pageOps.canCancelOperation.value).toBe(false);
+    });
+
+    it('treats a main-process cancel as a quiet canceled outcome', async () => {
+        const {
+            pageOps, reloadWorkingCopyIntoHistory, 
+        } = createHarness();
+        pageOpsApi.rotate.mockResolvedValueOnce({
+            success: false,
+            canceled: true,
+        });
+
+        await expect(pageOps.rotatePagesDetailed([1], 10, 90)).resolves.toEqual({
+            status: 'canceled',
+            result: {
+                success: false,
+                canceled: true,
+            },
+        });
+        expect(reportRuntimeError).not.toHaveBeenCalled();
+        expect(reloadWorkingCopyIntoHistory).not.toHaveBeenCalled();
+        expect(pageOps.error.value).toBeNull();
+    });
+
+    it('shows that an operation already writing its result will finish', async () => {
+        const rotateResult = deferred<IPageOpsResult>();
+        const { pageOps } = createHarness();
+        pageOpsApi.rotate.mockReturnValueOnce(rotateResult.promise);
+        pageOpsApi.cancelActive.mockResolvedValueOnce({
+            canceled: 0,
+            committing: 1,
+        });
+
+        const rotation = pageOps.rotatePagesDetailed([1], 10, 90);
+        await vi.waitFor(() => expect(pageOpsApi.rotate).toHaveBeenCalledOnce());
+        await pageOps.cancelActiveOperation();
+        expect(pageOps.cancelState.value).toBe('finishing');
+        rotateResult.resolve({success: true});
+
+        await expect(rotation).resolves.toMatchObject({status: 'succeeded'});
+        expect(pageOps.cancelState.value).toBe('idle');
     });
 
     it('persists pending changes before extracting pages from the working copy', async () => {

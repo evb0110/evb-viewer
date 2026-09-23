@@ -1474,6 +1474,10 @@ export default {
         'deselectPage': 'Pagina {page} deselecteren',
         'deselect': 'Alles deselecteren',
         'operationInProgress': 'Pagina\'s verwerken...',
+        'movePages': 'Pagina\'s verplaatsen',
+        'canceling': 'Annuleren…',
+        'finishing': 'Bezig met afronden…',
+        'canceled': 'Paginabewerking geannuleerd. Het document is niet gewijzigd.',
         'exportPages': 'Pagina\'s exporteren',
     },
     'about': {

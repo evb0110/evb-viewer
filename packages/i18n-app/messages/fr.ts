@@ -1485,6 +1485,10 @@ export default {
         'deselectPage': 'Désélectionner la page {page}',
         'deselect': 'Tout désélectionner',
         'operationInProgress': 'Traitement des pages...',
+        'movePages': 'Déplacer les pages',
+        'canceling': 'Annulation…',
+        'finishing': 'Finalisation…',
+        'canceled': 'Opération sur les pages annulée. Le document n’a pas été modifié.',
         'exportPages': 'Exporter les pages',
     },
     'about': {

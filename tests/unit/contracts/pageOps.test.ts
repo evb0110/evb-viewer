@@ -22,10 +22,11 @@ describe('page ops platform feature schemas', () => {
             rotate: 'page-ops:rotate',
             crop: 'page-ops:crop',
             removeCrop: 'page-ops:remove-crop',
+            cancelActive: 'page-ops:cancel-active',
             getPageGeometry: 'page-ops:get-page-geometry',
         });
         expect(PAGE_OPS_PLATFORM_FEATURE.eventChannels).toEqual({});
-        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(12);
+        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(13);
     });
 
     it('round-trips the compact native move tuple', () => {
@@ -277,6 +278,25 @@ describe('page ops platform feature schemas', () => {
         });
         expect(moveResult.pageIdentityDelta?.pages).toBeUndefined();
         expect(moveResult.pageIdentityDelta?.nextPageCount).toBe(1_000_000);
+    });
+
+    it('carries a user cancel through page operation and cancel results', () => {
+        expect(codecs[channels.rotate]!.decodeResult({
+            success: false,
+            canceled: true,
+        })).toEqual({
+            success: false,
+            canceled: true,
+        });
+        expect(codecs[channels.cancelActive]!.decodeResult({
+            canceled: 1,
+            committing: 0,
+        })).toEqual({
+            canceled: 1,
+            committing: 0,
+        });
+        expect(() => codecs[channels.cancelActive]!.decodeResult({canceled: 1}))
+            .toThrow();
     });
 
     it('keeps malformed tuple and result messages stable', () => {

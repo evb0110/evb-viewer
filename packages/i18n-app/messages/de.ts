@@ -1474,6 +1474,10 @@ export default {
         'deselectPage': 'Auswahl für Seite {page} aufheben',
         'deselect': 'Auswahl aufheben',
         'operationInProgress': 'Seiten werden verarbeitet...',
+        'movePages': 'Seiten verschieben',
+        'canceling': 'Wird abgebrochen…',
+        'finishing': 'Wird abgeschlossen…',
+        'canceled': 'Seitenvorgang abgebrochen. Das Dokument ist unverändert.',
         'exportPages': 'Seiten exportieren',
     },
     'about': {

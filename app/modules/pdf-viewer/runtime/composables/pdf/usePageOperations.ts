@@ -101,6 +101,12 @@ type TPageOperationOutcome<TResult extends IPageOpsResult = IPageOpsResult> =
         result?: TResult;
     };
 
+/**
+ * `canceling`: the operation stops and the document stays as it was.
+ * `finishing`: it was already writing its result, which lands normally.
+ */
+export type TPageOperationCancelState = 'idle' | 'canceling' | 'finishing';
+
 function didPageOperationSucceed(outcome: TPageOperationOutcome) {
     return outcome.status === 'succeeded';
 }
@@ -156,6 +162,40 @@ export const usePageOperations = (deps: {
     const error = ref<string | null>(null);
     const batchProgress = ref<IPageOperationBatchProgress | null>(null);
     const lastOutcome = ref<TPageOperationOutcome | null>(null);
+    const cancelState = ref<TPageOperationCancelState>('idle');
+    const activeOperationPath = shallowRef<TDocumentRef | null>(null);
+    let cancelRequested = false;
+    let runDispatched = false;
+    const canCancelOperation = computed(() => (
+        activeOperationPath.value !== null
+        && typeof getPageOpsCapability().cancelActive === 'function'
+    ));
+
+    async function cancelActiveOperation() {
+        const path = activeOperationPath.value;
+        const cancelActive = getPageOpsCapability().cancelActive;
+        if (!path || !cancelActive || cancelState.value !== 'idle') {
+            return;
+        }
+        // Checked again before the operation is sent, so a cancel during the
+        // preparation steps stops it without asking the main process.
+        cancelRequested = true;
+        cancelState.value = 'canceling';
+        try {
+            const result = await cancelActive(path);
+            if (activeOperationPath.value !== path || result.canceled > 0) {
+                return;
+            }
+            if (result.committing > 0 || runDispatched) {
+                cancelState.value = 'finishing';
+            }
+        } catch (cancelError) {
+            BrowserLogger.warn('page-ops', 'Failed to cancel the page operation', {error: cancelError});
+            if (activeOperationPath.value === path && runDispatched) {
+                cancelState.value = 'finishing';
+            }
+        }
+    }
 
     function recordOutcome<TResult extends IPageOpsResult>(
         outcome: TPageOperationOutcome<TResult>,
@@ -434,6 +474,10 @@ export const usePageOperations = (deps: {
 
         isOperationInProgress.value = true;
         error.value = null;
+        activeOperationPath.value = path;
+        cancelRequested = false;
+        runDispatched = false;
+        cancelState.value = 'idle';
 
         try {
             let didRunWorkingCopyFreshnessPreflight = false;
@@ -524,6 +568,10 @@ export const usePageOperations = (deps: {
                         });
                     }
                 }
+                if (cancelRequested) {
+                    return recordOutcome<TResult>({status: 'canceled'});
+                }
+                runDispatched = true;
                 const result = await options.run(path);
                 const isSuccessful = options.isSuccessful ?? ((apiResult) => apiResult.success);
                 if (!isSuccessful(result)) {
@@ -610,6 +658,10 @@ export const usePageOperations = (deps: {
             });
         } finally {
             isOperationInProgress.value = false;
+            activeOperationPath.value = null;
+            cancelRequested = false;
+            runDispatched = false;
+            cancelState.value = 'idle';
         }
     }
 
@@ -1026,6 +1078,9 @@ export const usePageOperations = (deps: {
         error,
         batchProgress,
         lastOutcome,
+        cancelState,
+        canCancelOperation,
+        cancelActiveOperation,
         deletePagesDetailed,
         deletePages,
         deletePageRangesDetailed,

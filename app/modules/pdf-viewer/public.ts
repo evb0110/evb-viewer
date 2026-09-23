@@ -19,6 +19,7 @@ export { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/p
 export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageContextMenu';
 export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
+export type { TPageOperationCancelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 export { usePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
