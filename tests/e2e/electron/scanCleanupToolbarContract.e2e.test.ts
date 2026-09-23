@@ -82,7 +82,7 @@ describe('scan cleanup toolbar contract', () => {
             const status = document.querySelector<HTMLElement>(toolbarCountSelector);
             const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
             const match = /(\d+)\D+(\d+)/u.exec(text);
-            // The meter names the analysis step instead of showing a bare
+            // The meter names the analysis step (contract I4) instead of a bare
             // counter that sits at zero while page images are read.
             const detail = document.querySelector('.scan-cleanup-activity-detail')?.textContent?.trim() ?? '';
             return action?.disabled === false

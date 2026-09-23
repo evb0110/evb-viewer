@@ -152,6 +152,14 @@ highlighted row, and Enter activates only an enabled highlighted row.
 text, starting a selection on top of a search or annotation highlight selects
 the text under it, unless an explicit editing gesture takes precedence.
 
+**I4. Long work says what it is doing.** While work the user started or is
+waiting on runs longer than 1 s, its indicator names the current step and shows
+movement at least every 5 s: a count, a fill or an elapsed clock. A count or
+fill never moves backward within a step. When the user takes the next step of
+the same work, such as starting a cleanup while its analysis runs, the indicator
+keeps its place and shape. A failure names its cause in the user's language.
+Added 2026-09-23 on the owner's request (#834).
+
 ## Documents and tabs
 
 **T1. Tabs are isolated.** Work, failure or closing in one tab does not change
