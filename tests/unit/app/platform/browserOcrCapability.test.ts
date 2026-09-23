@@ -4,6 +4,7 @@ import {
 } from 'fs';
 import { resolve } from 'path';
 import {
+    beforeAll,
     describe,
     expect,
     it,
@@ -31,6 +32,18 @@ function listFilesRecursive(path: string): string[] {
 }
 
 describe('browser OCR capability', {timeout: 20_000}, () => {
+    beforeAll(async () => {
+        // The first import transforms the whole browser platform, which takes
+        // seconds on a loaded machine. Pay that once here so the wiring budget
+        // below measures the wiring, not the transform.
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        try {
+            await import('@app/platform/browserPlatformApi');
+        } finally {
+            consoleError.mockRestore();
+        }
+    });
+
     it('does not ship browser Tesseract assets', () => {
         expect(listFilesRecursive(resolve(process.cwd(), 'public/tesseract'))).toEqual([]);
     });
