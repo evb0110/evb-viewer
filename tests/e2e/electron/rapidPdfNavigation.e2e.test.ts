@@ -639,6 +639,46 @@ async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber
         .catch(() => false);
 }
 
+// Tests in a suite share one viewer. A test that changes the layout puts it back,
+// so the next one does not inherit a facing spread, a fit mode or the sidebar.
+async function restoreViewerLayout(
+    session: IElectronE2ESession,
+    toolbar: Awaited<ReturnType<typeof getWorkspaceToolbarSnapshot>>,
+) {
+    if (!toolbar) {
+        return;
+    }
+    await requireWorkspaceCommand(session.page, toolbar.viewMode === 'facing'
+        ? 'handleViewModeFacing'
+        : toolbar.viewMode === 'facing-first-single'
+            ? 'handleViewModeFacingFirstSingle'
+            : 'handleViewModeSingle');
+    if (toolbar.zoomMode === 'fit-width') {
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
+    } else if (toolbar.zoomMode === 'fit-height') {
+        await requireWorkspaceCommand(session.page, 'handleFitHeight');
+    } else {
+        await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [toolbar.zoom]);
+    }
+    const current = await getWorkspaceToolbarSnapshot(session.page);
+    if (current && current.showSidebar !== toolbar.showSidebar) {
+        await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
+    }
+}
+
+// Waits until a fit change has re-anchored the viewport. The toolbar reports the
+// new fit mode at once, while the chassis still moves the viewport to the anchor.
+async function waitForSettledViewport(session: IElectronE2ESession, pageNumber: number) {
+    await session.page.waitForFunction((targetPageNumber: number) => {
+        const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+        const toolbarPage = (window as IRapidNavigationProbeWindow)
+            .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage;
+        return chassis?.dataset.chassisResizing === 'false'
+            && chassis.dataset.viewportLifecycle === 'ready'
+            && toolbarPage === targetPageNumber;
+    }, {timeout: 15_000}, pageNumber);
+}
+
 async function setFitWidthAndWaitForPage(session: IElectronE2ESession, pageNumber: number) {
     await requireWorkspaceCommand(session.page, 'handleViewModeSingle');
     await jumpToPageAndWaitForCanvas(session, pageNumber);
@@ -1876,6 +1916,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         const originalViewport = session.page.viewport();
+        const originalToolbar = await getWorkspaceToolbarSnapshot(session.page);
+        if (!originalToolbar) {
+            throw new Error('Toolbar snapshot is unavailable before the Control-wheel layout change');
+        }
         let client: Awaited<ReturnType<typeof session.page.createCDPSession>> | null = null;
         try {
             await session.page.setViewport({
@@ -1884,8 +1928,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             });
             await requireWorkspaceCommand(session.page, 'handleViewModeFacingFirstSingle');
             await requireWorkspaceCommand(session.page, 'handleFitHeight');
-            const toolbar = await getWorkspaceToolbarSnapshot(session.page);
-            if (toolbar?.showSidebar !== true) {
+            if (!originalToolbar.showSidebar) {
                 await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
             }
             await jumpToPageAndWaitForCanvas(session, 1);
@@ -2170,6 +2213,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             if (originalViewport) {
                 await session.page.setViewport(originalViewport);
             }
+            await restoreViewerLayout(session, originalToolbar);
         }
     }, 90_000);
 
@@ -2179,13 +2223,11 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             throw new Error('Page-jump suite setup did not complete');
         }
 
-        await jumpToPageAndWaitForCanvas(session, 1);
-        await waitForToolbarCurrentPage(session, 1);
-        await requireWorkspaceCommand(session.page, 'handleFitWidth');
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-        ), {timeout: 15_000});
+        // Race the navigation alone. A fit change still re-anchoring the
+        // viewport would move it after the wheel, and a facing spread would
+        // step Next Page by two.
+        await setFitWidthAndWaitForPage(session, 1);
+        await waitForSettledViewport(session, 1);
 
         const totalPages = (await getWorkspaceToolbarSnapshot(session.page))?.totalPages ?? 0;
         const targetPage = Math.max(2, Math.floor(totalPages * 0.72));
