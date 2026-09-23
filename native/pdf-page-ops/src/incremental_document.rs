@@ -1656,8 +1656,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rotation_loader_reads_selected_page_ancestry_and_indirect_rotate_values() {
-        use std::os::unix::fs::PermissionsExt;
-
         let nonce = test_qpdf_temp_nonce().unwrap();
         let stem = format!("evb-qpdf-rotation-{nonce}");
         let input_path = std::env::temp_dir().join(format!("{stem}-input.pdf"));
@@ -1693,8 +1691,7 @@ case "$*" in
   *) exit 9 ;;
 esac
 "##;
-        fs::write(&qpdf_path, qpdf_script).unwrap();
-        fs::set_permissions(&qpdf_path, fs::Permissions::from_mode(0o700)).unwrap();
+        let fake_executable = crate::write_fake_executable(&qpdf_path, qpdf_script);
 
         let result = load_qpdf_rotation_incremental_pdf(
             &input_path,
@@ -1706,6 +1703,7 @@ esac
         );
         let _ = fs::remove_file(&input_path);
         let _ = fs::remove_file(&qpdf_path);
+        drop(fake_executable);
         let mut incremental = result.expect("selected page ancestry should load for rotation");
         assert_eq!(incremental.page_ids_by_number, Some(vec![page_id]));
         assert_eq!(
