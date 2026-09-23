@@ -265,6 +265,14 @@ describe('sessionManager automation launch args', () => {
         expect(buildNuxtDevServerEnv({ NUXT_IGNORE_LOCK: '0' }, 3124).NUXT_IGNORE_LOCK).toBe('0');
     });
 
+    it('keeps the Nitro worker socket inside the macOS socket path limit', () => {
+        const deepTaskTemp = '/Users/someone/.t3/worktrees/evb-viewer/t3code-808143f1/.devkit/task/tmp';
+        expect(buildNuxtDevServerEnv({ TMPDIR: deepTaskTemp }, 3126, 'default', 'darwin')).not.toHaveProperty('TMPDIR');
+        expect(buildNuxtDevServerEnv({ TMPDIR: '/tmp/task' }, 3126, 'default', 'darwin')).toHaveProperty('TMPDIR', '/tmp/task');
+        // Linux Nitro uses an abstract socket, so a long task TMPDIR is harmless there.
+        expect(buildNuxtDevServerEnv({ TMPDIR: deepTaskTemp }, 3126, 'default', 'linux')).toHaveProperty('TMPDIR', deepTaskTemp);
+    });
+
     it('isolates non-default Nuxt build, output, and Vite directories from release artifacts', () => {
         expect(resolveNuxtDevServerArtifactDirs({}, 'default')).toBeNull();
 

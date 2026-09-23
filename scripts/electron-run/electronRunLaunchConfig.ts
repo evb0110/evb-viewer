@@ -159,10 +159,14 @@ export function sanitizeElectronLaunchEnv(env: NodeJS.ProcessEnv) {
     return launchEnv;
 }
 
+const UNIX_SOCKET_PATH_MAX_BYTES = 104;
+const NITRO_WORKER_SOCKET_NAME_MAX = 'nitro-worker-9999999-999-999-99999.sock';
+
 export function buildNuxtDevServerEnv(
     env: NodeJS.ProcessEnv,
     port: number,
     sessionName = getCurrentSessionName(),
+    platform: NodeJS.Platform = process.platform,
 ) {
     const launchEnv: NodeJS.ProcessEnv = {};
     for (const [
@@ -173,6 +177,15 @@ export function buildNuxtDevServerEnv(
             continue;
         }
         launchEnv[key] = value;
+    }
+
+    // Outside Linux and Windows, Nitro's dev worker listens on a Unix socket
+    // named nitro-worker-<pid>-<thread>-<id>-<rand>.sock inside os.tmpdir().
+    // A task TMPDIR deep in a worktree overflows the 104-byte sun_path limit
+    // and the server dies with listen EINVAL, so Nuxt keeps the system temp.
+    if (platform !== 'linux' && platform !== 'win32' && launchEnv.TMPDIR
+        && join(launchEnv.TMPDIR, NITRO_WORKER_SOCKET_NAME_MAX).length >= UNIX_SOCKET_PATH_MAX_BYTES) {
+        delete launchEnv.TMPDIR;
     }
 
     const artifactDirs = resolveNuxtDevServerArtifactDirs(env, sessionName);
