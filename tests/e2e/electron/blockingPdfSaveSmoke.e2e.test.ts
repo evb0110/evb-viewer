@@ -424,6 +424,38 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
+    it('keeps Start and names the file when Open File picks a PDF that cannot be opened', async () => {
+        const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-pick-${process.pid}-${Date.now()}.pdf`);
+        onTestFinished(() => rmSync(brokenPath, {force: true}));
+        writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+
+        session = await startElectronE2ESession(`e2e-blocking-broken-pick-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: brokenPath},
+        });
+        const {page} = session;
+        await page.waitForFunction(
+            () => document.querySelector('#evb-startup-overlay') === null,
+            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
+        );
+        await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
+        await page.click('.start-open-panel .open-panel-cta');
+
+        await page.waitForSelector('[data-testid="start-open-failure"]', {
+            visible: true,
+            timeout: 45_000,
+        });
+        const shownState = await page.evaluate(() => ({
+            alert: document.querySelector('[data-testid="start-open-failure"]')?.textContent ?? '',
+            activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
+            startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
+        }));
+        expect(shownState.alert).toContain(basename(brokenPath));
+        expect(shownState.activeTab).not.toContain(basename(brokenPath));
+        expect(shownState.startVisible).toBe(true);
+        expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
+    }, BLOCKING_SMOKE_TIMEOUT_MS);
+
     it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
         const runOwner = `blocking-pressure-save-${Date.now()}`;
         const pdfPath = await createLargeScannedFixturePdf(

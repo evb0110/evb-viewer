@@ -103,6 +103,18 @@ export async function showOpenDocumentDialogForContext(
         ],
     } satisfies Electron.OpenDialogOptions;
 
+    // Automation sessions answer the Open dialog like the Save dialog below:
+    // hidden runs cannot drive the native picker, and the path still goes
+    // through the same open pipeline as a user's choice.
+    const automationOpenPath = process.env.EVB_AUTOMATION_USER_DATA_DIR
+        && process.env.EVB_E2E_OPEN_DIALOG_PATH?.trim();
+    if (automationOpenPath) {
+        return {
+            canceled: false,
+            filePaths: [automationOpenPath],
+        } satisfies Electron.OpenDialogReturnValue;
+    }
+
     return withSingleActiveDialogForSender(context.senderId, () => context.parentWindow
         ? dialog.showOpenDialog(context.parentWindow, dialogOptions)
         : dialog.showOpenDialog(dialogOptions));
