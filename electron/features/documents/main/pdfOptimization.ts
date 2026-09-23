@@ -240,8 +240,11 @@ async function assembleImageChunk(
     pageCount: number,
     context: IOptimizeProgressContext,
 ) {
+    // Chunks stay files until the merge, so they are not held to the cap on
+    // bytes returned into memory; 25 color pages at 200 DPI routinely exceed it.
     const ok = await tryWritePdfWithNativeImageCombiner(imagePaths, chunkPath, {
         maxPages: imagePaths.length,
+        outputMode: 'file-backed',
         onProgress: progress => emitProgress(
             context,
             'assembling',

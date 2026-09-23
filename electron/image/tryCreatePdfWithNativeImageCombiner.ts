@@ -34,6 +34,7 @@ import {
     createPdfCombineOutputTooLargeError,
     isPdfCombineOutputTooLargeError,
     normalizePdfCombineOutputLimit,
+    PDF_COMBINE_FILE_BACKED_OUTPUT_MODE,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
@@ -692,7 +693,7 @@ async function runNativePdfImageCombine(
         ...process.env,
         EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(maxOutputBytes),
         ...(options?.outputMode === 'file-backed'
-            ? {EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed'}
+            ? {EVB_PDF_COMBINE_OUTPUT_MODE: PDF_COMBINE_FILE_BACKED_OUTPUT_MODE}
             : {}),
         ...(maxInputMb ? {EVB_PDF_COMBINE_MAX_INPUT_MB: maxInputMb} : {}),
         ...(maxPages ? {EVB_PDF_COMBINE_MAX_PAGES: maxPages} : {}),

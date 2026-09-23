@@ -3,6 +3,7 @@ import {
     mkdtemp,
     readFile,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -288,11 +289,11 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
                 '--compact-manifest',
                 join(tempDir, 'compact-manifest.jsonl'),
             ]),
-            expect.objectContaining({env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(16 * 1024 * 1024)})}),
+            expect.objectContaining({env: expect.objectContaining({EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed'})}),
         );
     });
 
-    it('refuses compact native output above the shared combine cap', async () => {
+    it('keeps compact output larger than the byte-returning combine cap', async () => {
         setDjvuDump([{
             pageNumber: 1,
             pageBytes: 32_705,
@@ -308,20 +309,24 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             await writeFile(outputPath, new Uint8Array(PDF_COMBINE_MAX_OUTPUT_BYTES + 1));
             return {success: true};
         });
+        const outputPath = join(tempDir, 'large.pdf');
 
+        // The PDF stays a file, so the cap on bytes returned into memory does
+        // not apply to it; the disk-quota monitor bounds it instead.
         await expect(buildCompactDjvuAwarePdfFromDjvu({
             jobId: 'job-output-cap',
             djvuPath: join(tempDir, 'input.djvu'),
-            outputPath: join(tempDir, 'oversized.pdf'),
+            outputPath,
             tempDir,
             pageCount: 1,
             sourceDpi: 300,
             pageSizes: pageSizes(1),
             pages: [1],
-        })).rejects.toMatchObject({
-            code: 'too-large',
-            name: 'SerializableError',
+        })).resolves.toMatchObject({
+            success: true,
+            fileSize: PDF_COMBINE_MAX_OUTPUT_BYTES + 1,
         });
+        expect((await stat(outputPath)).size).toBe(PDF_COMBINE_MAX_OUTPUT_BYTES + 1);
     });
 
     it('preserves a typed native output-cap failure from the compact combiner', async () => {
@@ -348,6 +353,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pages: [1],
         })).rejects.toMatchObject({
             code: 'too-large',
+            message: 'Image-combine output exceeded the shared cap',
             name: 'SerializableError',
         });
     });

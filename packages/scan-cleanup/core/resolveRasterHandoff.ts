@@ -1,5 +1,6 @@
 import { statfs } from 'fs/promises';
 import type {TScanCleanupLog} from '@evb/scan-cleanup/core/types';
+import {createFileBackedPdfCombineEnv} from '@contracts/pdfCombineOutputPolicy';
 
 // PPM removes the costly PNG encode/decode step on both sides of the native
 // handoff: pdftoppm writes a JPEG 2000 scan page in about a second where the
@@ -325,18 +326,12 @@ export function resolveCombineOutputByteCap(outputPageCount: number) {
     return Math.max(COMBINE_OUTPUT_BYTES_FLOOR, outputPageCount * COMBINE_OUTPUT_BYTES_PER_PAGE);
 }
 
-/**
- * The combiner writes cleaned output to a validated file path, so it runs in
- * file-backed mode. Without that mode the combiner silently clamps any larger
- * cap back to the 16 MiB byte-returning limit, and a book-length color scan
- * fails at Build PDF after minutes of cleaning.
- */
+/** Cleaned output is written to a file, bounded by the run's own byte budget. */
 export function resolveScanCleanupCombineEnv(outputPageCount: number) {
-    return {
-        EVB_PDF_COMBINE_MAX_PAGES: String(Math.max(outputPageCount, 1)),
-        EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(resolveCombineOutputByteCap(outputPageCount)),
-        EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed',
-    };
+    return createFileBackedPdfCombineEnv({
+        maxPages: outputPageCount,
+        maxOutputBytes: resolveCombineOutputByteCap(outputPageCount),
+    });
 }
 
 export async function runRasterProducerConsumer<TResult = void>({
