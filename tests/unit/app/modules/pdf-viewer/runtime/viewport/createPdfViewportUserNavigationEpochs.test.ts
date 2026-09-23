@@ -95,6 +95,29 @@ describe('createPdfViewportUserNavigationEpochs', () => {
         endReplacement();
     });
 
+    it('attributes a strict clamp outside a replacement window to the viewer', () => {
+        const epochs = createPdfViewportUserNavigationEpochs();
+        // A navigation wrote page 4 while earlier pages kept their painted
+        // scale; releasing them shortens the document under that offset.
+        epochs.observeAuthoredScrollOffset(3341);
+
+        expect(epochs.markScrollInteraction({
+            top: 2533,
+            maxTop: 2533,
+        })).toBe(false);
+        expect(epochs.userPhysicalNavigationEpoch.value).toBe(0);
+
+        // Reaching the end by the user's own scroll is not a clamp.
+        expect(epochs.markScrollInteraction({
+            top: 2533,
+            maxTop: 2533,
+        })).toBe(true);
+        expect(epochs.markScrollInteraction({
+            top: 2400,
+            maxTop: 2533,
+        })).toBe(true);
+    });
+
     it('keeps trusted wheel and pointer input authoritative during a geometry replacement', () => {
         const epochs = createPdfViewportUserNavigationEpochs();
         const endReplacement = epochs.beginLayoutGeometryReplacement();

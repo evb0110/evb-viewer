@@ -36,6 +36,7 @@ import {
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
+    clickToolbarButtonWhenEnabled,
     clickVisibleToolbarButton,
     dismissScanCleanupFirstRunGuidance,
     ensureSidebarOpen,
@@ -1361,6 +1362,10 @@ describe('Electron E2E - Viewer Smoke', () => {
         await openDocumentSidebarTab(page, 'Bookmarks');
 
         async function activate(title: string, key?: 'Enter' | 'Space') {
+            // The outline loads after its tab opens; a user can only click a row it shows.
+            await waitForFunctionInPage(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>(
+                '.document-bookmark-item__row, .pdf-bookmark-item-row',
+            )).some(row => row.textContent?.trim() === text && row.getBoundingClientRect().width > 0), {timeout: 10_000}, title);
             const rows = await page.$$('.document-bookmark-item__row, .pdf-bookmark-item-row');
             for (const row of rows) {
                 const matches = await row.evaluate((element, text) => (
@@ -1447,6 +1452,75 @@ describe('Electron E2E - Viewer Smoke', () => {
         await activate('Parent');
         await expectActive('Parent', 1);
     }, 90_000);
+
+    it('lands on a bookmark destination activated while the sidebar is still opening', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createOutlinePageLabelFixturePdf(`bookmark-sidebar-opening-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const entry = (title: string, pageIndex: number, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
+            title,
+            pageIndex: requirePageIndex(pageIndex),
+            pageYRatio: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items,
+        });
+        writePdfBookmarkOutlines(pdf, [
+            entry('Parent', 0, [
+                entry('Child', 2),
+                entry('Back reference', 0),
+            ]),
+            entry('Appendix', 3),
+            entry('Same page', 3),
+        ]);
+        await writeFile(fixture, await pdf.save());
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForViewportQuiet(page);
+
+        // R2: work that started before a deliberate navigation cannot move the
+        // viewport afterwards. Opening the sidebar re-fits every page; a
+        // bookmark clicked during that re-fit must still settle on its page.
+        const observations: string[] = [];
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            await goToPageViaToolbar(page, 1);
+            await waitForToolbarCurrentPage(page, 1);
+            await waitForViewportQuiet(page);
+            await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
+            await waitForViewportQuiet(page);
+            // Opens the sidebar and returns once its rows can take a click,
+            // while the viewer is still re-fitting to the narrower pane.
+            await ensureSidebarOpen(page);
+            await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
+                '.document-bookmark-item__row',
+            )).some(element => element.textContent?.trim() === 'Appendix' && element.getBoundingClientRect().width > 0), {
+                polling: 'mutation',
+                timeout: 10_000,
+            });
+            const row = await page.$('::-p-xpath(//*[contains(@class, "document-bookmark-item__row")][normalize-space(.)="Appendix"])');
+            expect(row).not.toBeNull();
+            await row!.click();
+            await waitForToolbarCurrentPage(page, 4);
+            await waitForViewportQuiet(page);
+            observations.push(await page.evaluate(() => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+                const text = viewer?.querySelector<HTMLElement>('.page_container[data-page="4"] .textLayer span');
+                const viewport = viewer?.getBoundingClientRect();
+                const rect = text?.getBoundingClientRect();
+                return JSON.stringify({
+                    text: text?.textContent ?? null,
+                    visible: Boolean(rect && viewport && rect.bottom > viewport.top && rect.top < viewport.bottom),
+                });
+            }));
+        }
+        expect(observations).toEqual(Array.from({length: 3}, () => JSON.stringify({
+            text: 'Metadata matrix page 4',
+            visible: true,
+        })));
+    }, 120_000);
 
     it('closes and reopens an annotated PDF without crashing its workspace host', async () => {
         const session = sessionFixture.getSession();

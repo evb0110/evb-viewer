@@ -53,6 +53,20 @@ export function createPdfViewportUserNavigationEpochs(): IPdfViewportUserNavigat
         return Math.abs(offset.top - clamped) <= CLAMP_TOLERANCE_PX;
     }
 
+    // Outside a declared replacement window only a strict clamp is viewer
+    // geometry: the previous offset lies beyond the new bounds and the offset
+    // now sits on them. Committed pages kept at their painted scale during a
+    // navigation handoff shrink when the handoff releases; the resulting
+    // clamp must not read as the user taking the viewport from the navigation.
+    function isStrictClamp(offset: IPdfViewportScrollOffset) {
+        if (lastObservedScrollTop === null) {
+            return false;
+        }
+        const maxTop = Math.max(0, offset.maxTop);
+        return lastObservedScrollTop > maxTop + CLAMP_TOLERANCE_PX
+            && Math.abs(offset.top - maxTop) <= CLAMP_TOLERANCE_PX;
+    }
+
     return {
         userViewportInteractionEpoch,
         userPhysicalNavigationEpoch,
@@ -74,7 +88,8 @@ export function createPdfViewportUserNavigationEpochs(): IPdfViewportUserNavigat
         markScrollInteraction(offset) {
             userViewportInteractionEpoch.value += 1;
             const isPhysicalNavigation = layoutGeometryReplacementDepth === 0
-                || !isExplainedByClamp(offset);
+                ? !isStrictClamp(offset)
+                : !isExplainedByClamp(offset);
             lastObservedScrollTop = offset.top;
             if (isPhysicalNavigation) {
                 userPhysicalNavigationEpoch.value += 1;
