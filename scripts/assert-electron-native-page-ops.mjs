@@ -47,9 +47,16 @@ function stagedToolPath(projectRoot, protocol) {
 }
 
 function readProtocolHandshake(toolPath) {
+    // A helper that hangs or waits on input must not hang the preflight; a
+    // timeout reaches the caller's rebuild message like any other failure.
     const output = execFileSync(toolPath, ['--protocol-version'], {
-        stdio: 'pipe',
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
         encoding: 'utf8',
+        timeout: 10_000,
     }).trim();
     if (/^\d+$/u.test(output)) {
         return {

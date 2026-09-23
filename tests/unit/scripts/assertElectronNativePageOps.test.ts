@@ -101,6 +101,9 @@ describe('Electron native page-ops admission', () => {
     it.skipIf(process.platform === 'win32')('refuses a page-ops helper built from older sources and names the rebuild', () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-native-page-ops-stale-'));
         const binaryPath = join(directory, 'evb-pdf-page-ops');
+        const missingRequiredCapabilities = ('capabilities' in pageOpsProtocol ? pageOpsProtocol.capabilities : [])
+            .filter(capability => capability.required)
+            .map(capability => capability.name);
         try {
             writeFakeHelper(binaryPath, '1');
             expect(() => assertElectronNativePageOps({
@@ -111,7 +114,7 @@ describe('Electron native page-ops admission', () => {
                     EVB_PDF_PAGE_OPS_PATH: binaryPath,
                 },
                 protocols: GENERATED_RUST_NATIVE_TOOL_PROTOCOLS,
-            })).toThrow(`speaks protocol 1${pageOpsProtocol.capabilities.length > 0 ? ' without incremental-page-rotation' : ''}, but this checkout expects ${pageOpsProtocol.protocolVersion}. It was built from older sources; rebuild it with node scripts/build-native-tool.mjs pdf-page-ops.`);
+            })).toThrow(`speaks protocol 1${missingRequiredCapabilities.length > 0 ? ` without ${missingRequiredCapabilities.join(', ')}` : ''}, but this checkout expects ${pageOpsProtocol.protocolVersion}. It was built from older sources; rebuild it with node scripts/build-native-tool.mjs pdf-page-ops.`);
         } finally {
             rmSync(directory, {
                 recursive: true,
