@@ -682,7 +682,7 @@ export default {
         'copyPath': 'Pad kopiëren',
         'preparingBatch': 'Voorbereiden {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tabblad sluiten met niet-opgeslagen wijzigingen?',
-        'confirmCloseDirtyDescription': '"{name}" heeft niet-opgeslagen wijzigingen. Wijzigingen worden verworpen bij het sluiten.',
+        'confirmCloseDirtyDescription': '"{name}" heeft niet-opgeslagen wijzigingen. Sla ze op voor het sluiten, verwerp ze of annuleer.',
         'confirmCloseWindowDirtyTitle': 'Venster sluiten met niet-opgeslagen wijzigingen?',
         'confirmCloseWindowDirtyDescription': 'Er zijn niet-opgeslagen wijzigingen. Sla ze op voordat u het venster sluit, verwerp ze of annuleer.',
         'discardChanges': 'Wijzigingen verwerpen',

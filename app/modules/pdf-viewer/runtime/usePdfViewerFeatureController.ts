@@ -526,12 +526,12 @@ export const usePdfViewerFeatureController = (
     }
 
     function cancelPageRotationPreview(input: {invalidatedPages: readonly number[]}) {
-        if (!documentSession.cancelPageMutationRotationPreview()) {
-            return false;
+        const didCancelGeometry = documentSession.cancelPageMutationRotationPreview();
+        const didCancelRaster = renderingSession.cancelPageRotationPreview(input.invalidatedPages);
+        if (didCancelGeometry) {
+            updatePageMutationFitWidth();
         }
-        renderingSession.cancelPageRotationPreview(input.invalidatedPages);
-        updatePageMutationFitWidth();
-        return true;
+        return didCancelGeometry || didCancelRaster;
     }
 
     const pdfViewerPublicApi = usePdfViewerPublicApiController({

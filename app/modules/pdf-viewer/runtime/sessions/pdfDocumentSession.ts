@@ -1152,12 +1152,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 // example, a close won the race). Fall back to a regular open
                 // instead of carrying a selective plan onto an uncommitted
                 // surface.
+                const {
+                    rotationDelta: _rotationDelta, ...regularOpenPlan
+                } = activePlan;
                 activePlan = {
-                    ...activePlan,
+                    ...regularOpenPlan,
                     isSelectiveReload: false,
                     pagesToInvalidate: null,
                     preserveVisibleContent: false,
                     preservePageStructure: false,
+                    preservePageMetrics: false,
                 };
             }
         }

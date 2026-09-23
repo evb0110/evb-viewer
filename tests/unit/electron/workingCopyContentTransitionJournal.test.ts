@@ -101,6 +101,25 @@ describe('workingCopyContentTransitionJournal', () => {
         await expect(readFile(path, 'utf8')).resolves.toBe('revision-n');
     });
 
+    it('restores pre-append bytes when the appended working copy was replaced', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        await writeFile(path, 'revision-n');
+
+        await prepareWorkingCopyContentTransition(
+            path,
+            requireDocumentRevisionToken('revision-n-plus-one'),
+            undefined,
+            'append',
+        );
+        await appendFile(path, '-plus-one');
+        await rm(path);
+        await writeFile(path, 'replacement');
+
+        await expect(recoverWorkingCopyContentTransition(path)).resolves.toBe(true);
+        await expect(readFile(path, 'utf8')).resolves.toBe('revision-n');
+    });
+
     it('fails closed when the transition journal cannot be read', async () => {
         root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
         const path = join(root, 'working.pdf');

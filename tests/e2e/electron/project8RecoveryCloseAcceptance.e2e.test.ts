@@ -24,6 +24,7 @@ import {
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
+    openDocumentSidebarTab,
     waitForPdfLoaded,
     waitForViewerInteractive,
     openPdfInApp,
@@ -255,78 +256,7 @@ async function clickDirtyTabDecision(session: IElectronE2ESession, labelFragment
 }
 
 async function rotateFirstPageCounterclockwise(session: IElectronE2ESession) {
-    const sidebarIsVisible = await session.page.evaluate(() => {
-        const sidebar = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"]',
-        );
-        const bounds = sidebar?.getBoundingClientRect();
-        return Boolean(bounds && bounds.width > 10 && bounds.height > 10);
-    });
-    if (!sidebarIsVisible) {
-        const sidebarButton = await session.page.evaluate(() => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], button'))
-                .find(candidate => {
-                    const label = `${candidate.getAttribute('aria-label') ?? ''} ${candidate.title} ${candidate.textContent ?? ''}`;
-                    const bounds = candidate.getBoundingClientRect();
-                    const style = window.getComputedStyle(candidate);
-                    return ( /toggle sidebar/i.test(label)
-                        || Boolean(candidate.querySelector('.i-ph-sidebar-simple, .iconify.i-ph-sidebar-simple')) )
-                        && bounds.width > 8
-                        && bounds.height > 8
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0;
-                });
-            if (!button || button.disabled) {
-                return null;
-            }
-            const bounds = button.getBoundingClientRect();
-            return {
-                x: bounds.left + bounds.width / 2,
-                y: bounds.top + bounds.height / 2,
-            };
-        });
-        expect(sidebarButton, 'sidebar toggle should be available').not.toBeNull();
-        if (!sidebarButton) {
-            throw new Error('Sidebar toggle was not available');
-        }
-        await session.page.mouse.click(sidebarButton.x, sidebarButton.y);
-        await session.page.waitForFunction(() => {
-            const sidebar = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"]',
-            );
-            const bounds = sidebar?.getBoundingClientRect();
-            return Boolean(bounds && bounds.width > 10 && bounds.height > 10);
-        }, {timeout: 30_000});
-    }
-
-    const pagesTab = await session.page.evaluate(() => {
-        const sidebar = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"]',
-        );
-        const tabs = Array.from(sidebar?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []);
-        const tab = tabs.find(candidate => /pages/i.test(
-            `${candidate.getAttribute('aria-label') ?? ''} ${candidate.title} ${candidate.textContent ?? ''}`,
-        ));
-        if (!tab) {
-            return {labels: tabs.map(candidate => candidate.textContent?.trim() ?? '')};
-        }
-        const bounds = tab.getBoundingClientRect();
-        return {
-            selected: tab.getAttribute('aria-selected') === 'true' || tab.dataset.state === 'active',
-            x: bounds.left + bounds.width / 2,
-            y: bounds.top + bounds.height / 2,
-        };
-    });
-    expect(pagesTab, 'Pages sidebar tab should be available').toHaveProperty('x');
-    if (
-        'x' in pagesTab
-        && typeof pagesTab.x === 'number'
-        && typeof pagesTab.y === 'number'
-        && pagesTab.selected !== true
-    ) {
-        await session.page.mouse.click(pagesTab.x, pagesTab.y);
-    }
+    await openDocumentSidebarTab(session.page, 'Pages');
 
     await session.page.waitForFunction(() => {
         const item = document.querySelector<HTMLElement>(

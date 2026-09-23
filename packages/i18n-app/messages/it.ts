@@ -682,7 +682,7 @@ export default {
         'copyPath': 'Copia percorso',
         'preparingBatch': 'Preparazione {processed}/{total}',
         'confirmCloseDirtyTitle': 'Chiudere la scheda con modifiche non salvate?',
-        'confirmCloseDirtyDescription': '"{name}" ha modifiche non salvate. Le modifiche verranno scartate alla chiusura.',
+        'confirmCloseDirtyDescription': '"{name}" ha modifiche non salvate. Salvale prima di chiudere, scartale o annulla.',
         'confirmCloseWindowDirtyTitle': 'Chiudere la finestra con modifiche non salvate?',
         'confirmCloseWindowDirtyDescription': 'Ci sono modifiche non salvate. Salvale prima di chiudere la finestra, scartale o annulla.',
         'discardChanges': 'Scarta modifiche',

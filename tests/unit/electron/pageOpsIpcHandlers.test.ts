@@ -462,6 +462,62 @@ describe('page ops main bindings', () => {
         );
     });
 
+    it('appends rotations to an unshared working copy without a full structure rewrite', async () => {
+        const handler = getHandler('page-ops:rotate');
+        mocks.isIncrementalPageRotationAvailable.mockReturnValue(true);
+        mocks.stat.mockResolvedValue({
+            size: 1,
+            nlink: 1,
+            isFile: () => true,
+        });
+
+        await expect(handler({sender: {id: 1}}, '/tmp/append-rotate.pdf', [1], 3, 90, REVISION_OPTIONS))
+            .resolves.toMatchObject({success: true});
+
+        expect(mocks.rotatePagesIncremental).toHaveBeenCalledWith(
+            '/tmp/append-rotate.pdf',
+            [1],
+            90,
+            1,
+            expectNativeMutationOptions(),
+        );
+        expect(mocks.rotatePages).not.toHaveBeenCalled();
+        expect(mocks.transitionWorkingCopyContentRevision.mock.calls[0]?.[5]).toBe('append');
+        expect(mocks.verifyPdfStructureStrict).not.toHaveBeenCalled();
+    });
+
+    it('rewrites instead of appending when the working copy shares its inode', async () => {
+        const handler = getHandler('page-ops:rotate');
+        mocks.isIncrementalPageRotationAvailable.mockReturnValue(true);
+        mocks.stat.mockResolvedValue({
+            size: 1,
+            nlink: 2,
+            isFile: () => true,
+        });
+
+        await expect(handler({sender: {id: 1}}, '/tmp/linked-rotate.pdf', [1], 3, 90, REVISION_OPTIONS))
+            .resolves.toMatchObject({success: true});
+
+        expect(mocks.rotatePagesIncremental).not.toHaveBeenCalled();
+        expect(mocks.rotatePages).toHaveBeenCalledOnce();
+        expect(mocks.transitionWorkingCopyContentRevision.mock.calls[0]?.[5]).toBeUndefined();
+    });
+
+    it('publishes no identity delta when the incremental rotation fails', async () => {
+        const handler = getHandler('page-ops:rotate');
+        mocks.isIncrementalPageRotationAvailable.mockReturnValue(true);
+        mocks.stat.mockResolvedValue({
+            size: 1,
+            nlink: 1,
+            isFile: () => true,
+        });
+        mocks.rotatePagesIncremental.mockRejectedValueOnce(new Error('append failed'));
+
+        await expect(handler({sender: {id: 1}}, '/tmp/append-fail.pdf', [1], 3, 90, REVISION_OPTIONS))
+            .rejects.toThrow('append failed');
+        expect(mocks.commitPageIdentityDelta).not.toHaveBeenCalled();
+    });
+
     it('publishes a sparse identity delta for a million-page rotate', async () => {
         const handler = getHandler('page-ops:rotate');
         mocks.getPdfPageCount

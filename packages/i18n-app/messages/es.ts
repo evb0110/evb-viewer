@@ -682,7 +682,7 @@ export default {
         'copyPath': 'Copiar ruta',
         'preparingBatch': 'Preparando {processed}/{total}',
         'confirmCloseDirtyTitle': '¿Cerrar pestaña con cambios sin guardar?',
-        'confirmCloseDirtyDescription': '"{name}" tiene cambios sin guardar. Los cambios se descartarán al cerrar.',
+        'confirmCloseDirtyDescription': '"{name}" tiene cambios sin guardar. Guárdelos antes de cerrar, descártelos o cancele.',
         'confirmCloseWindowDirtyTitle': '¿Cerrar ventana con cambios sin guardar?',
         'confirmCloseWindowDirtyDescription': 'Hay cambios sin guardar. Guárdelos antes de cerrar la ventana, descártelos o cancele.',
         'discardChanges': 'Descartar cambios',

@@ -682,7 +682,7 @@ export default {
         'copyPath': 'Copiar caminho',
         'preparingBatch': 'A preparar {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fechar separador com alterações por guardar?',
-        'confirmCloseDirtyDescription': '"{name}" tem alterações por guardar. As alterações serão descartadas ao fechar.',
+        'confirmCloseDirtyDescription': '"{name}" tem alterações por guardar. Guarde-as antes de fechar, descarte-as ou cancele.',
         'confirmCloseWindowDirtyTitle': 'Fechar janela com alterações por guardar?',
         'confirmCloseWindowDirtyDescription': 'Existem alterações por guardar. Guarde-as antes de fechar a janela, descarte-as ou cancele.',
         'discardChanges': 'Descartar alterações',

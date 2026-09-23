@@ -50,10 +50,10 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
 
-function createDocumentProxy(id: string) {
+function createDocumentProxy(id: string, numPages = 1) {
     return {
         id,
-        numPages: 1,
+        numPages,
         getPage: vi.fn(async () => ({
             getViewport: () => ({
                 width: 100,
@@ -424,7 +424,7 @@ describe('PdfDocumentSession transitions', () => {
         });
 
         pdfjsState.getDocument.mockImplementation(() => ({
-            promise: Promise.resolve(createDocumentProxy(crypto.randomUUID())),
+            promise: Promise.resolve(createDocumentProxy(crypto.randomUUID(), 200)),
             destroy: vi.fn(),
         }));
         await session.load();
@@ -446,6 +446,7 @@ describe('PdfDocumentSession transitions', () => {
         }, 135, [135]);
         expect(surface.completeRevisionSwap).toHaveBeenCalledWith(7, String(nextRevision));
         expect(emitInitialVisualPending).toHaveBeenCalledOnce();
+        await session.dispose();
     });
 
     it('derives rotation-only geometry from cached metrics and skips replacement page measurement', async () => {

@@ -18,6 +18,7 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import type { App } from 'vue';
 import type { IRecentFile } from '@contracts/shared';
 import PdfEmptyState from '@app/modules/pdf-viewer/components/PdfEmptyState.vue';
 
@@ -39,6 +40,21 @@ function createRecentFile(originalPath: string, timestamp: number): IRecentFile 
         fileName: originalPath.split('/').at(-1) ?? originalPath,
         timestamp: requireEpochMs(timestamp),
     };
+}
+
+function registerUiStubs(app: App) {
+    app.component('UIcon', defineComponent({setup: () => () => h('span')}));
+    app.component('UButton', defineComponent({
+        props: {label: String},
+        setup: props => () => h('button', props.label),
+    }));
+    app.component('UInput', defineComponent({setup: () => () => h('input')}));
+    app.component('UAlert', defineComponent({setup: () => () => h('div')}));
+    app.component('AppTooltip', defineComponent({
+        props: {text: String},
+        setup: (props, {slots}) => () => h('span', {'data-tooltip-text': props.text}, slots.default?.()),
+    }));
+    app.component('UModal', defineComponent({setup: () => () => null}));
 }
 
 function getRecentOrder(host: HTMLElement) {
@@ -72,18 +88,7 @@ describe('PdfEmptyState recent-file order', () => {
                 ];
             },
         })}));
-        app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: {label: String},
-            setup: props => () => h('button', props.label),
-        }));
-        app.component('UInput', defineComponent({setup: () => () => h('input')}));
-        app.component('UAlert', defineComponent({setup: () => () => h('div')}));
-        app.component('AppTooltip', defineComponent({
-            props: {text: String},
-            setup: (props, {slots}) => () => h('span', {'data-tooltip-text': props.text}, slots.default?.()),
-        }));
-        app.component('UModal', defineComponent({setup: () => () => null}));
+        registerUiStubs(app);
 
         app.mount(host);
         await nextTick();
@@ -126,17 +131,7 @@ describe('PdfEmptyState recent-file order', () => {
             recentFilesResolved: true,
             openInProgress: false,
         })}));
-        app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-        app.component('UButton', defineComponent({
-            props: {label: String},
-            setup: props => () => h('button', props.label),
-        }));
-        app.component('UInput', defineComponent({setup: () => () => h('input')}));
-        app.component('AppTooltip', defineComponent({
-            props: {text: String},
-            setup: (props, {slots}) => () => h('span', {'data-tooltip-text': props.text}, slots.default?.()),
-        }));
-        app.component('UModal', defineComponent({setup: () => () => null}));
+        registerUiStubs(app);
 
         app.mount(host);
         await nextTick();

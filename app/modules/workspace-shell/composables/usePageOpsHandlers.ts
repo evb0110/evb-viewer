@@ -15,6 +15,7 @@ import {
     iteratePageSelectionRanges,
     materializePageSelection,
     mapPageNumberAfterPageMove,
+    pageMoveRangesSelectedPageCount,
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
 import {
@@ -201,9 +202,6 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 currentPage.value = mappedPageNumber
                     ?? Math.min(currentPage.value, nextPageCount ?? currentPage.value);
                 stagedPageIdentityDelta = delta;
-            }
-            if (result.documentRevision?.documentRef !== path) {
-                return;
             }
             const rotationDelta = pageOperationPresentation.value?.kind === 'rotate'
                 ? pageOperationPresentation.value.rotationDelta
@@ -483,7 +481,9 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 .sort((left, right) => left - right),
             {
                 kind: 'move',
-                pageCount: move.pageCount,
+                pageCount: 'ranges' in move
+                    ? pageMoveRangesSelectedPageCount(move)
+                    : move.endPage - move.startPage + 1,
             },
         );
         if (didMove && hasPageSelectionModel && selectionBeforeMove?.pageCount === move.pageCount) {

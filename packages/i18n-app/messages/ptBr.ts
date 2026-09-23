@@ -682,7 +682,7 @@ export default {
         'copyPath': 'Copiar caminho',
         'preparingBatch': 'Preparando {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fechar aba com alterações não salvas?',
-        'confirmCloseDirtyDescription': '"{name}" tem alterações não salvas. As alterações serão descartadas ao fechar.',
+        'confirmCloseDirtyDescription': '"{name}" tem alterações não salvas. Salve-as antes de fechar, descarte-as ou cancele.',
         'confirmCloseWindowDirtyTitle': 'Fechar janela com alterações não salvas?',
         'confirmCloseWindowDirtyDescription': 'Há alterações não salvas. Salve-as antes de fechar a janela, descarte-as ou cancele.',
         'discardChanges': 'Descartar alterações',

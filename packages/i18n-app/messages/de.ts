@@ -682,7 +682,7 @@ export default {
         'copyPath': 'Pfad kopieren',
         'preparingBatch': 'Vorbereitung {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tab mit ungespeicherten Änderungen schließen?',
-        'confirmCloseDirtyDescription': '"{name}" enthält ungespeicherte Änderungen. Änderungen werden beim Schließen verworfen.',
+        'confirmCloseDirtyDescription': '"{name}" enthält ungespeicherte Änderungen. Vor dem Schließen speichern, verwerfen oder abbrechen.',
         'confirmCloseWindowDirtyTitle': 'Fenster mit ungespeicherten Änderungen schließen?',
         'confirmCloseWindowDirtyDescription': 'Es gibt ungespeicherte Änderungen. Vor dem Schließen speichern, verwerfen oder abbrechen.',
         'discardChanges': 'Änderungen verwerfen',

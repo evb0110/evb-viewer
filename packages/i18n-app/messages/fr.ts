@@ -682,7 +682,7 @@ export default {
         'copyPath': 'Copier le chemin',
         'preparingBatch': 'Préparation {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fermer l’onglet avec des modifications non enregistrées ?',
-        'confirmCloseDirtyDescription': '"{name}" contient des modifications non enregistrées. Les modifications seront abandonnées à la fermeture.',
+        'confirmCloseDirtyDescription': '"{name}" contient des modifications non enregistrées. Enregistrez-les avant de fermer, abandonnez-les ou annulez.',
         'confirmCloseWindowDirtyTitle': 'Fermer la fenêtre avec des modifications non enregistrées ?',
         'confirmCloseWindowDirtyDescription': 'Des modifications ne sont pas enregistrées. Enregistrez-les avant de fermer la fenêtre, abandonnez-les ou annulez.',
         'discardChanges': 'Abandonner les modifications',

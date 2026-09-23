@@ -449,10 +449,23 @@ export async function prepareWorkingCopyContentTransition(
     return journal;
 }
 
+async function truncateWorkingCopy(workingCopyPath: string, length: number) {
+    const handle = await openFileHandle(workingCopyPath, 'r+');
+    try {
+        await handle.truncate(length);
+        await handle.sync();
+    } finally {
+        await handle.close().catch(() => undefined);
+    }
+}
+
 async function restoreWorkingCopyContent(
     journal: IWorkingCopyContentTransitionJournal,
 ) {
-    if (journal.backupMode === 'append-hard-link' && journal.previousLength !== undefined) {
+    const appendedLength = journal.backupMode === 'append-hard-link'
+        ? journal.previousLength
+        : undefined;
+    if (appendedLength !== undefined) {
         const stats = await Promise.all([
             stat(journal.workingCopyPath),
             stat(journal.backupPath),
@@ -467,17 +480,16 @@ async function restoreWorkingCopyContent(
             && workingCopyStat.dev === backupStat.dev
             && workingCopyStat.ino === backupStat.ino
         ) {
-            const handle = await openFileHandle(journal.workingCopyPath, 'r+');
-            try {
-                await handle.truncate(journal.previousLength);
-                await handle.sync();
-            } finally {
-                await handle.close().catch(() => undefined);
-            }
+            await truncateWorkingCopy(journal.workingCopyPath, appendedLength);
             return;
         }
     }
     await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
+    if (appendedLength !== undefined) {
+        // The backup is a hard link to the appended file, so the copy carries
+        // the append too; cut it back to the recorded pre-append length.
+        await truncateWorkingCopy(journal.workingCopyPath, appendedLength);
+    }
 }
 
 async function measureContentTransitionPhase<T>(
