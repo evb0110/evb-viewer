@@ -186,8 +186,8 @@ export const usePdfThumbnailRenderRuntime = (
     const renderedCanvases = new Map<number, HTMLCanvasElement>();
     let activeScheduler: IPdfPageRasterScheduler | null = null;
     let activeDocument: IPdfDocument | null = null;
-    let reloadTransition = false;
     let pendingInvalidation: number[] | null = null;
+    let pendingInvalidationRevision: string | null = null;
 
     const editedTextMarkupCommentsByPage = computed(() => groupBy(
         getEditedTextMarkupThumbnailComments(visuals.annotationComments.value),
@@ -311,6 +311,9 @@ export const usePdfThumbnailRenderRuntime = (
             if (signal.aborted) {
                 return Promise.resolve(null);
             }
+            if (isWaitingForThumbnailRevision(demand.pageNumber)) {
+                return Promise.resolve(null);
+            }
             const canvas = dom.getCanvas(demand.pageNumber);
             const renderKey = getThumbnailRenderKey(demand.pageNumber);
             if (
@@ -372,6 +375,7 @@ export const usePdfThumbnailRenderRuntime = (
                 || activeDocument !== source.pdfDocument.value
                 || activeDocument === null
                 || !isPdfDocumentUsable(activeDocument)
+                || isWaitingForThumbnailRevision(prepared.pageNumber)
                 || dom.getCanvas(prepared.pageNumber) !== prepared.canvas
                 || getThumbnailRenderKey(prepared.pageNumber) !== prepared.renderKey
                 || prepared.canvas.dataset.thumbnailRenderKey !== prepared.renderKey
@@ -419,7 +423,24 @@ export const usePdfThumbnailRenderRuntime = (
             }
         },
         release(pageNumber, reason) {
-            const canvas = dom.getCanvas(pageNumber);
+            const canvas = dom.getCanvas(pageNumber) ?? renderedCanvases.get(pageNumber) ?? null;
+            if (
+                canvas
+                && pendingInvalidationRevision !== null
+                && pendingInvalidation?.includes(pageNumber)
+            ) {
+                // Keep the last committed pixels through teardown of the old
+                // PDF.js source; the matching revision will replace them offscreen.
+                canvas.dataset.thumbnailPreservedBitmap = 'true';
+                return;
+            }
+            // The revision-swap marker outlives scheduler teardown and late task
+            // settlement. These pixels are still the exact raster for this page
+            // identity, so releasing the old document's resident must not erase
+            // either the bitmap or its cache entry.
+            if (canvas?.dataset.thumbnailPreservedBitmap === 'true') {
+                return;
+            }
             renderedCanvases.delete(pageNumber);
             // Page invalidation transfers the resident pixels to the replacement
             // render. Its explicit marker must outlive the scheduler resident.
@@ -452,6 +473,23 @@ export const usePdfThumbnailRenderRuntime = (
                 renderedCanvases.delete(pageNumber);
             }
         }
+    }
+
+    function isPreservedThumbnailCurrent(pageNumber: number, renderKey: string) {
+        const canvas = dom.getCanvas(pageNumber);
+        return Boolean(
+            canvas
+            && renderedCanvases.get(pageNumber) === canvas
+            && canvas.dataset.thumbnailPreservedBitmap === 'true'
+            && canvas.dataset.thumbnailRendered === 'true'
+            && canvas.dataset.thumbnailRenderKey === renderKey,
+        );
+    }
+
+    function isWaitingForThumbnailRevision(pageNumber: number) {
+        return pendingInvalidationRevision !== null
+            && pendingInvalidation?.includes(pageNumber) === true
+            && activeScheduler?.documentFence.documentRevision !== pendingInvalidationRevision;
     }
 
     function clearUnderResolutionCanvases() {
@@ -513,10 +551,15 @@ export const usePdfThumbnailRenderRuntime = (
             },
             policy: {
                 ...thumbnailDemandPolicy,
-                expand: input => thumbnailDemandPolicy.expand(input).map(demand => ({
-                    ...demand,
-                    renderKey: getThumbnailRenderKey(demand.pageNumber),
-                })),
+                expand: input => thumbnailDemandPolicy.expand(input)
+                    .map(demand => ({
+                        ...demand,
+                        renderKey: getThumbnailRenderKey(demand.pageNumber),
+                    }))
+                    .filter(demand => !isPreservedThumbnailCurrent(
+                        demand.pageNumber,
+                        demand.renderKey,
+                    ) && !isWaitingForThumbnailRevision(demand.pageNumber)),
             },
             target: thumbnailRenderTarget,
         });
@@ -552,8 +595,18 @@ export const usePdfThumbnailRenderRuntime = (
         effects.resetMeasurementState();
     }
 
-    function invalidatePages(pages: readonly number[]) {
-        pendingInvalidation = [...pages];
+    function invalidatePages(pages: readonly number[], expectedDocumentRevision?: string) {
+        pendingInvalidation = expectedDocumentRevision ? [...pages] : null;
+        pendingInvalidationRevision = expectedDocumentRevision ?? null;
+        const invalidatedPages = new Set(pages);
+        for (const [
+            pageNumber,
+            canvas,
+        ] of renderedCanvases) {
+            if (!invalidatedPages.has(pageNumber)) {
+                canvas.dataset.thumbnailPreservedBitmap = 'true';
+            }
+        }
         for (const pageNumber of pages) {
             pageRenderEpochs.set(
                 pageNumber,
@@ -587,31 +640,38 @@ export const usePdfThumbnailRenderRuntime = (
             rasterScheduler,
         ], [previousDocument]) => {
             visibleThumbnailRenderScheduler.cancel();
+            const expectedRevisionMatches = pendingInvalidationRevision !== null
+                && rasterScheduler?.documentFence.documentRevision === pendingInvalidationRevision;
+            const preservesSelectiveReload = pendingInvalidationRevision !== null
+                && (
+                    document === null
+                    || document === previousDocument
+                    || expectedRevisionMatches
+                );
             if (activeScheduler) {
                 void activeScheduler.cancelSource(THUMBNAIL_RASTER_SOURCE_ID);
             }
-            documentRenderEpoch.value += 1;
-            thumbnailKeySignal.value += 1;
+            if (!preservesSelectiveReload) {
+                documentRenderEpoch.value += 1;
+                thumbnailKeySignal.value += 1;
+            }
             effects.onSourceCycleStarted();
             activeDocument = document;
             activeScheduler = document ? rasterScheduler : null;
 
             if (!document || totalPages <= 0) {
-                if (totalPages <= 0) {
+                if (totalPages <= 0 && !preservesSelectiveReload) {
                     clearRenderedState();
-                    reloadTransition = false;
-                } else {
-                    reloadTransition = true;
                 }
                 return;
             }
             if (document !== previousDocument) {
-                if (reloadTransition && pendingInvalidation) {
-                    reloadTransition = false;
+                if (expectedRevisionMatches) {
                     pendingInvalidation = null;
+                    pendingInvalidationRevision = null;
                 } else {
-                    reloadTransition = false;
                     pendingInvalidation = null;
+                    pendingInvalidationRevision = null;
                     clearRenderedState();
                 }
             }
@@ -681,9 +741,10 @@ export const usePdfThumbnailRenderRuntime = (
         () => {
             const pages = source.invalidationRequest.value?.pages;
             if (pages?.length) {
-                invalidatePages(pages);
+                invalidatePages(pages, source.invalidationRequest.value?.expectedDocumentRevision);
             }
         },
+        {flush: 'sync'},
     );
 
     watch(

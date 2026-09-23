@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
@@ -40,6 +41,13 @@ describe('runNativeToolCommand', () => {
     });
 
     it('performs a cached Rust native tool protocol handshake before use', async () => {
+        const pageOpsProtocol = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS
+            .find(protocol => protocol.binaryName === 'evb-pdf-page-ops');
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: `${pageOpsProtocol?.protocolVersion}\n`,
+        });
         const {runNativeToolCommand} = await loadModule();
 
         await runNativeToolCommand('/tools/evb-pdf-page-ops', ['page-sizes']);

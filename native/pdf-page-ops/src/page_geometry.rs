@@ -197,8 +197,11 @@ fn validate_crop_revision_postconditions(
 }
 
 pub(crate) fn normalize_page_rotation(value: i64) -> i64 {
-    let snapped = ((value as f64) / 90.0).round() as i64 * 90;
-    let normalized = ((snapped % 360) + 360) % 360;
+    // Reduce before converting to floating point so malformed extreme PDF
+    // integers cannot saturate the cast and overflow when multiplied by 90.
+    let remainder = value % 360;
+    let snapped = ((remainder as f64) / 90.0).round() as i64 * 90;
+    let normalized = snapped.rem_euclid(360);
     match normalized {
         90 | 180 | 270 => normalized,
         _ => 0,
@@ -227,6 +230,79 @@ pub(crate) fn resolve_page_rotation(
     }
 
     Ok(0)
+}
+
+fn resolve_page_rotation_targets(
+    document: &impl PdfObjectSource,
+    rotations: &[PageRotationMutation],
+    page_ids_by_number: Option<&[ObjectId]>,
+) -> Result<Vec<(ObjectId, i64)>> {
+    let page_resolver = page_ids_by_number
+        .is_none()
+        .then(|| PageTreeResolver::new(document))
+        .transpose()?;
+    let mut targets = Vec::with_capacity(rotations.len());
+    for rotation in rotations {
+        let page_id = if let Some(page_ids) = page_ids_by_number {
+            page_ids
+                .get(rotation.page_index as usize)
+                .copied()
+                .ok_or("Page rotation index is outside the supported range")?
+        } else {
+            let page_number = rotation
+                .page_index
+                .checked_add(1)
+                .ok_or("Page rotation index is outside the supported range")?;
+            page_resolver
+                .as_ref()
+                .ok_or("Page-tree resolver was not initialized")?
+                .page_id(document, page_number)?
+        };
+        let current = resolve_page_rotation(document, page_id)?;
+        targets.push((
+            page_id,
+            normalize_page_rotation(current.saturating_add(rotation.angle)),
+        ));
+    }
+    Ok(targets)
+}
+
+/// Apply rotation mutations to a fully materialized document. Keeping this
+/// path alongside the incremental implementation preserves the native
+/// mutation contract for small/non-append callers as well.
+pub(crate) fn rotate_pages(
+    document: &mut Document,
+    rotations: &[PageRotationMutation],
+) -> Result<()> {
+    let targets = resolve_page_rotation_targets(document, rotations, None)?;
+    for (page_id, rotation) in targets {
+        document
+            .get_dictionary_mut(page_id)?
+            .set("Rotate", Object::Integer(rotation));
+    }
+    Ok(())
+}
+
+/// Rewrite only the selected leaf page dictionaries in a new incremental
+/// revision. Inherited `/Pages` rotations are made explicit on the leaf so
+/// the resulting effective value is stable and normalized.
+pub(crate) fn rotate_pages_incremental(
+    incremental: &mut IncrementalDocument,
+    rotations: &[PageRotationMutation],
+) -> Result<()> {
+    let targets = resolve_page_rotation_targets(
+        incremental.get_prev_documents(),
+        rotations,
+        incremental.page_ids_by_number.as_deref(),
+    )?;
+    for (page_id, rotation) in targets {
+        incremental.opt_clone_object_to_new_document(page_id)?;
+        incremental
+            .new_document
+            .get_dictionary_mut(page_id)?
+            .set("Rotate", Object::Integer(rotation));
+    }
+    Ok(())
 }
 
 /// Resolve the page's direct `/UserUnit` value.

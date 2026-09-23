@@ -254,9 +254,11 @@
         </div>
         <WorkspacePageOpProgressOverlay
             v-show="surfaceMode === 'reader'"
+            :has-document="toolbarHasPdf"
             :progress="pageOpBatchProgress"
             :eta-text="pageOpBatchEtaText"
             :is-page-operation-in-progress="isPageOperationInProgress"
+            :operation="pageOperationPresentation"
         />
         <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" :overlay="exportOverlay" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
@@ -913,6 +915,7 @@ const {
     handleStatusSaveClick,
     handleStatusShowInFolderClick,
     isPageOperationInProgress,
+    pageOperationPresentation,
     pageOpBatchProgress,
 } = documentControls;
 const {

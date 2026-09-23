@@ -1,10 +1,16 @@
-import type { Ref } from 'vue';
+import type {
+    InjectionKey,
+    Ref,
+} from 'vue';
 import type { ITab } from '@app/types/tabs';
 
 interface IUseDirtyTabCloseDialogDeps {tabs: Ref<ITab[]>;}
 
 export type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
 export type TDirtyCloseDialogMode = 'tab' | 'window';
+export type TDirtyTabCloseConfirmation = (tabId: string) => Promise<TDirtyCloseDecision>;
+
+export const dirtyTabCloseConfirmationKey: InjectionKey<TDirtyTabCloseConfirmation> = Symbol('dirty-tab-close-confirmation');
 
 interface IDirtyTabCloseTarget {
     id: string;
@@ -78,6 +84,10 @@ export const useDirtyTabCloseDialog = (
         });
         dirtyTabCloseDialogOpen.value = true;
         return confirmation;
+    }
+
+    if (getCurrentInstance()) {
+        provide(dirtyTabCloseConfirmationKey, requestDirtyTabCloseConfirmation);
     }
 
     watch(() => {

@@ -58,6 +58,9 @@ const mocks = vi.hoisted(() => ({
     getPdfPageCount: vi.fn(),
     reorderPages: vi.fn(),
     rotatePages: vi.fn(),
+    rotatePagesIncremental: vi.fn(),
+    isIncrementalPageRotationAvailable: vi.fn(),
+    materializePageOperationWorkingCopy: vi.fn(),
     verifyPdfStructureStrict: vi.fn(),
     cropPages: vi.fn(),
     removeCropFromPages: vi.fn(),
@@ -156,6 +159,9 @@ vi.mock('@electron/features/page-ops/main/qpdf', () => ({
     reorderPages: (...args: unknown[]) => mocks.reorderPages(...args),
     runQpdfCommand: (...args: unknown[]) => mocks.runCommand(...args),
     rotatePages: (...args: unknown[]) => mocks.rotatePages(...args),
+    rotatePagesIncremental: (...args: unknown[]) => mocks.rotatePagesIncremental(...args),
+    isIncrementalPageRotationAvailable: (...args: unknown[]) => mocks.isIncrementalPageRotationAvailable(...args),
+    materializePageOperationWorkingCopy: (...args: unknown[]) => mocks.materializePageOperationWorkingCopy(...args),
     verifyPdfStructureStrict: (...args: unknown[]) => mocks.verifyPdfStructureStrict(...args),
 }));
 vi.mock('@electron/features/page-ops/main/crop', () => ({
@@ -278,6 +284,9 @@ describe('page ops main bindings', () => {
         mocks.getPdfPageCount.mockResolvedValue(3);
         mocks.reorderPages.mockResolvedValue({pageCount: 1});
         mocks.rotatePages.mockResolvedValue(undefined);
+        mocks.rotatePagesIncremental.mockResolvedValue(undefined);
+        mocks.isIncrementalPageRotationAvailable.mockReturnValue(false);
+        mocks.materializePageOperationWorkingCopy.mockImplementation(async (path: string) => path);
         mocks.verifyPdfStructureStrict.mockResolvedValue(undefined);
         mocks.cropPages.mockResolvedValue(undefined);
         mocks.removeCropFromPages.mockResolvedValue(undefined);

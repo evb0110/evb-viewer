@@ -90,6 +90,8 @@ export interface IPdfDocumentLoadPlan {
     readonly pagesToInvalidate: readonly number[] | null;
     readonly preserveVisibleContent: boolean;
     readonly preservePageStructure: boolean;
+    readonly preservePageMetrics?: boolean;
+    readonly rotationDelta?: 90 | 180 | 270;
 }
 
 export type TPdfDocumentPhase =
@@ -155,6 +157,7 @@ const IDLE_PLAN: IPdfDocumentLoadPlan = {
     pagesToInvalidate: null,
     preserveVisibleContent: false,
     preservePageStructure: false,
+    preservePageMetrics: false,
 };
 
 function normalizePdfDocumentLifecycleKey(value: string | null | undefined, fallback: string) {
@@ -231,6 +234,22 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     let activePlan: IPdfDocumentLoadPlan = IDLE_PLAN;
     let pendingPreserveVisibleContent = false;
     let pendingPagesToInvalidate: number[] | null = null;
+    let pendingPageMutationRevisionSwap: {
+        revision: string;
+        pageNumber: number;
+        invalidatedPages: readonly number[];
+        rotationDelta?: 90 | 180 | 270;
+        preservePageMetrics: boolean;
+    } | null = null;
+    let pendingPageMutationGeometryPreview: {
+        pages: readonly number[];
+        rotationDelta: 90 | 180 | 270;
+        previousMetrics: ReadonlyMap<number, IPdfPageMetric | undefined>;
+        previousProvisionalPages: ReadonlySet<number>;
+        previousBasePageWidth: number | null;
+        previousBasePageHeight: number | null;
+        previousTrustedGeometrySeedPageNumber: number | null;
+    } | null = null;
     let isLoadFromSourceActive = false;
     let viewerResidencyState: TViewerResidencyState = options.isActive?.value === false ? 'warm' : 'active';
     let residencyTransitionGeneration = 0;
@@ -519,7 +538,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         return loadPromise;
     }
 
-    async function ensurePageMetricsInRange(startPage: number, endPage: number) {
+    async function ensurePageMetricsInRange(
+        startPage: number,
+        endPage: number,
+        pagesToRefresh: readonly number[] = [],
+    ) {
         const document = pdfDocument.value;
         const totalPages = numPages.value;
         if (!document || totalPages <= 0) {
@@ -528,6 +551,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         const rangeStart = clamp(Math.min(startPage, endPage), 1, totalPages);
         const rangeEnd = clamp(Math.max(startPage, endPage), 1, totalPages);
+        for (const pageNumber of pagesToRefresh) {
+            if (Number.isSafeInteger(pageNumber) && pageNumber >= rangeStart && pageNumber <= rangeEnd) {
+                provisionalPageMetrics.add(pageNumber);
+            }
+        }
         const missingPageCount = rangeEnd - rangeStart + 1;
         let hasMissingPage = false;
         for (let pageNumber = rangeStart; pageNumber <= rangeEnd; pageNumber += 1) {
@@ -708,6 +736,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         lifecycleKey: string,
         source: TPdfSource,
         nativeGeometry: IPdfNativePageGeometry | null = null,
+        preserveExistingPageMetrics = false,
     ) {
         // Discard stale result if a newer load was started
         if (version !== getRenderVersion()) {
@@ -743,7 +772,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             maxConcurrency: Math.min(2, getPerformanceProfile().concurrentPdfRenders),
         });
         numPages.value = document.numPages;
-        if (!nativeGeometry || !installNativePageGeometry(nativeGeometry, document.numPages)) {
+        if (!preserveExistingPageMetrics
+            && (!nativeGeometry || !installNativePageGeometry(nativeGeometry, document.numPages))) {
             await readPdfjsPageGeometry(document, version);
         }
         await primeInitialPageMetrics(document, version);
@@ -787,7 +817,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         bumpPageMetricsVersion();
     }
 
-    function startLoad(preservePageStructure: boolean) {
+    function startLoad(
+        preservePageStructure: boolean,
+        pagesToInvalidate: readonly number[] | null = null,
+        preservePageMetrics = false,
+    ) {
         const shouldPreservePageStructure = preservePageStructure || trustedGeometrySeedPending;
         const savedState = preserveLoadState(shouldPreservePageStructure);
         trustedGeometrySeedPending = false;
@@ -798,6 +832,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
         if (shouldPreservePageStructure) {
             restorePreservedLoadState(savedState);
+            if (!preservePageMetrics) {
+                for (const pageNumber of pagesToInvalidate ?? []) {
+                    if (Number.isSafeInteger(pageNumber) && pageNumber > 0 && pageNumber <= numPages.value) {
+                        // Keep the old dimensions as a layout seed, but require
+                        // the replacement PDF.js page to refresh this metric
+                        // before fit scale is committed for the new revision.
+                        provisionalPageMetrics.add(pageNumber);
+                    }
+                }
+            }
         }
 
         const version = incrementRenderVersion();
@@ -923,9 +967,15 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         loadOptions?: {
             lifecycleKey?: string;
             preservePageStructure?: boolean;
+            pagesToInvalidate?: readonly number[] | null;
+            preservePageMetrics?: boolean;
         },
     ) {
-        const version = startLoad(loadOptions?.preservePageStructure === true);
+        const version = startLoad(
+            loadOptions?.preservePageStructure === true,
+            loadOptions?.pagesToInvalidate ?? null,
+            loadOptions?.preservePageMetrics === true,
+        );
         const lifecycleKey = normalizePdfDocumentLifecycleKey(
             loadOptions?.lifecycleKey,
             fallbackLifecycleKey,
@@ -942,12 +992,21 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 return null;
             }
             sourceLoader.setLifecycleKey(lifecycleKey);
-            const nativeGeometry = readNativePageGeometry(src, version);
+            const nativeGeometry = loadOptions?.preservePageMetrics === true
+                ? null
+                : readNativePageGeometry(src, version);
             const document = await sourceLoader.open(src, version);
             if (!document) {
                 return null;
             }
-            return await acceptLoadedDocument(document, version, lifecycleKey, src, await nativeGeometry);
+            return await acceptLoadedDocument(
+                document,
+                version,
+                lifecycleKey,
+                src,
+                await nativeGeometry,
+                loadOptions?.preservePageMetrics === true,
+            );
         } catch (error) {
             cleanupFailedLoadAttempt(version);
             return handleLoadError(error, version);
@@ -960,6 +1019,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function cleanup() {
+        cancelPageMutationRotationPreview();
         teardownWaitAbortController?.abort();
         teardownWaitAbortController = null;
         pendingRangeReadFailure = null;
@@ -1020,9 +1080,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const pagesToInvalidate = pendingPagesToInvalidate;
         pendingPagesToInvalidate = null;
         const isSelectiveReload = isReload && pagesToInvalidate !== null;
-        const preserveVisibleContent = isReload
-            && !isSelectiveReload
-            && pendingPreserveVisibleContent;
+        const preserveVisibleContent = isReload && pendingPreserveVisibleContent;
+        const stagedMutation = pendingPageMutationRevisionSwap;
+        const stagedMutationMatchesRevision = stagedMutation !== null
+            && stagedMutation.revision === String(options.documentRevisionToken?.value ?? '');
         pendingPreserveVisibleContent = false;
         return {
             isReload,
@@ -1030,6 +1091,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             pagesToInvalidate,
             preserveVisibleContent,
             preservePageStructure: isSelectiveReload || preserveVisibleContent,
+            preservePageMetrics: isSelectiveReload
+                && stagedMutationMatchesRevision
+                && stagedMutation?.preservePageMetrics === true,
+            ...(isSelectiveReload && stagedMutationMatchesRevision && stagedMutation?.rotationDelta !== undefined
+                ? {rotationDelta: stagedMutation.rotationDelta}
+                : {}),
         };
     }
 
@@ -1056,6 +1123,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             activeDocumentRevision = options.documentRevisionToken?.value == null
                 ? null
                 : String(options.documentRevisionToken.value);
+            pendingPageMutationRevisionSwap = null;
             return activeOpenSurfaceGeneration;
         }
         // Join the generation that the host has already opened for this load.
@@ -1068,6 +1136,31 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         // install a competing surface.
         const expectedGeneration = surface.snapshot.value.generation;
         const documentRevision = String(options.documentRevisionToken?.value ?? `load:${String(loadToken)}`);
+        const stagedRevisionSwap = pendingPageMutationRevisionSwap;
+        if (stagedRevisionSwap) {
+            const currentDocumentId = surface.snapshot.value.identity?.documentId
+                ?? options.openSurfaceDocumentId?.()
+                ?? `pdf-open-${String(loadToken)}`;
+            const didPreserveCommittedSurface = documentRevision === stagedRevisionSwap.revision
+                && surface.prepareRevisionSwap({
+                    documentId: currentDocumentId,
+                    documentRevision: stagedRevisionSwap.revision,
+                }, stagedRevisionSwap.pageNumber, stagedRevisionSwap.invalidatedPages);
+            pendingPageMutationRevisionSwap = null;
+            if (!didPreserveCommittedSurface) {
+                // The lifecycle changed between staging and loading (for
+                // example, a close won the race). Fall back to a regular open
+                // instead of carrying a selective plan onto an uncommitted
+                // surface.
+                activePlan = {
+                    ...activePlan,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                };
+            }
+        }
         activeOpenSurfaceGeneration = surface.acquireSource({
             // The host's provisional identity is the stable logical document
             // id. Paths inside the feature pack may already point at a managed
@@ -1107,7 +1200,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             resolveLoadSettle();
             return;
         }
-        options.emitInitialVisualPending?.();
+        if (!activePlan.preserveVisibleContent) {
+            options.emitInitialVisualPending?.();
+        }
         const loadingFence = captureFence();
         await emitTransition('loading', isReload ? 'reload' : 'open', loadingFence);
         if (activeLoadToken !== documentLoadToken) {
@@ -1128,6 +1223,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                     ? {lifecycleKey: options.documentLifecycleKey.value}
                     : {}),
                 ...(activePlan.preservePageStructure ? {preservePageStructure: true} : {}),
+                ...(activePlan.isSelectiveReload && activePlan.pagesToInvalidate
+                    ? {pagesToInvalidate: activePlan.pagesToInvalidate}
+                    : {}),
+                ...(activePlan.preservePageMetrics ? {preservePageMetrics: true} : {}),
             });
         } catch (error) {
             thrownLoadError = error;
@@ -1141,20 +1240,46 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             if (error) {
                 options.emitLoadError?.(error);
             }
+            if (activeDocumentRevision) {
+                options.chassisAuthority?.openSurface.cancelRevisionSwap(
+                    activeOpenSurfaceGeneration,
+                    activeDocumentRevision,
+                );
+            }
             isLoadFromSourceActive = false;
             await emitTransition('invalidated', 'load-aborted');
             resolveLoadSettle();
             return;
         }
 
-        options.emitRasterScheduler?.(activeRasterScheduler);
-        options.emitDocument?.(pdfDocument.value);
-        options.emitTotalPages?.(numPages.value);
+        const deferSelectiveDocumentPublish = activePlan.isSelectiveReload
+            && activePlan.preserveVisibleContent;
+        const publishLoadedDocument = () => {
+            options.emitRasterScheduler?.(activeRasterScheduler);
+            options.emitDocument?.(pdfDocument.value);
+            options.emitTotalPages?.(numPages.value);
+        };
+        if (!deferSelectiveDocumentPublish) {
+            publishLoadedDocument();
+        }
 
         const readyFence = captureFence();
         await emitTransition('ready', isReload ? 'reload' : 'open', readyFence);
         if (activeLoadToken !== documentLoadToken || readyFence.documentVersion !== getRenderVersion()) {
             return;
+        }
+        if (deferSelectiveDocumentPublish) {
+            // The viewport's ready transition refreshes invalidated geometry
+            // and commits Fit Width before the replacement source can start a
+            // raster. Publishing it earlier let the first rotated page paint
+            // at the preceding page's scale, followed by a visible jump.
+            publishLoadedDocument();
+        }
+        if (activeDocumentRevision && activeOpenSurfaceGeneration > 0) {
+            options.chassisAuthority?.openSurface.completeRevisionSwap(
+                activeOpenSurfaceGeneration,
+                activeDocumentRevision,
+            );
         }
         isLoadFromSourceActive = false;
         await emitTransition('settled', isReload ? 'reload' : 'open', readyFence);
@@ -1179,7 +1304,17 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function invalidateAndCleanup(reason: string) {
+        cancelPageMutationRotationPreview();
         sourceLoader.cancelPendingOpen();
+        if (pendingPageMutationRevisionSwap) {
+            options.chassisAuthority?.openSurface.cancelRevisionSwap(
+                activeOpenSurfaceGeneration,
+                pendingPageMutationRevisionSwap.revision,
+            );
+        }
+        pendingPageMutationRevisionSwap = null;
+        pendingPagesToInvalidate = null;
+        pendingPreserveVisibleContent = false;
         const invalidation = invalidate(reason);
         runGuardedTask(async () => {
             await invalidation;
@@ -1330,10 +1465,23 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return;
         }
         if (!newSrc) {
+            if (pendingPageMutationRevisionSwap) {
+                options.chassisAuthority?.openSurface.cancelRevisionSwap(
+                    activeOpenSurfaceGeneration,
+                    pendingPageMutationRevisionSwap.revision,
+                );
+            }
+            pendingPageMutationRevisionSwap = null;
+            pendingPagesToInvalidate = null;
+            pendingPreserveVisibleContent = false;
             invalidateAndCleanup('source-cleared');
             return;
         }
-        scheduleSourceReplacement(Boolean(oldSrc), isRewriteOfSameDocument(oldSrc, newSrc));
+        if (!pendingPageMutationRevisionSwap) {
+            cancelPageMutationRotationPreview();
+        }
+        scheduleSourceReplacement(Boolean(oldSrc), pendingPageMutationRevisionSwap !== null
+            || isRewriteOfSameDocument(oldSrc, newSrc));
     });
 
     watch(() => options.isActive?.value ?? true, (active) => {
@@ -1375,6 +1523,128 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     onScopeDispose(() => {
         void dispose();
     }, true);
+
+    function normalizePageMutationPreviewPages(pages: readonly number[]) {
+        return [...new Set(pages
+            .filter(page => Number.isSafeInteger(page) && page >= 1 && page <= numPages.value)
+            .map(page => requirePageNumber(page, numPages.value)))];
+    }
+
+    function matchesPageMutationGeometryPreview(pages: readonly number[], rotationDelta: 90 | 180 | 270) {
+        const preview = pendingPageMutationGeometryPreview;
+        if (!preview || preview.rotationDelta !== rotationDelta || preview.pages.length !== pages.length) {
+            return false;
+        }
+        const previewPages = new Set(preview.pages);
+        return pages.every(page => previewPages.has(page));
+    }
+
+    function beginPageMutationRotationPreview(
+        pages: readonly number[],
+        rotationDelta: 90 | 180 | 270,
+    ) {
+        if (
+            !pdfDocument.value
+            || isLoading.value
+            || numPages.value < 1
+            || pendingPageMutationRevisionSwap
+            || pendingPageMutationGeometryPreview
+        ) {
+            return false;
+        }
+        const normalizedPages = normalizePageMutationPreviewPages(pages);
+        if (normalizedPages.length === 0) {
+            return false;
+        }
+
+        const nextMetrics = pageMetrics.value.slice();
+        const previousMetrics = new Map<number, IPdfPageMetric | undefined>();
+        const previousProvisionalPages = new Set<number>();
+        let measuredPageCount = 0;
+        for (const pageNumber of normalizedPages) {
+            const index = pageNumber - 1;
+            const metric = nextMetrics[index];
+            previousMetrics.set(pageNumber, metric);
+            if (provisionalPageMetrics.has(pageNumber)) {
+                previousProvisionalPages.add(pageNumber);
+            }
+            if (!isValidPageMetric(metric)) {
+                continue;
+            }
+            const currentRotation = metric.rotation ?? 0;
+            if (![
+                0,
+                90,
+                180,
+                270,
+            ].includes(currentRotation)) {
+                return false;
+            }
+            const nextRotation = (currentRotation + rotationDelta) % 360;
+            nextMetrics[index] = {
+                ...metric,
+                ...(rotationDelta === 90 || rotationDelta === 270
+                    ? {
+                        width: metric.height,
+                        height: metric.width,
+                    }
+                    : {}),
+                rotation: nextRotation,
+            };
+            measuredPageCount += 1;
+        }
+        if (measuredPageCount === 0) {
+            return false;
+        }
+
+        pendingPageMutationGeometryPreview = {
+            pages: normalizedPages,
+            rotationDelta,
+            previousMetrics,
+            previousProvisionalPages,
+            previousBasePageWidth: basePageWidth.value,
+            previousBasePageHeight: basePageHeight.value,
+            previousTrustedGeometrySeedPageNumber: trustedGeometrySeedPageNumber,
+        };
+        pageMetrics.value = nextMetrics;
+        normalizedPages.forEach(page => provisionalPageMetrics.delete(page));
+        const isAllPagesSelected = normalizedPages.length === numPages.value;
+        if (isAllPagesSelected && (rotationDelta === 90 || rotationDelta === 270)) {
+            basePageWidth.value = pendingPageMutationGeometryPreview.previousBasePageHeight;
+            basePageHeight.value = pendingPageMutationGeometryPreview.previousBasePageWidth;
+        } else {
+            replaceTrustedBaseMetrics();
+        }
+        bumpPageMetricsVersion();
+        return true;
+    }
+
+    function cancelPageMutationRotationPreview() {
+        const preview = pendingPageMutationGeometryPreview;
+        if (!preview) {
+            return false;
+        }
+        const restoredMetrics = pageMetrics.value.slice();
+        for (const pageNumber of preview.pages) {
+            const previousMetric = preview.previousMetrics.get(pageNumber);
+            if (previousMetric) {
+                restoredMetrics[pageNumber - 1] = previousMetric;
+            } else {
+                Reflect.deleteProperty(restoredMetrics, pageNumber - 1);
+            }
+            provisionalPageMetrics.delete(pageNumber);
+            if (preview.previousProvisionalPages.has(pageNumber)) {
+                provisionalPageMetrics.add(pageNumber);
+            }
+        }
+        pendingPageMutationGeometryPreview = null;
+        pageMetrics.value = restoredMetrics;
+        basePageWidth.value = preview.previousBasePageWidth;
+        basePageHeight.value = preview.previousBasePageHeight;
+        trustedGeometrySeedPageNumber = preview.previousTrustedGeometrySeedPageNumber;
+        bumpPageMetricsVersion();
+        return true;
+    }
 
     return {
         loadState,
@@ -1427,11 +1697,99 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         preserveNextReloadVisibleContent(shouldPreserve: boolean) {
             pendingPreserveVisibleContent = shouldPreserve;
         },
+        beginPageMutationRotationPreview,
+        cancelPageMutationRotationPreview,
+        preparePageMutationRevisionSwap(
+            revision: string,
+            pages: readonly number[],
+            pageNumber: number,
+            rotationDelta?: 90 | 180 | 270,
+        ) {
+            const surface = options.chassisAuthority?.openSurface;
+            if (
+                !surface
+                || surface.snapshot.value.phase !== 'ready'
+                || revision.length === 0
+                || pages.length === 0
+                || !Number.isSafeInteger(pageNumber)
+                || pageNumber < 1
+            ) {
+                return false;
+            }
+            let preservePageMetrics = false;
+            if (rotationDelta !== undefined) {
+                const normalizedPages = normalizePageMutationPreviewPages(pages);
+                const hasOptimisticPreview = matchesPageMutationGeometryPreview(normalizedPages, rotationDelta);
+                if (pendingPageMutationGeometryPreview && !hasOptimisticPreview) {
+                    return false;
+                }
+                if (hasOptimisticPreview) {
+                    preservePageMetrics = normalizedPages.every(page => (
+                        isValidPageMetric(pageMetrics.value[page - 1])
+                    ));
+                    for (const pageNumberToRotate of normalizedPages) {
+                        provisionalPageMetrics.delete(pageNumberToRotate);
+                    }
+                    pendingPageMutationGeometryPreview = null;
+                } else {
+                    preservePageMetrics = true;
+                    const nextMetrics = pageMetrics.value.slice();
+                    for (const pageNumberToRotate of pages) {
+                        const metric = nextMetrics[pageNumberToRotate - 1];
+                        const currentRotation = metric?.rotation ?? 0;
+                        if (
+                            !isValidPageMetric(metric)
+                            || ![
+                                0,
+                                90,
+                                180,
+                                270,
+                            ].includes(currentRotation)
+                        ) {
+                            preservePageMetrics = false;
+                            break;
+                        }
+                        const nextRotation = (currentRotation + rotationDelta) % 360;
+                        nextMetrics[pageNumberToRotate - 1] = {
+                            ...metric,
+                            ...(rotationDelta === 90 || rotationDelta === 270
+                                ? {
+                                    width: metric.height,
+                                    height: metric.width,
+                                }
+                                : {}),
+                            rotation: nextRotation,
+                        };
+                    }
+                    if (preservePageMetrics) {
+                        pageMetrics.value = nextMetrics;
+                        for (const pageNumberToRotate of pages) {
+                            provisionalPageMetrics.delete(pageNumberToRotate);
+                        }
+                        replaceTrustedBaseMetrics();
+                        bumpPageMetricsVersion();
+                    }
+                }
+            }
+            pendingPreserveVisibleContent = true;
+            pendingPagesToInvalidate = [...pages];
+            pendingPageMutationRevisionSwap = {
+                revision,
+                pageNumber,
+                invalidatedPages: [...pages],
+                ...(rotationDelta === undefined ? {} : {rotationDelta}),
+                preservePageMetrics,
+            };
+            return true;
+        },
         invalidatePagesOnNextReload(pages: readonly number[]) {
             pendingPagesToInvalidate = [...pages];
         },
         get activeLoadPlan() {
             return activePlan;
+        },
+        get pendingPageMutationRevisionSwap() {
+            return pendingPageMutationRevisionSwap;
         },
     };
 };

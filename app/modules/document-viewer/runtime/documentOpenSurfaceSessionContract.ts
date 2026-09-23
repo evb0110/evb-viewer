@@ -70,6 +70,7 @@ export interface IDocumentOpenSurfaceViewportCommit {
 export interface IDocumentOpenSurfaceSnapshot {
     readonly generation: number;
     readonly identity: IDocumentOpenSurfaceIdentity | null;
+    readonly revisionSwapPending?: boolean;
     readonly phase: TDocumentOpenSurfacePhase;
     readonly presentation: TDocumentOpenSurfacePresentation;
     readonly geometry: IDocumentOpenSurfaceGeometry | null;
@@ -106,6 +107,13 @@ export interface IDocumentOpenSurfaceSession {
         generation: number,
         geometry: IDocumentOpenSurfacePageGeometry,
     ): boolean;
+    prepareRevisionSwap(
+        identity: IDocumentOpenSurfaceIdentity,
+        pageNumber: number,
+        invalidatedPages: readonly number[],
+    ): boolean;
+    completeRevisionSwap(generation: number, documentRevision: string): boolean;
+    cancelRevisionSwap(generation: number, documentRevision: string): boolean;
     acquireSource(identity: IDocumentOpenSurfaceIdentity, expectedGeneration: number): number | null;
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
     commitOpeningPagePreview(generation: number, preview: IDocumentOpenSurfacePagePreview): boolean;

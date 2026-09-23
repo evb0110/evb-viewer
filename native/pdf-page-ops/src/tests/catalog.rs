@@ -18,6 +18,7 @@
                 free_text_notes: Vec::new(),
                 text_boxes: Vec::new(),
                 deletes: Vec::new(),
+                page_rotations: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,
                     ranges: vec![PageLabelRange {
@@ -199,6 +200,7 @@
                 free_text_notes: Vec::new(),
                 text_boxes: Vec::new(),
                 deletes: Vec::new(),
+                page_rotations: Vec::new(),
                 page_labels: None,
                 bookmarks: Some(BookmarksMutation {
                     total_pages: 1,
@@ -238,6 +240,7 @@
                     free_text_notes: Vec::new(),
                     text_boxes: Vec::new(),
                     deletes: Vec::new(),
+                    page_rotations: Vec::new(),
                     page_labels: None,
                     bookmarks: Some(BookmarksMutation {
                         total_pages: 1,
@@ -338,6 +341,7 @@
                 free_text_notes: Vec::new(),
                 text_boxes: Vec::new(),
                 deletes: Vec::new(),
+                page_rotations: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,
                     ranges: vec![PageLabelRange {

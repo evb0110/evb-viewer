@@ -668,6 +668,9 @@ export default {
     'notifications': {
         'docxSavedTitle': 'DOCX opgeslagen',
         'docxSavedDescription': '{name}',
+        'documentBusyTitle': 'Document is bezig',
+        'closingAfterPageProcessing': 'Sluiten gaat verder zodra de paginaverwerking is voltooid.',
+        'switchingAfterPageProcessing': 'Deze actie gaat verder zodra de paginaverwerking is voltooid.',
     },
     'tabs': {
         'tabListLabel': 'Documenttabbladen',

@@ -286,6 +286,16 @@ pub(crate) struct CropMargins {
     pub(crate) right: f64,
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PageRotationMutation {
+    /// Zero-based page index, matching the renderer's native mutation schema.
+    pub(crate) page_index: u32,
+    /// Clockwise quarter-turn increment. The effective inherited rotation is
+    /// normalized before this increment is applied.
+    pub(crate) angle: i64,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct PdfRect {
     pub(crate) x1: f64,
@@ -869,6 +879,9 @@ pub(crate) struct NativeMutationsFile {
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) deletes: Vec<AnnotationDelete>,
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) page_rotations: Vec<PageRotationMutation>,
     pub(crate) page_labels: Option<PageLabelsMutation>,
     pub(crate) bookmarks: Option<BookmarksMutation>,
     pub(crate) shapes: Option<ShapesMutation>,

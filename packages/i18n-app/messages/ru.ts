@@ -152,6 +152,9 @@ export default {
     'notifications': {
         'docxSavedTitle': 'DOCX сохранён',
         'docxSavedDescription': '{name}',
+        'documentBusyTitle': 'Документ занят',
+        'closingAfterPageProcessing': 'Закрытие продолжится после завершения обработки страниц.',
+        'switchingAfterPageProcessing': 'Действие продолжится после завершения обработки страниц.',
     },
     'tabs': {
         'tabListLabel': 'Вкладки документов',
@@ -163,7 +166,7 @@ export default {
         'copyPath': 'Копировать путь',
         'preparingBatch': 'Подготовка {processed}/{total}',
         'confirmCloseDirtyTitle': 'Закрыть вкладку с несохранёнными изменениями?',
-        'confirmCloseDirtyDescription': 'В "{name}" есть несохранённые изменения. При закрытии изменения будут отброшены.',
+        'confirmCloseDirtyDescription': 'В "{name}" есть несохранённые изменения. Сохранить их перед закрытием, отбросить или отменить?',
         'confirmCloseWindowDirtyTitle': 'Закрыть окно с несохранёнными изменениями?',
         'confirmCloseWindowDirtyDescription': 'Есть несохранённые изменения. Сохраните их перед закрытием окна, отбросьте или отмените.',
         'discardChanges': 'Отбросить изменения',

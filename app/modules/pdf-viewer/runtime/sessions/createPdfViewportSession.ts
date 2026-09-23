@@ -1124,19 +1124,38 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         };
         activeDocumentPlacement = null;
         pinCurrentPageToRestoreTarget();
-        if (!transition.plan.preserveVisibleContent) {
+        const isPreservedSelectiveReload = transition.plan.preserveVisibleContent
+            && transition.plan.isSelectiveReload;
+        if (!transition.plan.preserveVisibleContent || isPreservedSelectiveReload) {
             const readyMetricRange = resolvePdfReadyMetricRange({
                 currentPage: currentPage.value,
                 totalPages: numPages.value,
                 isReload: transition.plan.isReload,
                 isSelectiveReload: transition.plan.isSelectiveReload,
             });
-            await documentSession.ensurePageMetricsInRange(readyMetricRange.start, readyMetricRange.end);
+            if (transition.plan.isSelectiveReload) {
+                await documentSession.ensurePageMetricsInRange(
+                    readyMetricRange.start,
+                    readyMetricRange.end,
+                    transition.plan.preservePageMetrics
+                        ? []
+                        : transition.plan.pagesToInvalidate ?? [],
+                );
+            } else {
+                await documentSession.ensurePageMetricsInRange(readyMetricRange.start, readyMetricRange.end);
+            }
             if (!transition.isCurrent()) {
                 return;
             }
-            if (!transition.plan.isSelectiveReload) {
-                scale.computeFitWidthScale(options.viewerContainer.value);
+            if (!transition.plan.isSelectiveReload || options.zoomMode.value === 'fit-width') {
+                scale.computeFitWidthScale(options.viewerContainer.value, {page: currentPage.value});
+            }
+            if (isPreservedSelectiveReload && options.zoomMode.value === 'fit-width') {
+                // This Fit Width value defines the first raster for the new
+                // revision. Publish it now instead of letting the visual
+                // reload transition defer the toolbar/readout until the
+                // replacement raster has warmed and the transition settles.
+                reloadTransition.commitEffectiveZoom(scale.layoutScale.value);
             }
             if (!transition.plan.isSelectiveReload) {
                 await applyRestoredReloadZoom(placement.displayZoomToRestore);
@@ -1157,7 +1176,26 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             if (!transition.isCurrent()) {
                 return;
             }
-            if (transition.plan.isReload && currentPage.value > 1) {
+            if (isPreservedSelectiveReload) {
+                const preserved = activePreservedVisibleContent;
+                const anchor = preserved?.semanticAnchor;
+                applyReloadViewport(resolvedPageToRestore, {
+                    navigationSource: 'restore',
+                    preferExactDom: true,
+                    ...(anchor
+                        ? {
+                            pageYRatio: anchor.yRatio,
+                            markerRect: {
+                                left: anchor.xRatio,
+                                top: anchor.yRatio,
+                                width: 0,
+                                height: 0,
+                            },
+                        }
+                        : {}),
+                });
+                await nextTick();
+            } else if (transition.plan.isReload && currentPage.value > 1) {
                 applyReloadViewport(clampPageNumber(currentPage.value, numPages.value));
                 await nextTick();
             } else if (!transition.plan.isReload) {
@@ -1175,11 +1213,12 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             start: clampPageNumber(currentPage.value, numPages.value),
             end: clampPageNumber(currentPage.value, numPages.value),
         };
+        const isCurrentPageInvalidated = transition.plan.pagesToInvalidate?.includes(currentPage.value) ?? false;
         await requestMandatoryRaster(initialRange, transition.plan.preserveVisibleContent
             ? {
                 preserveRenderedPages: true,
                 bufferOverride: 0,
-                forceRerender: true,
+                forceRerender: !transition.plan.isSelectiveReload || isCurrentPageInvalidated,
             }
             : {bufferOverride: 0});
         if (!transition.isCurrent()) {
@@ -1187,22 +1226,24 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
         if (transition.plan.preserveVisibleContent) {
             const preserved = activePreservedVisibleContent;
-            const anchor = preserved?.semanticAnchor;
-            applyReloadViewport(resolvedPageToRestore, {
-                navigationSource: 'restore',
-                preferExactDom: true,
-                ...(anchor
-                    ? {
-                        pageYRatio: anchor.yRatio,
-                        markerRect: {
-                            left: anchor.xRatio,
-                            top: anchor.yRatio,
-                            width: 0,
-                            height: 0,
-                        },
-                    }
-                    : {}),
-            });
+            if (!isPreservedSelectiveReload) {
+                const anchor = preserved?.semanticAnchor;
+                applyReloadViewport(resolvedPageToRestore, {
+                    navigationSource: 'restore',
+                    preferExactDom: true,
+                    ...(anchor
+                        ? {
+                            pageYRatio: anchor.yRatio,
+                            markerRect: {
+                                left: anchor.xRatio,
+                                top: anchor.yRatio,
+                                width: 0,
+                                height: 0,
+                            },
+                        }
+                        : {}),
+                });
+            }
             schedulePreservedVisualSnapshotRelease({
                 preservedVisibleContent: preserved,
                 resolvedPageToRestore,

@@ -1,6 +1,10 @@
-import {existsSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {
-    readFile, rename, utimes,
+    createReadStream,
+    existsSync,
+} from 'node:fs';
+import {
+    readFile, rename, stat, utimes,
 } from 'node:fs/promises';
 import {
     afterEach,
@@ -9,7 +13,9 @@ import {
     it,
 } from 'vitest';
 import {
-    createMultiPageTextFixturePdf, readPdfPageSnapshots,
+    createLargeScannedFixturePdf,
+    createMultiPageTextFixturePdf,
+    readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
@@ -28,6 +34,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     callWorkspaceCommand,
+    getWorkspaceToolbarSnapshot,
     readWorkspaceStateValues,
     requireWorkspaceCommand,
     waitForWorkspaceToolbarIdle,
@@ -154,6 +161,282 @@ async function clickWindowDecision(
     }
 }
 
+async function getFileSha256(filePath: string) {
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(filePath)) {
+        hash.update(chunk);
+    }
+    return hash.digest('hex');
+}
+
+async function clickActiveTabClose(session: IElectronE2ESession) {
+    const target = await session.page.evaluate(() => {
+        const activePane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+        const activeTab = activePane?.querySelector<HTMLElement>('.tab-list .tab.is-active');
+        const button = activeTab?.querySelector<HTMLButtonElement>('.tab-close');
+        if (!activeTab || !button) {
+            return {
+                found: false as const,
+                tabs: Array.from(activePane?.querySelectorAll<HTMLElement>('.tab-list .tab') ?? []).map(tab => ({
+                    id: tab.dataset.tabId ?? null,
+                    active: tab.classList.contains('is-active'),
+                    closeLabel: tab.querySelector<HTMLButtonElement>('.tab-close')?.getAttribute('aria-label') ?? null,
+                })),
+            };
+        }
+        const bounds = button.getBoundingClientRect();
+        return {
+            found: true as const,
+            disabled: button.disabled,
+            label: button.getAttribute('aria-label'),
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+        };
+    });
+    expect(target.found, `active tab close button should be available: ${JSON.stringify(target)}`).toBe(true);
+    if (!target.found) {
+        throw new Error(`Active tab close button was not available: ${JSON.stringify(target)}`);
+    }
+    expect(target.disabled, `active tab close button should be enabled: ${JSON.stringify(target)}`).toBe(false);
+    if (target.disabled) {
+        throw new Error(`Active tab close button was disabled: ${JSON.stringify(target)}`);
+    }
+    await session.page.mouse.click(target.x, target.y);
+}
+
+async function clickActiveTabCloseIfEnabled(session: IElectronE2ESession) {
+    const target = await session.page.evaluate(() => {
+        const button = document.querySelector<HTMLButtonElement>(
+            '.editor-pane.is-active .tab-list .tab.is-active .tab-close',
+        );
+        if (!button || button.disabled) {
+            return null;
+        }
+        const bounds = button.getBoundingClientRect();
+        return {
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+        };
+    });
+    if (target) {
+        await session.page.mouse.click(target.x, target.y);
+    }
+}
+
+async function waitForActiveTabCloseEnabled(session: IElectronE2ESession) {
+    await session.page.waitForFunction(() => {
+        const button = document.querySelector<HTMLButtonElement>(
+            '.editor-pane.is-active .tab-list .tab.is-active .tab-close',
+        );
+        return Boolean(button && !button.disabled);
+    }, {timeout: 30_000});
+}
+
+async function clickDirtyTabDecision(session: IElectronE2ESession, labelFragment: string) {
+    const rect = await session.page.evaluate((label) => {
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+        const button = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [])
+            .find(candidate => candidate.textContent?.toLowerCase().includes(label.toLowerCase()));
+        if (!button || button.disabled) {
+            return null;
+        }
+        const bounds = button.getBoundingClientRect();
+        return {
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+        };
+    }, labelFragment);
+    expect(rect, `dirty-close ${labelFragment} button should be available`).not.toBeNull();
+    if (!rect) {
+        throw new Error(`Dirty-close ${labelFragment} button was not available`);
+    }
+    await session.page.mouse.click(rect.x, rect.y);
+    await session.page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: 30_000});
+}
+
+async function rotateFirstPageCounterclockwise(session: IElectronE2ESession) {
+    const sidebarIsVisible = await session.page.evaluate(() => {
+        const sidebar = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active [data-testid="document-sidebar"]',
+        );
+        const bounds = sidebar?.getBoundingClientRect();
+        return Boolean(bounds && bounds.width > 10 && bounds.height > 10);
+    });
+    if (!sidebarIsVisible) {
+        const sidebarButton = await session.page.evaluate(() => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label], button'))
+                .find(candidate => {
+                    const label = `${candidate.getAttribute('aria-label') ?? ''} ${candidate.title} ${candidate.textContent ?? ''}`;
+                    const bounds = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return ( /toggle sidebar/i.test(label)
+                        || Boolean(candidate.querySelector('.i-ph-sidebar-simple, .iconify.i-ph-sidebar-simple')) )
+                        && bounds.width > 8
+                        && bounds.height > 8
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number(style.opacity || '1') > 0;
+                });
+            if (!button || button.disabled) {
+                return null;
+            }
+            const bounds = button.getBoundingClientRect();
+            return {
+                x: bounds.left + bounds.width / 2,
+                y: bounds.top + bounds.height / 2,
+            };
+        });
+        expect(sidebarButton, 'sidebar toggle should be available').not.toBeNull();
+        if (!sidebarButton) {
+            throw new Error('Sidebar toggle was not available');
+        }
+        await session.page.mouse.click(sidebarButton.x, sidebarButton.y);
+        await session.page.waitForFunction(() => {
+            const sidebar = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"]',
+            );
+            const bounds = sidebar?.getBoundingClientRect();
+            return Boolean(bounds && bounds.width > 10 && bounds.height > 10);
+        }, {timeout: 30_000});
+    }
+
+    const pagesTab = await session.page.evaluate(() => {
+        const sidebar = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active [data-testid="document-sidebar"]',
+        );
+        const tabs = Array.from(sidebar?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []);
+        const tab = tabs.find(candidate => /pages/i.test(
+            `${candidate.getAttribute('aria-label') ?? ''} ${candidate.title} ${candidate.textContent ?? ''}`,
+        ));
+        if (!tab) {
+            return {labels: tabs.map(candidate => candidate.textContent?.trim() ?? '')};
+        }
+        const bounds = tab.getBoundingClientRect();
+        return {
+            selected: tab.getAttribute('aria-selected') === 'true' || tab.dataset.state === 'active',
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+        };
+    });
+    expect(pagesTab, 'Pages sidebar tab should be available').toHaveProperty('x');
+    if (
+        'x' in pagesTab
+        && typeof pagesTab.x === 'number'
+        && typeof pagesTab.y === 'number'
+        && pagesTab.selected !== true
+    ) {
+        await session.page.mouse.click(pagesTab.x, pagesTab.y);
+    }
+
+    await session.page.waitForFunction(() => {
+        const item = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active [data-document-thumbnail-item][data-page="1"], '
+            + '.editor-pane.is-active [data-document-thumbnail-item][data-thumbnail-page="1"]',
+        );
+        const bounds = item?.getBoundingClientRect();
+        return Boolean(bounds && bounds.width > 0 && bounds.height > 0);
+    }, {timeout: 30_000});
+    const thumbnail = await session.page.evaluate(() => {
+        const item = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active [data-document-thumbnail-item][data-page="1"], '
+            + '.editor-pane.is-active [data-document-thumbnail-item][data-thumbnail-page="1"]',
+        );
+        if (!item) {
+            return null;
+        }
+        item.scrollIntoView({block: 'center'});
+        const bounds = item.getBoundingClientRect();
+        return {
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+        };
+    });
+    expect(thumbnail, 'first page thumbnail should be visible').not.toBeNull();
+    if (!thumbnail) {
+        throw new Error('First page thumbnail was not visible');
+    }
+    await session.page.mouse.click(thumbnail.x, thumbnail.y, {button: 'right'});
+    await session.page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .some((item) => {
+            const label = item.textContent?.toLowerCase() ?? '';
+            return label.includes('rotate counterclockwise') || label.includes('повернуть против часовой');
+        }), {timeout: 15_000});
+    const menuItem = await session.page.evaluate(() => {
+        const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find((candidate) => {
+                const label = candidate.textContent?.toLowerCase() ?? '';
+                return label.includes('rotate counterclockwise') || label.includes('повернуть против часовой');
+            });
+        if (!item) {
+            return null;
+        }
+        const bounds = item.getBoundingClientRect();
+        return {
+            x: bounds.left + bounds.width / 2,
+            y: bounds.top + bounds.height / 2,
+        };
+    });
+    expect(menuItem, 'rotate counterclockwise menu item should be visible').not.toBeNull();
+    if (!menuItem) {
+        throw new Error('Rotate counterclockwise menu item was not visible');
+    }
+    await session.page.mouse.click(menuItem.x, menuItem.y);
+}
+
+async function startBusyCloseAndWaitForDecision(session: IElectronE2ESession) {
+    await waitForActiveTabCloseEnabled(session);
+    await rotateFirstPageCounterclockwise(session);
+    await expect.poll(async () => (
+        await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(session.page, ['isPageOperationInProgress'])
+    ).isPageOperationInProgress, {timeout: 30_000}).toBe(true);
+
+    const toolbarAtClick = await getWorkspaceToolbarSnapshot(session.page);
+    const workspaceStateAtClick = await readWorkspaceStateValues<{
+        dirtyState?: {fileDirty?: boolean};
+        isPageOperationInProgress?: boolean;
+    }>(session.page, [
+        'dirtyState',
+        'isPageOperationInProgress',
+    ]);
+    expect(toolbarAtClick).toMatchObject({
+        hasPdf: true,
+        isPageOperationInProgress: true,
+    });
+    expect(workspaceStateAtClick).toMatchObject({
+        dirtyState: {fileDirty: false},
+        isPageOperationInProgress: true,
+    });
+
+    await clickActiveTabClose(session);
+    // A duplicate close may be unavailable once the close transition commits;
+    // if it is still actionable, send a second real click while the request is pending.
+    await clickActiveTabCloseIfEnabled(session);
+
+    expect((await getWorkspaceToolbarSnapshot(session.page))?.hasPdf).toBe(true);
+    expect(await session.page.evaluate(() => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const bounds = host?.getBoundingClientRect();
+        return Boolean(bounds && bounds.width > 0 && bounds.height > 0);
+    })).toBe(true);
+    await expect.poll(async () => session!.page.evaluate(() => {
+        const bodyText = document.body.innerText;
+        return bodyText.includes('Closing after page processing finishes.')
+            || bodyText.includes('Закрытие продолжится после завершения обработки страниц.');
+    }), {timeout: 2_000}).toBe(true);
+
+    await session.page.waitForFunction(() => {
+        const snapshot = window.__evbTestApi?.getActiveToolbarSnapshot?.();
+        return Boolean(document.querySelector('[role="dialog"]')) || snapshot?.hasPdf === false;
+    }, {timeout: 120_000});
+    const dialogCount = await session.page.$$eval('[role="dialog"]', dialogs => dialogs.length);
+    expect(dialogCount).toBe(1);
+    await expect.poll(async () => session!.page.evaluate(() => {
+        const bodyText = document.body.innerText;
+        return bodyText.includes('Closing after page processing finishes.')
+            || bodyText.includes('Закрытие продолжится после завершения обработки страниц.');
+    }), {timeout: 2_000}).toBe(false);
+}
+
 async function activateTabWithWorkingCopy(
     session: IElectronE2ESession,
     expectedPath: string,
@@ -199,6 +482,57 @@ describe('Project 8 recovered close decisions', () => {
         await session?.stop().catch(() => undefined);
         session = null;
     });
+
+    it('waits for page work before showing the tab decision and only saves after explicit Save', async () => {
+        const pdfPath = await createLargeScannedFixturePdf(
+            `project8-busy-tab-close-${Date.now()}.pdf`,
+            882,
+            128 * 1024 * 1024,
+            1,
+            {runOwner: 'w3-busy-close'},
+        );
+        const originalDigest = await getFileSha256(pdfPath);
+        const originalMtime = (await stat(pdfPath)).mtimeMs;
+        session = await startElectronE2ESession(`e2e-project8-busy-tab-close-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+        });
+        await openPdfInApp(session.page, pdfPath, 60_000);
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+
+        await startBusyCloseAndWaitForDecision(session);
+        await clickDirtyTabDecision(session, 'Cancel');
+        const afterCancel = await getWorkspaceToolbarSnapshot(session.page);
+        expect(afterCancel).toMatchObject({
+            hasPdf: true,
+            canSave: true,
+        });
+        expect((await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState'])).dirtyState?.fileDirty).toBe(true);
+        expect(await getFileSha256(pdfPath)).toBe(originalDigest);
+        expect((await stat(pdfPath)).mtimeMs).toBe(originalMtime);
+
+        await clickActiveTabClose(session);
+        await session.page.waitForSelector('[role="dialog"]', {
+            visible: true,
+            timeout: 30_000,
+        });
+        await clickDirtyTabDecision(session, 'Save');
+        await expect.poll(async () => (await getWorkspaceToolbarSnapshot(session!.page))?.hasPdf, {timeout: 30_000}).toBe(false);
+        await expect.poll(async () => (await readPdfPageSnapshots(pdfPath))[0]?.rotation, {timeout: 60_000}).toBe(270);
+        expect(await getFileSha256(pdfPath)).not.toBe(originalDigest);
+
+        await openPdfInApp(session.page, pdfPath, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const cleanSnapshot = await getWorkspaceToolbarSnapshot(session.page);
+        expect(cleanSnapshot).toMatchObject({
+            hasPdf: true,
+            canSave: false,
+        });
+        await clickActiveTabClose(session);
+        await expect.poll(async () => (await getWorkspaceToolbarSnapshot(session!.page))?.hasPdf, {timeout: 10_000}).toBe(false);
+        expect(await session.page.$$('[role="dialog"]')).toHaveLength(0);
+    }, E2E_TIMEOUT_MS);
 
     it('Cancel keeps recovered dirty bytes open', async () => {
         const recovered = await createRecoveredSession('cancel');

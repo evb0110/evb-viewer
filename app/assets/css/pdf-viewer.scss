@@ -77,6 +77,17 @@
     pointer-events: none;
 }
 
+.pdfViewer .page_container[data-page-mutation-preview="rotation"] .text-layer,
+.pdfViewer .page_container[data-page-mutation-preview="rotation"] .textLayer,
+.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotation-layer,
+.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotationLayer,
+.pdfViewer .page_container[data-page-mutation-preview="rotation"] .pdf-annotation-editor-layer,
+.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotation-editor-layer,
+.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotationEditorLayer {
+    visibility: hidden;
+    pointer-events: none;
+}
+
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .text-layer,
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-layer,
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .pdf-annotation-editor-layer,

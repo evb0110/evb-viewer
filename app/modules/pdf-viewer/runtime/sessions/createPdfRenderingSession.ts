@@ -133,6 +133,42 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     let renderVersion = 0;
     let visibleRenderRequestId = 0;
     let latestDemand: IPdfViewportDemand = viewport.demand.value;
+    const preservedRevisionSwapCanvases = new Set<TPageNumber>();
+    const rotationPreviewCanvases = new Map<TPageNumber, {
+        canvas: HTMLCanvasElement;
+        container: HTMLElement;
+        canvasStyle: string | null;
+        previousPreview: string | null;
+    }>();
+    const getRevisionSwapInvalidatedPages = () => {
+        const pending = documentSession.pendingPageMutationRevisionSwap?.invalidatedPages;
+        if (pending) {
+            return pending;
+        }
+        const plan = documentSession.activeLoadPlan;
+        return plan?.isSelectiveReload && plan.preserveVisibleContent
+            ? plan.pagesToInvalidate ?? []
+            : [];
+    };
+    const isAwaitingRotationRevision = (pageNumber: number) => {
+        const pending = documentSession.pendingPageMutationRevisionSwap;
+        const plan = documentSession.activeLoadPlan;
+        const expectedRevision = pending?.revision
+            ?? (plan?.rotationDelta === undefined ? null : String(options.documentRevisionToken.value ?? ''));
+        const affectedPages = pending?.invalidatedPages
+            ?? (plan?.isSelectiveReload && plan.rotationDelta !== undefined ? plan.pagesToInvalidate : null);
+        const preservesDerivedMetrics = pending?.preservePageMetrics ?? plan?.preservePageMetrics === true;
+        if (
+            expectedRevision === null
+            || !preservesDerivedMetrics
+            || !affectedPages?.includes(pageNumber)
+        ) {
+            return false;
+        }
+        return String(options.documentRevisionToken.value ?? '') !== expectedRevision
+            || documentSession.openSurfaceRevision !== expectedRevision
+            || documentSession.isLoading.value;
+    };
     interface IPreparedViewportRaster {
         job: IPdfViewportRasterJob;
         requestId: number;
@@ -162,8 +198,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             return false;
         }
         const slot = pageRenderState.getSlot(pageNumber);
+        const retainedForRevisionSwap = !requireCurrent
+            && preservedRevisionSwapCanvases.has(pageNumber);
         const presentable = slot.canvasReadiness === 'ready'
-            && slot.documentToken === getRenderDocumentToken()
+            && (slot.documentToken === getRenderDocumentToken() || retainedForRevisionSwap)
             && slot.container === target.container
             && target.canvasHost.contains(canvas) && canvas.isConnected
             && canvas.width > 0 && canvas.height > 0;
@@ -317,6 +355,25 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 return false;
             }
             const pageNumber = demand.pageNumber;
+            if (rotationPreviewCanvases.has(pageNumber)) {
+                const pageRect = prepared.container.getBoundingClientRect();
+                const canvasAspect = prepared.render.canvas.width / prepared.render.canvas.height;
+                const pageAspect = pageRect.width / pageRect.height;
+                if (
+                    !Number.isFinite(canvasAspect)
+                    || !Number.isFinite(pageAspect)
+                    || canvasAspect <= 0
+                    || pageAspect <= 0
+                    || Math.abs(Math.log(canvasAspect / pageAspect)) > 0.08
+                ) {
+                    // The source may still be the pre-mutation PDF while the
+                    // new page metrics and Fit Width scale are already active.
+                    // Keep the rotated old raster in place until an
+                    // aspect-correct raster from the replacement revision is
+                    // ready; never expose the interim stretched canvas.
+                    return false;
+                }
+            }
             const previousCanvas = pageCanvases.get(pageNumber);
             canvasRenderer.applyContainerUserUnit(prepared.container, prepared.render.userUnit);
             canvasRenderer.mountCanvas(prepared.canvasHost, prepared.render.canvas, previousCanvas);
@@ -339,6 +396,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 return false;
             }
             pageCanvases.set(pageNumber, prepared.render.canvas);
+            clearPageRotationPreview(pageNumber, false);
+            if (preservedRevisionSwapCanvases.delete(pageNumber)) {
+                renderedPageStateVersion.value += 1;
+                queueFrame();
+            }
             if (previousCanvas && previousCanvas !== prepared.render.canvas) canvasRenderer.cleanupCanvas(previousCanvas);
             initialVisual.handlePageCanvasMounted({
                 openSurfaceGeneration: prepared.job.renderOptions.openSurfaceGeneration ?? 0,
@@ -393,6 +455,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             explicitPages: renderOptions.rasterDemandPages,
         }).map(toPageNumber);
         for (const pageNumber of pageNumbers) {
+            if (isAwaitingRotationRevision(pageNumber)) {
+                continue;
+            }
             const metric = documentSession.pageMetrics.value[pageNumber - 1];
             const width = metric?.width ?? documentSession.basePageWidth.value ?? 1;
             const height = metric?.height ?? documentSession.basePageHeight.value ?? 1;
@@ -631,7 +696,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             prioritizeTextLayer: true,
         }),
     });
-    function bumpRenderVersion(reauthorizeCommittedCanvases = true) {
+    function bumpRenderVersion(
+        reauthorizeCommittedCanvases = true,
+        excludedPages: readonly number[] = getRevisionSwapInvalidatedPages(),
+    ) {
         renderVersion += 1;
         viewportDemandGeneration += 1;
         viewportRasterJobs.clear();
@@ -639,7 +707,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             resolveViewportRasterWaiters(pageNumber);
         }
         if (reauthorizeCommittedCanvases) {
-            pageRenderer.adoptCommittedCanvasVersions(renderVersion, getRenderDocumentToken());
+            pageRenderer.adoptCommittedCanvasVersions(
+                renderVersion,
+                getRenderDocumentToken(),
+                excludedPages.map(page => requirePageNumber(page)),
+            );
         }
         renderedPageStateVersion.value += 1;
         return renderVersion;
@@ -682,14 +754,116 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 token,
             };
             if (document !== previous.document) {
-                if (previous.document !== null) bumpRenderVersion(false);
+                if (previous.document !== null) {
+                    const isPreservedSelectiveReload = documentSession.activeLoadPlan.isSelectiveReload
+                        && documentSession.activeLoadPlan.preserveVisibleContent;
+                    const invalidatedPages = isPreservedSelectiveReload
+                        ? documentSession.activeLoadPlan.pagesToInvalidate ?? []
+                        : [];
+                    invalidatedPages.forEach(page => preservedRevisionSwapCanvases.add(requirePageNumber(page)));
+                    bumpRenderVersion(isPreservedSelectiveReload, invalidatedPages);
+                }
             } else if (token !== previous.token) {
-                bumpRenderVersion();
+                const invalidatedPages = getRevisionSwapInvalidatedPages();
+                invalidatedPages.forEach(page => preservedRevisionSwapCanvases.add(requirePageNumber(page)));
+                bumpRenderVersion(true, invalidatedPages);
             }
         },
         {flush: 'post'},
     );
+    function clearPageRotationPreview(pageNumber: TPageNumber, restoreCanvasStyle: boolean) {
+        const preview = rotationPreviewCanvases.get(pageNumber);
+        if (!preview) {
+            return;
+        }
+        if (restoreCanvasStyle && preview.canvas.isConnected) {
+            if (preview.canvasStyle === null) {
+                preview.canvas.removeAttribute('style');
+            } else {
+                preview.canvas.setAttribute('style', preview.canvasStyle);
+            }
+        }
+        if (preview.container.dataset.pageMutationPreview === 'rotation') {
+            if (preview.previousPreview === null) {
+                delete preview.container.dataset.pageMutationPreview;
+            } else {
+                preview.container.dataset.pageMutationPreview = preview.previousPreview;
+            }
+        }
+        rotationPreviewCanvases.delete(pageNumber);
+    }
+    function preparePageRotationPreview(pages: readonly number[], rotationDelta: 90 | 180 | 270) {
+        const isQuarterTurn = rotationDelta === 90 || rotationDelta === 270;
+        let preparedCount = 0;
+        for (const candidate of pages) {
+            if (!Number.isSafeInteger(candidate) || candidate < 1 || candidate > documentSession.numPages.value) {
+                continue;
+            }
+            const pageNumber = requirePageNumber(candidate, documentSession.numPages.value);
+            if (rotationPreviewCanvases.has(pageNumber)) {
+                preparedCount += 1;
+                continue;
+            }
+            const canvas = pageCanvases.get(pageNumber);
+            const target = getMountedRasterTarget(pageNumber);
+            if (!canvas || !target || !canvas.isConnected || !target.canvasHost.contains(canvas)) {
+                continue;
+            }
+            const pageRect = target.container.getBoundingClientRect();
+            if (pageRect.width <= 0 || pageRect.height <= 0) {
+                continue;
+            }
+            rotationPreviewCanvases.set(pageNumber, {
+                canvas,
+                container: target.container,
+                canvasStyle: canvas.getAttribute('style'),
+                previousPreview: target.container.dataset.pageMutationPreview ?? null,
+            });
+            preservedRevisionSwapCanvases.add(pageNumber);
+            const previewWidth = isQuarterTurn ? pageRect.height : pageRect.width;
+            const previewHeight = isQuarterTurn ? pageRect.width : pageRect.height;
+            canvas.style.setProperty('position', 'absolute', 'important');
+            canvas.style.setProperty('left', '50%', 'important');
+            canvas.style.setProperty('top', '50%', 'important');
+            canvas.style.setProperty('width', `${previewWidth}px`, 'important');
+            canvas.style.setProperty('height', `${previewHeight}px`, 'important');
+            canvas.style.setProperty(
+                'transform',
+                `translate(-50%, -50%) rotate(${rotationDelta}deg)`,
+                'important',
+            );
+            canvas.style.setProperty('transform-origin', 'center center', 'important');
+            target.container.dataset.pageMutationPreview = 'rotation';
+            preparedCount += 1;
+        }
+        if (preparedCount > 0) {
+            renderedPageStateVersion.value += 1;
+            queueFrame();
+        }
+        return preparedCount > 0;
+    }
+    function cancelPageRotationPreview(pages: readonly number[]) {
+        let didCancel = false;
+        for (const pageNumber of pages) {
+            if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+                continue;
+            }
+            const brandedPageNumber = requirePageNumber(pageNumber);
+            if (!rotationPreviewCanvases.has(brandedPageNumber)) {
+                continue;
+            }
+            clearPageRotationPreview(brandedPageNumber, true);
+            preservedRevisionSwapCanvases.delete(brandedPageNumber);
+            didCancel = true;
+        }
+        if (didCancel) {
+            renderedPageStateVersion.value += 1;
+            queueFrame();
+        }
+        return didCancel;
+    }
     function clearAuthoritativePage(pageNumber: TPageNumber, invalidateScheduler = true) {
+        clearPageRotationPreview(pageNumber, true);
         for (const key of viewportRasterJobs.keys()) {
             if (viewportRasterJobs.get(key)?.demand.pageNumber === pageNumber) viewportRasterJobs.delete(key);
         }
@@ -704,6 +878,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const canvas = pageCanvases.get(pageNumber);
         if (canvas) canvasRenderer.cleanupCanvas(canvas);
         pageCanvases.delete(pageNumber);
+        preservedRevisionSwapCanvases.delete(pageNumber);
         pageRenderState.clearPage(pageNumber);
         pageRenderer.releasePageLayers(pageNumber);
         const target = getMountedRasterTarget(pageNumber);
@@ -758,6 +933,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     async function cleanupRenderedPages() {
         bumpRenderVersion();
+        preservedRevisionSwapCanvases.clear();
         new Set([
             ...pageCanvases.keys(),
             ...pageRenderState.renderedPages,
@@ -1119,7 +1295,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             initialVisual.reconcileInitialVisual();
             if (transition.plan.isSelectiveReload && transition.plan.pagesToInvalidate) {
                 for (const pageNumber of transition.plan.pagesToInvalidate) {
-                    clearAuthoritativePage(toPageNumber(pageNumber));
+                    const brandedPage = requirePageNumber(pageNumber);
+                    if (transition.plan.preserveVisibleContent) {
+                        preservedRevisionSwapCanvases.add(brandedPage);
+                    } else {
+                        clearAuthoritativePage(brandedPage);
+                    }
                 }
             } else if (!transition.plan.preserveVisibleContent) {
                 await cleanupRenderedPages();
@@ -1128,7 +1309,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             initialVisual.setPendingReadyToken(null);
             pageRenderer.cancelPendingSearchScroll();
             await cancelInFlightRenders();
-            await cleanupRenderedPages();
+            if (!transition.isSameDocumentRewrite) {
+                await cleanupRenderedPages();
+            }
             zoomRerenderQueue.resetZoomRerenderQueueState(transition.reason);
             cleanupResizeLifecycle();
         } else if (transition.phase === 'restore') {
@@ -1185,6 +1368,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         renderVisiblePages,
         reRenderAllVisiblePages,
         cancelInFlightRenders,
+        preparePageRotationPreview,
+        cancelPageRotationPreview,
         releaseUnmountedPage: (pageNumber: TPageNumber) => clearAuthoritativePage(pageNumber),
         isPageRendered: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         isPageRendering: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).job === 'rendering',

@@ -24,7 +24,12 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
     {
         binaryName: 'evb-pdf-page-ops',
         crateName: 'pdf-page-ops',
-        protocolVersion: 1,
+        protocolVersion: 2,
+        capabilities: [{
+            name: 'incremental-page-rotation',
+            required: true,
+            introducedIn: 2,
+        }],
         resourceFamilyId: 'pdf-page-ops',
         stagingName: 'pdf-page-ops',
     },

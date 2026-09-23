@@ -6,6 +6,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import {writeFileSync} from 'node:fs';
+import {devNull} from 'node:os';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -21,6 +22,10 @@ import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCre
 import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
+import {
+    isNativePageOpsDisabled,
+    resolveNativePageOpsPath,
+} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {
     getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
@@ -215,9 +220,14 @@ export async function runQpdfCommand(
 
 /** Strict reopen/xref gate: warning-corrupt output is not promotable. */
 export async function verifyPdfStructureStrict(pdfPath: string, options: IQpdfOperationOptions = {}) {
+    // Page operations rewrite objects, never stream data, so a full reparse and
+    // rewrite without stream decoding covers what they can break. `qpdf --check`
+    // also decodes every image, which takes most of a minute on a large scan.
     await runNativeToolCommand(getQpdfBinary(), [
-        '--check',
+        '--decode-level=none',
+        '--compress-streams=n',
         pdfPath,
+        devNull,
     ], {
         timeoutMs: QPDF_TIMEOUT_MS,
         allowedExitCodes: [0],
@@ -615,6 +625,78 @@ export async function movePageRanges(
 }
 
 export type TRotationAngle = 90 | 180 | 270;
+
+const INCREMENTAL_PAGE_ROTATION_CAPABILITY = 'incremental-page-rotation';
+
+function createNativeModifiedAt() {
+    const date = new Date();
+    const pad = (value: number, length = 2) => String(value).padStart(length, '0');
+    return `D:${pad(date.getUTCFullYear(), 4)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
+}
+
+export function isIncrementalPageRotationAvailable() {
+    return !isNativePageOpsDisabled() && resolveNativePageOpsPath() !== null;
+}
+
+/**
+ * Append only the selected page dictionaries. The caller owns the revision
+ * journal and must materialize a managed working copy before entering the
+ * append transition so an original hard link can never be mutated.
+ */
+export async function rotatePagesIncremental(
+    workingCopyPath: string,
+    pages: number[],
+    angle: TRotationAngle,
+    senderWebContentsId?: number,
+    options: IQpdfOperationOptions = {},
+) {
+    const materializedPath = await materializePageOperationWorkingCopy(
+        workingCopyPath,
+        senderWebContentsId,
+        options.signal,
+    );
+    const binaryPath = resolveNativePageOpsPath();
+    if (isNativePageOpsDisabled() || !binaryPath) {
+        throw new Error('Incremental page rotation is unavailable');
+    }
+
+    const tempDir = await createManagedScratchTempDir('pdf-page-ops-');
+    const mutationsPath = join(tempDir, 'mutations.json');
+    try {
+        const pageRotations = pages.map(page => ({
+            pageIndex: page - 1,
+            angle,
+        }));
+        await writeFile(mutationsPath, JSON.stringify({pageRotations}), 'utf8');
+        await runNativeToolCommand(binaryPath, [
+            'save-mutations',
+            '--input',
+            materializedPath,
+            '--output',
+            materializedPath,
+            '--mutations-file',
+            mutationsPath,
+            '--qpdf',
+            getPdfNativeToolPaths().qpdf,
+            '--modified-at',
+            createNativeModifiedAt(),
+            '--append',
+            '--append-in-place',
+        ], {
+            timeoutMs: QPDF_TIMEOUT_MS,
+            commandLabel: 'evb-pdf-page-ops(incremental-page-rotation)',
+            requiredCapabilities: [INCREMENTAL_PAGE_ROTATION_CAPABILITY],
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        });
+        await assertNonEmptyPdfOutput(materializedPath, 'Rotating pages incrementally');
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+    }
+}
 
 export async function rotatePages(
     workingCopyPath: string,

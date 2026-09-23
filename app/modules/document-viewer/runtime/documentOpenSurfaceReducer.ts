@@ -103,6 +103,13 @@ export type TDocumentViewportSessionEvent =
         readonly identity: IDocumentViewportIdentity;
     }
     | {
+        readonly type: 'revision-swapped';
+        readonly generation: number;
+        readonly identity: IDocumentViewportIdentity;
+        readonly pageNumber: number;
+        readonly viewportIntentId: string;
+    }
+    | {
         readonly type: 'metadata-ready';
         readonly generation: number;
         readonly pageCount: number
@@ -634,6 +641,79 @@ function navigationRequested(
     return accept(next, effects);
 }
 
+function revisionSwapped(
+    state: IDocumentViewportSessionState,
+    event: Extract<TDocumentViewportSessionEvent, {type: 'revision-swapped'}>,
+) {
+    if (
+        state.lifecycle !== 'ready'
+        || !state.identity
+        || state.identity.documentId !== event.identity.documentId
+        || event.identity.revision.length === 0
+        || event.generation !== state.generation
+        || !isPositivePage(event.pageNumber)
+        || event.pageNumber > (state.pageCount ?? Number.MAX_SAFE_INTEGER)
+        || event.viewportIntentId.length === 0
+    ) {
+        return reject(state);
+    }
+    const rebaseRenderFence = (fence: IDocumentViewportRenderFence | null) => fence === null
+        ? null
+        : {
+            ...fence,
+            revision: event.identity.revision,
+            pageNumber: event.pageNumber,
+            viewportIntentId: event.viewportIntentId,
+        };
+    const rebaseViewportFence = (fence: IDocumentViewportCommitFence | null) => fence === null
+        ? null
+        : {
+            ...fence,
+            revision: event.identity.revision,
+            pageNumber: event.pageNumber,
+            viewportIntentId: event.viewportIntentId,
+        };
+    const committedRenderFence = rebaseRenderFence(state.committedRenderFence);
+    const committedViewportFence = rebaseViewportFence(state.committedViewportFence);
+    if (
+        state.committedPage === null
+        || committedRenderFence?.pageNumber !== event.pageNumber
+        || committedViewportFence?.pageNumber !== event.pageNumber
+    ) {
+        return reject(state);
+    }
+    return accept({
+        ...state,
+        identity: {...event.identity},
+        // Keep the last committed page authoritative while the replacement
+        // document and its affected raster are prepared offscreen.
+        lifecycle: 'ready',
+        requestedPage: event.pageNumber,
+        committedPage: event.pageNumber,
+        observedPage: event.pageNumber,
+        visual: {
+            kind: 'page',
+            generation: state.generation,
+            pageNumber: event.pageNumber,
+            presentation: 'canvas',
+            frameKey: state.visual.kind === 'page' ? state.visual.frameKey : null,
+            error: null,
+        },
+        viewportIntent: {
+            generation: state.generation,
+            id: event.viewportIntentId,
+            pageNumber: event.pageNumber,
+        },
+        renderFence: null,
+        stagedRenderFence: null,
+        stagedViewportFence: null,
+        committedRenderFence,
+        committedViewportFence,
+        skeletonDelay: null,
+        failure: null,
+    });
+}
+
 function reduceCommit(
     state: IDocumentViewportSessionState,
     event: Extract<TDocumentViewportSessionEvent, {type: 'canvas-committed' | 'viewport-committed'}>,
@@ -703,6 +783,8 @@ export function reduceDocumentViewportSession(
                 identity: {...event.identity},
                 renderFence: null,
             });
+        case 'revision-swapped':
+            return revisionSwapped(state, event);
         case 'metadata-ready':
             return metadataReady(state, event);
         case 'navigation-requested':

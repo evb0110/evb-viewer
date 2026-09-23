@@ -58,6 +58,47 @@ describe('useDocumentWorkspaceVisualOpeningState', () => {
         expect(state.toolbarControlsDisabled.value).toBe(true);
     });
 
+    it('keeps the compact page-label model while a new revision rereads its labels', () => {
+        const pageLabelModel = createPageLabelModel(882, [
+            {
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+                startNumber: 1,
+            },
+            {
+                startPage: 3,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
+        const state = useDocumentWorkspaceVisualOpeningState({
+            toolbarHasPdf: ref(true),
+            isLoading: ref(false),
+            initialDocumentVisualReady: ref(true),
+            openingPreviewReady: ref(false),
+            pdfError: ref(null),
+            djvuError: ref(null),
+            isOpeningDocumentForToolbar: ref(false),
+            toolbarDocumentBusy: ref(false),
+            canRepairSave: ref(false),
+            canOptimizePdf: ref(false),
+            statusZoomLabel: ref('144%'),
+            totalPages: ref(882),
+            pageLabels: ref(null),
+            pageLabelModel: ref(pageLabelModel),
+            pageLabelsResolved: ref(false),
+            isAnySaving: ref(false),
+            t: () => 'Unknown zoom',
+        });
+
+        expect(state.toolbarPageLabels.value).toMatchObject({
+            totalPages: 882,
+            ranges: pageLabelModel.ranges,
+        });
+    });
+
     it('publishes the compact page-label model after metadata resolves', () => {
         const pageLabelModel = createPageLabelModel(273, [
             {

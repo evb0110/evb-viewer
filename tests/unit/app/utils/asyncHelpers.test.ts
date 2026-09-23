@@ -6,7 +6,36 @@ import {
     it,
     vi,
 } from 'vitest';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import {
+    waitForVisualFrames,
+    waitUntilIdle,
+} from '@app/utils/asyncHelpers';
+
+describe('waitUntilIdle', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('continues waiting beyond the previous three second limit', async () => {
+        let busy = true;
+        let settled = false;
+        const waitPromise = waitUntilIdle(() => busy);
+        void waitPromise.then(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(settled).toBe(false);
+
+        busy = false;
+        await vi.advanceTimersByTimeAsync(25);
+        await expect(waitPromise).resolves.toBe(true);
+    });
+});
 
 describe('waitForVisualFrames', () => {
     beforeEach(() => {

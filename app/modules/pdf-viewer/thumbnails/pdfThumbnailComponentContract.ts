@@ -35,6 +35,7 @@ export interface IPdfThumbnailsProps {
     invalidationRequest?: {
         id: number;
         pages: number[];
+        expectedDocumentRevision?: string;
     } | null | undefined;
     hiddenAnnotationIds?: string[] | undefined;
     annotationComments?: IAnnotationCommentSummary[] | undefined;

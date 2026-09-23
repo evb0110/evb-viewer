@@ -2,6 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {
     cp,
     lstat,
+    open as openFileHandle,
     readFile,
     readdir,
     rm,
@@ -56,6 +57,10 @@ interface ITransitionSidecarBackup {
     kind?: 'ocr-v4-root' | 'ocr-v3-untouched';
 }
 
+export type TWorkingCopyContentBackupMode = 'copy-on-write' | 'hard-link' | 'append';
+
+type TContentTransitionJournalBackupMode = 'copy' | 'append-hard-link';
+
 interface IWorkingCopyContentTransitionJournal {
     version: 1;
     state: 'prepared';
@@ -63,6 +68,8 @@ interface IWorkingCopyContentTransitionJournal {
     backupPath: string;
     nextRevisionToken: TDocumentRevisionToken;
     sidecars: ITransitionSidecarBackup[];
+    backupMode: TContentTransitionJournalBackupMode;
+    previousLength?: number;
 }
 
 function journalPathFor(workingCopyPath: string) {
@@ -88,6 +95,26 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
         || !Array.isArray(value.sidecars)
     ) {
         return null;
+    }
+    const backupMode = value.backupMode === undefined
+        ? 'copy' as const
+        : value.backupMode === 'copy' || value.backupMode === 'append-hard-link'
+            ? value.backupMode
+            : null;
+    if (backupMode === null) {
+        return null;
+    }
+    let previousLength: number | undefined;
+    if (backupMode === 'append-hard-link') {
+        const storedPreviousLength = value.previousLength;
+        if (
+            typeof storedPreviousLength !== 'number'
+            || !Number.isSafeInteger(storedPreviousLength)
+            || storedPreviousLength < 0
+        ) {
+            return null;
+        }
+        previousLength = storedPreviousLength;
     }
     const sidecars: ITransitionSidecarBackup[] = [];
     for (const sidecar of value.sidecars) {
@@ -144,6 +171,8 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
         backupPath: value.backupPath,
         nextRevisionToken: requireDocumentRevisionToken(value.nextRevisionToken),
         sidecars,
+        backupMode,
+        ...(previousLength === undefined ? {} : {previousLength}),
     };
 }
 
@@ -371,15 +400,27 @@ export async function prepareWorkingCopyContentTransition(
     workingCopyPath: string,
     nextRevisionToken: TDocumentRevisionToken,
     onPhase?: (phase: string, durationMs: number) => void,
-    backupMode: 'copy-on-write' | 'hard-link' = 'copy-on-write',
+    backupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ) {
     await measureContentTransitionPhase('content-recover', onPhase, () =>
         recoverWorkingCopyContentTransition(workingCopyPath));
     const suffix = `${process.pid}-${randomUUID()}`;
     const backupPath = `${workingCopyPath}.evb-content-${suffix}.bak`;
-    await measureContentTransitionPhase('content-backup-pdf', onPhase, () => backupMode === 'hard-link'
-        ? linkOrCopyFileDurably(workingCopyPath, backupPath)
-        : copyFileAtomic(workingCopyPath, backupPath));
+    const appendSourceStat = backupMode === 'append'
+        ? await stat(workingCopyPath)
+        : null;
+    await measureContentTransitionPhase('content-backup-pdf', onPhase, () => backupMode === 'copy-on-write'
+        ? copyFileAtomic(workingCopyPath, backupPath)
+        : linkOrCopyFileDurably(workingCopyPath, backupPath));
+    const appendBackupStat = backupMode === 'append'
+        ? await stat(backupPath)
+        : null;
+    const appendHardLink = backupMode === 'append'
+        && appendSourceStat !== null
+        && appendBackupStat !== null
+        && Number.isSafeInteger(appendSourceStat.size)
+        && appendSourceStat.dev === appendBackupStat.dev
+        && appendSourceStat.ino === appendBackupStat.ino;
     const sidecars: ITransitionSidecarBackup[] = [];
     try {
         await measureContentTransitionPhase('content-backup-sidecars', onPhase, () =>
@@ -398,10 +439,45 @@ export async function prepareWorkingCopyContentTransition(
         backupPath,
         nextRevisionToken,
         sidecars,
+        backupMode: appendHardLink ? 'append-hard-link' : 'copy',
+        ...(appendHardLink && appendSourceStat !== null
+            ? {previousLength: appendSourceStat.size}
+            : {}),
     };
     await measureContentTransitionPhase('content-write-journal', onPhase, () =>
         writeJsonAtomic(journalPathFor(workingCopyPath), journal));
     return journal;
+}
+
+async function restoreWorkingCopyContent(
+    journal: IWorkingCopyContentTransitionJournal,
+) {
+    if (journal.backupMode === 'append-hard-link' && journal.previousLength !== undefined) {
+        const stats = await Promise.all([
+            stat(journal.workingCopyPath),
+            stat(journal.backupPath),
+        ]).catch(() => null);
+        const [
+            workingCopyStat,
+            backupStat,
+        ] = stats ?? [];
+        if (
+            workingCopyStat !== undefined
+            && backupStat !== undefined
+            && workingCopyStat.dev === backupStat.dev
+            && workingCopyStat.ino === backupStat.ino
+        ) {
+            const handle = await openFileHandle(journal.workingCopyPath, 'r+');
+            try {
+                await handle.truncate(journal.previousLength);
+                await handle.sync();
+            } finally {
+                await handle.close().catch(() => undefined);
+            }
+            return;
+        }
+    }
+    await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
 }
 
 async function measureContentTransitionPhase<T>(
@@ -418,7 +494,7 @@ async function measureContentTransitionPhase<T>(
 export async function rollbackWorkingCopyContentTransition(
     journal: IWorkingCopyContentTransitionJournal,
 ) {
-    await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
+    await restoreWorkingCopyContent(journal);
     await restoreSidecars(journal.sidecars);
     await completeWorkingCopyContentTransition(journal);
 }
@@ -453,7 +529,7 @@ export async function recoverWorkingCopyContentTransition(workingCopyPath: strin
     }
     const revision = await readWorkingCopyRevisionSidecar(workingCopyPath);
     if (revision?.token !== journal.nextRevisionToken) {
-        await copyFileAtomic(journal.backupPath, workingCopyPath);
+        await restoreWorkingCopyContent(journal);
         await restoreSidecars(journal.sidecars);
     }
     await completeWorkingCopyContentTransition(journal);

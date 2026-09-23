@@ -320,6 +320,7 @@
             free_text_notes: Vec::new(),
             text_boxes: Vec::new(),
             deletes: Vec::new(),
+            page_rotations: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: None,

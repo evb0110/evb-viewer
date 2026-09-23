@@ -242,7 +242,7 @@ mod tests {
     fn generated_descriptors_drive_exact_standard_flag_output() {
         let expected = [
             (PDF_IMAGE_COMBINE, 4),
-            (PDF_PAGE_OPS, 1),
+            (PDF_PAGE_OPS, 2),
             (PDF_SEARCH, 1),
             (SCAN_CLEANUP, 10),
         ];
@@ -258,6 +258,11 @@ mod tests {
             assert_eq!(descriptor.protocol_version, protocol_version);
             let expected_protocol_output = if descriptor == SCAN_CLEANUP {
                 Some("{\"protocolVersion\":10,\"capabilities\":[\"manifest-v3\",\"structured-warning-events\"]}\n".to_string())
+            } else if descriptor == PDF_PAGE_OPS {
+                Some(
+                    "{\"protocolVersion\":2,\"capabilities\":[\"incremental-page-rotation\"]}\n"
+                        .to_string(),
+                )
             } else {
                 Some(format!("{protocol_version}\n"))
             };

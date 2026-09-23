@@ -64,10 +64,20 @@ export const usePdfViewerReloadTransition = (
         options.emitEffectiveZoom(value);
     }
 
+    function commitEffectiveZoom(value: number) {
+        if (!Number.isFinite(value) || value <= 0) {
+            return;
+        }
+
+        pendingEffectiveZoom.value = null;
+        options.emitEffectiveZoom(value);
+    }
+
     return {
         isVisualReloadTransitionActive,
         beginVisualReloadTransition,
         endVisualReloadTransition,
         emitEffectiveZoom,
+        commitEffectiveZoom,
     };
 };

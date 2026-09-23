@@ -668,6 +668,9 @@ export default {
     'notifications': {
         'docxSavedTitle': 'DOCX enregistré',
         'docxSavedDescription': '{name}',
+        'documentBusyTitle': 'Le document est occupé',
+        'closingAfterPageProcessing': 'La fermeture reprendra une fois le traitement des pages terminé.',
+        'switchingAfterPageProcessing': 'Cette action reprendra une fois le traitement des pages terminé.',
     },
     'tabs': {
         'tabListLabel': 'Onglets de documents',

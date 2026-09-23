@@ -19,6 +19,7 @@ import {
     h,
     nextTick,
     ref,
+    shallowRef,
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { cast } from '@tests/helpers/cast';
@@ -66,6 +67,7 @@ const DOCUMENT_FENCE = {
 
 interface IRecordedRender {
     pageNumber: number;
+    documentRevision: string;
     annotationMode: number;
     hasOperationsFilter: boolean;
     keptAnnotationIds: string[];
@@ -93,7 +95,7 @@ function createOperatorList(pageNumber: number) {
     };
 }
 
-function createPdfPage(pageNumber: number) {
+function createPdfPage(pageNumber: number, documentRevision = 'unversioned') {
     return cast<IPdfPage>({
         pageNumber,
         getViewport: ({scale = 1}: {scale?: number} = {}) => ({
@@ -122,6 +124,7 @@ function createPdfPage(pageNumber: number) {
                 }
                 renders.push({
                     pageNumber,
+                    documentRevision,
                     annotationMode: Number(options.annotationMode),
                     hasOperationsFilter: Boolean(operationsFilter),
                     keptAnnotationIds,
@@ -187,21 +190,34 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
     ]));
     const container = document.createElement('div');
     document.body.append(container);
-    const scheduler = createPdfPageRasterScheduler({
-        documentFence: DOCUMENT_FENCE,
+    const createScheduler = (
+        documentRevision: string | null,
+        documentVersion: number,
+    ) => createPdfPageRasterScheduler({
+        documentFence: {
+            ...DOCUMENT_FENCE,
+            documentRevision,
+            documentVersion,
+            loadToken: documentVersion,
+        },
         leasePage: async (pageNumber: number) => ({
-            page: createPdfPage(pageNumber),
+            page: createPdfPage(pageNumber, documentRevision ?? 'unversioned'),
             release: () => {},
         }),
         maxConcurrency: MOUNTED_PAGES.length,
     });
+    const pdfDocument = shallowRef(cast<IPdfDocument>({numPages: TOTAL_PAGES}));
+    const rasterScheduler = shallowRef(createScheduler(null, 1));
+    const schedulers = [rasterScheduler.value];
+    let scheduleVisibleThumbnailRender: (() => void) | null = null;
     const invalidationRequest = ref<{
         id: number;
         pages: number[];
+        expectedDocumentRevision?: string;
     } | null>(null);
 
     const host = defineComponent({setup() {
-        usePdfThumbnailRenderRuntime({
+        const runtime = usePdfThumbnailRenderRuntime({
             dom: {
                 getCanvas: page => canvases.get(page) ?? null,
                 resolveVisibleContainer: () => container,
@@ -228,8 +244,8 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
                 currentPage: computed(() => 1),
                 invalidationRequest: computed(() => invalidationRequest.value),
                 isActive: computed(() => true),
-                pdfDocument: computed(() => cast<IPdfDocument>({numPages: TOTAL_PAGES})),
-                rasterScheduler: computed(() => scheduler),
+                pdfDocument: computed(() => pdfDocument.value),
+                rasterScheduler: computed(() => rasterScheduler.value),
                 totalPages: computed(() => TOTAL_PAGES),
             },
             visuals: {
@@ -238,6 +254,7 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
                 hiddenAnnotationIds: computed(() => []),
             },
         });
+        scheduleVisibleThumbnailRender = runtime.scheduleVisibleThumbnailRender;
         return () => h('div');
     }});
 
@@ -246,9 +263,17 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
     return {
         canvases,
         invalidationRequest,
+        refresh: () => scheduleVisibleThumbnailRender?.(),
+        setDocumentRevision: (revision: string) => {
+            const nextVersion = schedulers.length + 1;
+            const nextScheduler = createScheduler(revision, nextVersion);
+            schedulers.push(nextScheduler);
+            pdfDocument.value = cast<IPdfDocument>({numPages: TOTAL_PAGES});
+            rasterScheduler.value = nextScheduler;
+        },
         unmount: async () => {
             app.unmount();
-            await scheduler.dispose();
+            await Promise.all(schedulers.map(scheduler => scheduler.dispose()));
             container.remove();
         },
     };
@@ -379,6 +404,62 @@ describe('thumbnail annotation suppression', () => {
             await settleRenders();
             expect(replacementRenderSettled).toBe(true);
             expect(canvas?.dataset.thumbnailRendered).toBe('true');
+            expect(canvas?.width).toBeGreaterThan(0);
+        } finally {
+            finishReplacementRender();
+            await unmount();
+        }
+    });
+
+    it('keeps a page-op thumbnail until the matching document revision is ready', async () => {
+        const annotationComments = ref<IAnnotationCommentSummary[]>([]);
+        const {
+            canvases,
+            invalidationRequest,
+            refresh,
+            setDocumentRevision,
+            unmount,
+        } = mountThumbnailRuntime(annotationComments);
+
+        let finishReplacementRender = () => {};
+        const replacementRender = new Promise<void>((resolve) => {
+            finishReplacementRender = resolve;
+        });
+        try {
+            await settleRenders();
+            const canvas = canvases.get(1);
+            expect(canvas?.dataset.thumbnailRendered).toBe('true');
+            expect(canvas?.width).toBeGreaterThan(0);
+            renders.length = 0;
+
+            invalidationRequest.value = {
+                id: 1,
+                pages: [1],
+                expectedDocumentRevision: 'revision-2',
+            };
+            await nextTick();
+            await settleRenders();
+
+            expect(renders).toEqual([]);
+            expect(canvas?.dataset.thumbnailPreservedBitmap).toBe('true');
+            expect(canvas?.width).toBeGreaterThan(0);
+
+            renderCompletion = () => replacementRender;
+            setDocumentRevision('revision-2');
+            await nextTick();
+            refresh();
+            await vi.advanceTimersByTimeAsync(20);
+
+            expect(renders.map(render => render.pageNumber)).toEqual([1]);
+            expect(renders.every(render => render.documentRevision === 'revision-2')).toBe(true);
+            expect(canvas?.width).toBeGreaterThan(0);
+            expect(canvas?.dataset.thumbnailPreservedBitmap).toBe('true');
+
+            finishReplacementRender();
+            await settleRenders();
+
+            expect(canvas?.dataset.thumbnailRendered).toBe('true');
+            expect(canvas?.dataset.thumbnailPreservedBitmap).toBeUndefined();
             expect(canvas?.width).toBeGreaterThan(0);
         } finally {
             finishReplacementRender();

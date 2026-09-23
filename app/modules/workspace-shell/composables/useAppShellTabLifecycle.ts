@@ -5,7 +5,10 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import {
+    waitForVisualFrames,
+    waitUntilIdle,
+} from '@app/utils/asyncHelpers';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -93,7 +96,6 @@ export const useAppShellTabLifecycle = (
         documentSessionsByTabId,
         getDocumentRecord,
         workspaceSplitCache,
-        workspaceRestoreTracker,
         getPaneById,
         getTabById,
         getPaneByTabId,
@@ -106,7 +108,10 @@ export const useAppShellTabLifecycle = (
 
     const { reportRuntimeError } = useRuntimeErrorReports();
     const { t } = useTypedI18n();
+    const toast = useToast();
     const activeTabTransitions: Ref<number> = ref(0);
+    const pendingCloseTransitions = new Map<string, Promise<unknown>>();
+    const busyFeedbackToastIds = new Map<string, string | number>();
     let tabTransitionQueue: Promise<void> = Promise.resolve();
 
     const isTabTransitionBusy: ComputedRef<boolean> = computed(() => activeTabTransitions.value > 0);
@@ -213,6 +218,52 @@ export const useAppShellTabLifecycle = (
 
     function getDocumentSession(tabId: string | null | undefined) {
         return tabId ? documentSessionsByTabId.value[tabId] ?? null : null;
+    }
+
+    function hasTabBusyOperation(tabId: string) {
+        const sessionBusy = getDocumentSession(tabId)?.operationLease.isBusy.value === true;
+        const toolbarSnapshot = workspaceRefs.value.get(tabId)?.getToolbarSnapshot();
+        return sessionBusy || Boolean(toolbarSnapshot && (
+            toolbarSnapshot.isAnySaving
+            || toolbarSnapshot.isHistoryBusy
+            || toolbarSnapshot.isExportingDocx
+            || toolbarSnapshot.isPageOperationInProgress === true
+        ));
+    }
+
+    function notifyTabBusy(tabId: string) {
+        if (busyFeedbackToastIds.has(tabId)) {
+            return;
+        }
+
+        const busyToast = toast.add({
+            color: 'info',
+            title: t('notifications.documentBusyTitle'),
+            description: t('notifications.closingAfterPageProcessing'),
+        });
+        busyFeedbackToastIds.set(tabId, busyToast.id);
+    }
+
+    function clearTabBusyFeedback(tabId: string) {
+        const toastId = busyFeedbackToastIds.get(tabId);
+        if (toastId === undefined) {
+            return;
+        }
+
+        toast.remove(toastId);
+        busyFeedbackToastIds.delete(tabId);
+    }
+
+    async function waitForTabOperationsToSettle(tabId: string) {
+        if (hasTabBusyOperation(tabId)) {
+            notifyTabBusy(tabId);
+        }
+
+        try {
+            return await waitUntilIdle(() => hasTabBusyOperation(tabId));
+        } finally {
+            clearTabBusyFeedback(tabId);
+        }
     }
 
     function recordHasCloseableDocument(tabId: string | null | undefined) {
@@ -440,9 +491,13 @@ export const useAppShellTabLifecycle = (
     }
 
     async function resolveClosePersistence(tabId: string, tab: ITab) {
-        const isDirty = getDocumentSession(tabId)?.snapshot.value.dirty ?? tab.isDirty;
+        await waitForTabOperationsToSettle(tabId);
+
+        const session = getDocumentSession(tabId);
+        const record = getDocumentRecord(tabId);
+        const isDirty = session ? session.snapshot.value.dirty : record?.tab.isDirty ?? tab.isDirty;
         if (!isDirty) {
-            return true;
+            return false;
         }
 
         const decision = await requestDirtyTabCloseConfirmation(tabId);
@@ -481,17 +536,11 @@ export const useAppShellTabLifecycle = (
         if (!controller && !workspace) {
             return;
         }
-        workspaceRestoreTracker.start(tabId);
-        let closed = false;
-        try {
-            closed = controller
-                ? await controller.close({persist: shouldPersistBeforeClose})
-                : workspace
-                    ? await workspace.handleCloseFileFromUi({persist: shouldPersistBeforeClose})
-                    : false;
-        } finally {
-            workspaceRestoreTracker.finish(tabId);
-        }
+        const closed = controller
+            ? await controller.close({persist: shouldPersistBeforeClose})
+            : workspace
+                ? await workspace.handleCloseFileFromUi({persist: shouldPersistBeforeClose})
+                : false;
 
         // `closed` is the close call's own verdict and the only untainted one:
         // the toolbar snapshot still advertises a viewer adapter here, because
@@ -554,18 +603,39 @@ export const useAppShellTabLifecycle = (
     }
 
     async function handleCloseTab(paneId: string, tabId: string) {
+        const pending = pendingCloseTransitions.get(tabId);
+        if (pending) {
+            await pending;
+            return;
+        }
+
         if (isSingletonPlaceholderCloseBlocked(paneId, tabId)) {
             return;
         }
 
-        await enqueueTabTransition(
-            () => closeTabDuringTransition(paneId, tabId),
-            {
-                action: 'close-tab',
-                paneId,
-                tabId,
-            },
-        );
+        if (hasTabBusyOperation(tabId)) {
+            notifyTabBusy(tabId);
+        }
+
+        const transition = (async () => {
+            await waitForTabOperationsToSettle(tabId);
+            await enqueueTabTransition(
+                () => closeTabDuringTransition(paneId, tabId),
+                {
+                    action: 'close-tab',
+                    paneId,
+                    tabId,
+                },
+            );
+        })();
+        pendingCloseTransitions.set(tabId, transition);
+        try {
+            await transition;
+        } finally {
+            if (pendingCloseTransitions.get(tabId) === transition) {
+                pendingCloseTransitions.delete(tabId);
+            }
+        }
     }
 
     return {

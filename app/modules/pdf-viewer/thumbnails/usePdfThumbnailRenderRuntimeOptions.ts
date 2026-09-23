@@ -14,6 +14,7 @@ interface IPdfThumbnailRenderRuntimeSource {
     invalidationRequest: ComputedRef<{
         id: number;
         pages: number[];
+        expectedDocumentRevision?: string;
     } | null | undefined>;
     isActive: ComputedRef<boolean>;
     pdfDocument: ComputedRef<IPdfDocument | null>;

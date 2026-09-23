@@ -1,4 +1,5 @@
 import {
+    appendFile,
     mkdir,
     mkdtemp,
     readFile,
@@ -74,6 +75,30 @@ describe('workingCopyContentTransitionJournal', () => {
         await expect(recoverWorkingCopyContentTransition(path)).resolves.toBe(true);
         await expect(readFile(path, 'utf8')).resolves.toBe('revision-n');
         await expect(recoverWorkingCopyContentTransition(path)).resolves.toBe(false);
+    });
+
+    it('truncates an append-only hard-link backup during crash recovery', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        await writeFile(path, 'revision-n');
+
+        await prepareWorkingCopyContentTransition(
+            path,
+            requireDocumentRevisionToken('revision-n-plus-one'),
+            undefined,
+            'append',
+        );
+        const journal = JSON.parse(await readFile(`${path}.evb-content-transition.json`, 'utf8')) as {
+            backupMode?: string;
+            previousLength?: number;
+        };
+        expect(journal.backupMode).toBe('append-hard-link');
+        expect(journal.previousLength).toBe(Buffer.byteLength('revision-n'));
+
+        await appendFile(path, '-plus-one');
+        await expect(readFile(path, 'utf8')).resolves.toBe('revision-n-plus-one');
+        await expect(recoverWorkingCopyContentTransition(path)).resolves.toBe(true);
+        await expect(readFile(path, 'utf8')).resolves.toBe('revision-n');
     });
 
     it('fails closed when the transition journal cannot be read', async () => {

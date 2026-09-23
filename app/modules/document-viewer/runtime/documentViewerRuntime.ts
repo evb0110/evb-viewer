@@ -240,6 +240,12 @@ export function createDocumentViewerRuntime(
         viewportStyle,
         viewportFlingBackdrop,
         bindSource(nextSource) {
+            if (nextSource === null && openSurface.snapshot.value.revisionSwapPending) {
+                // The PDF.js proxy is being replaced for an in-place page
+                // mutation. Keep the mounted page/thumbnail structure tied to
+                // the committed surface until the replacement source arrives.
+                return;
+            }
             if (nextSource && nextSource.kind !== sourceKind.value) {
                 throw new TypeError(`Cannot bind ${nextSource.kind} source to ${sourceKind.value} chassis`);
             }

@@ -79,7 +79,10 @@ describe('PdfEmptyState recent-file order', () => {
         }));
         app.component('UInput', defineComponent({setup: () => () => h('input')}));
         app.component('UAlert', defineComponent({setup: () => () => h('div')}));
-        app.component('AppTooltip', defineComponent({setup: (_, {slots}) => () => h('span', slots.default?.())}));
+        app.component('AppTooltip', defineComponent({
+            props: {text: String},
+            setup: (props, {slots}) => () => h('span', {'data-tooltip-text': props.text}, slots.default?.()),
+        }));
         app.component('UModal', defineComponent({setup: () => () => null}));
 
         app.mount(host);
@@ -99,6 +102,54 @@ describe('PdfEmptyState recent-file order', () => {
         expect(getRecentOrder(host)).toEqual([
             second.originalPath,
             first.originalPath,
+        ]);
+
+        app.unmount();
+    });
+
+    it('keeps distinguishing filename tails visible and exposes each full name in its tooltip', async () => {
+        const standard = createRecentFile(
+            'browser://documents/W4 archive of documents 2026 final edition 1980.pdf',
+            2,
+        );
+        const optimized = createRecentFile(
+            'browser://documents/W4 archive of documents 2026 final edition 1980-optimized.pdf',
+            1,
+        );
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup: () => () => h(PdfEmptyState, {
+            recentFiles: [
+                standard,
+                optimized,
+            ],
+            recentFilesResolved: true,
+            openInProgress: false,
+        })}));
+        app.component('UIcon', defineComponent({setup: () => () => h('span')}));
+        app.component('UButton', defineComponent({
+            props: {label: String},
+            setup: props => () => h('button', props.label),
+        }));
+        app.component('UInput', defineComponent({setup: () => () => h('input')}));
+        app.component('AppTooltip', defineComponent({
+            props: {text: String},
+            setup: (props, {slots}) => () => h('span', {'data-tooltip-text': props.text}, slots.default?.()),
+        }));
+        app.component('UModal', defineComponent({setup: () => () => null}));
+
+        app.mount(host);
+        await nextTick();
+
+        const names = Array.from(host.querySelectorAll<HTMLElement>('.recent-file-name'));
+        expect(names).toHaveLength(2);
+        expect(names.map(name => name.closest('[data-tooltip-text]')?.getAttribute('data-tooltip-text'))).toEqual([
+            standard.fileName,
+            optimized.fileName,
+        ]);
+        expect(names.map(name => name.querySelector('.recent-file-name-suffix')?.textContent)).toEqual([
+            expect.stringContaining('1980.pdf'),
+            expect.stringContaining('1980-optimized.pdf'),
         ]);
 
         app.unmount();

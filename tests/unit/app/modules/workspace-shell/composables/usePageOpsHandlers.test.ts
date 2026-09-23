@@ -123,6 +123,29 @@ beforeEach(() => {
 });
 
 describe('usePageOpsHandlers crop reload strategy', () => {
+    it('publishes an operation kind and page count while the operation runs', async () => {
+        let resolveRotate: ((value: boolean) => void) | undefined;
+        operationMocks.rotatePages.mockReturnValueOnce(new Promise<boolean>((resolve) => {
+            resolveRotate = resolve;
+        }));
+        const { handlers } = createHarness({totalPages: 10});
+
+        const operation = handlers.handlePageRotate([
+            2,
+            3,
+        ], 90);
+
+        expect(handlers.pageOperationPresentation.value).toEqual({
+            kind: 'rotate',
+            pageCount: 2,
+            direction: 'cw',
+            rotationDelta: 90,
+        });
+        resolveRotate?.(true);
+        await expect(operation).resolves.toBe(true);
+        expect(handlers.pageOperationPresentation.value).toBeNull();
+    });
+
     it('waits for document reload after rotation instead of selectively invalidating stale thumbnails', async () => {
         const {
             handlers,

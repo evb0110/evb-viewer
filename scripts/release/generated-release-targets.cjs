@@ -271,8 +271,10 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": null,
-            "protocolVersion": 1,
+            "protocolCapabilities": [
+                "incremental-page-rotation"
+            ],
+            "protocolVersion": 2,
             "sourceRootSegments": [
                 ".tmp",
                 "pdf-page-ops"

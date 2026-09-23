@@ -13,6 +13,8 @@ import { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/p
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import type { IPageOpsResult } from '@contracts/electronApiPageOps';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import {createRangePageSelection} from '@contracts/pageNumbers';
 import {
@@ -100,6 +102,11 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
     pageLabelRanges?: IPdfPageLabelRange[];
     pageLabelsResolved?: boolean;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
+    preparePageMutationRevisionSwap?: (input: {
+        path: TDocumentRef;
+        result: IPageOpsResult;
+        invalidatedPages: number[];
+    }) => void | Promise<void>;
 } = {}) {
     const workingCopyPath = ref(path === null ? null : requireDocumentRef(path));
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(options.documentRevisionToken ?? null);
@@ -123,6 +130,9 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
         onExtractedDocument,
         ...(options.ensureWorkingCopyFreshForRead ? { ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead } : {}),
         ...(options.runWithDocumentOperationLease ? { runWithDocumentOperationLease: options.runWithDocumentOperationLease } : {}),
+        ...(options.preparePageMutationRevisionSwap
+            ? {preparePageMutationRevisionSwap: options.preparePageMutationRevisionSwap}
+            : {}),
         ...(options.pageLabels !== undefined ? {pageLabels: ref(options.pageLabels)} : {}),
         ...(options.pageLabelRanges !== undefined ? {pageLabelRanges: ref(options.pageLabelRanges)} : {}),
         ...(options.pageLabelsResolved !== undefined ? {pageLabelsResolved: ref(options.pageLabelsResolved)} : {}),
@@ -159,6 +169,48 @@ beforeEach(() => {
 });
 
 describe('usePageOperations', () => {
+    it('falls back to the selected range when the mutation result omits its identity delta', async () => {
+        const revisionToken = requireDocumentRevisionToken('drt1:after-rotate');
+        const order: string[] = [];
+        pageOpsApi.rotate.mockResolvedValueOnce({
+            success: true,
+            documentRevision: {
+                version: 1,
+                documentRef: requireDocumentRef('/tmp/work.pdf'),
+                token: revisionToken,
+                authority: 'electron-working-copy',
+                contentRevision: 2,
+                mintedAt: 2,
+            },
+        });
+        const {
+            pageOps,
+            documentRevisionToken: currentRevision,
+            reloadWorkingCopyIntoHistory,
+        } = createHarness('/tmp/work.pdf', {
+            documentRevisionToken: requireDocumentRevisionToken('drt1:before-rotate'),
+            preparePageMutationRevisionSwap: ({
+                result, invalidatedPages,
+            }) => {
+                order.push('stage');
+                expect(result.documentRevision?.token).toBe(revisionToken);
+                expect(invalidatedPages).toEqual([3]);
+            },
+        });
+        reloadWorkingCopyIntoHistory.mockImplementation(async () => {
+            order.push('reload');
+            return true;
+        });
+
+        await expect(pageOps.rotatePages(createRangePageSelection(5, 3, 3), 5, 90)).resolves.toBe(true);
+
+        expect(currentRevision.value).toBe(revisionToken);
+        expect(order).toEqual([
+            'stage',
+            'reload',
+        ]);
+    });
+
     it('omits unresolved page labels from mutation metadata', async () => {
         pageOpsApi.rotate.mockResolvedValueOnce({success: true});
         const {pageOps} = createHarness('/tmp/work.pdf', {

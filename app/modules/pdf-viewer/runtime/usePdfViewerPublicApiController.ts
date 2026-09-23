@@ -68,6 +68,9 @@ interface IUsePdfViewerPublicApiControllerOptions {
     clearPendingImagePlacement: IPdfViewerExpose['clearPendingImagePlacement'];
     restorePendingImagePlacement: IPdfViewerExpose['restorePendingImagePlacement'];
     invalidatePages: IPdfViewerExpose['invalidatePages'];
+    preparePageMutationRevisionSwap?: IPdfViewerExpose['preparePageMutationRevisionSwap'];
+    beginPageRotationPreview?: IPdfViewerExpose['beginPageRotationPreview'];
+    cancelPageRotationPreview?: IPdfViewerExpose['cancelPageRotationPreview'];
     captureRegionToClipboard: IPdfViewerExpose['captureRegionToClipboard'];
     isCapturingRegion: TPdfViewerPublicApiSource['isCapturingRegion'];
     startCropSelection: IPdfViewerExpose['startCropSelection'];
@@ -419,6 +422,15 @@ export const usePdfViewerPublicApiController = (
         clearPendingImagePlacement: options.clearPendingImagePlacement,
         restorePendingImagePlacement: options.restorePendingImagePlacement,
         invalidatePages: options.invalidatePages,
+        ...(options.preparePageMutationRevisionSwap
+            ? {preparePageMutationRevisionSwap: options.preparePageMutationRevisionSwap}
+            : {}),
+        ...(options.beginPageRotationPreview
+            ? {beginPageRotationPreview: options.beginPageRotationPreview}
+            : {}),
+        ...(options.cancelPageRotationPreview
+            ? {cancelPageRotationPreview: options.cancelPageRotationPreview}
+            : {}),
         remapPageIdentityDelta: delta => annotationRuntime.annotationApplication.value.remapPages(delta),
         removeAnnotationFromDom: annotationRuntime.removeAnnotationFromDom,
         removeAnnotationFromInternalCache: stableKey => annotationMutationService.removeAnnotationFromInternalCache(

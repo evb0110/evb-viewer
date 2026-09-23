@@ -38,9 +38,23 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 
-const asyncHelpersMock = vi.hoisted(() => ({waitForVisualFrames: vi.fn(async () => {})}));
+const asyncHelpersMock = vi.hoisted(() => ({
+    waitForVisualFrames: vi.fn(async () => {}),
+    waitUntilIdle: vi.fn(async (isBusy: () => boolean) => {
+        while (isBusy()) {
+            await new Promise<void>(resolve => setTimeout(resolve, 0));
+        }
+        return true;
+    }),
+}));
 vi.mock('@app/utils/asyncHelpers', () => asyncHelpersMock);
 
+const toastAdd = vi.hoisted(() => vi.fn(() => ({id: 'busy-toast'})));
+const toastRemove = vi.hoisted(() => vi.fn());
+vi.stubGlobal('useToast', () => ({
+    add: toastAdd,
+    remove: toastRemove,
+}));
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 
 function createDocumentRevision(
@@ -123,6 +137,157 @@ function createReadyRecord(
 }
 
 describe('useAppShellTabLifecycle', () => {
+    it('waits for page work before deciding, deduplicates close clicks, and discards only after settlement', async () => {
+        toastAdd.mockClear();
+        toastRemove.mockClear();
+        const pane = createPane('pane-1', 'tab-1', ['tab-1']);
+        const tabs = ref<ITab[]>([createTab('tab-1', 'sample.pdf', '/tmp/sample.pdf')]);
+        const cleanRecord = createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: false});
+        const dirtyRecord = createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: true});
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            initialRecord: cleanRecord,
+        });
+        const releaseMutation = Promise.withResolvers<undefined>();
+        const mutationStarted = Promise.withResolvers<undefined>();
+        const mutation = session.operationLease.runExclusive('page-operation', async () => {
+            mutationStarted.resolve(undefined);
+            await releaseMutation.promise;
+            session.applyWorkspaceRecord(dirtyRecord, 'workspace');
+        });
+        await mutationStarted.promise;
+
+        const workspace = createWorkspaceExposeFixture({
+            hasPdf: true,
+            getToolbarSnapshot: vi.fn(() => session.snapshot.value.toolbarSnapshot),
+            handleCloseFileFromUi: vi.fn(async (options?: {persist?: boolean}) => {
+                expect(options?.persist).toBe(false);
+                return true;
+            }),
+        });
+        session.attachWorkspace(workspace);
+        const requestDirtyTabCloseConfirmation = vi.fn(async () => {
+            expect(toastRemove).toHaveBeenCalledWith('busy-toast');
+            return 'discard' as const;
+        });
+        const restoreTracker = {
+            start: vi.fn(),
+            finish: vi.fn(),
+            has: vi.fn(() => false),
+        };
+        const lifecycle = useAppShellTabLifecycle({
+            panes: ref([pane]),
+            tabs,
+            activePaneId: ref('pane-1'),
+            activeTabId: ref<string | null>('tab-1'),
+            workspaceRefs: ref(new Map([[
+                'tab-1',
+                workspace,
+            ]])),
+            documentSessionsByTabId: shallowRef({'tab-1': session}),
+            getDocumentRecord: vi.fn(() => session.toWorkspaceRecord()),
+            workspaceSplitCache: {
+                set: vi.fn(),
+                peek: vi.fn(),
+                consume: vi.fn(),
+                has: vi.fn(() => false),
+                clear: vi.fn(),
+            },
+            workspaceRestoreTracker: restoreTracker,
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? pane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => tabs.value.find(candidate => candidate.id === tabId) ?? null),
+            getPaneByTabId: vi.fn((tabId: string | null | undefined) => tabId === 'tab-1' ? pane : null),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            closeTab: vi.fn(),
+            closePane: vi.fn(),
+            requestDirtyTabCloseConfirmation,
+        });
+
+        const firstClose = lifecycle.handleCloseTab('pane-1', 'tab-1');
+        const repeatedClose = lifecycle.handleCloseTab('pane-1', 'tab-1');
+        await Promise.resolve();
+
+        expect(requestDirtyTabCloseConfirmation).not.toHaveBeenCalled();
+        expect(workspace.handleCloseFileFromUi).not.toHaveBeenCalled();
+        expect(lifecycle.isTabTransitionBusy.value).toBe(false);
+        expect(tabs.value[0]?.fileName).toBe('sample.pdf');
+        expect(toastAdd).toHaveBeenCalledOnce();
+        expect(toastRemove).not.toHaveBeenCalled();
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'info',
+            description: 'notifications.closingAfterPageProcessing',
+        }));
+
+        releaseMutation.resolve(undefined);
+        await Promise.all([
+            mutation,
+            firstClose,
+            repeatedClose,
+        ]);
+
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledOnce();
+        expect(toastRemove).toHaveBeenCalledOnce();
+        expect(workspace.handleCloseFileFromUi).toHaveBeenCalledOnce();
+        expect(restoreTracker.start).not.toHaveBeenCalled();
+        expect(restoreTracker.finish).not.toHaveBeenCalled();
+        expect(tabs.value[0]).toMatchObject({
+            fileName: null,
+            isDirty: false,
+        });
+    });
+
+    it('closes a clean idle document immediately without asking or persisting', async () => {
+        const pane = createPane('pane-1', 'tab-1', ['tab-1']);
+        const tabs = ref<ITab[]>([createTab('tab-1', 'sample.pdf', '/tmp/sample.pdf')]);
+        const workspace = createWorkspaceExposeFixture({
+            hasPdf: true,
+            getToolbarSnapshot: vi.fn(() => createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: false}).toolbarSnapshot),
+            handleCloseFileFromUi: vi.fn(async (options?: {persist?: boolean}) => {
+                expect(options?.persist).toBe(false);
+                return true;
+            }),
+        });
+        const requestDirtyTabCloseConfirmation = vi.fn(async () => 'save' as const);
+        const lifecycle = useAppShellTabLifecycle({
+            panes: ref([pane]),
+            tabs,
+            activePaneId: ref('pane-1'),
+            activeTabId: ref<string | null>('tab-1'),
+            workspaceRefs: ref(new Map([[
+                'tab-1',
+                workspace,
+            ]])),
+            documentSessionsByTabId: shallowRef({}),
+            getDocumentRecord: vi.fn(() => createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: false})),
+            workspaceSplitCache: {
+                set: vi.fn(),
+                peek: vi.fn(),
+                consume: vi.fn(),
+                has: vi.fn(() => false),
+                clear: vi.fn(),
+            },
+            workspaceRestoreTracker: {
+                start: vi.fn(),
+                finish: vi.fn(),
+                has: vi.fn(() => false),
+            },
+            getPaneById: vi.fn((paneId: string | null | undefined) => paneId === 'pane-1' ? pane : null),
+            getTabById: vi.fn((tabId: string | null | undefined) => tabs.value.find(candidate => candidate.id === tabId) ?? null),
+            getPaneByTabId: vi.fn((tabId: string | null | undefined) => tabId === 'tab-1' ? pane : null),
+            activatePane: vi.fn(),
+            activateTab: vi.fn(),
+            closeTab: vi.fn(),
+            closePane: vi.fn(),
+            requestDirtyTabCloseConfirmation,
+        });
+
+        await lifecycle.handleCloseTab('pane-1', 'tab-1');
+
+        expect(requestDirtyTabCloseConfirmation).not.toHaveBeenCalled();
+        expect(workspace.handleCloseFileFromUi).toHaveBeenCalledOnce();
+    });
+
     it('keeps split close and retained-pane handoff inside the tab transition', async () => {
         asyncHelpersMock.waitForVisualFrames.mockClear();
         const panes = ref<IEditorPaneState[]>([
@@ -607,8 +772,8 @@ describe('useAppShellTabLifecycle', () => {
             isDirty: false,
             isDjvu: false,
         });
-        expect(workspaceRestoreTracker.start).toHaveBeenCalledWith('tab-1');
-        expect(workspaceRestoreTracker.finish).toHaveBeenCalledWith('tab-1');
+        expect(workspaceRestoreTracker.start).not.toHaveBeenCalled();
+        expect(workspaceRestoreTracker.finish).not.toHaveBeenCalled();
         expect(workspaceSplitCache.clear).toHaveBeenCalledWith('tab-1');
     });
 });

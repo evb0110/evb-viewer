@@ -12,10 +12,20 @@ fn full_postcondition_audit_requested() -> bool {
     )
 }
 
+#[cfg(test)]
 pub(crate) fn validate_appended_revision_postconditions(
     document: &impl PdfObjectSource,
     mutations: &NativeMutationsFile,
     modified_at: &str,
+) -> Result<()> {
+    validate_appended_revision_postconditions_with_page_ids(document, mutations, modified_at, None)
+}
+
+pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
+    document: &impl PdfObjectSource,
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+    page_ids_by_number: Option<&[ObjectId]>,
 ) -> Result<()> {
     validate_note_text_document_postconditions(document, &mutations.updates, modified_at)?;
     validate_note_geometry_document_postconditions(
@@ -32,6 +42,11 @@ pub(crate) fn validate_appended_revision_postconditions(
     )?;
     validate_text_box_document_postconditions(document, &mutations.text_boxes, modified_at)?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
+    validate_page_rotation_document_postconditions(
+        document,
+        &mutations.page_rotations,
+        page_ids_by_number,
+    )?;
     if let Some(page_labels) = &mutations.page_labels {
         if mutations.continuation.as_ref().is_some_and(|continuation| {
             continuation.family == NativeMutationContinuationFamily::PageLabels
@@ -71,6 +86,47 @@ pub(crate) fn validate_appended_revision_postconditions(
         &mutations.placed_image_geometry_updates,
         modified_at,
     )
+}
+
+fn validate_page_rotation_document_postconditions(
+    document: &impl PdfObjectSource,
+    rotations: &[PageRotationMutation],
+    page_ids_by_number: Option<&[ObjectId]>,
+) -> Result<()> {
+    if rotations.is_empty() {
+        return Ok(());
+    }
+    let pages = page_ids_by_number
+        .is_none()
+        .then(|| PageTreeResolver::new(document))
+        .transpose()?;
+    for rotation in rotations {
+        let page_number = rotation
+            .page_index
+            .checked_add(1)
+            .ok_or("Page rotation index is outside the supported range")?;
+        let page_id = if let Some(page_ids) = page_ids_by_number {
+            page_ids
+                .get(rotation.page_index as usize)
+                .copied()
+                .ok_or("Page rotation index is outside the supported range")?
+        } else {
+            pages
+                .as_ref()
+                .ok_or("Page-tree resolver was not initialized")?
+                .page_id(document, page_number)?
+        };
+        let direct_rotation = document.dictionary(page_id)?.get(b"Rotate")?.as_i64()?;
+        let normalized_direct_rotation = normalize_page_rotation(direct_rotation);
+        if direct_rotation != normalized_direct_rotation
+            || resolve_page_rotation(document, page_id)? != normalized_direct_rotation
+        {
+            return Err(
+                format!("Page rotation postcondition failed for page {page_number}").into(),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Compare a rewritten annotation with its source while ignoring keys owned

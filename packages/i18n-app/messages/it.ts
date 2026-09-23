@@ -668,6 +668,9 @@ export default {
     'notifications': {
         'docxSavedTitle': 'DOCX salvato',
         'docxSavedDescription': '{name}',
+        'documentBusyTitle': 'Il documento è occupato',
+        'closingAfterPageProcessing': 'La chiusura riprenderà al termine dell’elaborazione delle pagine.',
+        'switchingAfterPageProcessing': 'Questa azione riprenderà al termine dell’elaborazione delle pagine.',
     },
     'tabs': {
         'tabListLabel': 'Schede dei documenti',

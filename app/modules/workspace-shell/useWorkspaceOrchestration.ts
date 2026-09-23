@@ -67,6 +67,7 @@ import {
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IPdfOpeningPreviewLayoutPolicy } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope: IAnalyticsDocumentScope;
@@ -248,6 +249,32 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
     const documentOperationLease = deps.documentSession.operationLease;
+    const toast = useToast();
+    let operationQueueFeedbackShown = false;
+    async function runWithDocumentOperationLease<T>(
+        kind: TDocumentOperationKind,
+        operation: () => Promise<T>,
+    ) {
+        if (
+            documentOperationLease.activeKind.value === 'page-operation'
+            && !operationQueueFeedbackShown
+        ) {
+            operationQueueFeedbackShown = true;
+            toast.add({
+                color: 'info',
+                title: t('notifications.documentBusyTitle'),
+                description: t('notifications.switchingAfterPageProcessing'),
+            });
+        }
+
+        try {
+            return await documentOperationLease.runExclusive(kind, operation);
+        } finally {
+            if (!documentOperationLease.isBusy.value) {
+                operationQueueFeedbackShown = false;
+            }
+        }
+    }
     const metadataSession = useMetadataSession({
         pdfDocument,
         totalPages,
@@ -320,7 +347,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     async function handleExportDocx(selectedLanguages?: string[]) {
         if (isExportingDocx.value) { cancelDocxExport(); return; }
         const cancellationVersion = docxExportCancellationVersion;
-        const exported = await documentOperationLease.runExclusive('docx-export', () => exportDocx({
+        const exported = await runWithDocumentOperationLease('docx-export', () => exportDocx({
             workingCopyPath: workingCopyPath.value,
             documentRevisionToken: documentRevisionToken.value,
             pdfDocument: pdfDocument.value,
@@ -490,7 +517,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         currentPage,
         resetSearchCache,
-        runWithDocumentOperationLease: documentOperationLease.runExclusive,
+        runWithDocumentOperationLease,
     });
     const {
         handleSave: pageSaveHandleSave,
@@ -578,7 +605,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         documentRevisionToken,
         totalPages,
         ensureWorkingCopyFreshForRead,
-        runWithDocumentOperationLease: documentOperationLease.runExclusive,
+        runWithDocumentOperationLease,
     });
     const { handleExportImages } = exportControls;
 
@@ -685,7 +712,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     } = annotationActions;
 
     async function handleUndo() {
-        await pdfHistory.handleUndo();
+        await runWithDocumentOperationLease('history', () => pdfHistory.handleUndo());
+    }
+
+    async function handleRedo() {
+        await runWithDocumentOperationLease('history', () => pdfHistory.handleRedo());
     }
 
     function handleAnnotationModifiedWithThumbnailInvalidation(
@@ -696,6 +727,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     }
 
     const documentControls = useWorkspaceDocumentControls({
+        tabId: deps.tabId,
         hasDocument: hasOpenDocument,
         pdfData,
         pdfSrc,
@@ -736,7 +768,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         isDocumentOperationInProgress: documentOperationLease.isBusy,
-        runWithDocumentOperationLease: documentOperationLease.runExclusive,
+        runWithDocumentOperationLease,
         annotationNoteWindows,
         hasPendingUnsavedChanges,
         annotationDirty,
@@ -762,7 +794,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         workingCopyPath,
         originalPath,
         documentRevisionToken,
-        runWithDocumentOperationLease: documentOperationLease.runExclusive,
+        runWithDocumentOperationLease,
     });
 
     async function ensurePrintReady() {
@@ -922,7 +954,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         documentRevisionToken,
         getNativeSaveTransactionOptions,
         preserveInitialStateForFirstSource: deps.preserveInitialStateForFirstSource,
-        runWithDocumentOperationLease: documentOperationLease.runExclusive,
+        runWithDocumentOperationLease,
     });
     const {handleOcrComplete} = useWorkspaceDocumentLifecycleEffects({
         currentPage,
@@ -968,7 +1000,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
         waitForPdfReload,
-        runWithDocumentOperationLease: documentOperationLease.runExclusive,
+        runWithDocumentOperationLease,
     });
     function bindDocumentView(options: IWorkspaceDocumentViewBindingOptions) {
         const hiddenSearchPageMatches = new Map<number, IPdfPageMatches>();
@@ -1194,6 +1226,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             handleGoToPage,
             navigationTicket,
             handleUndo,
+            handleRedo,
         },
         saveWorkflow: {
             ...pageSaveOrchestration,

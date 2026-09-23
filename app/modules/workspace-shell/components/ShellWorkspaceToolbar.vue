@@ -72,7 +72,10 @@ import type { TPdfViewMode } from '@contracts/shared';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
+import {
+    DESKTOP_EDITOR_READER_COMMAND_SURFACE,
+    EMPTY_STATE_READER_COMMAND_SURFACE,
+} from '@app/utils/readerCommandSurface';
 
 const {
     hasPdf,
@@ -95,7 +98,9 @@ const {
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const canUseOcr = computed(() => isDesktopRuntime.value);
-const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
+const toolbarSurface = computed(() => hasPdf
+    ? DESKTOP_EDITOR_READER_COMMAND_SURFACE
+    : EMPTY_STATE_READER_COMMAND_SURFACE);
 const shellDocumentBusy = computed(() => snapshot.isOpeningDocument);
 const shellControlsDisabled = computed(() => !hasPdf || shellDocumentBusy.value || snapshot.totalPages <= 0);
 

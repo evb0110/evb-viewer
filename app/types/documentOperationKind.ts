@@ -4,6 +4,7 @@ export type TDocumentOperationKind =
     | 'repair-save'
     | 'optimize-pdf'
     | 'page-operation'
+    | 'history'
     | 'docx-export'
     | 'print-materialize'
     | 'ocr-apply'

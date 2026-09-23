@@ -73,9 +73,8 @@ export const useDocumentWorkspaceVisualOpeningState = (options: IDocumentWorkspa
             isSaving: options.isAnySaving.value,
             totalPages: options.totalPages.value,
         });
-        if (!options.pageLabelsResolved.value && !options.isAnySaving.value) {
-            return visiblePageLabels;
-        }
+        // The label state resets its model for another document, so a model
+        // of the right size stays valid while a new revision's labels reread.
         const model = options.pageLabelModel?.value;
         return model?.totalPages === options.totalPages.value ? model : visiblePageLabels;
     });

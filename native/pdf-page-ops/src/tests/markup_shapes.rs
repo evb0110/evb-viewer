@@ -25,6 +25,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
             free_text_notes: Vec::new(),
             text_boxes: Vec::new(),
             deletes: Vec::new(),
+            page_rotations: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: None,
@@ -611,6 +612,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
         free_text_notes: Vec::new(),
         text_boxes: Vec::new(),
         deletes: Vec::new(),
+        page_rotations: Vec::new(),
         page_labels: None,
         bookmarks: None,
         shapes: None,
@@ -705,6 +707,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
             free_text_notes: Vec::new(),
             text_boxes: Vec::new(),
             deletes: Vec::new(),
+            page_rotations: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: None,
@@ -1315,6 +1318,7 @@ fn appends_managed_shape_as_incremental_revision() {
             free_text_notes: Vec::new(),
             text_boxes: Vec::new(),
             deletes: Vec::new(),
+            page_rotations: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: Some(ShapesMutation {
@@ -1381,6 +1385,7 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
             free_text_notes: Vec::new(),
             text_boxes: Vec::new(),
             deletes: Vec::new(),
+            page_rotations: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: Some(ShapesMutation {
@@ -1750,6 +1755,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             free_text_notes: Vec::new(),
             text_boxes: Vec::new(),
             deletes: Vec::new(),
+            page_rotations: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: Some(ShapesMutation {
@@ -1784,6 +1790,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             free_text_notes: Vec::new(),
             text_boxes: Vec::new(),
             deletes: Vec::new(),
+            page_rotations: Vec::new(),
             page_labels: None,
             bookmarks: None,
             shapes: Some(ShapesMutation {
@@ -2160,6 +2167,7 @@ fn shapes_mutation(shapes: Vec<ShapeAnnotation>) -> NativeMutationsFile {
         free_text_notes: Vec::new(),
         text_boxes: Vec::new(),
         deletes: Vec::new(),
+        page_rotations: Vec::new(),
         page_labels: None,
         bookmarks: None,
         shapes: Some(ShapesMutation {

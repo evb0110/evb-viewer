@@ -171,6 +171,56 @@ describe('usePageLabelState', () => {
         ]);
     });
 
+    it('keeps labels through a same-shape revision of the working copy and clears them for another document', async () => {
+        const workingCopyPath = ref(requireDocumentRef('/tmp/work.pdf'));
+        const firstDocument = cast<IPdfDocument>({
+            numPages: 2,
+            getPageLabels: vi.fn(async () => [
+                'i',
+                '1',
+            ]),
+        });
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(firstDocument));
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(2),
+            markDirty: vi.fn(),
+            workingCopyPath,
+        });
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        const rotatedLabels = createDeferred<string[] | null>();
+        const rotatedRevision = cast<IPdfDocument>({
+            numPages: 2,
+            getPageLabels: vi.fn(() => rotatedLabels.promise),
+        });
+        pdfDocument.value = rotatedRevision;
+        const rotatedSync = state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        expect(state.pageLabels.value).toEqual([
+            'i',
+            '1',
+        ]);
+        rotatedLabels.resolve([
+            'i',
+            '1',
+        ]);
+        await rotatedSync;
+
+        const otherLabels = createDeferred<string[] | null>();
+        const otherDocument = cast<IPdfDocument>({
+            numPages: 2,
+            getPageLabels: vi.fn(() => otherLabels.promise),
+        });
+        workingCopyPath.value = requireDocumentRef('/tmp/other.pdf');
+        pdfDocument.value = otherDocument;
+        const otherSync = state.syncPageLabelsFromDocument(pdfDocument.value);
+
+        expect(state.pageLabels.value).toBeNull();
+        otherLabels.resolve(null);
+        await otherSync;
+    });
+
     it('marks page labels dirty only when label ranges actually change', () => {
         const markDirty = vi.fn();
         const onPageLabelsDirty = vi.fn();

@@ -8,8 +8,12 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { ICloseFileFromUiOptions } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { dirtyTabCloseConfirmationKey } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import type { TDirtyTabCloseConfirmation } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import { getErrorMessage } from '@app/utils/error';
 import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
@@ -34,6 +38,8 @@ function didCompletePageFileOpen(outcome: TPageFileOpenOutcome) {
 }
 
 export interface IPageFileOperationsDeps {
+    tabId?: string;
+    requestDirtyTabCloseConfirmation?: TDirtyTabCloseConfirmation;
     pdfSrc: Ref<TPdfSource | null>;
     hasDocument: Ref<boolean>;
     isAnySaving: Ref<boolean>;
@@ -41,6 +47,7 @@ export interface IPageFileOperationsDeps {
     isExportingDocx: Ref<boolean>;
     isAnyAnnotationNoteSaving: Ref<boolean>;
     isDocumentOperationInProgress?: Ref<boolean> | ComputedRef<boolean>;
+    hasSaveFailure?: Ref<boolean> | ComputedRef<boolean>;
     annotationNoteWindows: Ref<IAnnotationNoteWindowViewModel[]>;
     hasPendingUnsavedChanges: ComputedRef<boolean>;
     annotationDirty: Ref<boolean>;
@@ -62,12 +69,15 @@ export interface IPageFileOperationsDeps {
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     const {
         pdfSrc,
+        tabId,
+        requestDirtyTabCloseConfirmation: requestDirtyTabCloseConfirmationFromDeps,
         hasDocument,
         isAnySaving,
         isHistoryBusy,
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         isDocumentOperationInProgress,
+        hasSaveFailure,
         annotationNoteWindows,
         hasPendingUnsavedChanges,
         annotationDirty,
@@ -85,21 +95,64 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeAllDropdowns,
         emitOpenInNewTab,
     } = deps;
+    const toast = useToast();
+    const { t } = useTypedI18n();
+    const { presentFailureToast } = useFailureToast();
+    const requestDirtyTabCloseConfirmation = requestDirtyTabCloseConfirmationFromDeps
+        ?? (getCurrentInstance()
+            ? inject(dirtyTabCloseConfirmationKey, null)
+            : null);
     const lastOpenOutcome = ref<TPageFileOpenOutcome | null>(null);
+    let busyFeedbackToastId: string | number | null = null;
+    const pendingDirectOpenRequests = new Map<TDocumentRef, Promise<TPageFileOpenOutcome>>();
 
     function recordOpenOutcome(outcome: TPageFileOpenOutcome) {
         lastOpenOutcome.value = outcome;
         return outcome;
     }
 
-    async function waitUntilAllIdle() {
-        await waitUntilIdle(() =>
-            isAnySaving.value
-            || isHistoryBusy.value
-            || isExportingDocx.value
-            || isAnyAnnotationNoteSaving.value
-            || (isDocumentOperationInProgress?.value ?? false),
-        );
+    type TBusyGateAction = 'close' | 'switch';
+
+    function notifyBusyGate(action: TBusyGateAction) {
+        if (busyFeedbackToastId !== null) {
+            return;
+        }
+
+        const busyToast = toast.add({
+            color: 'info',
+            title: t('notifications.documentBusyTitle'),
+            description: t(action === 'close'
+                ? 'notifications.closingAfterPageProcessing'
+                : 'notifications.switchingAfterPageProcessing'),
+        });
+        busyFeedbackToastId = busyToast.id;
+    }
+
+    function clearBusyGateFeedback() {
+        if (busyFeedbackToastId === null) {
+            return;
+        }
+
+        toast.remove(busyFeedbackToastId);
+        busyFeedbackToastId = null;
+    }
+
+    async function waitUntilAllIdle(action?: TBusyGateAction) {
+        if (action && hasBusyOperation()) {
+            notifyBusyGate(action);
+        }
+
+        try {
+            return await waitUntilIdle(() =>
+                isAnySaving.value
+                || isHistoryBusy.value
+                || isExportingDocx.value
+                || isAnyAnnotationNoteSaving.value
+                || (isDocumentOperationInProgress?.value ?? false),
+            );
+        } finally {
+            clearBusyGateFeedback();
+        }
     }
 
     function getBusyState() {
@@ -144,6 +197,27 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         });
     }
 
+    function notifySaveFailure(receipt?: FailureReceipt) {
+        if (hasSaveFailure?.value) {
+            return;
+        }
+
+        const failure = receipt ?? BrowserLogger.error(
+            RECENT_OPEN_LOG_SECTION,
+            'Persistence gate could not complete the save',
+            {},
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
+        );
+        presentFailureToast({
+            failure,
+            title: t('errors.file.save'),
+            description: t('errors.save.notCompleted'),
+        });
+    }
+
     async function persistOpenAnnotationNotes() {
         if (annotationNoteWindows.value.length === 0) {
             return true;
@@ -152,6 +226,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         const savedAllNotes = await persistAllAnnotationNotes();
         if (!savedAllNotes) {
             BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: failed to persist annotation note windows');
+            notifySaveFailure();
         }
         return savedAllNotes;
     }
@@ -164,20 +239,60 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Pending changes detected, triggering save before switch');
         try {
-            await handleSave();
+            const saveResult = await handleSave();
+            const canProceed = saveResult !== false && !hasPendingPersistenceChanges();
+            if (!canProceed) {
+                logPendingChangesAfterSave();
+                notifySaveFailure();
+            }
+            return canProceed;
         } catch (saveError) {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: getErrorMessage(saveError)}, {
+            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: getErrorMessage(saveError)}, {
                 code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
                 context: {},
             });
+            notifySaveFailure(failure);
             return false;
         }
+    }
 
-        const canProceed = !hasPendingPersistenceChanges();
-        if (!canProceed) {
-            logPendingChangesAfterSave();
+    async function resolveDirtySwitchDecision() {
+        if (!hasPendingPersistenceChanges()) {
+            return 'clean' as const;
         }
-        return canProceed;
+
+        if (!tabId || !requestDirtyTabCloseConfirmation) {
+            const failure = BrowserLogger.error(
+                RECENT_OPEN_LOG_SECTION,
+                'Switch blocked: dirty-document decision is unavailable',
+                {tabId: tabId ?? null},
+                {
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    context: {},
+                },
+            );
+            notifySaveFailure(failure);
+            return 'cancel' as const;
+        }
+
+        try {
+            return await requestDirtyTabCloseConfirmation(tabId);
+        } catch (decisionError) {
+            const failure = BrowserLogger.error(
+                RECENT_OPEN_LOG_SECTION,
+                'Switch blocked: dirty-document decision failed',
+                {
+                    error: getErrorMessage(decisionError),
+                    tabId,
+                },
+                {
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    context: {},
+                },
+            );
+            notifySaveFailure(failure);
+            return 'cancel' as const;
+        }
     }
 
     async function ensureCurrentDocumentPersistedBeforeSwitch() {
@@ -189,22 +304,33 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         logPersistenceGateStart();
 
         try {
-            await waitUntilAllIdle();
-            if (hasBusyOperation()) {
+            const settled = await waitUntilAllIdle('switch');
+            if (!settled || hasBusyOperation()) {
                 BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Switch blocked: workspace remained busy after idle wait', {busyState: getBusyState()});
+                notifySaveFailure();
                 return false;
             }
 
-            if (!await persistOpenAnnotationNotes()) {
+            const decision = await resolveDirtySwitchDecision();
+            if (decision === 'cancel') {
+                return false;
+            }
+            if (decision === 'discard') {
+                return true;
+            }
+            if (decision === 'save' && !await persistOpenAnnotationNotes()) {
                 return false;
             }
 
-            return await savePendingChangesBeforeSwitch();
+            return decision === 'save'
+                ? await savePendingChangesBeforeSwitch()
+                : true;
         } catch (persistError) {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: getErrorMessage(persistError)}, {
+            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: getErrorMessage(persistError)}, {
                 code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
                 context: {},
             });
+            notifySaveFailure(failure);
             return false;
         }
     }
@@ -282,7 +408,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return runPickerWithPersistenceDetailed(pickFolderToOpen, { openGeneratedInNewTab: true });
     }
 
-    async function handleOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
+    async function runOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'handleOpenFileDirectWithPersist called', {
             path,
             hadDocumentBeforeOpen: Boolean(pdfSrc.value),
@@ -323,6 +449,29 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function handleOpenFileDirectWithPersist(path: TDocumentRef) {
         return didCompletePageFileOpen(await handleOpenFileDirectWithPersistDetailed(path));
+    }
+
+    function handleOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
+        const pending = pendingDirectOpenRequests.get(path);
+        if (pending) {
+            return pending;
+        }
+
+        const request = runOpenFileDirectWithPersistDetailed(path);
+        pendingDirectOpenRequests.set(path, request);
+        void request.then(
+            () => {
+                if (pendingDirectOpenRequests.get(path) === request) {
+                    pendingDirectOpenRequests.delete(path);
+                }
+            },
+            () => {
+                if (pendingDirectOpenRequests.get(path) === request) {
+                    pendingDirectOpenRequests.delete(path);
+                }
+            },
+        );
+        return request;
     }
 
     async function runOpenOutcomeDetailed(open: () => Promise<TDocumentOpenOutcome>) {
@@ -375,16 +524,28 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function handleCloseFileFromUi(options: ICloseFileFromUiOptions = {}) {
-        const shouldPersist = options.persist ?? true;
+        const shouldPersist = options.persist ?? false;
+        const settled = await waitUntilAllIdle('close');
+        if (!settled || hasBusyOperation()) {
+            return false;
+        }
 
         if (shouldPersist) {
-            const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-            if (!canProceed) {
-                return false;
-            }
-        } else {
-            await waitUntilAllIdle();
-            if (hasBusyOperation()) {
+            try {
+                if (!await persistOpenAnnotationNotes() || !await savePendingChangesBeforeSwitch()) {
+                    return false;
+                }
+            } catch (persistError) {
+                const failure = BrowserLogger.error(
+                    RECENT_OPEN_LOG_SECTION,
+                    'Close blocked: persistence before close threw',
+                    {error: getErrorMessage(persistError)},
+                    {
+                        code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                        context: {},
+                    },
+                );
+                notifySaveFailure(failure);
                 return false;
             }
         }

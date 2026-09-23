@@ -55,6 +55,7 @@ export const usePageLabelState = (deps: {
     let pageLabelRevision = 0;
     let disposed = false;
     let lastResolvedDocument: IPdfDocument | null = null;
+    let lastResolvedPath: TDocumentRef | null = null;
 
     function updatePageLabelModel(
         totalPagesValue: number,
@@ -106,7 +107,14 @@ export const usePageLabelState = (deps: {
             return;
         }
 
-        if (lastResolvedDocument !== null && lastResolvedDocument !== doc) {
+        // A new revision of the same working copy with the same page count
+        // (a rotation, for example) keeps showing its labels until the reread
+        // lands; any other document change must not show the previous labels.
+        const isSameShapeRevision = lastResolvedDocument !== null
+            && sourcePath !== null
+            && lastResolvedPath === sourcePath
+            && lastResolvedDocument.numPages === doc.numPages;
+        if (lastResolvedDocument !== null && lastResolvedDocument !== doc && !isSameShapeRevision) {
             updatePageLabelModel(totalPages.value, []);
         }
         pageLabelsResolved.value = false;
@@ -172,6 +180,7 @@ export const usePageLabelState = (deps: {
             pageLabelsDirty.value = false;
             pageLabelRevision += 1;
             lastResolvedDocument = doc;
+            lastResolvedPath = sourcePath;
             resolvedThisSync = true;
         } finally {
             if (isCurrentSync() && resolvedThisSync) {

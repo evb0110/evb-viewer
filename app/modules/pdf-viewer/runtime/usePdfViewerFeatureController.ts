@@ -498,6 +498,42 @@ export const usePdfViewerFeatureController = (
         await renderPdfDocumentPagesForBrowserPrint(targetDocument, pdfDocument, pageNumbers, renderOptions);
     }
 
+    function updatePageMutationFitWidth() {
+        if (zoomMode.value !== 'fit-width') {
+            return false;
+        }
+        viewportSession.scale.invalidateScaleCache();
+        const page = requirePageNumber(
+            viewportSession.currentPage.value,
+            documentSession.numPages.value,
+        );
+        viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
+        viewportSession.reloadTransition.commitEffectiveZoom(viewportSession.scale.layoutScale.value);
+        return true;
+    }
+
+    async function beginPageRotationPreview(input: {
+        invalidatedPages: readonly number[];
+        rotationDelta: 90 | 180 | 270;
+    }) {
+        if (!documentSession.beginPageMutationRotationPreview(input.invalidatedPages, input.rotationDelta)) {
+            return false;
+        }
+        updatePageMutationFitWidth();
+        await nextTick();
+        renderingSession.preparePageRotationPreview(input.invalidatedPages, input.rotationDelta);
+        return true;
+    }
+
+    function cancelPageRotationPreview(input: {invalidatedPages: readonly number[]}) {
+        if (!documentSession.cancelPageMutationRotationPreview()) {
+            return false;
+        }
+        renderingSession.cancelPageRotationPreview(input.invalidatedPages);
+        updatePageMutationFitWidth();
+        return true;
+    }
+
     const pdfViewerPublicApi = usePdfViewerPublicApiController({
         viewerContainer,
         documentSession,
@@ -513,6 +549,29 @@ export const usePdfViewerFeatureController = (
         clearPendingImagePlacement,
         restorePendingImagePlacement,
         invalidatePages: renderingSession.invalidatePages,
+        beginPageRotationPreview,
+        cancelPageRotationPreview,
+        preparePageMutationRevisionSwap: async (input) => {
+            const didPrepare = documentSession.preparePageMutationRevisionSwap(
+                String(input.documentRevision),
+                input.invalidatedPages,
+                input.pageNumber,
+                input.rotationDelta,
+            );
+            if (!didPrepare) {
+                return false;
+            }
+            if (
+                input.rotationDelta !== undefined
+                && documentSession.pendingPageMutationRevisionSwap?.rotationDelta !== undefined
+                && documentSession.pendingPageMutationRevisionSwap.revision === String(input.documentRevision)
+            ) {
+                updatePageMutationFitWidth();
+                await nextTick();
+                renderingSession.preparePageRotationPreview(input.invalidatedPages, input.rotationDelta);
+            }
+            return true;
+        },
         captureRegionToClipboard: regionSnip.startCaptureSession,
         isCapturingRegion: regionSnip.isActive,
         startCropSelection: cropSelection.startCropSelection,

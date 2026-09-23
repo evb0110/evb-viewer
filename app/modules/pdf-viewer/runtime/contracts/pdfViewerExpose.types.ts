@@ -24,6 +24,7 @@ import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type {IPdfAnnotationStorageDebugState} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ITextBoxEntity,
     AnnotationEntity,
@@ -104,6 +105,17 @@ export interface IDocumentViewerExpose {
     getUserViewportInteractionEpoch?: () => number;
     invalidatePages?: (pages: number[]) => void;
     remapPageIdentityDelta?: (delta: IPageIdentityDelta) => void;
+    preparePageMutationRevisionSwap?: (input: {
+        documentRevision: TDocumentRevisionToken;
+        invalidatedPages: readonly number[];
+        pageNumber: number;
+        rotationDelta?: 90 | 180 | 270;
+    }) => boolean | Promise<boolean>;
+    beginPageRotationPreview?: (input: {
+        invalidatedPages: readonly number[];
+        rotationDelta: 90 | 180 | 270;
+    }) => boolean | Promise<boolean>;
+    cancelPageRotationPreview?: (input: {invalidatedPages: readonly number[]}) => boolean | Promise<boolean>;
     requestScrollToCurrentResult?: () => void;
 }
 

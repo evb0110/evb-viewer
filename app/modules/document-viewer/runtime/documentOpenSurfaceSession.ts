@@ -189,6 +189,7 @@ function canAcceptSameGenerationVisualCommit(snapshot: IDocumentOpenSurfaceSnaps
 function projectDocumentOpenSurfaceSnapshot(
     visual: IDocumentOpenSurfaceVisualState,
     viewport: IDocumentViewportSessionState,
+    revisionSwapPending: boolean,
 ): IDocumentOpenSurfaceSnapshot {
     const identity = viewport.identity === null
         ? null
@@ -244,6 +245,7 @@ function projectDocumentOpenSurfaceSnapshot(
     return {
         generation: viewport.generation,
         identity,
+        revisionSwapPending,
         phase,
         presentation,
         geometry: visual.geometry,
@@ -264,6 +266,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         viewport: createEmptyDocumentViewportSession(),
         visual: idleVisualState(),
     });
+    const revisionSwap = shallowRef<{
+        generation: number;
+        documentRevision: string;
+        invalidatedPages: readonly number[];
+    } | null>(null);
     const navigationTicket = computed(() => sessionState.value.ticket);
     const receipts = new WeakMap<AbortSignal, {
         controller: AbortController;
@@ -311,6 +318,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     const snapshot = computed(() => projectDocumentOpenSurfaceSnapshot(
         sessionState.value.visual,
         sessionState.value.viewport,
+        revisionSwap.value !== null,
     ));
     const openingPageSourceBinding = shallowRef<{
         generation: number;
@@ -466,6 +474,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         ) => IDocumentOpenSurfaceVisualState,
         initialPage = openingPageGeometry?.pageNumber ?? preparedFrame?.pageNumber ?? 1,
     ) {
+        revisionSwap.value = null;
         retireOpeningPageSource();
         openingPreviewGate.reset();
         const id = createViewportIntentId('open');
@@ -805,17 +814,104 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 }),
             }));
         },
+        prepareRevisionSwap(identity, pageNumber, invalidatedPages) {
+            const current = snapshot.value;
+            if (
+                current.phase !== 'ready'
+                || current.geometry === null
+                || current.identity?.documentId !== identity.documentId
+                || identity.documentRevision.length === 0
+                || !Number.isSafeInteger(pageNumber)
+                || pageNumber < 1
+                || invalidatedPages.length === 0
+            ) {
+                return false;
+            }
+            const normalizedPage = Math.min(
+                pageNumber,
+                sessionState.value.viewport.pageCount ?? Number.MAX_SAFE_INTEGER,
+            );
+            const intentId = createViewportIntentId('revision-swap');
+            const ticket = makeTicket(
+                createPageNavigationRequest(normalizedPage, 'restore'),
+                current.generation,
+                identity.documentRevision,
+                intentId,
+            );
+            const accepted = dispatchViewport({
+                type: 'revision-swapped',
+                generation: current.generation,
+                identity: {
+                    documentId: identity.documentId,
+                    revision: identity.documentRevision,
+                },
+                pageNumber: normalizedPage,
+                viewportIntentId: intentId,
+            }, (visual, viewport) => ({
+                ...visual,
+                committedViewportPosition: visual.committedViewportPosition === null
+                    ? null
+                    : Object.freeze({
+                        ...visual.committedViewportPosition,
+                        viewportIntentId: viewport.viewportIntent?.id
+                            ?? visual.committedViewportPosition.viewportIntentId,
+                    }),
+            }), ticket);
+            if (!accepted) {
+                retire(ticket, {
+                    kind: 'superseded',
+                    by: 'command',
+                });
+                return false;
+            }
+            revisionSwap.value = {
+                generation: current.generation,
+                documentRevision: identity.documentRevision,
+                invalidatedPages: [...new Set(invalidatedPages)],
+            };
+            return true;
+        },
+        completeRevisionSwap(generation, documentRevision) {
+            if (
+                revisionSwap.value?.generation !== generation
+                || revisionSwap.value.documentRevision !== documentRevision
+                || snapshot.value.generation !== generation
+                || snapshot.value.identity?.documentRevision !== documentRevision
+            ) {
+                return false;
+            }
+            revisionSwap.value = null;
+            return true;
+        },
+        cancelRevisionSwap(generation, documentRevision) {
+            if (
+                revisionSwap.value?.generation !== generation
+                || revisionSwap.value.documentRevision !== documentRevision
+            ) {
+                return false;
+            }
+            revisionSwap.value = null;
+            return true;
+        },
         acquireSource(identity, expectedGeneration) {
             const current = snapshot.value;
             if (current.generation !== expectedGeneration) return null;
             if (current.identity === null) return this.begin(identity);
             if (current.identity.documentId !== identity.documentId) return null;
             if (current.identity.documentRevision === identity.documentRevision) {
+                if (
+                    revisionSwap.value?.generation === current.generation
+                    && revisionSwap.value.documentRevision === identity.documentRevision
+                ) {
+                    return current.generation;
+                }
                 // A feature-pack remount has disposed the old source while the
                 // shared surface still retains its ready visual. Give the new
                 // owner a fresh opening transaction; reusing the ready
                 // generation would make its first frame commit impossible.
-                if (current.phase === 'ready') {
+                // A failed generation is equally unusable: a later ordinary
+                // open must not inherit its missing geometry or failed visual.
+                if (current.phase === 'ready' || current.phase === 'failed') {
                     return this.begin(identity, null, resolveDocumentViewportCurrentPage(sessionState.value.viewport));
                 }
                 return current.generation;
@@ -1196,12 +1292,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 openingPageFrame: null,
             }));
             if (failed) {
+                revisionSwap.value = null;
                 openingPreviewGate.retire(generation);
                 retireOpeningPageSource();
             }
             return failed;
         },
         reset() {
+            revisionSwap.value = null;
             retireOpeningPageSource();
             openingPreviewGate.reset();
             const closingGeneration = sessionState.value.viewport.generation;

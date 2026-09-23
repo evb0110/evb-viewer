@@ -973,12 +973,17 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     let writerParseRequest = 0;
     let writerParseAbortController: AbortController | null = null;
+    let writerParseTask: {
+        key: string;
+        promise: Promise<void>;
+    } | null = null;
     function cancelWriterParse() {
         writerParseRequest += 1;
         writerParseAbortController?.abort();
         writerParseAbortController = null;
+        writerParseTask = null;
     }
-    async function feedStoreFromWriterParse(
+    async function performWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
         writerParseAbortController?.abort();
@@ -1088,7 +1093,25 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             settleProjection();
         }
     }
-    const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
+    function feedStoreFromWriterParse(
+        transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
+    ) {
+        const key = [
+            transition.fence.loadToken,
+            transition.fence.documentVersion,
+            transition.fence.documentRevision ?? '',
+        ].join(':');
+        if (writerParseTask?.key === key) {
+            return writerParseTask.promise;
+        }
+        const promise = performWriterParse(transition);
+        writerParseTask = {
+            key,
+            promise,
+        };
+        return promise;
+    }
+    const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
         if (!transition.isCurrent()) {
             return;
         }
@@ -1103,8 +1126,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             return;
         }
         if (transition.phase === 'ready') {
-            annotationProjectionReady.value = false;
-            await feedStoreFromWriterParse(transition);
+            if (transition.plan.rotationDelta === undefined) {
+                annotationProjectionReady.value = false;
+            }
+            // A rotation changes the native parser's projected annotation
+            // geometry, so refresh it once, but do not hold the new page raster
+            // behind a document-wide annotation index pass.
+            void feedStoreFromWriterParse(transition);
             return;
         }
         if (transition.phase === 'restore') {
@@ -1132,7 +1160,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         documentSession.pdfDocument.value,
     ] as const, (next, previous) => {
         if (next.some((value, index) => value !== previous[index])) {
-            annotationProjectionReady.value = false;
+            if (documentSession.pendingPageMutationRevisionSwap?.rotationDelta === undefined) {
+                annotationProjectionReady.value = false;
+            }
             cancelWriterParse();
         }
     }, {flush: 'sync'});
@@ -1143,7 +1173,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         options.documentRevisionToken.value,
         documentSession.pdfDocument.value,
     ] as const, () => {
-        if (!documentSession.pdfDocument.value) {
+        if (!documentSession.pdfDocument.value || documentSession.pendingPageMutationRevisionSwap) {
             return;
         }
         const fence = documentSession.captureFence();

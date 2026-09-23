@@ -29,7 +29,7 @@
         :document-busy="toolbarDocumentBusy"
         :viewing-ready="viewingReady"
         :has-ocr-action="canUseOcr"
-        :has-scan-cleanup-action="canUseOcr && isDesktopRuntime"
+        :has-scan-cleanup-action="toolbarHasPdf && canUseOcr && isDesktopRuntime"
         :surface="surface"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
@@ -97,7 +97,7 @@
                 @insert-pages="handleInsertPages"
             />
         </template>
-        <template v-if="canUseOcr && isDesktopRuntime" #scan-cleanup="{ isCollapsed }">
+        <template v-if="toolbarHasPdf && canUseOcr && isDesktopRuntime" #scan-cleanup="{ isCollapsed }">
             <AppTooltip :text="scanCleanupTriggerTooltip" :delay-duration="1200">
                 <span v-if="!isCollapsed(1)" class="scan-cleanup-trigger-wrap">
                     <UButton

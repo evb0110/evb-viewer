@@ -20,6 +20,10 @@ import {
     vi,
 } from 'vitest';
 import type { IPageRange } from '@app/types/pdfUi';
+import {
+    requireDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 import type { IPdfDocumentTransition } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IPdfViewportDemand } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
@@ -372,6 +376,9 @@ function createRenderingFixture(fixtureOptions: {
         },
         leasePage: leasePage as never,
     });
+    const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
+    let openSurfaceRevision = 'revision-7';
+    let activeLoadPlan: Record<string, unknown> = {};
     const documentSession = {
         pdfDocument: shallowRef(pdfDocument),
         acceptedSource: shallowRef(new Blob(['pdf'], {type: 'application/pdf'})),
@@ -387,7 +394,18 @@ function createRenderingFixture(fixtureOptions: {
         }))),
         rasterScheduler,
         openSurfaceGeneration: 11,
-        openSurfaceRevision: 'revision-7',
+        get openSurfaceRevision() {
+            return openSurfaceRevision;
+        },
+        get activeLoadPlan() {
+            return activeLoadPlan;
+        },
+        pendingPageMutationRevisionSwap: null as {
+            revision: string;
+            invalidatedPages: readonly number[];
+            rotationDelta: 90 | 180 | 270;
+            preservePageMetrics: boolean;
+        } | null,
         getRenderVersion: () => 9,
         captureFence: () => ({
             ...createTransition('ready').fence,
@@ -425,6 +443,14 @@ function createRenderingFixture(fixtureOptions: {
     const viewerContainer = ref<HTMLElement | null>(viewerElement);
     const outputScale = ref(1);
     const canvasHosts = new Map<number, HTMLElement>();
+    const pageRects = new Map<number, {
+        width: number;
+        height: number
+    }>();
+    let rasterDimensions = {
+        width: 100,
+        height: 120,
+    };
     for (const pageNumber of [
         3,
         4,
@@ -433,7 +459,7 @@ function createRenderingFixture(fixtureOptions: {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = String(pageNumber);
-        page.getBoundingClientRect = vi.fn(() => createDomRect({
+        page.getBoundingClientRect = vi.fn(() => createDomRect(pageRects.get(pageNumber) ?? {
             width: 100,
             height: 120,
         }));
@@ -459,8 +485,8 @@ function createRenderingFixture(fixtureOptions: {
         renderOptions: {contentIntent?: string},
     ) => {
         const canvas = document.createElement('canvas');
-        canvas.width = 100;
-        canvas.height = 120;
+        canvas.width = rasterDimensions.width;
+        canvas.height = rasterDimensions.height;
         canvas.getBoundingClientRect = vi.fn(() => createDomRect({
             top: 0,
             right: 100,
@@ -520,7 +546,7 @@ function createRenderingFixture(fixtureOptions: {
                 currentSearchMatch: computed(() => null),
                 currentSearchMatchNavigationId: computed(() => 0),
                 workingCopyPath: computed(() => null),
-                documentRevisionToken: computed(() => null),
+                documentRevisionToken: computed(() => documentRevisionToken.value),
                 maxBufferCanvasPixels: 1_000,
                 consumeZoomViewportAnchor: () => null,
                 isZoomInteractionLocked: () => false,
@@ -552,6 +578,42 @@ function createRenderingFixture(fixtureOptions: {
         documentSession,
         pdfPage,
         canvasHost,
+        setPageRect(pageNumber: number, width: number, height: number) {
+            pageRects.set(pageNumber, {
+                width,
+                height,
+            });
+        },
+        setRasterDimensions(width: number, height: number) {
+            rasterDimensions = {
+                width,
+                height,
+            };
+        },
+        stageRotationRevision(revision: string, pageNumber: number) {
+            const revisionToken = requireDocumentRevisionToken(revision);
+            documentSession.pendingPageMutationRevisionSwap = {
+                revision: String(revisionToken),
+                invalidatedPages: [pageNumber],
+                rotationDelta: 90,
+                preservePageMetrics: true,
+            };
+        },
+        advanceRotationRevision(revision: string) {
+            const revisionToken = requireDocumentRevisionToken(revision);
+            documentRevisionToken.value = revisionToken;
+            openSurfaceRevision = String(revisionToken);
+            documentSession.pendingPageMutationRevisionSwap = null;
+            activeLoadPlan = {
+                isReload: true,
+                isSelectiveReload: true,
+                pagesToInvalidate: [3],
+                preserveVisibleContent: true,
+                preservePageStructure: true,
+                preservePageMetrics: true,
+                rotationDelta: 90,
+            };
+        },
         outputScale,
         settleMandatoryRaster,
         subscribers,
@@ -656,6 +718,100 @@ describe('PdfRenderingSession behavior', () => {
                 committedViewport: {pageNumber: 3},
             }));
             expect(fixture.emitInitialVisualReady).toHaveBeenCalledExactlyOnceWith({pageNumber: 3});
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('keeps resident page pixels through a selective same-document reload until replacement paint', async () => {
+        const fixture = createRenderingFixture();
+        try {
+            await fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {bufferOverride: 0});
+            const residentCanvas = fixture.canvasHost.querySelector('canvas');
+            expect(residentCanvas).not.toBeNull();
+
+            await fixture.emit({
+                ...createTransition('invalidated'),
+                isSameDocumentRewrite: true,
+            });
+
+            expect(fixture.canvasHost.querySelector('canvas')).toBe(residentCanvas);
+            expect(canvasFixture.cleanup).not.toHaveBeenCalled();
+            expect(rendererFixture.api.cleanupAllLayers).not.toHaveBeenCalled();
+
+            await fixture.emit(createTransition('loading', {
+                isReload: true,
+                isSelectiveReload: true,
+                pagesToInvalidate: [3],
+                preserveVisibleContent: true,
+                preservePageStructure: true,
+            }));
+
+            expect(fixture.canvasHost.querySelector('canvas')).toBe(residentCanvas);
+            expect(canvasFixture.cleanup).not.toHaveBeenCalled();
+            expect(rendererFixture.api.cleanupAllLayers).not.toHaveBeenCalled();
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('keeps a rotated revision preview until an aspect-correct replacement raster commits', async () => {
+        const fixture = createRenderingFixture();
+        try {
+            await fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {bufferOverride: 0});
+            const residentCanvas = fixture.canvasHost.querySelector('canvas');
+            expect(residentCanvas).not.toBeNull();
+
+            fixture.setPageRect(3, 120, 100);
+            expect(fixture.rendering.preparePageRotationPreview([requirePageNumber(3)], 90)).toBe(true);
+            expect(fixture.canvasHost.querySelector('canvas')).toBe(residentCanvas);
+            expect(fixture.canvasHost.closest<HTMLElement>('.page_container')?.dataset.pageMutationPreview).toBe('rotation');
+
+            fixture.stageRotationRevision('revision-8', 3);
+            const oldRevisionPrepareCount = canvasFixture.prepare.mock.calls.length;
+            await fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {
+                bufferOverride: 0,
+                forceRerender: true,
+                preserveRenderedPages: true,
+            });
+            expect(fixture.canvasHost.querySelector('canvas')).toBe(residentCanvas);
+            expect(fixture.canvasHost.closest<HTMLElement>('.page_container')?.dataset.pageMutationPreview).toBe('rotation');
+            expect(canvasFixture.prepare).toHaveBeenCalledTimes(oldRevisionPrepareCount);
+
+            fixture.advanceRotationRevision('revision-8');
+            const rerender = fixture.rendering.renderVisiblePages({
+                start: 3,
+                end: 3,
+            }, {
+                bufferOverride: 0,
+                forceRerender: true,
+                preserveRenderedPages: true,
+            });
+            await vi.waitFor(() => expect(canvasFixture.cleanupResult).toHaveBeenCalled());
+            expect(fixture.canvasHost.querySelector('canvas')).toBe(residentCanvas);
+            expect(fixture.canvasHost.closest<HTMLElement>('.page_container')?.dataset.pageMutationPreview).toBe('rotation');
+
+            fixture.setRasterDimensions(120, 100);
+            await rerender;
+            await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBe(residentCanvas));
+
+            const replacementCanvas = fixture.canvasHost.querySelector('canvas');
+            expect(replacementCanvas).not.toBe(residentCanvas);
+            expect(replacementCanvas).toMatchObject({
+                width: 120,
+                height: 100,
+            });
+            expect(fixture.canvasHost.closest<HTMLElement>('.page_container')?.dataset.pageMutationPreview).toBeUndefined();
+            expect(canvasFixture.cleanup).toHaveBeenCalledWith(residentCanvas);
         } finally {
             await fixture.dispose();
         }

@@ -668,6 +668,9 @@ export default {
     'notifications': {
         'docxSavedTitle': 'DOCX gespeichert',
         'docxSavedDescription': '{name}',
+        'documentBusyTitle': 'Dokument ist beschäftigt',
+        'closingAfterPageProcessing': 'Das Schließen wird nach der Seitenverarbeitung fortgesetzt.',
+        'switchingAfterPageProcessing': 'Diese Aktion wird nach der Seitenverarbeitung fortgesetzt.',
     },
     'tabs': {
         'tabListLabel': 'Dokumentregisterkarten',

@@ -48,6 +48,20 @@ export const DESKTOP_EDITOR_READER_COMMAND_SURFACE = createSurface({
     menu: allCommands,
 });
 
+// The shell toolbar remains mounted while a tab has no document so its height
+// stays stable when the document toolbar takes over. Keep only shell actions
+// visible on that surface; document actions belong to the empty-state page.
+export const EMPTY_STATE_READER_COMMAND_SURFACE = createSurface({
+    inline: {
+        'overflow-menu': true,
+        settings: true,
+    },
+    menu: {
+        'open-file': true,
+        settings: true,
+    },
+});
+
 export const MOBILE_READER_COMMAND_SURFACE = createSurface({
     inline: {
         'app-menu': true,

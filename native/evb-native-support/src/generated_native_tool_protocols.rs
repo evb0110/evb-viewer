@@ -5,7 +5,12 @@ use crate::{NativeToolCapability, NativeToolDescriptor};
 pub const PDF_IMAGE_COMBINE: NativeToolDescriptor =
     NativeToolDescriptor::new("evb-pdf-image-combine", 4);
 
-pub const PDF_PAGE_OPS: NativeToolDescriptor = NativeToolDescriptor::new("evb-pdf-page-ops", 1);
+pub const PDF_PAGE_OPS_CAPABILITIES: &[NativeToolCapability] = &[
+    NativeToolCapability::new("incremental-page-rotation", true, 2),
+];
+
+pub const PDF_PAGE_OPS: NativeToolDescriptor =
+    NativeToolDescriptor::with_capabilities("evb-pdf-page-ops", 2, PDF_PAGE_OPS_CAPABILITIES);
 
 pub const PDF_SEARCH: NativeToolDescriptor = NativeToolDescriptor::new("evb-pdf-search", 1);
 

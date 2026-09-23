@@ -201,17 +201,22 @@
                                 @click="openRecentFromRow(file)"
                             >
                                 <span class="recent-col recent-col--name" role="cell">
-                                    <button
-                                        type="button"
-                                        class="recent-open"
-                                        :disabled="isRecentRowDisabled(file)"
-                                        @click.stop="openRecent(file)"
-                                    >
-                                        <span class="recent-file-icon" aria-hidden="true">
-                                            <FileTypeIcon :kind="getFileKind(file)" />
-                                        </span>
-                                        <span class="recent-file-name">{{ file.fileName }}</span>
-                                    </button>
+                                    <AppTooltip :text="file.fileName" :delay-duration="800" usefulness="always">
+                                        <button
+                                            type="button"
+                                            class="recent-open"
+                                            :disabled="isRecentRowDisabled(file)"
+                                            @click.stop="openRecent(file)"
+                                        >
+                                            <span class="recent-file-icon" aria-hidden="true">
+                                                <FileTypeIcon :kind="getFileKind(file)" />
+                                            </span>
+                                            <span class="recent-file-name">
+                                                <span class="recent-file-name-prefix">{{ displayRecentFileName(file.fileName).prefix }}</span>
+                                                <span class="recent-file-name-suffix">{{ displayRecentFileName(file.fileName).suffix }}</span>
+                                            </span>
+                                        </button>
+                                    </AppTooltip>
                                 </span>
                                 <span
                                     v-if="shouldShowRecentLocationColumn"
@@ -397,6 +402,7 @@ const emit = defineEmits<{
 }>();
 const { t } = useTypedI18n();
 const recentSkeletonRows = 5;
+const RECENT_FILE_TAIL_LENGTH = 24;
 const recentFilesHeadingId = useId();
 const openPanelButtonId = useId();
 const recentSearch = ref('');
@@ -428,6 +434,20 @@ const openFailurePresentation = computed<FailurePresentation | null>(() => (
         }
         : null
 ));
+
+function displayRecentFileName(fileName: string) {
+    if (fileName.length <= RECENT_FILE_TAIL_LENGTH + 8) {
+        return {
+            prefix: fileName,
+            suffix: '',
+        };
+    }
+
+    return {
+        prefix: fileName.slice(0, -RECENT_FILE_TAIL_LENGTH),
+        suffix: fileName.slice(-RECENT_FILE_TAIL_LENGTH),
+    };
+}
 const displayedRecentFiles = computed(() => recentFilesBeforeOpen.value ?? recentFiles);
 const filteredRecentFiles = computed(() => {
     const query = recentSearch.value.trim().toLocaleLowerCase();
@@ -1012,11 +1032,22 @@ watch(() => openInProgress, (isOpening) => {
 }
 
 .recent-file-name {
+    display: flex;
+    min-width: 0;
     color: var(--ui-text);
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-semibold);
+}
+
+.recent-file-name-prefix {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-file-name-suffix {
+    flex: 0 0 auto;
     white-space: nowrap;
 }
 

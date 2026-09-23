@@ -640,6 +640,7 @@ fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutati
         && parsed.free_text_notes.is_empty()
         && parsed.text_boxes.is_empty()
         && parsed.deletes.is_empty()
+        && parsed.page_rotations.is_empty()
         && parsed.page_labels.is_none()
         && parsed.bookmarks.is_none()
         && parsed.shapes.is_none()
@@ -660,6 +661,15 @@ fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutati
     validate_free_text_notes(&parsed.free_text_notes)?;
     validate_text_boxes(&parsed.text_boxes)?;
     validate_annotation_deletes(&parsed.deletes)?;
+    let mut rotation_page_indices = HashSet::with_capacity(parsed.page_rotations.len());
+    for rotation in &parsed.page_rotations {
+        if !matches!(rotation.angle, 90 | 180 | 270) {
+            return Err("Page rotation angle must be 90, 180, or 270 degrees".into());
+        }
+        if !rotation_page_indices.insert(rotation.page_index) {
+            return Err("Page rotation mutation contains a duplicate page index".into());
+        }
+    }
     let note_count = parsed
         .notes
         .len()
@@ -696,6 +706,7 @@ fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutati
         parsed.free_text_notes.len(),
         parsed.text_boxes.len(),
         parsed.deletes.len(),
+        parsed.page_rotations.len(),
         parsed.placed_images.len(),
         parsed.placed_image_geometry_updates.len(),
     ])?;
@@ -734,6 +745,7 @@ fn count_native_mutation_items(mutations: &NativeMutationsFile) -> usize {
     add(mutations.free_text_notes.len());
     add(mutations.text_boxes.len());
     add(mutations.deletes.len());
+    add(mutations.page_rotations.len());
     if let Some(page_labels) = &mutations.page_labels {
         add(page_labels.ranges.len());
     }

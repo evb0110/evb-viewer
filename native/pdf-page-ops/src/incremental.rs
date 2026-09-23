@@ -290,6 +290,9 @@ fn apply_native_mutations_internal(
     if !mutations.deletes.is_empty() {
         delete_annotations(document, &mutations.deletes)?;
     }
+    if !mutations.page_rotations.is_empty() {
+        rotate_pages(document, &mutations.page_rotations)?;
+    }
     if let Some(page_labels) = &mutations.page_labels {
         set_page_labels(document, page_labels)?;
     }
@@ -396,10 +399,11 @@ pub(crate) fn append_native_mutations_to_bytes(
         incremental.get_prev_documents().xref_start,
         &expected_object_ids,
     )?;
-    validate_appended_revision_postconditions(
+    validate_appended_revision_postconditions_with_page_ids(
         &AppendedRevision::new(&incremental),
         mutations,
         modified_at,
+        incremental.page_ids_by_number.as_deref(),
     )?;
     validate_annotation_identity_bindings(&identity_bindings)?;
     let output_len = input.len().checked_add(revision.len()).ok_or_else(|| {
@@ -460,6 +464,9 @@ fn apply_native_mutations_incremental_internal(
     }
     if !mutations.deletes.is_empty() {
         delete_annotations_incremental(incremental, &mutations.deletes)?;
+    }
+    if !mutations.page_rotations.is_empty() {
+        rotate_pages_incremental(incremental, &mutations.page_rotations)?;
     }
     if let Some(page_labels) = &mutations.page_labels {
         set_page_labels_incremental(
@@ -611,8 +618,19 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
 
     let source_witness = PathRevisionWitness::capture(input_path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let use_sparse_rotation_load = is_rotation_only_mutation(mutations)
+        && qpdf_path.is_some()
+        && fs::metadata(input_path)?.len() > MAX_ENCODED_PDF_BYTES as u64;
+    let mut incremental = if use_sparse_rotation_load {
+        load_qpdf_rotation_incremental_pdf(
+            input_path,
+            qpdf_path.ok_or("Large rotation input requires the bundled qpdf reader")?,
+            &mutations.page_rotations,
+        )
+    } else {
+        load_incremental_pdf_path(input_path, qpdf_path)
+    }
+    .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",
@@ -647,6 +665,23 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
         None,
         identity_bindings_path,
     )
+}
+
+fn is_rotation_only_mutation(mutations: &NativeMutationsFile) -> bool {
+    !mutations.page_rotations.is_empty()
+        && mutations.updates.is_empty()
+        && mutations.geometry_updates.is_empty()
+        && mutations.notes.is_empty()
+        && mutations.free_text_notes.is_empty()
+        && mutations.text_boxes.is_empty()
+        && mutations.deletes.is_empty()
+        && mutations.page_labels.is_none()
+        && mutations.bookmarks.is_none()
+        && mutations.shapes.is_none()
+        && mutations.markup.is_none()
+        && mutations.placed_images.is_empty()
+        && mutations.placed_image_geometry_updates.is_empty()
+        && mutations.continuation.is_none()
 }
 
 fn write_native_mutations_revision(
@@ -694,10 +729,11 @@ fn write_native_mutations_revision(
     let revision_bytes = build_incremental_revision(incremental)?;
     let expected_object_ids = collect_incremental_append_object_ids(incremental);
 
-    validate_appended_revision_postconditions(
+    validate_appended_revision_postconditions_with_page_ids(
         &AppendedRevision::new(incremental),
         mutations,
         modified_at,
+        incremental.page_ids_by_number.as_deref(),
     )?;
 
     let result = write_incremental_revision(

@@ -5,6 +5,7 @@ import {
     type WebContents,
 } from 'electron';
 import { existsSync } from 'fs';
+import { stat } from 'fs/promises';
 import {
     basename,
     extname,
@@ -50,6 +51,9 @@ import {
     movePages,
     reorderPages,
     rotatePages,
+    rotatePagesIncremental,
+    isIncrementalPageRotationAvailable,
+    materializePageOperationWorkingCopy,
     verifyPdfStructureStrict,
 } from '@electron/features/page-ops/main/qpdf';
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
@@ -230,6 +234,9 @@ async function transitionPageMutation<T>(input: {
     senderId?: number;
     options?: IPageOpsMutationOptions | undefined;
     operation: IWorkingCopyMutationOperation;
+    contentBackupMode?: 'copy-on-write' | 'hard-link' | 'append';
+    skipPageMetadataRemap?: boolean;
+    nativeAppendStructureVerified?: boolean;
     mutate: () => Promise<{
         value: T;
         delta: IPageIdentityDelta
@@ -243,15 +250,17 @@ async function transitionPageMutation<T>(input: {
         'page-ops',
         async nextRevision => {
             const mutation = await input.mutate();
-            await applyPageMetadataRemap({
-                workingCopyPath: input.workingCopyPath,
-                delta: mutation.delta,
-                ...(input.options?.metadataSnapshot
-                    ? {metadataSnapshot: input.options.metadataSnapshot}
-                    : {}),
-                signal: input.operation.signal,
-                cancelGroup: input.operation.cancelGroup,
-            });
+            if (!input.skipPageMetadataRemap) {
+                await applyPageMetadataRemap({
+                    workingCopyPath: input.workingCopyPath,
+                    delta: mutation.delta,
+                    ...(input.options?.metadataSnapshot
+                        ? {metadataSnapshot: input.options.metadataSnapshot}
+                        : {}),
+                    signal: input.operation.signal,
+                    cancelGroup: input.operation.cancelGroup,
+                });
+            }
             const actualPageCount = await getPdfPageCount(
                 input.workingCopyPath,
                 createNativeOperationOptions(input.operation),
@@ -260,15 +269,23 @@ async function transitionPageMutation<T>(input: {
             if (predictedPageCount === undefined || predictedPageCount !== actualPageCount) {
                 throw new Error(`Page operation reopen verification failed: predicted ${predictedPageCount ?? 'unknown'}, received ${actualPageCount}`);
             }
-            await verifyPdfStructureStrict(
-                input.workingCopyPath,
-                createNativeOperationOptions(input.operation),
-            );
+            // The incremental writer validates the appended xref/object set
+            // and the selected page dictionaries before returning. Reopening
+            // for page count below verifies the complete page tree without
+            // asking qpdf to rewrite the 722 MB base streams a second time.
+            if (!input.nativeAppendStructureVerified) {
+                await verifyPdfStructureStrict(
+                    input.workingCopyPath,
+                    createNativeOperationOptions(input.operation),
+                );
+            }
             await commitPageIdentityDelta(input.workingCopyPath, mutation.delta, nextRevision);
             committedDelta = mutation.delta;
             values.push(mutation.value);
         },
         input.senderId,
+        undefined,
+        input.contentBackupMode,
     );
     if (values.length !== 1) throw new Error('Page operation did not publish a result');
     if (!committedDelta) throw new Error('Page operation did not publish an identity delta');
@@ -733,6 +750,14 @@ async function handlePageOpsInsert(
     };
 }
 
+// An in-place append writes through every hard link to the file. A save can
+// leave the working copy sharing its inode with the original, so only an
+// unshared working copy may take the append path; the rewrite path detaches it.
+async function isWorkingCopyInodeExclusive(workingCopyPath: string) {
+    const workingCopyStat = await stat(workingCopyPath);
+    return workingCopyStat.isFile() && workingCopyStat.nlink === 1;
+}
+
 async function handlePageOpsRotate(
     context: IPageOpsOperationContext,
     workingCopyPath: string,
@@ -762,14 +787,37 @@ async function handlePageOpsRotate(
             throw new Error('Renderer page count is stale');
         }
         const ranges = validatePageOpsSelection(pages, mainTotalPages, 'rotatePages');
+        const useIncrementalRotation = isIncrementalPageRotationAvailable()
+            && await isWorkingCopyInodeExclusive(await materializePageOperationWorkingCopy(
+                queuedWorkingCopyPath,
+                context.senderId,
+                operation.signal,
+            ));
         return transitionPageMutation({
             workingCopyPath: queuedWorkingCopyPath,
             senderId: context.senderId,
             operation,
             options,
+            ...(useIncrementalRotation
+                ? {
+                    contentBackupMode: 'append' as const,
+                    skipPageMetadataRemap: true,
+                    nativeAppendStructureVerified: true,
+                }
+                : {}),
             mutate: async () => {
                 for (const batch of iteratePageRangeBatches(ranges, QPDF_PAGE_BATCH_SIZE)) {
-                    await rotatePages(queuedWorkingCopyPath, batch, angle, context.senderId, nativeOptions);
+                    if (useIncrementalRotation) {
+                        await rotatePagesIncremental(
+                            queuedWorkingCopyPath,
+                            batch,
+                            angle,
+                            context.senderId,
+                            nativeOptions,
+                        );
+                    } else {
+                        await rotatePages(queuedWorkingCopyPath, batch, angle, context.senderId, nativeOptions);
+                    }
                 }
                 return {
                     value: undefined,

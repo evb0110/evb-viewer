@@ -1,5 +1,3 @@
-import { until } from '@vueuse/core';
-
 interface IWaitUntilIdleOptions {
     delayMs?: number;
     maxAttempts?: number;
@@ -17,18 +15,20 @@ export async function waitUntilIdle(
 ) {
     const {
         delayMs = 25,
-        maxAttempts = 120,
+        maxAttempts = Number.POSITIVE_INFINITY,
     } = options;
-    const timeout = Math.max(0, delayMs * maxAttempts);
-    if (timeout === 0) {
-        return;
+    const normalizedDelayMs = Math.max(0, delayMs);
+    const normalizedMaxAttempts = Math.max(0, Math.floor(maxAttempts));
+    let attempts = 0;
+
+    while (isBusy() && attempts < normalizedMaxAttempts) {
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, normalizedDelayMs);
+        });
+        attempts += 1;
     }
 
-    try {
-        await until(() => !isBusy()).toBe(true, { timeout });
-    } catch {
-        // Preserve previous behavior: idle wait is best-effort and never throws.
-    }
+    return !isBusy();
 }
 
 export async function waitForVisualFrames(

@@ -152,6 +152,9 @@ export default {
     'notifications': {
         'docxSavedTitle': 'DOCX saved',
         'docxSavedDescription': '{name}',
+        'documentBusyTitle': 'Document is busy',
+        'closingAfterPageProcessing': 'Closing after page processing finishes.',
+        'switchingAfterPageProcessing': 'This action will continue after page processing finishes.',
     },
     'tabs': {
         'tabListLabel': 'Document tabs',
@@ -163,10 +166,10 @@ export default {
         'copyPath': 'Copy Path',
         'preparingBatch': 'Preparing {processed}/{total}',
         'confirmCloseDirtyTitle': 'Close tab with unsaved changes?',
-        'confirmCloseDirtyDescription': '"{name}" has unsaved changes. Changes will be discarded when closing.',
+        'confirmCloseDirtyDescription': '"{name}" has unsaved changes. Save them before closing, discard them, or cancel.',
         'confirmCloseWindowDirtyTitle': 'Close window with unsaved changes?',
         'confirmCloseWindowDirtyDescription': 'There are unsaved changes. Save them before closing the window, discard them, or cancel.',
-        'discardChanges': 'Discard Changes',
+        'discardChanges': 'Discard changes',
         'transferErrors': {
             'noTargetPane': 'No target pane is available in the destination window.',
             'noTargetTab': 'No target tab is available in the destination window.',

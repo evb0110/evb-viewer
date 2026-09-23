@@ -42,6 +42,13 @@ const platformApi = createElectronPlatformApiFixture({documentPicker: {
     openCombineDialog: mockOpenCombineDialog,
     openFolderDialog: mockOpenFolderDialog,
 }});
+const toastAdd = vi.fn(() => ({id: 'busy-toast'}));
+const toastRemove = vi.fn();
+vi.stubGlobal('useToast', () => ({
+    add: toastAdd,
+    remove: toastRemove,
+}));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: () => platformApi,
     hasElectronAPI: () => mockHasElectronAPI(),
@@ -65,12 +72,14 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
     const bookmarksDirty = overrides.bookmarksDirty ?? ref(false);
 
     return {
+        tabId: 'tab-1',
         pdfSrc: ref<TPdfSource | null>(new Blob([], {type: 'application/pdf'})),
         hasDocument: ref(true),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
         isExportingDocx: ref(false),
         isAnyAnnotationNoteSaving: ref(false),
+        hasSaveFailure: ref(false),
         annotationNoteWindows: ref([]),
         hasPendingUnsavedChanges: computed(() => (
             annotationDirty.value
@@ -105,21 +114,17 @@ describe('usePageFileOperations', () => {
         mockOpenFolderDialog.mockResolvedValue(null);
         mockLegacyOpenCombineDialog.mockClear();
         mockLegacyOpenFolderDialog.mockClear();
+        toastAdd.mockClear();
+        toastRemove.mockClear();
     });
 
-    it('persists unsaved changes before closing by default', async () => {
-        const isDirty = ref(true);
-        const deps = createDeps({
-            isDirty,
-            handleSave: vi.fn(async () => {
-                isDirty.value = false;
-            }),
-        });
+    it('does not persist on a close without an explicit Save decision', async () => {
+        const deps = createDeps({isDirty: ref(true)});
         const { handleCloseFileFromUi } = usePageFileOperations(deps);
 
         await handleCloseFileFromUi();
 
-        expect(deps.handleSave).toHaveBeenCalledOnce();
+        expect(deps.handleSave).not.toHaveBeenCalled();
         expect(deps.closeFile).toHaveBeenCalledOnce();
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
@@ -139,7 +144,10 @@ describe('usePageFileOperations', () => {
         });
         const { handleCloseFileFromUi } = usePageFileOperations(deps);
 
-        await handleCloseFileFromUi({onCloseCommit: () => events.push('commit')});
+        await handleCloseFileFromUi({
+            persist: true,
+            onCloseCommit: () => events.push('commit'),
+        });
 
         expect(events).toEqual([
             'save',
@@ -158,7 +166,7 @@ describe('usePageFileOperations', () => {
         });
         const { handleCloseFileFromUi } = usePageFileOperations(deps);
 
-        await handleCloseFileFromUi();
+        await handleCloseFileFromUi({persist: true});
 
         expect(deps.handleSave).toHaveBeenCalledOnce();
         expect(deps.closeFile).toHaveBeenCalledOnce();
@@ -175,12 +183,100 @@ describe('usePageFileOperations', () => {
         expect(deps.closeAllDropdowns).toHaveBeenCalledOnce();
     });
 
+    it('waits for a busy document operation before committing a close and shows feedback', async () => {
+        const isDocumentOperationInProgress = ref(true);
+        const deps = createDeps({isDocumentOperationInProgress});
+        const { handleCloseFileFromUi } = usePageFileOperations(deps);
+
+        const closePromise = handleCloseFileFromUi({persist: false});
+        await Promise.resolve();
+
+        expect(deps.closeFile).not.toHaveBeenCalled();
+        expect(toastRemove).not.toHaveBeenCalled();
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'info',
+            description: 'notifications.closingAfterPageProcessing',
+        }));
+
+        isDocumentOperationInProgress.value = false;
+        await expect(closePromise).resolves.toBe(true);
+        expect(toastRemove).toHaveBeenCalledWith('busy-toast');
+        expect(deps.closeFile).toHaveBeenCalledOnce();
+    });
+
+    it('shows a visible error and keeps the document open when note persistence fails on explicit Save', async () => {
+        const deps = createDeps({
+            annotationNoteWindows: ref([{
+                annotationId: 'note-1',
+                draftText: 'note',
+                minimized: false,
+                position: {
+                    x: 0,
+                    y: 0,
+                },
+                pageIndex: 0,
+                pageNumber: 1,
+                author: null,
+                color: null,
+                createdAt: null,
+                modifiedAt: null,
+                markerRect: null,
+                subtype: null,
+                source: 'pdf',
+                hasNote: true,
+                dirty: true,
+                saving: false,
+                error: null,
+                order: 0,
+                pendingEmbeddedSave: false,
+                isMinimized: false,
+                createdAtMs: 0,
+            }]),
+            persistAllAnnotationNotes: vi.fn(async () => {
+                throw new Error('note save failed');
+            }),
+        });
+        const {handleCloseFileFromUi} = usePageFileOperations(deps);
+
+        await expect(handleCloseFileFromUi({persist: true})).resolves.toBe(false);
+
+        expect(deps.closeFile).not.toHaveBeenCalled();
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+        }));
+    });
+
+    it('shows a visible error when a persistence save does not commit', async () => {
+        const deps = createDeps({
+            isDirty: ref(true),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'save' as const),
+            handleSave: vi.fn(async () => false),
+        });
+        const { handleOpenFileFromUi } = usePageFileOperations(deps);
+
+        await expect(handleOpenFileFromUi()).resolves.toBe(false);
+
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'error',
+            title: 'errors.file.save',
+            description: expect.stringContaining('errors.save.notCompleted'),
+        }));
+        expect(deps.pickFileToOpen).not.toHaveBeenCalled();
+    });
+
     it('handles save rejection deterministically before opening another file', async () => {
         const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(
-            () => ({}) as ReturnType<typeof BrowserLogger.error>,
+            () => ({
+                eventId: '0123456789abcdef0123456789abcdef',
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                occurredAt: 1,
+                severity: 'error',
+            }) as ReturnType<typeof BrowserLogger.error>,
         );
         const deps = createDeps({
             isDirty: ref(true),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'save' as const),
             handleSave: vi.fn(async () => {
                 throw new Error('disk full');
             }),
@@ -205,6 +301,7 @@ describe('usePageFileOperations', () => {
     it('preserves a detailed blocked outcome when persistence prevents opening', async () => {
         const deps = createDeps({
             isDirty: ref(true),
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'save' as const),
             handleSave: vi.fn(async () => {
                 throw new Error('disk full');
             }),
@@ -267,6 +364,89 @@ describe('usePageFileOperations', () => {
                 error: 'not allowed',
             },
         );
+    });
+
+    it('queues one recent-file switch behind a busy page operation with visible feedback', async () => {
+        const isDocumentOperationInProgress = ref(true);
+        const isDirty = ref(false);
+        const openFileDirect = vi.fn(async (path: TDocumentRef) => openedOutcome(path));
+        const requestDirtyTabCloseConfirmation = vi.fn(async () => {
+            expect(isDocumentOperationInProgress.value).toBe(false);
+            expect(isDirty.value).toBe(true);
+            expect(toastRemove).toHaveBeenCalledWith('busy-toast');
+            return 'discard' as const;
+        });
+        const deps = createDeps({
+            isDocumentOperationInProgress,
+            isDirty,
+            requestDirtyTabCloseConfirmation,
+            openFileDirect,
+        });
+        const {handleOpenFileDirectWithPersistDetailed} = usePageFileOperations(deps);
+        const path = requireDocumentRef('/tmp/recent.pdf');
+
+        const firstOpen = handleOpenFileDirectWithPersistDetailed(path);
+        const duplicateOpen = handleOpenFileDirectWithPersistDetailed(path);
+        await Promise.resolve();
+
+        expect(openFileDirect).not.toHaveBeenCalled();
+        expect(requestDirtyTabCloseConfirmation).not.toHaveBeenCalled();
+        expect(toastAdd).toHaveBeenCalledOnce();
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'info',
+            description: 'notifications.switchingAfterPageProcessing',
+        }));
+
+        isDocumentOperationInProgress.value = false;
+        isDirty.value = true;
+        await expect(Promise.all([
+            firstOpen,
+            duplicateOpen,
+        ])).resolves.toEqual([
+            openedOutcome(path),
+            openedOutcome(path),
+        ]);
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledOnce();
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledWith('tab-1');
+        expect(toastRemove).toHaveBeenCalledWith('busy-toast');
+        expect(deps.handleSave).not.toHaveBeenCalled();
+        expect(openFileDirect).toHaveBeenCalledOnce();
+    });
+
+    it('saves a dirty document before switching only after the explicit Save decision', async () => {
+        const isDirty = ref(true);
+        const requestDirtyTabCloseConfirmation = vi.fn(async () => 'save' as const);
+        const deps = createDeps({
+            isDirty,
+            requestDirtyTabCloseConfirmation,
+            handleSave: vi.fn(async () => {
+                isDirty.value = false;
+            }),
+        });
+        const {handleOpenFileDirectWithPersist} = usePageFileOperations(deps);
+
+        await expect(handleOpenFileDirectWithPersist(requireDocumentRef('/tmp/next.pdf'))).resolves.toBe(true);
+
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledOnce();
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledWith('tab-1');
+        expect(deps.handleSave).toHaveBeenCalledOnce();
+        expect(deps.openFileDirect).toHaveBeenCalledOnce();
+    });
+
+    it('does not save or switch when the dirty-document decision is cancelled', async () => {
+        const requestDirtyTabCloseConfirmation = vi.fn(async () => 'cancel' as const);
+        const deps = createDeps({
+            isDirty: ref(true),
+            requestDirtyTabCloseConfirmation,
+        });
+        const {handleOpenFileDirectWithPersist} = usePageFileOperations(deps);
+
+        await expect(handleOpenFileDirectWithPersist(requireDocumentRef('/tmp/next.pdf'))).resolves.toBe(false);
+
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledOnce();
+        expect(requestDirtyTabCloseConfirmation).toHaveBeenCalledWith('tab-1');
+        expect(deps.handleSave).not.toHaveBeenCalled();
+        expect(deps.openFileDirect).not.toHaveBeenCalled();
     });
 
     it('preserves failed direct-open details for UI diagnostics', async () => {
@@ -348,6 +528,7 @@ describe('usePageFileOperations', () => {
         });
         const deps = createDeps({
             isDirty,
+            requestDirtyTabCloseConfirmation: vi.fn(async () => 'save' as const),
             handleSave,
             pickFileToOpen,
         });
@@ -499,7 +680,12 @@ describe('usePageFileOperations', () => {
 
     it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {
         const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(
-            () => ({}) as ReturnType<typeof BrowserLogger.error>,
+            () => ({
+                eventId: '0123456789abcdef0123456789abcdef',
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                occurredAt: 1,
+                severity: 'error',
+            }) as ReturnType<typeof BrowserLogger.error>,
         );
         const onCloseCommit = vi.fn();
         const deps = createDeps({
@@ -510,7 +696,10 @@ describe('usePageFileOperations', () => {
         });
         const { handleCloseFileFromUi } = usePageFileOperations(deps);
 
-        await expect(handleCloseFileFromUi({onCloseCommit})).resolves.toBe(false);
+        await expect(handleCloseFileFromUi({
+            persist: true,
+            onCloseCommit,
+        })).resolves.toBe(false);
 
         expect(onCloseCommit).not.toHaveBeenCalled();
         expect(deps.closeFile).not.toHaveBeenCalled();

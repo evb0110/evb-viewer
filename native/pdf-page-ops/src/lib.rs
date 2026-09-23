@@ -141,6 +141,7 @@ mod tests {
     include!("tests/placed_image_raster.rs");
     include!("tests/annotation_recovery.rs");
     include!("tests/markup_shapes.rs");
+    include!("tests/rotation.rs");
     include!("tests/catalog.rs");
     include!("tests/page_tree_ops.rs");
 }

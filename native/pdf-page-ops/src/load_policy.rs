@@ -12,8 +12,8 @@ const MAX_PDF_OBJECTS: usize = 1_000_000;
 const MAX_BYTE_INPUT_PDF_PAGES: usize = 100_000;
 // Path-backed loads need to admit the xlarge acceptance document, but they
 // still need a finite page-count guard before lopdf builds its object graph.
-const MAX_PATH_INPUT_PDF_PAGES: usize = 200_000;
-const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
+pub(crate) const MAX_PATH_INPUT_PDF_PAGES: usize = 200_000;
+pub(crate) const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
 const MAX_PDF_XREF_REVISIONS: usize = 4_096;
 const MAX_XREF_PROBE_BYTES: usize = 64 * 1024 * 1024;
 

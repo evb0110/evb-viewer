@@ -1826,6 +1826,89 @@ describe('document open surface session', () => {
         });
     });
 
+    it('keeps the committed viewport and generation while swapping a ready surface revision', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'scan.pdf', 'revision-1');
+        session.metadataReady(5);
+        commitDefaultGeometry(session, generation);
+        commitReadySurface(session, createRenderFence(session, generation, 'revision-1'));
+
+        expect(session.prepareRevisionSwap({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-2',
+        }, 1, [1])).toBe(true);
+        expect(session.snapshot.value).toMatchObject({
+            generation,
+            identity: {
+                documentId: 'scan.pdf',
+                documentRevision: 'revision-2',
+            },
+            revisionSwapPending: true,
+            phase: 'ready',
+            presentation: 'committed',
+            geometry: DEFAULT_LAYOUT_GEOMETRY,
+            committedRender: {
+                pageNumber: 1,
+                documentRevision: 'revision-2',
+            },
+            committedViewport: {
+                pageNumber: 1,
+                documentRevision: 'revision-2',
+            },
+        });
+        expect(session.viewportSession.value).toMatchObject({
+            lifecycle: 'ready',
+            requestedPage: 1,
+            committedPage: 1,
+            committedRenderFence: {
+                revision: 'revision-2',
+                pageNumber: 1,
+            },
+            committedViewportFence: {
+                revision: 'revision-2',
+                pageNumber: 1,
+            },
+        });
+        expect(session.acquireSource({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-2',
+        }, generation)).toBe(generation);
+
+        const replacementFence = createRenderFence(session, generation, 'revision-2', {pageNumber: 1});
+        expect(session.commitCanvas(replacementFence)).toBe(true);
+        expect(session.commitViewport(createViewportCommit(replacementFence))).toBe(true);
+        expect(session.markReady(replacementFence)).toBe(true);
+        expect(session.completeRevisionSwap(generation, 'revision-2')).toBe(true);
+        expect(session.snapshot.value).toMatchObject({
+            generation,
+            identity: {documentRevision: 'revision-2'},
+            revisionSwapPending: false,
+            phase: 'ready',
+        });
+    });
+
+    it('starts a fresh generation when reacquiring a failed surface at the same revision', () => {
+        const session = createDocumentOpenSurfaceSession();
+        const generation = beginSurface(session, 'scan.pdf', 'revision-1');
+        expect(session.fail(generation, 'previous open failed')).toBe(true);
+
+        const reopenedGeneration = session.acquireSource({
+            documentId: 'scan.pdf',
+            documentRevision: 'revision-1',
+        }, generation);
+
+        expect(reopenedGeneration).toBe(generation + 1);
+        expect(session.snapshot.value).toMatchObject({
+            generation: generation + 1,
+            identity: {
+                documentId: 'scan.pdf',
+                documentRevision: 'revision-1',
+            },
+            phase: 'pending',
+            presentation: 'idle',
+        });
+    });
+
     it('keeps a committed PDF.js canvas behind the staged frame until validation authorizes it', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = session.beginPrepared({

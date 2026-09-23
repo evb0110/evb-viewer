@@ -60,6 +60,7 @@ import {
     recoverWorkingCopyContentTransition,
     rollbackWorkingCopyContentTransition,
 } from '@electron/file-access/workingCopyContentTransitionJournal';
+import type {TWorkingCopyContentBackupMode} from '@electron/file-access/workingCopyContentTransitionJournal';
 import {
     cleanupOrphanedTwoTargetDocumentTransitionBackups,
     recoverTwoTargetDocumentTransition,
@@ -520,7 +521,7 @@ async function runWorkingCopyContentRevisionTransition(
     commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
     senderId?: number,
     onPhase?: (phase: string, durationMs: number) => void,
-    contentBackupMode: 'copy-on-write' | 'hard-link' = 'copy-on-write',
+    contentBackupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ): Promise<IDocumentRevisionChangedEvent> {
     const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
     if (!normalizedWorkingPath) {
@@ -591,7 +592,7 @@ export function transitionWorkingCopyContentRevision(
     commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
     senderId?: number,
     onPhase?: (phase: string, durationMs: number) => void,
-    contentBackupMode: 'copy-on-write' | 'hard-link' = 'copy-on-write',
+    contentBackupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ): Promise<IDocumentRevisionChangedEvent> {
     return enqueueWorkingCopyContentTransition(workingCopyPath, () =>
         runWorkingCopyContentRevisionTransition(

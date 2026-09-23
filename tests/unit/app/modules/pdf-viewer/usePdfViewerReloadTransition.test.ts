@@ -28,6 +28,39 @@ describe('usePdfViewerReloadTransition', () => {
         expect(emitEffectiveZoom).toHaveBeenLastCalledWith(1.94);
     });
 
+    it('publishes committed effective zoom immediately during a visual reload', () => {
+        const emitEffectiveZoom = vi.fn();
+        const transition = usePdfViewerReloadTransition({ emitEffectiveZoom });
+        const token = transition.beginVisualReloadTransition('page-mutation');
+
+        transition.emitEffectiveZoom(1.17);
+        transition.commitEffectiveZoom(0.74);
+
+        expect(emitEffectiveZoom).toHaveBeenCalledOnce();
+        expect(emitEffectiveZoom).toHaveBeenCalledWith(0.74);
+
+        transition.endVisualReloadTransition(token, 'warm-render-complete');
+
+        expect(emitEffectiveZoom).toHaveBeenCalledOnce();
+    });
+
+    it('still defers a later effective zoom change after an immediate reload commit', () => {
+        const emitEffectiveZoom = vi.fn();
+        const transition = usePdfViewerReloadTransition({ emitEffectiveZoom });
+        const token = transition.beginVisualReloadTransition('page-mutation');
+
+        transition.commitEffectiveZoom(0.74);
+        transition.emitEffectiveZoom(0.72);
+        expect(emitEffectiveZoom.mock.calls.map(([value]) => value)).toEqual([0.74]);
+
+        transition.endVisualReloadTransition(token, 'warm-render-complete');
+
+        expect(emitEffectiveZoom.mock.calls.map(([value]) => value)).toEqual([
+            0.74,
+            0.72,
+        ]);
+    });
+
     it('ignores stale transition tokens when ending the visual reload transition', () => {
         const emitEffectiveZoom = vi.fn();
         const transition = usePdfViewerReloadTransition({ emitEffectiveZoom });

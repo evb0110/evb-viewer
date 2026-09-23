@@ -24,9 +24,11 @@ import type {
 import {
     createExplicitPageSelection,
     iteratePageSelectionRanges,
+    materializePageSelection,
     pageMoveRangesSelectedPageCount,
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
+import { collectPageIdentityDeltaInvalidatedPages } from '@app/modules/pdf-viewer/runtime/composables/pdf/collectPageIdentityDeltaInvalidatedPages';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useAnalytics } from '@app/composables/useAnalytics';
@@ -122,6 +124,11 @@ export const usePageOperations = (deps: {
         kind: TDocumentOperationKind,
         operation: () => Promise<T>,
     ) => Promise<T>;
+    preparePageMutationRevisionSwap?: (input: {
+        path: TDocumentRef;
+        result: IPageOpsResult;
+        invalidatedPages: number[];
+    }) => void | Promise<void>;
 }) => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
@@ -142,6 +149,7 @@ export const usePageOperations = (deps: {
         onExtractedDocument,
         ensureWorkingCopyFreshForRead,
         runWithDocumentOperationLease = runWithoutDocumentOperationLease,
+        preparePageMutationRevisionSwap,
     } = deps;
 
     const isOperationInProgress = ref(false);
@@ -353,12 +361,59 @@ export const usePageOperations = (deps: {
         };
     }
 
+    function getFallbackAffectedPages(pages: number[] | TPageSelection) {
+        return Array.isArray(pages) ? [...pages] : materializePageSelection(pages);
+    }
+
+    function getFirstAffectedPage(pages: number[] | TPageSelection) {
+        if (Array.isArray(pages)) {
+            return pages.reduce((first, page) => Math.min(first, page), Number.MAX_SAFE_INTEGER);
+        }
+        for (const range of iteratePageSelectionRanges(pages)) {
+            return range.startPage;
+        }
+        return 1;
+    }
+
+    function getPageRange(firstPage: number, lastPage: number, totalPages: number) {
+        const start = Math.max(1, Math.min(totalPages, Math.trunc(firstPage)));
+        const end = Math.max(start, Math.min(totalPages, Math.trunc(lastPage)));
+        return Array.from({length: Math.max(0, end - start + 1)}, (_, index) => start + index);
+    }
+
+    function getPageTail(firstPage: number, totalPages: number) {
+        return getPageRange(firstPage, totalPages, totalPages);
+    }
+
+    function getMoveFallbackAffectedPages(move: TPageMoveOperation) {
+        const ranges: readonly IPageMoveRangeSegment[] = 'ranges' in move
+            ? move.ranges
+            : [{
+                startPage: move.startPage,
+                endPage: move.endPage,
+            }];
+        const firstSourcePage = ranges.reduce(
+            (first, range) => Math.min(first, range.startPage),
+            Number.MAX_SAFE_INTEGER,
+        );
+        const lastSourcePage = ranges.reduce(
+            (last, range) => Math.max(last, range.endPage),
+            1,
+        );
+        return getPageRange(
+            Math.min(firstSourcePage, move.insertAt + 1),
+            Math.max(lastSourcePage, move.insertAt),
+            move.pageCount,
+        );
+    }
+
     async function runOperationDetailed<TResult extends IPageOpsResult>(options: {
         operationName: string;
         errorKey: TPageOperationErrorKey;
         run: TPageOperationRunner<TResult>;
         beforeRun?: () => boolean | Promise<boolean>;
         shouldReload?: boolean;
+        fallbackAffectedPages?: readonly number[] | ((result: TResult) => readonly number[]);
         isSuccessful?: TPageOperationSuccess<TResult>;
         onSuccess?: (result: TResult) => Promise<void> | void;
     }) {
@@ -493,6 +548,28 @@ export const usePageOperations = (deps: {
                 }
 
                 if (options.shouldReload) {
+                    const fallbackAffectedPages = typeof options.fallbackAffectedPages === 'function'
+                        ? options.fallbackAffectedPages(result)
+                        : options.fallbackAffectedPages;
+                    const invalidatedPages = collectPageIdentityDeltaInvalidatedPages(
+                        result.pageIdentityDelta,
+                        fallbackAffectedPages,
+                    );
+                    try {
+                        await preparePageMutationRevisionSwap?.({
+                            path,
+                            result,
+                            invalidatedPages,
+                        });
+                    } catch (prepareError) {
+                        BrowserLogger.warn('page-ops', 'Could not preserve the viewer surface for a page mutation reload', {
+                            error: prepareError,
+                            operationName: options.operationName,
+                        });
+                    }
+                    if (result.documentRevision?.documentRef === path && documentRevisionToken) {
+                        documentRevisionToken.value = result.documentRevision.token;
+                    }
                     invalidateCaches(path);
                     const didReload = await reloadWorkingCopyIntoHistory({ markDirty: true });
                     if (!didReload || workingCopyPath.value !== path) {
@@ -559,6 +636,7 @@ export const usePageOperations = (deps: {
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
+            fallbackAffectedPages: getPageTail(getFirstAffectedPage(pages), totalPages),
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runDeletePageOp(path, toPageOpsSelection(pages), totalPages, capturePageMutationOptions()),
         });
@@ -604,6 +682,10 @@ export const usePageOperations = (deps: {
             operationName: 'deletePageRanges',
             errorKey: 'errors.pageOps.delete',
             shouldReload: true,
+            fallbackAffectedPages: getPageTail(
+                ranges.reduce((first, range) => Math.min(first, range.startPage), Number.MAX_SAFE_INTEGER),
+                totalPages,
+            ),
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runDeletePageRangesOp(
                 path,
@@ -681,6 +763,7 @@ export const usePageOperations = (deps: {
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
             shouldReload: true,
+            fallbackAffectedPages: getFallbackAffectedPages(pages),
             run: (path) => runRotatePageOp(path, toPageOpsSelection(pages), totalPages, angle, capturePageMutationOptions()),
         });
         if (didPageOperationSucceed(outcome)) {
@@ -805,6 +888,9 @@ export const usePageOperations = (deps: {
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
+            fallbackAffectedPages: newOrder.flatMap((sourcePageNumber, index) => (
+                sourcePageNumber === index + 1 ? [] : [index + 1]
+            )),
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runReorderPageOp(path, [...newOrder], capturePageMutationOptions()),
         });
@@ -835,6 +921,7 @@ export const usePageOperations = (deps: {
             operationName: 'movePages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
+            fallbackAffectedPages: getMoveFallbackAffectedPages(move),
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runMovePageOp(path, move, capturePageMutationOptions()),
         });
@@ -874,6 +961,7 @@ export const usePageOperations = (deps: {
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
+            fallbackAffectedPages: getFallbackAffectedPages(pages),
             run: (path) => runCropPageOp(
                 path,
                 toPageOpsSelection(pages),
@@ -911,6 +999,7 @@ export const usePageOperations = (deps: {
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
+            fallbackAffectedPages: getFallbackAffectedPages(pages),
             run: (path) => runRemoveCropPageOp(
                 path,
                 toPageOpsSelection(pages),

@@ -36,7 +36,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     canSave: Ref<boolean>;
     hasSaveFailure: TReadableRef<boolean>;
     handleSave: () => Promise<unknown>;
-    requestThumbnailInvalidation: (pages: number[]) => void;
+    requestThumbnailInvalidation: (pages: number[], expectedDocumentRevision?: string) => void;
     pdfViewerRef: Ref<IWorkspacePdfViewerDocumentControlsPort | null>;
     canMutatePages: Ref<boolean>;
     handleExportImages: (pages: number[] | TPageSelection) => Promise<void>;
@@ -49,6 +49,8 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
 
 export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControlsOptions) => {
     const {
+        tabId,
+        requestDirtyTabCloseConfirmation,
         hasDocument,
         pdfSrc,
         pdfData,
@@ -162,6 +164,8 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
     });
 
     const pageFileOperations = usePageFileOperations({
+        ...(tabId === undefined ? {} : {tabId}),
+        ...(requestDirtyTabCloseConfirmation === undefined ? {} : {requestDirtyTabCloseConfirmation}),
         pdfSrc,
         hasDocument,
         isAnySaving,
@@ -169,6 +173,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         isExportingDocx,
         isAnyAnnotationNoteSaving,
         ...(isDocumentOperationInProgress !== undefined ? { isDocumentOperationInProgress } : {}),
+        hasSaveFailure,
         annotationNoteWindows,
         hasPendingUnsavedChanges,
         annotationDirty,

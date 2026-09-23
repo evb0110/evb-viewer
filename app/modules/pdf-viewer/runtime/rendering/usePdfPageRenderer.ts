@@ -642,8 +642,16 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     return {
-        adoptCommittedCanvasVersions(contentVersion: number, documentToken: string) {
+        adoptCommittedCanvasVersions(
+            contentVersion: number,
+            documentToken: string,
+            excludedPages: readonly TPageNumber[] = [],
+        ) {
+            const excluded = new Set(excludedPages);
             for (const pageNumber of pageRenderState.renderedPages) {
+                if (excluded.has(pageNumber)) {
+                    continue;
+                }
                 const wasHydrating = pageRenderState.getSlot(pageNumber).layerReadiness === 'hydrating';
                 if (
                     pageRenderState.adoptCommittedCanvasVersion(pageNumber, contentVersion, documentToken)

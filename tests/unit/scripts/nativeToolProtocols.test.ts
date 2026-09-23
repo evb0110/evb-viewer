@@ -132,7 +132,7 @@ describe('native tool protocol generator', () => {
             ],
             [
                 'evb-pdf-page-ops',
-                1,
+                2,
             ],
             [
                 'evb-pdf-search',
