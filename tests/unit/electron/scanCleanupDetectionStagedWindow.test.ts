@@ -812,12 +812,16 @@ describe('runScanCleanupDetection staged raster window', () => {
         expect(warnings).toHaveLength(1);
         expect(warnings[0]![1]).toContain('could not drop the partial detection raster');
         // A render that simply failed leaves nothing behind and says nothing:
-        // the refusal is what is worth a line, not every failed page.
+        // the refusal is what is worth a line, not every failed page. The
+        // lease retries a page its prefetch could not stage, so each refused
+        // partial raster gets exactly one line.
+        const refusedPartials = harness.scratchPaths.filter(path => path.includes('page-3-'));
+        expect(refusedPartials.length).toBeGreaterThan(0);
         expect(log.mock.calls.filter(([
             level,
             message,
         ]) => level === 'warn'
             && typeof message === 'string'
-            && message.includes('could not drop the partial detection raster'))).toHaveLength(1);
+            && message.includes('could not drop the partial detection raster'))).toHaveLength(refusedPartials.length);
     });
 });

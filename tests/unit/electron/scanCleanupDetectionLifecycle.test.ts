@@ -89,8 +89,10 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const remainingRasters = Promise.withResolvers<undefined>();
+    // Analysis starts as soon as the first page image exists, so every render
+    // is held to observe the state before any page has been read.
     deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
-        if (args[2] > 1) await remainingRasters.promise;
+        await remainingRasters.promise;
         await originalRenderPage(...args);
     });
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));

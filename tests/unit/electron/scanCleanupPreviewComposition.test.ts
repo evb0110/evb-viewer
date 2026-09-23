@@ -1312,6 +1312,7 @@ export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPiling
     }));
     const originalRunSidecar = deps.runSidecar;
     const heldPreviewSidecars = Promise.withResolvers<undefined>();
+    let previewSidecars = 0;
     deps.runSidecar = vi.fn((...args) => trackNative(async () => {
         const manifestPath = args[1];
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
@@ -1319,6 +1320,7 @@ export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPiling
             pages: unknown[];
         };
         if (manifest.operation !== 'analyze') {
+            previewSidecars += 1;
             await heldPreviewSidecars.promise;
             await originalRunSidecar(
                 args[0],
@@ -1365,7 +1367,9 @@ export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPiling
     ];
         // The visible page reaches its sidecar; the two prefetches are scheduled
         // behind the machine rather than added to it.
-    await vi.waitFor(() => expect(deps.runSidecar).toHaveBeenCalledTimes(1));
+    // Detection's own analysis may already be running: it starts as soon as
+    // its first page image exists rather than after a whole batch.
+    await vi.waitFor(() => expect(previewSidecars).toBe(1));
     expect(liveNatives).toBe(capacity.nativeProcesses);
     expect(peakNatives).toBe(capacity.nativeProcesses);
     expect(service.getDetectionJobState(owner, started.jobId, request)?.status).toBe('running');

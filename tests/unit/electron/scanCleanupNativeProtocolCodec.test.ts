@@ -71,6 +71,45 @@ describe('scan-cleanup native protocol codec', () => {
             classification: 'single-uncut-page',
             confidence: 0.9,
         }});
+
+        const outOfOrderFrames = [
+            {
+                pageNumber: 4,
+                completedPages: 2,
+            },
+            {
+                pageNumber: 1,
+                completedPages: 3,
+            },
+        ].map(({
+            pageNumber, completedPages,
+        }) => decodeNativeScanCleanupEnvelope(JSON.stringify({
+            version: 3,
+            type: 'progress',
+            progress: {
+                stage: 'page-analyzed',
+                completedPages,
+                totalPages: 4,
+                pageNumber,
+                classification: 'single-uncut-page',
+                confidence: 0.9,
+            },
+        })));
+        expect(outOfOrderFrames.map(frame => frame.type === 'progress'
+            ? [
+                frame.progress.pageNumber,
+                frame.progress.completedPages,
+            ]
+            : null)).toEqual([
+            [
+                4,
+                2,
+            ],
+            [
+                1,
+                3,
+            ],
+        ]);
     });
 
     it('rejects progress confidence outside the unit interval and negative cutter positions', () => {
