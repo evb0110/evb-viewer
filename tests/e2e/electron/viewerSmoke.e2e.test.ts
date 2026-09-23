@@ -1465,12 +1465,35 @@ describe('Electron E2E - Viewer Smoke', () => {
             expect(observation.textVisible).toBe(true);
         }
 
+        // Bookmark navigation is not a document open: the sidebar must stay
+        // presented. A transient readiness drop used to report an open, which
+        // closed the sidebar and re-anchored the viewer on another page.
+        await page.evaluate(() => {
+            const wrapper = document.querySelector<HTMLElement>('.editor-pane.is-active .sidebar-wrapper');
+            const closings: string[] = [];
+            (window as Window & {__bookmarkSidebarClosings?: string[]}).__bookmarkSidebarClosings = closings;
+            if (!wrapper) {
+                closings.push('missing sidebar wrapper');
+                return;
+            }
+            new MutationObserver(() => {
+                if (wrapper.classList.contains('is-closed')) {
+                    closings.push(`closed at ${Math.round(performance.now())}`);
+                }
+            }).observe(wrapper, {
+                attributes: true,
+                attributeFilter: ['class'],
+            });
+        });
         await activate('Appendix');
         await expectActive('Appendix', 4);
         await activate('Same page');
         await expectActive('Same page', 4);
         await activate('Appendix', 'Enter');
         await expectActive('Appendix', 4);
+        expect(await page.evaluate(() => (
+            window as Window & {__bookmarkSidebarClosings?: string[]}
+        ).__bookmarkSidebarClosings ?? ['observer missing'])).toEqual([]);
         await activate('Parent', 'Enter');
         await expectActive('Parent', 1);
         await activate('Child', 'Space');

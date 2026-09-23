@@ -324,7 +324,7 @@ const activeDocumentOpenTransaction = computed(() => {
 const isClosingDocument = computed(() => (
     activeDocumentSession.value.snapshot.value.activeTransaction?.kind === 'close'
 ));
-const hasPendingDocumentHint = computed(() => {
+const isPendingDocumentHintHeld = computed(() => {
     // A host remounted after a cold release has no workspace until it is
     // activated, but its record still holds the document it committed. That
     // record is the release evidence; a pending record is still opening.
@@ -336,6 +336,47 @@ const hasPendingDocumentHint = computed(() => {
         isClosingDocument: isClosingDocument.value,
         mountedSnapshot,
     });
+});
+// The hint stands for a document this workspace has not presented yet. Once it
+// has, readiness can still drop - a navigation shows a skeleton on the
+// committed page, a budget eviction clears it - but that is not an open.
+// Re-arming the hint there reported an open to the workspace, which suspended
+// the sidebar and re-anchored the viewport on each bookmark jump. A real
+// reopen or reload owns an open transaction instead.
+const presentedDocumentHint = shallowRef<{
+    workspace: IWorkspaceExpose;
+    documentPath: TDocumentRef | null;
+} | null>(null);
+watch(
+    [
+        isPendingDocumentHintHeld,
+        mountedWorkspace,
+        () => documentPath,
+    ],
+    ([
+        held,
+        workspace,
+        path,
+    ]) => {
+        if (!held && workspace) {
+            presentedDocumentHint.value = {
+                workspace,
+                documentPath: path,
+            };
+        }
+    },
+    {
+        flush: 'sync',
+        immediate: true,
+    },
+);
+const hasPendingDocumentHint = computed(() => {
+    const presented = presentedDocumentHint.value;
+    return isPendingDocumentHintHeld.value && !(
+        presented !== null
+        && presented.workspace === mountedWorkspace.value
+        && presented.documentPath === documentPath
+    );
 });
 const pendingDocumentPath = computed(() => (
     activeDocumentOpenTransaction.value?.documentRef
