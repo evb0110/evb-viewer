@@ -1719,7 +1719,8 @@ fn unique_font_name(existing: &Dictionary, source_name: &[u8]) -> Vec<u8> {
     unreachable!("u32 font-name namespace is exhausted")
 }
 
-fn append_text_layer(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn append_text_layer(
     target: &mut Document,
     source: &Document,
     target_page_id: ObjectId,
@@ -1727,6 +1728,7 @@ fn append_text_layer(
     matrix: [f64; 6],
     filter_to_output_page: bool,
     normalize_greek_micro_sign: bool,
+    marker: Option<(&[u8], &[u8])>,
     copied: &mut HashMap<ObjectId, ObjectId>,
 ) -> Result<Option<String>> {
     let filter = filter_to_output_page
@@ -1823,6 +1825,9 @@ fn append_text_layer(
     if stream.dict.get(b"Filter").is_ok() {
         return Err("overlay-text located an already filtered content stream".into());
     }
+    if let Some((begin, end)) = marker {
+        stream.set_content([begin, stream.content.as_slice(), end].concat());
+    }
     stream.compress()?;
     *copied = staged_copied;
     Ok(None)
@@ -1855,6 +1860,7 @@ pub(crate) fn overlay_text_layers(
             instruction.matrix,
             instruction.filter_to_output_page,
             instruction.normalize_greek_micro_sign,
+            None,
             &mut copied,
         )?;
         if let Some(reason) = skipped {
@@ -1883,7 +1889,7 @@ pub(crate) fn overlay_text_layers(
 /// Materialize only the target page dictionaries touched by an overlay. The
 /// source page content remains in the base revision, while new OCR streams and
 /// copied font objects go into the incremental revision.
-fn prepare_incremental_overlay_page(
+pub(crate) fn prepare_incremental_overlay_page(
     incremental: &mut IncrementalDocument,
     page_id: ObjectId,
 ) -> Result<()> {
@@ -1957,6 +1963,7 @@ pub(crate) fn overlay_text_layers_incremental(
             instruction.matrix,
             instruction.filter_to_output_page,
             instruction.normalize_greek_micro_sign,
+            None,
             &mut copied,
         )?;
         if let Some(reason) = skipped {

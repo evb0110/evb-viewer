@@ -706,6 +706,9 @@ pub(crate) enum Operation {
         source_path: PathBuf,
         instructions_file: PathBuf,
     },
+    OcrTextLayer {
+        instructions_file: PathBuf,
+    },
     Crop {
         pages_file: PathBuf,
         margins: CropMargins,
@@ -799,6 +802,36 @@ pub(crate) struct TextLayerInstruction {
     /// scalar, so normalize that scalar before embedding the stream.
     #[serde(default)]
     pub(crate) normalize_greek_micro_sign: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrTextLayerFile {
+    #[serde(deserialize_with = "deserialize_collection")]
+    pub(crate) pages: Vec<OcrTextLayerPage>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrTextLayerPage {
+    /// One-based page number in the target document.
+    pub(crate) page_number: u32,
+    /// Tesseract's one-page text-only PDF for this page's raster.
+    pub(crate) source_path: PathBuf,
+    /// Present when OCR ran on a preprocessed raster whose pixels moved.
+    #[serde(default)]
+    pub(crate) preprocess_inverse: Option<OcrPreprocessInverse>,
+    #[serde(default)]
+    pub(crate) normalize_greek_micro_sign: bool,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct OcrPreprocessInverse {
+    pub(crate) raster_width_px: f64,
+    pub(crate) raster_height_px: f64,
+    /// Maps preprocessed raster pixels back to rendered raster pixels.
+    pub(crate) matrix: [[f64; 3]; 3],
 }
 
 /// Scales the source page's own content into the output page box, so a page

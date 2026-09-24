@@ -159,6 +159,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             source_path: source_path.ok_or("Missing --source value")?,
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
         },
+        "ocr-text-layer" => Operation::OcrTextLayer {
+            instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
+        },
         "crop" => Operation::Crop {
             pages_file: pages_file.ok_or("Missing --pages-file value")?,
             margins: CropMargins {

@@ -54,6 +54,16 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             );
         }
+        Operation::OcrTextLayer { instructions_file } => {
+            let instructions = read_ocr_text_layer_file(instructions_file)
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_ocr_text_layer_path(
+                &config.input_path,
+                &config.output_path,
+                &instructions,
+                config.qpdf_path.as_deref(),
+            );
+        }
         _ => {}
     }
 

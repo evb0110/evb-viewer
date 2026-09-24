@@ -1076,3 +1076,193 @@ fn overlay_text_failure_preserves_existing_output_after_a_prior_batch() {
         let _ = remove_file(path);
     }
 }
+
+fn helvetica() -> Dictionary {
+    dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" }
+}
+
+fn save_ocr_page(
+    path: &Path,
+    media_box: [i64; 4],
+    rotate: Option<i64>,
+    contents: Vec<Vec<u8>>,
+    resources: Dictionary,
+) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let content_ids = contents
+        .into_iter()
+        .map(|content| Object::Reference(document.add_object(Stream::new(dictionary! {}, content))))
+        .collect::<Vec<_>>();
+    let mut page = dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => media_box.iter().map(|value| Object::Integer(*value)).collect::<Vec<_>>(),
+        "Resources" => resources,
+        "Contents" => content_ids,
+    };
+    if let Some(rotate) = rotate {
+        page.set("Rotate", rotate);
+    }
+    let page_id = document.add_object(page);
+    document.objects.insert(
+        pages_id,
+        dictionary! { "Type" => "Pages", "Kids" => vec![Object::Reference(page_id)], "Count" => 1 }
+            .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+fn run_ocr_text_layer(input: &Path, output: &Path, source: &Path) -> std::process::Output {
+    let instructions = path("ocr-instructions", "json");
+    fs::write(
+        &instructions,
+        serde_json::json!({"pages": [{"pageNumber": 1, "sourcePath": source}]}).to_string(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["ocr-text-layer", "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .arg("--instructions-file")
+        .arg(&instructions)
+        .output()
+        .unwrap();
+    let _ = fs::remove_file(instructions);
+    result
+}
+
+fn pdftotext_all(pdf: &Path, extra_args: &[&str]) -> String {
+    let output = Command::new(external_tool::tool_path(
+        "PDFTOTEXT_PATH",
+        "poppler",
+        "pdftotext",
+    ))
+    .args(extra_args)
+    .arg(pdf)
+    .arg("-")
+    .output()
+    .expect("pdftotext must be installed for OCR text-layer integration tests");
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn page_content(pdf: &Path) -> String {
+    let document = Document::load(pdf).unwrap();
+    let page_id = *document.get_pages().get(&1).unwrap();
+    String::from_utf8_lossy(&document.get_page_content(page_id)).into_owned()
+}
+
+#[test]
+fn replaces_previous_ocr_text_and_keeps_the_page_ink() {
+    let source = path("ocr-source", "pdf");
+    let input = path("ocr-input", "pdf");
+    let output = path("ocr-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized words) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![
+            // Page ink and another producer's hidden layer in one stream.
+            b"0 0 10 10 re f BT /F1 12 Tf 3 Tr 10 90 Td (Foreign layer) Tj ET".to_vec(),
+            b"% EVB_VIEWER_OCR_LAYER_BEGIN\nBT /F1 12 Tf 3 Tr 10 30 Td (Previous run) Tj ET\n% EVB_VIEWER_OCR_LAYER_END\n"
+                .to_vec(),
+        ],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Recognized words"), "{text}");
+    assert!(!text.contains("Foreign layer"), "{text}");
+    assert!(!text.contains("Previous run"), "{text}");
+    let content = page_content(&output);
+    assert!(content.contains("re"), "page ink was removed: {content}");
+    assert!(content.contains("EVB_VIEWER_OCR_LAYER_BEGIN"), "{content}");
+    // One incremental revision: the original bytes are a prefix.
+    let (original, written) = (fs::read(&input).unwrap(), fs::read(&output).unwrap());
+    assert!(written.starts_with(&original));
+
+    // Running again replaces the layer written above instead of stacking it.
+    let rerun = path("ocr-rerun", "pdf");
+    let result = run_ocr_text_layer(&output, &rerun, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        pdftotext_all(&rerun, &[])
+            .matches("Recognized words")
+            .count(),
+        1
+    );
+
+    for file in [source, input, output, rerun] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
+fn places_words_in_the_displayed_orientation_of_a_rotated_page() {
+    let source = path("rotated-source", "pdf");
+    let input = path("rotated-input", "pdf");
+    let output = path("rotated-output", "pdf");
+    // The page is 200 wide and 120 tall, shown turned a quarter clockwise.
+    // Tesseract saw a raster of the displayed page: 120 wide, 200 tall, here
+    // at twice the point size. A word near its top-left corner must land
+    // near the top-left corner of the displayed page.
+    save_ocr_page(
+        &source,
+        [0, 0, 240, 400],
+        None,
+        vec![b"BT /F1 24 Tf 3 Tr 20 360 Td (Corner) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        Some(90),
+        vec![Vec::new()],
+        Dictionary::new(),
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let bbox = pdftotext_all(&output, &["-bbox"]);
+    let tag = bbox
+        .lines()
+        .find(|line| line.contains(">Corner</word>"))
+        .unwrap_or_else(|| panic!("word is absent: {bbox}"));
+    let attribute = |name: &str| -> f64 {
+        let value = tag.split_once(&format!("{name}=\"")).unwrap().1;
+        value[..value.find('"').unwrap()].parse().unwrap()
+    };
+    assert!((attribute("xMin") - 10.0).abs() < 1.0, "{tag}");
+    assert!(attribute("yMax") < 25.0, "{tag}");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
