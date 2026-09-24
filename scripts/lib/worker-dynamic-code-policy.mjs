@@ -24,12 +24,18 @@ const CALL_SITE_SHAPE = /^(new\s+)?((?:globalThis|window|self)\.)?(Function|eval
 const EXCERPT_LENGTH = 80;
 
 // Anchored at the call site, so an idiom only excuses the exact vendored form.
-const ALLOWED_VENDOR_IDIOMS = [{
-    // Reached only on Node builds without `process.getBuiltinModule`, and
-    // wrapped in a swallowing try/catch by the dependency.
-    justification: 'core-js Node built-in module fallback',
-    pattern: /^Function\('return require\("'\s*\+\s*[\w$]+\s*\+\s*'"\)'\)\(\)/u,
-}];
+const ALLOWED_VENDOR_IDIOMS = [
+    {
+        justification: 'core-js/whatwg globalThis polyfill',
+        pattern: /^Function\((["'])return this\1\)\(\)/u,
+    },
+    {
+        // Reached only on Node builds without `process.getBuiltinModule`, and
+        // wrapped in a swallowing try/catch by the dependency.
+        justification: 'core-js Node built-in module fallback',
+        pattern: /^Function\('return require\("'\s*\+\s*[\w$]+\s*\+\s*'"\)'\)\(\)/u,
+    },
+];
 
 /** @param {string} matchText */
 function classifyCallSite(matchText) {

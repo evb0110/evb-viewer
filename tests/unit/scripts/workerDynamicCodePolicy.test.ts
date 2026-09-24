@@ -89,10 +89,14 @@ describe('worker dynamic code policy', () => {
     });
 
     it('allows only the exact vendored idioms the bundles ship', () => {
-        const vendored = 'try{return Function(\'return require("\'+a+\'")\')()}catch{}';
+        const vendored = 'var g=typeof globalThis=="object"&&globalThis||Function("return this")();'
+            + 'try{return Function(\'return require("\'+a+\'")\')()}catch{}';
 
         expect(analyzeDynamicCodeConstruction(vendored)).toEqual({
-            allowedIdioms: ['core-js Node built-in module fallback'],
+            allowedIdioms: [
+                'core-js/whatwg globalThis polyfill',
+                'core-js Node built-in module fallback',
+            ],
             violations: [],
         });
     });

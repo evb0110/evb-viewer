@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'search' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
+ * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'pdf-text' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
  */
 
 /**
@@ -39,6 +39,13 @@ export const WORKER_BUNDLES = [
         id: 'scan-cleanup',
         entryPoint: 'electron/features/scan-cleanup/worker/main.ts',
         fileName: 'scan-cleanup-worker.js',
+        format: 'esm',
+        unpacked: true,
+    },
+    {
+        id: 'pdf-text',
+        entryPoint: 'electron/features/search/pdfTextWorker.ts',
+        fileName: 'pdf-text-worker.js',
         format: 'esm',
         unpacked: true,
     },

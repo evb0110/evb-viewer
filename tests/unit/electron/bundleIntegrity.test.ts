@@ -137,7 +137,7 @@ let mainBundleFixture: IElectronBundleMetafileFixture;
 
 const WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES.map(bundle => bundle.fileName));
 const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
-    .filter(bundle => bundle.id === 'djvu-pdf')
+    .filter(bundle => bundle.id === 'pdf-text' || bundle.id === 'djvu-pdf')
     .map(bundle => bundle.fileName));
 const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
 const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;
@@ -422,7 +422,7 @@ describe('Electron bundle static integrity', () => {
             }
         }
 
-        expect([...justifications].sort()).toEqual([]);
+        expect([...justifications].sort()).toEqual(['core-js/whatwg globalThis polyfill']);
     });
 
     describe('split ESM main graph', () => {

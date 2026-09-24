@@ -9,8 +9,7 @@ extends: ./.tmp/generated-electron-builder-resources.yml
 # (scripts/build-electron.mjs). The image fallback has one staged N-API package
 # and its target binding under dist-electron/runtime.
 # Worker entry files that require direct filesystem paths are unpacked, together
-# with the pdfjs fallback worker they dynamically import and the package.json
-# that pins dist-electron/*.js to ESM semantics.
+# with the package.json that pins dist-electron/*.js to ESM semantics.
 asar: true
 asarUnpack:
   - dist-electron/package.json
@@ -21,6 +20,7 @@ asarUnpack:
   - dist-electron/runtime/@napi-rs/canvas/*.node
   - dist-electron/pdfCombineWorker.js
   - dist-electron/pdfConformanceWorker.js
+  - dist-electron/pdf-text-worker.js
   - dist-electron/scan-cleanup-worker.js
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs

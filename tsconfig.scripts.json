@@ -14,6 +14,7 @@
         "app/types/vueShim.d.ts",
         "app/types/electron.d.ts",
         "types/vendor/utif.d.ts",
+        "types/vendor/pdfjs-worker.d.ts",
         ".nuxt/nuxt.d.ts",
         "scripts/**/*.ts",
         "scripts/**/*.d.mts"

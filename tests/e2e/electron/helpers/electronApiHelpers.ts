@@ -10,7 +10,7 @@ import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { extractTextWithPdfjs } from '@tests/helpers/pdfjsNodeText';
+import { extractTextWithPdfjs } from '@electron/features/search/pdfjsPageTexts';
 
 function normalizeSemanticText(value: string) {
     return value.replace(/\s+/gu, ' ').trim().toLocaleLowerCase();

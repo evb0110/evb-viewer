@@ -12,7 +12,8 @@
     "include": [
         "./**/*.ts",
         "./**/*.d.ts",
-        "../types/vendor/utif.d.ts"
+        "../types/vendor/utif.d.ts",
+        "../types/vendor/pdfjs-worker.d.ts"
     ],
     "exclude": [
         "node_modules"

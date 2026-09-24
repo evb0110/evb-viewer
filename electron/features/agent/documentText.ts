@@ -196,7 +196,7 @@ function buildPageTextResponse(page: IPageText, maxCharsPerPage: number) {
         hasText: normalizedText.length > 0,
         textLength: normalizedText.length,
         truncated,
-        source: 'direct-pdftotext' as const,
+        source: 'direct-pdfjs' as const,
         text: truncated ? normalizedText.slice(0, maxCharsPerPage) : normalizedText,
     };
 }
@@ -242,7 +242,7 @@ export async function readAgentDocumentPages(
         requestedPath,
         resolvedPdfPath,
         pageCount: pageCount ?? requestedPages.at(-1) ?? 0,
-        source: 'direct-pdftotext' as const,
+        source: 'direct-pdfjs' as const,
         pages: pageTexts.map(page => buildPageTextResponse(page, maxCharsPerPage)),
         textStatus: {
             status: textPageCount === pageTexts.length

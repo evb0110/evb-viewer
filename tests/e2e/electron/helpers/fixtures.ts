@@ -42,7 +42,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {createCanvas} from '@napi-rs/canvas';
 import { getE2ERunId } from '@scripts/electron-run/electronRunRunId';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
-import {createPdfjsNodeDocumentOptions} from '@tests/helpers/pdfjsNodeText';
+import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
@@ -3062,7 +3062,7 @@ async function openPdfWithLowVerbosity(filePath: string) {
     const data = new Uint8Array(readFileSync(filePath));
     const task = pdfjs.getDocument({
         data,
-        ...createPdfjsNodeDocumentOptions(pdfjs),
+        ...createPdfjsNodeDocumentOptions(),
     });
     const document = await task.promise;
     return adaptPdfjsDocument(document, () => task.destroy());

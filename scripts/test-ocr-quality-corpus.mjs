@@ -204,7 +204,7 @@ async function loadPdfjsTextExtractor() {
     const bundlePath = join(workDirectory, 'ocr-quality-pdfjs-extractor.mjs');
     await build({
         bundle: true,
-        entryPoints: [join(repositoryRoot, 'tests', 'helpers', 'pdfjsNodeText.ts')],
+        entryPoints: [join(repositoryRoot, 'electron', 'features', 'search', 'pdfjsPageTexts.ts')],
         format: 'esm',
         outfile: bundlePath,
         platform: 'node',

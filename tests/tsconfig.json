@@ -9,6 +9,7 @@
         "../app/types/*.d.ts",
         "../electron/types/*.d.ts",
         "../types/vendor/utif.d.ts",
+        "../types/vendor/pdfjs-worker.d.ts",
         "../.nuxt/nuxt.d.ts"
     ],
     "exclude": [
