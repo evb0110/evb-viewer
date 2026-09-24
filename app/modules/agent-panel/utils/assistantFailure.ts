@@ -1,7 +1,7 @@
 import type {FailurePresentation} from '@app/composables/useFailureToast';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
-import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import {isRecord} from '@contracts/runtimeGuards';
 import {
     getFailureReceipt,
@@ -9,9 +9,21 @@ import {
     type ExpectedOutcome,
     type ExpectedOutcomeCode,
 } from '@contracts/diagnostics/failureReceipt';
-import type {DiagnosticContext} from '@contracts/diagnostics/diagnosticCodes';
-
-export type TAssistantFailureAction = NonNullable<DiagnosticContext<'ASSISTANT_ACTION_FAILED'>['action']>;
+export type TAssistantFailureAction =
+    | 'refresh'
+    | 'install'
+    | 'login'
+    | 'cancel'
+    | 'switch-provider'
+    | 'load'
+    | 'scope-refresh'
+    | 'send'
+    | 'retry'
+    | 'interrupt'
+    | 'reset'
+    | 'mcp-refresh'
+    | 'mcp-update'
+    | 'mcp-install';
 
 export type TAssistantActionErrorTarget = 'status' | 'composer' | 'none';
 
@@ -119,16 +131,15 @@ export function captureAssistantFailure(
     const existingFailure = getFailureReceipt(error);
     const capture = existingFailure
         ? {failure: existingFailure}
-        : initializeRendererFailureReporter().captureForPresentation({
+        : captureFailureForPresentation({
             code: 'ASSISTANT_ACTION_FAILED',
-            context: {action: options.action},
             local: {
                 source: options.section ?? 'assistant',
                 message: options.logMessage ?? options.title,
                 cause: error,
                 data: {action: options.action},
             },
-        }, {localAlreadyRecorded: true});
+        });
     const logMessage = options.logMessage ?? options.title;
     BrowserLogger.error(
         options.section ?? 'assistant',

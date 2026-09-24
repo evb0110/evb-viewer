@@ -99,16 +99,8 @@ describe('main-process feature registration table', () => {
     it('keeps raw IPC bridges explicit and justified', () => {
         expect(RAW_IPC_HANDLER_DESCRIPTORS).toEqual([
             {
-                name: 'diagnostics-canary',
-                reason: 'automation-only trusted-sender canary, not a renderer feature invoke',
-            },
-            {
                 name: 'renderer-log',
                 reason: 'one-way renderer diagnostic bridge with process-level suppression metadata',
-            },
-            {
-                name: 'renderer-diagnostic',
-                reason: 'one-way renderer diagnostic bridge with trusted-sender capture',
             },
             {
                 name: 'shutdown-save-flush-result',

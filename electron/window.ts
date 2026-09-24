@@ -34,18 +34,9 @@ import {
 } from '@electron/resources/hostResourceProfile';
 import {
     captureMainFailure,
-    getMainFailureReporter,
+    getMainDiagnosticsPreference,
 } from '@electron/features/diagnostics/public';
 import { encodeDiagnosticsPolicyArgument } from '@electron/platform-ipc/coreContract';
-import {
-    MAX_RENDERER_RECOVERY_ATTEMPTS,
-    normalizeProcessGoneExitCode,
-    normalizeProcessGoneReason,
-} from '@contracts/diagnostics/diagnosticCodes';
-import type {
-    DiagnosticCode,
-    DiagnosticContext,
-} from '@contracts/diagnostics/diagnosticCodes';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -65,60 +56,18 @@ const UNRESPONSIVE_RECOVERY_DELAY_MS = (() => {
     return parsed;
 })();
 const RENDERER_RECOVERY_WINDOW_MS = 5 * 60_000;
-const RENDERER_RECOVERY_MAX_ATTEMPTS = MAX_RENDERER_RECOVERY_ATTEMPTS;
+const RENDERER_RECOVERY_MAX_ATTEMPTS = 3;
 
-function normalizeRendererRecoveryTrigger(reason: string) {
-    if (reason.startsWith('render-process-gone:')) {
-        return 'renderer-gone' as const;
-    }
-    switch (reason) {
-        case 'unresponsive-automation-reload':
-            return 'unresponsive-automation' as const;
-        case 'unresponsive-dialog-reload':
-            return 'unresponsive-dialog-reload' as const;
-        case 'unresponsive-dialog-fallback':
-            return 'unresponsive-dialog-fallback' as const;
-        default:
-            // Unknown recovery reasons stay in the bounded fallback bucket.
-            return 'unresponsive-dialog-fallback' as const;
-    }
-}
-
-function clampRecoveryAttempt(attempt: number) {
-    return Math.min(RENDERER_RECOVERY_MAX_ATTEMPTS, Math.max(1, attempt));
-}
-
-function reportWindowFailure<C extends DiagnosticCode>(
-    code: C,
-    context: DiagnosticContext<C>,
+function reportWindowFailure(
+    code: string,
     message: string,
     cause?: unknown,
 ) {
-    let receipt: FailureReceipt | undefined;
-    try {
-        receipt = captureMainFailure({
-            code,
-            operation: 'main-error',
-            context,
-            local: {
-                source: 'window',
-                message,
-                cause,
-            },
-        });
-    } catch {
-        // Diagnostics must not change renderer recovery or window teardown.
-    }
-    if (receipt === undefined) {
-        logger.error('Window operation failed', {
-            code: 'MAIN_WINDOW_OPERATION_FAILED',
-            context: {},
-            cause,
-        }, {message});
-    } else {
-        logger.error('Window operation failed', receipt, {message});
-    }
-    return receipt;
+    return logger.error('Window operation failed', captureMainFailure({
+        code,
+        message,
+        cause,
+    }), {message});
 }
 
 function logWindowStartup(phase: string, details?: Record<string, unknown>) {
@@ -208,7 +157,6 @@ function createWindowLoadFailureOwner(): IWindowLoadFailureOwner {
             attempt.reported = true;
             const receipt = logger.error('Renderer load failed', {
                 code: 'MAIN_WINDOW_OPERATION_FAILED',
-                context: {},
                 cause: error,
             }, {message: error.message});
             if (receipt) {
@@ -291,7 +239,6 @@ async function promptUnresponsiveRendererRecovery(
     window: BrowserWindow,
     windowId: number,
     recoverRenderer: (reason: string) => void,
-    recoveryAttempt: number,
 ) {
     if (window.isDestroyed()) {
         return;
@@ -333,10 +280,6 @@ async function promptUnresponsiveRendererRecovery(
         } else {
             reportWindowFailure(
                 'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
-                {
-                    trigger: 'unresponsive-dialog-prompt',
-                    recoveryAttempt: clampRecoveryAttempt(recoveryAttempt),
-                },
                 message,
                 error,
             );
@@ -398,28 +341,13 @@ function attachRendererDiagnostics(
                 error: getErrorMessage(error),
             });
         } else {
-            const trigger = normalizeRendererRecoveryTrigger(failure.reason);
-            if (trigger === 'renderer-gone') {
-                receipt = reportWindowFailure(
-                    'MAIN_RENDERER_RECOVERY_FAILED',
-                    {
-                        trigger,
-                        recoveryAttempt: clampRecoveryAttempt(recentRecoveryAttempts.length),
-                    },
-                    message,
-                    error,
-                );
-            } else {
-                receipt = reportWindowFailure(
-                    'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
-                    {
-                        trigger,
-                        recoveryAttempt: clampRecoveryAttempt(recentRecoveryAttempts.length),
-                    },
-                    message,
-                    error,
-                );
-            }
+            receipt = reportWindowFailure(
+                failure.reason.startsWith('render-process-gone:')
+                    ? 'MAIN_RENDERER_RECOVERY_FAILED'
+                    : 'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
+                message,
+                error,
+            );
         }
         if (receipt) {
             failure.receipt = receipt;
@@ -480,13 +408,8 @@ function attachRendererDiagnostics(
             });
             return;
         }
-        const exitCode = normalizeProcessGoneExitCode(details.exitCode);
         reportWindowFailure(
             'MAIN_RENDERER_PROCESS_GONE',
-            {
-                reason: normalizeProcessGoneReason(details.reason),
-                ...(exitCode === undefined ? {} : {exitCode}),
-            },
             message,
         );
         recoverRenderer(`render-process-gone:${details.reason}`);
@@ -506,7 +429,6 @@ function attachRendererDiagnostics(
         }
         reportWindowFailure(
             'MAIN_PRELOAD_ERROR',
-            {hasStack: typeof error.stack === 'string' && error.stack.length > 0},
             message,
             error,
         );
@@ -529,10 +451,6 @@ function attachRendererDiagnostics(
                 + `(windowId=${windowId})`;
             reportWindowFailure(
                 'MAIN_UNRESPONSIVE_RENDERER',
-                {
-                    automated: config.automation.hideWindow || config.automation.noFocus,
-                    recoveryAttempt: Math.min(RENDERER_RECOVERY_MAX_ATTEMPTS, recentRecoveryAttempts.length),
-                },
                 message,
             );
             logger.warn('Prompting recovery for unresponsive renderer', {windowId});
@@ -540,7 +458,6 @@ function attachRendererDiagnostics(
                 window,
                 windowId,
                 recoverRenderer,
-                Math.min(RENDERER_RECOVERY_MAX_ATTEMPTS, recentRecoveryAttempts.length + 1),
             )
                 .finally(() => {
                     unresponsivePromptInFlight = false;
@@ -599,7 +516,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             preload: preloadPath,
             additionalArguments: [
                 encodeHostResourceProfileArgument(getHostResourceProfileSnapshot()),
-                encodeDiagnosticsPolicyArgument(getMainFailureReporter()?.getPreference()),
+                encodeDiagnosticsPolicyArgument(getMainDiagnosticsPreference()),
             ],
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },

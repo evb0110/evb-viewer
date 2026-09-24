@@ -503,7 +503,6 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             } catch (error) {
                 options.logger.error(`Failed to prepare window for external open: ${getErrorMessage(error)}`, {
                     code: 'MAIN_EXTERNAL_OPEN_FAILED',
-                    context: {phase: 'prepare-window'},
                     cause: error,
                 });
             } finally {

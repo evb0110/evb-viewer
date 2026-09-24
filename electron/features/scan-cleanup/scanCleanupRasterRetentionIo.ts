@@ -16,14 +16,7 @@ const logger = createLogger('scan-cleanup-raster-retention-io');
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
-        logger.error(message, {
-            code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {
-                stage: 'retention-io',
-                errorCode: 'unknown',
-                failureClass: 'unknown',
-            },
-        });
+        logger.error(message, {code: 'MAIN_SCAN_CLEANUP_FAILED'});
         return;
     }
     logger[level](message);

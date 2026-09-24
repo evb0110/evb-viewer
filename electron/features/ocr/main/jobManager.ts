@@ -326,7 +326,6 @@ function handleWorkerMessage(
             } else if (message.level === 'error') {
                 log.error('OCR worker error', {
                     code: 'MAIN_OCR_OPERATION_FAILED',
-                    context: {},
                     cause: message.message,
                 }, message.data);
             } else {
@@ -462,10 +461,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         workerAdmissionLease.release();
         releaseOcrDocumentJobReservation(job.scopedJobId, job.documentJobKey);
         job.resolveWorkerSettlement(result);
-        log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`, {
-            code: 'MAIN_OCR_OPERATION_FAILED',
-            context: {},
-        });
+        log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`, {code: 'MAIN_OCR_OPERATION_FAILED'});
         return job.workerSettlement;
     }
 
@@ -512,7 +508,6 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         const message = `OCR worker message deserialization failed: ${getErrorMessage(err)}`;
         log.error(`Worker messageerror for job ${job.requestId}: ${getErrorMessage(err)}`, {
             code: 'MAIN_OCR_OPERATION_FAILED',
-            context: {},
             cause: err,
         });
         const active = activeJobs.get(job.scopedJobId);
@@ -527,7 +522,6 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
     worker.on('error', (err: Error) => {
         log.error(`Worker error for job ${job.requestId}: ${err.message}`, {
             code: 'MAIN_OCR_OPERATION_FAILED',
-            context: {},
             cause: err,
         });
         const active = activeJobs.get(job.scopedJobId);
@@ -548,10 +542,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         const active = activeJobs.get(job.scopedJobId);
         if (!active) {
             if (code !== 0) {
-                log.error(`Worker exited with code ${code} after OCR job ${job.requestId} was no longer active`, {
-                    code: 'MAIN_OCR_OPERATION_FAILED',
-                    context: {},
-                });
+                log.error(`Worker exited with code ${code} after OCR job ${job.requestId} was no longer active`, {code: 'MAIN_OCR_OPERATION_FAILED'});
             }
             return;
         }
@@ -564,10 +555,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             const error = code === 0
                 ? 'Worker exited without returning an OCR result'
                 : `Worker exited unexpectedly with code ${code}`;
-            log.error(`Worker exited without a result for job ${job.requestId}`, {
-                code: 'MAIN_OCR_OPERATION_FAILED',
-                context: {},
-            });
+            log.error(`Worker exited without a result for job ${job.requestId}`, {code: 'MAIN_OCR_OPERATION_FAILED'});
             sendJobFailure(active, error);
             active.terminalResultSent = true;
         } else if (active.pendingCompletionResult && !active.terminalResultSent) {
@@ -967,7 +955,6 @@ export async function handleOcrCreateSearchablePdfAsync(
         const message = getErrorMessage(error);
         log.error(`Failed to queue OCR worker job: ${message}`, {
             code: 'MAIN_OCR_OPERATION_FAILED',
-            context: {},
             cause: error,
         });
         return createOcrQueueFailure(

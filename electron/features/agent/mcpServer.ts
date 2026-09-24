@@ -521,7 +521,6 @@ export function startLocalMcpServer() {
                 if (logFailure) {
                     logger.error(`Local MCP server failed: ${getErrorMessage(error)}`, {
                         code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                        context: {action: 'enable'},
                         cause: error,
                     });
                 }
@@ -536,7 +535,6 @@ export function startLocalMcpServer() {
                 if (settled) {
                     logger.error(`Local MCP server failed: ${getErrorMessage(normalizedError)}`, {
                         code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                        context: {action: 'enable'},
                         cause: normalizedError,
                     });
                     return;
@@ -695,7 +693,6 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
                 if (logFailure) {
                     logger.error(`Embedded MCP server failed: ${getErrorMessage(error)}`, {
                         code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                        context: {action: 'enable'},
                         cause: error,
                     });
                 }
@@ -711,7 +708,6 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
                 if (settled) {
                     logger.error(`Embedded MCP server failed: ${getErrorMessage(normalizedError)}`, {
                         code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                        context: {action: 'enable'},
                         cause: normalizedError,
                     });
                     return;

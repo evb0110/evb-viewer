@@ -419,10 +419,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
                     error,
                     tabId: tab.id,
-                }, {
-                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                    context: {},
-                });
+                }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
                 logPdfRenderTrace('pdf-open-replacement-rollback', {
                     failedTabId: tab.id,
                     restoredTabId: outgoingTabId,

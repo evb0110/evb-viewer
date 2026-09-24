@@ -96,10 +96,7 @@ export const useNativeWindowCloseHandshake = (
 
             return getDirtyTabs().length === 0 ? 'save' : 'cancel';
         } catch (error) {
-            BrowserLogger.error('workspace', 'Native window close save failed', {error}, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            BrowserLogger.error('workspace', 'Native window close save failed', {error}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return 'cancel';
         } finally {
             closeRequestInFlight = false;

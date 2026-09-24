@@ -146,10 +146,7 @@ function subscribeToBrowserEvent(path: TPropertyPath, args: unknown[]): TUnsubsc
                 'platform',
                 `Failed to subscribe to browser event ${formatPropertyPath(path)}`,
                 error,
-                {
-                    code: 'RENDERER_BROWSER_EVENT_SUBSCRIPTION_FAILED',
-                    context: {},
-                },
+                {code: 'RENDERER_BROWSER_EVENT_SUBSCRIPTION_FAILED'},
             );
         }
     });

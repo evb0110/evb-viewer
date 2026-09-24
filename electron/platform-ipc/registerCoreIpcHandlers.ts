@@ -17,8 +17,6 @@ import {
 } from '@electron/windowTabTransfer';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import { registerRendererLogBridge } from '@electron/platform-ipc/rendererLogBridge';
-import { registerRendererDiagnosticBridge } from '@electron/platform-ipc/registerRendererDiagnosticBridge';
-import { getMainFailureReporter } from '@electron/features/diagnostics/public';
 import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
 import {
     createValidatedIpcMainEventRegistrar,
@@ -28,7 +26,6 @@ import {
 import {
     CORE_IPC_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
-    decodeDiagnosticsCanaryAction,
     decodeIpcInvokeRequestId,
 } from '@electron/platform-ipc/coreContract';
 import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
@@ -57,12 +54,6 @@ const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
     CORE_IPC_SEND_CHANNELS.rendererLog,
     CORE_IPC_SEND_CHANNELS.windowCloseResponse,
 ]);
-
-function isDiagnosticsCanaryEnabled() {
-    return process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1'
-        && Boolean(process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim())
-        && Boolean(process.env.EVB_AUTOMATION_SESSION_NAME?.trim());
-}
 
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
     const otherWindows = sortBy(
@@ -94,49 +85,6 @@ export function registerCoreIpcHandlers(
     ipcMain: Electron.IpcMain,
     options: ICoreIpcHandlerOptions,
 ) {
-    if (isDiagnosticsCanaryEnabled()) {
-        const register = () => ipcMain.handle(CORE_IPC_CHANNELS.diagnosticsCanary, (event, value: unknown) => {
-            if (!isTrustedWebContentsSender(
-                event.sender,
-                event.senderFrame,
-                CORE_IPC_CHANNELS.diagnosticsCanary,
-            )) {
-                return null;
-            }
-            const action = decodeDiagnosticsCanaryAction(value);
-            if (action === 'main-health') {
-                const reporter = getMainFailureReporter();
-                return reporter === null
-                    ? null
-                    : {
-                        preference: reporter.getPreference(),
-                        transportReady: reporter.isTransportReady(),
-                    };
-            }
-            if (action === 'main-error') {
-                return getMainFailureReporter()?.capture({
-                    code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED',
-                    context: {},
-                    local: {
-                        source: 'diagnostics-canary',
-                        message: 'Packaged main diagnostics canary',
-                    },
-                }) ?? null;
-            }
-            if (action === 'crash-main') {
-                setImmediate(() => {
-                    throw new Error('Packaged startup crash-marker canary');
-                });
-                return true;
-            }
-            return null;
-        });
-        if (options.rawIpcRegistrationAudit) {
-            options.rawIpcRegistrationAudit.register('diagnostics-canary', register);
-        } else {
-            register();
-        }
-    }
     const windowTabsRegistrar = createValidatedIpcMainRegistrar<IWindowTabsInvokeMap>(ipcMain, {
         allowedChannels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannelSet,
         codecs: WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs,
@@ -150,27 +98,6 @@ export function registerCoreIpcHandlers(
             });
             if (options.rawIpcRegistrationAudit) {
                 options.rawIpcRegistrationAudit.register('renderer-log', register);
-            } else {
-                register();
-            }
-        },
-    });
-    registerRendererDiagnosticBridge({
-        captureRecord: (record, suppressedCount) => {
-            const reporter = getMainFailureReporter();
-            if (!reporter) {
-                return false;
-            }
-            reporter.captureRecord(record, suppressedCount);
-            return true;
-        },
-        isTrustedSender: isTrustedWebContentsSender,
-        registerListener: (channel, handler) => {
-            const register = () => ipcMain.on(channel, (event, payload, suppressedCount) => {
-                handler(event, payload, suppressedCount);
-            });
-            if (options.rawIpcRegistrationAudit) {
-                options.rawIpcRegistrationAudit.register('renderer-diagnostic', register);
             } else {
                 register();
             }

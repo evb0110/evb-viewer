@@ -867,10 +867,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             },
                             deps,
                         );
-                        const failure = BrowserLogger.error('workspace', 'Save failed', error, {
-                            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                            context: {},
-                        });
+                        const failure = BrowserLogger.error('workspace', 'Save failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
                         const detail = getDocumentMutationErrorPayload(error)?.message
                             ?? getErrorMessage(error);
                         reportSaveFailureIfCurrent('unexpected-error', {

@@ -254,15 +254,12 @@ describe('browserSettingsCapability', () => {
         const localStorage = new MemoryStorage();
         vi.stubGlobal('window', {localStorage});
         const failureReporter = await import('@app/utils/failureReporter');
-        const reporter = failureReporter.initializeRendererFailureReporter({
-            host: 'hosted-browser',
-            preference: 'granted',
-        });
+        failureReporter.setRendererDiagnosticsPreference('granted');
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
         const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
 
-        expect(reporter.getPreference()).toBe('denied');
+        expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
         await savePromise;
         expect(JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? 'null'))
             .toMatchObject({clientDiagnosticsPreference: 'denied'});
@@ -277,16 +274,13 @@ describe('browserSettingsCapability', () => {
             },
         }});
         const failureReporter = await import('@app/utils/failureReporter');
-        const reporter = failureReporter.initializeRendererFailureReporter({
-            host: 'hosted-browser',
-            preference: 'unknown',
-        });
+        failureReporter.setRendererDiagnosticsPreference('unknown');
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
         const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
-        expect(reporter.getPreference()).toBe('granted');
+        expect(failureReporter.getRendererDiagnosticsPreference()).toBe('granted');
         await expect(savePromise).rejects.toThrow('localStorage');
-        expect(reporter.getPreference()).toBe('unknown');
+        expect(failureReporter.getRendererDiagnosticsPreference()).toBe('unknown');
     });
 
     it('does not let an older failed grant reopen after a newer denial', async () => {
@@ -303,10 +297,7 @@ describe('browserSettingsCapability', () => {
             },
         }});
         const failureReporter = await import('@app/utils/failureReporter');
-        const reporter = failureReporter.initializeRendererFailureReporter({
-            host: 'hosted-browser',
-            preference: 'unknown',
-        });
+        failureReporter.setRendererDiagnosticsPreference('unknown');
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
         const grantPromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
@@ -314,7 +305,7 @@ describe('browserSettingsCapability', () => {
 
         await expect(grantPromise).rejects.toThrow('localStorage');
         await denialPromise;
-        expect(reporter.getPreference()).toBe('denied');
+        expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
     });
 
     it('keeps a failed browser revoke closed', async () => {
@@ -325,16 +316,13 @@ describe('browserSettingsCapability', () => {
             },
         }});
         const failureReporter = await import('@app/utils/failureReporter');
-        const reporter = failureReporter.initializeRendererFailureReporter({
-            host: 'hosted-browser',
-            preference: 'granted',
-        });
+        failureReporter.setRendererDiagnosticsPreference('granted');
         const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
 
         const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
-        expect(reporter.getPreference()).toBe('denied');
+        expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
         await expect(savePromise).rejects.toThrow('localStorage');
-        expect(reporter.getPreference()).toBe('denied');
+        expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
     });
 
     it('keeps an otherwise valid browser settings snapshot when diagnostics preference is invalid', async () => {

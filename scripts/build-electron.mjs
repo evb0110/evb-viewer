@@ -5,10 +5,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
-import {
-    readFileSync,
-    realpathSync,
-} from 'node:fs';
+import {realpathSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {
@@ -16,48 +13,21 @@ import {
     join,
 } from 'node:path';
 import esbuild from 'esbuild';
-import {
-    isSentryDiagnosticsBuild,
-    resolveSentryBuildIdentity,
-} from '../packages/contracts/diagnostics/releaseIdentity.js';
-import {stagePrivateSourcemaps} from './release/stage-private-sourcemaps.mjs';
 
 const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href);
 
-const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
-const diagnosticsEligible = isSentryDiagnosticsBuild(process.env);
-const emitSourceMaps = process.env.EVB_ELECTRON_SOURCEMAP === '1' || diagnosticsEligible;
-const desktopIdentity = diagnosticsEligible
-    ? resolveSentryBuildIdentity({
-        target: 'desktop',
-        version: packageJson.version,
-        environment: process.env,
-        platform: process.platform,
-        architecture: process.arch,
-    })
-    : null;
-const desktopDsn = diagnosticsEligible
-    ? process.env.SENTRY_DESKTOP_DSN?.trim() ?? ''
-    : '';
+// Maps are emitted for local debugging or for a release build that uploads
+// them to Sentry (scripts/release/upload-sentry-sourcemaps.mjs deletes them).
+const emitSourceMaps = process.env.EVB_ELECTRON_SOURCEMAP === '1' || Boolean(process.env.SENTRY_AUTH_TOKEN);
 const buildGitSha = resolveBuildGitSha();
 const buildGitShaDefine = {
     '__EVB_BUILD_GIT_SHA__': JSON.stringify(buildGitSha),
     'process.env.EVB_BUILD_GIT_SHA': JSON.stringify(buildGitSha ?? ''),
 };
-const buildIdentityDefine = {
-    '__EVB_SENTRY_BUILD_IDENTITY__': JSON.stringify(desktopIdentity),
-    'process.env.EVB_SENTRY_RELEASE': JSON.stringify(desktopIdentity?.release ?? ''),
-    'process.env.EVB_SENTRY_DIST': JSON.stringify(desktopIdentity?.dist ?? ''),
-    'process.env.EVB_SENTRY_ENVIRONMENT': JSON.stringify(desktopIdentity?.environment ?? ''),
-};
-const buildMetadataDefine = {
-    ...buildGitShaDefine,
-    ...buildIdentityDefine,
-};
+const buildMetadataDefine = buildGitShaDefine;
 const mainSentryDefine = {
     ...buildMetadataDefine,
-    '__EVB_SENTRY_DESKTOP_DSN__': JSON.stringify(desktopDsn),
-    'process.env.SENTRY_DESKTOP_DSN': JSON.stringify(desktopDsn),
+    '__EVB_SENTRY_DSN__': JSON.stringify(process.env.SENTRY_DESKTOP_DSN?.trim() ?? ''),
 };
 const initialBundleOptions = {
     sourcemap: emitSourceMaps ? 'external' : false,
@@ -68,8 +38,6 @@ const initialBundleOptions = {
 };
 const preloadBundleOptions = {
     ...initialBundleOptions,
-    // Preload has no Sentry-owned mapped seam. Keep its ordinary no-map
-    // output even when the reportable main and worker bundles emit maps.
     sourcemap: false,
 };
 
@@ -213,11 +181,3 @@ function resolveCanvasTargetPackage() {
 // worker_threads resolves module type from the nearest package.json; the
 // asar-unpacked copy of this directory has no other package.json above it.
 await writeFile('dist-electron/package.json', `${JSON.stringify({ type: 'module' }, null, 4)}\n`);
-
-if (desktopIdentity) {
-    await stagePrivateSourcemaps({
-        identity: desktopIdentity,
-        outputRoots: ['dist-electron'],
-        resetCompletedIdentityLock: true,
-    });
-}

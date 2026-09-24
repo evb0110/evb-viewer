@@ -480,13 +480,10 @@ describe('createElectronApi', () => {
 
         expect(Object.keys(diagnosticsApi.diagnostics)).toEqual([
             'startupPolicy',
-            'sendRecord',
             'onDebugLog',
         ]);
         expect(diagnosticsApi.diagnostics.startupPolicy).toBe(policy);
         expect(Object.isFrozen(diagnosticsApi.diagnostics.startupPolicy)).toBe(true);
-        diagnosticsApi.diagnostics.sendRecord({} as never, 7);
-        expect(ipcRenderer.send).toHaveBeenCalledWith(CORE_IPC_SEND_CHANNELS.rendererDiagnostic, {}, 7);
 
         diagnosticsApi.diagnostics.onDebugLog(callback);
         listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog)?.({}, {
@@ -591,11 +588,6 @@ describe('createElectronApi', () => {
                 decoderError: expect.any(String),
             })}),
         );
-        expect(ipcRenderer.send).toHaveBeenCalledWith(
-            CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
-            expect.objectContaining({code: 'RENDERER_IPC_EVENT_DECODE_FAILED'}),
-            0,
-        );
 
         listener({}, {
             source: 'main',
@@ -603,7 +595,7 @@ describe('createElectronApi', () => {
             timestamp: '2026-03-21T00:00:00.000Z',
             level: 'TRACE',
         });
-        expect(ipcRenderer.send).toHaveBeenCalledTimes(2);
+        expect(ipcRenderer.send).toHaveBeenCalledTimes(1);
     });
 
     it('decodes agent renderer request events before invoking callbacks', async () => {

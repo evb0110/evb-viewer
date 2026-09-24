@@ -871,10 +871,7 @@ export function createOcrJobWorkerLifecycleController(
             sendJobFailure(job, `OCR job idle timed out after ${OCR_JOB_IDLE_TIMEOUT_MS}ms without worker activity`);
             pendingActiveJob.terminalResultSent = true;
             terminateAndFinalizeActiveJob(job.scopedJobId, {reason: `watchdog idle timeout (${OCR_JOB_IDLE_TIMEOUT_MS}ms)`});
-            logger.error(`OCR watchdog idle timed out job ${job.requestId}`, {
-                code: 'MAIN_OCR_OPERATION_FAILED',
-                context: {},
-            });
+            logger.error(`OCR watchdog idle timed out job ${job.requestId}`, {code: 'MAIN_OCR_OPERATION_FAILED'});
         }, OCR_JOB_IDLE_TIMEOUT_MS);
         watchdog.unref();
         activeJob.watchdogTimer = watchdog;

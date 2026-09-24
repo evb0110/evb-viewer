@@ -206,10 +206,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             RECENT_OPEN_LOG_SECTION,
             'Persistence gate could not complete the save',
             {},
-            {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         presentFailureToast({
             failure,
@@ -247,10 +244,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             }
             return canProceed;
         } catch (saveError) {
-            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: getErrorMessage(saveError)}, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: getErrorMessage(saveError)}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             notifySaveFailure(failure);
             return false;
         }
@@ -266,10 +260,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                 RECENT_OPEN_LOG_SECTION,
                 'Switch blocked: dirty-document decision is unavailable',
                 {tabId: tabId ?? null},
-                {
-                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                    context: {},
-                },
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
             );
             notifySaveFailure(failure);
             return 'cancel' as const;
@@ -285,10 +276,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                     error: getErrorMessage(decisionError),
                     tabId,
                 },
-                {
-                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                    context: {},
-                },
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
             );
             notifySaveFailure(failure);
             return 'cancel' as const;
@@ -326,10 +314,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                 ? await savePendingChangesBeforeSwitch()
                 : true;
         } catch (persistError) {
-            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: getErrorMessage(persistError)}, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: getErrorMessage(persistError)}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             notifySaveFailure(failure);
             return false;
         }
@@ -540,10 +525,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                     RECENT_OPEN_LOG_SECTION,
                     'Close blocked: persistence before close threw',
                     {error: getErrorMessage(persistError)},
-                    {
-                        code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                        context: {},
-                    },
+                    {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
                 );
                 notifySaveFailure(failure);
                 return false;

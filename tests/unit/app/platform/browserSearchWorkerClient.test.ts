@@ -14,11 +14,7 @@ const failureReceipt = {
 };
 const failureReporter = {capture: vi.fn(() => failureReceipt)};
 
-vi.mock('@app/utils/failureReporter', () => ({
-    detectRendererDiagnosticsHost: () => 'hosted-browser',
-    getRendererFailureReporter: () => failureReporter,
-    initializeRendererFailureReporter: () => failureReporter,
-}));
+vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -369,9 +365,8 @@ describe('browserSearchWorkerClient', () => {
         expect(failureReporter.capture).toHaveBeenCalledOnce();
         expect(failureReporter.capture).toHaveBeenCalledWith(expect.objectContaining({
             code: 'RENDERER_SEARCH_WORKER_FAILED',
-            context: {},
             local: expect.objectContaining({source: 'browser-search-worker-parent'}),
-        }), {runtime: 'browser-worker-parent'});
+        }));
         expect(error.failure).toBe(failureReceipt);
         expect({failure: error.failure}.failure).toBe(failureReceipt);
     });

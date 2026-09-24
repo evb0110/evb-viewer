@@ -311,7 +311,6 @@ describe('updates robustness', () => {
             'Update check failed: updater rejected the feed',
             {
                 code: 'MAIN_UPDATE_CHECK_FAILED',
-                context: {origin: 'manual'},
                 cause: expect.any(Error),
             },
         );
@@ -354,10 +353,6 @@ describe('updates robustness', () => {
             expect.stringContaining('Update installation failed: 1.1.0 could not be installed'),
             {
                 code: 'MAIN_UPDATE_STARTUP_FAILED',
-                context: {
-                    phase: 'installation',
-                    attempt: 1,
-                },
                 cause: expect.objectContaining({pendingVersion: '1.1.0'}),
             },
         );
@@ -1188,7 +1183,6 @@ describe('updates robustness', () => {
             'Update installation aborted: failed to write update health marker: disk is read-only',
             {
                 code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
-                context: {},
                 cause: expect.any(Error),
             },
         );

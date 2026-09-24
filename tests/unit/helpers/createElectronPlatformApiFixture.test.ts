@@ -68,7 +68,6 @@ describe('createElectronPlatformApiFixture', () => {
         expect(api.documentFiles.cancelPdfNativePagePreview).toEqual(expect.any(Function));
         expect(api.documentFiles.renderPdfNativePagePreview).toEqual(expect.any(Function));
         expect(api.diagnostics.startupPolicy).toEqual({mode: 'unknown'});
-        expect(api.diagnostics.sendRecord).toEqual(expect.any(Function));
         expect(api.diagnostics.onDebugLog).toEqual(expect.any(Function));
     });
 
@@ -226,10 +225,7 @@ describe('createElectronPlatformApiFixture', () => {
             manifest: BROWSER_PLATFORM_MANIFEST,
             overrides: {scanCleanup: {getSettings: undefined}},
         });
-        const api = createElectronPlatformApiFixture({diagnostics: {
-            startupPolicy: {mode: 'granted'},
-            sendRecord: vi.fn(),
-        }});
+        const api = createElectronPlatformApiFixture({diagnostics: {startupPolicy: {mode: 'granted'}}});
 
         expect(api.diagnostics.startupPolicy).toEqual({mode: 'granted'});
         expect(api.scanCleanup).toEqual(expect.any(Object));

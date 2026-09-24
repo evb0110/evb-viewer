@@ -828,10 +828,7 @@ function handleOutlineLoadError(
         return;
     }
 
-    BrowserLogger.error('pdfOutline', 'Failed to load bookmarks', error, {
-        code: 'RENDERER_PDF_OUTLINE_LOAD_FAILED',
-        context: {},
-    });
+    BrowserLogger.error('pdfOutline', 'Failed to load bookmarks', error, {code: 'RENDERER_PDF_OUTLINE_LOAD_FAILED'});
     outlineError.value = true;
     bookmarks.value = [];
     activeItemId.value = null;

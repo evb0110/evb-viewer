@@ -15,19 +15,6 @@
             />
         </UFormField>
 
-        <UFormField
-            :label="t('settings.serverDiagnosticsOptOut')"
-            :help="t('settings.serverDiagnosticsOptOutDescription')"
-            :ui="settingsFormFieldUi"
-        >
-            <USwitch
-                :model-value="serverDiagnosticsOptOut"
-                :label="t('settings.serverDiagnosticsOptOut')"
-                size="sm"
-                @update:model-value="updateServerDiagnosticsOptOut"
-            />
-        </UFormField>
-
         <NuxtLink class="settings-privacy-link" to="/privacy">
             {{ t('settings.clientDiagnosticsPrivacyNotice') }}
         </NuxtLink>
@@ -37,26 +24,12 @@
 <script setup lang="ts">
 import type { ISettingsData } from '@contracts/shared';
 import type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
-import {
-    readDiagnosticsServerOptOut,
-    writeDiagnosticsServerOptOut,
-    type TDiagnosticsServerOptOut,
-} from '@app/utils/diagnosticsServerOptOut';
 
 defineProps<{settings: ISettingsData;}>();
 
 const emit = defineEmits<{'update:client-diagnostics-preference': [value: TClientDiagnosticsPreference];}>();
 
 const { t } = useTypedI18n();
-const serverDiagnosticsOptOut = ref<TDiagnosticsServerOptOut>(readDiagnosticsServerOptOut());
-
-function updateServerDiagnosticsOptOut(value: boolean) {
-    const nextValue = Boolean(value);
-    if (writeDiagnosticsServerOptOut(nextValue)) {
-        serverDiagnosticsOptOut.value = nextValue;
-    }
-}
-
 const settingsFormFieldUi = {
     label: 'settings-field-label',
     help: 'settings-field-hint mt-1',

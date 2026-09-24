@@ -227,10 +227,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             'workspace-export',
             'Document export failed',
             error,
-            getFailureReceipt(error) ?? {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            },
+            getFailureReceipt(error) ?? {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         presentFailureToast({
             failure,

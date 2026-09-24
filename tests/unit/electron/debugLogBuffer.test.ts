@@ -5,7 +5,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {parseDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import type {IDebugLogEntry} from '@contracts/electronApiCommon';
 import {requireIsoTimestamp} from '@contracts/timestamps';
 
@@ -19,7 +18,7 @@ describe('preload debug log buffer', () => {
             getDebugLogMessages,
             pushDebugLogMessage,
         } = await import('@electron/preload/debugLogBuffer');
-        const eventId = parseDiagnosticEventId('b'.repeat(32))!;
+        const eventId = 'b'.repeat(32);
 
         for (let index = 0; index < 2_000; index += 1) {
             const timestamp = requireIsoTimestamp(`2026-09-03T00:00:${String(index % 60).padStart(2, '0')}.000Z`);

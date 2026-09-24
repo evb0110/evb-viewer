@@ -535,30 +535,10 @@ describe('IPC registry sender trust', () => {
         );
     }, ipcRegistrySecurityImportTimeoutMs);
 
-    it('records the core diagnostic bridges at their real registration sites', async () => {
+    it('records the core diagnostic bridge at its real registration site', async () => {
         await getSettingsHandler();
 
-        expect(rawIpcRegistrationAudit.getRegisteredNames()).toEqual([
-            'renderer-log',
-            'renderer-diagnostic',
-        ]);
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('records the trusted diagnostics canary when automation enables it', async () => {
-        vi.stubEnv('EVB_ENABLE_DIAGNOSTICS_CANARY', '1');
-        vi.stubEnv('EVB_AUTOMATION_USER_DATA_DIR', '/tmp/evb-ipc-audit');
-        vi.stubEnv('EVB_AUTOMATION_SESSION_NAME', 'ipc-audit');
-        const audit = createRawIpcRegistrationAudit();
-        const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
-
-        registerIpcHandlers({rawIpcRegistrationAudit: audit});
-
-        expect(audit.getRegisteredNames()).toEqual([
-            'diagnostics-canary',
-            'renderer-log',
-            'renderer-diagnostic',
-        ]);
-        vi.unstubAllEnvs();
+        expect(rawIpcRegistrationAudit.getRegisteredNames()).toEqual(['renderer-log']);
     }, ipcRegistrySecurityImportTimeoutMs);
 
     it('allows senders under the configured renderer route', async () => {

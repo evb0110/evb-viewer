@@ -18,7 +18,6 @@ import type {
 import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { createDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
@@ -320,7 +319,7 @@ describe('document page-source presentation lifecycle', () => {
         const render = vi.mocked(harness.source.renderPage);
         const receipt: FailureReceipt = {
             code: 'UNCLASSIFIED_RENDERER_ERROR',
-            eventId: createDiagnosticEventId(),
+            eventId: 'd'.repeat(32),
             occurredAt: requireEpochMs(1),
             severity: 'error',
         };

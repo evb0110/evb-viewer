@@ -64,14 +64,7 @@ import {
 const logger = createLogger('scan-cleanup-detection');
 function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
-        logger.error(message, {
-            code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {
-                stage: 'detection',
-                errorCode: 'unknown',
-                failureClass: 'unknown',
-            },
-        });
+        logger.error(message, {code: 'MAIN_SCAN_CLEANUP_FAILED'});
         return;
     }
     logger[level](message);

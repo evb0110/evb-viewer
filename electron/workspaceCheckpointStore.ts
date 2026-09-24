@@ -897,10 +897,7 @@ async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
     // A corrupt checkpoint must not silently masquerade as "no checkpoint" on
     // every startup: log it and move it aside so recovery stops repeating while
     // the bad file is preserved for diagnosis.
-    log.error(`Discarding workspace checkpoint: ${reason}`, {
-        code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
-        context: {},
-    });
+    log.error(`Discarding workspace checkpoint: ${reason}`, {code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED'});
     const storagePath = getStoragePath();
     try {
         const quarantinePath = await quarantineCorruptFile(storagePath);
@@ -916,7 +913,6 @@ async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
         // continues rather than propagating this failure.
         log.error(`Failed to quarantine corrupt workspace checkpoint at ${storagePath}: ${getErrorMessage(error)}`, {
             code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
-            context: {},
             cause: error,
         });
     }
@@ -1397,7 +1393,6 @@ async function readWorkspaceJournalForRecovery() {
         );
         log.error(`Failed to read workspace checkpoint: ${getErrorMessage(error)}`, {
             code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
-            context: {},
             cause: error,
         });
         throw new WorkspaceCheckpointReadError(checkpointPath, error);

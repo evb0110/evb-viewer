@@ -1,23 +1,11 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
 import {
-    isDiagnosticCode,
-    type DiagnosticCode,
-    type DiagnosticContext,
-    type DiagnosticOperation,
-} from '@contracts/diagnostics/diagnosticCodes';
-import {
-    isDiagnosticEventId,
-    type DiagnosticEventId,
-} from '@contracts/diagnostics/diagnosticEventId';
-import {
-    FAILURE_SEVERITIES,
-    type FailureSeverity,
-} from '@contracts/diagnostics/diagnosticRecord';
-import {
     isEpochMs,
     type TEpochMs,
 } from '@contracts/timestamps';
+
+export type FailureSeverity = 'error' | 'fatal';
 
 export interface LocalFailureDetail {
     source: string;
@@ -26,17 +14,21 @@ export interface LocalFailureDetail {
     data?: unknown;
 }
 
-export interface CaptureFailureInput<C extends DiagnosticCode = DiagnosticCode> {
-    code: C;
+/** `code` is a free-form tag such as `MAIN_SAVE_FAILED`; Sentry groups by stack. */
+export interface CaptureFailureInput {
+    code: string;
     severity?: FailureSeverity;
-    operation?: DiagnosticOperation;
-    context: DiagnosticContext<C>;
     local: LocalFailureDetail;
 }
 
+/**
+ * The Error ID the UI shows and a user can quote. `eventId` is the Sentry
+ * event ID when the report was sent, and a local ID of the same shape when it
+ * was not.
+ */
 export interface FailureReceipt {
-    eventId: DiagnosticEventId;
-    code: DiagnosticCode;
+    eventId: string;
+    code: string;
     occurredAt: TEpochMs;
     severity: FailureSeverity;
 }
@@ -47,10 +39,19 @@ const FAILURE_RECEIPT_KEYS = [
     'occurredAt',
     'severity',
 ] as const;
+const EVENT_ID_PATTERN = /^[0-9a-f]{32}$/u;
+const CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,79}$/u;
 
-function isFailureSeverity(value: unknown): value is FailureSeverity {
-    return typeof value === 'string'
-        && FAILURE_SEVERITIES.some(severity => severity === value);
+export function isFailureEventId(value: unknown): value is string {
+    return typeof value === 'string' && EVENT_ID_PATTERN.test(value);
+}
+
+export function isFailureCode(value: unknown): value is string {
+    return typeof value === 'string' && CODE_PATTERN.test(value);
+}
+
+export function isFailureSeverity(value: unknown): value is FailureSeverity {
+    return value === 'error' || value === 'fatal';
 }
 
 export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
@@ -62,8 +63,8 @@ export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
         if (
             keys.length !== FAILURE_RECEIPT_KEYS.length
             || !keys.every(key => typeof key === 'string' && FAILURE_RECEIPT_KEYS.some(allowedKey => allowedKey === key))
-            || !isDiagnosticEventId(value.eventId)
-            || !isDiagnosticCode(value.code)
+            || !isFailureEventId(value.eventId)
+            || !isFailureCode(value.code)
             || !isEpochMs(value.occurredAt)
             || !isFailureSeverity(value.severity)
         ) {

@@ -25,10 +25,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
-import {
-    setMainDiagnosticsPreference,
-    waitForMainDiagnosticsTransportReady,
-} from '@electron/features/diagnostics/public';
+import {setMainDiagnosticsPreference} from '@electron/features/diagnostics/public';
 import {
     parseClientDiagnosticsPreference,
     type TClientDiagnosticsPreference,
@@ -130,7 +127,6 @@ async function recoverSettingsFromStorage(storagePath: string, reason: 'corrupt'
     } catch (recoveryError) {
         logger.error(`Failed to recover ${reason} settings: ${getErrorMessage(recoveryError)}`, {
             code: 'MAIN_SETTINGS_OPERATION_FAILED',
-            context: {},
             cause: recoveryError,
         });
     }
@@ -157,7 +153,6 @@ async function readSettingsFromStorage(storagePath: string) {
         }
         logger.error(`Failed to read settings: ${getErrorMessage(err)}`, {
             code: 'MAIN_SETTINGS_OPERATION_FAILED',
-            context: {},
             cause: err,
         });
         // An EIO or a permission blip can be transient, and quarantining renames
@@ -174,14 +169,12 @@ async function readSettingsFromStorage(storagePath: string) {
         if (err instanceof UnsupportedSettingsSchemaError) {
             logger.error(`Failed to load settings: ${getErrorMessage(err)}`, {
                 code: 'MAIN_SETTINGS_OPERATION_FAILED',
-                context: {},
                 cause: err,
             });
             return recoverSettingsFromStorage(storagePath, 'unsupported');
         }
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`, {
             code: 'MAIN_SETTINGS_OPERATION_FAILED',
-            context: {},
             cause: err,
         });
         return recoverSettingsFromStorage(storagePath, 'corrupt');
@@ -292,7 +285,6 @@ export async function updateSettings(
                 : next;
             await writeSettingsAtomically(storagePath, persistedBeforeGrant);
             if (next.clientDiagnosticsPreference === 'granted') {
-                await waitForMainDiagnosticsTransportReady();
                 const consentStillCurrent = consentIntentRevision === undefined
                     ? startingConsentRevision === diagnosticsConsentRevision
                     : consentIntentRevision === diagnosticsConsentRevision;

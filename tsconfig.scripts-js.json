@@ -70,7 +70,6 @@
         "scripts/lib/pdfjs-package-path.mjs",
         "scripts/ocrQualityMetrics.mjs",
         "scripts/prune-build-artifacts.mjs",
-        "scripts/release/verify-sentry-sourcemap-canaries.mjs",
         "scripts/run-all-gates.mjs",
         "scripts/scan-cleanup-regress.mjs",
         "scripts/stage-wasm-artifacts.mjs",

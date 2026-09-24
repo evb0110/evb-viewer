@@ -12,15 +12,9 @@ const failureReceipt = {
     occurredAt: 1,
     severity: 'error',
 };
-let reporterAvailable = true;
 const failureReporter = {capture: vi.fn(() => failureReceipt)};
-const fallbackReporter = vi.fn(() => failureReporter);
 
-vi.mock('@app/utils/failureReporter', () => ({
-    detectRendererDiagnosticsHost: () => 'hosted-browser',
-    getRendererFailureReporter: () => reporterAvailable ? failureReporter : null,
-    initializeRendererFailureReporter: fallbackReporter,
-}));
+vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -121,8 +115,6 @@ describe('browserPageOpsWorkerClient', () => {
         FakeWorker.instances = [];
         FakeWorker.autoRespond = true;
         failureReporter.capture.mockClear();
-        fallbackReporter.mockClear();
-        reporterAvailable = true;
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -338,7 +330,6 @@ describe('browserPageOpsWorkerClient', () => {
         expect(failureReporter.capture).toHaveBeenCalledOnce();
         expect(failureReporter.capture).toHaveBeenCalledWith(
             expect.objectContaining({local: expect.objectContaining({source: 'browser-page-ops-worker-parent'})}),
-            {runtime: 'browser-worker-parent'},
         );
         expect(error.failure).toBe(failureReceipt);
         expect({failure: error.failure}.failure).toBe(failureReceipt);
@@ -360,28 +351,6 @@ describe('browserPageOpsWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalledOnce();
         expect(failureReporter.capture).not.toHaveBeenCalled();
         vi.useRealTimers();
-    });
-
-    it('uses a fallback reporter when the shared reporter is unavailable', async () => {
-        reporterAvailable = false;
-        const {runBrowserPageOpsWorkerRequest} = await import(
-            '@app/platform/browser-api/browserPageOpsWorkerClient'
-        );
-        const request = runBrowserPageOpsWorkerRequest('rotate', {
-            data: new Uint8Array([1]),
-            pages: [1],
-            angle: 90,
-        });
-        const worker = FakeWorker.lastInstance;
-        if (!worker) {
-            throw new Error('Expected a browser page operations worker');
-        }
-
-        worker.dispatchError(new Error('page operations worker crashed'));
-        await request.catch(() => undefined);
-
-        expect(fallbackReporter).toHaveBeenCalledOnce();
-        expect(failureReporter.capture).toHaveBeenCalledOnce();
     });
 
     it('cancels one dedicated parse without resetting an overlapping sibling', async () => {

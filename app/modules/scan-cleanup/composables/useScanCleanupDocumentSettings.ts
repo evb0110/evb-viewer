@@ -39,7 +39,7 @@ import {
     type TScanCleanupMarginTarget,
 } from '@app/modules/scan-cleanup/runtime/updateScanCleanupMargins';
 import {isDesktopPlatformActive} from '@app/utils/platform';
-import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
@@ -472,19 +472,14 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
                     documentSettingsReady.value = false;
                     const existingFailure = getFailureReceipt(error);
                     documentSettingsLoadFailure.value = {
-                        ...(existingFailure ? {failure: existingFailure} : initializeRendererFailureReporter().captureForPresentation({
+                        ...(existingFailure ? {failure: existingFailure} : captureFailureForPresentation({
                             code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                            context: {
-                                stage: 'renderer-settings',
-                                errorCode: 'unknown',
-                                failureClass: 'unknown',
-                            },
                             local: {
                                 source: 'scan-cleanup',
                                 message: 'Failed to load document settings',
                                 cause: error,
                             },
-                        }, {localAlreadyRecorded: true})),
+                        })),
                         title: t('errors.settings.load'),
                         actions: [{
                             label: t('common.retry'),

@@ -656,7 +656,6 @@ function attachWorkerHandlers<T>({
                     'Worker returned an invalid payload',
                     {
                         code: 'MAIN_WORKER_TASK_FAILED',
-                        context: {},
                         cause: error,
                     },
                     {
@@ -681,7 +680,6 @@ function attachWorkerHandlers<T>({
                 } else {
                     const receipt = workerTaskLog.error('Worker reported failure', {
                         code: 'MAIN_WORKER_TASK_FAILED',
-                        context: {},
                         cause: workerError,
                     }, summary);
                     markWorkerTaskErrorReported(workerError, receipt);
@@ -694,10 +692,7 @@ function attachWorkerHandlers<T>({
                 if (decoded === null) {
                     const receipt = workerTaskLog.error(
                         'Worker returned an invalid result',
-                        {
-                            code: 'MAIN_WORKER_TASK_FAILED',
-                            context: {},
-                        },
+                        {code: 'MAIN_WORKER_TASK_FAILED'},
                         {
                             workerPath: options.workerPath,
                             elapsedMs: Math.round(performance.now() - startedAt),
@@ -745,7 +740,6 @@ function attachWorkerHandlers<T>({
         } else {
             receipt = workerTaskLog.error('Worker emitted an error', {
                 code: 'MAIN_WORKER_TASK_FAILED',
-                context: {},
                 cause: error,
             }, summary);
         }
@@ -780,10 +774,7 @@ function attachWorkerHandlers<T>({
         if (hasPendingCancelError) {
             workerTaskLog.info('Worker exited while cancelling', summary);
         } else {
-            receipt = workerTaskLog.error('Worker exited before returning a result', {
-                code: 'MAIN_WORKER_TASK_FAILED',
-                context: {},
-            }, summary);
+            receipt = workerTaskLog.error('Worker exited before returning a result', {code: 'MAIN_WORKER_TASK_FAILED'}, summary);
         }
         finalize(() => {
             if (hasPendingCancelError) {

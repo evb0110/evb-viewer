@@ -72,18 +72,11 @@ import {
 import {searchWorkerService} from '@electron/features/search/public';
 import {
     captureMainFailure,
-    createNoopMainDiagnosticsTransport,
-    getMainFailureReporter,
-    initializeMainFailureReporter,
+    consumeStartupCrashMarker,
+    installStartupCrashMarker,
+    readDiagnosticsPreferenceSync,
     setMainDiagnosticsPreference,
 } from '@electron/features/diagnostics/public';
-import { readDiagnosticsPreferenceSync } from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';
-import {
-    installStartupCrashMarker,
-    notifyStartupCrashMarkerAdapterReady,
-    resolveDesktopDiagnosticDist,
-    STARTUP_CRASH_MARKER_FILE_NAME,
-} from '@electron/features/diagnostics/startupCrashMarker';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     createAppWindow,
@@ -166,10 +159,6 @@ import {
 import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
 import { configureMainJobBroker } from '@electron/resources/jobBroker';
 import { initializeElectronTranslations } from '@electron/te';
-import type {
-    DiagnosticCode,
-    DiagnosticContext,
-} from '@contracts/diagnostics/diagnosticCodes';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 configureProcessSafeMode(app, process.argv);
@@ -190,104 +179,8 @@ if (automationUserDataDir) {
 configureLogDirectory(app.getPath('logs'));
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
-const diagnosticsPreference = readDiagnosticsPreferenceSync();
-const desktopDiagnosticRelease = `evb-viewer-desktop@${resolveApplicationVersion(app)}`;
-const desktopDiagnosticDist = resolveDesktopDiagnosticDist();
-const startupCrashMarker = installStartupCrashMarker({
-    markerPath: join(app.getPath('userData'), STARTUP_CRASH_MARKER_FILE_NAME),
-    preference: () => getMainFailureReporter()?.getPreference() ?? diagnosticsPreference,
-    // The bootstrap reporter owns no live transport. The real adapter must
-    // call notifyStartupCrashMarkerAdapterReady after it is installed.
-    release: desktopDiagnosticRelease,
-    dist: desktopDiagnosticDist,
-});
-let mainDiagnosticsAdapterLoad: Promise<void> | null = null;
-const unavailableMainDiagnosticsTransport = Object.freeze({
-    isReady: false,
-    send: () => false,
-});
-function ensureMainDiagnosticsAdapter() {
-    if (mainDiagnosticsAdapterLoad !== null) {
-        return mainDiagnosticsAdapterLoad;
-    }
-    if (
-        process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1'
-        && process.env.EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER === '1'
-        && automationUserDataDir
-        && process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
-    ) {
-        mainDiagnosticsAdapterLoad = Promise.resolve();
-        return mainDiagnosticsAdapterLoad;
-    }
-    if (
-        process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1'
-        && process.env.EVB_DIAGNOSTICS_CANARY_NOOP_ADAPTER === '1'
-        && automationUserDataDir
-        && process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
-    ) {
-        const transport = createNoopMainDiagnosticsTransport();
-        mainFailureReporterForAdapter.setTransport(transport);
-        notifyStartupCrashMarkerAdapterReady({
-            preference: () => mainFailureReporterForAdapter.getPreference(),
-            release: desktopDiagnosticRelease,
-            dist: desktopDiagnosticDist,
-            send: marker => transport.send?.({
-                schemaVersion: 1,
-                eventId: marker.eventId,
-                code: 'MAIN_STARTUP_CRASH',
-                severity: 'fatal',
-                runtime: 'electron-main',
-                operation: 'startup-crash',
-                occurredAt: marker.timestamp,
-                frames: marker.frames,
-                context: {},
-            }),
-            onDiscard: reason => logger.debug(`Discarded startup crash marker: ${reason}`),
-        });
-        mainDiagnosticsAdapterLoad = Promise.resolve();
-        return mainDiagnosticsAdapterLoad;
-    }
-    mainDiagnosticsAdapterLoad = import('@electron/features/diagnostics/sentryNodeAdapter')
-        .then(({createSentryNodeDiagnosticsTransportFromEnvironment}) => {
-            const transport = createSentryNodeDiagnosticsTransportFromEnvironment({
-                appVersion: resolveApplicationVersion(app),
-                platform: process.platform,
-                architecture: process.arch,
-                runtimeVersions: process.versions,
-                rendererStaticRoot: config.renderer.staticRoot,
-            });
-            mainFailureReporterForAdapter.setTransport(transport);
-            notifyStartupCrashMarkerAdapterReady({
-                preference: () => mainFailureReporterForAdapter.getPreference(),
-                release: desktopDiagnosticRelease,
-                dist: desktopDiagnosticDist,
-                send: marker => transport.send?.({
-                    schemaVersion: 1,
-                    eventId: marker.eventId,
-                    code: 'MAIN_STARTUP_CRASH',
-                    severity: 'fatal',
-                    runtime: 'electron-main',
-                    operation: 'startup-crash',
-                    occurredAt: marker.timestamp,
-                    frames: marker.frames,
-                    context: {},
-                }),
-                onDiscard: reason => logger.debug(`Discarded startup crash marker: ${reason}`),
-            });
-        })
-        .catch(() => {
-            mainDiagnosticsAdapterLoad = null;
-        });
-    return mainDiagnosticsAdapterLoad;
-}
-const mainFailureReporterForAdapter = initializeMainFailureReporter({
-    preference: diagnosticsPreference,
-    transport: unavailableMainDiagnosticsTransport,
-    onPreferenceGranted: ensureMainDiagnosticsAdapter,
-});
-if (diagnosticsPreference === 'granted') {
-    void ensureMainDiagnosticsAdapter();
-}
+setMainDiagnosticsPreference(readDiagnosticsPreferenceSync());
+const disarmStartupCrashMarker = installStartupCrashMarker();
 
 const logger = createLogger('main');
 let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
@@ -298,17 +191,14 @@ let pendingFatalFailure: {
     receipt: FailureReceipt
 } | null = null;
 
-function logMainFailure<C extends DiagnosticCode>(
-    code: C,
-    context: DiagnosticContext<C>,
+function logMainFailure(
+    code: string,
     message: string,
     cause?: unknown,
 ) {
     try {
         return logger.error(message, {
             code,
-            operation: 'main-error',
-            context,
             cause,
         });
     } catch {
@@ -368,10 +258,7 @@ const startupTrace = createStartupTrace(logger);
 
 function requestFatalShutdown(reason: string, receipt?: FailureReceipt) {
     if (!shutdownCoordinator) {
-        logger.error(reason, receipt ?? {
-            code: 'MAIN_SHUTDOWN_FAILED',
-            context: {},
-        });
+        logger.error(reason, receipt ?? {code: 'MAIN_SHUTDOWN_FAILED'});
         app.exit(1);
         return;
     }
@@ -406,7 +293,6 @@ const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({asy
     const message = `Restarting ${subsystem} subsystem after repeated unhandled promise rejections`;
     const receipt = logMainFailure(
         'MAIN_UNHANDLED_REJECTION_RECOVERY',
-        {subsystem},
         message,
     );
     if (receipt) {
@@ -564,16 +450,10 @@ function preserveCriticalWriteWorkingCopies(
             workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
             logger.error(
                 `Skipping working-copy deletion for ${description} critical write path: ${operation.workingCopyPath}`,
-                {
-                    code: 'MAIN_SHUTDOWN_FAILED',
-                    context: {},
-                },
+                {code: 'MAIN_SHUTDOWN_FAILED'},
             );
         } else {
-            logger.error(`A ${description} critical write has no working-copy path; operation=${operation.id}`, {
-                code: 'MAIN_SHUTDOWN_FAILED',
-                context: {},
-            });
+            logger.error(`A ${description} critical write has no working-copy path; operation=${operation.id}`, {code: 'MAIN_SHUTDOWN_FAILED'});
         }
     }
 }
@@ -605,10 +485,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                     });
                     if (shutdownSaveFlushRequiresRecoveryPreservation(result)) {
                         context.preserveRecoveryState = true;
-                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {
-                            code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
-                            context: {},
-                        });
+                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'});
                     }
                     if (shutdownSaveFlushRequiresRetryableQuit(result)) {
                         context.retryablePreservationFailure = true;
@@ -651,10 +528,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                 run: async () => {
                     const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
                     if (!result.completed) {
-                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`, {
-                            code: 'MAIN_SHUTDOWN_FAILED',
-                            context: {},
-                        });
+                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`, {code: 'MAIN_SHUTDOWN_FAILED'});
                         preserveCriticalWriteWorkingCopies(result.pending, 'pending');
                     }
                 },
@@ -773,7 +647,6 @@ process.on('unhandledRejection', (reason) => {
     const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? getErrorMessage(reason) : getErrorMessage(reason)}`;
     logMainFailure(
         'MAIN_UNHANDLED_REJECTION',
-        {subsystem: decision.action === 'recover' ? decision.subsystem : 'unknown'},
         rejectionMessage,
         reason,
     );
@@ -786,10 +659,7 @@ process.on('unhandledRejection', (reason) => {
     const recoveryLoggerError = (message: string) => {
         const recoveryReceipt = unhandledRecoveryReceipts.get(decision.subsystem);
         if (!recoveryReceipt) {
-            return logger.error(message, {
-                code: 'MAIN_UNHANDLED_REJECTION_RECOVERY',
-                context: {subsystem: decision.subsystem},
-            });
+            return logger.error(message, {code: 'MAIN_UNHANDLED_REJECTION_RECOVERY'});
         }
         const projectedReceipt = logger.error(message, recoveryReceipt);
         unhandledRecoveryReceipts.delete(decision.subsystem);
@@ -823,8 +693,14 @@ process.on('warning', (warning) => {
         stack: warning.stack,
     });
 });
+disarmStartupCrashMarker();
 process.on('uncaughtException', (error) => {
-    const receipt = startupCrashMarker.captureLiveException(error);
+    const receipt = captureMainFailure({
+        code: 'MAIN_UNCAUGHT_EXCEPTION',
+        message: 'Uncaught exception in main process',
+        cause: error,
+        severity: 'fatal',
+    });
     requestFatalShutdown(
         `Uncaught exception in main process: ${error.stack ?? error.message}`,
         receipt,
@@ -920,7 +796,7 @@ void runInitSequence({
     logger,
     loadSettings,
     logStartupPhase: startupTrace.log,
-    onPrimaryInstanceReady: startupCrashMarker.markPrimaryInstanceReady,
+    onPrimaryInstanceReady: consumeStartupCrashMarker,
     markWindowRendererReady: (windowId) => {
         markWindowRendererReady(windowId);
         if (windowId !== getRegisteredMainWindow()?.id) {

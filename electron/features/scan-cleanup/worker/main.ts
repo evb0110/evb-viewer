@@ -5,10 +5,6 @@ import {
 } from 'worker_threads';
 import {basename} from 'path';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    getScanCleanupDiagnosticErrorCode,
-    getScanCleanupDiagnosticFailureClass,
-} from '@contracts/diagnostics/diagnosticCodes';
 import { decodeScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { createLogger } from '@electron/utils/createLogger';
 import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
@@ -33,14 +29,7 @@ const data = workerData as {
 const logger = createLogger('scan-cleanup-worker');
 function logScanCleanupWorkerMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
-        logger.error('Scan cleanup worker reported an error', {
-            code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {
-                stage: 'worker',
-                errorCode: 'unknown',
-                failureClass: 'unknown',
-            },
-        }, {message});
+        logger.error('Scan cleanup worker reported an error', {code: 'MAIN_SCAN_CLEANUP_FAILED'}, {message});
         return;
     }
     logger[level]('Scan cleanup worker reported a message', {message});
@@ -120,11 +109,6 @@ try {
     } else {
         logger.error('Scan cleanup run failed', {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
-            context: {
-                stage: 'worker',
-                errorCode: getScanCleanupDiagnosticErrorCode(error),
-                failureClass: getScanCleanupDiagnosticFailureClass(error),
-            },
             cause: error,
         }, {
             elapsedMs: Number(elapsedMs),

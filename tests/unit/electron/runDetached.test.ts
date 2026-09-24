@@ -24,7 +24,6 @@ describe('runDetached', () => {
             'Detached task "cleanup" failed: cleanup failed',
             {
                 code: 'MAIN_DETACHED_PROCESS_FAILED',
-                context: {},
                 cause: failure,
             },
         );
@@ -48,7 +47,6 @@ describe('runDetached', () => {
             'Detached task "sync cleanup" failed: sync failure',
             {
                 code: 'MAIN_DETACHED_PROCESS_FAILED',
-                context: {},
                 cause: failure,
             },
         );

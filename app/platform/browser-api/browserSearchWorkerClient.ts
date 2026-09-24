@@ -17,12 +17,8 @@ import {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
+import { captureRendererFailure } from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {
-    detectRendererDiagnosticsHost,
-    getRendererFailureReporter,
-    initializeRendererFailureReporter,
-} from '@app/utils/failureReporter';
 
 interface IPendingWorkerRequest {
     requestType: TBrowserSearchWorkerRequestType;
@@ -93,16 +89,14 @@ function reportWorkerFailure(error: Error) {
         return error;
     }
 
-    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
-    const receipt = reporter.capture({
+    const receipt = captureRendererFailure({
         code: 'RENDERER_SEARCH_WORKER_FAILED',
-        context: {},
         local: {
             source: 'browser-search-worker-parent',
             message: error.message,
             cause: error,
         },
-    }, {runtime: 'browser-worker-parent'});
+    });
     Object.defineProperty(error, 'failure', {
         configurable: true,
         value: receipt,

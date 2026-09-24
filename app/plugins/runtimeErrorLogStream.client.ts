@@ -12,7 +12,8 @@ import {
 } from '@app/utils/platform';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
 import {getValidatedElectronPlatformApi} from '@app/utils/electronPlatformBridge';
-import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
 
 interface IRuntimeErrorLogStreamState { cleanup: () => void; }
@@ -52,7 +53,6 @@ export default defineNuxtPlugin((nuxtApp) => {
         },
         () => localeCookie.value,
     );
-    const reporter = initializeRendererFailureReporter({host: isElectronUserAgent() ? 'electron' : 'hosted-browser'});
     const reportReceiptAware = (presentation: FailurePresentation) => {
         reportRuntimeError({
             failure: presentation.failure,
@@ -69,9 +69,8 @@ export default defineNuxtPlugin((nuxtApp) => {
         });
     };
     const captureReceiptFreeProjection = (entry: IDebugLogEntry, title: string) => {
-        const presentation = reporter.captureForPresentation({
+        const presentation = captureFailureForPresentation({
             code: 'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
-            context: {phase: 'legacy-error-projection'},
             local: {
                 source: 'runtime-error-log-stream',
                 message: 'Main runtime error log entry has no failure receipt',
@@ -81,7 +80,7 @@ export default defineNuxtPlugin((nuxtApp) => {
                     message: entry.message,
                 },
             },
-        }, {localAlreadyRecorded: true});
+        });
         return {
             ...presentation,
             title,
@@ -164,14 +163,14 @@ export default defineNuxtPlugin((nuxtApp) => {
                 // The bridge readiness probe can finish before the diagnostics
                 // capability is available. This is a separate renderer fault,
                 // so it owns one occurrence and then presents that receipt.
-                const presentation = reporter.captureForPresentation({
+                const presentation = captureFailureForPresentation({
                     code: 'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
-                    context: {phase: 'subscription-initialization'},
                     local: {
                         source: 'runtime-error-log-stream',
                         message: 'Electron diagnostics log stream initialization failed',
                     },
                 });
+                BrowserLogger.error('runtime-error-log-stream', 'Electron diagnostics log stream initialization failed', undefined, presentation.failure);
                 reportReceiptAware({
                     ...presentation,
                     failure: presentation.failure,

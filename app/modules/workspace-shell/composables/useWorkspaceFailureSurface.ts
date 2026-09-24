@@ -111,10 +111,7 @@ export const useWorkspaceFailureSurface = () => {
                 detail: description,
                 ...(diagnostics === undefined ? {} : {diagnostics}),
             },
-            {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         const presentation: FailurePresentation = {
             failure: receipt,
@@ -210,10 +207,7 @@ export const useWorkspaceFailureSurface = () => {
                 reason,
                 detail: description,
             },
-            {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         presentFailureToast({
             failure: receipt,

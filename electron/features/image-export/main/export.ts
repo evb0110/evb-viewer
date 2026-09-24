@@ -117,10 +117,7 @@ interface IExportPageRange {
 const logger = createLogger('image-export');
 function logImageExportMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
-        logger.error(message, {
-            code: 'MAIN_IMAGE_EXPORT_FAILED',
-            context: {},
-        });
+        logger.error(message, {code: 'MAIN_IMAGE_EXPORT_FAILED'});
         return;
     }
     logger[level](message);

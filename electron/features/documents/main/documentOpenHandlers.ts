@@ -190,7 +190,6 @@ async function openDocumentsFromDialog(
     } catch (err) {
         logger.error(`${failureMessage}: ${getErrorMessage(err)}`, {
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            context: {},
             cause: err,
         });
         throw errorWithDetails(te('errors.file.open'), err);
@@ -234,7 +233,6 @@ export async function handleOpenPdfDirect(
     } catch (err) {
         logger.error(`Failed to create working copy: ${getErrorMessage(err)}`, {
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            context: {},
             cause: err,
         });
         throw errorWithDetails(te('errors.file.open'), err);
@@ -287,7 +285,6 @@ export async function handleOpenPdfDirectBatch(
     } catch (err) {
         logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`, {
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            context: {},
             cause: err,
         });
         throw errorWithDetails(te('errors.file.open'), err);
@@ -330,7 +327,6 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
     } catch (err) {
         logger.error(`Failed to read folder contents: ${getErrorMessage(err)}`, {
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            context: {},
             cause: err,
         });
         throw errorWithDetails(te('errors.file.open'), err);
@@ -345,7 +341,6 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
     } catch (err) {
         logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`, {
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
-            context: {},
             cause: err,
         });
         throw errorWithDetails(te('errors.file.open'), err);

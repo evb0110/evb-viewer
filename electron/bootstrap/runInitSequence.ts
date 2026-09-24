@@ -322,7 +322,6 @@ function bootIpc(
         })().catch((error: unknown) => {
             logger.error(`Failed to create a workspace recovery window: ${getErrorMessage(error)}`, {
                 code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-                context: {},
                 cause: error,
             });
         }).finally(() => {
@@ -609,7 +608,6 @@ function bootWindowLifecycle(
             void createWindow().catch((error) => {
                 logger.error(`Failed to create window on activate: ${getErrorMessage(error)}`, {
                     code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-                    context: {},
                     cause: error,
                 });
             });
@@ -658,7 +656,6 @@ function bootUpdates(options: IRunInitSequenceOptions) {
     } catch (error) {
         options.logger.error(`Failed to initialize updates: ${getErrorMessage(error)}`, {
             code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-            context: {},
             cause: error,
         });
     }
@@ -671,7 +668,6 @@ function bootMenu(options: IRunInitSequenceOptions) {
     } catch (error) {
         options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`, {
             code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-            context: {},
             cause: error,
         });
     }
@@ -686,7 +682,6 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
     const electronTranslationsReady = options.initializeElectronTranslations().catch((error: unknown) => {
         options.logger.error(`Failed to initialize Electron translations: ${getErrorMessage(error)}`, {
             code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-            context: {},
             cause: error,
         });
     });
@@ -712,14 +707,12 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
         } catch (error) {
             options.logger.error(`Failed to initialize recent files cache: ${getErrorMessage(error)}`, {
                 code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-                context: {},
                 cause: error,
             });
         }
     })().catch((error) => {
         options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`, {
             code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
-            context: {},
             cause: error,
         });
     });

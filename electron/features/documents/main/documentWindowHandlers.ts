@@ -80,7 +80,6 @@ export async function handleShowItemInFolder(
     } catch (error) {
         logger.error(`Failed to show item in folder: ${getErrorMessage(error)}`, {
             code: 'MAIN_DOCUMENT_REVEAL_FAILED',
-            context: {},
             cause: error,
         });
         return false;

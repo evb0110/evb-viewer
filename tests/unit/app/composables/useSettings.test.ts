@@ -210,11 +210,6 @@ describe('useSettings', () => {
             .mockRejectedValueOnce(new Error('temporary failure'))
             .mockResolvedValue(undefined);
 
-        const failureReporter = await import('@app/utils/failureReporter');
-        const reporter = failureReporter.initializeRendererFailureReporter({
-            host: 'hosted-browser',
-            preference: 'denied',
-        });
         const { useSettings } = await import('@app/composables/useSettings');
         const {
             isSettingsSavePendingRetry,
@@ -234,7 +229,6 @@ describe('useSettings', () => {
         expect(settingsSaveError.value).toBe('temporary failure');
         const firstFailure = settingsSaveFailure.value;
         expect(firstFailure?.failure.code).toBe('SETTINGS_SAVE_FAILED');
-        expect(reporter.getHealthSnapshot().attempted).toBe(1);
         expect(isSettingsSavePendingRetry.value).toBe(true);
 
         settings.value.locale = 'de';
@@ -245,7 +239,6 @@ describe('useSettings', () => {
         expect(settingsSaveStatus.value).toBe('idle');
         expect(settingsSaveError.value).toBeNull();
         expect(settingsSaveFailure.value).toBeNull();
-        expect(reporter.getHealthSnapshot().attempted).toBe(1);
         expect(firstFailure?.failure.eventId).toBeDefined();
         expect(isSettingsSavePendingRetry.value).toBe(false);
         vi.useRealTimers();
@@ -295,16 +288,13 @@ describe('useSettings', () => {
     it('changes the live diagnostics gate before the debounced settings save', async () => {
         vi.useFakeTimers();
         const failureReporter = await import('@app/utils/failureReporter');
-        const reporter = failureReporter.initializeRendererFailureReporter({
-            host: 'hosted-browser',
-            preference: 'granted',
-        });
+        failureReporter.setRendererDiagnosticsPreference('granted');
         const { useSettings } = await import('@app/composables/useSettings');
         const { updateSetting } = useSettings();
 
         updateSetting('clientDiagnosticsPreference', 'denied');
 
-        expect(reporter.getPreference()).toBe('denied');
+        expect(failureReporter.getRendererDiagnosticsPreference()).toBe('denied');
         expect(mockSave).not.toHaveBeenCalled();
         vi.clearAllTimers();
         vi.useRealTimers();

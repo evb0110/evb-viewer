@@ -279,10 +279,7 @@ export const useWorkspaceFileLifecycleController = (
                 reason: 'open-djvu-threw',
                 djvuPath,
                 error: message,
-            }, {
-                code: 'RENDERER_DJVU_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_DJVU_OPERATION_FAILED'});
             return {
                 status: 'failed',
                 error: message,

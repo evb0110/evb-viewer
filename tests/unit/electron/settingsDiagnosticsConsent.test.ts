@@ -28,9 +28,6 @@ const mocks = vi.hoisted(() => ({
     setMainDiagnosticsPreference: vi.fn((preference: unknown) => {
         mocks.events.push(`preference:${String(preference)}`);
     }),
-    waitForMainDiagnosticsTransportReady: vi.fn(async () => {
-        mocks.events.push('adapter-ready');
-    }),
     userDataPath: '',
 }));
 
@@ -50,7 +47,6 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 vi.mock('@electron/features/diagnostics/public', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference,
-    waitForMainDiagnosticsTransportReady: mocks.waitForMainDiagnosticsTransportReady,
 }));
 vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: mocks.atomicReplace,
@@ -82,7 +78,6 @@ describe('Electron diagnostics consent persistence ordering', () => {
 
         expect(mocks.events).toEqual([
             'persist',
-            'adapter-ready',
             'persist',
             'preference:granted',
         ]);

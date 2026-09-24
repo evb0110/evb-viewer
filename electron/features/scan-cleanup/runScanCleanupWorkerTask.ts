@@ -15,10 +15,6 @@ import type {
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 import {
-    getScanCleanupDiagnosticErrorCode,
-    getScanCleanupDiagnosticFailureClass,
-} from '@contracts/diagnostics/diagnosticCodes';
-import {
     getWorkerTaskFailureReceipt,
     rememberWorkerTaskFailureReceipt,
     resolveUnpackedWorkerPath,
@@ -56,12 +52,6 @@ function decodeProgress(value: unknown): TDecodedProgress {
         logger.error('Rejected scan cleanup worker progress', {
             code: 'MAIN_SCAN_CLEANUP_FAILED',
             severity: 'error',
-            operation: 'main-error',
-            context: {
-                stage: 'worker-task',
-                errorCode: getScanCleanupDiagnosticErrorCode(error),
-                failureClass: getScanCleanupDiagnosticFailureClass(error),
-            },
             cause: error,
         }, {
             value,
@@ -139,11 +129,6 @@ export async function runScanCleanupWorkerTask(
                 error,
                 logger.error(`Scan cleanup worker task rejected: ${detail}`, {
                     code: 'MAIN_SCAN_CLEANUP_FAILED',
-                    context: {
-                        stage: 'worker-task',
-                        errorCode: getScanCleanupDiagnosticErrorCode(error),
-                        failureClass: getScanCleanupDiagnosticFailureClass(error),
-                    },
                     cause: error,
                 }),
             );

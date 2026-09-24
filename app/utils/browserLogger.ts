@@ -2,29 +2,16 @@ import { getErrorMessage } from '@app/utils/error';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import type { IRendererLogEntry } from '@contracts/electronApiCommon';
-import type {
-    CaptureFailureInput,
-    FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import {decodeFailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import type {
-    DiagnosticCode,
-    DiagnosticContext,
-} from '@contracts/diagnostics/diagnosticCodes';
-import {
-    captureRendererFailure,
-    initializeRendererFailureReporter,
-} from '@app/utils/failureReporter';
+import { captureRendererFailure } from '@app/utils/failureReporter';
 import { createIsoTimestamp } from '@contracts/timestamps';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
 
-interface IBrowserLoggerErrorOptions<C extends DiagnosticCode> {
-    code: C;
-    context: DiagnosticContext<C>;
-}
+interface IBrowserLoggerErrorOptions {code: string;}
 
 const ORIGINAL_CONSOLE_SINKS = {
     debug: console.debug.bind(console),
@@ -110,19 +97,6 @@ function isPdfNavConsoleDiagnosticEnabled() {
     }
 
     return (window as Window & {__pdfNavLogConsole?: boolean;}).__pdfNavLogConsole === true;
-}
-
-function hasElectronRendererBridge() {
-    if (typeof window === 'undefined') {
-        return false;
-    }
-
-    try {
-        const electronAPI: unknown = Reflect.get(window, 'electronAPI');
-        return electronAPI !== null && typeof electronAPI === 'object';
-    } catch {
-        return false;
-    }
 }
 
 function serializeForRendererLog(value: unknown) {
@@ -403,54 +377,24 @@ export const BrowserLogger = {
         );
     },
 
-    error: <C extends DiagnosticCode>(
+    error: (
         section: string,
         message: string,
         error: TLazyValue | undefined,
-        existingReceiptOrOptions: FailureReceipt | IBrowserLoggerErrorOptions<C>,
+        existingReceiptOrOptions: FailureReceipt | IBrowserLoggerErrorOptions,
     ): FailureReceipt => {
-        let existingReceipt: FailureReceipt | undefined;
-        let diagnosticOptions: IBrowserLoggerErrorOptions<C> | undefined;
-        if (isFailureReceipt(existingReceiptOrOptions)) {
-            existingReceipt = existingReceiptOrOptions;
-        } else {
-            diagnosticOptions = existingReceiptOrOptions;
-        }
         const resolved = resolveLazyValue(error);
-        const local = {
-            source: section,
-            message,
-            cause: resolved,
-            data: resolved,
-        };
-        const captureOptions = {localAlreadyRecorded: true};
-        let receipt: FailureReceipt;
-        if (existingReceipt) {
-            receipt = existingReceipt;
-        } else if (diagnosticOptions) {
-            const input: CaptureFailureInput<C> = {
-                code: diagnosticOptions.code,
-                context: diagnosticOptions.context,
-                local,
-            };
-            receipt = captureRendererFailure(input, captureOptions)
-                ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
-        } else {
-            const input: CaptureFailureInput<'UNCLASSIFIED_RENDERER_ERROR'> = {
-                code: 'UNCLASSIFIED_RENDERER_ERROR',
-                context: {phase: 'operation'},
-                local,
-            };
-            receipt = captureRendererFailure(input, captureOptions)
-                ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
-            try {
-                ORIGINAL_CONSOLE_SINKS.warn(
-                    '[BrowserLogger] ERROR call used the closed unclassified fallback because its diagnostic input was invalid.',
-                );
-            } catch {
-                // Local warning failure cannot interrupt the original error path.
-            }
-        }
+        const receipt = isFailureReceipt(existingReceiptOrOptions)
+            ? existingReceiptOrOptions
+            : captureRendererFailure({
+                code: existingReceiptOrOptions.code,
+                local: {
+                    source: section,
+                    message,
+                    cause: resolved,
+                    data: resolved,
+                },
+            });
 
         emitLog('error', section, message, resolved, {failureRef: receipt});
         return receipt;

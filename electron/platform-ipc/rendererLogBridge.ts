@@ -256,10 +256,7 @@ function dispatchRendererLogRecord(webContentsId: number, entry: INormalizedRend
     if (entry.level === 'error' && !failureRef) {
         failureRef = rendererLogger.error(
             'Renderer error record arrived without a failure receipt',
-            {
-                code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED'},
             {
                 section: entry.section,
                 window: webContentsId,

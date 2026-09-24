@@ -523,10 +523,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
-            const failure = BrowserLogger.error('tabs-shell', 'Workspace checkpoint restore failed', error, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            const failure = BrowserLogger.error('tabs-shell', 'Workspace checkpoint restore failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             presentFailureToast({
                 failure,
                 title: t('errors.workspace.sessionRestoreTitle'),

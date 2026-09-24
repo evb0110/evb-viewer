@@ -293,10 +293,7 @@ export async function combinePdfFiles(options: ICombinePdfFilesOptions): Promise
                 code,
                 detail: getErrorMessage(error),
             },
-            {
-                code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'},
         );
         throw new CombinePdfError(code, {
             cause: error,

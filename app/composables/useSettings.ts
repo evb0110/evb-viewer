@@ -16,7 +16,7 @@ import {
 } from '@app/utils/browserSettingsPersistence';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import {
-    initializeRendererFailureReporter,
+    captureFailureForPresentation,
     setRendererDiagnosticsPreference,
 } from '@app/utils/failureReporter';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
@@ -51,15 +51,14 @@ function captureSettingsPersistenceFailure(
     const existingFailure = getFailureReceipt(error);
     const presentation = existingFailure
         ? {failure: existingFailure}
-        : initializeRendererFailureReporter().captureForPresentation({
+        : captureFailureForPresentation({
             code,
-            context: {},
             local: {
                 source: 'settings',
                 message,
                 cause: error,
             },
-        }, {localAlreadyRecorded: true});
+        });
     BrowserLogger.error('settings', message, error, presentation.failure);
     return presentation;
 }

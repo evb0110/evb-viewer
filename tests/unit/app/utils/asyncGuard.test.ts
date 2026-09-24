@@ -116,10 +116,7 @@ describe('asyncGuard', () => {
             'test-scope',
             'Failed to run task',
             expect.objectContaining({category: 'user-visible-operation'}),
-            {
-                code: 'RENDERER_ASYNC_GUARD_FAILED',
-                context: {category: 'user-visible-operation'},
-            },
+            {code: 'RENDERER_ASYNC_GUARD_FAILED'},
         );
         expect(onError.mock.invocationCallOrder[0]).toBeLessThan(loggerSpies.error.mock.invocationCallOrder[0]!);
         expect(observed).toEqual([

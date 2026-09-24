@@ -77,7 +77,6 @@ export async function setElectronLocale(locale: TLocale) {
             `Failed to load Electron locale ${resolvedLocale}: ${getErrorMessage(error)}`,
             {
                 code: 'MAIN_ELECTRON_LOCALE_LOAD_FAILED',
-                context: {locale: resolvedLocale},
                 cause: error,
             },
         );

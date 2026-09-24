@@ -72,7 +72,7 @@ describe('privacy page', () => {
         expect(host.textContent).not.toContain('report control');
         expect(host.textContent).toContain('sent only with your consent');
         expect(host.textContent).toContain('never for analytics, advertising, profiling, AI, or training');
-        expect(host.textContent).toContain('Server-side Nitro reporting is disabled');
+        expect(host.textContent).toContain('sends no server-side error reports');
         expect(host.querySelector('h1')?.textContent).toBe('Privacy Policy');
         expect(head).toHaveBeenCalledOnce();
     });

@@ -47,10 +47,7 @@ export async function unencryptedSaveNoticeGate(
             'workspace',
             'Encrypted document save warning is unavailable; save was blocked',
             undefined,
-            {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
         );
         return notSavedBeforeWrite(
             'capability-unavailable',

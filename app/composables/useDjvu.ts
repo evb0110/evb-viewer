@@ -318,10 +318,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             'djvu',
             'Conversion failed',
             message,
-            {
-                code: 'RENDERER_DJVU_OPERATION_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_DJVU_OPERATION_FAILED'},
         );
         showConversionError(message, failure);
     }
@@ -509,10 +506,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
                 return false;
             }
             if (!result.success) {
-                BrowserLogger.error('djvu', 'Open failed', result.error, {
-                    code: 'RENDERER_DJVU_OPERATION_FAILED',
-                    context: {},
-                });
+                BrowserLogger.error('djvu', 'Open failed', result.error, {code: 'RENDERER_DJVU_OPERATION_FAILED'});
                 throw new Error(result.error ?? t('errors.djvu.open'));
             }
 
@@ -786,10 +780,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
                 const ownedFailure = failure ?? BrowserLogger.error('djvu', 'Conversion crashed', {
                     path: sourcePath,
                     error,
-                }, {
-                    code: 'RENDERER_DJVU_OPERATION_FAILED',
-                    context: {},
-                });
+                }, {code: 'RENDERER_DJVU_OPERATION_FAILED'});
                 showConversionError(message, ownedFailure);
             }
         } finally {

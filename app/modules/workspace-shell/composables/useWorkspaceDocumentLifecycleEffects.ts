@@ -338,10 +338,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                     'ocr',
                     'OCR result could not be applied because the document changed',
                     error,
-                    getFailureReceipt(error) ?? {
-                        code: 'RENDERER_OCR_RUN_FAILED',
-                        context: {},
-                    },
+                    getFailureReceipt(error) ?? {code: 'RENDERER_OCR_RUN_FAILED'},
                 );
                 presentFailureToast({
                     failure,
@@ -354,10 +351,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
                 sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
                 pdfPath: payload.pdfPath,
                 error,
-            }, {
-                code: 'RENDERER_OCR_RUN_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_OCR_RUN_FAILED'});
             presentFailureToast({
                 failure,
                 title: t('errors.ocr.createSearchablePdf'),

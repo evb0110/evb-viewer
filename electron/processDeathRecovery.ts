@@ -1,19 +1,6 @@
 import type { ILogger } from '@electron/utils/createLogger';
-import {
-    GPU_SAFE_MODE_CRASH_COUNT_MAX,
-    GPU_SAFE_MODE_CRASH_COUNT_MIN,
-    normalizeProcessGoneExitCode,
-    normalizeProcessGoneReason,
-    normalizeProcessGoneType,
-} from '@contracts/diagnostics/diagnosticCodes';
-import type {
-    DiagnosticCode,
-    DiagnosticContext,
-} from '@contracts/diagnostics/diagnosticCodes';
-import type {
-    CaptureFailureInput,
-    FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import type { IMainFailureInput } from '@electron/features/diagnostics/public';
 
 export const PROCESS_SAFE_MODE_ARGUMENT = '--evb-safe-mode';
 const GPU_CRASH_WINDOW_MS = 5 * 60 * 1_000;
@@ -29,15 +16,12 @@ interface IChildProcessGoneDetails {
     serviceName?: string;
 }
 
-type IProcessGoneContext = DiagnosticContext<'MAIN_CHILD_PROCESS_GONE'>;
-type IGpuRecoveryContext = DiagnosticContext<'MAIN_GPU_SAFE_MODE_RECOVERY'>;
-
 interface IProcessDeathRecoveryOptions {
     argv: string[];
     logger: Pick<ILogger, 'error' | 'warn'>;
     now?: () => number;
     requestSafeModeRelaunch: (args: string[]) => void;
-    captureFailure?: <C extends DiagnosticCode>(input: CaptureFailureInput<C>) => FailureReceipt | undefined;
+    captureFailure?: (input: IMainFailureInput) => FailureReceipt | undefined;
 }
 
 /**
@@ -81,13 +65,6 @@ function isAppTerminatedUtilityProcess(details: IChildProcessGoneDetails) {
         || APP_TERMINATED_UTILITY_IDENTITIES.has(details.serviceName ?? '');
 }
 
-function clampGpuCrashCount(crashCount: number) {
-    return Math.min(
-        GPU_SAFE_MODE_CRASH_COUNT_MAX,
-        Math.max(GPU_SAFE_MODE_CRASH_COUNT_MIN, crashCount),
-    );
-}
-
 export function configureProcessSafeMode(app: IProcessSafeModeApp, argv: string[]) {
     if (!argv.includes(PROCESS_SAFE_MODE_ARGUMENT)) {
         return false;
@@ -101,57 +78,22 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
     let gpuCrashTimestamps: number[] = [];
     let safeModeRelaunchRequested = false;
 
-    function reportFailure<C extends DiagnosticCode>(
-        code: C,
-        context: DiagnosticContext<C>,
-        message: string,
-        cause?: unknown,
-    ) {
+    function reportFailure(code: string, message: string) {
         let receipt: FailureReceipt | undefined;
         try {
             receipt = options.captureFailure?.({
                 code,
-                operation: 'main-error',
-                context,
-                local: {
-                    source: 'process-death',
-                    message,
-                    cause,
-                },
+                message,
             });
         } catch {
             // Diagnostics must not change process-death handling or recovery.
         }
         if (receipt === undefined) {
-            options.logger.error(message, {
-                code: 'MAIN_PROCESS_RECOVERY_FAILED',
-                context: {},
-            });
+            options.logger.error(message, {code: 'MAIN_PROCESS_RECOVERY_FAILED'});
         } else {
             options.logger.error(message, receipt);
         }
         return receipt;
-    }
-
-    function getChildProcessContext(details: IChildProcessGoneDetails): IProcessGoneContext {
-        const exitCode = normalizeProcessGoneExitCode(details.exitCode);
-        return {
-            processType: normalizeProcessGoneType(details.type),
-            reason: normalizeProcessGoneReason(details.reason),
-            ...(exitCode === undefined ? {} : {exitCode}),
-        };
-    }
-
-    function getGpuRecoveryContext(
-        safeMode: boolean,
-        action: NonNullable<IGpuRecoveryContext['action']>,
-        crashCount: number,
-    ): IGpuRecoveryContext {
-        return {
-            safeMode,
-            action,
-            crashCount: clampGpuCrashCount(crashCount),
-        };
     }
 
     function handleChildProcessGone(details: IChildProcessGoneDetails) {
@@ -171,7 +113,7 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
             return {action: 'logged' as const};
         }
         if (details.type !== 'GPU') {
-            reportFailure('MAIN_CHILD_PROCESS_GONE', getChildProcessContext(details), message);
+            reportFailure('MAIN_CHILD_PROCESS_GONE', message);
             return {action: 'logged' as const};
         }
 
@@ -179,13 +121,12 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
         gpuCrashTimestamps = gpuCrashTimestamps.filter(timestamp => timestamp >= cutoff);
         gpuCrashTimestamps.push(now());
         if (gpuCrashTimestamps.length < GPU_CRASH_RELAUNCH_THRESHOLD) {
-            reportFailure('MAIN_CHILD_PROCESS_GONE', getChildProcessContext(details), message);
+            reportFailure('MAIN_CHILD_PROCESS_GONE', message);
             return {action: 'logged' as const};
         }
         if (options.argv.includes(PROCESS_SAFE_MODE_ARGUMENT)) {
             reportFailure(
                 'MAIN_GPU_SAFE_MODE_RECOVERY',
-                getGpuRecoveryContext(true, 'failed', gpuCrashTimestamps.length),
                 '[process-death] GPU failed repeatedly while software-rendering safe mode was active',
             );
             return {action: 'safe-mode-failed' as const};
@@ -200,11 +141,7 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
             PROCESS_SAFE_MODE_ARGUMENT,
         ];
         safeModeRelaunchRequested = true;
-        reportFailure(
-            'MAIN_GPU_SAFE_MODE_RECOVERY',
-            getGpuRecoveryContext(false, 'relaunch', gpuCrashTimestamps.length),
-            message,
-        );
+        reportFailure('MAIN_GPU_SAFE_MODE_RECOVERY', message);
         options.logger.warn('[process-death] Relaunching in software-rendering safe mode after repeated GPU crashes');
         options.requestSafeModeRelaunch(relaunchArgs);
         return {action: 'safe-mode-relaunch' as const};

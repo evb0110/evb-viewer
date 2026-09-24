@@ -15,14 +15,12 @@ function reportDetachedFailure(error: unknown, options: IRunDetachedOptions) {
             `Detached task "${options.label}" error handler failed: ${getErrorMessage(onErrorFailure)}`,
             {
                 code: 'MAIN_DETACHED_PROCESS_FAILED',
-                context: {},
                 cause: onErrorFailure,
             },
         );
     }
     options.logger.error(`Detached task "${options.label}" failed: ${getErrorMessage(error)}`, {
         code: 'MAIN_DETACHED_PROCESS_FAILED',
-        context: {},
         cause: error,
     });
 }

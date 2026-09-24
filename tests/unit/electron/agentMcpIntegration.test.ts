@@ -292,7 +292,6 @@ describe('codexMcpIntegration', () => {
             expect.stringContaining('Failed to enable Codex MCP integration'),
             {
                 code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                context: {action: 'enable'},
                 cause: expect.any(Error),
             },
         );

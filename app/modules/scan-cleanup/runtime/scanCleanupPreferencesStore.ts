@@ -375,14 +375,7 @@ function queueRemoteUpdate(
                 pending.queued = false;
             }
         }
-        BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error, {
-            code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {
-                stage: 'renderer-settings',
-                errorCode: 'unknown',
-                failureClass: 'unknown',
-            },
-        });
+        BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
         if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
             pendingRemoteGlobalWriteSettledFailure = true;
         }
@@ -464,14 +457,7 @@ async function hydratePreferences() {
         pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences);
         if (pendingGlobalFields.size > 0) void flushScanCleanupPreferencesStore().catch(() => undefined);
     } catch (error) {
-        BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error, {
-            code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {
-                stage: 'renderer-settings',
-                errorCode: 'unknown',
-                failureClass: 'unknown',
-            },
-        });
+        BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
         throw error;
     } finally {
         applyingRemotePreferences = false;
@@ -534,14 +520,7 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
             pendingPreferences = null;
             persistenceRetryAttempt = 0;
         } catch (error) {
-            BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error, {
-                code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                context: {
-                    stage: 'renderer-settings',
-                    errorCode: 'unknown',
-                    failureClass: 'unknown',
-                },
-            });
+            BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
             schedulePersistenceRetry();
             return Promise.reject(error);
         }
@@ -693,14 +672,7 @@ export function loadScanCleanupDocumentSettings(
                     legacyDocumentKey,
                 ));
             } catch (error) {
-                BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {
-                    code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {
-                        stage: 'renderer-settings',
-                        errorCode: 'unknown',
-                        failureClass: 'unknown',
-                    },
-                });
+                BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
                 throw error;
             }
         }

@@ -576,10 +576,7 @@ export const useOcr = () => {
                 'ocr',
                 'OCR backend reported page failures',
                 details,
-                {
-                    code: 'RENDERER_OCR_BACKEND_FAILED',
-                    context: {},
-                },
+                {code: 'RENDERER_OCR_BACKEND_FAILED'},
             );
         } else {
             BrowserLogger.warn('ocr', 'OCR backend reported an expected outcome', details);
@@ -663,10 +660,7 @@ export const useOcr = () => {
             BrowserLogger.warn('ocr', 'OCR run was not started', details);
             return;
         }
-        BrowserLogger.error('ocr', 'OCR run failed', details, {
-            code: 'RENDERER_OCR_RUN_FAILED',
-            context: {},
-        });
+        BrowserLogger.error('ocr', 'OCR run failed', details, {code: 'RENDERER_OCR_RUN_FAILED'});
     }
 
     function validateOcrRunRequest(

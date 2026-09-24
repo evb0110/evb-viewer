@@ -35,10 +35,7 @@ export function handleDocumentWorkspaceCrash(
         component: componentName,
         info,
         error: errorDiagnostic,
-    }, {
-        code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-        context: {},
-    });
+    }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
     options.failActiveTransaction();
     options.releaseWorkspace();
     options.resetWorkspaceLoad();

@@ -93,7 +93,6 @@ describe('privacy localization', () => {
             expect(diagnostics.heading, locale).toMatch(/Sentry/iu);
             expect(diagnostics.body, locale).toMatch(/Sentry/iu);
             expect(diagnostics.body, locale).toMatch(/90/iu);
-            expect(diagnostics.body, locale).toMatch(/Nitro/iu);
 
             expect(PRIVACY_MESSAGES[locale].contact.body, locale).toMatch(/Error ID|Fehler-ID/iu);
             expect(PRIVACY_MESSAGES[locale].contact.body, locale).not.toMatch(

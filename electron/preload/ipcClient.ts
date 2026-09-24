@@ -13,12 +13,6 @@ import type {
     TFeatureCapability,
     TFeatureDirectBindings,
 } from '@contracts/platformFeature';
-import {buildDiagnosticRecord} from '@contracts/diagnostics/buildDiagnosticRecord';
-import {
-    createDiagnosticFallbackEventId,
-    createSafeDiagnosticEventId,
-} from '@contracts/diagnostics/diagnosticReporterIdentity';
-import {createDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import {createRequestId} from '@contracts/shared';
 import {
     CORE_IPC_SEND_CHANNELS,
@@ -45,41 +39,6 @@ interface IDecodedEventFailureState {
 }
 
 const DECODED_EVENT_FAILURE_LOG_INTERVAL_MS = 5_000;
-let fallbackDiagnosticEventCounter = 0;
-
-function createFallbackDiagnosticEventId() {
-    fallbackDiagnosticEventCounter = (fallbackDiagnosticEventCounter + 1) >>> 0;
-    return createDiagnosticFallbackEventId(() => fallbackDiagnosticEventCounter);
-}
-
-function createIpcDecodeFailureDiagnostic(channel: string, decoderMessage: string) {
-    const message = `Dropped invalid decoded IPC event payload for ${channel}`;
-    return buildDiagnosticRecord(
-        {
-            code: 'RENDERER_IPC_EVENT_DECODE_FAILED',
-            severity: 'error',
-            operation: 'renderer-error',
-            context: {},
-            local: {
-                source: 'ipc-client',
-                message: `${message}: ${decoderMessage}`,
-                data: {
-                    channel,
-                    decoderMessage,
-                },
-            },
-        },
-        createSafeDiagnosticEventId(createDiagnosticEventId, createFallbackDiagnosticEventId),
-        Date.now(),
-        {
-            fallbackCode: 'RENDERER_IPC_EVENT_DECODE_FAILED',
-            fallbackOperation: 'renderer-error',
-            internalFrameSuffixes: [],
-            runtime: 'electron-renderer',
-        },
-    );
-}
-
 function logDecodedEventValidationFailure(
     ipcRenderer: Partial<Pick<IpcRenderer, 'send'>>,
     channel: string,
@@ -119,15 +78,6 @@ function logDecodedEventValidationFailure(
         });
     } catch {
         // Ignore logging failures in preload.
-    }
-    try {
-        ipcRenderer.send?.(
-            CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
-            createIpcDecodeFailureDiagnostic(channel, decoderErrorMessage),
-            0,
-        );
-    } catch {
-        // Ignore diagnostics failures in preload.
     }
 }
 

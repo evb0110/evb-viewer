@@ -289,10 +289,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 'pdf-document',
                 'Failed to read PDF range chunk',
                 error,
-                {
-                    code: 'RENDERER_PDF_RANGE_READ_FAILED',
-                    context: {},
-                },
+                {code: 'RENDERER_PDF_RANGE_READ_FAILED'},
             );
             if (!pdfDocument.value) {
                 pendingRangeReadFailure = {
@@ -924,10 +921,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (rangeReadFailure) {
             BrowserLogger.error('pdf-document', 'Failed to load PDF', error, rangeReadFailure.receipt);
         } else {
-            BrowserLogger.error('pdf-document', 'Failed to load PDF', error, {
-                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
-                context: {},
-            });
+            BrowserLogger.error('pdf-document', 'Failed to load PDF', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'});
         }
         loadState.value = {
             status: 'failed',

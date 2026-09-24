@@ -8,7 +8,6 @@ import {
 } from 'vitest';
 import type { ref } from 'vue';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
-import { parseDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 import {requireIsoTimestamp} from '@contracts/timestamps';
 import {
     createDebugLogRuntimeErrorPresentation,
@@ -56,7 +55,7 @@ function logEntry(
             ...base,
             level,
             failureRef: {
-                eventId: parseDiagnosticEventId((source === 'working-copy' ? 'b' : 'a').repeat(32))!,
+                eventId: (source === 'working-copy' ? 'b' : 'a').repeat(32),
                 code: 'UNCLASSIFIED_MAIN_ERROR',
                 severity: 'error',
             },

@@ -32,10 +32,7 @@ function reportAnnotationCreationFailure(
         });
         return;
     }
-    const failure = BrowserLogger.error('annotations', 'Annotation creation failed', {reason: input.reason}, {
-        code: 'RENDERER_ANNOTATION_OPERATION_FAILED',
-        context: {},
-    });
+    const failure = BrowserLogger.error('annotations', 'Annotation creation failed', {reason: input.reason}, {code: 'RENDERER_ANNOTATION_OPERATION_FAILED'});
     report?.({
         ...input,
         kind: 'fault',

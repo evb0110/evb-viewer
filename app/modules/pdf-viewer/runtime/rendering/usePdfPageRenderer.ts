@@ -313,10 +313,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         ) {
             return;
         }
-        BrowserLogger.error('pdf-renderer', `Failed to render ${stage} for page ${String(pageNumber)}`, error, {
-            code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
-            context: {},
-        });
+        BrowserLogger.error('pdf-renderer', `Failed to render ${stage} for page ${String(pageNumber)}`, error, {code: 'RENDERER_PDF_PAGE_RENDER_FAILED'});
     }
     function cleanupPageIfCurrentRender(pageNumber: TPageNumber, version: number, requestId?: number) {
         const slot = pageRenderState.getSlot(pageNumber);

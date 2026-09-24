@@ -222,10 +222,7 @@ export function createDocumentOpenFlow(
             RECENT_OPEN_LOG_SECTION,
             'Document open failed',
             data ?? error,
-            getFailureReceipt(error) ?? {
-                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
-                context: {},
-            },
+            getFailureReceipt(error) ?? {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'},
         );
         state.error.value = message;
         state.failurePresentation.value = {

@@ -203,14 +203,7 @@ export function reportScanCleanupRunError(
         'scan-cleanup',
         'Scan cleanup run failed',
         error,
-        {
-            code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-            context: {
-                stage: 'renderer-run',
-                errorCode: 'unknown',
-                failureClass: 'unknown',
-            },
-        },
+        {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
     );
     setScanCleanupRunError(
         ownerId,
@@ -686,10 +679,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     'scan-cleanup',
                     'Opening the generated scan cleanup PDF failed',
                     undefined,
-                    {
-                        code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                        context: {},
-                    },
+                    {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
                 );
                 createFailureToastPresenter(terminalDependencies.toast)({
                     failure,
@@ -751,14 +741,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 'scan-cleanup',
                 'Scan cleanup job failed without a workspace owner',
                 state.error,
-                {
-                    code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                    context: {
-                        stage: 'renderer-run',
-                        errorCode: 'unknown',
-                        failureClass: 'unknown',
-                    },
-                },
+                {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'},
             );
             createFailureToastPresenter(terminalDependencies.toast)({
                 failure,

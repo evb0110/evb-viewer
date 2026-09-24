@@ -225,10 +225,7 @@ export const usePdfViewerInitialRenderRecovery = (
                 'pdf-viewer',
                 'Failed to render visible pages during bounded initial recovery',
                 error,
-                {
-                    code: 'RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED',
-                    context: {phase: 'render'},
-                },
+                {code: 'RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED'},
             );
             if (
                 isEligible(context)
@@ -252,10 +249,7 @@ export const usePdfViewerInitialRenderRecovery = (
                 'pdf-viewer',
                 'Failed to coordinate bounded initial render recovery',
                 error,
-                {
-                    code: 'RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED',
-                    context: {phase: 'coordinate'},
-                },
+                {code: 'RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED'},
             );
         });
     }

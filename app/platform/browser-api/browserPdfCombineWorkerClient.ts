@@ -15,12 +15,8 @@ import {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
+import { captureRendererFailure } from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {
-    detectRendererDiagnosticsHost,
-    getRendererFailureReporter,
-    initializeRendererFailureReporter,
-} from '@app/utils/failureReporter';
 
 const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS = 120_000;
@@ -54,16 +50,14 @@ function reportWorkerFailure(error: Error) {
         return error;
     }
 
-    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
-    const receipt = reporter.capture({
+    const receipt = captureRendererFailure({
         code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED',
-        context: {},
         local: {
             source: 'browser-pdf-combine-worker-parent',
             message: error.message,
             cause: error,
         },
-    }, {runtime: 'browser-worker-parent'});
+    });
     Object.defineProperty(error, 'failure', {
         configurable: true,
         value: receipt,

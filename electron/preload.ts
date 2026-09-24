@@ -3,6 +3,9 @@ import {
     ipcRenderer,
     webUtils,
 } from 'electron';
+// Exposes the IPC bridge the renderer Sentry SDK uses. It only forwards to
+// main, which drops everything unless diagnostics consent is granted.
+import '@sentry/electron/preload';
 import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/installViteOutdatedOptimizeDepRecovery';
 import { createElectronApi } from '@electron/preload/createElectronApi';
 import { markPreloadInstalled } from '@electron/preload/markPreloadInstalled';
@@ -22,10 +25,6 @@ import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcC
 import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
 import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
 import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
-import {
-    CORE_IPC_CHANNELS,
-    type TDiagnosticsCanaryAction,
-} from '@electron/platform-ipc/coreContract';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
     console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
@@ -71,12 +70,6 @@ function isRendererAutomationFileOpenHelperEnabled() {
     return process.env.EVB_AUTOMATION_USER_DATA_DIR
         && process.env.EVB_AUTOMATION_SESSION_NAME
         && process.env.EVB_ENABLE_RENDERER_FILE_OPEN_HELPER === '1';
-}
-
-function isDiagnosticsCanaryEnabled() {
-    return Boolean(process.env.EVB_AUTOMATION_USER_DATA_DIR)
-        && Boolean(process.env.EVB_AUTOMATION_SESSION_NAME)
-        && process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1';
 }
 
 const deferredAutomationDocumentOpens = new Map<string, {
@@ -131,15 +124,6 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
         return true;
     });
     tracePreload('automation file-open capability helper exposed');
-}
-
-if (isDiagnosticsCanaryEnabled()) {
-    const triggerDiagnosticsCanary = (action: TDiagnosticsCanaryAction) => ipcRenderer.invoke(
-        CORE_IPC_CHANNELS.diagnosticsCanary,
-        action,
-    );
-    contextBridge.exposeInMainWorld('__evbDiagnosticsCanaryMain', {trigger: triggerDiagnosticsCanary});
-    tracePreload('diagnostics canary main bridge exposed');
 }
 
 installStartupOverlayLifecycle({

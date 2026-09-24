@@ -1,13 +1,9 @@
 import {
-    isDiagnosticCode,
-    type DiagnosticCode,
-} from '@contracts/diagnostics/diagnosticCodes';
-import {
-    isDiagnosticEventId,
-    type DiagnosticEventId,
-} from '@contracts/diagnostics/diagnosticEventId';
-import type {FailureSeverity} from '@contracts/diagnostics/diagnosticRecord';
-import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+    isFailureCode,
+    isFailureEventId,
+    type FailureReceipt,
+    type FailureSeverity,
+} from '@contracts/diagnostics/failureReceipt';
 import {
     isOneOf,
     isRecord,
@@ -30,8 +26,8 @@ export type TRendererLogLevel = 'debug' | 'info' | 'warn' | 'error';
  * ERROR entry. Reference-free ERROR entries are rejected.
  */
 export interface IDebugLogFailureRef {
-    readonly eventId: DiagnosticEventId;
-    readonly code: DiagnosticCode;
+    readonly eventId: string;
+    readonly code: string;
     readonly severity: FailureSeverity;
 }
 
@@ -92,8 +88,8 @@ function decodeDebugLogFailureRef(value: unknown): IDebugLogFailureRef | null {
         || !Object.hasOwn(value, 'eventId')
         || !Object.hasOwn(value, 'code')
         || !Object.hasOwn(value, 'severity')
-        || !isDiagnosticEventId(value.eventId)
-        || !isDiagnosticCode(value.code)
+        || !isFailureEventId(value.eventId)
+        || !isFailureCode(value.code)
         || (value.severity !== 'error' && value.severity !== 'fatal')) {
         return null;
     }

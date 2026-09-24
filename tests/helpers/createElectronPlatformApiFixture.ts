@@ -1,6 +1,6 @@
 import { ELECTRON_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import type { IElectronAPI } from '@contracts/electronApi';
-import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsCapability';
+import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';
 import {
     createPlatformApiFixture,
     type TDeepPartial,
@@ -11,7 +11,6 @@ export type TElectronPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides 
 
 const DEFAULT_DIAGNOSTICS: IDiagnosticsRendererCapability = {
     startupPolicy: Object.freeze({mode: 'unknown'}),
-    sendRecord: () => undefined,
     onDebugLog: () => () => undefined,
 };
 
@@ -36,7 +35,6 @@ export function createElectronPlatformApiFixture<TOverrides extends TElectronPla
                 ...DEFAULT_DIAGNOSTICS.startupPolicy,
                 ...diagnosticsOverrides?.startupPolicy,
             },
-            sendRecord: diagnosticsOverrides?.sendRecord ?? DEFAULT_DIAGNOSTICS.sendRecord,
             onDebugLog: diagnosticsOverrides?.onDebugLog ?? DEFAULT_DIAGNOSTICS.onDebugLog,
         },
         updates: platformApi.updates,

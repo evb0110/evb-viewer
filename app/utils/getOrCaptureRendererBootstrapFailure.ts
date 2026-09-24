@@ -26,10 +26,7 @@ export function getOrCaptureRendererBootstrapFailure(
         return existing;
     }
 
-    const failure = BrowserLogger.error(options.section, options.message, options.error, {
-        code: 'RENDERER_STARTUP_WARMUP_FAILED',
-        context: {},
-    });
+    const failure = BrowserLogger.error(options.section, options.message, options.error, {code: 'RENDERER_STARTUP_WARMUP_FAILED'});
     const presentation: FailurePresentation = {
         failure,
         title: options.title,

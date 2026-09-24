@@ -143,10 +143,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
                 tabId: options.tabId,
                 reason,
                 ...(options.workspaceChunkLoadError.value ? {error: options.workspaceChunkLoadError.value} : {}),
-            }, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
         }
         return workspace;
     }
@@ -174,10 +171,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             action,
             hasWorkspaceChunkLoadError: Boolean(options.workspaceChunkLoadError.value),
             error: options.workspaceChunkLoadError.value,
-        }, {
-            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-            context: {},
-        });
+        }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
     }
 
     async function withLoadedWorkspace<T = void>(
@@ -195,10 +189,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             BrowserLogger.error('workspace-host', `Action failed (${action})`, {
                 tabId: options.tabId,
                 error: getErrorMessage(error),
-            }, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return undefined;
         }
     }
@@ -218,10 +209,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             BrowserLogger.error('workspace-host', `Action failed (${action})`, {
                 tabId: options.tabId,
                 error,
-            }, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             throw error;
         }
     }
@@ -245,10 +233,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
                 tabId: options.tabId,
                 action,
                 error: options.workspaceChunkLoadError.value,
-            }, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return false;
         }
         try {
@@ -270,10 +255,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             BrowserLogger.error('workspace-host', `Action failed (${action})`, {
                 tabId: options.tabId,
                 error,
-            }, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return false;
         }
     }

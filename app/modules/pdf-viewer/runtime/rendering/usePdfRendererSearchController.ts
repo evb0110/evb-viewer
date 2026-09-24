@@ -53,10 +53,7 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
                 'pdf-renderer',
                 'Failed to apply search highlights',
                 error,
-                {
-                    code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
-                    context: {operation: 'apply-highlights'},
-                },
+                {code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED'},
             );
         }
     }
@@ -75,10 +72,7 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
                 'pdf-renderer',
                 'Failed to scroll to current match',
                 error,
-                {
-                    code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
-                    context: {operation: 'scroll-current-match'},
-                },
+                {code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED'},
             );
             return false;
         }

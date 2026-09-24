@@ -4,7 +4,6 @@ import {
     it,
 } from 'vitest';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
-import {requireDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import {isRecord} from '@contracts/runtimeGuards';
 import {requireIsoTimestamp} from '@contracts/timestamps';
 import {
@@ -114,7 +113,7 @@ describe('runtime error filter', () => {
             timestamp: requireIsoTimestamp('2026-08-23T08:57:36.046Z'),
             level: 'ERROR',
             failureRef: {
-                eventId: requireDiagnosticEventId('c'.repeat(32)),
+                eventId: 'c'.repeat(32),
                 code: 'UNCLASSIFIED_MAIN_ERROR',
                 severity: 'fatal',
             },

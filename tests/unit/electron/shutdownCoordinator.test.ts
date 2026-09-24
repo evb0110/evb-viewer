@@ -315,17 +315,13 @@ describe('shutdown coordinator', () => {
             'Shutdown step failed (renderer-save-flush): renderer unavailable',
             {
                 code: 'MAIN_SHUTDOWN_FAILED',
-                context: {},
                 cause: failure,
             },
         );
         expect(logger.error).toHaveBeenNthCalledWith(
             2,
             'Shutdown preservation was incomplete; retaining workspace recovery state',
-            {
-                code: 'MAIN_SHUTDOWN_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_SHUTDOWN_FAILED'},
         );
     });
 

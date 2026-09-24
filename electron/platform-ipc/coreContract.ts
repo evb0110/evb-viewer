@@ -1,10 +1,9 @@
 import type {IDebugLogEntry} from '@contracts/electronApiCommon';
 import {
-    DIAGNOSTICS_POLICY_HINTS,
+    parseClientDiagnosticsPreference,
     type IDiagnosticsRendererCapability,
     type IDiagnosticsStartupPolicy,
-    type TDiagnosticsPolicyHint,
-} from '@contracts/diagnostics/diagnosticsCapability';
+} from '@contracts/diagnostics/diagnosticsPreference';
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
     IWindowCloseRequest,
@@ -15,25 +14,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 
-export const CORE_IPC_CHANNELS = {
-    diagnosticsCanary: 'automation:diagnosticsCanary',
-    rendererReady: 'app:rendererReady',
-} as const;
-
-const DIAGNOSTICS_CANARY_ACTIONS = [
-    'main-error',
-    'crash-main',
-    'main-health',
-] as const;
-
-export type TDiagnosticsCanaryAction = typeof DIAGNOSTICS_CANARY_ACTIONS[number];
-
-export function decodeDiagnosticsCanaryAction(value: unknown): TDiagnosticsCanaryAction | null {
-    return typeof value === 'string'
-        && (DIAGNOSTICS_CANARY_ACTIONS as readonly string[]).includes(value)
-        ? value as TDiagnosticsCanaryAction
-        : null;
-}
+export const CORE_IPC_CHANNELS = {rendererReady: 'app:rendererReady'} as const;
 
 export const CORE_IPC_EVENT_CHANNELS = {
     menuCheckForUpdates: 'menu:checkForUpdates',
@@ -44,7 +25,6 @@ export const CORE_IPC_EVENT_CHANNELS = {
 
 export const CORE_IPC_SEND_CHANNELS = {
     ipcInvokeCanceled: 'ipc:invokeCanceled',
-    rendererDiagnostic: 'renderer:diagnostic',
     rendererLog: 'renderer:log',
     shutdownSaveFlushResult: 'shutdown:saveFlushResult',
     windowCloseResponse: 'window:closeResponse',
@@ -66,7 +46,7 @@ export function decodeIpcInvokeRequestId(value: unknown): TRequestId | null {
 }
 
 export const DIAGNOSTICS_POLICY_ARGUMENT_PREFIX = '--evb-diagnostics-policy=';
-export type {IDiagnosticsStartupPolicy} from '@contracts/diagnostics/diagnosticsCapability';
+export type {IDiagnosticsStartupPolicy} from '@contracts/diagnostics/diagnosticsPreference';
 
 export type IPreloadDiagnosticsApi = IDiagnosticsRendererCapability;
 
@@ -77,13 +57,8 @@ export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.windowCloseRequest]: IWindowCloseRequest;
 }
 
-function isDiagnosticsPolicyHint(value: unknown): value is TDiagnosticsPolicyHint {
-    return typeof value === 'string'
-        && (DIAGNOSTICS_POLICY_HINTS as readonly string[]).includes(value);
-}
-
 export function createDiagnosticsStartupPolicy(value: unknown): Readonly<IDiagnosticsStartupPolicy> {
-    return Object.freeze({mode: isDiagnosticsPolicyHint(value) ? value : 'unknown'});
+    return Object.freeze({mode: parseClientDiagnosticsPreference(value)});
 }
 
 export function encodeDiagnosticsPolicyArgument(value: unknown) {

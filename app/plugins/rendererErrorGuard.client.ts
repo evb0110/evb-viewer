@@ -3,10 +3,12 @@ import type { ComponentPublicInstance } from 'vue';
 import type {TLocale} from '@i18n-app';
 import {isLocaleMessageSource} from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {installConsoleErrorObserver} from '@app/utils/consoleErrorObserver';
+import {installConsoleErrorObserver} from '@app/utils/installConsoleErrorObserver';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
-import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
-import {hasElectronAPI} from '@app/utils/platform';
+import {
+    captureFailureForPresentation,
+    withSuppressedCapture,
+} from '@app/utils/failureReporter';
 import {
     notifyRendererDiagnosticNotice,
     redactRendererDiagnosticSignature,
@@ -141,21 +143,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         return;
     }
 
-    const electronRuntime = hasElectronAPI();
-    const reporter = initializeRendererFailureReporter({
-        host: electronRuntime ? 'electron' : 'hosted-browser',
-        localSink: (detail, receipt) => {
-            BrowserLogger.error('renderer-guard', detail.message, {
-                failure: receipt,
-                cause: detail.cause,
-                details: detail.data,
-            }, receipt);
-        },
-    });
-    const consoleErrorObserver = installConsoleErrorObserver({
-        reporter,
-        runtime: electronRuntime ? 'electron-renderer' : 'hosted-browser',
-    });
+    const consoleErrorObserver = installConsoleErrorObserver();
 
     const report = (
         source: Exclude<TRendererDiagnosticSource, 'console-error'>,
@@ -168,9 +156,8 @@ export default defineNuxtPlugin((nuxtApp) => {
             signature: redactRendererDiagnosticSignature(`${logMessage}: ${stringifyErrorValue(cause)}`),
             source,
         });
-        const presentation = reporter.captureForPresentation({
+        const presentation = captureFailureForPresentation({
             code: 'RENDERER_ERROR_GUARD_FAILED',
-            context: {source},
             local: {
                 source: 'renderer-guard',
                 message: logMessage,
@@ -178,6 +165,10 @@ export default defineNuxtPlugin((nuxtApp) => {
                 data: details,
             },
         });
+        BrowserLogger.error('renderer-guard', logMessage, {
+            cause,
+            details,
+        }, presentation.failure);
         reportRuntimeError({
             ...presentation,
             failure: presentation.failure,
@@ -194,7 +185,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         if (typeof previousHandler !== 'function') {
             return;
         }
-        reporter.withSuppressedCapture(() => previousHandler(error, instance, info));
+        withSuppressedCapture(() => previousHandler(error, instance, info));
     };
 
     const errorHandler = (error: unknown, instance: ComponentPublicInstance | null, info: string) => {

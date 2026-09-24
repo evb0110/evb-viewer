@@ -14,11 +14,7 @@ const failureReceipt = {
 };
 const failureReporter = {capture: vi.fn(() => failureReceipt)};
 
-vi.mock('@app/utils/failureReporter', () => ({
-    detectRendererDiagnosticsHost: () => 'hosted-browser',
-    getRendererFailureReporter: () => failureReporter,
-    initializeRendererFailureReporter: () => failureReporter,
-}));
+vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -474,7 +470,6 @@ describe('browserPdfCombineWorkerClient', () => {
         expect(failureReporter.capture).toHaveBeenCalledOnce();
         expect(failureReporter.capture).toHaveBeenCalledWith(
             expect.objectContaining({local: expect.objectContaining({source: 'browser-pdf-combine-worker-parent'})}),
-            {runtime: 'browser-worker-parent'},
         );
         expect(error.failure).toBe(failureReceipt);
         expect({failure: error.failure}.failure).toBe(failureReceipt);

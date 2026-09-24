@@ -62,7 +62,6 @@ async function persistPromptSuppression() {
     } catch (err) {
         logger.error(`Failed to suppress prompt: ${getErrorMessage(err)}`, {
             code: 'MAIN_DEFAULT_VIEWER_PROMPT_FAILED',
-            context: {},
             cause: err,
         });
     }

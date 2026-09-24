@@ -114,15 +114,6 @@ describe('createTypedIpcEventSubscriber diagnostics', () => {
                     decoderError: 'completedUnits exceeds totalUnits',
                 }}),
             );
-            expect(ipcRenderer.send).toHaveBeenCalledWith(
-                CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
-                expect.objectContaining({
-                    code: 'RENDERER_IPC_EVENT_DECODE_FAILED',
-                    runtime: 'electron-renderer',
-                    context: {},
-                }),
-                0,
-            );
         } finally {
             warning.mockRestore();
         }

@@ -99,7 +99,7 @@
         "@napi-rs/canvas",
         "@playwright/test",
         "app-builder-bin",
-        // The CLI runs during private sourcemap staging and is not runtime code.
+        // The CLI runs in scripts/release/upload-sentry-sourcemaps.mjs and is not runtime code.
         "@sentry/cli",
         "@sentry/core",
         "node-mock-http",
@@ -178,9 +178,7 @@
             "packages/scan-cleanup/*"
         ]
     },
-    // Sentry diagnostics repeat small adapters across renderer, Electron,
-    // Nitro, and worker-parent bundles because those process boundaries cannot
-    // share runtime imports. Duplicate findings remain an informational report.
+    // Duplicate findings remain an informational report.
     "duplicates": {
         "ignoreImports": true,
         "minLines": 8,

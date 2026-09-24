@@ -526,7 +526,6 @@ export async function atomicReplace(
                         `Failed to restore backup after atomic replace failure: ${getErrorMessage(restoreError)}`,
                         {
                             code: 'MAIN_ATOMIC_REPLACE_RESTORE_FAILED',
-                            context: {},
                             cause: restoreError,
                         },
                     );

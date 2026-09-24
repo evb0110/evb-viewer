@@ -112,10 +112,7 @@ export async function requestShutdownSaveFlush(options: {
             if (timedOutWindowIds.length > 0) {
                 options.logger.error(
                     `Timed out waiting for shutdown save flush from ${timedOutWindowIds.length} renderer(s): ${timedOutWindowIds.join(', ')}`,
-                    {
-                        code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
-                        context: {},
-                    },
+                    {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'},
                 );
             }
             resolve({
@@ -162,10 +159,7 @@ export async function requestShutdownSaveFlush(options: {
                 preserveOwnedWorkingCopies(event.sender.id);
                 failedWindowIds.add(windowId);
                 pendingBySenderId.delete(event.sender.id);
-                options.logger.error(`Renderer shutdown save flush returned an invalid response for sender ${event.sender.id}`, {
-                    code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
-                    context: {},
-                });
+                options.logger.error(`Renderer shutdown save flush returned an invalid response for sender ${event.sender.id}`, {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'});
                 finishIfDone();
                 return;
             }
@@ -178,10 +172,7 @@ export async function requestShutdownSaveFlush(options: {
                 if (dirtyWorkingCopyPaths.has(path)) {
                     options.logger.error(
                         `Renderer shutdown save flush reported the same working copy as both dirty and flushed; preserving it: ${path}`,
-                        {
-                            code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
-                            context: {},
-                        },
+                        {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'},
                     );
                     continue;
                 }
@@ -201,10 +192,7 @@ export async function requestShutdownSaveFlush(options: {
                     flushedWorkingCopyPaths.delete(path);
                     options.logger.error(
                         `WORKING_COPY_SHUTDOWN_FLUSH_UNMATERIALIZED: renderer reported an unmaterialized working copy as flushed: ${path}`,
-                        {
-                            code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
-                            context: {},
-                        },
+                        {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'},
                     );
                 } else {
                     flushedWorkingCopyPaths.add(path);
@@ -220,10 +208,7 @@ export async function requestShutdownSaveFlush(options: {
             } else if (payload.error) {
                 preserveOwnedWorkingCopies(event.sender.id);
                 failedWindowIds.add(windowId);
-                options.logger.error(`Renderer shutdown save flush failed: ${payload.error}`, {
-                    code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
-                    context: {},
-                });
+                options.logger.error(`Renderer shutdown save flush failed: ${payload.error}`, {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'});
             }
             finishIfDone();
         };
@@ -243,7 +228,6 @@ export async function requestShutdownSaveFlush(options: {
                 failedWindowIds.add(window.id);
                 options.logger.error(`Failed to request renderer save flush for window ${window.id}: ${getErrorMessage(error)}`, {
                     code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
-                    context: {},
                     cause: error,
                 });
             }

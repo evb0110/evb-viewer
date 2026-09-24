@@ -1038,10 +1038,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             const message = getErrorMessage(error).trim();
             const hasPdfjsAssetMismatch = isPdfjsAssetVersionMismatch(message);
             pdfError.value = message || t('errors.file.open');
-            const failure = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error, {
-                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
-                context: {},
-            });
+            const failure = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error, {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'});
             pdfFailurePresentation.value = {
                 failure,
                 title: t('errors.file.open'),

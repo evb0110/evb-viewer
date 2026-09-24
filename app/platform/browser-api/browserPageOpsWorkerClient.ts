@@ -24,12 +24,8 @@ import {
 import {browserAnnotationParseIsolation} from '@app/platform/browser-api/browserAnnotationParseIsolation';
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import { getErrorMessage } from '@app/utils/error';
+import { captureRendererFailure } from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {
-    detectRendererDiagnosticsHost,
-    getRendererFailureReporter,
-    initializeRendererFailureReporter,
-} from '@app/utils/failureReporter';
 
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
@@ -51,22 +47,18 @@ function reportWorkerFailure(error: Error) {
         return error;
     }
 
-    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
-    const receipt = reporter.capture({
+    const receipt = captureRendererFailure({
         code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
-        context: {},
         local: {
             source: 'browser-page-ops-worker-parent',
             message: error.message,
             cause: error,
         },
-    }, {runtime: 'browser-worker-parent'});
-    if (receipt) {
-        Object.defineProperty(error, 'failure', {
-            configurable: true,
-            value: receipt,
-        });
-    }
+    });
+    Object.defineProperty(error, 'failure', {
+        configurable: true,
+        value: receipt,
+    });
     return error;
 }
 

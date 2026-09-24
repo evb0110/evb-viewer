@@ -10,7 +10,6 @@ import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
 } from '@contracts/updatesPlatformFeature';
-import {normalizeDiagnosticAttempt} from '@contracts/diagnostics/diagnosticCodes';
 import { config } from '@electron/config';
 import {
     loadSettings,
@@ -89,7 +88,6 @@ function runUpdateInstallImmediately(install: () => Promise<void>) {
     void install().catch(error => {
         logger.error(`Update installation action failed: ${getErrorMessage(error)}`, {
             code: 'MAIN_UPDATE_INSTALL_FAILED',
-            context: {},
             cause: error,
         });
     });
@@ -104,7 +102,6 @@ function logUpdateCheckFailure(error: unknown, origin: TAppUpdateCheckOrigin) {
     }
     logger.error(message, {
         code: 'MAIN_UPDATE_CHECK_FAILED',
-        context: {origin},
         cause: error,
     });
 }
@@ -535,19 +532,16 @@ function setAutoUpdaterListeners() {
         } else if (status.phase === 'downloading') {
             logger.error(message, {
                 code: 'MAIN_UPDATE_DOWNLOAD_FAILED',
-                context: {},
                 cause: error,
             });
         } else if (status.phase === 'downloaded') {
             logger.error(message, {
                 code: 'MAIN_UPDATE_INSTALL_FAILED',
-                context: {},
                 cause: error,
             });
         } else {
             logger.error(message, {
                 code: 'MAIN_UPDATE_CHECK_FAILED',
-                context: {origin: 'manual'},
                 cause: error,
             });
         }
@@ -645,7 +639,6 @@ function setAutoUpdaterListeners() {
             const message = `Update install preparation failed: ${getErrorMessage(error)}`;
             logger.error(message, {
                 code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
-                context: {},
                 cause: error,
             });
             updateStatus({
@@ -908,10 +901,6 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                     const message = `Update installation failed: ${marker.pendingVersion} could not be installed; version ${currentVersion} was relaunched`;
                     logger.error(message, {
                         code: 'MAIN_UPDATE_STARTUP_FAILED',
-                        context: {
-                            phase: 'installation',
-                            attempt: normalizeDiagnosticAttempt(marker.startupAttempts),
-                        },
                         cause: marker,
                     });
                     updateStatus({
@@ -926,10 +915,6 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                         `Update ${currentVersion} failed to reach renderer readiness on ${marker.startupAttempts} consecutive startups`,
                         {
                             code: 'MAIN_UPDATE_STARTUP_FAILED',
-                            context: {
-                                phase: 'renderer-readiness',
-                                attempt: normalizeDiagnosticAttempt(marker.startupAttempts),
-                            },
                             cause: marker,
                         },
                     );
@@ -1043,7 +1028,6 @@ export function downloadAvailableUpdate() {
             } else {
                 logger.error(message, {
                     code: 'MAIN_UPDATE_DOWNLOAD_FAILED',
-                    context: {},
                     cause: error,
                 });
             }
@@ -1108,7 +1092,6 @@ export async function installDownloadedUpdate() {
             const message = `Update installation aborted: failed to write update health marker: ${getErrorMessage(error)}`;
             logger.error(message, {
                 code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
-                context: {},
                 cause: error,
             });
             updateStatus({

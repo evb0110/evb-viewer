@@ -879,10 +879,7 @@ describe('PdfDocumentSession range loading', () => {
             'pdf-document',
             'Failed to load PDF',
             expect.any(Error),
-            {
-                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'},
         );
     });
 
@@ -905,10 +902,7 @@ describe('PdfDocumentSession range loading', () => {
             'pdf-document',
             'Failed to load PDF',
             expect.any(Error),
-            {
-                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED'},
         );
     });
 
@@ -963,10 +957,7 @@ describe('PdfDocumentSession range loading', () => {
             'pdf-document',
             'Failed to read PDF range chunk',
             expect.any(Error),
-            {
-                code: 'RENDERER_PDF_RANGE_READ_FAILED',
-                context: {},
-            },
+            {code: 'RENDERER_PDF_RANGE_READ_FAILED'},
         );
         expect(loggerError).toHaveBeenNthCalledWith(
             2,

@@ -2,12 +2,11 @@ import type {
     IAppUpdateStatus,
     TAppUpdatePhase,
 } from '@contracts/updatesPlatformFeature';
-import type { DiagnosticContext } from '@contracts/diagnostics/diagnosticCodes';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { IPresentedFailureCapture } from '@app/utils/failureReporter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
-import { initializeRendererFailureReporter } from '@app/utils/failureReporter';
+import { captureFailureForPresentation } from '@app/utils/failureReporter';
 import {
     getUpdatesCapability,
     isUpdatesCapabilitySupported,
@@ -25,7 +24,7 @@ export interface IUpdateDialogState {
     failure: IPresentedFailureCapture | null;
 }
 
-type TUpdateFailureAction = NonNullable<DiagnosticContext<'UPDATE_OPERATION_FAILED'>['action']>;
+type TUpdateFailureAction = 'load' | 'check' | 'download' | 'install' | 'defer' | 'skip' | 'status';
 
 const DEFAULT_STATUS: IAppUpdateStatus = {
     phase: 'idle',
@@ -115,16 +114,15 @@ function captureUpdateFailure(
     const existingFailure = getFailureReceipt(error);
     const presentation = existingFailure
         ? {failure: existingFailure}
-        : initializeRendererFailureReporter().captureForPresentation({
+        : captureFailureForPresentation({
             code: 'UPDATE_OPERATION_FAILED',
-            context: {action},
             local: {
                 source: 'updates',
                 message,
                 cause: error,
                 data: {action},
             },
-        }, {localAlreadyRecorded: true});
+        });
     BrowserLogger.error('updates', message, error, presentation.failure);
     return presentation;
 }

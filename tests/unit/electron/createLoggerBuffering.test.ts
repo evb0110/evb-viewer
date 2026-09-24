@@ -99,10 +99,7 @@ describe('file logger write buffering', () => {
         const logger = createLogger('buffer-error-test', {broadcastToRenderers: false});
 
         logger.info('buffered');
-        logger.error('urgent', {
-            code: 'MAIN_WINDOW_OPERATION_FAILED',
-            context: {},
-        });
+        logger.error('urgent', {code: 'MAIN_WINDOW_OPERATION_FAILED'});
 
         await vi.advanceTimersByTimeAsync(0);
         expect(countWrittenLines()).toBe(2);
@@ -138,20 +135,14 @@ describe('file logger write buffering', () => {
         const logger = createLogger('prune-queue-test', {broadcastToRenderers: false});
 
         try {
-            logger.error('first', {
-                code: 'MAIN_WINDOW_OPERATION_FAILED',
-                context: {},
-            });
+            logger.error('first', {code: 'MAIN_WINDOW_OPERATION_FAILED'});
             await vi.advanceTimersByTimeAsync(0);
             expect(mocks.readdir).toHaveBeenCalledOnce();
             expect(mocks.appended).toHaveLength(1);
             expect(mocks.appended[0]).toContain('first');
             expect(mocks.appended[0]).not.toContain('second');
 
-            logger.error('second', {
-                code: 'MAIN_WINDOW_OPERATION_FAILED',
-                context: {},
-            });
+            logger.error('second', {code: 'MAIN_WINDOW_OPERATION_FAILED'});
             await vi.advanceTimersByTimeAsync(0);
 
             expect(mocks.appended).toHaveLength(2);

@@ -49,7 +49,7 @@ import ScanCleanupToolbar from '@app/modules/scan-cleanup/components/ScanCleanup
 import ScanCleanupWorkspace from '@app/modules/scan-cleanup/components/ScanCleanupWorkspace.vue';
 import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 import AppFailureAlert from '@app/components/AppFailureAlert.vue';
-import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import ScanCleanupAutoValueRow from '@app/modules/scan-cleanup/components/settings/ScanCleanupAutoValueRow.vue';
 import ScanCleanupSettingsPanel from '@app/modules/scan-cleanup/components/settings/ScanCleanupSettingsPanel.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
@@ -1418,9 +1418,8 @@ describe('Scan cleanup components', () => {
     it('renders a failed settings load and routes Retry to the document settings owner', async () => {
         const retry = vi.fn();
         const failure = {
-            ...initializeRendererFailureReporter().captureForPresentation({
+            ...captureFailureForPresentation({
                 code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
-                context: {},
                 local: {
                     source: 'scan-cleanup',
                     message: 'Settings read failed',

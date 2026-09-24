@@ -430,10 +430,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             BrowserLogger.error('tabs', 'Failed to capture split payload', {
                 tabId,
                 error,
-            }, {
-                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
             return null;
         }
     }
@@ -476,10 +473,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 tabId,
                 payloadKind: payload.kind,
                 error,
-            }, {
-                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
             return false;
         }
     }
@@ -534,10 +528,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
                 tabId,
                 error,
-            }, {
-                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
             return false;
         } finally {
             options.workspaceRestoreTracker.finish(tabId);
@@ -610,10 +601,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 tabId,
                 target,
                 error,
-            }, {
-                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
             await cleanupSplitPayloadSnapshot(payload, {
                 logSection: 'tabs',
                 context: 'transfer-tab-to-target-error',
@@ -803,10 +791,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {
                 transferId: transfer.transferId,
                 error,
-            }, {
-                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
-                context: {},
-            });
+            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
 
             if (transferCommitted) {
                 return;

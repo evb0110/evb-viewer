@@ -16,13 +16,10 @@ import {
     createShutdownCoordinator,
     type IShutdownContext,
 } from '@electron/bootstrap/shutdown';
-import type {DiagnosticCode} from '@contracts/diagnostics/diagnosticCodes';
-import type {
-    CaptureFailureInput,
-    FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {IMainFailureInput} from '@electron/features/diagnostics/public';
 
-type TFailureCapture = <C extends DiagnosticCode>(input: CaptureFailureInput<C>) => FailureReceipt | undefined;
+type TFailureCapture = (input: IMainFailureInput) => FailureReceipt | undefined;
 
 function createFixture(
     argv = ['/app/evb-viewer'],
@@ -75,13 +72,7 @@ describe('processDeathRecovery', () => {
         expect(fixture.captureFailure).toHaveBeenCalledOnce();
         expect(fixture.captureFailure).toHaveBeenCalledWith(expect.objectContaining({
             code: 'MAIN_CHILD_PROCESS_GONE',
-            operation: 'main-error',
-            context: {
-                processType: 'utility',
-                reason: 'crashed',
-                exitCode: 133,
-            },
-            local: expect.objectContaining({source: 'process-death'}),
+            message: expect.stringContaining('Utility process gone'),
         }));
         expect(fixture.logger.error).toHaveBeenCalledWith(
             expect.stringContaining('[process-death] Utility process gone (Audio Service, reason=crashed, exitCode=133)'),
@@ -110,11 +101,6 @@ describe('processDeathRecovery', () => {
             'MAIN_CHILD_PROCESS_GONE',
             'MAIN_GPU_SAFE_MODE_RECOVERY',
         ]);
-        expect(fixture.captureFailure.mock.calls[1]?.[0]).toEqual(expect.objectContaining({context: {
-            safeMode: false,
-            action: 'relaunch',
-            crashCount: 2,
-        }}));
         expect(fixture.logger.error.mock.calls.map(([
             , receipt,
         ]) => receipt?.eventId)).toEqual([
@@ -202,11 +188,6 @@ describe('processDeathRecovery', () => {
             'MAIN_CHILD_PROCESS_GONE',
             'MAIN_GPU_SAFE_MODE_RECOVERY',
         ]);
-        expect(fixture.captureFailure.mock.calls[1]?.[0]).toEqual(expect.objectContaining({context: {
-            safeMode: true,
-            action: 'failed',
-            crashCount: 2,
-        }}));
     });
 
     // The app kills its own utility processes as their ordinary teardown, and
@@ -278,10 +259,7 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             '[process-death] Utility process gone (EVB document fingerprint, reason=crashed, exitCode=133)',
-            {
-                code: 'MAIN_PROCESS_RECOVERY_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -302,10 +280,7 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             '[process-death] Utility process gone (Audio Service, reason=killed, exitCode=9)',
-            {
-                code: 'MAIN_PROCESS_RECOVERY_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -321,10 +296,7 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             '[process-death] Utility process gone (Utility, reason=killed, exitCode=9)',
-            {
-                code: 'MAIN_PROCESS_RECOVERY_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -348,10 +320,7 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             `[process-death] ${type} process gone (${type}, reason=killed, exitCode=9)`,
-            {
-                code: 'MAIN_PROCESS_RECOVERY_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -372,18 +341,12 @@ describe('processDeathRecovery', () => {
         expect(fixture.logger.error).toHaveBeenNthCalledWith(
             1,
             '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)',
-            {
-                code: 'MAIN_PROCESS_RECOVERY_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
         );
         expect(fixture.logger.error).toHaveBeenNthCalledWith(
             2,
             '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)',
-            {
-                code: 'MAIN_PROCESS_RECOVERY_FAILED',
-                context: {},
-            },
+            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
         );
     });
 

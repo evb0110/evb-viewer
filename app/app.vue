@@ -173,7 +173,7 @@ import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import {
-    initializeRendererFailureReporter,
+    captureFailureForPresentation,
     setRendererDiagnosticsPreference,
 } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
@@ -397,15 +397,14 @@ function denyDiagnosticsConsent(report: IRuntimeErrorReport) {
 }
 
 function reportStartupWarmupFailure(title: string, error: unknown) {
-    const presentation = initializeRendererFailureReporter().captureForPresentation({
+    const presentation = captureFailureForPresentation({
         code: 'RENDERER_STARTUP_WARMUP_FAILED',
-        context: {},
         local: {
             source: 'loader',
             message: title,
             cause: error,
         },
-    }, {localAlreadyRecorded: true});
+    });
     BrowserLogger.error('loader', title, error, presentation.failure);
     reportRuntimeError({
         ...presentation,
@@ -573,10 +572,7 @@ function installViteReloadDiagnostics() {
     });
 
     hot.on('vite:error', (payload: unknown) => {
-        BrowserLogger.error('dev-reload', 'Vite HMR error event received', payload, {
-            code: 'RENDERER_DEVELOPMENT_HMR_FAILED',
-            context: {},
-        });
+        BrowserLogger.error('dev-reload', 'Vite HMR error event received', payload, {code: 'RENDERER_DEVELOPMENT_HMR_FAILED'});
     });
 }
 

@@ -1,6 +1,6 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
-import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsCapability';
+import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';
 
 export type * from '@contracts/agent';
 export type * from '@contracts/pdfConformance';

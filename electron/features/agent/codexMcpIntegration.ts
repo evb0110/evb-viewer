@@ -435,7 +435,6 @@ export async function setAgentMcpIntegrationEnabled(
             `Failed to ${enabled ? 'enable' : 'disable'} Codex MCP integration: ${getErrorMessage(error)}`,
             {
                 code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                context: {action: enabled ? 'enable' : 'disable'},
                 cause: error,
             },
         );

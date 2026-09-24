@@ -13,10 +13,7 @@ export function createFallbackToolbarCommandListeners(activeWorkspace: Readonly<
     function run(commandName: TWorkspaceExposeMethod, args: readonly unknown[] = []) {
         const workspace = activeWorkspace.value;
         if (!workspace) {
-            BrowserLogger.error('shell', 'Fallback workspace command unavailable', {error: new WorkspaceExposeCommandUnavailableError(commandName)}, {
-                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                context: {},
-            });
+            BrowserLogger.error('shell', 'Fallback workspace command unavailable', {error: new WorkspaceExposeCommandUnavailableError(commandName)}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return;
         }
 

@@ -365,7 +365,6 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         }
         const receipt = logger.error(`Failed to read recent files: ${getErrorMessage(err)}`, {
             code: 'MAIN_RECENT_FILES_LOAD_FAILED',
-            context: {phase: 'read'},
             cause: err,
         });
         throw attachFailureReceipt(err, receipt);
@@ -378,7 +377,6 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
     } catch (err) {
         const receipt = logger.error(`Failed to load recent files: ${getErrorMessage(err)}`, {
             code: 'MAIN_RECENT_FILES_LOAD_FAILED',
-            context: {phase: 'parse'},
             cause: err,
         });
         const emptyData = emptyRecentFilesData();
@@ -389,7 +387,6 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         } catch (recoveryError) {
             logger.error(`Failed to recover corrupt recent files: ${getErrorMessage(recoveryError)}`, {
                 code: 'MAIN_RECENT_FILES_RECOVERY_FAILED',
-                context: {},
                 cause: recoveryError,
             });
         }
@@ -421,7 +418,6 @@ async function saveRecentFilesData(data: IRecentFilesData) {
     } catch (err) {
         const receipt = logger.error(`Failed to save recent files: ${getErrorMessage(err)}`, {
             code: 'MAIN_RECENT_FILES_SAVE_FAILED',
-            context: {},
             cause: err,
         });
         try {
