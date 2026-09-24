@@ -322,14 +322,12 @@ artifact-scan checks for every dist below.
 | Dist | Release | Unknown requests | Denied requests | Granted event count | Revocation requests | Error ID matched | Symbolicated | Artifact scan | Behavior deadlines | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `macos-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
-| `macos-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
 | `windows-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
 | `windows-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
 | `linux-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
 | `linux-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
 | `store-appx-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and Store installed smoke passed | 2026-09-06 |
 | `store-appx-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and Store installed smoke passed | 2026-09-06 |
-| `win7-legacy-x64` | Not shipped; tracked by #335 | N/A | N/A | N/A | N/A | N/A | N/A | No public artifact | N/A | 2026-09-05 |
 
 Every request count under unknown and denied must be zero. A granted canary must
 produce one envelope with one event item. Revocation must produce no queued,
@@ -400,19 +398,11 @@ Artifact workflow
 completed successfully. Its two Microsoft Store installed-smoke jobs passed.
 The replacement exact-SHA workflow
 [34006005475](https://github.com/evb0110/evb-viewer/actions/runs/34006005475)
-is the acceptance record for `0.1.453`; it passed overall, with only the
-credential-free Windows 7 advisory PDF journey failing before application
-startup.
+is the acceptance record for `0.1.453`.
 The core and supplemental release workflows also completed successfully, and
 the public `v0.1.452` release has every required core and supplemental asset.
 `SHA256SUMS` verifies the immutable core set; supplemental assets attach later
 by the repository's documented release policy and expose GitHub asset digests.
-
-The Windows 7 lane is an unpublished experiment, not a shipping identity. Its
-Electron 22 runtime cannot load the ESM main entry, so its packaged smoke fails
-before the app starts. Issue #335 owns the choice to remove that lane or build a
-separate CommonJS-compatible legacy application. No Windows 7 artifact, DSN, or
-map proof is represented as production evidence here.
 
 ### Hosted browser
 

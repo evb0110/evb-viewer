@@ -45,18 +45,6 @@ export function getLocalReleaseBuildCommand() {
 
 /** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] @returns {string[]} */
 export function getPackagingArgs(target, env = process.env) {
-    if (target.platform === 'mac' && target.arch === 'x64') {
-        return [
-            'exec',
-            'electron-builder',
-            '--publish',
-            'never',
-            '--mac',
-            'zip',
-            '--x64',
-        ];
-    }
-
     if (target.platform === 'mac' && !expectsUpdaterMetadata(target, env)) {
         // Unsigned local mac verification intentionally drops updater metadata,
         // so it only needs the manual-install DMG artifact.

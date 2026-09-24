@@ -8,18 +8,23 @@ this page is how to build and verify.
 
 The Electron app is configured to package:
 
-- macOS: DMG and ZIP
+- macOS: DMG and ZIP (the ZIP is the updater payload)
 - Windows: NSIS installer
-- Linux: AppImage and DEB
+- Linux: DEB
 
 The GitHub release workflow builds:
 
-- macOS arm64, plus a supplemental Intel ZIP lane
-- Windows x64 and arm64
-- Windows 7 x64 legacy artifacts are manual-only via workflow_dispatch of
-  `.github/workflows/build-win7-legacy.yml`, and are not part of releases or
-  the nightly canary
+- macOS arm64
+- Windows x64 and arm64 (arm64 in the supplemental workflow)
 - Linux x64 and arm64
+
+Microsoft Store AppX packages are built only when `store-appx.yml` is
+dispatched by hand for a release tag.
+
+Linux has no in-app update feed. The updater runs only on macOS arm64 and the
+standalone Windows installers; on Linux the manual update check reports that
+in-app updates are unsupported, and users install the newer `.deb` from the
+download page.
 
 Desktop releases bundle native tools for OCR, image export, page operations, and DjVu handling. The packaging and verification scripts live under `scripts/`, and platform resources are assembled into `resources/`.
 

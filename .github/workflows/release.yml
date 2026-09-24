@@ -560,7 +560,6 @@ jobs:
                 # the immutable core set (policy.mjs isSupplementalReleaseAsset).
                 # Only this release's exact expected asset name is exempt.
                 'SHA256SUMS' \
-                  | "EVB-Viewer-${RELEASE_VERSION}-x64.zip" \
                   | "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
                   | "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe.blockmap" \
                   | "latest-win-arm64.yml" \

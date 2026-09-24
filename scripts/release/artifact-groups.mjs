@@ -4,8 +4,6 @@ export const RELEASE_ACTION_ARTIFACT_GROUPS = Object.freeze([
     'dist-linux-arm64',
     'dist-win-x64',
     'supplemental-win-arm64',
-    'supplemental-mac-x64',
-    'legacy-win7-x64',
     'store-appx-win-x64',
     'store-appx-win-arm64',
 ]);

@@ -26,14 +26,12 @@ import {
 
 const EXPECTED_DESKTOP_DISTS = [
     'macos-arm64',
-    'macos-x64',
     'windows-x64',
     'windows-arm64',
     'linux-x64',
     'linux-arm64',
     'store-appx-x64',
     'store-appx-arm64',
-    'win7-legacy-x64',
 ] as const;
 
 const DESKTOP_ENVIRONMENT = {
@@ -93,10 +91,6 @@ describe('Sentry release identity contract', () => {
                 'macos-arm64',
             ],
             [
-                'mac-x64',
-                'macos-x64',
-            ],
-            [
                 'win-x64',
                 'windows-x64',
             ],
@@ -145,7 +139,6 @@ describe('Sentry release identity contract', () => {
         for (const dist of [
             'store-appx-x64',
             'store-appx-arm64',
-            'win7-legacy-x64',
         ] as const) {
             expect(resolveDesktopDiagnosticDist({environment: {
                 EVB_RELEASE_TARGET_PLATFORM: 'win',
@@ -230,7 +223,7 @@ describe('Sentry release identity contract', () => {
             environment: {
                 EVB_SENTRY_ENVIRONMENT: 'test',
                 EVB_SENTRY_DIST: 'macos-arm64',
-                EVB_RELEASE_TARGET_DIST: 'macos-x64',
+                EVB_RELEASE_TARGET_DIST: 'linux-x64',
             },
         })).toThrow(/conflicting.*dist/iu);
         expect(() => resolveSentryBuildIdentity({

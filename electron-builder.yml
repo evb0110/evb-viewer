@@ -128,7 +128,6 @@ linux:
       Keywords: PDF;DjVu;Document;Viewer;OCR;
       X-AppStream-DeveloperName: Eugene Barsky
   target:
-    - AppImage
     - deb
 nsis:
   oneClick: false

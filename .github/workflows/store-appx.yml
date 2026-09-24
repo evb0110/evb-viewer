@@ -1,33 +1,31 @@
 name: Microsoft Store Package
+run-name: Microsoft Store Package ${{ inputs.ref }}
 
+# Manual only. The owner uploads the Store packages to Partner Center by hand,
+# so this runs on request for a published release tag and nothing in the
+# release chain waits for it. Download the result with
+# `gh run download <run-id> --pattern 'store-appx-win-*'`.
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
       ref:
-        description: Git ref or commit SHA to package.
-        required: false
+        description: Release tag or commit SHA to package (for example v1.2.3).
+        required: true
         type: string
       sentry_environment:
         description: Closed Sentry build environment for this artifact.
         required: false
-        default: test
-        type: string
+        default: production
+        type: choice
+        options:
+          - production
+          - test
       send_sentry_canaries:
         description: Send one test source-map canary for every private bundle after upload.
         required: false
         default: false
         type: boolean
-    secrets:
-      SENTRY_AUTH_TOKEN:
-        required: false
-      SENTRY_VERIFICATION_TOKEN:
-        required: false
-      SENTRY_ORG:
-        required: false
-      SENTRY_DESKTOP_PROJECT:
-        required: false
-      SENTRY_DESKTOP_DSN:
-        required: false
+
 permissions:
   contents: read
 
@@ -62,7 +60,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
 
       - name: Setup release environment
         uses: ./.github/actions/setup-release-env
@@ -310,7 +308,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
 
       - name: Setup release environment
         uses: ./.github/actions/setup-release-env

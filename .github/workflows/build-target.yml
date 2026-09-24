@@ -355,23 +355,15 @@ jobs:
             "release/${unpacked_dir}/resources/app.asar" \
             "release/EVB-Viewer-${version}-win-${EVB_RELEASE_TARGET_ARCH}-provenance.json"
 
-      - name: Verify installed Linux AppImage and DEB journeys
+      - name: Verify installed Linux DEB journey
         if: runner.os == 'Linux'
         shell: bash
-        # One core-PDF proof per shipped artifact (design charter: one
-        # real-app proof per scenario): the AppImage and the installed DEB
-        # each get one smoke. The unpacked-directory run was a third proof of
-        # the same binary and was removed.
+        # One core-PDF proof for the one shipped Linux artifact (design
+        # charter: one real-app proof per scenario).
         run: |
           set -euo pipefail
-          appimage="$(find release -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
           deb="$(find release -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          test -n "$appimage"
           test -n "$deb"
-
-          chmod +x "$appimage"
-          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a \
-            pnpm run test:packaged-core-pdf-smoke -- --executable "$appimage"
 
           package_name="$(dpkg-deb -f "$deb" Package)"
           cleanup_deb() {
@@ -691,7 +683,6 @@ jobs:
             release/*.dmg
             release/*.zip
             release/*.exe
-            release/*.AppImage
             release/*.deb
             release/latest*.yml
             release/*.blockmap

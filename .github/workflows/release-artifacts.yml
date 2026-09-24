@@ -250,50 +250,12 @@ jobs:
       SENTRY_DESKTOP_PROJECT: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_PROJECT || '' }}
       SENTRY_DESKTOP_DSN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_DSN || '' }}
 
-  build_mac_intel:
-    name: Package Release Artifacts / build (macos-15-intel, mac, x64)
-    needs:
-      - prepare
-      - quality
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
-    uses: ./.github/workflows/build-mac-intel.yml
-    with:
-      ref: ${{ needs.prepare.outputs.target_sha }}
-      sentry_environment: test
-      send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
-    secrets:
-      SENTRY_AUTH_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_AUTH_TOKEN || '' }}
-      SENTRY_VERIFICATION_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_VERIFICATION_TOKEN || '' }}
-      SENTRY_ORG: ${{ inputs.send_sentry_canaries && secrets.SENTRY_ORG || '' }}
-      SENTRY_DESKTOP_PROJECT: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_PROJECT || '' }}
-      SENTRY_DESKTOP_DSN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_DSN || '' }}
-
-  build_store:
-    name: Package Microsoft Store AppX
-    needs:
-      - prepare
-      - quality
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
-    uses: ./.github/workflows/store-appx.yml
-    with:
-      ref: ${{ needs.prepare.outputs.target_sha }}
-      sentry_environment: test
-      send_sentry_canaries: ${{ github.event_name == 'workflow_dispatch' && inputs.send_sentry_canaries || false }}
-    secrets:
-      SENTRY_AUTH_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_AUTH_TOKEN || '' }}
-      SENTRY_VERIFICATION_TOKEN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_VERIFICATION_TOKEN || '' }}
-      SENTRY_ORG: ${{ inputs.send_sentry_canaries && secrets.SENTRY_ORG || '' }}
-      SENTRY_DESKTOP_PROJECT: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_PROJECT || '' }}
-      SENTRY_DESKTOP_DSN: ${{ inputs.send_sentry_canaries && secrets.SENTRY_DESKTOP_DSN || '' }}
-
   summarize:
     name: Summarize Artifact Downloads
     needs:
       - prepare
       - build_artifacts
       - build_win_arm64
-      - build_mac_intel
-      - build_store
     if: ${{ always() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
 
@@ -304,8 +266,6 @@ jobs:
           ARTIFACTS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
           BUILD_ARTIFACTS_RESULT: ${{ needs.build_artifacts.result }}
           BUILD_WIN_ARM64_RESULT: ${{ needs.build_win_arm64.result }}
-          BUILD_MAC_INTEL_RESULT: ${{ needs.build_mac_intel.result }}
-          BUILD_STORE_RESULT: ${{ needs.build_store.result }}
           TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -325,7 +285,4 @@ jobs:
             echo "- \`dist-linux-arm64\` ($BUILD_ARTIFACTS_RESULT)"
             echo "- \`dist-win-x64\` ($BUILD_ARTIFACTS_RESULT)"
             echo "- \`supplemental-win-arm64\` ($BUILD_WIN_ARM64_RESULT)"
-            echo "- \`supplemental-mac-x64\` ($BUILD_MAC_INTEL_RESULT)"
-            echo "- \`store-appx-win-x64\` ($BUILD_STORE_RESULT)"
-            echo "- \`store-appx-win-arm64\` ($BUILD_STORE_RESULT)"
           } >> "$GITHUB_STEP_SUMMARY"

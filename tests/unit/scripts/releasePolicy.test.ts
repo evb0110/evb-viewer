@@ -461,7 +461,7 @@ describe('release policy', () => {
     });
 
     it('classifies only supplemental channel assets as outside the immutable core set', () => {
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip')).toBe(true);
+        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip')).toBe(false);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe')).toBe(true);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-win-arm64-provenance.json')).toBe(true);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64.zip')).toBe(false);
@@ -471,21 +471,18 @@ describe('release policy', () => {
         // With a release version, only that release's exact asset name is
         // supplemental; other versions stop being exempt, and an explicitly
         // supplied empty version is a caller bug, not a pattern fallback.
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', '0.1.427')).toBe(true);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe', '0.1.427')).toBe(true);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-win-arm64-provenance.json', '0.1.427')).toBe(true);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-x64.zip', '0.1.427')).toBe(false);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-arm64-setup.exe', '0.1.427')).toBe(false);
         expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-win-arm64-provenance.json', '0.1.427'))
             .toBe(false);
         expect(getSupplementalReleaseAssetNames('0.1.427')).toEqual([
-            'EVB-Viewer-0.1.427-x64.zip',
             'EVB-Viewer-0.1.427-arm64-setup.exe',
             'EVB-Viewer-0.1.427-arm64-setup.exe.blockmap',
             'latest-win-arm64.yml',
             'EVB-Viewer-0.1.427-win-arm64-provenance.json',
         ]);
-        expect(() => isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip', ''))
+        expect(() => isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe', ''))
             .toThrow('non-empty release version');
     });
 
@@ -1910,21 +1907,6 @@ describe('release policy', () => {
         expect(scripts['test:electron-bundle-static-integrity:no-build']).toBe(
             'vitest run --project electron-bundle-static-integrity',
         );
-    });
-
-    it('uses a ZIP-only local package check for supplemental macOS Intel builds', () => {
-        expect(getPackagingArgs({
-            arch: 'x64',
-            platform: 'mac',
-        })).toEqual([
-            'exec',
-            'electron-builder',
-            '--publish',
-            'never',
-            '--mac',
-            'zip',
-            '--x64',
-        ]);
     });
 
     it('uses a DMG-only local package check for unsigned macOS arm64 builds', () => {

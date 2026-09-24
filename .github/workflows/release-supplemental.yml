@@ -61,7 +61,6 @@ jobs:
       target_sha: ${{ steps.resolve.outputs.target_sha }}
       version: ${{ steps.resolve.outputs.version }}
       workflow_sha: ${{ steps.resolve.outputs.workflow_sha }}
-      existing_mac_x64: ${{ steps.resolve.outputs.existing_mac_x64 }}
       existing_win_arm64: ${{ steps.resolve.outputs.existing_win_arm64 }}
 
     steps:
@@ -148,11 +147,6 @@ jobs:
           version="${TAG#v}"
           remote_assets="$(jq -r '.assets[]?.name' <<< "$release_json")"
           has_asset() { grep -Fqx "$1" <<< "$remote_assets"; }
-          existing_mac_x64=false
-          if has_asset "EVB-Viewer-${version}-x64.zip"; then
-            existing_mac_x64=true
-            echo "::notice::$TAG already holds the macOS Intel ZIP; its build is skipped."
-          fi
           existing_win_arm64=false
           win_arm64_installer="EVB-Viewer-${version}-arm64-setup.exe"
           win_arm64_provenance="EVB-Viewer-${version}-win-arm64-provenance.json"
@@ -170,7 +164,6 @@ jobs:
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "workflow_sha=$workflow_sha" >> "$GITHUB_OUTPUT"
-          echo "existing_mac_x64=$existing_mac_x64" >> "$GITHUB_OUTPUT"
           echo "existing_win_arm64=$existing_win_arm64" >> "$GITHUB_OUTPUT"
 
   release_credentials:
@@ -184,20 +177,10 @@ jobs:
       - name: Validate public release credentials
         shell: bash
         env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] \
-            || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
-            echo '::error::Public supplemental builds require Developer ID signing and App Store Connect notarization credentials.'
-            exit 1
-          fi
           if { [ -n "$WIN_CSC_LINK" ] && [ -z "$WIN_CSC_KEY_PASSWORD" ]; } \
             || { [ -z "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; }; then
             echo '::error::Partial Windows signing credentials detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither.'
@@ -228,137 +211,6 @@ jobs:
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-
-  build_mac_intel:
-    name: Package Supplemental macOS Intel Assets
-    needs:
-      - resolve
-      - release_credentials
-    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' && needs.resolve.outputs.existing_mac_x64 != 'true' }}
-    uses: ./.github/workflows/build-mac-intel.yml
-    with:
-      ref: ${{ needs.resolve.outputs.target_sha }}
-      sentry_environment: production
-      release_environment: release
-      send_sentry_canaries: false
-    secrets:
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-
-  publish_store:
-    name: Package Microsoft Store AppX
-    needs: resolve
-    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' }}
-    uses: ./.github/workflows/store-appx.yml
-    with:
-      ref: ${{ needs.resolve.outputs.target_sha }}
-      sentry_environment: production
-      send_sentry_canaries: false
-    secrets:
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-
-  attach_mac_intel:
-    name: Attach Supplemental macOS Intel Asset
-    needs:
-      - resolve
-      - build_mac_intel
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.resolve.outputs.existing_mac_x64 == 'true' || inputs.drill || needs.build_mac_intel.result == 'success') }}
-    runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      attestations: write
-      contents: write
-      id-token: write
-
-    steps:
-      - name: Checkout resolved release
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          ref: ${{ needs.resolve.outputs.target_sha }}
-
-      - name: Setup release environment
-        uses: ./.github/actions/setup-release-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          install-dependencies: 'false'
-
-      - name: Download drill Intel stub
-        if: ${{ inputs.drill && needs.resolve.outputs.existing_mac_x64 != 'true' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: supplemental-drill-mac-x64
-          path: artifacts
-
-      - name: Download built Intel artifact
-        if: ${{ !inputs.drill && needs.resolve.outputs.existing_mac_x64 != 'true' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: supplemental-mac-x64
-          path: artifacts
-          merge-multiple: true
-
-      # A re-dispatch feeds the attached copy through the same validation and
-      # immutable-asset check instead of a fresh, non-reproducible build.
-      - name: Download the Intel ZIP already attached to the release
-        if: ${{ needs.resolve.outputs.existing_mac_x64 == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release download "$RELEASE_TAG" --pattern "EVB-Viewer-${RELEASE_VERSION}-x64.zip" --dir artifacts
-
-      - name: Validate Intel ZIP
-        id: intel_asset
-        env:
-          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"
-          if [ ! -f "$expected" ]; then
-            echo "::error::Supplemental Intel artifact did not contain $(basename "$expected")."
-            exit 1
-          fi
-          echo "expected=$expected" >> "$GITHUB_OUTPUT"
-
-      - name: Attest Intel ZIP
-        if: ${{ !inputs.drill && needs.resolve.outputs.existing_mac_x64 != 'true' }}
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
-        with:
-          subject-path: ${{ steps.intel_asset.outputs.expected }}
-
-      - name: Attach Intel ZIP
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-          EXPECTED_ASSET: ${{ steps.intel_asset.outputs.expected }}
-          DRILL: ${{ inputs.drill }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$DRILL" = 'true' ]; then
-            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_ASSET" --drill
-          else
-            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_ASSET"
-          fi
 
   attach_win_arm64:
     name: Attach Supplemental Windows ARM64 Assets
@@ -513,11 +365,10 @@ jobs:
     needs:
       - resolve
       - attach_win_arm64
-      - attach_mac_intel
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
-    # The Intel ZIP and the ARM64 installer are ~170 MB each, uploaded in
-    # 8 MiB parts with the same bounded retries as the core mirror.
+    # The ARM64 installer is ~170 MB, uploaded in 8 MiB parts with the same
+    # bounded retries as the core mirror.
     timeout-minutes: 40
     environment: release
     # A drill release stays a draft, and GitHub shows a draft and its assets
@@ -564,7 +415,6 @@ jobs:
           remote_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[]?.name')"
           files=()
           for asset in \
-            "EVB-Viewer-${RELEASE_VERSION}-x64.zip" \
             "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
             "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe.blockmap" \
             "latest-win-arm64.yml" \
@@ -592,10 +442,7 @@ jobs:
       - resolve
       - release_credentials
       - build_win_arm64
-      - build_mac_intel
-      - publish_store
       - attach_win_arm64
-      - attach_mac_intel
       - mirror_supplemental
     if: ${{ always() }}
     runs-on: ubuntu-latest
@@ -611,23 +458,15 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
           DRILL: ${{ inputs.drill }}
           WIN_ARM_BUILD_RESULT: ${{ needs.build_win_arm64.result }}
-          MAC_INTEL_BUILD_RESULT: ${{ needs.build_mac_intel.result }}
-          STORE_BUILD_RESULT: ${{ needs.publish_store.result }}
           WIN_ARM_ATTACH_RESULT: ${{ needs.attach_win_arm64.result }}
-          MAC_INTEL_ATTACH_RESULT: ${{ needs.attach_mac_intel.result }}
           MIRROR_RESULT: ${{ needs.mirror_supplemental.result }}
           WIN_ARM_EXISTING: ${{ needs.resolve.outputs.existing_win_arm64 }}
-          MAC_INTEL_EXISTING: ${{ needs.resolve.outputs.existing_mac_x64 }}
         shell: bash
         run: |
           set -euo pipefail
           win_arm_build="$WIN_ARM_BUILD_RESULT"
           if [ "$WIN_ARM_EXISTING" = 'true' ]; then
             win_arm_build='reused already attached assets'
-          fi
-          mac_intel_build="$MAC_INTEL_BUILD_RESULT"
-          if [ "$MAC_INTEL_EXISTING" = 'true' ]; then
-            mac_intel_build='reused already attached asset'
           fi
           {
             echo '## Supplemental release'
@@ -642,8 +481,6 @@ jobs:
             echo '| Asset or lane | Build | Attach |'
             echo '| --- | --- | --- |'
             echo "| Windows ARM64 | $win_arm_build | $WIN_ARM_ATTACH_RESULT |"
-            echo "| macOS Intel | $mac_intel_build | $MAC_INTEL_ATTACH_RESULT |"
-            echo "| Microsoft Store packages | $STORE_BUILD_RESULT | workflow artifact only; no automated submission |"
             echo
             echo "Release mirror copies of the attached assets: $MIRROR_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -654,7 +491,6 @@ jobs:
           fi
           remote_assets="$(jq -r '.assets[]?.name' <<< "$release_json")"
           for expected in \
-            "EVB-Viewer-${VERSION}-x64.zip" \
             "EVB-Viewer-${VERSION}-arm64-setup.exe" \
             "EVB-Viewer-${VERSION}-win-arm64-provenance.json"; do
             if grep -Fqx "$expected" <<< "$remote_assets"; then

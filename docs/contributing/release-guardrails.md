@@ -22,7 +22,7 @@ here is required reading for an ordinary cut.
 - Release CI accepts a target that is on protected `main`, or a version-only commit whose parent is, and judges that commit through a successful `gates_ok` run and a successful `ci-extended.yml` run on its parent after checking the exact version-only diff. `wait-for-exact-sha-ci.mjs` waits on both tiers by default; `--required-only` waits on `ci.yml` alone and is for an agent checking its own push, not for the release path.
 - Core packaging, checksums, mirror staging, and public promotion determine whether the release is complete.
 - The release cutter pushes the `vX.Y.Z` tag with developer credentials before it dispatches `release.yml`; `prepare` requires that tag at the target, and the draft is created against the tag without a `--target`. GitHub demands the `workflows` scope to point a new ref at a commit that is behind the `main` tip in `.github/workflows/`, and the built-in token cannot hold that scope, so a workflow-created tag or a `--target` on the draft fails with HTTP 403 whenever a workflow change landed on `main` after the release commit. Keep the tag in the cutter; the workflow only verifies it.
-- macOS Intel, Windows ARM64, and Store lanes are supplemental. They never gate public promotion.
+- The Windows ARM64 lane is supplemental. It never gates public promotion. The Store AppX lane runs only on manual dispatch.
 - The publish chain is exercised without a real release by the drill described in [Publish-chain drill](#publish-chain-drill).
 
 ## macOS signing, startup, and Gatekeeper
@@ -59,7 +59,7 @@ here is required reading for an ordinary cut.
 
 - Run `pnpm run release:artifacts` from a clean worktree to have GitHub build the release artifacts without cutting a release. It uses the same preflight, clean-worktree, upstream, and publication-policy checks as the cutter, then dispatches [`Build Release Artifacts`](../../.github/workflows/release-artifacts.yml) for the exact pushed commit.
 - The same workflow runs on a daily schedule as the artifact canary. With no `target_ref` input it resolves the current `main` tip itself and skips when `main` is older than 24 hours.
-- The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel, Windows ARM64, and Windows 7 legacy lanes, and Store AppX packages, applying the same packaged native-tool and ASAR/content verification as release lanes.
+- The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix and the supplemental Windows ARM64 lane, applying the same packaged native-tool and ASAR/content verification as release lanes.
 - It never creates a tag, a GitHub Release, or release assets. Downloads live as GitHub Actions artifacts on the workflow run.
 
 ## Current-tree size and Git history
@@ -72,14 +72,14 @@ Removing a third-party runtime file from a future tree, or fetching it during a 
 
 ## Microsoft Store packages
 
-The supplemental workflow builds and smoke-installs the Store AppX packages
-and keeps them as workflow artifacts. Nothing submits them: the Store
+`store-appx.yml` builds and smoke-installs the Store AppX packages when it is
+dispatched by hand, and keeps them as workflow artifacts. Nothing submits them: the Store
 submissions API is available only to Partner Center company accounts with an
 Azure AD tenant, and this project publishes from an individual account. Keep
 account-specific IDs, portal screenshots, submission IDs, and live
 troubleshooting notes out of tracked docs. To ship a Store update:
 
-1. Download both Store package artifacts from the supplemental run: `gh run download <run-id> -n store-appx-win-x64 -n store-appx-win-arm64`
+1. Build the packages for the published tag: `gh workflow run store-appx.yml -f ref=vX.Y.Z`, then download both artifacts from that run: `gh run download <run-id> -n store-appx-win-x64 -n store-appx-win-arm64`
 2. Upload `store-appx-win-x64/EVB-Viewer-<version>-x64-store.appx` and `store-appx-win-arm64/EVB-Viewer-<version>-arm64-store.appx` in the Packages section of a new Partner Center submission and submit it for certification. See [Create app submission for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission) and [Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages).
 
 Store AppX packages must declare every shipped UI locale in `electron-builder.yml`. The Store workflow validates those manifest resources so Partner Center can offer matching localized listings.
@@ -108,10 +108,10 @@ To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the
 
 - The release and artifact-only commands stop after the dispatched GitHub workflow run is visible; GitHub owns the remote matrix from that point.
 - If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
-- The publish-chain jobs (draft, checksums, mirror, promote, Intel attach, Windows ARM64 attach, supplemental mirror) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
+- The publish-chain jobs (draft, checksums, mirror, promote, Windows ARM64 attach, supplemental mirror) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
 - Mirror transfers are bounded. The publisher uploads every artifact above 8 MiB as a multipart upload with 8 MiB parts, four parts in flight, and one HTTP request per part, so a stalled connection costs one part's request timeout (2 minutes) instead of a whole installer. The S3 client also aborts a socket that carries no bytes for 60 seconds, the publisher retries each artifact up to three times after aborting the failed multipart upload, and every publish-chain job declares `timeout-minutes` (finalize 20, mirror 40, promote 40, which covers its own three bounded activation attempts). A stalled upload fails within minutes and is repaired by re-running the failed jobs; it no longer holds the global release concurrency group for GitHub's six-hour job limit. Every drill seeds one asset larger than two parts, so the release drill proves the multipart path against the real bucket. The bucket needs a lifecycle rule that aborts incomplete multipart uploads (Yandex `AbortIncompleteMultipartUpload`, one day) because an aborted publisher process cannot clean up after itself.
-- Supplemental assets reach the mirror without joining the immutable core set. `publish-release-mirror.mjs supplemental` writes the macOS Intel ZIP, the Windows ARM64 installer, and its provenance as plain objects under the release prefix once they are attached, and refuses any name outside that set. `manifest.json` and the stable channel keep exactly the bytes promotion verified, so a same-tag repair run still reproduces them byte for byte. The upload is skipped when the tag has no core manifest, because the mirror keeps four releases and an object under a pruned tag is unreachable weight. The landing page asks the mirror for each supplemental installer rather than assuming coverage, so a release cut before this lane existed, or one whose supplemental workflow failed, offers its GitHub link alone.
-- The daily artifact canary no longer runs the Windows 7 legacy lane. It is dispatch-only and owned by Eugene Barsky. A red canary now always means a failure in a lane that ships: mac Intel, Windows ARM64, Store AppX, or the main build matrix.
+- Supplemental assets reach the mirror without joining the immutable core set. `publish-release-mirror.mjs supplemental` writes the Windows ARM64 installer and its provenance as plain objects under the release prefix once they are attached, and refuses any name outside that set. `manifest.json` and the stable channel keep exactly the bytes promotion verified, so a same-tag repair run still reproduces them byte for byte. The upload is skipped when the tag has no core manifest, because the mirror keeps four releases and an object under a pruned tag is unreachable weight. The landing page asks the mirror for each supplemental installer rather than assuming coverage, so a release cut before this lane existed, or one whose supplemental workflow failed, offers its GitHub link alone.
+- A red daily artifact canary means a failure in a lane that ships: Windows ARM64 or the main build matrix.
 
 ## Deferred by evidence
 
@@ -136,7 +136,7 @@ mirror objects under `evb-viewer/drill/<run_id>/`. The drill must never write to
 draft and the complete drill prefix even when an earlier job fails.
 
 The drill uploads deterministic core assets, runs checksum finalization,
-mirror staging, and draft verification, then runs the same Intel and Windows
+mirror staging, and draft verification, then runs the same Windows
 ARM64 attachment code with small stub files and mirrors those stubs into the
 run's own prefix. Attestation is skipped for drill files. The supplemental
 lanes wait for the chain because a supplemental mirror copy is only written

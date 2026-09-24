@@ -175,11 +175,7 @@ function desktopDistPlatform(value) {
     if (value.startsWith('macos-')) {
         return 'macos';
     }
-    if (
-        value.startsWith('windows-')
-        || value.startsWith('store-appx-')
-        || value.startsWith('win7-legacy-')
-    ) {
+    if (value.startsWith('windows-') || value.startsWith('store-appx-')) {
         return 'windows';
     }
     if (value.startsWith('linux-')) {

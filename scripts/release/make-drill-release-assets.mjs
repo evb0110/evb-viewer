@@ -133,10 +133,7 @@ function getTargetArtifactNames(target, version) {
                     : []),
             ];
         case 'linux':
-            return [
-                `${artifactPrefix}.AppImage`,
-                `${artifactPrefix}.deb`,
-            ];
+            return [`${artifactPrefix}.deb`];
         case 'win':
             return [
                 `${artifactPrefix}-setup.exe`,

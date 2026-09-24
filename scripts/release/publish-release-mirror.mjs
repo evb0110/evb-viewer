@@ -1333,7 +1333,6 @@ function parseReleaseVersion(tag) {
 export function contentTypeFor(filename) {
     const extension = basename(filename).toLowerCase().split('.').at(-1);
     return ({
-        appimage: 'application/octet-stream',
         blockmap: 'application/octet-stream',
         deb: 'application/vnd.debian.binary-package',
         dmg: 'application/x-apple-diskimage',

@@ -28,15 +28,14 @@ larger than a browser tab's memory need the installed app.
 
 ## Install
 
-One codebase, four targets. Each desktop build is native on both architectures
-of its platform, and the Windows installer is exercised against the packaged
-app in a virtual machine before a release goes out.
+One codebase, four targets. The Windows and Linux builds are native on x64 and
+ARM64; the macOS build targets Apple Silicon.
 
 | Platform | Download |
 | --- | --- |
-| macOS | [DMG](https://github.com/evb0110/evb-viewer/releases/latest) (Apple Silicon and Intel) |
+| macOS | [DMG](https://github.com/evb0110/evb-viewer/releases/latest) (Apple Silicon) |
 | Windows | [Installer](https://github.com/evb0110/evb-viewer/releases/latest) (x64 and ARM64) |
-| Linux | [AppImage or DEB](https://github.com/evb0110/evb-viewer/releases/latest) (x64 and ARM64) |
+| Linux | [DEB](https://github.com/evb0110/evb-viewer/releases/latest) (x64 and ARM64) |
 | Browser | [web.evb-viewer.com](https://web.evb-viewer.com) (no install) |
 
 [evb-viewer.com](https://evb-viewer.com) offers the same builds and picks the

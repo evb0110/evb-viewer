@@ -349,7 +349,7 @@ exports.default = async function afterSign(context) {
     resignBundledNativeToolPayloads(appPath, identity);
     // Some macOS runners still leave nested Electron framework bundles unsigned
     // by the time the afterSign hook runs. Re-sign them explicitly before the
-    // app root so the final bundle seal does not fail on Intel packaging jobs.
+    // app root so the final bundle seal does not fail.
     resignEmbeddedAppCode(appPath, identity);
     const appSignOptions = identity === '-'
         ? {}

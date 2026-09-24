@@ -1,11 +1,10 @@
-// Supplemental macOS Intel and Windows ARM64 channels attach to the GitHub
-// release after promotion, per the critical-path rule in docs/contributing/releasing.md. Their
+// The supplemental Windows ARM64 channel attaches to the GitHub release after
+// promotion, per the critical-path rule in docs/contributing/releasing.md. Their
 // assets are therefore intentionally absent from the immutable SHA256SUMS
 // core set, and release verification must tolerate them on repair reruns.
 // With a release version the exemption is the exact expected asset name;
 // the pattern fallback exists only for callers without version context.
 const SUPPLEMENTAL_RELEASE_ASSET_PATTERNS = [
-    /^EVB-Viewer-.+-x64\.zip$/u,
     /^EVB-Viewer-.+-arm64-setup\.exe$/u,
     /^EVB-Viewer-.+-arm64-setup\.exe\.blockmap$/u,
     /^latest-win-arm64\.yml$/u,
@@ -19,7 +18,6 @@ const SUPPLEMENTAL_RELEASE_ASSET_PATTERNS = [
 /** @param {string} version @returns {string[]} */
 export function getSupplementalReleaseAssetNames(version) {
     return [
-        `EVB-Viewer-${version}-x64.zip`,
         `EVB-Viewer-${version}-arm64-setup.exe`,
         `EVB-Viewer-${version}-arm64-setup.exe.blockmap`,
         'latest-win-arm64.yml',
@@ -631,10 +629,6 @@ export function getLocalReleaseTargets(options = {}) {
 export function getRequiredArtifactPatterns(target, env = process.env) {
     switch (target.platform) {
         case 'mac':
-            if (target.arch === 'x64') {
-                return [ /\.zip$/ ];
-            }
-
             // Unsigned local mac verification prunes updater metadata; the DMG
             // is the release-critical manual-install artifact in that mode.
             return expectsUpdaterMetadata(target, env)
@@ -644,10 +638,7 @@ export function getRequiredArtifactPatterns(target, env = process.env) {
                 ]
                 : [ /\.dmg$/ ];
         case 'linux':
-            return [
-                /\.AppImage$/,
-                /\.deb$/,
-            ];
+            return [ /\.deb$/ ];
         case 'win':
             return [ /\.exe$/ ];
         default:

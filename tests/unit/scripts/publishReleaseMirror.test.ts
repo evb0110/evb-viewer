@@ -796,7 +796,6 @@ describe('release mirror publisher', () => {
             environment,
             client,
         });
-        await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-x64.zip'), 'intel');
         await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-arm64-setup.exe'), 'arm installer');
         await writeFile(
             join(artifactDirectory, 'EVB-Viewer-2.1.0-win-arm64-provenance.json'),
@@ -857,10 +856,8 @@ describe('release mirror publisher', () => {
             puts,
             async writeSupplementalAssets() {
                 const directory = await mkdtemp(join(tmpdir(), 'evb-mirror-supplemental-'));
-                const intelZip = join(directory, 'EVB-Viewer-2.1.0-x64.zip');
                 const windowsInstaller = join(directory, 'EVB-Viewer-2.1.0-arm64-setup.exe');
                 const windowsProvenance = join(directory, 'EVB-Viewer-2.1.0-win-arm64-provenance.json');
-                await writeFile(intelZip, 'intel');
                 await writeFile(windowsInstaller, 'arm installer');
                 await writeFile(windowsProvenance, '{}');
                 const windowsFeed = join(directory, 'latest-win-arm64.yml');
@@ -869,13 +866,12 @@ describe('release mirror publisher', () => {
                 await writeFile(windowsBlockmap, 'blockmap');
                 return {
                     files: [
-                        intelZip,
                         windowsInstaller,
                         windowsProvenance,
                         windowsBlockmap,
                         windowsFeed,
                     ],
-                    intelZip,
+                    windowsInstaller,
                 };
             },
         };
@@ -914,7 +910,6 @@ describe('release mirror publisher', () => {
 
         expect(published).toMatchObject({
             assets: [
-                {name: 'EVB-Viewer-2.1.0-x64.zip'},
                 {name: 'EVB-Viewer-2.1.0-arm64-setup.exe'},
                 {name: 'EVB-Viewer-2.1.0-win-arm64-provenance.json'},
                 {name: 'EVB-Viewer-2.1.0-arm64-setup.exe.blockmap'},
@@ -926,7 +921,6 @@ describe('release mirror publisher', () => {
         // The manifest and the stable channel stay exactly as the promoted
         // release left them; only the new objects are written, once.
         expect(puts.map(command => command.input.Key)).toEqual([
-            'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-x64.zip',
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-arm64-setup.exe',
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-win-arm64-provenance.json',
             'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-arm64-setup.exe.blockmap',
@@ -962,10 +956,10 @@ describe('release mirror publisher', () => {
             client,
             writeSupplementalAssets,
         } = createSupplementalFixture();
-        const {intelZip} = await writeSupplementalAssets();
+        const {windowsInstaller} = await writeSupplementalAssets();
 
         await expect(publishSupplementalMirrorAssets({
-            files: [intelZip.replace('EVB-Viewer-2.1.0-x64.zip', 'EVB-Viewer-2.1.0-x64-setup.exe')],
+            files: [windowsInstaller.replace('EVB-Viewer-2.1.0-arm64-setup.exe', 'EVB-Viewer-2.1.0-x64-setup.exe')],
             releaseTag: 'v2.1.0',
             environment,
             client,
@@ -973,11 +967,11 @@ describe('release mirror publisher', () => {
         // A supplemental name from another version is a caller mistake, not a
         // second mirror layout.
         await expect(publishSupplementalMirrorAssets({
-            files: [intelZip],
+            files: [windowsInstaller],
             releaseTag: 'v2.2.0',
             environment,
             client,
-        })).rejects.toThrow('Refusing to mirror EVB-Viewer-2.1.0-x64.zip');
+        })).rejects.toThrow('Refusing to mirror EVB-Viewer-2.1.0-arm64-setup.exe');
         await expect(publishSupplementalMirrorAssets({
             files: [],
             releaseTag: 'v2.1.0',
@@ -987,14 +981,14 @@ describe('release mirror publisher', () => {
         // A drill tag never reaches the production prefix, and a public tag
         // never reaches a drill prefix.
         await expect(publishSupplementalMirrorAssets({
-            files: [intelZip],
+            files: [windowsInstaller],
             releaseTag: 'v0.0.0-drill.123',
             environment,
             client,
         })).rejects.toThrow('Invalid release tag: v0.0.0-drill.123');
         await expect(publishSupplementalMirrorAssets({
             drill: true,
-            files: [intelZip],
+            files: [windowsInstaller],
             releaseTag: 'v2.1.0',
             environment: {
                 ...environment,
@@ -1430,7 +1424,6 @@ describe('release mirror publisher', () => {
 
     it('maps content types, compares release tags, and hashes files deterministically', async () => {
         expect(contentTypeFor('app.dmg')).toBe('application/x-apple-diskimage');
-        expect(contentTypeFor('app.AppImage')).toBe('application/octet-stream');
         expect(contentTypeFor('app.deb')).toBe('application/vnd.debian.binary-package');
         expect(contentTypeFor('app.zip')).toBe('application/zip');
         expect(contentTypeFor('manifest.json')).toBe('application/json');

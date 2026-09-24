@@ -80,9 +80,8 @@ checked.
 
 Check all enabled runtimes unless the user names one:
 
-- Desktop: inspect the latest exact-SHA matrix and its artifacts for all eight
-  shipping identities. Keep `win7-legacy-x64` separate as a credential-free,
-  non-shipping advisory lane.
+- Desktop: inspect the latest exact-SHA matrix and its artifacts for all seven
+  shipping identities.
 - Hosted browser: inspect the exact production deployment and preview when a
   preview is part of the current release. Check release, dist, environment,
   served-byte parity, CSP ingest-origin count, consent suppression, Error ID

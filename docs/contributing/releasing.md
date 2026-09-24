@@ -34,11 +34,13 @@ The cutter owns the tag because the workflow cannot create it. GitHub requires t
 
 `release.yml` accepts a target that is on protected `main`, or a version-only `package.json` commit whose parent is. It then judges a version-only commit by its parent's push run at once, without waiting for a run that `[skip ci]` guarantees will never appear. Core packaging, checksum creation, mirror staging, and public promotion run in the core release workflow.
 
-The supplemental workflow attaches the macOS Intel ZIP and the Windows ARM64 installer and provenance after promotion, copies whatever it attached to the release mirror, and builds the Microsoft Store AppX packages as workflow artifacts; nothing submits them to the Store. It is dispatched automatically. A rerun skips the build of every asset the release already holds and verifies the attached copy instead, so it is safe to repeat, and it repairs a missing mirror copy on the way:
+The supplemental workflow attaches the Windows ARM64 installer and provenance after promotion and copies them to the release mirror. It is dispatched automatically. A rerun skips the build of every asset the release already holds and verifies the attached copy instead, so it is safe to repeat, and it repairs a missing mirror copy on the way:
 
 ```sh
 gh workflow run release-supplemental.yml -f tag=vX.Y.Z
 ```
+
+Microsoft Store AppX packages are built only by dispatching `store-appx.yml` for the tag; see [Microsoft Store packages](release-guardrails.md#microsoft-store-packages).
 
 The release preflight (`node scripts/release/release-cut-preflight.mjs`, also the first `run-all-gates` stage) answers every question above without publishing anything. It accepts the same `--require-commit <sha-or-ref>` and `--artifact-evidence=advisory` options. `pnpm run release:verify` remains available as a developer tool when a packaging change needs local proof. Neither is part of `release:cut`.
 
@@ -83,5 +85,5 @@ It fetches tags, takes the newest `vX.Y.Z`, and checks that the tagged commit is
 | `prepare` reports that the tag does not exist on origin | The release was dispatched without the cutter, or the tag was deleted. Run `pnpm run release:resume`; it pushes the tag with your credentials and redispatches. Do not create the tag from a workflow. |
 | Stage GitHub Release fails with `HTTP 403: Resource not accessible by integration` | The workflow tried to point a new ref at a commit behind the workflow files on `main`. That happens only when the cutter that dispatched the run predates tag ownership. Run `pnpm run release:resume` with the current cutter. |
 | The cutter reports the carry to `main` failed | The release is tagged and dispatched. Run `pnpm run release:resume` once the push obstacle is gone; it carries the version without redispatching a public release. |
-| macOS Intel, Windows ARM64, or Store supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. Assets already attached are verified, not rebuilt. |
+| Windows ARM64 supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. Assets already attached are verified, not rebuilt. |
 | A release is already public but the status is incomplete | Keep the tag. Repair the named missing asset or supplemental workflow and use `release:status` again. |

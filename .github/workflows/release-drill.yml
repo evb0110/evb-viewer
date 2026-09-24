@@ -13,7 +13,6 @@ on:
       - '.github/workflows/publish-chain.yml'
       - '.github/workflows/build-target.yml'
       - '.github/workflows/build*.yml'
-      - '.github/workflows/store-appx.yml'
       - 'scripts/release/**'
 
 concurrency:
@@ -115,8 +114,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$DRILL_ROOT/mac" "$DRILL_ROOT/win"
-          printf 'publish-chain drill Intel ZIP for %s\n' "$DRILL_VERSION" > "$DRILL_ROOT/mac/EVB-Viewer-${DRILL_VERSION}-x64.zip"
+          mkdir -p "$DRILL_ROOT/win"
           printf 'publish-chain drill Windows ARM64 installer for %s\n' "$DRILL_VERSION" > "$DRILL_ROOT/win/EVB-Viewer-${DRILL_VERSION}-arm64-setup.exe"
           printf '{"kind":"drill","version":"%s","arch":"arm64"}\n' "$DRILL_VERSION" > "$DRILL_ROOT/win/EVB-Viewer-${DRILL_VERSION}-win-arm64-provenance.json"
 
@@ -135,13 +133,6 @@ jobs:
             `path: ${name}`, `sha512: ${sha512}`, '',
           ].join('\n'));
           NODE
-
-      - name: Upload drill Intel stub
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: supplemental-drill-mac-x64
-          path: ${{ runner.temp }}/drill-supplemental/mac/**
-          if-no-files-found: error
 
       - name: Upload drill Windows ARM64 stubs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
