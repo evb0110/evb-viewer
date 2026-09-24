@@ -5,7 +5,10 @@ import {
     unlink,
     writeFile,
 } from 'fs/promises';
-import {writeFileSync} from 'node:fs';
+import {
+    constants as fsConstants,
+    writeFileSync,
+} from 'node:fs';
 import {devNull} from 'node:os';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -636,19 +639,18 @@ function createNativeModifiedAt() {
     return `D:${pad(date.getUTCFullYear(), 4)}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
 }
 
-export function isIncrementalPageRotationAvailable() {
-    return resolveNativePageOpsPath() !== null;
-}
-
 /**
- * Append only the selected page dictionaries. The caller owns the revision
- * journal and must materialize a managed working copy before entering the
- * append transition so an original hard link can never be mutated.
+ * Rotation appends only the selected page dictionaries. An in-place append
+ * writes through every hard link to the file, so a working copy that shares
+ * its inode with the original is copied first, the copy takes the append, and
+ * it replaces the working copy. The caller owns the revision journal and must
+ * materialize a managed working copy before entering the transition.
  */
-export async function rotatePagesIncremental(
+export async function rotatePages(
     workingCopyPath: string,
     pages: number[],
     angle: TRotationAngle,
+    appendInPlace: boolean,
     senderWebContentsId?: number,
     options: IQpdfOperationOptions = {},
 ) {
@@ -659,12 +661,16 @@ export async function rotatePagesIncremental(
     );
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
-        throw new Error('Incremental page rotation is unavailable');
+        throw new Error('Native page rotation is unavailable');
     }
 
     const tempDir = await createManagedScratchTempDir('pdf-page-ops-');
     const mutationsPath = join(tempDir, 'mutations.json');
+    const targetPath = appendInPlace ? materializedPath : makeTempPdfOutputPath(materializedPath);
     try {
+        if (!appendInPlace) {
+            await copyFile(materializedPath, targetPath, fsConstants.COPYFILE_FICLONE);
+        }
         const pageRotations = pages.map(page => ({
             pageIndex: page - 1,
             angle,
@@ -673,9 +679,9 @@ export async function rotatePagesIncremental(
         await runNativeToolCommand(binaryPath, [
             'save-mutations',
             '--input',
-            materializedPath,
+            targetPath,
             '--output',
-            materializedPath,
+            targetPath,
             '--mutations-file',
             mutationsPath,
             '--qpdf',
@@ -686,49 +692,23 @@ export async function rotatePagesIncremental(
             '--append-in-place',
         ], {
             timeoutMs: QPDF_TIMEOUT_MS,
-            commandLabel: 'evb-pdf-page-ops(incremental-page-rotation)',
+            commandLabel: 'evb-pdf-page-ops(page-rotation)',
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
         });
-        await assertNonEmptyPdfOutput(materializedPath, 'Rotating pages incrementally');
+        await assertNonEmptyPdfOutput(targetPath, 'Rotating pages');
+        if (!appendInPlace) {
+            await replaceQpdfOutput(targetPath, materializedPath);
+        }
+    } catch (err) {
+        if (!appendInPlace) {
+            await cleanupQpdfTemp(targetPath);
+        }
+        throw err;
     } finally {
         await rm(tempDir, {
             recursive: true,
             force: true,
         });
-    }
-}
-
-export async function rotatePages(
-    workingCopyPath: string,
-    pages: number[],
-    angle: TRotationAngle,
-    senderWebContentsId?: number,
-    options: IQpdfOperationOptions = {},
-) {
-    const materializedPath = await materializePageOperationWorkingCopy(
-        workingCopyPath,
-        senderWebContentsId,
-        options.signal,
-    );
-    const tempPath = makeTempPdfOutputPath(materializedPath);
-
-    try {
-        await runQpdfCommand([
-            materializedPath,
-            `--rotate=+${angle}:${formatPageList(pages)}`,
-            tempPath,
-        ], {
-            timeoutMs: QPDF_TIMEOUT_MS,
-            allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
-            commandLabel: 'qpdf(rotate-pages)',
-            ...(options.signal ? { signal: options.signal } : {}),
-            ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-        });
-        await assertNonEmptyPdfOutput(tempPath, 'Rotating pages');
-        await replaceQpdfOutput(tempPath, materializedPath);
-    } catch (err) {
-        await cleanupQpdfTemp(tempPath);
-        throw err;
     }
 }

@@ -51,8 +51,6 @@ import {
     movePages,
     reorderPages,
     rotatePages,
-    rotatePagesIncremental,
-    isIncrementalPageRotationAvailable,
     materializePageOperationWorkingCopy,
     verifyPdfStructureStrict,
 } from '@electron/features/page-ops/main/qpdf';
@@ -778,7 +776,7 @@ async function handlePageOpsInsert(
 
 // An in-place append writes through every hard link to the file. A save can
 // leave the working copy sharing its inode with the original, so only an
-// unshared working copy may take the append path; the rewrite path detaches it.
+// unshared working copy is appended in place.
 async function isWorkingCopyInodeExclusive(workingCopyPath: string) {
     const workingCopyStat = await stat(workingCopyPath);
     return workingCopyStat.isFile() && workingCopyStat.nlink === 1;
@@ -813,37 +811,29 @@ async function handlePageOpsRotate(
             throw new Error('Renderer page count is stale');
         }
         const ranges = validatePageOpsSelection(pages, mainTotalPages, 'rotatePages');
-        const useIncrementalRotation = isIncrementalPageRotationAvailable()
-            && await isWorkingCopyInodeExclusive(await materializePageOperationWorkingCopy(
-                queuedWorkingCopyPath,
-                context.senderId,
-                operation.signal,
-            ));
+        const appendInPlace = await isWorkingCopyInodeExclusive(await materializePageOperationWorkingCopy(
+            queuedWorkingCopyPath,
+            context.senderId,
+            operation.signal,
+        ));
         return transitionPageMutation({
             workingCopyPath: queuedWorkingCopyPath,
             senderId: context.senderId,
             operation,
             options,
-            ...(useIncrementalRotation
-                ? {
-                    contentBackupMode: 'append' as const,
-                    skipPageMetadataRemap: true,
-                    nativeAppendStructureVerified: true,
-                }
-                : {}),
+            ...(appendInPlace ? {contentBackupMode: 'append' as const} : {}),
+            skipPageMetadataRemap: true,
+            nativeAppendStructureVerified: true,
             mutate: async () => {
                 for (const batch of iteratePageRangeBatches(ranges, QPDF_PAGE_BATCH_SIZE)) {
-                    if (useIncrementalRotation) {
-                        await rotatePagesIncremental(
-                            queuedWorkingCopyPath,
-                            batch,
-                            angle,
-                            context.senderId,
-                            nativeOptions,
-                        );
-                    } else {
-                        await rotatePages(queuedWorkingCopyPath, batch, angle, context.senderId, nativeOptions);
-                    }
+                    await rotatePages(
+                        queuedWorkingCopyPath,
+                        batch,
+                        angle,
+                        appendInPlace,
+                        context.senderId,
+                        nativeOptions,
+                    );
                 }
                 return {
                     value: undefined,
