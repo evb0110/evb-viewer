@@ -16,7 +16,6 @@ import {
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { getLayoutPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 import {
@@ -59,7 +58,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 writable: true,
             },
         });
-        const pageSlots = createPdfPageSlotRegistry();
         for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
             const page = document.createElement('div');
             page.className = 'page_container';
@@ -68,7 +66,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
                 : '<div class="document-page-skeleton"></div>';
             viewer.append(page);
-            pageSlots.markMounted(pageNumber);
         }
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 3}, () => ({
@@ -127,7 +124,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -207,7 +203,6 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(waitForPageTextLayerReady).toHaveBeenCalledWith(3, expect.any(AbortSignal));
 
         } finally {
-            pageSlots.dispose();
             scope.stop();
         }
     });
@@ -240,7 +235,6 @@ describe('usePdfSinglePageNavigationController', () => {
             y: 100,
             toJSON: () => ({}),
         });
-        const pageSlots = createPdfPageSlotRegistry();
         for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
             const page = document.createElement('div');
             page.className = 'page_container page_container--rendered';
@@ -259,7 +253,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 toJSON: () => ({}),
             });
             viewer.append(page);
-            pageSlots.markMounted(pageNumber);
         }
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 2}, () => ({
@@ -302,7 +295,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -318,7 +310,6 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(viewportWrites.writes.at(-1)?.top).toBe(2_380);
             expect(viewer.scrollTop).toBe(2_380);
         } finally {
-            pageSlots.dispose();
             scope.stop();
         }
     });
@@ -351,7 +342,6 @@ describe('usePdfSinglePageNavigationController', () => {
             y: 0,
             toJSON: () => ({}),
         });
-        const pageSlots = createPdfPageSlotRegistry();
         const target = document.createElement('div');
         target.className = 'page_container page_container--rendered';
         target.dataset.page = '2';
@@ -368,7 +358,6 @@ describe('usePdfSinglePageNavigationController', () => {
             toJSON: () => ({}),
         });
         viewer.append(target);
-        pageSlots.markMounted(2);
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 2}, () => ({
                 width: 1_532,
@@ -410,7 +399,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -445,7 +433,6 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(viewportWrites.writes[0]?.top).toBe(890);
             expect(viewer.scrollLeft).toBe(0);
         } finally {
-            pageSlots.dispose();
             scope.stop();
         }
     });
@@ -467,14 +454,12 @@ describe('usePdfSinglePageNavigationController', () => {
                 writable: true,
             },
         });
-        const pageSlots = createPdfPageSlotRegistry();
         for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
             const page = document.createElement('div');
             page.className = 'page_container page_container--rendered';
             page.dataset.page = String(pageNumber);
             page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
             viewer.append(page);
-            pageSlots.markMounted(pageNumber);
         }
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 3}, () => ({
@@ -517,7 +502,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -533,7 +517,6 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(viewportWrites.writes.at(-1)?.top).toBe(0);
             expect(viewer.scrollTop).toBe(0);
         } finally {
-            pageSlots.dispose();
             scope.stop();
         }
     });
@@ -555,14 +538,12 @@ describe('usePdfSinglePageNavigationController', () => {
                 writable: true,
             },
         });
-        const pageSlots = createPdfPageSlotRegistry();
         for (let pageNumber = 1; pageNumber <= 5; pageNumber += 1) {
             const page = document.createElement('div');
             page.className = 'page_container page_container--rendered';
             page.dataset.page = String(pageNumber);
             page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
             viewer.append(page);
-            pageSlots.markMounted(pageNumber);
         }
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 5}, () => ({
@@ -608,7 +589,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -648,7 +628,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 timeStamp: 1_600,
             })).toBe(false);
         } finally {
-            pageSlots.dispose();
             scope.stop();
         }
     });
@@ -676,9 +655,6 @@ describe('usePdfSinglePageNavigationController', () => {
             page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
             viewer.append(page);
         }
-        const pageSlots = createPdfPageSlotRegistry();
-        pageSlots.markMounted(1);
-        pageSlots.markMounted(2);
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 2}, () => ({
                 width: 600,
@@ -723,7 +699,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -780,7 +755,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportYFraction: 500 / 650,
             });
         } finally {
-            pageSlots.dispose();
             scope.stop();
         }
     });
@@ -802,14 +776,12 @@ describe('usePdfSinglePageNavigationController', () => {
                 writable: true,
             },
         });
-        const pageSlots = createPdfPageSlotRegistry();
         for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
             const page = document.createElement('div');
             page.className = 'page_container page_container--rendered';
             page.dataset.page = String(pageNumber);
             page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
             viewer.append(page);
-            pageSlots.markMounted(pageNumber);
         }
         const buildLayout = (scale: number) => {
             const layout = buildPageLayoutMetrics({
@@ -860,7 +832,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => 1,
                 getGeometryRevision: () => 1,
             }));
@@ -889,7 +860,6 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(settledTop).toBeGreaterThanOrEqual(pageThreeTop - 20);
             expect(settledTop).toBeLessThan(pageThreeTop + 200);
         } finally {
-            pageSlots.dispose();
             scope.stop();
         }
     });
@@ -912,7 +882,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 writable: true,
             },
         });
-        const pageSlots = createPdfPageSlotRegistry();
         for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
             const page = document.createElement('div');
             page.className = 'page_container';
@@ -921,7 +890,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
                 : '<div class="document-page-skeleton"></div>';
             viewer.append(page);
-            pageSlots.markMounted(pageNumber);
         }
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 3}, () => ({
@@ -997,7 +965,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
                 cancelPendingSearchScroll: vi.fn(),
-                pageSlots,
                 getDocumentRevision: () => documentRevision.value,
                 getGeometryRevision: () => 1,
             }));
@@ -1031,7 +998,6 @@ describe('usePdfSinglePageNavigationController', () => {
             }
         } finally {
             window.removeEventListener('unhandledrejection', onUnhandledRejection);
-            pageSlots.dispose();
             scope.stop();
         }
     });

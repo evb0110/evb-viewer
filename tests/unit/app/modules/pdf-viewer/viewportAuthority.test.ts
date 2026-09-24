@@ -266,7 +266,7 @@ describe('ViewportAuthority', () => {
             awaitVisual: async () => {
                 throw new DOMException('PDF navigation readiness not reached', 'AbortError');
             },
-            apply: request => writes.push(request.id),
+            apply: request => { writes.push(request.id); },
         });
 
         await expect(authority.submit(intent('readiness-fallback', 2)))
@@ -295,7 +295,7 @@ describe('ViewportAuthority', () => {
                     reject(new DOMException('superseded', 'AbortError'));
                 }, {once: true}))
                 : Promise.resolve(),
-            apply: request => writes.push(request.id),
+            apply: request => { writes.push(request.id); },
         });
 
         const stale = authority.submit(intent('stale-visual', 2));
@@ -322,7 +322,7 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            apply: (_request, commit) => writes.push(commit.top),
+            apply: (_request, commit) => { writes.push(commit.top); },
             awaitVisual: async () => {},
             refine: async (_request, commit) => ({
                 ...commit,
@@ -396,7 +396,7 @@ describe('ViewportAuthority', () => {
             awaitMetrics: (request, signal) => request.id === 'A'
                 ? new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {once: true}))
                 : Promise.resolve(),
-            apply: request => writes.push(request.id),
+            apply: request => { writes.push(request.id); },
             awaitVisual: async () => {},
         });
 
@@ -422,7 +422,7 @@ describe('ViewportAuthority', () => {
                 top: 10,
             }),
             awaitMetrics: () => new Promise<void>(resolve => { release = resolve; }),
-            apply: request => writes.push(request.id),
+            apply: request => { writes.push(request.id); },
             awaitVisual: async () => {},
         });
         const pending = authority.submit(intent('restore', 8));
@@ -515,7 +515,7 @@ describe('ViewportAuthority', () => {
                 top: 10,
             }),
             awaitMetrics: () => new Promise<void>((resolve) => { release = resolve; }),
-            apply: request => writes.push(request.id),
+            apply: request => { writes.push(request.id); },
             awaitVisual: async () => {},
         });
 

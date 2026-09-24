@@ -204,8 +204,8 @@ function createViewportFixture(input: {
                     input.onEmitCurrentPage?.(page);
                 },
                 emitNavigationFeedbackPage: vi.fn(),
-                emitZoom: value => {
-                    zoom.value = value;
+                emitZoomState: state => {
+                    if (state.kind === 'custom') zoom.value = state.scale;
                 },
                 emitEffectiveZoom,
                 summarizeViewerStateForLog: vi.fn(),

@@ -33,20 +33,4 @@ describe('viewportSimulation production seams', () => {
         expect(window?.pageNumbers.length).toBeLessThanOrEqual(7);
         expect(window?.pageNumbers).not.toContain(1);
     });
-
-    it('I18 production slot readiness is abortable under adversarial mount ordering', async () => {
-        const {pageSlots} = createProductionViewportAdapter();
-        const stale = new AbortController();
-        const latest = new AbortController();
-        const staleReadiness = pageSlots.whenMounted(30, stale.signal);
-        const latestReadiness = pageSlots.whenMounted(928, latest.signal);
-
-        stale.abort();
-        pageSlots.markMounted(928);
-
-        await expect(staleReadiness).rejects.toMatchObject({name: 'AbortError'});
-        await expect(latestReadiness).resolves.toBeUndefined();
-        expect(pageSlots.isMounted(30)).toBe(false);
-        expect(pageSlots.isMounted(928)).toBe(true);
-    });
 });

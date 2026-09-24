@@ -604,7 +604,6 @@ describe('PdfDocumentSession transitions', () => {
             await session.ensurePageMetricsInRange(
                 currentPage,
                 currentPage,
-                transition.plan.pagesToInvalidate ?? [],
             );
             expect(replacementPageRequests).toContain(currentPage);
             expect(session.pageMetrics.value[currentPage - 1]).toMatchObject({
