@@ -72,7 +72,6 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
     onViewportPositionCommitted?: ((commit: IPdfViewportPositionCommit) => boolean) | undefined;
     onUserViewportPageObserved?: ((pageNumber: TPageNumber) => void) | undefined;
     onPageVisualReady?: ((pageNumber: TPageNumber) => void) | undefined;
-    beginLayoutGeometryReplacement?: (() => () => void) | undefined;
 }
 
 interface IPdfSinglePageWheelEvent {
@@ -258,7 +257,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         isIntentCurrent: isIntentDocumentCurrent,
         shouldStageNavigationVisual: intent => isUnplacedOpeningNavigation(intent.navigationTicket),
         reportNavigation,
-        beginLayoutGeometryReplacement: options.beginLayoutGeometryReplacement,
         awaitMetrics: async (intent, signal) => {
             const captured = requireIntentDocument(intent, signal);
             const resolved = intent.navigation
@@ -294,7 +292,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 requireIntentDocument(intent, signal);
             }
             refreshGeometry();
-            return options.getGeometryRevision();
         },
         resolve: (intent) => {
             const container = options.viewerContainer.value;
@@ -366,9 +363,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             await Promise.all(Array.from({length: end - start + 1}, (_, offset) => (
                 options.pageSlots.whenMounted(requirePageNumber(start + offset, livePageCount(captured.document)), signal)
             )));
-        },
-        awaitLayoutGeometrySettled: async (_intent, _signal) => {
-            await yieldToBrowser();
         },
         apply: (intent, commit) => {
             requireIntentDocument(intent);
@@ -555,7 +549,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             && options.pdfDocument.value
             && options.numPages.value > 0
             && options.getDocumentRevision() > 0
-            && options.getGeometryRevision() > 0
             && options.getPageLayoutMetrics?.() !== null,
         );
     }
@@ -610,7 +603,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 ? 'search'
                 : ticket.request.source === 'wheel' ? 'wheel-page' : 'navigate',
             documentRevision: options.getDocumentRevision(),
-            geometryRevision: options.getGeometryRevision(),
             navigation: ticket.request,
             navigationTicket: ticket,
             ...extras,
@@ -802,7 +794,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 id: `pdf-test-navigation:${String(++intentSequence)}`,
                 kind: request.source === 'search' ? 'search' : request.source === 'wheel' ? 'wheel-page' : 'navigate',
                 documentRevision: options.getDocumentRevision(),
-                geometryRevision: options.getGeometryRevision(),
                 navigation: request,
             };
             if (!captureIntentDocument(intent)) return false;
@@ -832,8 +823,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         } = {},
     ) {
         const documentRevision = options.getDocumentRevision();
-        const geometryRevision = options.getGeometryRevision();
-        if (!navigationRuntimeReady.value || documentRevision <= 0 || geometryRevision <= 0) {
+        if (!navigationRuntimeReady.value || documentRevision <= 0) {
             // ResizeObserver and reactive layout watchers can run while a PDF
             // surface is being mounted or torn down. At that boundary there
             // is deliberately no live document generation to own a viewport
@@ -842,7 +832,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             logPdfRenderTrace('navigation-viewport-state-intent-cancelled', () => ({
                 kind,
                 documentRevision,
-                geometryRevision,
                 reason: 'inactive-revision',
             }));
             return Promise.resolve({
@@ -888,7 +877,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             id: viewportStateIntentId,
             kind,
             documentRevision,
-            geometryRevision,
             anchor,
             ...(state.zoom === undefined ? {} : {zoom: state.zoom}),
             ...(state.viewportPoint === undefined ? {} : {viewportPoint: state.viewportPoint}),

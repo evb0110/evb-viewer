@@ -24,13 +24,12 @@ function intent(id: string, page: number): Omit<IPdfViewportIntent, 'interaction
         id,
         kind: 'navigate',
         documentRevision: 1,
-        geometryRevision: 1,
         navigation: createPageNavigationRequest(page, 'toolbar'),
     };
 }
 
 describe('ViewportAuthority', () => {
-    it('exposes an active state intent anchor without misclassifying it as navigation', async () => {
+    it('does not report a state intent anchor as a navigation target', async () => {
         let releaseVisual!: () => void;
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
@@ -52,7 +51,6 @@ describe('ViewportAuthority', () => {
             id: 'fit-page-2',
             kind: 'fit',
             documentRevision: 1,
-            geometryRevision: 1,
             anchor: {
                 ...anchor,
                 page: 2,
@@ -61,7 +59,6 @@ describe('ViewportAuthority', () => {
         await vi.waitFor(() => expect(releaseVisual).toBeTypeOf('function'));
 
         expect(authority.pendingTargetPage.value).toBeNull();
-        expect(authority.pendingAnchorPage.value).toBe(2);
         releaseVisual();
         await expect(pending).resolves.toMatchObject({outcome: 'settled'});
         expect(authority.currentPage.value).toBe(2);
@@ -237,7 +234,6 @@ describe('ViewportAuthority', () => {
             id: 'held-visual',
             kind: 'fit',
             documentRevision: 1,
-            geometryRevision: 1,
             anchor: {
                 ...anchor,
                 page: 2,
@@ -258,73 +254,6 @@ describe('ViewportAuthority', () => {
             releaseVisual();
         }
         await expect(pending).resolves.toMatchObject({outcome: 'cancelled'});
-    });
-
-    it('re-arms one-frame geometry ownership when delayed target layout arrives', async () => {
-        const geometryFrames: Array<() => void> = [];
-        let releaseMetrics!: () => void;
-        let releaseSlots!: () => void;
-        let releaseVisual!: () => void;
-        const events: string[] = [];
-        const authority = createViewportAuthority({
-            getDocumentRevision: () => 1,
-            getGeometryRevision: () => 1,
-            beginLayoutGeometryReplacement: () => {
-                events.push('replacement-started');
-                return () => events.push('replacement-ended');
-            },
-            resolve: async () => ({
-                anchor,
-                left: 0,
-                top: 900,
-            }),
-            awaitMetrics: () => new Promise<void>((resolve) => {
-                events.push('metrics-requested');
-                releaseMetrics = resolve;
-            }),
-            awaitSlots: () => new Promise<void>((resolve) => {
-                events.push('slots-requested');
-                releaseSlots = resolve;
-            }),
-            awaitLayoutGeometrySettled: () => new Promise<void>((resolve) => {
-                geometryFrames.push(resolve);
-            }),
-            awaitVisual: () => new Promise<void>((resolve) => {
-                events.push('visual-requested');
-                releaseVisual = resolve;
-            }),
-            apply: () => { events.push('applied'); },
-        });
-
-        const pending = authority.submit(intent('geometry-owned', 2));
-        expect(events[0]).toBe('replacement-started');
-        await vi.waitFor(() => expect(geometryFrames).toHaveLength(1));
-        geometryFrames.shift()!();
-        await vi.waitFor(() => expect(events).toContain('replacement-ended'));
-
-        releaseMetrics();
-        await vi.waitFor(() => expect(events).toContain('slots-requested'));
-        expect(events.filter(event => event === 'replacement-started')).toHaveLength(2);
-        expect(geometryFrames).toHaveLength(1);
-        geometryFrames.shift()!();
-        await vi.waitFor(() => {
-            expect(events.filter(event => event === 'replacement-ended')).toHaveLength(2);
-        });
-
-        releaseSlots();
-        await vi.waitFor(() => expect(geometryFrames).toHaveLength(1));
-        expect(events.filter(event => event === 'replacement-started')).toHaveLength(3);
-        expect(events.filter(event => event === 'replacement-ended')).toHaveLength(2);
-        geometryFrames.shift()!();
-        await vi.waitFor(() => expect(events).toContain('visual-requested'));
-        await vi.waitFor(() => {
-            expect(events.filter(event => event === 'replacement-ended')).toHaveLength(3);
-        });
-        releaseVisual();
-        await expect(pending).resolves.toMatchObject({outcome: 'settled'});
-        expect(events.filter(event => event === 'replacement-started')).toHaveLength(3);
-        expect(events.filter(event => event === 'replacement-ended')).toHaveLength(3);
-        expect(events.at(-1)).toBe('applied');
     });
 
     it('applies a current navigation target when staged raster readiness fails', async () => {
@@ -661,117 +590,6 @@ describe('ViewportAuthority', () => {
             .resolves.toMatchObject({outcome: 'settled'});
         expect(authority.currentPage.value).toBe(2);
         expect(authority.getTerminalOutcome('ticket-replay')).toBe('settled');
-    });
-
-    it('rebases a live intent when visual hydration changes geometry', async () => {
-        let geometryRevision = 1;
-        let release!: () => void;
-        const writes: string[] = [];
-        const authority = createViewportAuthority({
-            getDocumentRevision: () => 1,
-            getGeometryRevision: () => geometryRevision,
-            resolve: async () => ({
-                anchor,
-                left: 0,
-                top: 10,
-            }),
-            awaitMetrics: async () => {},
-            awaitSlots: async () => {},
-            apply: request => writes.push(request.id),
-            awaitVisual: () => new Promise<void>((resolve) => { release = resolve; }),
-        });
-
-        const pending = authority.submit(intent('geometry-change', 2));
-        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-        geometryRevision = 2;
-        release();
-
-        await expect(pending).resolves.toMatchObject({outcome: 'settled'});
-        expect(writes).toEqual(['geometry-change']);
-    });
-
-    it('rebases geometry freshness after intent-owned metric hydration', async () => {
-        let geometryRevision = 1;
-        const writes: string[] = [];
-        const authority = createViewportAuthority({
-            getDocumentRevision: () => 1,
-            getGeometryRevision: () => geometryRevision,
-            resolve: async request => ({
-                anchor: {
-                    ...anchor,
-                    page: request.navigation?.target.kind === 'page' ? request.navigation.target.page : 1,
-                },
-                left: 0,
-                top: 10,
-            }),
-            awaitMetrics: async () => {
-                geometryRevision += 1;
-                return geometryRevision;
-            },
-            awaitSlots: async () => {},
-            apply: request => writes.push(request.id),
-            awaitVisual: async () => {},
-        });
-
-        await expect(authority.submit(intent('hydrate-metrics', 2)))
-            .resolves
-            .toMatchObject({outcome: 'settled'});
-        expect(writes).toEqual(['hydrate-metrics']);
-        expect(authority.currentPage.value).toBe(2);
-    });
-
-    it('fails a ticket after bounded geometry retries instead of looping forever', async () => {
-        let geometryRevision = 1;
-        let visualAttempts = 0;
-        const navigationTicket: IDocumentNavigationTicket = {
-            generation: 1,
-            documentRevision: 'revision-1',
-            id: 'ticket-unstable-geometry',
-            request: createPageNavigationRequest(2, 'toolbar'),
-            signal: new AbortController().signal,
-            finished: Promise.resolve({
-                kind: 'arrived',
-                page: 2,
-            }),
-        };
-        const reportNavigation = vi.fn(() => true);
-        const authority = createViewportAuthority({
-            getDocumentRevision: () => 1,
-            getGeometryRevision: () => geometryRevision,
-            reportNavigation,
-            resolve: async () => ({
-                anchor: {
-                    ...anchor,
-                    page: 2,
-                },
-                left: 0,
-                top: 10,
-            }),
-            awaitMetrics: async () => {},
-            awaitSlots: async () => {},
-            apply: () => {},
-            awaitVisual: async () => {
-                visualAttempts += 1;
-                geometryRevision += 1;
-                throw new Error('visual geometry changed');
-            },
-        });
-
-        await expect(authority.submit({
-            ...intent('unstable-geometry', 2),
-            navigationTicket,
-        })).resolves.toMatchObject({outcome: 'cancelled'});
-
-        expect(visualAttempts).toBe(9);
-        expect(reportNavigation).toHaveBeenCalledOnce();
-        expect(reportNavigation).toHaveBeenCalledWith(
-            navigationTicket,
-            expect.objectContaining({
-                kind: 'failed',
-                reason: 'Viewport geometry did not stabilize after 8 retries',
-            }),
-        );
-        expect(authority.getTerminalOutcome('unstable-geometry')).toBe('cancelled');
     });
 
     it('generation-fences stale post-arrival effects', async () => {

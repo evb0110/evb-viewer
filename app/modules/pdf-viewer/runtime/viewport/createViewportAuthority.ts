@@ -18,7 +18,6 @@ export interface IPdfViewportIntent {
     id: string;
     kind: TPdfViewportIntentKind;
     documentRevision: number;
-    geometryRevision: number;
     interactionEpoch: number;
     navigation?: IDocumentNavigationRequest;
     /**
@@ -65,11 +64,6 @@ export interface IPdfViewportPositionCommit {
     navigationTicket?: IDocumentNavigationTicket;
 }
 
-interface IPdfViewportAppliedPosition {
-    left: number;
-    top: number;
-}
-
 interface IViewportAuthorityDependencies {
     getDocumentRevision(): number;
     getGeometryRevision(): number;
@@ -79,17 +73,18 @@ interface IViewportAuthorityDependencies {
         ticket: IDocumentNavigationTicket,
         report: TDocumentNavigationReport,
     ): boolean;
-    beginLayoutGeometryReplacement?: (() => () => void) | undefined;
     resolve(intent: IPdfViewportIntent, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     awaitMetrics(intent: IPdfViewportIntent, signal: AbortSignal): Promise<unknown>;
     awaitSlots(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
-    awaitLayoutGeometrySettled?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     refine?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     refineAfterVisual?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     apply(
         intent: IPdfViewportIntent,
         commit: IPdfViewportResolvedCommit,
-    ): unknown;
+    ): {
+        left: number;
+        top: number;
+    } | undefined;
     onPositionCommitted?(commit: IPdfViewportPositionCommit): void;
     awaitVisual(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     beforeApply?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
@@ -99,6 +94,10 @@ interface IViewportAuthorityDependencies {
 
 function createViewportAbortError() {
     return new DOMException('Viewport intent superseded', 'AbortError');
+}
+
+function isAbortError(error: unknown) {
+    return error instanceof DOMException && error.name === 'AbortError';
 }
 
 /**
@@ -131,9 +130,14 @@ function awaitWithAbort<T>(
     ]).finally(removeAbortListener);
 }
 
+/**
+ * Owns the one viewport intent in flight. Page geometry is final for a
+ * document revision, so an intent is fenced only by the document, the user's
+ * interaction epoch and its own identity; it resolves against the layout at
+ * the moment it applies.
+ */
 export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     const terminalOutcomeLimit = 128;
-    const geometryRetryLimit = 8;
     const phase = ref<TPdfViewportPhase>('idle');
     const activeIntent = shallowRef<IPdfViewportIntent | null>(null);
     const committedAnchor = shallowRef<IPdfSemanticAnchor | null>(null);
@@ -144,106 +148,30 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 ? intent.navigation.target.page
                 : null);
     });
-    const pendingAnchorPage = computed(() => (
-        pendingTargetPage.value ?? activeIntent.value?.anchor?.page ?? null
-    ));
     const currentPage = computed(() => committedAnchor.value?.page ?? 1);
     let interactionEpoch = 0;
     let controller: AbortController | null = null;
     const terminal = new Map<string, 'settled' | 'cancelled'>();
-    const geometryReplacements = new Map<string, {
-        end: () => void;
-        token: symbol;
-    }>();
 
-    function endGeometryReplacement(intentId: string, token?: symbol) {
-        const replacement = geometryReplacements.get(intentId);
-        if (!replacement || (token && replacement.token !== token)) {
-            return;
-        }
-        geometryReplacements.delete(intentId);
-        replacement.end();
-    }
-
-    function beginGeometryReplacement(intentId: string) {
-        endGeometryReplacement(intentId);
-        if (!deps.beginLayoutGeometryReplacement) {
-            return null;
-        }
-        const token = Symbol(intentId);
-        geometryReplacements.set(intentId, {
-            end: deps.beginLayoutGeometryReplacement(),
-            token,
-        });
-        return token;
-    }
-
-    function scheduleGeometryReplacementEnd(
-        intent: IPdfViewportIntent,
-        signal: AbortSignal,
-        token: symbol | null,
-    ) {
-        if (!token || !deps.awaitLayoutGeometrySettled) {
-            return;
-        }
-        void deps.awaitLayoutGeometrySettled(intent, signal).then(
-            () => endGeometryReplacement(intent.id, token),
-            () => endGeometryReplacement(intent.id, token),
-        );
-    }
-
-    function rearmGeometryReplacement(intent: IPdfViewportIntent, signal: AbortSignal) {
-        if (!intent.navigation) {
-            return;
-        }
-        scheduleGeometryReplacementEnd(intent, signal, beginGeometryReplacement(intent.id));
-    }
-
-    function isCurrent(
-        intent: IPdfViewportIntent,
-        signal: AbortSignal,
-        expectedGeometryRevision = intent.geometryRevision,
-    ) {
+    function isCurrent(intent: IPdfViewportIntent, signal: AbortSignal) {
         return !signal.aborted
             && activeIntent.value?.id === intent.id
             && intent.interactionEpoch === interactionEpoch
             && intent.documentRevision === deps.getDocumentRevision()
-            && deps.isIntentCurrent?.(intent) !== false
-            && expectedGeometryRevision === deps.getGeometryRevision();
+            && deps.isIntentCurrent?.(intent) !== false;
     }
 
-    function assertCurrent(
-        intent: IPdfViewportIntent,
-        signal: AbortSignal,
-        expectedGeometryRevision = intent.geometryRevision,
-    ) {
-        if (!isCurrent(intent, signal, expectedGeometryRevision)) {
-            throw new DOMException('Viewport intent superseded', 'AbortError');
-        }
-    }
-
-    function assertCurrentIntent(intent: IPdfViewportIntent, signal: AbortSignal) {
-        if (
-            signal.aborted
-            || activeIntent.value?.id !== intent.id
-            || intent.interactionEpoch !== interactionEpoch
-            || intent.documentRevision !== deps.getDocumentRevision()
-            || deps.isIntentCurrent?.(intent) === false
-        ) {
+    function assertCurrent(intent: IPdfViewportIntent, signal: AbortSignal) {
+        if (!isCurrent(intent, signal)) {
             throw createViewportAbortError();
         }
     }
 
     function finish(intent: IPdfViewportIntent, outcome: 'settled' | 'cancelled') {
-        // An older execution attempt can reject after a same-ticket geometry
-        // replacement has already installed its successor. Its ID is shared
-        // by design, so checking only the ID here would terminalize and clear
-        // the live successor.
-        if (activeIntent.value !== intent) {
-            return;
-        }
-        endGeometryReplacement(intent.id);
-        if (terminal.has(intent.id)) {
+        // An older execution attempt of the same ticket can reject after its
+        // replay was installed. Its ID is shared by design, so checking only
+        // the ID here would terminalize and clear the live successor.
+        if (activeIntent.value !== intent || terminal.has(intent.id)) {
             return;
         }
         terminal.set(intent.id, outcome);
@@ -255,19 +183,15 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             terminal.delete(oldestIntentId);
         }
         deps.clearDemand?.(intent.id);
-        if (activeIntent.value?.id === intent.id) {
-            phase.value = outcome;
-            // A synchronous watcher can submit or observe a successor while
-            // the terminal phase is published. Re-check before touching the
-            // successor's ownership state.
-            if (activeIntent.value?.id !== intent.id) {
-                return;
-            }
-            activeIntent.value = null;
-            if (activeIntent.value === null) {
-                controller = null;
-            }
+        phase.value = outcome;
+        // A synchronous watcher can submit or observe a successor while the
+        // terminal phase is published. Re-check before touching the
+        // successor's ownership state.
+        if (activeIntent.value?.id !== intent.id) {
+            return;
         }
+        activeIntent.value = null;
+        controller = null;
     }
 
     function cancelActive() {
@@ -279,41 +203,41 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         finish(intent, 'cancelled');
     }
 
+    function commitPosition(
+        intent: IPdfViewportIntent,
+        commit: IPdfViewportResolvedCommit,
+        applied: ReturnType<IViewportAuthorityDependencies['apply']>,
+    ) {
+        committedAnchor.value = commit.anchor;
+        const positionCommit: IPdfViewportPositionCommit = Object.freeze({
+            intentId: intent.id,
+            intentKind: intent.kind,
+            documentRevision: intent.documentRevision,
+            geometryRevision: deps.getGeometryRevision(),
+            interactionEpoch: intent.interactionEpoch,
+            page: commit.anchor.page,
+            left: applied?.left ?? commit.left,
+            top: applied?.top ?? commit.top,
+            ...(intent.navigationTicket ? {navigationTicket: intent.navigationTicket} : {}),
+        });
+        deps.onPositionCommitted?.(positionCommit);
+        return positionCommit;
+    }
+
     async function submit(
         intent: Omit<IPdfViewportIntent, 'interactionEpoch'> & {interactionEpoch?: number},
-        options: {
-            restartCurrent?: boolean;
-            geometryRetryCount?: number;
-        } = {},
     ) {
-        if (intent.documentRevision <= 0 || intent.geometryRevision <= 0) {
-            throw new Error('Viewport intents require positive live document and geometry revisions');
+        if (intent.documentRevision <= 0) {
+            throw new Error('Viewport intents require a positive live document revision');
         }
-        const sameTicketReplacement = !options.restartCurrent
-            && intent.navigationTicket !== undefined
-            && activeIntent.value?.navigationTicket === intent.navigationTicket
-            && activeIntent.value.id === intent.id;
-        const sameTicketReplay = !options.restartCurrent
-            && intent.navigationTicket !== undefined
-            && activeIntent.value === null
-            && terminal.get(intent.id) === 'cancelled';
-        if (options.restartCurrent) {
-            // A geometry change invalidates only the current execution attempt.
-            // Retain the semantic intent and ticket while replacing the abort
-            // controller, so this retry does not publish a terminal outcome
-            // for an intent that is still live.
-            if (activeIntent.value?.id !== intent.id) {
-                return {
-                    outcome: 'cancelled' as const,
-                    intent,
-                    positionCommit: null,
-                };
-            }
+        // A ticket replayed after a renderer mount keeps its semantic ID; it
+        // replaces its own earlier attempt instead of cancelling a command.
+        const isTicketReplay = intent.navigationTicket !== undefined && (
+            (activeIntent.value?.navigationTicket === intent.navigationTicket && activeIntent.value.id === intent.id)
+            || (activeIntent.value === null && terminal.get(intent.id) === 'cancelled')
+        );
+        if (isTicketReplay) {
             controller?.abort();
-            endGeometryReplacement(intent.id);
-        } else if (sameTicketReplacement || sameTicketReplay) {
-            controller?.abort();
-            endGeometryReplacement(intent.id);
             terminal.delete(intent.id);
         } else {
             cancelActive();
@@ -322,7 +246,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             ...intent,
             interactionEpoch: intent.interactionEpoch ?? interactionEpoch,
         };
-        if (!options.restartCurrent && !sameTicketReplacement && !sameTicketReplay && activeIntent.value !== null) {
+        if (!isTicketReplay && activeIntent.value !== null) {
             finish(next, 'cancelled');
             return {
                 outcome: 'cancelled' as const,
@@ -330,50 +254,24 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 positionCommit: null,
             };
         }
-        const initialGeometryReplacement = next.navigation
-            ? beginGeometryReplacement(next.id)
-            : null;
         const nextController = new AbortController();
         controller = nextController;
         const {signal} = nextController;
         activeIntent.value = next;
         try {
-            assertCurrentIntent(next, signal);
-        } catch (error) {
-            finish(next, 'cancelled');
-            if (error instanceof DOMException && error.name === 'AbortError') {
-                return {
-                    outcome: 'cancelled' as const,
-                    intent: next,
-                    positionCommit: null,
-                };
-            }
-            throw error;
-        }
-        scheduleGeometryReplacementEnd(next, signal, initialGeometryReplacement);
-        let expectedGeometryRevision = next.geometryRevision;
-        try {
+            assertCurrent(next, signal);
             phase.value = 'awaiting-metrics';
-            const hydratedGeometryRevision = await awaitWithAbort(
-                deps.awaitMetrics(next, signal),
-                signal,
-            );
-            if (typeof hydratedGeometryRevision === 'number') {
-                expectedGeometryRevision = hydratedGeometryRevision;
-            }
-            assertCurrent(next, signal, expectedGeometryRevision);
-            rearmGeometryReplacement(next, signal);
+            await awaitWithAbort(deps.awaitMetrics(next, signal), signal);
+            assertCurrent(next, signal);
             phase.value = 'resolving';
             let commit = await awaitWithAbort(deps.resolve(next, signal), signal);
-            assertCurrent(next, signal, expectedGeometryRevision);
+            assertCurrent(next, signal);
             phase.value = 'awaiting-slots';
             await awaitWithAbort(deps.awaitSlots(next, signal), signal);
-            assertCurrentIntent(next, signal);
-            rearmGeometryReplacement(next, signal);
-            expectedGeometryRevision = deps.getGeometryRevision();
+            assertCurrent(next, signal);
             if (deps.refine) {
                 commit = await awaitWithAbort(deps.refine(next, commit, signal), signal);
-                assertCurrent(next, signal, expectedGeometryRevision);
+                assertCurrent(next, signal);
             }
             // Established-document navigation uses place-before-raster so a
             // fast command has an owned physical destination before old pixels
@@ -381,36 +279,23 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             // shell and geometry are created by the initial raster mount, so
             // staging that canvas first avoids a circular wait for geometry
             // that the canvas callback itself commits.
-            const stagedOpeningNavigation = next.navigation !== undefined
-                && next.navigationTicket !== undefined
-                && deps.shouldStageNavigationVisual?.(next) === true;
             const stagedNavigationVisual = next.navigation !== undefined
-                && (next.navigationTicket === undefined || stagedOpeningNavigation);
+                && (next.navigationTicket === undefined || deps.shouldStageNavigationVisual?.(next) === true);
             let visualReadyBeforePlacement = false;
             if (stagedNavigationVisual) {
                 phase.value = 'awaiting-visual';
                 try {
                     await awaitWithAbort(deps.awaitVisual(next, signal), signal);
-                    assertCurrentIntent(next, signal);
                     visualReadyBeforePlacement = true;
                 } catch (error) {
-                    if (signal.aborted) throw error;
-                    // A direct compatibility intent keeps its historical
-                    // placement fallback. An opening ticket may still place
-                    // after an aborted visual wait; its terminal report below
-                    // remains the single owner of failure.
-                    if (!(error instanceof DOMException && error.name === 'AbortError')) {
-                        throw error;
-                    }
-                    assertCurrent(next, signal, expectedGeometryRevision);
+                    // An aborted visual wait still places; the terminal report
+                    // below remains the single owner of failure.
+                    if (signal.aborted || !isAbortError(error)) throw error;
                 }
+                assertCurrent(next, signal);
                 if (deps.refineAfterVisual) {
-                    expectedGeometryRevision = deps.getGeometryRevision();
-                    commit = await awaitWithAbort(
-                        deps.refineAfterVisual(next, commit, signal),
-                        signal,
-                    );
-                    assertCurrent(next, signal, expectedGeometryRevision);
+                    commit = await awaitWithAbort(deps.refineAfterVisual(next, commit, signal), signal);
+                    assertCurrent(next, signal);
                 }
             }
             // Navigation owns a semantic ticket. The measured placement is
@@ -418,100 +303,45 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             // transfer the shell to the requested page without a paint gate.
             // Raster readiness closes the same ticket after that placement.
             await awaitWithAbort(deps.beforeApply?.(next, signal), signal);
-            assertCurrentIntent(next, signal);
+            assertCurrent(next, signal);
             phase.value = 'applying';
             const applied = deps.apply(next, commit);
             // `apply` may synchronously trigger a newer command or physical
-            // input. Do not publish the old anchor or call a callback after
-            // that re-entrant ownership change.
-            assertCurrentIntent(next, signal);
-            committedAnchor.value = commit.anchor;
-            const appliedPosition = applied
-                && typeof applied === 'object'
-                && 'left' in applied
-                && 'top' in applied
-                && typeof applied.left === 'number'
-                && typeof applied.top === 'number'
-                ? applied as IPdfViewportAppliedPosition
-                : commit;
-            const positionCommit = Object.freeze({
-                intentId: next.id,
-                intentKind: next.kind,
-                documentRevision: next.documentRevision,
-                geometryRevision: expectedGeometryRevision,
-                interactionEpoch: next.interactionEpoch,
-                page: commit.anchor.page,
-                left: appliedPosition.left,
-                top: appliedPosition.top,
-                ...(next.navigationTicket ? {navigationTicket: next.navigationTicket} : {}),
-            });
-            deps.onPositionCommitted?.(positionCommit);
-            assertCurrentIntent(next, signal);
+            // input. Do not publish the old anchor after that change.
+            assertCurrent(next, signal);
+            const positionCommit = commitPosition(next, commit, applied);
+            assertCurrent(next, signal);
             if (next.navigationTicket && !visualReadyBeforePlacement) {
                 phase.value = 'awaiting-visual';
-                try {
-                    await awaitWithAbort(deps.awaitVisual(next, signal), signal);
-                    assertCurrentIntent(next, signal);
-                } catch (error) {
-                    if (signal.aborted) {
-                        throw error;
-                    }
-                    // A current ticket whose raster/readiness failed cannot be
-                    // reported as arrived. Let the ticket receive `failed`
-                    // below; a later renderer mount can replay the same ticket.
-                    throw error;
-                }
+                // A ticket whose raster failed cannot be reported as arrived;
+                // it receives `failed` below and a later mount can replay it.
+                await awaitWithAbort(deps.awaitVisual(next, signal), signal);
+                assertCurrent(next, signal);
                 if (deps.refineAfterVisual) {
-                    expectedGeometryRevision = deps.getGeometryRevision();
-                    const refined = await awaitWithAbort(
-                        deps.refineAfterVisual(next, commit, signal),
-                        signal,
-                    );
-                    assertCurrent(next, signal, expectedGeometryRevision);
+                    const refined = await awaitWithAbort(deps.refineAfterVisual(next, commit, signal), signal);
+                    assertCurrent(next, signal);
                     const refinedApplied = deps.apply(next, refined);
-                    assertCurrentIntent(next, signal);
-                    committedAnchor.value = refined.anchor;
-                    const refinedPosition = refinedApplied
-                        && typeof refinedApplied === 'object'
-                        && 'left' in refinedApplied
-                        && 'top' in refinedApplied
-                        && typeof refinedApplied.left === 'number'
-                        && typeof refinedApplied.top === 'number'
-                        ? refinedApplied as IPdfViewportAppliedPosition
-                        : refined;
-                    const refinedCommit = Object.freeze({
-                        intentId: next.id,
-                        intentKind: next.kind,
-                        documentRevision: next.documentRevision,
-                        geometryRevision: expectedGeometryRevision,
-                        interactionEpoch: next.interactionEpoch,
-                        page: refined.anchor.page,
-                        left: refinedPosition.left,
-                        top: refinedPosition.top,
-                        navigationTicket: next.navigationTicket,
-                    });
-                    deps.onPositionCommitted?.(refinedCommit);
-                    assertCurrentIntent(next, signal);
+                    assertCurrent(next, signal);
+                    commitPosition(next, refined, refinedApplied);
+                    assertCurrent(next, signal);
                     commit = refined;
                 }
             } else if (!stagedNavigationVisual) {
                 phase.value = 'awaiting-visual';
                 await awaitWithAbort(deps.awaitVisual(next, signal), signal);
-                assertCurrentIntent(next, signal);
+                assertCurrent(next, signal);
             }
             if (next.navigation && deps.postArrival) {
                 await awaitWithAbort(deps.postArrival(next.navigation, signal), signal);
             }
-            assertCurrentIntent(next, signal);
+            assertCurrent(next, signal);
             if (next.navigationTicket && deps.reportNavigation) {
                 const accepted = deps.reportNavigation(next.navigationTicket, {
                     kind: 'arrived',
                     page: commit.anchor.page,
                 });
                 if (!accepted) {
-                    if (!isCurrent(next, signal, expectedGeometryRevision)) {
-                        throw createViewportAbortError();
-                    }
+                    assertCurrent(next, signal);
                     throw new Error('Shared navigation rejected arrival report');
                 }
             }
@@ -522,62 +352,14 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 positionCommit,
             };
         } catch (error) {
-            const geometryChangedWhileCurrent = next.navigationTicket
-                && !signal.aborted
-                && activeIntent.value?.id === next.id
-                && next.interactionEpoch === interactionEpoch
-                && next.documentRevision === deps.getDocumentRevision()
-                && deps.isIntentCurrent?.(next) !== false
-                && expectedGeometryRevision !== deps.getGeometryRevision();
-            if (geometryChangedWhileCurrent) {
-                // Geometry invalidates only this attempt. Re-submit the same
-                // ticket so the semantic command remains ordered by its id;
-                // no new surface request or timer is introduced.
-                const geometryRetryCount = options.geometryRetryCount ?? 0;
-                if (geometryRetryCount < geometryRetryLimit) {
-                    return submit({
-                        ...next,
-                        geometryRevision: deps.getGeometryRevision(),
-                    }, {
-                        restartCurrent: true,
-                        geometryRetryCount: geometryRetryCount + 1,
-                    });
-                }
-                const reason = `Viewport geometry did not stabilize after ${String(geometryRetryLimit)} retries`;
-                if (
-                    deps.reportNavigation
-                    && next.navigationTicket
-                    && !signal.aborted
-                    && activeIntent.value?.id === next.id
-                    && next.documentRevision === deps.getDocumentRevision()
-                    && deps.isIntentCurrent?.(next) !== false
-                ) {
-                    deps.reportNavigation(next.navigationTicket, {
-                        kind: 'failed',
-                        reason,
-                    });
-                }
-                finish(next, 'cancelled');
-                return {
-                    outcome: 'cancelled' as const,
-                    intent: next,
-                    positionCommit: null,
-                };
-            }
-            if (
-                next.navigationTicket
-                && !signal.aborted
-                && isCurrent(next, signal)
-                && deps.reportNavigation
-            ) {
-                const reason = error instanceof Error ? error.message : String(error);
+            if (next.navigationTicket && isCurrent(next, signal) && deps.reportNavigation) {
                 deps.reportNavigation(next.navigationTicket, {
                     kind: 'failed',
-                    reason,
+                    reason: error instanceof Error ? error.message : String(error),
                 });
             }
             finish(next, 'cancelled');
-            if (error instanceof DOMException && error.name === 'AbortError') {
+            if (isAbortError(error)) {
                 return {
                     outcome: 'cancelled' as const,
                     intent: next,
@@ -622,8 +404,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         return commit;
     }
 
-    function suspend() { cancelActive(); }
-    function resume(intent: Omit<IPdfViewportIntent, 'interactionEpoch'>) { return submit(intent); }
     function dispose() {
         cancelActive();
         activeIntent.value = null;
@@ -635,13 +415,11 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         activeIntent: readonly(activeIntent),
         committedAnchor: readonly(committedAnchor),
         pendingTargetPage,
-        pendingAnchorPage,
         currentPage,
         submit,
         commitSettledPosition,
         observeUserScroll,
-        suspend,
-        resume,
+        suspend: cancelActive,
         dispose,
         getActiveNavigationRequest: () => activeIntent.value?.navigation,
         getTerminalOutcome: (intentId: string) => terminal.get(intentId) ?? null,

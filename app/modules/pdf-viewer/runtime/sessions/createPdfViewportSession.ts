@@ -394,7 +394,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         bindCurrentPageProjection: scroll.bindCurrentPageProjection,
         getDocumentRevision: () => documentSession.captureFence().loadToken,
         getGeometryRevision: () => pageMetricsVersion.value + 1,
-        beginLayoutGeometryReplacement: navigationEpochs.beginLayoutGeometryReplacement,
         pageSlots,
         cancelPendingSearchScroll: () => {
             cancelPendingSearchRevision.value += 1;
