@@ -60,7 +60,6 @@ import {
 import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
 import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtime/viewport/usePdfOpenVirtualSurfaceGeometry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
-import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { createPdfOpenSurfaceViewportCallbacks } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
 import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
@@ -236,9 +235,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         );
     }
     function getNavigationRenderTargetPage() {
-        return transactionController.targetPage.value
-            ?? singlePageScroll.navigationAnchorPage.value
-            ?? null;
+        return singlePageScroll.viewportAuthority.targetPage.value
+            ?? singlePageScroll.navigationAnchorPage.value;
     }
     function getProtectedVisibleRange() {
         return resolvePdfProtectedVisibleRange({
@@ -379,7 +377,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         ),
         updateVisibleRange: projectViewportVisibleRange,
         updateCurrentPage: scroll.updateCurrentPage,
-        commitVisibleRange: (range, commitOptions) => transactionController.commitVisibleRange(range, commitOptions),
+        commitVisibleRange: (range, commitOptions) => commitVisibleRange(range, commitOptions?.transactionId ?? null),
         renderVisiblePages: (range, renderOptions) => requestMandatoryRaster(range, renderOptions),
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         prepareNavigationLayout,
@@ -397,6 +395,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pageSlots,
         cancelPendingSearchScroll: () => {
             cancelPendingSearchRevision.value += 1;
+        },
+        onViewportWorkCancelled: ({cancelRasters}) => {
+            if (cancelRasters) {
+                cancelRasterRevision.value += 1;
+            }
         },
         onPageVisualReady: page => {
             visualReadySignal.value = {
@@ -416,22 +419,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             singlePageScroll.navigationAnchorPage.value ?? currentPage.value,
         );
     };
-    const transactionController = usePdfViewerTransactionController({
-        currentPage,
-        visibleRange,
-        numPages,
-        viewMode: options.viewMode,
-        pdfDocument,
-        userViewportInteractionEpoch,
-        getDocumentLoadToken: () => documentSession.captureFence().loadToken,
-        getDocumentVersion: documentSession.getRenderVersion,
-        executeCancellationEffects: (cancellation) => {
-            if (cancellation.cancelInFlightRenders || cancellation.bumpRenderVersion) {
-                cancelRasterRevision.value += 1;
-            }
-        },
-        navigationState: singlePageScroll.navigationState,
-    });
+    const viewportAuthority = singlePageScroll.viewportAuthority;
+    const viewportWork = {
+        activeWorkKind: viewportAuthority.activeWorkKind,
+        beginWork: viewportAuthority.beginWork,
+        isWorkCurrent: viewportAuthority.isWorkCurrent,
+        settleWork: viewportAuthority.settleWork,
+        cancelWork: viewportAuthority.cancelWork,
+        commitVisibleRange,
+    };
     const {
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,
@@ -726,7 +722,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             Boolean(pdfDocument.value),
             numPages.value,
             userViewportInteractionEpoch.value,
-            transactionController.activeTransaction.value !== null,
+            viewportAuthority.activeWorkKind.value !== null,
         ] as const,
         publishDemand,
         {
@@ -734,11 +730,12 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             immediate: true,
         },
     );
-    function commitVisibleRange(range: IPageRange, transactionId: number | null) {
-        return transactionController.commitVisibleRange(
-            range,
-            transactionId !== null ? { transactionId } : undefined,
-        );
+    function commitVisibleRange(range: IPageRange, workId: number | null) {
+        if (workId !== null && !viewportAuthority.isWorkCurrent(workId)) {
+            return false;
+        }
+        visibleRange.value = range;
+        return true;
     }
     function applyReloadViewport(pageNumber: TPageNumber, scrollOptions?: IScrollToPageOptions) {
         scroll.scrollToPage(options.viewerContainer.value, pageNumber, numPages.value, scale.scaledMargin.value, scrollOptions);
@@ -775,22 +772,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             ? scale.effectiveScale.value
             : null;
         const shouldPinReloadPage = plan.isReload && resolvedPageToRestore > 1;
-        activeReloadTransactionId = transactionController.beginTransaction({
-            kind: 'reload',
-            source: 'reload',
-            page: resolvedPageToRestore,
-            range: {
-                start: resolvedPageToRestore,
-                end: resolvedPageToRestore,
-            },
-            anchor: 'top',
-            scrollPlan: {
-                preferExactDom: true,
-                commitCurrentPageOnScroll: true,
-                suppressSnapAfterScroll: true,
-                holdProgrammaticNavigationMs: RELOAD_RECOVERY_PAGE_PIN_MS,
-            },
-        })?.id ?? null;
+        activeReloadTransactionId = viewportAuthority.beginWork('reload', resolvedPageToRestore);
         visualReloadTransitionToken = shouldPinReloadPage
             ? reloadTransition.beginVisualReloadTransition('reload-recovery')
             : null;
@@ -858,7 +840,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function pinCurrentPageToRestoreTarget() {
         if (
             activeReloadTransactionId !== null
-            && !transactionController.isTransactionCurrent(activeReloadTransactionId)
+            && !viewportAuthority.isWorkCurrent(activeReloadTransactionId)
         ) {
             return false;
         }
@@ -1250,7 +1232,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const transactionId = activeReloadTransactionId;
         activeReloadTransactionId = null;
         if (transactionId !== null) {
-            transactionController.advanceTransaction(transactionId, 'settled');
+            viewportAuthority.settleWork(transactionId);
         }
     }
     function preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
@@ -1286,13 +1268,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             settleVisualReloadTransition(transition.reason);
             const transactionId = activeReloadTransactionId;
             activeReloadTransactionId = null;
-            if (transactionId !== null && transactionController.isTransactionCurrent(transactionId)) {
-                transactionController.cancelActiveTransaction({
-                    reason: transition.reason === 'load-aborted' ? 'reload' : 'document-changed',
-                    cancelInFlightRenders: true,
-                    bumpRenderVersion: true,
-                    preserveVisualContent: holdsVisibleContent,
-                }, transactionId);
+            if (transactionId !== null && viewportAuthority.isWorkCurrent(transactionId)) {
+                viewportAuthority.cancelWork({cancelRasters: true}, transactionId);
             }
             cancelPendingSearchRevision.value += 1;
             cancelRasterRevision.value += 1;
@@ -1341,7 +1318,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         openVirtualSurfaceGeometry,
         flingBackdrop,
         singlePageScroll,
-        transactionController,
+        viewportWork,
         viewportWritePort,
         summarizeViewerMetricsForLog,
         summarizeVisiblePageSnapshotForLog,

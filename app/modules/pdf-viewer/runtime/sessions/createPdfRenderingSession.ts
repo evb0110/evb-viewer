@@ -466,9 +466,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const visible = pageNumber >= range.start && pageNumber <= range.end;
             const distance = Math.min(Math.abs(pageNumber - range.start), Math.abs(pageNumber - range.end));
             const lane: TPdfRasterLane = visible
-                ? renderOptions.transactionRequest?.priority === 'authoritative'
-                    || renderOptions.authoritativeRaster === true
-                    ? 'navigation-target' : 'viewport-visible'
+                ? renderOptions.authoritativeRaster === true ? 'navigation-target' : 'viewport-visible'
                 : distance <= 1 ? 'viewport-nearby' : 'prefetch';
             const maxCanvasPixels = renderOptions.bufferMaxCanvasPixels ?? renderOptions.maxCanvasPixels;
             const pageRenderOptions = lane === 'viewport-nearby' || lane === 'prefetch' ? {
@@ -961,7 +959,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     const qualityRefineGate = createPdfRasterQualityRefineGate({
         getClampedVisibleRefineMode: () => options.performancePolicy.clampedVisibleRefineMode,
         getUserViewportInteractionEpoch: () => viewport.userViewportInteractionEpoch.value,
-        hasActiveTransaction: () => viewport.transactionController.activeTransaction.value !== null,
+        hasActiveTransaction: () => viewport.viewportWork.activeWorkKind.value !== null,
         requestReconcileFrame: () => queueFrame(),
     });
     function queueFrame() {
@@ -1145,7 +1143,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         summarizeVisiblePageSnapshotForLog: viewport.summarizeVisiblePageSnapshotForLog,
         scheduleResizeAwareRerender: (stage, syncOptions) => scheduleResizeAwareRerender(stage, syncOptions),
         setResizeTransitionVisible: viewport.handleResizeTransitionSignal,
-        transactionController: viewport.transactionController,
+        viewportWork: viewport.viewportWork,
     });
     const zoomRerenderQueue = usePdfViewerZoomRerenderQueue({
         performancePolicy: options.performancePolicy,
@@ -1158,7 +1156,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         scheduleEndResizeTransition,
         isZoomInteractionLocked: options.isZoomInteractionLocked,
         setZoomRerenderBusy: options.setZoomRerenderBusy,
-        transactionController: viewport.transactionController,
+        viewportWork: viewport.viewportWork,
     });
     scheduleResizeAwareRerender = zoomRerenderQueue.scheduleResizeAwareRerender;
     const rerenderCoordinator = usePdfViewerRerenderCoordinator({
@@ -1208,7 +1206,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         consumeZoomViewportAnchor: options.consumeZoomViewportAnchor,
         submitZoomViewportStateIntent: viewport.submitZoomViewportStateIntent,
         beginResizeTransition,
-        transactionController: viewport.transactionController,
+        viewportWork: viewport.viewportWork,
     });
     rerenderVisiblePagesAndSyncCurrentPage = rerenderCoordinator.reRenderVisiblePagesAndSyncCurrentPage;
     const {
@@ -1234,7 +1232,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
             documentSession.scheduleLoad(isReload);
         },
-        transactionController: viewport.transactionController,
     });
     const { scheduleRecoverInitialRender } = usePdfViewerInitialRenderRecovery({
         viewerContainer: options.viewerContainer,
@@ -1247,7 +1244,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         updateVisibleRange: viewport.scroll.updateVisibleRange,
         renderVisiblePages,
         syncCurrentPageFromViewport: viewport.syncCurrentPageFromViewport,
-        transactionController: viewport.transactionController,
+        viewportWork: viewport.viewportWork,
         isInitialCanvasCommitted: () => initialVisual.readExactInitialCommit(false) !== null,
         onTerminalFailure: options.emitLoadError,
     });

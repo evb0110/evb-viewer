@@ -124,11 +124,11 @@ function createViewportFixture(): TPdfViewportSession {
             endSearchNavigation: vi.fn(),
         },
         markUserViewportInteraction: vi.fn(),
-        transactionController: {
-            beginTransaction: vi.fn(() => null),
-            isTransactionCurrent: vi.fn(() => false),
-            advanceTransaction: vi.fn(),
-            cancelActiveTransaction: vi.fn(),
+        viewportWork: {
+            beginWork: vi.fn(() => null),
+            isWorkCurrent: vi.fn(() => false),
+            settleWork: vi.fn(),
+            cancelWork: vi.fn(),
         },
     };
     // The page renderer reads only these viewport controls.

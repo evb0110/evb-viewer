@@ -18,37 +18,8 @@ import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/r
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
-import type {
-    IPdfViewerTransaction,
-    IPdfViewerTransactionFitPlan,
-    TPdfViewerTransactionSource,
-    TPdfViewerTransactionState,
-} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+import type { TPdfViewportWorkPort } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
-
-export interface IRerenderCoordinatorTransactionController {
-    beginTransaction: (options: {
-        kind: 'rerender' | 'resize';
-        source: TPdfViewerTransactionSource;
-        page?: number | null | undefined;
-        range?: IPageRange | undefined;
-        anchor?: NonNullable<IPdfViewerTransaction['target']>['anchor'];
-        fitPlan?: Partial<IPdfViewerTransactionFitPlan> | undefined;
-    }) => IPdfViewerTransaction | null;
-    advanceTransaction: (
-        transactionId: number,
-        state: Exclude<TPdfViewerTransactionState, 'preparing' | 'cancelled'>,
-    ) => boolean;
-    isTransactionCurrent: (transactionId: number) => boolean;
-    consumePagedTargetFitRenderHandoff?: ((options: {
-        document: IPdfDocument;
-        fitMode: TFitMode;
-        page: number;
-        viewMode: TPdfViewMode;
-        continuousScroll: boolean;
-        isResizing: boolean;
-    }) => IPageRange | null) | undefined;
-}
 
 export interface IUsePdfViewerRerenderCoordinatorOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -122,5 +93,5 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     submitZoomViewportStateIntent?: ((zoom: number, anchor?: IPdfSemanticAnchor | null) => void) | undefined;
     beginResizeTransition: (source: string, anchorPage: number | null) => number;
     consumeSuppressedZoomRerender?: ((nextZoom: number) => boolean) | undefined;
-    transactionController?: IRerenderCoordinatorTransactionController | undefined;
+    viewportWork?: TPdfViewportWorkPort | undefined;
 }

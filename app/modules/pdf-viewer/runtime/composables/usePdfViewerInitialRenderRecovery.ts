@@ -7,6 +7,7 @@ import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
+import type { TPdfViewportWorkPort } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 
 const RECOVERY_TRANSACTION_RETRY_DELAYS_MS = [
     0,
@@ -15,24 +16,7 @@ const RECOVERY_TRANSACTION_RETRY_DELAYS_MS = [
     320,
 ] as const;
 
-interface IInitialRenderRecoveryTransactionController {
-    beginTransaction: (options: {
-        kind: 'recovery';
-        source: 'render-stall-recovery';
-        page: number;
-        range: IPageRange;
-        anchor: 'top';
-    }) => { id: number } | null;
-    advanceTransaction: (
-        transactionId: number,
-        state: 'render-requested' | 'settled',
-    ) => boolean;
-    isTransactionCurrent: (transactionId: number) => boolean;
-    commitVisibleRange: (
-        range: IPageRange,
-        options?: { transactionId?: number | undefined },
-    ) => boolean;
-}
+interface IInitialRenderRecoveryWork extends TPdfViewportWorkPort {commitVisibleRange: (range: IPageRange, workId: number | null) => boolean;}
 
 interface IInitialRenderRecoveryContext {
     isCurrent: () => boolean;
@@ -56,7 +40,7 @@ interface IUsePdfViewerInitialRenderRecoveryOptions {
         },
     ) => Promise<void>;
     syncCurrentPageFromViewport: (options?: ICurrentPageSyncOptions) => Promise<void>;
-    transactionController?: IInitialRenderRecoveryTransactionController | undefined;
+    viewportWork?: IInitialRenderRecoveryWork | undefined;
     isInitialCanvasCommitted?: (() => boolean) | undefined;
     onTerminalFailure?: ((error: Error) => void) | undefined;
 }
@@ -127,7 +111,7 @@ export const usePdfViewerInitialRenderRecovery = (
     }
 
     async function beginRecoveryTransaction(context: IInitialRenderRecoveryContext) {
-        if (!options.transactionController) {
+        if (!options.viewportWork) {
             return null;
         }
         for (const retryDelay of RECOVERY_TRANSACTION_RETRY_DELAYS_MS) {
@@ -138,20 +122,14 @@ export const usePdfViewerInitialRenderRecovery = (
                 return null;
             }
             const range = getNormalizedVisibleRange();
-            const transaction = options.transactionController.beginTransaction({
-                kind: 'recovery',
-                source: 'render-stall-recovery',
-                page: Math.max(range.start, Math.min(
-                    range.end,
-                    Number.isFinite(options.currentPage.value)
-                        ? Math.floor(options.currentPage.value)
-                        : range.start,
-                )),
-                range,
-                anchor: 'top',
-            });
-            if (transaction) {
-                return transaction.id;
+            const workId = options.viewportWork.beginWork('recovery', Math.max(range.start, Math.min(
+                range.end,
+                Number.isFinite(options.currentPage.value)
+                    ? Math.floor(options.currentPage.value)
+                    : range.start,
+            )));
+            if (workId !== null) {
+                return workId;
             }
         }
         return null;
@@ -159,24 +137,21 @@ export const usePdfViewerInitialRenderRecovery = (
 
     function isRecoveryTransactionCurrent(transactionId: number | null) {
         return transactionId === null
-            || options.transactionController?.isTransactionCurrent(transactionId) !== false;
+            || options.viewportWork?.isWorkCurrent(transactionId) !== false;
     }
 
     function commitRecoveryVisibleRange(range: IPageRange, transactionId: number | null) {
         if (transactionId === null) {
             return true;
         }
-        return options.transactionController?.commitVisibleRange(
-            range,
-            { transactionId },
-        ) !== false;
+        return options.viewportWork?.commitVisibleRange(range, transactionId) !== false;
     }
 
     function settleRecoveryTransaction(transactionId: number | null) {
         if (transactionId === null || !isRecoveryTransactionCurrent(transactionId)) {
             return;
         }
-        options.transactionController?.advanceTransaction(transactionId, 'settled');
+        options.viewportWork?.settleWork(transactionId);
     }
 
     async function runBoundedRecoveryRender(
@@ -189,9 +164,6 @@ export const usePdfViewerInitialRenderRecovery = (
         const range = refreshVisibleRange();
         if (!commitRecoveryVisibleRange(range, transactionId)) {
             return;
-        }
-        if (transactionId !== null) {
-            options.transactionController?.advanceTransaction(transactionId, 'render-requested');
         }
         await options.renderVisiblePages(range, {
             bufferOverride: 0,
@@ -215,7 +187,7 @@ export const usePdfViewerInitialRenderRecovery = (
             return 'complete' as const;
         }
         const transactionId = await beginRecoveryTransaction(context);
-        if (options.transactionController && transactionId === null) {
+        if (options.viewportWork && transactionId === null) {
             return 'deferred' as const;
         }
         try {

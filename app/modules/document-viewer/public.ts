@@ -7,9 +7,6 @@ export {
     applyPageLabelRange, applySparsePageLabelUpdates, buildPageLabelSegments, buildPageLabelsFromRanges, buildWholeDocumentPageLabelRanges, countPageLabelDifferences, createPageLabelModel, derivePageLabelRangesFromLabels, findPageByPageLabelInput, formatPageIndicatorWithOptions, formatPageRange, getPageIndicatorLayoutMetrics, getPageLabelWindow, getVisiblePageLabel, isImplicitDefaultPageLabels, materializePageLabelsForCompatibility, normalizePageLabelRanges, PAGE_LABEL_DENSE_READ_MAX_PAGES, PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES, parsePageRangeInput, type IDocumentPageLabelModel, type TDocumentPageLabelLookup,
 } from '@app/modules/document-viewer/pageLabels';
 export {
-    canDocumentViewportTransactionSupersede, createDocumentViewportTransactionMachineState, reduceDocumentViewportTransactionMachine,
-} from '@app/modules/document-viewer/viewport/documentViewportTransactionReducer';
-export {
     canScrollWithinPageBounds, resolveWheelDirection, resolveWheelTargetPage,
 } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
 export {
@@ -52,9 +49,6 @@ export {
 export type {
     IDocumentViewportFlingBackdrop, IDocumentViewportFlingBackdropPage,
 } from '@app/modules/document-viewer/runtime/documentViewportFlingBackdrop';
-export {
-    createDocumentViewportNavigationMachineState, type IDocumentViewportNavigationState,
-} from '@app/modules/document-viewer/viewport/createDocumentViewportNavigationMachineState';
 export {
     clearDocumentViewportPaneRelocationScrollFence, consumeDocumentViewportPaneRelocationScrollFence, createDocumentViewportWritePort, fenceDocumentViewportPaneRelocationScroll, observeDocumentViewportWheelInteraction, type IDocumentViewportWrite, type IDocumentViewportWritePort,
 } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
@@ -102,9 +96,6 @@ export {
 } from '@app/modules/document-viewer/search/documentSearch';
 export { type IDocumentThumbnailListEmits } from '@app/modules/document-viewer/thumbnails/documentThumbnailListEmits';
 export { type IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
-export {
-    type IDocumentViewportDocumentRef, type IDocumentViewportRenderRequest, type IDocumentViewportTransactionAdvanceEvent, type IDocumentViewportTransactionBase, type IDocumentViewportTransactionBeginEvent, type IDocumentViewportTransactionCancelEvent, type IDocumentViewportTransactionCancellation, type IDocumentViewportTransactionConsumeFitRenderHandoffEvent, type IDocumentViewportTransactionMachineState, type TDocumentViewportTransactionState,
-} from '@app/modules/document-viewer/viewport/documentViewportTransactionTypes';
 export { type IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 export {
     captureDocumentZoomAnchor,

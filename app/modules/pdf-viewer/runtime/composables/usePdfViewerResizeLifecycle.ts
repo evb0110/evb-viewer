@@ -11,10 +11,7 @@ import type {
     summarizeViewerMetrics,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
-import type {
-    IPdfViewerTransaction,
-    IPdfViewerTransactionCancellation,
-} from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+import type { TPdfViewportWorkPort } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import {
     PDF_RESIZE_DRAG_SETTLE_MS,
@@ -84,23 +81,7 @@ interface IUsePdfViewerResizeLifecycleOptions {
         token: number;
         anchorPage: number | null;
     }) => void) | undefined;
-    transactionController?: IResizeLifecycleTransactionController | undefined;
-}
-
-interface IResizeLifecycleTransactionController {
-    activeTransaction?: Readonly<Ref<Pick<IPdfViewerTransaction, 'kind'> | null>> | undefined;
-    beginTransaction: (options: {
-        kind: 'resize';
-        source: 'resize-observer' | 'resize-settle';
-        page?: number | null | undefined;
-        range?: IResizeAnchorContext['visibleRange'] | undefined;
-        anchor?: NonNullable<IPdfViewerTransaction['target']>['anchor'];
-    }) => IPdfViewerTransaction | null;
-    cancelActiveTransaction: (
-        cancellation: IPdfViewerTransactionCancellation,
-        transactionId?: number | undefined,
-    ) => boolean;
-    isTransactionCurrent: (transactionId: number) => boolean;
+    viewportWork?: TPdfViewportWorkPort | undefined;
 }
 
 interface IActiveResizeVisualSnapshotLease {
@@ -191,31 +172,16 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
 
     lastObservedViewportSize = readViewportSize();
 
-    function beginResizeTransaction(
-        anchor: IResizeAnchorContext,
-        source: 'resize-observer' | 'resize-settle',
-    ) {
-        const transaction = options.transactionController?.beginTransaction({
-            kind: 'resize',
-            source,
-            page: anchor.page,
-            range: anchor.visibleRange,
-            anchor: 'center',
-        }) ?? null;
-        pendingResizeTransactionId = transaction?.id ?? null;
+    function beginResizeTransaction(anchor: IResizeAnchorContext) {
+        pendingResizeTransactionId = options.viewportWork?.beginWork('resize', anchor.page) ?? null;
         return pendingResizeTransactionId;
     }
 
-    function cancelPendingResizeTransaction(reason: IPdfViewerTransactionCancellation['reason']) {
+    function cancelPendingResizeTransaction() {
         if (pendingResizeTransactionId === null) {
             return;
         }
-        options.transactionController?.cancelActiveTransaction({
-            reason,
-            cancelInFlightRenders: true,
-            bumpRenderVersion: reason === 'resize',
-            preserveVisualContent: true,
-        }, pendingResizeTransactionId);
+        options.viewportWork?.cancelWork({cancelRasters: true}, pendingResizeTransactionId);
         pendingResizeTransactionId = null;
     }
 
@@ -365,13 +331,13 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 );
             }
             pendingResizeAnchor = null;
-            cancelPendingResizeTransaction('resize');
+            cancelPendingResizeTransaction();
             return;
         }
         const anchor = pendingResizeAnchor;
         const transactionId = pendingResizeTransactionId;
         const isTransactionCurrent = transactionId === null
-            || options.transactionController?.isTransactionCurrent(transactionId) !== false;
+            || options.viewportWork?.isWorkCurrent(transactionId) !== false;
         pendingResizeAnchor = null;
         pendingResizeTransactionId = null;
         if (!isTransactionCurrent) {
@@ -547,7 +513,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         if (isActive?.value === false && !isResizing.value) {
             return;
         }
-        const activeTransactionKind = options.transactionController?.activeTransaction?.value?.kind;
+        const activeTransactionKind = options.viewportWork?.activeWorkKind.value;
         if (activeTransactionKind === 'zoom') {
             // A zoom transaction owns both the scale mutation and its semantic
             // anchor. Record the client-size side effect (commonly scrollbar
@@ -653,7 +619,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 ...resizeAnchor,
                 transitionToken,
             };
-            beginResizeTransaction(anchoredResizeContext, 'resize-observer');
+            beginResizeTransaction(anchoredResizeContext);
             pendingResizeAnchor = anchoredResizeContext;
             restoreResizeAnchorAfterLayout(anchoredResizeContext, PDF_RERENDER_SOURCE.ResizeObserver);
             BrowserLogger.diagnostic('pdf-nav', 'Resize observer requested re-render'
@@ -682,7 +648,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }, { flush: 'sync' });
 
     watch(
-        () => options.transactionController?.activeTransaction?.value?.kind ?? null,
+        () => options.viewportWork?.activeWorkKind.value ?? null,
         (kind, previousKind) => {
             if (previousKind === 'zoom' && kind !== 'zoom') {
                 // ResizeObserver delivery can trail the zoom transaction that
@@ -735,7 +701,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 );
                 pendingResizeAnchor = null;
             }
-            cancelPendingResizeTransaction('resize');
+            cancelPendingResizeTransaction();
             const anchor = buildResizeAnchorContext({
                 preferredAnchorPage: getResizePreferredAnchorPage(),
                 trustPreferredAnchorPage: true,
@@ -807,7 +773,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             }
             return;
         }
-        beginResizeTransaction(anchor, 'resize-settle');
+        beginResizeTransaction(anchor);
         restoreResizeAnchorAfterLayout(anchor, PDF_RERENDER_SOURCE.ResizeSettle);
         const transactionId = pendingResizeTransactionId;
         pendingResizeTransactionId = null;
@@ -849,7 +815,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         }
         cancelDebouncedResizeRender();
         options.settlePreviewFitScale?.();
-        cancelPendingResizeTransaction('disposed');
+        cancelPendingResizeTransaction();
         resizeTransitionToken += 1;
         emitResizeTransitionSignal(false, 'unmount', resizeTransitionToken, currentPage.value);
     }

@@ -10,8 +10,7 @@ import type {
     IResizeAnchorContext,
 } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
-import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
-import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
+import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinatorOptions';
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import {
@@ -69,7 +68,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         submitZoomViewportStateIntent,
         beginResizeTransition,
         consumeSuppressedZoomRerender,
-        transactionController,
+        viewportWork,
     } = options;
     const viewRotation = providedViewRotation ?? computed<TPdfViewRotation>(() => 0);
 
@@ -416,17 +415,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
 
     function isSyncTransactionCurrent(syncOptions: ICurrentPageSyncOptions) {
         return syncOptions.transactionId === undefined
-            || transactionController?.isTransactionCurrent(syncOptions.transactionId) !== false;
-    }
-
-    function advanceSyncTransaction(
-        syncOptions: ICurrentPageSyncOptions,
-        state: Exclude<TPdfViewerTransactionState, 'preparing' | 'cancelled'>,
-    ) {
-        if (syncOptions.transactionId === undefined) {
-            return true;
-        }
-        return transactionController?.advanceTransaction(syncOptions.transactionId, state) !== false;
+            || viewportWork?.isWorkCurrent(syncOptions.transactionId) !== false;
     }
 
     async function reRenderVisiblePagesAndSyncCurrentPage(
@@ -460,10 +449,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 return;
             }
             const renderBufferOverride = resolveRerenderBufferOverride(source);
-            if (!advanceSyncTransaction(syncOptions, 'render-requested')) {
-                transitionOutcome = 'rejected-rerender-transaction';
-                return;
-            }
             if (resizeAnchor && isZoomRestorePdfRerenderSource(source)) {
                 // Custom zoom replaces the committed backing canvas after the page
                 // geometry has already changed. Keep a raster snapshot outside the
@@ -528,8 +513,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 return;
             }
             syncHorizontalScrollAfterLayoutUpdate();
-            if (!advanceSyncTransaction(syncOptions, 'settled')) {
-                transitionOutcome = 'rejected-rerender-settle';
+            if (syncOptions.transactionId !== undefined) {
+                viewportWork?.settleWork(syncOptions.transactionId);
             }
         } catch (error) {
             transitionOutcome = 'failed-rerender';

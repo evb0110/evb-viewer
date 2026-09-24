@@ -2,7 +2,6 @@ import type {
     IPdfPage,
     IPdfRenderTask,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { IPdfViewerTransactionRenderRequest } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
 export type TPdfPageRenderContentIntent =
     | 'full-visible'
@@ -25,7 +24,6 @@ export interface IRenderVisiblePagesOptions {
     retainOnlyCurrentResidentRaster?: boolean;
     preserveInFlightRequiredPages?: boolean;
     prioritizeTextLayer?: boolean;
-    transactionRequest?: IPdfViewerTransactionRenderRequest;
     continuationPriority?: TPdfRenderContinuationPriority;
     contentIntent?: TPdfPageRenderContentIntent;
     maxCanvasPixels?: number;

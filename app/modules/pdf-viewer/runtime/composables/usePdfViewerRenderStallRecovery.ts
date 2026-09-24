@@ -35,7 +35,6 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     ) => Promise<void>;
     scheduleReload: (isReload?: boolean) => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
-    transactionController?: unknown;
 }
 
 /** A bounded heartbeat recovery boundary for a page render that stopped making progress. */

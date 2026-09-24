@@ -222,28 +222,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 searchNavigationId: toValue(currentSearchMatchNavigationId),
             }),
         endSearchNavigation: () => viewport.singlePageScroll.endSearchNavigation(),
-        beginSearchTransaction: (pageNumber, searchOptions) => (
-            viewport.transactionController.beginTransaction({
-                kind: 'search',
-                source: 'search-navigation',
-                page: pageNumber,
-                anchor: searchOptions?.markerRect ? 'marker' : 'top',
-                markerRect: searchOptions?.markerRect ?? null,
-            })?.id ?? null
-        ),
-        isSearchTransactionCurrent: transactionId =>
-            viewport.transactionController.isTransactionCurrent(transactionId),
-        settleSearchTransaction: transactionId => {
-            viewport.transactionController.advanceTransaction(transactionId, 'settled');
-        },
-        cancelSearchTransaction: transactionId => {
-            viewport.transactionController.cancelActiveTransaction({
-                reason: 'superseded',
-                cancelInFlightRenders: false,
-                bumpRenderVersion: false,
-                preserveVisualContent: true,
-            }, transactionId);
-        },
+        beginSearchTransaction: pageNumber => viewport.viewportWork.beginWork('search', pageNumber),
+        isSearchTransactionCurrent: viewport.viewportWork.isWorkCurrent,
+        settleSearchTransaction: viewport.viewportWork.settleWork,
+        cancelSearchTransaction: transactionId => viewport.viewportWork.cancelWork({cancelRasters: false}, transactionId),
         isPageRenderPending: pageNumber => pageRenderState.getSlot(pageNumber).job === 'rendering',
     });
     watch(viewport.cancelPendingSearchRevision, (revision, previous) => {

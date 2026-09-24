@@ -4,7 +4,6 @@ import {
 import type { TPageNumber } from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {clamp} from 'es-toolkit/math';
-import {createPdfNavigationMachineState} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import type {IUsePdfSinglePageScrollOptions} from '@app/modules/pdf-viewer/runtime/navigation/pdfSinglePageScrollTypes';
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -23,6 +22,7 @@ import {
     createViewportAuthority as createViewportAuthorityService,
     type IPdfViewportIntent,
     type IPdfViewportPositionCommit,
+    type IPdfViewportWorkCancellation,
     type TPdfViewportIntentKind,
 } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {
@@ -72,6 +72,7 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
     onViewportPositionCommitted?: ((commit: IPdfViewportPositionCommit) => boolean) | undefined;
     onUserViewportPageObserved?: ((pageNumber: TPageNumber) => void) | undefined;
     onPageVisualReady?: ((pageNumber: TPageNumber) => void) | undefined;
+    onViewportWorkCancelled?: ((cancellation: IPdfViewportWorkCancellation) => void) | undefined;
 }
 
 interface IPdfSinglePageWheelEvent {
@@ -113,6 +114,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     let geometry: IPdfViewportGeometry | null = null;
     const navigationRuntime = options.chassisAuthority;
     const navigationTicket = computed(() => navigationRuntime?.navigationTicket.value ?? null);
+    // The page a ticket accepted by the shared surface is heading for, before
+    // (or between) its execution attempts here.
+    const ticketTargetPage = computed(() => {
+        const ticket = navigationTicket.value;
+        return ticket
+            ? getNavigationRequestPage(ticket.request) ?? navigationRuntime?.navigationPage.value ?? null
+            : null;
+    });
     const resolvedTargets = new Map<string, IResolvedPdfNavigationTarget>();
     let activeNavigationExecution: {
         ticket: IDocumentNavigationTicket;
@@ -257,6 +266,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         isIntentCurrent: isIntentDocumentCurrent,
         shouldStageNavigationVisual: intent => isUnplacedOpeningNavigation(intent.navigationTicket),
         reportNavigation,
+        hasPendingNavigationTicket: () => ticketTargetPage.value !== null,
+        onWorkCancelled: cancellation => options.onViewportWorkCancelled?.(cancellation),
         awaitMetrics: async (intent, signal) => {
             const captured = requireIntentDocument(intent, signal);
             const resolved = intent.navigation
@@ -1254,37 +1265,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         immediate: true,
     });
     const navigationAnchorPage = computed(() => (
-        viewportAuthority.pendingTargetPage.value
-        ?? getNavigationRequestPage(currentNavigationTicket()?.request)
-        ?? (currentNavigationTicket() ? navigationRuntime?.navigationPage.value ?? null : null)
+        viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value
     ));
-    const navigationState = computed(() => {
-        const activeIntent = viewportAuthority.activeIntent.value;
-        const ticket = currentNavigationTicket();
-        const targetPage = navigationAnchorPage.value;
-        if (!activeIntent && !ticket) {
-            return createPdfNavigationMachineState(
-                intentSequence,
-                viewportAuthority.currentPage.value,
-            );
-        }
-        const source = (activeIntent?.kind === 'search' || ticket?.request.source === 'search')
-            ? 'search' as const
-            : (activeIntent?.kind === 'wheel-page' || ticket?.request.source === 'wheel')
-                ? 'wheel' as const
-                : options.continuousScroll.value ? 'continuous' as const : 'paged' as const;
-        const phase = viewportAuthority.phase.value;
-        return {
-            anchor: null,
-            currentPage: viewportAuthority.currentPage.value,
-            source,
-            status: phase === 'applying' || phase === 'awaiting-visual'
-                ? 'settling' as const
-                : 'navigating' as const,
-            targetPage,
-            txn: intentSequence,
-        };
-    });
     const searchNavigationTargetPage = computed(() => currentNavigationTicket()?.request.source === 'search'
         ? navigationAnchorPage.value
         : null);
@@ -1323,7 +1305,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         },
     };
     return {
-        navigationState,
         currentPageAuthority,
         handleWheel,
         scrollToPage: submitPageNavigation,

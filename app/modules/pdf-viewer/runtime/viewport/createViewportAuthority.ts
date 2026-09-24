@@ -64,6 +64,23 @@ export interface IPdfViewportPositionCommit {
     navigationTicket?: IDocumentNavigationTicket;
 }
 
+/**
+ * Layout work that moves the viewport without a placement intent of its own:
+ * a reload, a resize or zoom re-render, a search reveal, or a render-stall
+ * recovery. It shares the authority's single in-flight slot, so a navigation
+ * supersedes it and it is never current while a navigation owns the viewport.
+ */
+export type TPdfViewportWorkKind = 'reload' | 'resize' | 'zoom' | 'search' | 'recovery';
+
+/** `cancelRasters` cancels the in-flight rasters of the superseded layout. */
+export interface IPdfViewportWorkCancellation {cancelRasters: boolean;}
+
+interface IPdfViewportWork {
+    readonly id: number;
+    readonly kind: TPdfViewportWorkKind;
+    readonly page: number | null;
+}
+
 interface IViewportAuthorityDependencies {
     getDocumentRevision(): number;
     getGeometryRevision(): number;
@@ -90,6 +107,9 @@ interface IViewportAuthorityDependencies {
     beforeApply?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     postArrival?(request: IDocumentNavigationRequest, signal: AbortSignal): Promise<void>;
     clearDemand?(intentId: string): void;
+    /** A navigation ticket accepted by the shared surface but not yet submitted here. */
+    hasPendingNavigationTicket?(): boolean;
+    onWorkCancelled?(cancellation: IPdfViewportWorkCancellation): void;
 }
 
 function createViewportAbortError() {
@@ -131,7 +151,8 @@ function awaitWithAbort<T>(
 }
 
 /**
- * Owns the one viewport intent in flight. Page geometry is final for a
+ * Owns the one viewport operation in flight: a placement intent, or layout
+ * work that moves the viewport without one. Page geometry is final for a
  * document revision, so an intent is fenced only by the document, the user's
  * interaction epoch and its own identity; it resolves against the layout at
  * the moment it applies.
@@ -152,6 +173,56 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     let interactionEpoch = 0;
     let controller: AbortController | null = null;
     const terminal = new Map<string, 'settled' | 'cancelled'>();
+    const work = shallowRef<IPdfViewportWork | null>(null);
+    let workSequence = 0;
+    const ownsNavigation = computed(() => pendingTargetPage.value !== null
+        || deps.hasPendingNavigationTicket?.() === true);
+    const activeWorkKind = computed(() => (ownsNavigation.value ? 'navigation' as const : work.value?.kind ?? null));
+    const targetPage = computed(() => pendingTargetPage.value ?? (ownsNavigation.value ? null : work.value?.page ?? null));
+
+    function cancelWork(cancellation: IPdfViewportWorkCancellation, workId?: number) {
+        if (work.value && workId !== undefined && work.value.id !== workId) {
+            return;
+        }
+        work.value = null;
+        deps.onWorkCancelled?.(cancellation);
+    }
+
+    function beginWork(kind: TPdfViewportWorkKind, page: number | null = null) {
+        // A stall recovery never displaces a navigation or other layout work.
+        if (kind === 'recovery' && (ownsNavigation.value || (work.value && work.value.kind !== 'recovery'))) {
+            return null;
+        }
+        if (ownsNavigation.value) {
+            // Work begun under a navigation is superseded from the start.
+            return ++workSequence;
+        }
+        if (work.value) {
+            cancelWork({cancelRasters: true});
+        }
+        work.value = {
+            id: ++workSequence,
+            kind,
+            page,
+        };
+        return work.value.id;
+    }
+
+    function isWorkCurrent(workId: number) {
+        return work.value?.id === workId && !ownsNavigation.value;
+    }
+
+    function settleWork(workId: number) {
+        if (work.value?.id === workId) {
+            work.value = null;
+        }
+    }
+
+    watch(ownsNavigation, (navigating) => {
+        if (navigating && work.value) {
+            cancelWork({cancelRasters: true});
+        }
+    }, {flush: 'sync'});
 
     function isCurrent(intent: IPdfViewportIntent, signal: AbortSignal) {
         return !signal.aborted
@@ -421,7 +492,18 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         observeUserScroll,
         suspend: cancelActive,
         dispose,
+        activeWorkKind,
+        targetPage,
+        beginWork,
+        isWorkCurrent,
+        settleWork,
+        cancelWork,
         getActiveNavigationRequest: () => activeIntent.value?.navigation,
         getTerminalOutcome: (intentId: string) => terminal.get(intentId) ?? null,
     };
 }
+
+export type TPdfViewportWorkPort = Pick<
+    ReturnType<typeof createViewportAuthority>,
+    'activeWorkKind' | 'beginWork' | 'isWorkCurrent' | 'settleWork' | 'cancelWork'
+>;
