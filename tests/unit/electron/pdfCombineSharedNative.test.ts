@@ -5,7 +5,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type * as PdfCoreModule from '@pdf-core';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 
@@ -98,15 +97,6 @@ vi.mock('fs/promises', () => ({
 }));
 
 vi.mock('pdf-lib', () => ({PDFDocument: {create: mocks.create}}));
-
-vi.mock('@pdf-core', async (importOriginal) => {
-    const actual = await importOriginal<typeof PdfCoreModule>();
-    return {
-        ...actual,
-        applyCombinedPdfPageLabels: vi.fn(),
-        writePdfBookmarkOutlines: vi.fn(),
-    };
-});
 
 vi.mock('electron', () => ({
     app: {isPackaged: false},

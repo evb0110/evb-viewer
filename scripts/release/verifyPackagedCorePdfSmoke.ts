@@ -2,12 +2,12 @@ import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     access,
+    copyFile,
     mkdtemp,
     readFile,
     readdir,
     realpath,
     rm,
-    writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -19,11 +19,6 @@ import type {Page} from 'puppeteer-core';
 import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import {
-    applyCombinedPdfPageLabels,
-    inspectPdfCombineCatalog,
-} from '@pdf-core/pdfCombineCatalog';
-import {writePdfBookmarkOutlines} from '@pdf-core/writePdfBookmarkOutlines';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
 import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
 import {
@@ -50,7 +45,10 @@ import {
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    readPdfAnnotationSummary,
+    readPdfCatalogWithPdfjs,
+} from '@tests/e2e/electron/helpers/fixtures';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
 const STARTUP_TIMEOUT_MS = 75_000;
@@ -128,36 +126,11 @@ function parseExecutablePath(args: string[]) {
     return path.resolve(executablePath);
 }
 
-async function createFixturePdf(filePath: string) {
-    const document = await PDFDocument.create();
-    for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
-        const page = document.addPage([
-            612,
-            792,
-        ]);
-        page.drawText(`Packaged smoke searchable text page ${pageNumber}`, {
-            x: 72,
-            y: 700,
-            size: 18,
-        });
-    }
-    applyCombinedPdfPageLabels(document, [
-        {
-            pageIndex: 0,
-            style: 'r',
-            prefix: 'front-',
-            start: 1,
-        },
-        {
-            pageIndex: 1,
-            style: 'D',
-            prefix: 'body-',
-            start: 1,
-        },
-    ]);
-    writePdfBookmarkOutlines(document, PACKAGED_SMOKE_BOOKMARKS.map(bookmark => ({...bookmark})));
-    await writeFile(filePath, await document.save());
-}
+// Two text pages whose page labels and outline were written by pdf-page-ops.
+const PACKAGED_SMOKE_FIXTURE = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../tests/fixtures/release/packaged-core-smoke.pdf',
+);
 
 async function waitForSaveEnabled(page: Page) {
     const deadline = Date.now() + OPERATION_TIMEOUT_MS;
@@ -226,7 +199,7 @@ async function run() {
     const fixturePath = path.join(workDirectory, 'packaged-core-smoke.pdf');
     const userDataPath = path.join(workDirectory, 'user-data');
     const cdpPort = await findFreePort();
-    await createFixturePdf(fixturePath);
+    await copyFile(PACKAGED_SMOKE_FIXTURE, fixturePath);
 
     const launch = preparePackagedAutomationLaunch({
         executablePath,
@@ -333,23 +306,20 @@ async function run() {
         if (rotatedDocument.getPage(0).getRotation().angle !== 90) {
             throw new Error('Packaged smoke page rotation was not persisted to PDF bytes');
         }
-        const rotatedCatalog = inspectPdfCombineCatalog(rotatedDocument);
+        const rotatedCatalog = await readPdfCatalogWithPdfjs(workingCopyPath);
         const expectedPageLabels = [
-            {
-                pageIndex: 0,
-                style: 'r',
-                prefix: 'front-',
-            },
-            {
-                pageIndex: 1,
-                style: 'D',
-                prefix: 'body-',
-            },
+            'front-i',
+            'body-1',
         ];
         if (JSON.stringify(rotatedCatalog.pageLabels) !== JSON.stringify(expectedPageLabels)) {
             throw new Error(`Packaged smoke page labels changed during rotation: ${JSON.stringify(rotatedCatalog.pageLabels)}`);
         }
-        if (JSON.stringify(rotatedCatalog.bookmarks) !== JSON.stringify(PACKAGED_SMOKE_BOOKMARKS)) {
+        const expectedBookmarks = PACKAGED_SMOKE_BOOKMARKS.map(bookmark => ({
+            title: bookmark.title,
+            pageIndex: bookmark.pageIndex,
+            items: [],
+        }));
+        if (JSON.stringify(rotatedCatalog.bookmarks) !== JSON.stringify(expectedBookmarks)) {
             throw new Error(`Packaged smoke bookmarks changed during rotation: ${JSON.stringify(rotatedCatalog.bookmarks)}`);
         }
         if (sha256(await readFile(fixturePath)) !== originalHashBeforeRotation) {

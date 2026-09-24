@@ -13,14 +13,10 @@ import {
     readFile,
     rm,
     truncate,
-    writeFile,
 } from 'node:fs/promises';
 import { decode as decodePng } from 'fast-png';
 import { PDFDocument } from 'pdf-lib';
-import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
-import { requirePageIndex } from '@contracts/pageNumbers';
 import { requireDocumentRef } from '@contracts/documentRef';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import {mkdirSync} from 'node:fs';
 import {
     dirname,
@@ -36,6 +32,7 @@ import {
     createNonEmbeddedCjkSearchFixturePdf,
     createOutlinePageLabelFixturePdf,
     createPngFixture,
+    fixtureBookmark,
     NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY,
     readPdfAnnotationSummary,
     resolveDjvuFixturePath,
@@ -1347,27 +1344,14 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('selects a bookmark on the first activation and follows later page navigation', async () => {
         const {page} = sessionFixture.getSession();
-        const fixture = await createOutlinePageLabelFixturePdf(`bookmark-selection-${Date.now()}.pdf`);
-        const pdf = await PDFDocument.load(await readFile(fixture));
-        const entry = (title: string, pageIndex: number, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
-            title,
-            pageIndex: requirePageIndex(pageIndex),
-            pageYRatio: null,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items,
-        });
-        writePdfBookmarkOutlines(pdf, [
-            entry('Parent', 0, [
-                entry('Child', 2),
-                entry('Back reference', 0),
+        const fixture = await createOutlinePageLabelFixturePdf(`bookmark-selection-${Date.now()}.pdf`, [
+            fixtureBookmark('Parent', 0, [
+                fixtureBookmark('Child', 2),
+                fixtureBookmark('Back reference', 0),
             ]),
-            entry('Appendix', 3),
-            entry('Same page', 3),
+            fixtureBookmark('Appendix', 3),
+            fixtureBookmark('Same page', 3),
         ]);
-        await writeFile(fixture, await pdf.save());
         // Only the macOS CI runner lands short of the first bookmark's page;
         // a failed wait reports the viewport timeline that moved it.
         await enablePdfDiagnosticSession(page, {render: true});
@@ -1544,27 +1528,14 @@ describe('Electron E2E - Viewer Smoke', () => {
 
     it('lands on a bookmark destination activated while the sidebar is still opening', async () => {
         const {page} = sessionFixture.getSession();
-        const fixture = await createOutlinePageLabelFixturePdf(`bookmark-sidebar-opening-${Date.now()}.pdf`);
-        const pdf = await PDFDocument.load(await readFile(fixture));
-        const entry = (title: string, pageIndex: number, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
-            title,
-            pageIndex: requirePageIndex(pageIndex),
-            pageYRatio: null,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items,
-        });
-        writePdfBookmarkOutlines(pdf, [
-            entry('Parent', 0, [
-                entry('Child', 2),
-                entry('Back reference', 0),
+        const fixture = await createOutlinePageLabelFixturePdf(`bookmark-sidebar-opening-${Date.now()}.pdf`, [
+            fixtureBookmark('Parent', 0, [
+                fixtureBookmark('Child', 2),
+                fixtureBookmark('Back reference', 0),
             ]),
-            entry('Appendix', 3),
-            entry('Same page', 3),
+            fixtureBookmark('Appendix', 3),
+            fixtureBookmark('Same page', 3),
         ]);
-        await writeFile(fixture, await pdf.save());
         await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await openDocumentSidebarTab(page, 'Bookmarks');

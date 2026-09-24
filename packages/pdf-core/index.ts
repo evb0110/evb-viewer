@@ -9,23 +9,6 @@ export {
     PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
 export { loadPdfStructure } from '@pdf-core/loadPdfStructure';
-export type {
-    IPdfPageBox,
-    TPdfRect,
-} from '@pdf-core/pdfPageBoxes';
-export {
-    arePdfPageBoxesEqual,
-    fromPdfRect,
-    intersectPdfPageBoxes,
-    normalizePdfPageBox,
-    numberFromPdfBox,
-    readPdfRectFromDict,
-    resolvePdfLibCropBox,
-    resolvePdfLibMediaBox,
-    resolvePdfLibPageView,
-    toPdfRect,
-    tryResolvePdfLibPageView,
-} from '@pdf-core/pdfPageBoxes';
 export {
     isPdfUnexpectedObjectTypeError,
     safePdfContextLookupArray,
@@ -38,14 +21,6 @@ export {
     safePdfPageAnnots,
     safePdfPageInheritableDict,
 } from '@pdf-core/safePdfLookup';
-export { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
-export {
-    applyCombinedPdfPageLabels,
-    inspectPdfCombineCatalog,
-    offsetPdfCombineBookmarks,
-    PDF_COMBINE_CATALOG_POLICY,
-} from '@pdf-core/pdfCombineCatalog';
-export type {IPdfCombinePageLabelRange} from '@pdf-core/pdfCombineCatalog';
 export {
     DEFAULT_TIFF_DECODE_LIMITS,
     DEFAULT_TIFF_DECODE_MAX_FRAMES,

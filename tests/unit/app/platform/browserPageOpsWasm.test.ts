@@ -23,10 +23,6 @@ import type { IPageGeometry } from '@contracts/shared';
 import type {IPageMutationWorkerResult} from '@app/platform/browser-api/browserPageOpsWorker.types';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
-import {
-    resolvePdfLibCropBox,
-    resolvePdfLibMediaBox,
-} from '@pdf-core';
 
 const NativeWebAssembly = WebAssembly;
 const loggerWarn = vi.hoisted(() => vi.fn());
@@ -160,10 +156,18 @@ function readOutlineDestination(pdfDocument: PDFDocument) {
 async function summarizePdf(data: Uint8Array): Promise<IPdfPageSummary[]> {
     const pdfDocument = await PDFDocument.load(data);
     return pdfDocument.getPages().map((page) => {
-        const mediaBox = resolvePdfLibMediaBox(page);
+        const mediaBox = page.getMediaBox();
+        const cropBox = page.getCropBox();
+        const sameAsMedia = ([
+            'x',
+            'y',
+            'width',
+            'height',
+        ] as const)
+            .every(key => cropBox[key] === mediaBox[key]);
         return {
             mediaBox,
-            cropBox: resolvePdfLibCropBox(page, mediaBox),
+            cropBox: sameAsMedia ? null : cropBox,
             rotation: page.getRotation().angle,
         };
     });

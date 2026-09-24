@@ -194,7 +194,7 @@ async function tryRunNativeCropOperation(
             nativeFailureCode(error),
             error,
         );
-        log.debug(`Native page crop failed, falling back to pdf-lib: ${getErrorMessage(error)}`);
+        log.debug(`Native page crop failed: ${getErrorMessage(error)}`);
         return false;
     } finally {
         await rm(tempDir, {

@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => {
     const stat = vi.fn(async () => ({size: 321}));
     const writeFile = vi.fn(async () => undefined);
     const load = vi.fn(async () => ({save: vi.fn(async () => new Uint8Array([9]))}));
-    const writePdfBookmarkOutlines = vi.fn();
     const runNativeToolCommand = vi.fn(async (_command: string, _args: string[], options?: {
         cancelGroup?: string;
         commandLabel?: string;
@@ -46,7 +45,6 @@ const mocks = vi.hoisted(() => {
         stat,
         writeFile,
         load,
-        writePdfBookmarkOutlines,
         runNativeToolCommand,
         resolveNativePageOpsPath,
         getPdfNativeToolPaths,
@@ -64,8 +62,6 @@ vi.mock('fs/promises', () => ({
 }));
 
 vi.mock('pdf-lib', () => ({PDFDocument: {load: mocks.load}}));
-
-vi.mock('@pdf-core', () => ({writePdfBookmarkOutlines: mocks.writePdfBookmarkOutlines}));
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 

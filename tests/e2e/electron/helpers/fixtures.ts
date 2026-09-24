@@ -48,8 +48,8 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
-import {applyCombinedPdfPageLabels} from '@pdf-core/pdfCombineCatalog';
-import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
 import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import {requirePageIndex} from '@contracts/pageNumbers';
@@ -1199,7 +1199,66 @@ export async function createPasswordProtectedFixturePdf(filename: string) {
     return filePath;
 }
 
-export async function createOutlinePageLabelFixturePdf(filename: string) {
+const OUTLINE_FIXTURE_BOOKMARKS: IPdfBookmarkEntry[] = [
+    fixtureBookmark('Parent', 0, [fixtureBookmark('Child', 2)]),
+    fixtureBookmark('Appendix', 3),
+];
+
+export function fixtureBookmark(title: string, pageIndex: number, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry {
+    return {
+        title,
+        pageIndex: requirePageIndex(pageIndex),
+        pageYRatio: null,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items,
+    };
+}
+
+/** Writes catalog metadata into a fixture through the app's own writer. */
+async function writeFixtureCatalog(filePath: string, catalog: Pick<IPdfNativeMutationSet, 'bookmarks' | 'pageLabels'>) {
+    const binaryName = process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops';
+    const pageOps = resolveNativeToolPath({
+        binaryName,
+        crateName: 'pdf-page-ops',
+        currentDir: process.cwd(),
+        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
+        isPackaged: false,
+        projectRoot: process.cwd(),
+        resourcesBase: resolve(process.cwd(), 'resources'),
+    });
+    const qpdf = resolveQpdfBinary();
+    if (!pageOps || !qpdf) {
+        throw new Error(`pdf-page-ops and qpdf are required to write fixture catalog metadata: ${filePath}`);
+    }
+    const mutationsPath = `${filePath}.catalog.json`;
+    writeFileSync(mutationsPath, JSON.stringify(catalog));
+    try {
+        await runNativeCommand(pageOps, [
+            'save-mutations',
+            '--input',
+            filePath,
+            '--output',
+            filePath,
+            '--mutations-file',
+            mutationsPath,
+            '--qpdf',
+            qpdf,
+            '--modified-at',
+            'D:20260101000000Z',
+            '--append',
+        ], {commandLabel: 'pdf-page-ops E2E fixture catalog'});
+    } finally {
+        rmSync(mutationsPath, {force: true});
+    }
+}
+
+export async function createOutlinePageLabelFixturePdf(
+    filename: string,
+    bookmarks: IPdfBookmarkEntry[] = OUTLINE_FIXTURE_BOOKMARKS,
+) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
@@ -1217,53 +1276,31 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
             font,
         });
     }
-
-    applyCombinedPdfPageLabels(doc, [
-        {
-            pageIndex: requirePageIndex(0),
-            style: 'r',
-            prefix: 'front-',
-            start: 1,
-        },
-        {
-            pageIndex: requirePageIndex(2),
-            style: 'D',
-            prefix: 'chapter-',
-            start: 1,
-        },
-    ]);
-    writePdfBookmarkOutlines(doc, [
-        {
-            title: 'Parent',
-            pageIndex: requirePageIndex(0),
-            pageYRatio: null,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [{
-                title: 'Child',
-                pageIndex: requirePageIndex(2),
-                pageYRatio: null,
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }],
-        },
-        {
-            title: 'Appendix',
-            pageIndex: requirePageIndex(3),
-            pageYRatio: null,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        },
-    ]);
     writeFileSync(filePath, await doc.save());
+    await writeFixtureCatalog(filePath, {
+        pageLabels: {
+            totalPages: 4,
+            ranges: [
+                {
+                    startPage: 1,
+                    style: 'r',
+                    prefix: 'front-',
+                    startNumber: 1,
+                },
+                {
+                    startPage: 3,
+                    style: 'D',
+                    prefix: 'chapter-',
+                    startNumber: 1,
+                },
+            ],
+        },
+        bookmarks: {
+            totalPages: 4,
+            untitledLabel: 'Untitled',
+            items: bookmarks,
+        },
+    });
     return filePath;
 }
 
@@ -3029,4 +3066,35 @@ async function openPdfWithLowVerbosity(filePath: string) {
     });
     const document = await task.promise;
     return adaptPdfjsDocument(document, () => task.destroy());
+}
+
+interface IPdfjsOutlineSummary {
+    title: string;
+    pageIndex: number | null;
+    items: IPdfjsOutlineSummary[];
+}
+
+/** Reads page labels and the outline back through pdf.js, independently of the writer. */
+export async function readPdfCatalogWithPdfjs(filePath: string) {
+    const task = pdfjs.getDocument({
+        data: new Uint8Array(readFileSync(filePath)),
+        ...createPdfjsNodeDocumentOptions(pdfjs),
+    });
+    const document = await task.promise;
+    try {
+        const summarize = async (items: Awaited<ReturnType<typeof document.getOutline>>): Promise<IPdfjsOutlineSummary[]> =>
+            Promise.all((items ?? []).map(async item => ({
+                title: item.title,
+                pageIndex: Array.isArray(item.dest) && item.dest[0]
+                    ? await document.getPageIndex(item.dest[0])
+                    : null,
+                items: await summarize(item.items),
+            })));
+        return {
+            pageLabels: await document.getPageLabels(),
+            bookmarks: await summarize(await document.getOutline()),
+        };
+    } finally {
+        await task.destroy();
+    }
 }

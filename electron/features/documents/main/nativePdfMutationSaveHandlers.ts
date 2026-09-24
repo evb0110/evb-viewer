@@ -481,7 +481,7 @@ async function runNativeNoteCommand(
                 ...(identityBindings === undefined ? {} : {identityBindings}),
             };
         } catch (error) {
-            log.debug('Native note text update failed, falling back to pdf-lib', {
+            log.debug('Native note text update failed', {
                 command: options.command,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
                 phases: phaseTimings,
