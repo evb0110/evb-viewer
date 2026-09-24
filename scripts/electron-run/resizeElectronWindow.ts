@@ -54,17 +54,19 @@ export async function resizeElectronWindowContentArea(
     contentSize: IElectronWindowSize,
     settleTimeoutMs: number,
 ): Promise<IResizeElectronWindowResult> {
-    const requestContentSize = () => page.evaluate((requested: IElectronWindowSize) => {
-        const frameWidth = window.outerWidth - window.innerWidth;
-        const frameHeight = window.outerHeight - window.innerHeight;
-        window.resizeTo(requested.width + frameWidth, requested.height + frameHeight);
-    }, contentSize);
+    const requestWindowSize = (size: IElectronWindowSize) => page.evaluate((requested: IElectronWindowSize) => {
+        window.resizeTo(requested.width, requested.height);
+    }, size);
     const hasContentSize = (metrics: IElectronWindowMetrics) => (
         metrics.contentSize.width === contentSize.width && metrics.contentSize.height === contentSize.height
     );
 
     const before = await readElectronWindowMetrics(page);
-    await requestContentSize();
+    let requested = {
+        width: contentSize.width + before.windowSize.width - before.contentSize.width,
+        height: contentSize.height + before.windowSize.height - before.contentSize.height,
+    };
+    await requestWindowSize(requested);
 
     const deadline = Date.now() + settleTimeoutMs;
     let after = await readElectronWindowMetrics(page);
@@ -72,12 +74,15 @@ export async function resizeElectronWindowContentArea(
         await delay(SETTLE_POLL_INTERVAL_MS);
         const previous = after;
         after = await readElectronWindowMetrics(page);
-        // A frame that changes after it was measured, as the Linux menu bar
-        // and decorations can early in a session, leaves the content area
-        // short by the difference. Once the window holds still at the wrong
-        // size, ask again with the frame it has now.
+        // The reported frame can miss part of the window, such as a Linux
+        // menu bar that appears early in a session. Once the window holds
+        // still at the wrong size, grow the last request by the shortfall.
         if (!hasContentSize(after) && JSON.stringify(after) === JSON.stringify(previous)) {
-            await requestContentSize();
+            requested = {
+                width: requested.width + contentSize.width - after.contentSize.width,
+                height: requested.height + contentSize.height - after.contentSize.height,
+            };
+            await requestWindowSize(requested);
         }
     }
 
