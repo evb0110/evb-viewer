@@ -1,4 +1,3 @@
-import { existsSync } from 'fs';
 import { isAbsolute } from 'path';
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import {
@@ -89,9 +88,6 @@ export async function handleCreateWorkingCopyFromPath(
     originalPath?: string,
     password?: string,
 ) {
-    if (!existsSync(sourcePath)) {
-        throw new Error(`File not found: ${sourcePath}`);
-    }
     if (!isSupportedOpenPath(sourcePath)) {
         throw new Error('Invalid source file type');
     }

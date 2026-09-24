@@ -21,6 +21,7 @@ import {
     type TWorkingCopyDecryptionResult,
 } from '@electron/file-access/workingCopyDecryption';
 import {isPdfFileEncrypted} from '@electron/file-access/isPdfFileEncrypted';
+import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {
     attemptWorkingCopyClone,
@@ -323,7 +324,17 @@ export async function createWorkingCopyFromPath(
     try {
         const workingPath = join(workDir, getWorkingCopyFileName(basename(sourcePath), true));
 
-        await copyFileCopyOnWrite(sourcePath, workingPath);
+        if (getWorkingCopyBackingEntry(sourcePath, ownerWebContentsId)) {
+            // A lazy working copy has no bytes of its own until background
+            // materialization finishes; clone the original it reads from.
+            await runWithWorkingCopyReadBacking(
+                sourcePath,
+                readPath => copyFileCopyOnWrite(readPath, workingPath),
+                ownerWebContentsId === undefined ? {} : {ownerWebContentsId},
+            );
+        } else {
+            await copyFileCopyOnWrite(sourcePath, workingPath);
+        }
         if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {
             assertWorkingCopyDecryptionSucceeded(
                 await decryptWorkingCopyWithWriter(workingPath, options.password),
