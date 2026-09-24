@@ -27,7 +27,6 @@ const FILE_NAMING_ROOTS = new Set([
     'tests',
 ]);
 const FILE_NAMING_IGNORED_EXPORT_STEMS = new Set([
-    'analyticsAdmission',
     'contract',
     'contracts',
     'eslint.config',

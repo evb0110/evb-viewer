@@ -49,6 +49,7 @@ export default defineNuxtConfig({
         '@nuxt/ui',
         '@nuxtjs/i18n',
         '@nuxtjs/sitemap',
+        '@vercel/analytics/nuxt',
     ],
 
     devtools: { enabled: true },

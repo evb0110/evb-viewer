@@ -138,7 +138,6 @@ export async function exportTextAsDocx(params: {
     toast: ReturnType<typeof useToast>;
     setError: (message: string) => void;
     localizeError: (error: unknown) => string;
-    onSuccess?: () => void;
 }) {
     try {
         let documentHasRtlLanguage = params.hasRtl ?? false;
@@ -258,7 +257,6 @@ export async function exportTextAsDocx(params: {
                     throwIfAborted(params.signal);
                 }
             }
-            params.onSuccess?.();
             params.toast.add({
                 color: 'success',
                 title: params.t('notifications.docxSavedTitle'),

@@ -7,7 +7,6 @@
 
 ## Repo Configuration
 
-- The committed root `vercel.json` owns only repository-auditable runtime jobs such as the analytics-retention cron.
 - Configure build and framework settings in the Vercel dashboard or API:
 - Framework preset: `Nuxt.js`
 - Build command: leave unset so Vercel uses the repo default `pnpm build`
@@ -41,13 +40,11 @@
 - `vercel build`
 - `pnpm run deploy:web:prod`
 
-## Production Database Migrations
+## Analytics
 
-- A production deploy does not apply Drizzle migrations automatically. Apply pending root viewer migrations with `pnpm run db:migrate` and landing migrations with `pnpm --dir landing run db:migrate` before deploying server code that depends on them.
-- Pull the Vercel Production environment into a permission-restricted temporary file, export it only for the migration command, and remove it immediately afterward. Never print or commit the file.
-- After deployment, send a valid event to `/api/analytics/events` and require an HTTP 200 response whose JSON body contains `"ok": true` and `"persisted": true`. A 200 response by itself is insufficient because the endpoint deliberately reports database failures in its response body.
-- The root `drizzle/` migrations belong to `evb-viewer-web`. The separate `landing/drizzle/` migrations are for the landing project and must not be substituted for them.
-- After the routes are deployed and `CRON_SECRET` is configured independently on both projects, invoke each `/api/maintenance/analyticsRetention` endpoint once with its bearer secret. Require `{ "ok": true }`; a `503` means the bounded drain found a backlog that still needs another run or investigation.
+- Both Vercel projects use Vercel Web Analytics. Enable it in each project's dashboard; nothing is stored by this repository.
+- The browser app loads the analytics script only when `NUXT_PUBLIC_ANALYTICS_ENABLED=1`, and never inside Electron. It strips query strings and fragments and sends two custom events: `document_opened` (document kind and open method) and `browser_install_hint_interacted`.
+- The landing site records page views and a `download` event for GitHub and mirror installer links.
 
 ## Private Email CLI Deploys
 

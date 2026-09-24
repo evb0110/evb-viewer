@@ -163,7 +163,6 @@ const validationStageInputPaths = {
         'scripts/check-web-deploy-source.mjs',
         'scripts/deployVercelPrivate.mjs',
         'server',
-        'vercel.json',
     ],
 };
 const validationToolPackages = [
@@ -506,7 +505,7 @@ function selectedUnitProjects(files, classification) {
         projects.push('unit-scripts', 'unit-policy');
     }
     if (files.some(file => appUnitTestDependencyPattern.test(file))) {
-        projects.push('unit-app', 'unit-landing');
+        projects.push('unit-app');
     }
     if (classification.impacts.app) {
         projects.push('unit-app', 'unit-static-architecture');
@@ -537,8 +536,6 @@ function selectedUnitProjects(files, classification) {
             projects.push('unit-static-architecture');
         } else if (file.startsWith('tests/unit/electron/') || file.startsWith('tests/unit/e2e/')) {
             projects.push('unit-electron');
-        } else if (file.startsWith('tests/unit/landing/')) {
-            projects.push('unit-landing');
         } else if (file.startsWith('tests/unit/scripts/')) {
             projects.push('unit-scripts', 'unit-policy');
         } else if (file.startsWith('tests/unit/')) {

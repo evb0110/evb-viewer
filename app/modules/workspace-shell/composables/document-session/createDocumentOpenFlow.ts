@@ -1,8 +1,5 @@
 import { clamp } from 'es-toolkit/math';
-import type {
-    IAnalyticsDocumentScope,
-    useAnalytics,
-} from '@app/composables/useAnalytics';
+import { trackWebEvent } from '@app/utils/trackWebEvent';
 import type { TTranslateFn } from '@i18n-app';
 import {
     parseDocumentRef,
@@ -34,12 +31,7 @@ import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shel
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import {
-    bucketFileSize,
-    getLowercaseExtension,
-} from '@app/utils/analytics';
 import { readDocumentBytes } from '@app/utils/documentBytes';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
@@ -78,14 +70,11 @@ import {
     retainDocumentOpenWorkingCopyForRetry,
 } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 
-type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
 interface ICreateDocumentOpenFlowDeps {
-    analytics: TAnalytics;
-    analyticsDocumentScope: IAnalyticsDocumentScope;
     cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
     clearPdfConformanceProfile: () => void;
     cleanupPreviousWorkingCopy: (path: TDocumentRef, nextPath: TDocumentRef) => Promise<void>;
@@ -191,51 +180,23 @@ export function createDocumentOpenFlow(
         return getDocumentPickerCapability().openDocumentDialog();
     }
 
-    async function trackOpenedDocument(
+    function trackOpenedDocument(
         result: TOpenedFileResult,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
     ) {
-        const fileName = getDocumentRefBaseName(result.originalPath);
-        let fileSizeBucket: string | null = null;
-
-        if (isPdfOpenResult(result)) {
-            try {
-                // The open result has already adopted a managed working copy.
-                // Renderer file capabilities deliberately cannot stat an
-                // arbitrary original path; the byte-identical working copy is
-                // the authoritative readable source for analytics size.
-                const { size } = await getDocumentFilesCapability().statFile(result.workingPath);
-                fileSizeBucket = bucketFileSize(size);
-            } catch {
-                fileSizeBucket = null;
-            }
-        }
-
-        deps.analyticsDocumentScope.set({
+        trackWebEvent('document_opened', {
             documentKind: result.kind,
-            fileExtension: getLowercaseExtension(fileName),
-            fileSizeBucket,
-            isGenerated: isPdfOpenResult(result) ? Boolean(result.isGenerated) : false,
-            pageCountBucket: null,
-            totalPages: null,
-        });
-        deps.analytics.track('document_opened', {
-            documentKind: result.kind,
-            fileExtension: getLowercaseExtension(fileName),
-            fileSizeBucket,
-            isGenerated: isPdfOpenResult(result) ? Boolean(result.isGenerated) : false,
             openMethod,
-            requiresSaveAsOnFirstSave: isPdfOpenResult(result) ? Boolean(result.isGenerated) : false,
         });
     }
 
-    async function prepareDjvuOpen(
+    function prepareDjvuOpen(
         result: Extract<TOpenFileResult, {kind: 'djvu'}>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
-    ): Promise<TDocumentOpenOutcome> {
+    ): TDocumentOpenOutcome {
         state.pendingDjvu.value = result.originalPath;
         BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'DjVu open prepared', {path: result.originalPath});
-        await trackOpenedDocument(result, openMethod);
+        trackOpenedDocument(result, openMethod);
         return {
             status: 'prepared',
             result,
@@ -360,7 +321,7 @@ export function createDocumentOpenFlow(
                 );
             }
             if (isDjvuOpenResult(result)) {
-                return await prepareDjvuOpen(result, preSelected ? 'preselected' : 'picker');
+                return prepareDjvuOpen(result, preSelected ? 'preselected' : 'picker');
             }
             return await finishPdfOpenResult(
                 openRequestId,
@@ -478,7 +439,7 @@ export function createDocumentOpenFlow(
             } satisfies TDocumentOpenOutcome;
         }
         state.wasEncrypted.value = result.wasEncrypted === true;
-        await trackOpenedDocument(result, openMethod);
+        trackOpenedDocument(result, openMethod);
         if (!isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
             await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-track');
             return {
@@ -588,7 +549,7 @@ export function createDocumentOpenFlow(
             );
 
             if (isDjvuOpenResult(result)) {
-                return await prepareDjvuOpen(result, 'direct');
+                return prepareDjvuOpen(result, 'direct');
             }
             BrowserLogger.debug(
                 RECENT_OPEN_LOG_SECTION,
@@ -739,7 +700,7 @@ export function createDocumentOpenFlow(
             }
             if (isDjvuOpenResult(result)) {
                 state.openBatchProgress.value = null;
-                return await prepareDjvuOpen(result, 'batch');
+                return prepareDjvuOpen(result, 'batch');
             }
             state.openBatchProgress.value = null;
             return await finishPdfOpenResult(openRequestId, result, 'batch');

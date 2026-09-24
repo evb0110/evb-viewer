@@ -19,7 +19,6 @@ import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
 import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
-import { useAnalytics } from '@app/composables/useAnalytics';
 import type {
     TWorkspaceFailureSurface,
     TWorkspaceSaveFailureReason,
@@ -56,7 +55,6 @@ import {
     createWorkspaceSavePlan,
     getNativeSaveTransactionOptions,
     getCompletionBaseline,
-    getSaveFlow,
     getSaveMode,
     isTargetCurrent,
     requiresNativePathBackedSave,
@@ -627,7 +625,6 @@ async function completeWorkspaceSave(
 }
 
 export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
-    const analytics = useAnalytics();
     const failureSurface = deps.failureSurface ?? useWorkspaceFailureSurface();
     const runWithDocumentOperationLease = deps.runWithDocumentOperationLease
         ?? runWithoutDocumentOperationLease;
@@ -842,14 +839,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         const result = await executeSavePlan(lastPlan, deps);
                         indicator.value = false;
                         saveSucceeded = await completeWorkspaceSave(lastPlan, result, deps);
-                        if (saveSucceeded && result.status === 'saved') {
-                            analytics.track('save_completed', {
-                                didSaveAs: result.persisted.didSaveAs,
-                                mode: getSaveFlow(lastPlan),
-                                saveMode: result.persisted.saveMode,
-                                serializedChanges: result.serializedChanges,
-                            });
-                        }
                         if (result.status === 'not-saved') {
                             reportSaveAbort(result);
                         }

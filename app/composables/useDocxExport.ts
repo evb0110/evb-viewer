@@ -4,12 +4,10 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { createDocxFromTextAsync } from '@app/utils/docx';
 import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
-import { useAnalytics } from '@app/composables/useAnalytics';
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
 import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
 
 export const useDocxExport = () => {
-    const analytics = useAnalytics();
     const { t } = useTypedI18n();
     const toast = useToast();
     const { localizeOcrError } = useOcrErrorLocalizer();
@@ -54,14 +52,6 @@ export const useDocxExport = () => {
                     docxExportError.value = message;
                 },
                 localizeError: error => localizeOcrError(error, 'errors.ocr.exportDocx'),
-                onSuccess: () => {
-                    analytics.track('export_completed', {
-                        format: 'docx',
-                        hasRtl,
-                        selectedLanguageCount: selectedLanguages.length,
-                        status: 'success',
-                    });
-                },
             });
         } finally {
             if (activeAbortController === abortController) {

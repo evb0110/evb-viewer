@@ -19,10 +19,9 @@ The landing runtime reads these environment variables at runtime:
 - `NUXT_GITHUB_REPO` (default: `evb-viewer`)
 - `NUXT_GITHUB_API_BASE` (default: `https://api.github.com`)
 - `NUXT_GITHUB_TOKEN` (optional; recommended to raise GitHub API limits)
-- `LANDING_ANALYTICS_WRITE_ENABLED` (explicit opt-in)
-- `LANDING_ANALYTICS_HASH_SECRET` (independent random secret, 32+ characters)
-- `LANDING_ANALYTICS_ALLOWED_HOSTS`
-- `CRON_SECRET` (32+ characters; authenticates the daily retention job)
+
+Page views and installer downloads go to Vercel Web Analytics, which must be
+enabled in the Vercel dashboard.
 
 ## Local development
 
@@ -52,7 +51,6 @@ Optional environment variables on Vercel:
 vercel env add NUXT_GITHUB_OWNER
 vercel env add NUXT_GITHUB_REPO
 vercel env add NUXT_GITHUB_TOKEN
-vercel env add CRON_SECRET
 ```
 
 ## License

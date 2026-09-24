@@ -1,5 +1,3 @@
-import { useAnalytics } from '@app/composables/useAnalytics';
-import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -18,19 +16,13 @@ import {
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
-let nextPdfFileAnalyticsScopeIndex = 0;
-
 export interface IUsePdfFileOptions {
-    analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
     readOpeningPageFramePolicy?: () => IPdfOpeningPreviewLayoutPolicy;
     failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
 export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
-    const analytics = useAnalytics();
-    const analyticsDocumentScope = options.analyticsDocumentScope
-        ?? analytics.createDocumentScope(`pdf-file:${++nextPdfFileAnalyticsScopeIndex}`, { activate: true });
     const { t } = useTypedI18n();
 
     const { clearCache: clearOcrCache } = useOcrTextContent();
@@ -110,8 +102,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         toPdfBlob: (...args) => getDocumentOpenFlow().toPdfBlob(...args),
     });
     const documentOpenFlow = createDocumentOpenFlow(sessionState, {
-        analytics,
-        analyticsDocumentScope,
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy,
@@ -177,7 +167,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
 
         resetForClose();
         clearPdfConformanceProfile();
-        analyticsDocumentScope.clear();
         incrementSessionVersion();
         clearHistory();
         if (pathToCleanup) {

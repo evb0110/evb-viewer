@@ -936,7 +936,6 @@ describe('release policy', () => {
         expect(manifest.release.localChecks.gateGroups.map(group => group.id)).toEqual(['lint-static']);
         expect(lintAndStaticGate?.owner).toBe('release');
         expect(lintAndStaticGate?.scripts).toEqual([
-            'check:drizzle-schema',
             'check:electron:install',
             'check:electron-builder:asar-unpack',
         ]);
@@ -949,9 +948,6 @@ describe('release policy', () => {
         expect(scriptNames).not.toContain('validate');
         expect(scriptNames).not.toContain('test:release');
         expect(scriptNames).not.toContain('check:architecture:all');
-        expect(scriptNames).not.toContain('db:generate');
-        expect(scriptNames).not.toContain('db:migrate');
-        expect(scriptNames).not.toContain('db:check');
         expect(commandArgs.flat()).not.toContain('landing');
     });
 
@@ -1645,13 +1641,12 @@ describe('release policy', () => {
             scripts.indexOf('check:electron-builder:asar-unpack'),
         );
         expect(scripts).toEqual([
-            'check:drizzle-schema',
             'check:electron:install',
             'check:electron-builder:asar-unpack',
             'build:strict',
         ]);
         expect(receipts).toEqual(['/tmp/release-build-receipt.json']);
-        expect(childEnvironments.get('check:drizzle-schema')).toMatchObject({
+        expect(childEnvironments.get('check:electron:install')).toMatchObject({
             EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
             EVB_RELEASE_VERIFY_SKIP: '',
             EVB_RELEASE_VERIFY_SKIP_ACK: '1',
@@ -1688,7 +1683,6 @@ describe('release policy', () => {
 
         expect(scripts).not.toContain('build:strict');
         expect(scripts).toEqual([
-            'check:drizzle-schema',
             'check:electron:install',
             'check:electron-builder:asar-unpack',
         ]);
@@ -1725,7 +1719,7 @@ describe('release policy', () => {
                 EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
                 EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
             },
-            skipList: 'check:drizzle-schema',
+            skipList: 'check:electron:install',
             stderr: {write: () => {}},
         })).toThrow('Cannot reuse strict-build receipt /tmp/release-build-receipt.json: missing');
     });
@@ -1739,16 +1733,16 @@ describe('release policy', () => {
             runCommand: (_command: string, args: string[]) => {
                 calls.push(args);
             },
-            skipList: 'check:drizzle-schema, check:electron:install',
+            skipList: 'check:electron:install, check:electron-builder:asar-unpack',
             stderr: { write: (message: string) => stderrLines.push(message) },
         });
 
         const scriptNames = calls.map(args => args[1]);
-        expect(scriptNames).not.toContain('check:drizzle-schema');
+        expect(scriptNames).not.toContain('check:electron-builder:asar-unpack');
         expect(scriptNames).not.toContain('check:electron:install');
         expect(calls).toHaveLength(getLocalReleaseCheckCommands().length - 2);
         expect(stderrLines.join('')).toContain('release:verify is running with skipped local gates');
-        expect(stderrLines.join('')).toContain('skipped gates: check:drizzle-schema, check:electron:install');
+        expect(stderrLines.join('')).toContain('skipped gates: check:electron:install, check:electron-builder:asar-unpack');
     });
 
     it('requires explicit acknowledgement before release verification skips gates', () => {
@@ -1764,11 +1758,11 @@ describe('release policy', () => {
             argv: [],
             env: {EVB_RELEASE_VERIFY_SKIP_ACK: '1'},
         })).toBe(true);
-        expect(() => assertReleaseVerifySkipAcknowledged(['check:drizzle-schema'], {allowSkip: false}))
+        expect(() => assertReleaseVerifySkipAcknowledged(['check:electron:install'], {allowSkip: false}))
             .toThrow(/without explicit acknowledgement/u);
         expect(() => runLocalReleaseChecks({
             runCommand: () => {},
-            skipList: 'check:drizzle-schema',
+            skipList: 'check:electron:install',
             stderr: { write: () => {} },
         })).toThrow(/EVB_RELEASE_VERIFY_SKIP was set without explicit acknowledgement/u);
     });

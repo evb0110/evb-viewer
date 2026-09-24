@@ -288,13 +288,7 @@ describe('validation gate policy', () => {
         await expect(Promise.all(ignoredRootEslintConfigFiles.map(
             file => rootEslint.isPathIgnored(file),
         ))).resolves.toEqual(ignoredRootEslintConfigFiles.map(() => true));
-        await expect(Promise.all([
-            'drizzle.config.ts',
-            'nuxt.config.ts',
-        ].map(file => landingEslint.isPathIgnored(file)))).resolves.toEqual([
-            false,
-            false,
-        ]);
+        await expect(landingEslint.isPathIgnored('nuxt.config.ts')).resolves.toBe(false);
     }, 30_000);
 
     it('fails closed for unmatched paths and unknown change detection', () => {
@@ -519,23 +513,6 @@ describe('validation gate policy', () => {
         expect(stageIds).not.toContain('electron.blocking-smoke');
     });
 
-    it('targets the landing unit project for an ordinary landing test', () => {
-        const file = 'tests/unit/landing/analytics.test.ts';
-        const plan = validationGates.getValidationPlan({
-            changes: {
-                files: [file],
-                known: true,
-                reason: 'explicit-files',
-            },
-            tier: 'acceptance',
-        });
-        const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
-
-        expect(unitStage?.args).toContain('unit-landing');
-        expect(unitStage?.args).not.toContain('unit-core');
-        expect(unitStage?.args).toContain(file);
-    });
-
     it('keeps shared unit setup on every consumer project', () => {
         const plan = validationGates.getValidationPlan({
             changes: {
@@ -558,7 +535,7 @@ describe('validation gate policy', () => {
         expect(unitStage?.args).not.toContain('tests/setup.ts');
     });
 
-    it('keeps app-only unit setup on app and landing projects', () => {
+    it('keeps app-only unit setup on the app project', () => {
         const plan = validationGates.getValidationPlan({
             changes: {
                 files: ['tests/setupApp.ts'],
@@ -569,10 +546,7 @@ describe('validation gate policy', () => {
         });
         const unitStage = plan.find(stage => stage.id === 'test.unit.affected-projects');
 
-        expect(unitStage?.args).toEqual(expect.arrayContaining([
-            'unit-app',
-            'unit-landing',
-        ]));
+        expect(unitStage?.args).toContain('unit-app');
         expect(unitStage?.args).not.toContain('unit-core');
         expect(unitStage?.args).not.toContain('unit-electron');
         expect(unitStage?.args).not.toContain('unit-scripts');

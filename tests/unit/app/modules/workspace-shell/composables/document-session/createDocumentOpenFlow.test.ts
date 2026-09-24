@@ -113,27 +113,7 @@ function createOpenFlowHarness(options: {
     ) => boolean;
 } = {}) {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
-    const analyticsDocumentScope = {
-        activate: vi.fn(),
-        clear: vi.fn(),
-        deactivate: vi.fn(),
-        dispose: vi.fn(),
-        key: 'test-document-scope',
-        merge: vi.fn(),
-        set: vi.fn(),
-    };
     const deps = {
-        analytics: {
-            clearDocumentContext: vi.fn(),
-            createDocumentScope: vi.fn(() => analyticsDocumentScope),
-            enabled: false,
-            flush: vi.fn(async () => undefined),
-            installLifecycle: vi.fn(),
-            mergeDocumentContext: vi.fn(),
-            setDocumentContext: vi.fn(),
-            track: vi.fn(),
-        },
-        analyticsDocumentScope,
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),
@@ -158,7 +138,6 @@ function createOpenFlowHarness(options: {
     };
 
     return {
-        analyticsDocumentScope,
         deps,
         openFlow: createDocumentOpenFlow(state, deps),
         state,
@@ -1333,38 +1312,6 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
         expect(deps.pushHistorySnapshot).not.toHaveBeenCalled();
         expect(state.pdfData.value).toBe(before);
-    });
-
-    it('tracks preselected DjVu opens without statting the external source path', async () => {
-        const {
-            analyticsDocumentScope,
-            deps,
-            openFlow,
-            state,
-        } = createOpenFlowHarness();
-        const preselectedDjvu: TOpenFileResult = {
-            kind: 'djvu',
-            originalPath: requireDocumentRef('/tmp/scan.djvu'),
-            workingPath: '',
-        };
-
-        const outcome = await openFlow.openFile(preselectedDjvu);
-
-        expect(outcome.status).toBe('prepared');
-        expect(state.pendingDjvu.value).toBe('/tmp/scan.djvu');
-        expect(mocks.documentFiles.statFile).not.toHaveBeenCalledWith('/tmp/scan.djvu');
-        expect(analyticsDocumentScope.set).toHaveBeenCalledWith(expect.objectContaining({
-            documentKind: 'djvu',
-            fileExtension: 'djvu',
-            fileSizeBucket: null,
-        }));
-        expect(deps.analytics.track).toHaveBeenCalledWith('document_opened', expect.objectContaining({
-            documentKind: 'djvu',
-            fileExtension: 'djvu',
-            fileSizeBucket: null,
-            openMethod: 'preselected',
-            requiresSaveAsOnFirstSave: false,
-        }));
     });
 
     it('cleans up a stale direct PDF working copy that was superseded before adoption', async () => {

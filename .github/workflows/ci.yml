@@ -173,10 +173,6 @@ jobs:
       # The dependency audit is deliberately absent. It fails on advisory
       # publication time, not on anything in the commit, so it runs daily in
       # dependency-audit.yml and files an issue instead.
-      - name: Drizzle schema configuration
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:drizzle-schema
-
       - name: Electron-builder ASAR unpack configuration
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:electron-builder:asar-unpack

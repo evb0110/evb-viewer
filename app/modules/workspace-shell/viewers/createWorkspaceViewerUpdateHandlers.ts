@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import type {
     IDocumentNavigationRequest,
@@ -8,7 +7,6 @@ import type {
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TPdfViewMode } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { bucketPageCount } from '@app/utils/analytics';
 import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 
 export interface IWorkspacePageUpdateOutcome {
@@ -17,7 +15,6 @@ export interface IWorkspacePageUpdateOutcome {
 }
 
 interface IWorkspaceViewerUpdateOptions {
-    analytics: IAnalyticsDocumentScope;
     tabId: string;
     pdfSrc: Ref<TPdfSource | null>;
     currentPage: Ref<number>;
@@ -40,10 +37,6 @@ export function createWorkspaceViewerUpdateHandlers(options: IWorkspaceViewerUpd
             return;
         }
         options.totalPages.value = value;
-        if (value > 0) options.analytics.merge({
-            pageCountBucket: bucketPageCount(value),
-            totalPages: value,
-        });
     }
 
     function handleCurrentPage(page: number) {

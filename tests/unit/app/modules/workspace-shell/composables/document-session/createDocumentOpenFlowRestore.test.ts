@@ -66,27 +66,7 @@ interface IResetHistoryTestOptions {isCurrent?: (() => boolean) | undefined;}
 
 function createOpenFlowHarness() {
     const state = createDocumentSessionState({isDesktopRuntime: ref(true)});
-    const analyticsDocumentScope = {
-        activate: vi.fn(),
-        clear: vi.fn(),
-        deactivate: vi.fn(),
-        dispose: vi.fn(),
-        key: 'test-document-scope',
-        merge: vi.fn(),
-        set: vi.fn(),
-    };
     const deps = {
-        analytics: {
-            clearDocumentContext: vi.fn(),
-            createDocumentScope: vi.fn(() => analyticsDocumentScope),
-            enabled: false,
-            flush: vi.fn(async () => undefined),
-            installLifecycle: vi.fn(),
-            mergeDocumentContext: vi.fn(),
-            setDocumentContext: vi.fn(),
-            track: vi.fn(),
-        },
-        analyticsDocumentScope,
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
         cleanupPreviousWorkingCopy: vi.fn(async () => undefined),

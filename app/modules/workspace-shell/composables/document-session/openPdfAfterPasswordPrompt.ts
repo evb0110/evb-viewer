@@ -41,7 +41,7 @@ interface IOpenPdfAfterPasswordPromptDeps {
     trackOpenedDocument: (
         result: TOpenedFileResult,
         openMethod: TOpenMethod,
-    ) => Promise<void>;
+    ) => void;
     setPendingDjvuPath: (path: TDocumentRef) => void;
     finishPdfOpenResult: (
         openRequestId: number,
@@ -124,7 +124,7 @@ export async function openPdfAfterPasswordPrompt(
         }
         if (isDjvuOpenResult(result)) {
             deps.setPendingDjvuPath(result.originalPath);
-            await deps.trackOpenedDocument(result, openMethod);
+            deps.trackOpenedDocument(result, openMethod);
             return {
                 status: 'prepared',
                 result,

@@ -33,7 +33,7 @@ Desktop releases bundle native tools for OCR, image export, page operations, and
 ```text
 app/        Shared Nuxt viewer UI, PDF/DjVu components, workspace shell
 electron/   Electron main/preload code and native-tool-backed features
-server/     SSR routes for the root web build (sitemap, robots, analytics)
+server/     SSR routes for the root web build (sitemap, robots)
 landing/    Separate Nuxt landing/download/docs site
 packages/   Shared contracts, i18n core/messages, release-selection logic
 resources/  Bundled native binaries and OCR language data
@@ -113,8 +113,6 @@ Its runtime release API uses:
 - `NUXT_GITHUB_REPO`
 - `NUXT_GITHUB_API_BASE`
 - `NUXT_GITHUB_TOKEN` (optional)
-- `LANDING_ANALYTICS_HASH_SECRET` (independent random secret, 32+ characters)
-- `CRON_SECRET` (32+ characters; required by the daily analytics-retention route)
 
 Copy `.env.example` files when you need local environment overrides. Do not commit filled-in `.env` files.
 

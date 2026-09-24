@@ -42,7 +42,6 @@ import {
     useWorkspaceDocumentDriverBinding,
     type IWorkspaceDriverPrintRequest,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type {
     IDocumentOpenSurfaceSession,
     IDocumentPageSource,
@@ -70,7 +69,6 @@ import type { IPdfOpeningPreviewLayoutPolicy } from '@app/modules/workspace-shel
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
 interface IWorkspaceOrchestrationDeps {
-    analyticsDocumentScope: IAnalyticsDocumentScope;
     tabId: string;
     isActive: Ref<boolean>;
     documentSession: IWorkspaceDocumentController;
@@ -130,7 +128,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         continuousScroll: true,
     });
     const fileLifecycle = useWorkspaceFileLifecycleController({
-        analyticsDocumentScope: deps.analyticsDocumentScope,
         createViewerLifecycleHooks: context => createViewerLifecycleHooks(context),
         openSurface: deps.openSurface,
         readOpeningPageFramePolicy: () => openingPageFramePolicy.value,
@@ -1018,7 +1015,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             handleCurrentPage,
             handleTotalPages,
         } = createWorkspaceViewerUpdateHandlers({
-            analytics: deps.analyticsDocumentScope,
             tabId: deps.tabId,
             pdfSrc,
             currentPage,

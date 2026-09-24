@@ -12,7 +12,6 @@ import type {
     IWorkspaceViewerLifecycleContext,
     IWorkspaceViewerLifecycleHooks,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type {
     TPdfProjectionReason, IDocumentOpenSurfaceSession,  
 } from '@app/modules/document-viewer/public';
@@ -23,7 +22,6 @@ import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/documen
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 interface IUseWorkspaceFileLifecycleControllerOptions {
-    analyticsDocumentScope?: IAnalyticsDocumentScope | undefined;
     createViewerLifecycleHooks?: (
         context: IWorkspaceViewerLifecycleContext,
     ) => IWorkspaceViewerLifecycleHooks[];
@@ -161,7 +159,6 @@ export const useWorkspaceFileLifecycleController = (
         undo,
         redo,
     } = usePdfFile({
-        analyticsDocumentScope: options.analyticsDocumentScope,
         openSurface: options.openSurface,
         ...(options.readOpeningPageFramePolicy === undefined
             ? {}

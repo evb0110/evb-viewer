@@ -194,7 +194,6 @@ import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/u
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
 import { useAssistantPanelResize } from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
 import { useAppUpdates } from '@app/composables/useAppUpdates';
-import { useAnalytics } from '@app/composables/useAnalytics';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
@@ -314,7 +313,6 @@ function handleUnencryptedSaveNoticeOpenUpdate(open: boolean) {
 function handleUnencryptedSaveNoticeDontShowAgainUpdate(value: boolean) {
     unencryptedSaveNoticeDontShowAgain.value = value;
 }
-const analytics = useAnalytics();
 const activeToolPage = ref<'combine' | null>(null);
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
 const isStartupOpenClaimPending = ref(true);
@@ -327,10 +325,7 @@ const {
     dismissBrowserInstallHint,
     handleBrowserInstallHintClick,
     showBrowserInstallHint,
-} = useBrowserInstallHint({
-    analytics,
-    isBrowserRuntime,
-});
+} = useBrowserInstallHint({isBrowserRuntime});
 const shouldWaitForDesktopBridge = logicNot(isBrowserRuntime);
 const isFullscreen = ref(false);
 const assistantPanel = useAssistantPanel();

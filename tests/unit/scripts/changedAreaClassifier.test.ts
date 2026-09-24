@@ -200,7 +200,6 @@ describe('changed-area classifier', () => {
         for (const file of [
             'app/app.vue',
             'app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale.ts',
-            'drizzle/schema.ts',
             'nuxt.config.ts',
             'packages/pdf-core/index.ts',
             'public/pdfjs/pdf.worker.min.mjs',

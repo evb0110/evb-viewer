@@ -130,7 +130,7 @@
                     :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
                     :href="installer.downloadUrl"
                     :aria-label="downloadAriaLabel(installer)"
-                    @click="trackInstallerDownload(installer)"
+                    @click="trackInstallerDownload(installer, 'github')"
                   >
                     <div class="installer-item-info">
                       <div class="installer-item-header">
@@ -162,7 +162,7 @@
                       class="installer-mirror-cell installer-mirror-link"
                       :href="installer.mirrorDownloadUrl"
                       :aria-label="mirrorDownloadAriaLabel(installer)"
-                      @click="trackInstallerDownload(installer)"
+                      @click="trackInstallerDownload(installer, 'mirror')"
                     >
                       {{ t('home.installers.mirror') }}
                     </a>
@@ -265,6 +265,7 @@
 </template>
 
 <script setup lang="ts">
+import { track } from '@vercel/analytics';
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
 import SentryAcknowledgement from '~/components/SentryAcknowledgement.vue';
@@ -437,12 +438,12 @@ async function detectClientProfile(): Promise<IUserAgentProfile> {
     return buildClientProfile(navigator.userAgent, hintedPlatform, hintedArch);
 }
 
-function trackInstallerDownload(installer: IReleaseInstaller) {
-    trackDownload({
+function trackInstallerDownload(installer: IReleaseInstaller, source: 'github' | 'mirror') {
+    track('download', {
         platform: installer.platform,
         arch: installer.arch,
         version: releaseData.value?.release.tag ?? 'unknown',
-        fileName: installer.name,
+        source,
     });
 }
 

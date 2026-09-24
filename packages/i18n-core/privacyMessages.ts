@@ -53,7 +53,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Analytics and technical information',
-            body: 'The EVB Viewer website and browser app may collect limited usage and technical events, such as page paths, feature events, locale, screen category, referrer, browser user agent, approximate region, and a rotating hashed visitor identifier. This information is used to understand reliability and product usage. It is not used to identify document contents.',
+            body: 'The EVB Viewer website and browser app use Vercel Web Analytics. It records page paths without query strings, the referrer, country, browser, operating system, and device type, plus a few feature events such as the type of document opened or an installer download. Visitors are counted with a hash that resets daily; no cookies are set, and document names, paths, and contents are never included. The desktop app sends no analytics.',
         },
         settings: {
             heading: 'Settings, recent files, and updates',
@@ -61,11 +61,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookies and browser storage',
-            body: 'EVB Viewer uses first-party preference cookies to remember language and, in the browser app, theme. Language cookies may last up to one year, and the theme cookie may last up to 180 days. The download site uses an opaque, HttpOnly cohort cookie for up to 90 days to keep staged release recommendations consistent; it is not used for advertising or cross-site tracking. The browser app also uses local storage, session storage, and IndexedDB for preferences, recent-file references, workspace state, document data you choose to retain, and a random per-session analytics identifier. EVB Viewer does not set advertising or third-party cookies. You can remove cookies and browser-stored data through your browser’s site-data controls; doing so resets preferences and locally retained app data.',
+            body: 'EVB Viewer uses first-party preference cookies to remember language and, in the browser app, theme. Language cookies may last up to one year, and the theme cookie may last up to 180 days. The download site uses an opaque, HttpOnly cohort cookie for up to 90 days to keep staged release recommendations consistent; it is not used for advertising or cross-site tracking. The browser app also uses local storage, session storage, and IndexedDB for preferences, recent-file references, workspace state, and document data you choose to retain. EVB Viewer does not set advertising or third-party cookies. You can remove cookies and browser-stored data through your browser’s site-data controls; doing so resets preferences and locally retained app data.',
         },
         retention: {
             heading: 'Retention and choices',
-            body: 'Local app data remains on your device until you remove it or uninstall the app. You control which documents and attachments are opened or sent to optional assistant services. Website analytics records are retained only as needed for product operation, security, and trend analysis and are scheduled for automatic deletion after 90 days.',
+            body: 'Local app data remains on your device until you remove it or uninstall the app. You control which documents and attachments are opened or sent to optional assistant services. Website analytics are aggregated by Vercel and kept within the retention limits of its Web Analytics service.',
         },
         contact: {
             heading: 'Contact',
@@ -96,7 +96,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Analyse- und technische Informationen',
-            body: 'Die EVB-Viewer-Website und Browser-App können begrenzte Nutzungs- und technische Ereignisse erfassen, etwa Seitenpfade, Funktionsereignisse, Sprache, Bildschirmkategorie, Referrer, Browser-User-Agent, ungefähre Region und eine regelmäßig wechselnde gehashte Besucherkennung. Diese Daten dienen dazu, Zuverlässigkeit und Produktnutzung zu verstehen, und nicht dazu, Dokumentinhalte zu identifizieren.',
+            body: 'Die EVB-Viewer-Website und die Browser-App verwenden Vercel Web Analytics. Erfasst werden Seitenpfade ohne Abfrageparameter, Referrer, Land, Browser, Betriebssystem und Gerätetyp sowie einige Funktionsereignisse, etwa der Typ eines geöffneten Dokuments oder ein Installer-Download. Besucher werden über einen täglich neu erzeugten Hash gezählt; es werden keine Cookies gesetzt, und Dokumentnamen, Pfade und Inhalte werden nie übermittelt. Die Desktop-App sendet keine Analysedaten.',
         },
         settings: {
             heading: 'Einstellungen, zuletzt verwendete Dateien und Updates',
@@ -104,11 +104,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookies und Browserspeicher',
-            body: 'EVB Viewer verwendet eigene Präferenz-Cookies, um die Sprache und in der Browser-App das Design zu speichern. Sprach-Cookies können bis zu ein Jahr und das Design-Cookie bis zu 180 Tage gespeichert werden. Die Download-Website verwendet bis zu 90 Tage lang ein undurchsichtiges HttpOnly-Kohorten-Cookie, damit Empfehlungen bei gestaffelten Veröffentlichungen konsistent bleiben; es wird weder für Werbung noch für websiteübergreifendes Tracking eingesetzt. Die Browser-App verwendet außerdem lokalen Speicher, Sitzungsspeicher und IndexedDB für Einstellungen, Verweise auf zuletzt verwendete Dateien, den Arbeitsbereichszustand, von dir zur Aufbewahrung ausgewählte Dokumentdaten und eine zufällige Analysekennung pro Sitzung. EVB Viewer setzt keine Werbe- oder Drittanbieter-Cookies. Cookies und gespeicherte Browserdaten kannst du über die Website-Datenverwaltung deines Browsers löschen; dadurch werden Einstellungen und lokal gespeicherte App-Daten zurückgesetzt.',
+            body: 'EVB Viewer verwendet eigene Präferenz-Cookies, um die Sprache und in der Browser-App das Design zu speichern. Sprach-Cookies können bis zu ein Jahr und das Design-Cookie bis zu 180 Tage gespeichert werden. Die Download-Website verwendet bis zu 90 Tage lang ein undurchsichtiges HttpOnly-Kohorten-Cookie, damit Empfehlungen bei gestaffelten Veröffentlichungen konsistent bleiben; es wird weder für Werbung noch für websiteübergreifendes Tracking eingesetzt. Die Browser-App verwendet außerdem lokalen Speicher, Sitzungsspeicher und IndexedDB für Einstellungen, Verweise auf zuletzt verwendete Dateien, den Arbeitsbereichszustand und von dir zur Aufbewahrung ausgewählte Dokumentdaten. EVB Viewer setzt keine Werbe- oder Drittanbieter-Cookies. Cookies und gespeicherte Browserdaten kannst du über die Website-Datenverwaltung deines Browsers löschen; dadurch werden Einstellungen und lokal gespeicherte App-Daten zurückgesetzt.',
         },
         retention: {
             heading: 'Aufbewahrung und Wahlmöglichkeiten',
-            body: 'Lokale App-Daten verbleiben auf deinem Gerät, bis du sie entfernst oder die App deinstallierst. Du entscheidest, welche Dokumente und Anhänge geöffnet oder an optionale Assistentendienste gesendet werden. Website-Analysedaten werden nur so lange gespeichert, wie es für Produktbetrieb, Sicherheit und Trendanalysen erforderlich ist, und nach 90 Tagen zur automatischen Löschung eingeplant.',
+            body: 'Lokale App-Daten verbleiben auf deinem Gerät, bis du sie entfernst oder die App deinstallierst. Du entscheidest, welche Dokumente und Anhänge geöffnet oder an optionale Assistentendienste gesendet werden. Website-Analysedaten werden von Vercel zusammengefasst und innerhalb der Aufbewahrungsgrenzen seines Web-Analytics-Dienstes gespeichert.',
         },
         contact: {
             heading: 'Kontakt',
@@ -139,7 +139,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Datos analíticos e información técnica',
-            body: 'El sitio y la aplicación web de EVB Viewer pueden recopilar eventos limitados de uso e información técnica, como rutas de páginas, eventos de funciones, idioma, categoría de pantalla, sitio de referencia, agente de usuario del navegador, región aproximada y un identificador de visitante cifrado que cambia periódicamente. Esta información se usa para comprender la fiabilidad y el uso del producto, no para identificar el contenido de los documentos.',
+            body: 'El sitio y la aplicación web de EVB Viewer usan Vercel Web Analytics. Registra rutas de páginas sin parámetros de consulta, sitio de referencia, país, navegador, sistema operativo y tipo de dispositivo, además de algunos eventos de funciones, como el tipo de documento abierto o la descarga de un instalador. Los visitantes se cuentan con un hash que se renueva cada día; no se instalan cookies y nunca se incluyen nombres, rutas ni contenido de documentos. La aplicación de escritorio no envía datos analíticos.',
         },
         settings: {
             heading: 'Configuración, archivos recientes y actualizaciones',
@@ -147,11 +147,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookies y almacenamiento del navegador',
-            body: 'EVB Viewer utiliza cookies propias de preferencias para recordar el idioma y, en la aplicación web, el tema. Las cookies de idioma pueden durar hasta un año y la cookie del tema hasta 180 días. El sitio de descargas utiliza durante un máximo de 90 días una cookie de cohorte opaca y HttpOnly para mantener coherentes las recomendaciones durante los lanzamientos graduales; no se utiliza para publicidad ni seguimiento entre sitios. La aplicación web también utiliza almacenamiento local, almacenamiento de sesión e IndexedDB para preferencias, referencias a archivos recientes, estado del espacio de trabajo, datos de documentos que decidas conservar y un identificador analítico aleatorio por sesión. EVB Viewer no instala cookies publicitarias ni de terceros. Puedes eliminar las cookies y los datos almacenados por el navegador mediante los controles de datos de sitios del navegador; al hacerlo se restablecen las preferencias y los datos locales de la aplicación.',
+            body: 'EVB Viewer utiliza cookies propias de preferencias para recordar el idioma y, en la aplicación web, el tema. Las cookies de idioma pueden durar hasta un año y la cookie del tema hasta 180 días. El sitio de descargas utiliza durante un máximo de 90 días una cookie de cohorte opaca y HttpOnly para mantener coherentes las recomendaciones durante los lanzamientos graduales; no se utiliza para publicidad ni seguimiento entre sitios. La aplicación web también utiliza almacenamiento local, almacenamiento de sesión e IndexedDB para preferencias, referencias a archivos recientes, estado del espacio de trabajo y datos de documentos que decidas conservar. EVB Viewer no instala cookies publicitarias ni de terceros. Puedes eliminar las cookies y los datos almacenados por el navegador mediante los controles de datos de sitios del navegador; al hacerlo se restablecen las preferencias y los datos locales de la aplicación.',
         },
         retention: {
             heading: 'Conservación y opciones',
-            body: 'Los datos locales de la aplicación permanecen en tu dispositivo hasta que los eliminas o desinstalas la aplicación. Tú controlas qué documentos y archivos adjuntos se abren o se envían a los servicios opcionales de asistente. Los registros analíticos del sitio se conservan solo el tiempo necesario para el funcionamiento del producto, la seguridad y el análisis de tendencias y se programa su eliminación automática después de 90 días.',
+            body: 'Los datos locales de la aplicación permanecen en tu dispositivo hasta que los eliminas o desinstalas la aplicación. Tú controlas qué documentos y archivos adjuntos se abren o se envían a los servicios opcionales de asistente. Vercel agrega los datos analíticos del sitio y los conserva dentro de los límites de retención de su servicio Web Analytics.',
         },
         contact: {
             heading: 'Contacto',
@@ -182,7 +182,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Données analytiques et techniques',
-            body: 'Le site et l’application web EVB Viewer peuvent recueillir des événements d’utilisation et des données techniques limités, notamment les chemins de pages, les événements de fonctionnalités, la langue, la catégorie d’écran, le site référent, l’agent utilisateur du navigateur, la région approximative et un identifiant de visiteur haché et renouvelé. Ces données servent à comprendre la fiabilité et l’utilisation du produit, pas à identifier le contenu des documents.',
+            body: 'Le site et l’application web EVB Viewer utilisent Vercel Web Analytics. Il enregistre les chemins de pages sans paramètres de requête, le site référent, le pays, le navigateur, le système d’exploitation et le type d’appareil, ainsi que quelques événements de fonctionnalités, comme le type de document ouvert ou le téléchargement d’un programme d’installation. Les visiteurs sont comptés au moyen d’un hachage renouvelé chaque jour ; aucun cookie n’est déposé et les noms, chemins et contenus des documents ne sont jamais inclus. L’application de bureau n’envoie aucune donnée analytique.',
         },
         settings: {
             heading: 'Réglages, fichiers récents et mises à jour',
@@ -190,11 +190,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookies et stockage du navigateur',
-            body: 'EVB Viewer utilise des cookies de préférence internes pour mémoriser la langue et, dans l’application web, le thème. Les cookies de langue peuvent être conservés jusqu’à un an et le cookie de thème jusqu’à 180 jours. Le site de téléchargement utilise pendant 90 jours au maximum un cookie de cohorte opaque et HttpOnly afin de maintenir la cohérence des recommandations lors des déploiements progressifs ; il n’est pas utilisé à des fins publicitaires ni pour le suivi intersite. L’application web utilise également le stockage local, le stockage de session et IndexedDB pour les préférences, les références aux fichiers récents, l’état de l’espace de travail, les données de documents que vous choisissez de conserver et un identifiant analytique aléatoire propre à la session. EVB Viewer ne dépose aucun cookie publicitaire ou tiers. Vous pouvez supprimer les cookies et les données stockées par le navigateur depuis les contrôles de données de site de votre navigateur ; cette opération réinitialise les préférences et les données locales de l’application.',
+            body: 'EVB Viewer utilise des cookies de préférence internes pour mémoriser la langue et, dans l’application web, le thème. Les cookies de langue peuvent être conservés jusqu’à un an et le cookie de thème jusqu’à 180 jours. Le site de téléchargement utilise pendant 90 jours au maximum un cookie de cohorte opaque et HttpOnly afin de maintenir la cohérence des recommandations lors des déploiements progressifs ; il n’est pas utilisé à des fins publicitaires ni pour le suivi intersite. L’application web utilise également le stockage local, le stockage de session et IndexedDB pour les préférences, les références aux fichiers récents, l’état de l’espace de travail et les données de documents que vous choisissez de conserver. EVB Viewer ne dépose aucun cookie publicitaire ou tiers. Vous pouvez supprimer les cookies et les données stockées par le navigateur depuis les contrôles de données de site de votre navigateur ; cette opération réinitialise les préférences et les données locales de l’application.',
         },
         retention: {
             heading: 'Conservation et choix',
-            body: 'Les données locales de l’application restent sur votre appareil jusqu’à ce que vous les supprimiez ou désinstalliez l’application. Vous choisissez les documents et pièces jointes ouverts ou envoyés aux services d’assistant optionnels. Les données analytiques du site ne sont conservées que le temps nécessaire au fonctionnement du produit, à la sécurité et à l’analyse des tendances, et leur suppression automatique est programmée après 90 jours.',
+            body: 'Les données locales de l’application restent sur votre appareil jusqu’à ce que vous les supprimiez ou désinstalliez l’application. Vous choisissez les documents et pièces jointes ouverts ou envoyés aux services d’assistant optionnels. Les données analytiques du site sont agrégées par Vercel et conservées dans les limites de durée de son service Web Analytics.',
         },
         contact: {
             heading: 'Contact',
@@ -225,7 +225,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Dati analitici e informazioni tecniche',
-            body: 'Il sito e l’app browser di EVB Viewer possono raccogliere eventi d’uso e dati tecnici limitati, come percorsi delle pagine, eventi delle funzionalità, lingua, categoria dello schermo, referrer, user agent del browser, area geografica approssimativa e un identificatore del visitatore sottoposto a hash e ruotato. Questi dati servono a comprendere affidabilità e utilizzo del prodotto, non a identificare il contenuto dei documenti.',
+            body: 'Il sito e l’app browser di EVB Viewer usano Vercel Web Analytics. Registra i percorsi delle pagine senza parametri di query, il referrer, il paese, il browser, il sistema operativo e il tipo di dispositivo, oltre ad alcuni eventi delle funzionalità, come il tipo di documento aperto o il download di un programma di installazione. I visitatori vengono conteggiati con un hash che si rinnova ogni giorno; non vengono impostati cookie e nomi, percorsi e contenuti dei documenti non vengono mai inclusi. L’app desktop non invia dati analitici.',
         },
         settings: {
             heading: 'Impostazioni, file recenti e aggiornamenti',
@@ -233,11 +233,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookie e archiviazione del browser',
-            body: 'EVB Viewer utilizza cookie di preferenza proprietari per ricordare la lingua e, nell’app browser, il tema. I cookie della lingua possono durare fino a un anno e quello del tema fino a 180 giorni. Il sito di download utilizza per un massimo di 90 giorni un cookie di coorte opaco e HttpOnly per mantenere coerenti i suggerimenti durante i rilasci graduali; non viene usato per pubblicità o tracciamento tra siti. L’app browser utilizza inoltre archiviazione locale, archiviazione di sessione e IndexedDB per preferenze, riferimenti ai file recenti, stato dell’area di lavoro, dati dei documenti che scegli di conservare e un identificatore analitico casuale per sessione. EVB Viewer non imposta cookie pubblicitari o di terze parti. Puoi eliminare cookie e dati memorizzati dal browser tramite i controlli dei dati dei siti del browser; questa operazione reimposta le preferenze e i dati locali dell’app.',
+            body: 'EVB Viewer utilizza cookie di preferenza proprietari per ricordare la lingua e, nell’app browser, il tema. I cookie della lingua possono durare fino a un anno e quello del tema fino a 180 giorni. Il sito di download utilizza per un massimo di 90 giorni un cookie di coorte opaco e HttpOnly per mantenere coerenti i suggerimenti durante i rilasci graduali; non viene usato per pubblicità o tracciamento tra siti. L’app browser utilizza inoltre archiviazione locale, archiviazione di sessione e IndexedDB per preferenze, riferimenti ai file recenti, stato dell’area di lavoro e dati dei documenti che scegli di conservare. EVB Viewer non imposta cookie pubblicitari o di terze parti. Puoi eliminare cookie e dati memorizzati dal browser tramite i controlli dei dati dei siti del browser; questa operazione reimposta le preferenze e i dati locali dell’app.',
         },
         retention: {
             heading: 'Conservazione e scelte',
-            body: 'I dati locali dell’app rimangono sul dispositivo finché non li rimuovi o disinstalli l’app. Sei tu a decidere quali documenti e allegati aprire o inviare ai servizi opzionali dell’assistente. I dati analitici del sito vengono conservati solo per il tempo necessario al funzionamento del prodotto, alla sicurezza e all’analisi delle tendenze e ne è programmata l’eliminazione automatica dopo 90 giorni.',
+            body: 'I dati locali dell’app rimangono sul dispositivo finché non li rimuovi o disinstalli l’app. Sei tu a decidere quali documenti e allegati aprire o inviare ai servizi opzionali dell’assistente. I dati analitici del sito sono aggregati da Vercel e conservati entro i limiti di conservazione del suo servizio Web Analytics.',
         },
         contact: {
             heading: 'Contatti',
@@ -268,7 +268,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Analyse- en technische gegevens',
-            body: 'De website en browser-app van EVB Viewer kunnen beperkte gebruiksgebeurtenissen en technische gegevens verzamelen, zoals paginapaden, functiegebeurtenissen, taal, schermcategorie, verwijzende site, browser-user-agent, geschatte regio en een wisselende gehashte bezoekerscode. Deze gegevens worden gebruikt om de betrouwbaarheid en het productgebruik te begrijpen en niet om de inhoud van documenten vast te stellen.',
+            body: 'De website en browser-app van EVB Viewer gebruiken Vercel Web Analytics. Dit registreert paginapaden zonder queryparameters, de verwijzende site, het land, de browser, het besturingssysteem en het apparaattype, plus enkele functiegebeurtenissen, zoals het type geopend document of het downloaden van een installatieprogramma. Bezoekers worden geteld met een hash die dagelijks wordt vernieuwd; er worden geen cookies geplaatst en documentnamen, paden en inhoud worden nooit meegestuurd. De desktop-app verstuurt geen analysegegevens.',
         },
         settings: {
             heading: 'Instellingen, recente bestanden en updates',
@@ -276,11 +276,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookies en browseropslag',
-            body: 'EVB Viewer gebruikt eigen voorkeurscookies om de taal en, in de browser-app, het thema te onthouden. Taalcookies kunnen maximaal één jaar worden bewaard en de themacookie maximaal 180 dagen. De downloadsite gebruikt maximaal 90 dagen een ondoorzichtige HttpOnly-cohortcookie om aanbevelingen tijdens gefaseerde releases consistent te houden; deze wordt niet gebruikt voor advertenties of tracking tussen websites. De browser-app gebruikt daarnaast lokale opslag, sessieopslag en IndexedDB voor voorkeuren, verwijzingen naar recente bestanden, de status van de werkruimte, documentgegevens die je wilt bewaren en een willekeurige analyse-ID per sessie. EVB Viewer plaatst geen advertentiecookies of cookies van derden. Je kunt cookies en door de browser opgeslagen gegevens verwijderen via de instellingen voor websitegegevens van je browser; hierdoor worden voorkeuren en lokaal opgeslagen appgegevens gewist.',
+            body: 'EVB Viewer gebruikt eigen voorkeurscookies om de taal en, in de browser-app, het thema te onthouden. Taalcookies kunnen maximaal één jaar worden bewaard en de themacookie maximaal 180 dagen. De downloadsite gebruikt maximaal 90 dagen een ondoorzichtige HttpOnly-cohortcookie om aanbevelingen tijdens gefaseerde releases consistent te houden; deze wordt niet gebruikt voor advertenties of tracking tussen websites. De browser-app gebruikt daarnaast lokale opslag, sessieopslag en IndexedDB voor voorkeuren, verwijzingen naar recente bestanden, de status van de werkruimte en documentgegevens die je wilt bewaren. EVB Viewer plaatst geen advertentiecookies of cookies van derden. Je kunt cookies en door de browser opgeslagen gegevens verwijderen via de instellingen voor websitegegevens van je browser; hierdoor worden voorkeuren en lokaal opgeslagen appgegevens gewist.',
         },
         retention: {
             heading: 'Bewaartermijnen en keuzes',
-            body: 'Lokale appgegevens blijven op je apparaat totdat je ze verwijdert of de app deïnstalleert. Je bepaalt zelf welke documenten en bijlagen worden geopend of naar optionele assistentdiensten worden gestuurd. Analysegegevens van de website worden alleen bewaard zolang dat nodig is voor de werking en beveiliging van het product en voor trendanalyse en worden na 90 dagen automatisch voor verwijdering ingepland.',
+            body: 'Lokale appgegevens blijven op je apparaat totdat je ze verwijdert of de app deïnstalleert. Je bepaalt zelf welke documenten en bijlagen worden geopend of naar optionele assistentdiensten worden gestuurd. Analysegegevens van de website worden door Vercel samengevoegd en bewaard binnen de bewaartermijnen van zijn Web Analytics-dienst.',
         },
         contact: {
             heading: 'Contact',
@@ -311,7 +311,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
-            body: 'O site e a aplicação no navegador do EVB Viewer podem recolher eventos limitados de utilização e dados técnicos, como caminhos de páginas, eventos de funcionalidades, idioma, categoria do ecrã, referenciador, agente do utilizador do navegador, região aproximada e um identificador de visitante com hash que muda periodicamente. Estas informações ajudam a compreender a fiabilidade e a utilização do produto e não são usadas para identificar o conteúdo dos documentos.',
+            body: 'O site e a aplicação no navegador do EVB Viewer utilizam o Vercel Web Analytics. Este regista caminhos de páginas sem parâmetros de consulta, o referenciador, o país, o navegador, o sistema operativo e o tipo de dispositivo, além de alguns eventos de funcionalidades, como o tipo de documento aberto ou a transferência de um instalador. Os visitantes são contados com um hash renovado diariamente; não são definidos cookies e os nomes, caminhos e conteúdos dos documentos nunca são incluídos. A aplicação para computador não envia dados analíticos.',
         },
         settings: {
             heading: 'Definições, ficheiros recentes e atualizações',
@@ -319,11 +319,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookies e armazenamento do navegador',
-            body: 'O EVB Viewer utiliza cookies próprios de preferências para memorizar o idioma e, na aplicação no navegador, o tema. Os cookies de idioma podem durar até um ano e o cookie do tema até 180 dias. O site de transferências utiliza durante um máximo de 90 dias um cookie de coorte opaco e HttpOnly para manter consistentes as recomendações durante lançamentos faseados; não é utilizado para publicidade nem rastreamento entre sites. A aplicação no navegador também utiliza armazenamento local, armazenamento de sessão e IndexedDB para preferências, referências a ficheiros recentes, estado da área de trabalho, dados de documentos que decida conservar e um identificador analítico aleatório por sessão. O EVB Viewer não define cookies publicitários nem de terceiros. Pode remover cookies e dados guardados pelo navegador através dos controlos de dados de sites do navegador; ao fazê-lo, repõe as preferências e os dados locais da aplicação.',
+            body: 'O EVB Viewer utiliza cookies próprios de preferências para memorizar o idioma e, na aplicação no navegador, o tema. Os cookies de idioma podem durar até um ano e o cookie do tema até 180 dias. O site de transferências utiliza durante um máximo de 90 dias um cookie de coorte opaco e HttpOnly para manter consistentes as recomendações durante lançamentos faseados; não é utilizado para publicidade nem rastreamento entre sites. A aplicação no navegador também utiliza armazenamento local, armazenamento de sessão e IndexedDB para preferências, referências a ficheiros recentes, estado da área de trabalho e dados de documentos que decida conservar. O EVB Viewer não define cookies publicitários nem de terceiros. Pode remover cookies e dados guardados pelo navegador através dos controlos de dados de sites do navegador; ao fazê-lo, repõe as preferências e os dados locais da aplicação.',
         },
         retention: {
             heading: 'Conservação e opções',
-            body: 'Os dados locais da aplicação permanecem no seu dispositivo até os remover ou desinstalar a aplicação. Controla quais os documentos e anexos que são abertos ou enviados para serviços opcionais do assistente. Os registos analíticos do site são conservados apenas durante o período necessário ao funcionamento do produto, à segurança e à análise de tendências e têm eliminação automática programada após 90 dias.',
+            body: 'Os dados locais da aplicação permanecem no seu dispositivo até os remover ou desinstalar a aplicação. Controla quais os documentos e anexos que são abertos ou enviados para serviços opcionais do assistente. Os dados analíticos do site são agregados pela Vercel e conservados dentro dos limites de retenção do seu serviço Web Analytics.',
         },
         contact: {
             heading: 'Contacto',
@@ -354,7 +354,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
-            body: 'O site e o aplicativo web do EVB Viewer podem coletar eventos limitados de uso e dados técnicos, como caminhos de páginas, eventos de recursos, idioma, categoria de tela, referenciador, agente do usuário do navegador, região aproximada e um identificador de visitante com hash que muda periodicamente. Essas informações ajudam a entender a confiabilidade e o uso do produto e não são usadas para identificar o conteúdo dos documentos.',
+            body: 'O site e o aplicativo web do EVB Viewer usam o Vercel Web Analytics. Ele registra caminhos de páginas sem parâmetros de consulta, o referenciador, o país, o navegador, o sistema operacional e o tipo de dispositivo, além de alguns eventos de recursos, como o tipo de documento aberto ou o download de um instalador. Os visitantes são contados com um hash renovado diariamente; nenhum cookie é definido e nomes, caminhos e conteúdos de documentos nunca são incluídos. O aplicativo para desktop não envia dados analíticos.',
         },
         settings: {
             heading: 'Configurações, arquivos recentes e atualizações',
@@ -362,11 +362,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Cookies e armazenamento do navegador',
-            body: 'O EVB Viewer usa cookies próprios de preferências para lembrar o idioma e, no aplicativo web, o tema. Os cookies de idioma podem durar até um ano e o cookie do tema até 180 dias. O site de downloads usa por até 90 dias um cookie de coorte opaco e HttpOnly para manter consistentes as recomendações durante lançamentos graduais; ele não é usado para publicidade nem rastreamento entre sites. O aplicativo web também usa armazenamento local, armazenamento de sessão e IndexedDB para preferências, referências a arquivos recentes, estado do espaço de trabalho, dados de documentos que você decidir manter e um identificador analítico aleatório por sessão. O EVB Viewer não define cookies de publicidade nem de terceiros. Você pode remover cookies e dados armazenados pelo navegador usando os controles de dados de sites do navegador; isso redefine as preferências e os dados locais do aplicativo.',
+            body: 'O EVB Viewer usa cookies próprios de preferências para lembrar o idioma e, no aplicativo web, o tema. Os cookies de idioma podem durar até um ano e o cookie do tema até 180 dias. O site de downloads usa por até 90 dias um cookie de coorte opaco e HttpOnly para manter consistentes as recomendações durante lançamentos graduais; ele não é usado para publicidade nem rastreamento entre sites. O aplicativo web também usa armazenamento local, armazenamento de sessão e IndexedDB para preferências, referências a arquivos recentes, estado do espaço de trabalho e dados de documentos que você decidir manter. O EVB Viewer não define cookies de publicidade nem de terceiros. Você pode remover cookies e dados armazenados pelo navegador usando os controles de dados de sites do navegador; isso redefine as preferências e os dados locais do aplicativo.',
         },
         retention: {
             heading: 'Retenção e escolhas',
-            body: 'Os dados locais do aplicativo permanecem no seu dispositivo até que você os remova ou desinstale o aplicativo. Você controla quais documentos e anexos são abertos ou enviados aos serviços opcionais do assistente. Os registros analíticos do site são mantidos apenas pelo tempo necessário para a operação do produto, a segurança e a análise de tendências e têm exclusão automática programada após 90 dias.',
+            body: 'Os dados locais do aplicativo permanecem no seu dispositivo até que você os remova ou desinstale o aplicativo. Você controla quais documentos e anexos são abertos ou enviados aos serviços opcionais do assistente. Os dados analíticos do site são agregados pela Vercel e mantidos dentro dos limites de retenção do seu serviço Web Analytics.',
         },
         contact: {
             heading: 'Contato',
@@ -397,7 +397,7 @@ export const PRIVACY_MESSAGES = {
         },
         analytics: {
             heading: 'Аналитика и техническая информация',
-            body: 'Сайт и браузерная версия EVB Viewer могут собирать ограниченные данные об использовании и технические события: пути страниц, события функций, язык, категорию экрана, источник перехода, user agent браузера, приблизительный регион и регулярно меняющийся хешированный идентификатор посетителя. Эти данные помогают оценивать надёжность и использование продукта и не применяются для определения содержимого документов.',
+            body: 'Сайт и браузерная версия EVB Viewer используют Vercel Web Analytics. Сервис учитывает пути страниц без параметров запроса, источник перехода, страну, браузер, операционную систему и тип устройства, а также несколько событий функций, например тип открытого документа или скачивание установщика. Посетители учитываются по хешу, который обновляется каждый день; файлы cookie не устанавливаются, а имена, пути и содержимое документов никогда не передаются. Настольное приложение не отправляет аналитику.',
         },
         settings: {
             heading: 'Настройки, недавние файлы и обновления',
@@ -405,11 +405,11 @@ export const PRIVACY_MESSAGES = {
         },
         storage: {
             heading: 'Файлы cookie и хранилища браузера',
-            body: 'EVB Viewer использует собственные файлы cookie с настройками, чтобы запоминать язык и, в браузерной версии, тему. Файлы cookie языка могут храниться до одного года, а файл cookie темы — до 180 дней. Сайт загрузки использует непрозрачный файл cookie когорты с атрибутом HttpOnly сроком до 90 дней, чтобы рекомендации по поэтапно выпускаемым версиям оставались согласованными; он не используется для рекламы или межсайтового отслеживания. Браузерная версия также использует локальное и сеансовое хранилища и IndexedDB для настроек, ссылок на недавние файлы, состояния рабочего пространства, данных документов, которые вы решили сохранить, и случайного идентификатора аналитической сессии. EVB Viewer не устанавливает рекламные или сторонние файлы cookie. Удалить файлы cookie и данные браузера можно в настройках данных сайтов вашего браузера; при этом настройки и локально сохранённые данные приложения будут сброшены.',
+            body: 'EVB Viewer использует собственные файлы cookie с настройками, чтобы запоминать язык и, в браузерной версии, тему. Файлы cookie языка могут храниться до одного года, а файл cookie темы — до 180 дней. Сайт загрузки использует непрозрачный файл cookie когорты с атрибутом HttpOnly сроком до 90 дней, чтобы рекомендации по поэтапно выпускаемым версиям оставались согласованными; он не используется для рекламы или межсайтового отслеживания. Браузерная версия также использует локальное и сеансовое хранилища и IndexedDB для настроек, ссылок на недавние файлы, состояния рабочего пространства и данных документов, которые вы решили сохранить. EVB Viewer не устанавливает рекламные или сторонние файлы cookie. Удалить файлы cookie и данные браузера можно в настройках данных сайтов вашего браузера; при этом настройки и локально сохранённые данные приложения будут сброшены.',
         },
         retention: {
             heading: 'Хранение данных и ваш выбор',
-            body: 'Локальные данные приложения остаются на устройстве, пока вы их не удалите или не удалите приложение. Вы сами выбираете, какие документы и вложения открывать или отправлять опциональным сервисам ассистента. Аналитические данные сайта хранятся только столько, сколько необходимо для работы продукта, безопасности и анализа тенденций, и планируются к автоматическому удалению через 90 дней.',
+            body: 'Локальные данные приложения остаются на устройстве, пока вы их не удалите или не удалите приложение. Вы сами выбираете, какие документы и вложения открывать или отправлять опциональным сервисам ассистента. Аналитические данные сайта агрегируются Vercel и хранятся в пределах сроков хранения его сервиса Web Analytics.',
         },
         contact: {
             heading: 'Связаться с нами',

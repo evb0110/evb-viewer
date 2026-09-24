@@ -13,7 +13,6 @@ import {
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFailureToast } from '@app/composables/useFailureToast';
-import { useAnalytics } from '@app/composables/useAnalytics';
 import type {
     IImageExportProgress,
     TDocumentImageExportSourceKind,
@@ -85,7 +84,6 @@ interface IWorkspaceExportDeps {
 }
 
 export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
-    const analytics = useAnalytics();
     const { t } = useTypedI18n();
     const toast = useToast();
     const { presentFailureToast } = useFailureToast();
@@ -286,22 +284,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         return pageNumbers?.length ?? totalPages.value;
     }
 
-    function trackExportCompleted(payload: {
-        startedAt: number;
-        format: 'images' | 'multipage_tiff';
-        selectedPageCount: number;
-        status: 'success' | 'canceled';
-        outputCount?: number;
-    }) {
-        analytics.track('export_completed', {
-            durationMs: Math.max(0, Date.now() - payload.startedAt),
-            format: payload.format,
-            ...(payload.outputCount === undefined ? {} : { outputCount: payload.outputCount }),
-            selectedPageCount: payload.selectedPageCount,
-            status: payload.status,
-        });
-    }
-
     async function cleanupExportedOutputRefs(
         documentWorkingCopy: ReturnType<typeof getDocumentWorkingCopyCapability>,
         outputPaths: string[],
@@ -480,7 +462,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     const imageExport = getImageExportCapability();
                     const requestId = createExportRequestId();
                     subscribeExportProgress(imageExport, requestId, 'images');
-                    const startedAt = Date.now();
                     const result = await imageExport.exportPdfToImages(
                         identity.sourcePath,
                         pageNumbers?.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
@@ -493,15 +474,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                             setExportOverlay(null);
                         }
                         return;
-                    }
-                    if (result.success || result.canceled) {
-                        trackExportCompleted({
-                            startedAt,
-                            format: 'images',
-                            outputCount: result.outputPaths?.length ?? 0,
-                            selectedPageCount,
-                            status: result.success ? 'success' : 'canceled',
-                        });
                     }
                     await handleImageExportResult(documentWorkingCopy, result, selectedPageCount);
                 });
@@ -529,7 +501,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     const imageExport = getImageExportCapability();
                     const requestId = createExportRequestId();
                     subscribeExportProgress(imageExport, requestId, 'multipage-tiff');
-                    const startedAt = Date.now();
                     const result = await imageExport.exportPdfToMultiPageTiff(
                         identity.sourcePath,
                         pageNumbers?.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
@@ -543,15 +514,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                             setExportOverlay(null);
                         }
                         return;
-                    }
-                    if (result.success || result.canceled) {
-                        trackExportCompleted({
-                            startedAt,
-                            format: 'multipage_tiff',
-                            outputCount: outputPaths.length,
-                            selectedPageCount,
-                            status: result.success ? 'success' : 'canceled',
-                        });
                     }
                     if (result.success && outputPaths.length > 0) {
                         await cleanupExportedOutputRefs(documentWorkingCopy, outputPaths);

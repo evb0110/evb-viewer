@@ -57,7 +57,6 @@ const projectConfig = withNuxt(
         'stylelint.config.mjs',
         'nuxt.config.ts',
         'landing/nuxt.config.ts',
-        'landing/drizzle.config.ts',
         'eslint.shared.mjs',
     ]},
     {

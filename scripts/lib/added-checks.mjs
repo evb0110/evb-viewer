@@ -226,12 +226,20 @@ function parseNameStatus(output) {
     return entries;
 }
 
+const JSON_KEY_PATTERN = /^\s*("[^"]+"):/u;
+
+// A new value under a JSON key the same diff removes (a package.json script
+// whose command changed) edits an existing check rather than adding one.
 /** @param {string} diff @returns {string[]} */
 function addedLinesOf(diff) {
-    return diff
-        .split('\n')
+    const lines = diff.split('\n');
+    const removedKeys = new Set(lines
+        .filter(line => line.startsWith('-') && !line.startsWith('---'))
+        .map(line => JSON_KEY_PATTERN.exec(line.slice(1))?.[1] ?? ''));
+    return lines
         .filter(line => line.startsWith('+') && !line.startsWith('+++'))
-        .map(line => line.slice(1));
+        .map(line => line.slice(1))
+        .filter(line => !removedKeys.has(JSON_KEY_PATTERN.exec(line)?.[1] ?? '\0'));
 }
 
 /** @param {string[]} arguments_ @param {string} cwd @returns {string | null} */

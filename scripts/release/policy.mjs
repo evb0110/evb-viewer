@@ -43,7 +43,6 @@ export function hasDeveloperIdSigningCredentials(env = process.env) {
 // Keep the native-save dependency graph in one place.
 export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     '.github/workflows/ci.yml',
-    'app/composables/useAnalytics.ts',
     'app/modules/pdf-viewer/annotations/**',
     'app/modules/pdf-viewer/engine/**',
     'app/modules/pdf-viewer/public.ts',
@@ -122,7 +121,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             owner: 'browser_integration',
             paths: [
                 'app/**',
-                'drizzle/**',
                 'packages/**',
                 'public/**',
                 'vendor/**',
@@ -197,7 +195,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             owner: 'electron_e2e',
             paths: [
                 'app/**',
-                'drizzle/**',
                 'electron/**',
                 'packages/**',
                 'public/pdf/**',
@@ -262,7 +259,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/build-warning-allowlist.json',
                 'scripts/cargo-artifacts.mjs',
                 'scripts/check-build-*.mjs',
-                'scripts/check-drizzle-schema.mjs',
                 'scripts/check-electron-builder-asar-unpack.mjs',
                 'scripts/check-native-tools-source-matrix.sh',
                 'scripts/checkSearchNativeParity.ts',
@@ -312,7 +308,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
         impacts: {
             app: {paths: [
                 'app/**',
-                'drizzle/**',
                 'packages/scan-cleanup/**',
                 'nuxt.config.ts',
                 'public/pdf/**',
@@ -402,7 +397,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/check-web-deploy-source.mjs',
                 'scripts/deployVercelPrivate.mjs',
                 'server/**',
-                'vercel.json',
             ]},
         },
         owner: 'validation',
@@ -413,7 +407,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 id: 'lint-static',
                 owner: 'release',
                 scripts: [
-                    'check:drizzle-schema',
                     'check:electron:install',
                     'check:electron-builder:asar-unpack',
                 ],

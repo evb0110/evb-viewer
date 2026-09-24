@@ -77,14 +77,10 @@ function installBrowserGlobals() {
 }
 
 async function createBrowserInstallHint() {
-    const analytics = {track: vi.fn()};
     const scope = effectScope();
     scopes.push(scope);
     const { useBrowserInstallHint } = await import('@app/modules/workspace-shell/composables/useBrowserInstallHint');
-    const hint = scope.run(() => useBrowserInstallHint({
-        analytics,
-        isBrowserRuntime: ref(true),
-    }));
+    const hint = scope.run(() => useBrowserInstallHint({isBrowserRuntime: ref(true)}));
     if (!hint) {
         throw new Error('Failed to create browser install hint composable');
     }
@@ -92,10 +88,7 @@ async function createBrowserInstallHint() {
         callback();
     }
     await nextTick();
-    return {
-        analytics,
-        hint,
-    };
+    return {hint};
 }
 
 describe('useBrowserInstallHint persistence', () => {
@@ -136,10 +129,7 @@ describe('useBrowserInstallHint persistence', () => {
     });
 
     it('persists a new manual dismissal only in local storage', async () => {
-        const {
-            analytics,
-            hint,
-        } = await createBrowserInstallHint();
+        const {hint} = await createBrowserInstallHint();
         expect(hint.showBrowserInstallHint.value).toBe(true);
 
         hint.dismissBrowserInstallHint('manual');
@@ -147,10 +137,6 @@ describe('useBrowserInstallHint persistence', () => {
         expect(browserStorage.get(BROWSER_INSTALL_HINT_STORAGE_KEY)).toBe('true');
         expect(hint.showBrowserInstallHint.value).toBe(false);
         expect(cookieWrites).toEqual([]);
-        expect(analytics.track).toHaveBeenCalledWith(
-            'browser_install_hint_interacted',
-            expect.objectContaining({action: 'dismissed'}),
-        );
     });
 
     it('does not write cookies on later visits once local storage is canonical', async () => {

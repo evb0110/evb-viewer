@@ -26,7 +26,6 @@ export default withNuxt(
         ignores: [
             '*.config.ts',
             'nuxt.config.ts',
-            'drizzle.config.ts',
             '**/*.d.ts',
         ],
         languageOptions: { parserOptions: {

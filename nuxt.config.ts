@@ -346,16 +346,6 @@ export default defineNuxtConfig({
             environment: sentryNitroIdentity?.environment ?? '',
             policy: sentryNitroPolicy,
         },
-        analytics: {
-            // Keep writes explicitly opt-in so local dev and preview traffic
-            // never hits the production analytics dataset by accident.
-            databaseUrl: process.env.NUXT_ANALYTICS_DATABASE_URL || process.env.ANALYTICS_DATABASE_URL || process.env.DATABASE_URL || '',
-            writeEnabled: process.env.NUXT_ANALYTICS_WRITE_ENABLED === '1' || process.env.ANALYTICS_WRITE_ENABLED === '1',
-            allowedHosts: (process.env.NUXT_ANALYTICS_ALLOWED_HOSTS || process.env.ANALYTICS_ALLOWED_HOSTS || '')
-                .split(',')
-                .map(host => host.trim())
-                .filter(Boolean),
-        },
         public: {
             sentry: {
                 dsn: sentryBrowserDsn,
@@ -416,10 +406,6 @@ export default defineNuxtConfig({
         },
         '/privacy': {
             prerender: true,
-            headers: withAppSecurityHeaders(),
-        },
-        '/api/analytics/events': {
-            prerender: false,
             headers: withAppSecurityHeaders(),
         },
         '/**': {

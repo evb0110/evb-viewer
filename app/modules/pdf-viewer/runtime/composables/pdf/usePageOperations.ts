@@ -25,13 +25,11 @@ import {
     createExplicitPageSelection,
     iteratePageSelectionRanges,
     materializePageSelection,
-    pageMoveRangesSelectedPageCount,
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
 import { collectPageIdentityDeltaInvalidatedPages } from '@app/modules/pdf-viewer/runtime/composables/pdf/collectPageIdentityDeltaInvalidatedPages';
 import type { TTranslationKey } from '@i18n-app';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { useAnalytics } from '@app/composables/useAnalytics';
 import {
     getDocumentOpenCapability,
     getPageOpsCapability,
@@ -136,7 +134,6 @@ export const usePageOperations = (deps: {
         invalidatedPages: number[];
     }) => void | Promise<void>;
 }) => {
-    const analytics = useAnalytics();
     const { t } = useTypedI18n();
     const { reportRuntimeError } = useRuntimeErrorReports();
     const {
@@ -683,7 +680,6 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'deletePages',
             errorKey: 'errors.pageOps.delete',
@@ -692,14 +688,6 @@ export const usePageOperations = (deps: {
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runDeletePageOp(path, toPageOpsSelection(pages), totalPages, capturePageMutationOptions()),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: selectedPageCount,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'delete',
-                totalPagesBefore: totalPages,
-            });
-        }
         return outcome;
     }
 
@@ -729,7 +717,6 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'deletePageRanges',
             errorKey: 'errors.pageOps.delete',
@@ -746,14 +733,6 @@ export const usePageOperations = (deps: {
                 capturePageMutationOptions(),
             ),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: deletedCount,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'delete',
-                totalPagesBefore: totalPages,
-            });
-        }
         return outcome;
     }
 
@@ -772,7 +751,6 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'extractPages',
             errorKey: 'errors.pageOps.extract',
@@ -785,13 +763,6 @@ export const usePageOperations = (deps: {
                 }
             },
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: selectedPageCount,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'extract',
-            });
-        }
         return outcome;
     }
 
@@ -810,7 +781,6 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'rotatePages',
             errorKey: 'errors.pageOps.rotate',
@@ -818,14 +788,6 @@ export const usePageOperations = (deps: {
             fallbackAffectedPages: getFallbackAffectedPages(pages),
             run: (path) => runRotatePageOp(path, toPageOpsSelection(pages), totalPages, angle, capturePageMutationOptions()),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: selectedPageCount,
-                angle,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'rotate',
-            });
-        }
         return outcome;
     }
 
@@ -834,7 +796,6 @@ export const usePageOperations = (deps: {
     }
 
     async function insertPagesDetailed(totalPages: number, afterPage: number) {
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'insertPages',
             errorKey: 'errors.pageOps.insert',
@@ -842,13 +803,6 @@ export const usePageOperations = (deps: {
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runInsertPageOp(path, totalPages, afterPage, capturePageMutationOptions()),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                afterPage,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'insert_blank',
-            });
-        }
         return outcome;
     }
 
@@ -857,7 +811,6 @@ export const usePageOperations = (deps: {
     }
 
     async function insertFileDetailed(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
-        const startedAt = Date.now();
         const requestId = sourcePaths.length > 1
             ? createRequestId('browser-page-op-insert')
             : undefined;
@@ -908,14 +861,6 @@ export const usePageOperations = (deps: {
                     capturePageMutationOptions(),
                 ),
             });
-            if (didPageOperationSucceed(outcome)) {
-                analytics.track('page_operation_completed', {
-                    afterPage,
-                    durationMs: Math.max(0, Date.now() - startedAt),
-                    operation: 'insert_file',
-                    sourceFileCount: sourcePaths.length,
-                });
-            }
             return outcome;
         } finally {
             stopProgress?.();
@@ -935,7 +880,6 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
@@ -946,13 +890,6 @@ export const usePageOperations = (deps: {
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runReorderPageOp(path, [...newOrder], capturePageMutationOptions()),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: newOrder.length,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'reorder',
-            });
-        }
         return outcome;
     }
 
@@ -968,7 +905,6 @@ export const usePageOperations = (deps: {
             });
         }
 
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'movePages',
             errorKey: 'errors.pageOps.reorder',
@@ -977,16 +913,6 @@ export const usePageOperations = (deps: {
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runMovePageOp(path, move, capturePageMutationOptions()),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: 'ranges' in move
-                    ? pageMoveRangesSelectedPageCount(move)
-                    : move.endPage - move.startPage + 1,
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'move',
-                totalPages: move.pageCount,
-            });
-        }
         return outcome;
     }
 
@@ -1008,7 +934,6 @@ export const usePageOperations = (deps: {
                 reason: 'empty-selection',
             });
         }
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'cropPages',
             errorKey: 'errors.pageOps.crop',
@@ -1022,13 +947,6 @@ export const usePageOperations = (deps: {
                 capturePageMutationOptions(),
             ),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: pageSelectionCount(selection),
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'crop',
-            });
-        }
         return outcome;
     }
 
@@ -1046,7 +964,6 @@ export const usePageOperations = (deps: {
                 reason: 'empty-selection',
             });
         }
-        const startedAt = Date.now();
         const outcome = await runOperationDetailed({
             operationName: 'removeCrop',
             errorKey: 'errors.pageOps.removeCrop',
@@ -1059,13 +976,6 @@ export const usePageOperations = (deps: {
                 capturePageMutationOptions(),
             ),
         });
-        if (didPageOperationSucceed(outcome)) {
-            analytics.track('page_operation_completed', {
-                affectedPageCount: pageSelectionCount(selection),
-                durationMs: Math.max(0, Date.now() - startedAt),
-                operation: 'remove_crop',
-            });
-        }
         return outcome;
     }
 

@@ -30,11 +30,6 @@ import {
 } from '@contracts/search';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { useAnalytics } from '@app/composables/useAnalytics';
-import {
-    bucketPageCount,
-    bucketQueryLength,
-} from '@app/utils/analytics';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
 
 interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
@@ -46,7 +41,6 @@ interface IScheduledPdfSearch {
     documentRevisionToken: TDocumentRevisionToken | null;
     pageCount?: number;
     options: IResolvedSearchMatchOptions;
-    requestedAt: number;
 }
 
 /**
@@ -85,7 +79,6 @@ function mixSearchWordGeometry(
 
 export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const { t } = useTypedI18n();
-    const analytics = useAnalytics();
     const searchQuery = ref('');
     const submittedSearchQuery = ref('');
     const searchOptions = ref<IResolvedSearchMatchOptions>({
@@ -362,7 +355,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 payload.documentRevisionToken,
                 payload.pageCount,
                 payload.options,
-                payload.requestedAt,
             );
         } catch (error) {
             if (isCurrentSearchRun(payload.runId, payload.documentRevisionToken)) {
@@ -450,7 +442,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         documentRevisionToken: TDocumentRevisionToken | null,
         pageCount?: number,
         options: IResolvedSearchMatchOptions = searchOptions.value,
-        requestedAt = Date.now(),
     ) {
         if (query.length === 0) {
             return;
@@ -539,16 +530,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             }
             applySearchResponse(response, query, options, searchId);
             isTruncated.value = response.truncated;
-            analytics.track('search_executed', {
-                durationMs: Math.max(0, Date.now() - requestedAt),
-                matchCase: options.matchCase,
-                pageCountBucket: bucketPageCount(pageCount),
-                queryLengthBucket: bucketQueryLength(query.length),
-                resultCount: response.results.length,
-                truncated: response.truncated,
-                useRegex: options.useRegex,
-                wholeWord: options.wholeWord,
-            });
         } finally {
             const isActiveRequest = activeRequestId === requestId;
             if (isActiveRequest) {
@@ -618,7 +599,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 pdfPath,
                 documentRevisionToken: normalizedDocumentRevisionToken,
                 options: { ...searchOptions.value },
-                requestedAt: Date.now(),
             };
             if (pageCount !== undefined) {
                 scheduleSearch({

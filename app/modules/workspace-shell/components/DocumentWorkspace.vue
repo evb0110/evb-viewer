@@ -392,7 +392,6 @@ import '@app/assets/css/pdf-debug-overlays.scss';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
-import { useAnalytics } from '@app/composables/useAnalytics';
 import { createWorkspaceExposeFromOwners } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
@@ -548,11 +547,6 @@ watch(surfaceMode, mode => {
 const emit = defineEmits<IDocumentWorkspaceEmits>();
 const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
 const { t } = useTypedI18n();
-const analytics = useAnalytics();
-const analyticsDocumentScope = analytics.createDocumentScope(
-    `workspace-document:${documentSession.snapshot.value.sessionId}`,
-    { activate: isActive },
-);
 const toast = useToast();
 const { isResolved: recentFilesResolved } = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
@@ -583,17 +577,6 @@ const isActiveRef = computed({
 const preserveInitialStateForFirstSource = Boolean(initialViewState
     && documentSession.snapshot.value.phase === 'ready'
     && documentSession.snapshot.value.toolbarSnapshot.initialVisualReady);
-watch(
-    () => isActive,
-    (active) => {
-        if (active) {
-            analyticsDocumentScope.activate();
-        } else {
-            analyticsDocumentScope.deactivate();
-        }
-    },
-    { immediate: true },
-);
 const documentSourceCapabilities = ref({
     annotations: false,
     directImageExport: false,
@@ -603,7 +586,6 @@ const documentSourceCapabilities = ref({
     text: false,
 });
 const orchestration = useWorkspaceOrchestration({
-    analyticsDocumentScope,
     tabId,
     isActive: isActiveRef,
     initialViewState,

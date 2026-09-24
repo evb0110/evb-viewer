@@ -29,7 +29,6 @@ const vitestProjectNames = {
     unitScripts: 'unit-scripts',
     unitPolicy: 'unit-policy',
     unitStaticArchitecture: 'unit-static-architecture',
-    unitLanding: 'unit-landing',
     browserIntegration: 'browser-integration',
     nativeIntegration: 'native-integration',
     electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
@@ -49,7 +48,6 @@ const vitestProjectNames = {
 
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
 const browserIntegrationTestFiles = ['tests/integration/browser/**/*.test.ts'];
-const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
 const unitPolicyTestFiles = ['tests/unit/scripts/*Policy.test.ts'];
 export const staticArchitectureTestFiles = [
     'tests/unit/architecture/**/*.test.ts',
@@ -137,14 +135,12 @@ function createUnitTestProject(
         vueComponents = false,
         processCss = false,
         exclude = [],
-        excludeLanding = true,
         setupFiles,
     }: {
         autoImport?: boolean;
         vueComponents?: boolean;
         processCss?: boolean;
         exclude?: string[];
-        excludeLanding?: boolean;
         setupFiles?: string[];
     } = {},
 ) {
@@ -161,7 +157,6 @@ function createUnitTestProject(
             include,
             exclude: [
                 ...electronBundleStaticIntegrityTestFiles,
-                ...(excludeLanding ? landingUnitTestFiles : []),
                 ...exclude,
             ],
             globals: false,
@@ -273,14 +268,6 @@ export const vitestProjects = [
     createUnitTestProject(
         vitestProjectNames.unitPolicy,
         unitPolicyTestFiles,
-    ),
-    createUnitTestProject(
-        vitestProjectNames.unitLanding,
-        landingUnitTestFiles,
-        {
-            excludeLanding: false,
-            setupFiles: appUnitTestSetupFiles,
-        },
     ),
     createUnitTestProject(
         vitestProjectNames.unitStaticArchitecture,

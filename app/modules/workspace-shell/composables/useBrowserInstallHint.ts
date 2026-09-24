@@ -8,20 +8,11 @@ import {
     migrateLegacyBrowserInstallHintCookie,
 } from '@app/utils/browserRuntimePersistence';
 import { getLocalStorageForVueUse } from '@app/utils/localStorage';
-import type { TAnalyticsEventName } from '@contracts/analytics';
+import { trackWebEvent } from '@app/utils/trackWebEvent';
 
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
 
-interface IBrowserInstallHintAnalytics { track: (
-    event: TAnalyticsEventName,
-    properties?: Record<string, unknown>,
-    options?: { includeReferrer?: boolean },
-) => void; }
-
-interface IUseBrowserInstallHintOptions {
-    analytics: IBrowserInstallHintAnalytics;
-    isBrowserRuntime: Ref<boolean>;
-}
+interface IUseBrowserInstallHintOptions {isBrowserRuntime: Ref<boolean>;}
 
 export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) => {
     const runtimeConfig = useRuntimeConfig();
@@ -31,10 +22,6 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
         getLocalStorageForVueUse(),
     );
     const isBrowserInstallHintClientReady = ref(false);
-    const didTrackViewerSession = useState(
-        'analytics:viewer-session-started',
-        () => false,
-    );
     const didTrackInstallHintShown = useState(
         'analytics:install-hint-shown',
         () => false,
@@ -69,7 +56,7 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
     }
 
     function trackBrowserInstallHint(action: 'shown' | 'clicked' | 'dismissed' | 'auto_dismissed') {
-        options.analytics.track('browser_install_hint_interacted', {
+        trackWebEvent('browser_install_hint_interacted', {
             action,
             destinationHost: getBrowserInstallHost(),
         });
@@ -104,14 +91,6 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
             browserInstallHintDismissed.value = true;
         }
         isBrowserInstallHintClientReady.value = true;
-
-        if (options.isBrowserRuntime.value && !didTrackViewerSession.value) {
-            didTrackViewerSession.value = true;
-            options.analytics.track('viewer_session_started', {
-                installHintVisible: showBrowserInstallHint.value,
-                installHintDestinationHost: getBrowserInstallHost(),
-            }, { includeReferrer: true });
-        }
 
         if (!options.isBrowserRuntime.value || browserInstallHintDismissed.value) {
             return;
