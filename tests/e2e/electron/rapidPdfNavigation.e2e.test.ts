@@ -2793,6 +2793,11 @@ interface ISidebarNavigationProbeWindow extends Window {
         x: number;
         y: number;
     } | null;
+    __sidebarThumbnailHunt?: {
+        movingFrames: number;
+        itemFramesWhileMoving: number;
+        lastHit: string | null;
+    };
 }
 
 describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
@@ -2887,6 +2892,12 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
         await page.evaluate((target) => {
             const probe = window as ISidebarNavigationProbeWindow;
             probe.__sidebarThumbnailPoint = null;
+            const huntState = {
+                movingFrames: 0,
+                itemFramesWhileMoving: 0,
+                lastHit: null as string | null,
+            };
+            probe.__sidebarThumbnailHunt = huntState;
             let lastPaneWidth: number | undefined;
             const hunt = () => {
                 const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
@@ -2903,14 +2914,18 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                 if (!item && rail && rail.scrollHeight > rail.clientHeight) {
                     rail.scrollTop = rail.scrollHeight * ((target - 1) / 200);
                 }
+                huntState.movingFrames += paneMoving ? 1 : 0;
                 if (item && paneMoving) {
+                    huntState.itemFramesWhileMoving += 1;
                     item.scrollIntoView({block: 'center'});
                     const rect = item.getBoundingClientRect();
                     const point = {
                         x: rect.left + rect.width / 2,
                         y: rect.top + rect.height / 2,
                     };
-                    if (rect.height > 0 && item.contains(document.elementFromPoint(point.x, point.y))) {
+                    const hit = document.elementFromPoint(point.x, point.y);
+                    huntState.lastHit = hit ? `${hit.tagName.toLowerCase()}.${String(hit.className)}` : null;
+                    if (rect.height > 0 && item.contains(hit)) {
                         probe.__sidebarThumbnailPoint = point;
                         return;
                     }
@@ -2928,6 +2943,9 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
         ), {
             timeout: 10_000,
             polling: 'raf',
+        }).catch(async (error: unknown) => {
+            const hunt = await page.evaluate(() => (window as ISidebarNavigationProbeWindow).__sidebarThumbnailHunt ?? null);
+            throw new Error(`No hittable thumbnail while the pane narrowed: ${JSON.stringify(hunt)}`, {cause: error});
         });
         const thumbnail = await thumbnailHandle.jsonValue();
         expect(thumbnail).not.toBeNull();
