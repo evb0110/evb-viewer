@@ -11,14 +11,13 @@ use std::{
 use evb_native_support::{
     bounded_io::{deserialize_bounded_vec, read_file_bounded},
     output::{AtomicOutput, ValidatedInputFiles},
-    pdf_catalog::deserialize_bounded_bookmark_items,
     NativeError, NativeErrorCode, MAX_WORKER_THREADS,
 };
 use evb_pdf_image_combine::{
     combine_tiff_paths, encode_netpbm_path_as_jpeg, encode_netpbm_path_as_png_with_dpi,
-    encode_netpbm_path_as_tiff_with_dpi, probe_netpbm_path, write_pdf, BookmarkEntry, FramePolicy,
-    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageLabelRange,
-    PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
+    encode_netpbm_path_as_tiff_with_dpi, probe_netpbm_path, write_pdf, FramePolicy,
+    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
+    PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
     DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 use serde::Deserialize;
@@ -152,8 +151,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             let stream = open_compact_manifest_jsonl(manifest_path, max_pages)?;
             let total = stream.page_count;
             let provenance_stamp_hex = stream.provenance_stamp_hex.clone();
-            let outlines = stream.outlines.clone();
-            let page_labels = stream.page_labels.clone();
             let started_at = Instant::now();
             return write_pdf_file_streaming(
                 stream,
@@ -175,8 +172,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                         MAX_WORKER_THREADS as u64,
                     ) as usize,
                     enable_shared_symbol_encoding: config.shared_jbig2_symbols,
-                    outlines,
-                    page_labels,
                 },
                 total,
                 |processed| {
@@ -188,15 +183,10 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         }
     }
 
-    let (mut page_specs, provenance_stamp_hex, outlines, page_labels) =
+    let (mut page_specs, provenance_stamp_hex) =
         if let Some(manifest_path) = &config.compact_manifest_path {
             let manifest = read_compact_manifest(manifest_path, max_pages)?;
-            (
-                manifest.page_specs,
-                manifest.provenance_stamp_hex,
-                manifest.outlines,
-                manifest.page_labels,
-            )
+            (manifest.page_specs, manifest.provenance_stamp_hex)
         } else {
             (
                 config
@@ -217,8 +207,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                     })
                     .collect(),
                 None,
-                Vec::new(),
-                Vec::new(),
             )
         };
     if let Some(rotations_path) = &config.rotations_file {
@@ -257,8 +245,6 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 MAX_WORKER_THREADS as u64,
             ) as usize,
             enable_shared_symbol_encoding: config.shared_jbig2_symbols,
-            outlines,
-            page_labels,
         },
         |processed| {
             if config.json_progress {
@@ -340,8 +326,6 @@ struct CompactManifestJsonl {
     path: PathBuf,
     page_count: usize,
     provenance_stamp_hex: Option<String>,
-    outlines: Vec<BookmarkEntry>,
-    page_labels: Vec<PageLabelRange>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -352,14 +336,6 @@ struct CompactManifestJsonlHeader {
     page_count: usize,
     #[serde(default)]
     provenance_stamp_hex: Option<String>,
-    #[serde(
-        default,
-        alias = "bookmarks",
-        deserialize_with = "deserialize_bounded_bookmark_items"
-    )]
-    outlines: Vec<BookmarkEntry>,
-    #[serde(default)]
-    page_labels: Vec<PageLabelRange>,
 }
 
 struct CompactManifestJsonlIterator {
@@ -729,8 +705,6 @@ fn read_rotation_values(path: &Path, expected: usize) -> Result<Vec<u16>> {
 struct ParsedCompactManifest {
     page_specs: Vec<PageSpec<PathBuf>>,
     provenance_stamp_hex: Option<String>,
-    outlines: Vec<BookmarkEntry>,
-    page_labels: Vec<PageLabelRange>,
 }
 
 #[derive(Deserialize)]
@@ -738,14 +712,6 @@ struct ParsedCompactManifest {
 struct CompactManifestEnvelope {
     #[serde(default)]
     provenance_stamp_hex: Option<String>,
-    #[serde(
-        default,
-        alias = "bookmarks",
-        deserialize_with = "deserialize_bounded_bookmark_items"
-    )]
-    outlines: Vec<BookmarkEntry>,
-    #[serde(default)]
-    page_labels: Vec<PageLabelRange>,
     #[serde(deserialize_with = "deserialize_compact_manifest_pages")]
     pages: Vec<CompactManifestPage>,
 }
@@ -809,8 +775,6 @@ fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactM
         return Ok(ParsedCompactManifest {
             page_specs,
             provenance_stamp_hex: envelope.provenance_stamp_hex,
-            outlines: envelope.outlines,
-            page_labels: envelope.page_labels,
         });
     }
 
@@ -857,8 +821,6 @@ fn read_compact_manifest(path: &Path, max_pages: usize) -> Result<ParsedCompactM
     Ok(ParsedCompactManifest {
         page_specs,
         provenance_stamp_hex: None,
-        outlines: Vec::new(),
-        page_labels: Vec::new(),
     })
 }
 
@@ -960,8 +922,6 @@ fn open_compact_manifest_jsonl(path: &Path, max_pages: usize) -> Result<CompactM
         path: path.to_path_buf(),
         page_count: header.page_count,
         provenance_stamp_hex: header.provenance_stamp_hex,
-        outlines: header.outlines,
-        page_labels: header.page_labels,
     })
 }
 
@@ -1459,61 +1419,6 @@ mod tests {
         assert_eq!(parsed.page_specs.len(), 1);
         assert!(parsed.provenance_stamp_hex.is_none());
         std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn compact_manifest_header_preserves_catalog_metadata() {
-        let path = temp_manifest_path("catalog-header");
-        let header = serde_json::json!({
-            "format": COMPACT_MANIFEST_JSONL_FORMAT,
-            "schemaVersion": COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
-            "pageCount": 1,
-            "bookmarks": [{
-                "title": "Cover",
-                "pageIndex": 0,
-                "pageYRatio": null,
-                "namedDest": null,
-                "bold": false,
-                "italic": false,
-                "color": null,
-                "items": [],
-            }],
-            "pageLabels": [{
-                "startPage": 1,
-                "style": "D",
-                "prefix": "",
-                "startNumber": 1,
-            }],
-        });
-        std::fs::write(
-            &path,
-            format!("{}\n", serde_json::to_string(&header).unwrap()),
-        )
-        .unwrap();
-
-        let parsed = open_compact_manifest_jsonl(&path, 1).unwrap();
-
-        assert_eq!(parsed.outlines.len(), 1);
-        assert_eq!(parsed.outlines[0].page_index, Some(0));
-        assert_eq!(parsed.page_labels.len(), 1);
-        assert_eq!(parsed.page_labels[0].start_page, 1);
-        std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn compact_manifest_header_rejects_aggregate_bookmark_overflow() {
-        let header = serde_json::json!({
-            "format": COMPACT_MANIFEST_JSONL_FORMAT,
-            "schemaVersion": COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
-            "pageCount": 1,
-            "outlines": (0..=evb_native_support::pdf_catalog::MAX_BOOKMARK_ITEMS)
-                .map(|_| serde_json::json!({"title": "x", "pageIndex": 0}))
-                .collect::<Vec<_>>(),
-        });
-
-        let error = serde_json::from_value::<CompactManifestJsonlHeader>(header)
-            .expect_err("the manifest outline field must use the shared aggregate bound");
-        assert!(error.to_string().contains("item admission ceiling"));
     }
 
     #[test]

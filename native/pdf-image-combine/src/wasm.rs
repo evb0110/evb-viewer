@@ -1,8 +1,4 @@
 use evb_native_support::{
-    pdf_catalog::{
-        BookmarkEntry, PageLabelRange, MAX_BOOKMARK_DEPTH, MAX_BOOKMARK_ITEMS,
-        MAX_PAGE_LABEL_RANGES,
-    },
     wasm_request_allocation::{WasmRequestAllocation, WASM_REQUEST_ALLOCATION_ABI_VERSION},
     NativeError, NativeErrorCode, NativeErrorEnvelope,
 };
@@ -26,9 +22,6 @@ const PAGE_KIND_LAYERED: u32 = 3;
 const PAGE_KIND_LAYERED_COLOR: u32 = 4;
 const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = PDF_COMBINE_MAX_OUTPUT_BYTES as usize;
-const OPTIONAL_CATALOG_VALUE: u32 = u32::MAX;
-const MAX_CATALOG_STRING_BYTES: usize = 64 * 1024;
-const MAX_BOOKMARK_TITLE_BYTES: usize = 4 * 1024;
 
 thread_local! {
     static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
@@ -179,12 +172,7 @@ fn parse_request(request: &[u8]) -> Result<(Vec<PdfPageSpec<'_>>, PdfBuildOption
         return Err(format!("Unsupported image-combine WASM request version: {version}").into());
     }
 
-    let mut header = parse_request_header(request, &mut offset)?;
-    if version == REQUEST_VERSION_V5 {
-        let (outlines, page_labels) = parse_catalog_block(request, &mut offset)?;
-        header.options.outlines = outlines;
-        header.options.page_labels = page_labels;
-    }
+    let header = parse_request_header(request, &mut offset)?;
     let page_specs = if version <= REQUEST_VERSION_V2 {
         parse_v1_v2_page_specs(request, &mut offset, header.item_count, version)?
     } else {
@@ -214,8 +202,6 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
         provenance_stamp_hex: None,
         worker_threads: 1,
         enable_shared_symbol_encoding: false,
-        outlines: Vec::new(),
-        page_labels: Vec::new(),
     };
     let item_count = read_usize_le(request, offset, "item_count")?;
     if item_count == 0 {
@@ -227,174 +213,9 @@ fn parse_request_header(request: &[u8], offset: &mut usize) -> Result<RequestHea
     })
 }
 
-// EPIC v5 places this block after the common request header and before the
-// page specs. Counts and string lengths are little-endian u32 values. A
-// missing optional string uses u32::MAX, and a missing page-y ratio uses a
-// quiet NaN. V5 page specs retain the v4 fields and add an image transform
-// value as a u32 immediately after ppi_cap. Values 0, 90, 180, and 270 are
-// rotations. Values 360, 450, 540, and 630 add a horizontal mirror to those
-// rotations.
-fn parse_catalog_block(
-    request: &[u8],
-    offset: &mut usize,
-) -> Result<(Vec<BookmarkEntry>, Vec<PageLabelRange>)> {
-    let outline_count = read_bounded_count(request, offset, "outline count", MAX_BOOKMARK_ITEMS)?;
-    let page_label_count =
-        read_bounded_count(request, offset, "page label count", MAX_PAGE_LABEL_RANGES)?;
-    let mut bookmark_total = 0usize;
-    let mut outlines = Vec::with_capacity(outline_count);
-    for _ in 0..outline_count {
-        outlines.push(read_bookmark_entry(
-            request,
-            offset,
-            0,
-            &mut bookmark_total,
-        )?);
-    }
-
-    let mut page_labels = Vec::with_capacity(page_label_count);
-    for _ in 0..page_label_count {
-        page_labels.push(read_page_label_range(request, offset)?);
-    }
-    Ok((outlines, page_labels))
-}
-
-fn read_bookmark_entry(
-    request: &[u8],
-    offset: &mut usize,
-    depth: usize,
-    total: &mut usize,
-) -> Result<BookmarkEntry> {
-    if depth > MAX_BOOKMARK_DEPTH {
-        return Err("Image-combine WASM bookmark nesting exceeds the admission limit".into());
-    }
-    if *total >= MAX_BOOKMARK_ITEMS {
-        return Err("Image-combine WASM bookmark count exceeds the admission limit".into());
-    }
-    *total += 1;
-
-    let title = read_catalog_string(
-        request,
-        offset,
-        "bookmark title",
-        false,
-        MAX_BOOKMARK_TITLE_BYTES,
-    )?
-    .ok_or("Missing image-combine WASM bookmark title")?;
-    let page_index = match read_u32_le(request, offset)? {
-        OPTIONAL_CATALOG_VALUE => None,
-        value => Some(value),
-    };
-    let page_y_ratio = match read_f64_le(request, offset)? {
-        value if value.is_nan() => None,
-        value if value.is_finite() => Some(value),
-        _ => return Err("Invalid image-combine WASM bookmark y ratio".into()),
-    };
-    let named_dest = read_catalog_string(
-        request,
-        offset,
-        "bookmark named destination",
-        true,
-        MAX_CATALOG_STRING_BYTES,
-    )?;
-    let bold = read_bool(request, offset, "bookmark bold flag")?;
-    let italic = read_bool(request, offset, "bookmark italic flag")?;
-    let color = read_catalog_string(
-        request,
-        offset,
-        "bookmark color",
-        true,
-        MAX_CATALOG_STRING_BYTES,
-    )?;
-    let child_count =
-        read_bounded_count(request, offset, "bookmark child count", MAX_BOOKMARK_ITEMS)?;
-    if child_count > MAX_BOOKMARK_ITEMS.saturating_sub(*total) {
-        return Err("Image-combine WASM bookmark count exceeds the admission limit".into());
-    }
-    let mut items = Vec::with_capacity(child_count);
-    for _ in 0..child_count {
-        items.push(read_bookmark_entry(request, offset, depth + 1, total)?);
-    }
-
-    Ok(BookmarkEntry {
-        title,
-        page_index,
-        page_y_ratio,
-        named_dest,
-        bold,
-        italic,
-        color,
-        items,
-    })
-}
-
-fn read_page_label_range(request: &[u8], offset: &mut usize) -> Result<PageLabelRange> {
-    let start_page = read_u32_le(request, offset)?;
-    let style = read_catalog_string(
-        request,
-        offset,
-        "page label style",
-        true,
-        MAX_CATALOG_STRING_BYTES,
-    )?;
-    let prefix = read_catalog_string(
-        request,
-        offset,
-        "page label prefix",
-        false,
-        MAX_CATALOG_STRING_BYTES,
-    )?
-    .ok_or("Missing image-combine WASM page label prefix")?;
-    let start_number = read_u32_le(request, offset)?;
-    Ok(PageLabelRange {
-        start_page,
-        style,
-        prefix,
-        start_number,
-    })
-}
-
-fn read_catalog_string(
-    request: &[u8],
-    offset: &mut usize,
-    label: &str,
-    optional: bool,
-    max_bytes: usize,
-) -> Result<Option<String>> {
-    let length = read_u32_le(request, offset)?;
-    if optional && length == OPTIONAL_CATALOG_VALUE {
-        return Ok(None);
-    }
-    let length =
-        usize::try_from(length).map_err(|_| format!("Invalid image-combine WASM {label}"))?;
-    if length > max_bytes {
-        return Err(format!("Image-combine WASM {label} exceeds the admission limit").into());
-    }
-    let value = str::from_utf8(take_bytes(request, offset, length)?)?.to_owned();
-    Ok(Some(value))
-}
-
-fn read_bool(request: &[u8], offset: &mut usize, label: &str) -> Result<bool> {
-    match read_u32_le(request, offset)? {
-        0 => Ok(false),
-        1 => Ok(true),
-        _ => Err(format!("Invalid image-combine WASM {label}").into()),
-    }
-}
-
-fn read_bounded_count(
-    request: &[u8],
-    offset: &mut usize,
-    label: &str,
-    max: usize,
-) -> Result<usize> {
-    let count = read_usize_le(request, offset, label)?;
-    if count > max {
-        return Err(format!("Image-combine WASM {label} exceeds the admission limit").into());
-    }
-    Ok(count)
-}
-
+// V5 page specs retain the v4 fields and add an image transform value as a
+// u32 immediately after ppi_cap. Values 0, 90, 180, and 270 are rotations.
+// Values 360, 450, 540, and 630 add a horizontal mirror to those rotations.
 fn parse_v1_v2_page_specs<'a>(
     request: &'a [u8],
     offset: &mut usize,
@@ -754,8 +575,6 @@ mod tests {
 
         let v5 = v5_image_request();
         let (specs, options) = parse_request(&v5).unwrap();
-        assert_eq!(options.outlines.len(), 1);
-        assert_eq!(options.page_labels.len(), 1);
         assert!(matches!(
             specs.as_slice(),
             [PageSpec::Image {
@@ -765,10 +584,7 @@ mod tests {
             }]
         ));
         let pdf = write_pdf(Vec::new(), specs, &options, |_| {}).unwrap();
-        let text = String::from_utf8_lossy(&pdf);
-        assert!(text.contains("/PageMode /UseOutlines"));
-        assert!(text.contains("/PageLabels"));
-        assert!(text.contains("/Rotate 90"));
+        assert!(String::from_utf8_lossy(&pdf).contains("/Rotate 90"));
     }
 
     #[test]
@@ -842,24 +658,6 @@ mod tests {
 
     fn v5_image_request() -> Vec<u8> {
         let mut request = request_header(REQUEST_VERSION_V5, 1);
-        push_u32(&mut request, 1);
-        push_u32(&mut request, 1);
-        push_bookmark(
-            &mut request,
-            "Chapter 1",
-            Some(0),
-            Some(0.25),
-            None,
-            true,
-            false,
-            Some("#336699"),
-            &[],
-        );
-        push_u32(&mut request, 0);
-        push_optional_string(&mut request, Some("D"));
-        push_string(&mut request, "Page ");
-        push_u32(&mut request, 1);
-
         push_u32(&mut request, PAGE_KIND_IMAGE);
         request.extend_from_slice(&72f64.to_le_bytes());
         request.extend_from_slice(&36f64.to_le_bytes());
@@ -905,52 +703,6 @@ mod tests {
         push_u32(request, data.len() as u32);
         request.extend_from_slice(name.as_bytes());
         request.extend_from_slice(data);
-    }
-
-    fn push_bookmark(
-        request: &mut Vec<u8>,
-        title: &str,
-        page_index: Option<u32>,
-        page_y_ratio: Option<f64>,
-        named_dest: Option<&str>,
-        bold: bool,
-        italic: bool,
-        color: Option<&str>,
-        children: &[BookmarkEntry],
-    ) {
-        push_string(request, title);
-        push_u32(request, page_index.unwrap_or(u32::MAX));
-        request.extend_from_slice(&page_y_ratio.unwrap_or(f64::NAN).to_le_bytes());
-        push_optional_string(request, named_dest);
-        push_u32(request, u32::from(bold));
-        push_u32(request, u32::from(italic));
-        push_optional_string(request, color);
-        push_u32(request, children.len() as u32);
-        for child in children {
-            push_bookmark(
-                request,
-                &child.title,
-                child.page_index,
-                child.page_y_ratio,
-                child.named_dest.as_deref(),
-                child.bold,
-                child.italic,
-                child.color.as_deref(),
-                &child.items,
-            );
-        }
-    }
-
-    fn push_string(request: &mut Vec<u8>, value: &str) {
-        push_u32(request, value.len() as u32);
-        request.extend_from_slice(value.as_bytes());
-    }
-
-    fn push_optional_string(request: &mut Vec<u8>, value: Option<&str>) {
-        match value {
-            Some(value) => push_string(request, value),
-            None => push_u32(request, OPTIONAL_CATALOG_VALUE),
-        }
     }
 
     fn push_u32(request: &mut Vec<u8>, value: u32) {

@@ -6,7 +6,6 @@ import type {
     IBrowserPdfCombineWasmPageSpec,
     TBrowserPdfCombineWasmPageKind,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
-import type { IBrowserPdfCombineCatalog } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { getBrowserFileExtension } from '@app/platform/browser-api/browserPlatformHelpers';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -39,7 +38,7 @@ interface IPdfImageCombineWasmExports {
 const REQUEST_MAGIC = 'EPIC';
 const REQUEST_VERSION = 1;
 const REQUEST_VERSION_PAGE_SPECS = 4;
-const REQUEST_VERSION_CATALOG = 5;
+const REQUEST_VERSION_PAGE_TRANSFORMS = 5;
 const WASM_PAGE_KIND_CODES: Record<TBrowserPdfCombineWasmPageKind, number> = {
     image: 1,
     mask: 2,
@@ -53,14 +52,8 @@ const MAX_TIFF_FRAMES = 250;
 const REQUEST_HEADER_BYTES = 4 + (6 * 4);
 const INPUT_HEADER_BYTES = 8;
 const PAGE_SPEC_HEADER_BYTES = 4 + (2 * 8) + (2 * 4);
-const PAGE_SPEC_CATALOG_HEADER_BYTES = PAGE_SPEC_HEADER_BYTES + 4;
+const PAGE_SPEC_TRANSFORM_HEADER_BYTES = PAGE_SPEC_HEADER_BYTES + 4;
 const PAGE_SPEC_FOREGROUND_COLOR_BYTES = 3 * 4;
-const CATALOG_OPTIONAL_VALUE = 0xffff_ffff;
-const MAX_CATALOG_STRING_BYTES = 64 * 1024;
-const MAX_BOOKMARK_TITLE_BYTES = 4 * 1024;
-const MAX_BOOKMARK_ITEMS = 5_000;
-const MAX_BOOKMARK_DEPTH = 64;
-const MAX_PAGE_LABEL_RANGES = 2_048;
 const WASM_PATH = '/wasm/evb-pdf-image-combine.wasm';
 const WASM_IMAGE_EXTENSIONS = new Set([
     '.jpeg',
@@ -220,7 +213,6 @@ function shouldBuildGeneratedImagePageSpecs(
             && (
                 hasNetpbmJpegProcessing(options)
                 || (options.pageSizes?.length ?? 0) > 0
-                || options.catalog !== undefined
             ),
         );
 }
@@ -268,9 +260,6 @@ function canUsePdfImageCombineWasm(
         return false;
     }
     const pageSpecs = resolveRequestPageSpecs(inputs, options);
-    if (options?.catalog !== undefined && pageSpecs === null) {
-        return false;
-    }
     if (pageSpecs) {
         return pageSpecs.length > 0 && pageSpecs.every(canUsePageSpec);
     }
@@ -311,120 +300,10 @@ interface IEncodedWasmInput {
     name: Uint8Array;
 }
 
-class CatalogWriter {
-    private readonly chunks: Uint8Array[] = [];
-    private length = 0;
-
-    public writeU32(value: number) {
-        const bytes = new Uint8Array(4);
-        new DataView(bytes.buffer).setUint32(0, value, true);
-        this.append(bytes);
-    }
-
-    public writeF64(value: number) {
-        const bytes = new Uint8Array(8);
-        new DataView(bytes.buffer).setFloat64(0, value, true);
-        this.append(bytes);
-    }
-
-    public writeBytes(bytes: Uint8Array) {
-        this.append(bytes);
-    }
-
-    public toBytes() {
-        const output = new Uint8Array(this.length);
-        let offset = 0;
-        for (const chunk of this.chunks) {
-            output.set(chunk, offset);
-            offset += chunk.byteLength;
-        }
-        return output;
-    }
-
-    private append(bytes: Uint8Array) {
-        this.chunks.push(bytes);
-        this.length += bytes.byteLength;
-    }
-}
-
-function writeCatalogString(
-    writer: CatalogWriter,
-    encoder: TextEncoder,
-    value: string | null | undefined,
-    label: string,
-    optional: boolean,
-    maxBytes: number,
-) {
-    if (value === null || value === undefined) {
-        if (!optional) {
-            throw new Error(`Missing WASM catalog ${label}`);
-        }
-        writer.writeU32(CATALOG_OPTIONAL_VALUE);
-        return;
-    }
-    const encoded = encoder.encode(value);
-    if (encoded.byteLength > maxBytes) {
-        throw new Error(`WASM catalog ${label} exceeds the admission limit`);
-    }
-    writer.writeU32(toWasmU32(encoded.byteLength));
-    writer.writeBytes(encoded);
-}
-
-function writeCatalogBookmark(
-    writer: CatalogWriter,
-    encoder: TextEncoder,
-    bookmark: IBrowserPdfCombineCatalog['bookmarks'][number],
-    depth: number,
-    state: {count: number},
-) {
-    if (depth >= MAX_BOOKMARK_DEPTH || state.count >= MAX_BOOKMARK_ITEMS) {
-        throw new Error('WASM catalog bookmark nesting exceeds the admission limit');
-    }
-    if (bookmark.items.length > MAX_BOOKMARK_ITEMS - state.count) {
-        throw new Error('WASM catalog bookmark count exceeds the admission limit');
-    }
-    state.count += 1;
-    writeCatalogString(writer, encoder, bookmark.title, 'bookmark title', false, MAX_BOOKMARK_TITLE_BYTES);
-    writer.writeU32(bookmark.pageIndex === null ? CATALOG_OPTIONAL_VALUE : toWasmU32(bookmark.pageIndex));
-    const pageYRatio = bookmark.pageYRatio ?? Number.NaN;
-    if (!Number.isFinite(pageYRatio)) {
-        if (!Number.isNaN(pageYRatio)) {
-            throw new Error('Invalid WASM catalog bookmark y ratio');
-        }
-    }
-    writer.writeF64(pageYRatio);
-    writeCatalogString(writer, encoder, bookmark.namedDest, 'bookmark named destination', true, MAX_CATALOG_STRING_BYTES);
-    writer.writeU32(bookmark.bold ? 1 : 0);
-    writer.writeU32(bookmark.italic ? 1 : 0);
-    writeCatalogString(writer, encoder, bookmark.color, 'bookmark color', true, MAX_CATALOG_STRING_BYTES);
-    writer.writeU32(toWasmU32(bookmark.items.length));
-    for (const item of bookmark.items) {
-        writeCatalogBookmark(writer, encoder, item, depth + 1, state);
-    }
-}
-
-function encodeCatalogBlock(catalog: IBrowserPdfCombineCatalog) {
-    if (catalog.bookmarks.length > MAX_BOOKMARK_ITEMS || catalog.pageLabels.length > MAX_PAGE_LABEL_RANGES) {
-        throw new Error('WASM catalog exceeds the admission limit');
-    }
-    const writer = new CatalogWriter();
-    const encoder = new TextEncoder();
-    writer.writeU32(toWasmU32(catalog.bookmarks.length));
-    writer.writeU32(toWasmU32(catalog.pageLabels.length));
-    const state = {count: 0};
-    for (const bookmark of catalog.bookmarks) {
-        writeCatalogBookmark(writer, encoder, bookmark, 0, state);
-    }
-    for (const range of catalog.pageLabels) {
-        if (range.pageIndex > CATALOG_OPTIONAL_VALUE - 1) {
-            throw new Error('Invalid WASM catalog page label index');
-        }
-        writer.writeU32(toWasmU32(range.pageIndex + 1));
-        writeCatalogString(writer, encoder, range.style, 'page label style', true, MAX_CATALOG_STRING_BYTES);
-        writeCatalogString(writer, encoder, range.prefix ?? '', 'page label prefix', false, MAX_CATALOG_STRING_BYTES);
-        writer.writeU32(toWasmU32(range.start ?? 1));
-    }
-    return writer.toBytes();
+function resolvePageSpecRequestVersion(pageSpecs: IBrowserPdfCombineWasmPageSpec[]) {
+    return pageSpecs.some(spec => spec.rotationDegrees !== undefined)
+        ? REQUEST_VERSION_PAGE_TRANSFORMS
+        : REQUEST_VERSION_PAGE_SPECS;
 }
 
 function getV1RequestLength(
@@ -444,12 +323,11 @@ function getV4RequestLength(
     pageSpecs: IBrowserPdfCombineWasmPageSpec[],
     encodedPageInputs: IEncodedWasmInput[][],
     version: number,
-    catalogLength: number,
 ) {
     return encodedPageInputs.reduce(
         (total, inputs, index) => total
-            + (version === REQUEST_VERSION_CATALOG
-                ? PAGE_SPEC_CATALOG_HEADER_BYTES
+            + (version === REQUEST_VERSION_PAGE_TRANSFORMS
+                ? PAGE_SPEC_TRANSFORM_HEADER_BYTES
                 : PAGE_SPEC_HEADER_BYTES)
             + (pageSpecs[index]?.kind === 'layered-color' ? PAGE_SPEC_FOREGROUND_COLOR_BYTES : 0)
             + inputs.reduce(
@@ -459,7 +337,7 @@ function getV4RequestLength(
                     + input.input.data.byteLength,
                 0,
             ),
-        REQUEST_HEADER_BYTES + catalogLength,
+        REQUEST_HEADER_BYTES,
     );
 }
 
@@ -477,12 +355,10 @@ function getWasmRequestLength(
             input,
             name: getEncodedName(input, encoder),
         })));
-        const catalog = options?.catalog ? encodeCatalogBlock(options.catalog) : null;
         return getV4RequestLength(
             pageSpecs,
             encodedPageInputs,
-            options?.catalog ? REQUEST_VERSION_CATALOG : REQUEST_VERSION_PAGE_SPECS,
-            catalog?.byteLength ?? 0,
+            resolvePageSpecRequestVersion(pageSpecs),
         );
     }
     if (inputs.length > MAX_PAGES) {
@@ -495,13 +371,6 @@ function getWasmRequestLength(
 function writeU32(view: DataView, offset: number, value: number) {
     view.setUint32(offset, value, true);
     return offset + 4;
-}
-
-function toWasmU32(value: number) {
-    if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff_ffff) {
-        throw new Error('WASM catalog integer exceeds the u32 range');
-    }
-    return value;
 }
 
 function writeF64(view: DataView, offset: number, value: number) {
@@ -600,27 +469,14 @@ function buildV3WasmRequest(
         input,
         name: getEncodedName(input, encoder),
     })));
-    const version = options?.catalog || pageSpecs.some(spec => spec.rotationDegrees !== undefined)
-        ? REQUEST_VERSION_CATALOG
-        : REQUEST_VERSION_PAGE_SPECS;
-    const catalog = version === REQUEST_VERSION_CATALOG
-        ? options?.catalog
-            ? encodeCatalogBlock(options.catalog)
-            : new Uint8Array(8)
-        : null;
+    const version = resolvePageSpecRequestVersion(pageSpecs);
     const request = new Uint8Array(getV4RequestLength(
         pageSpecs,
         encodedPageInputs,
         version,
-        catalog?.byteLength ?? 0,
     ));
     const view = new DataView(request.buffer);
     let offset = writeRequestHeader(request, view, version, pageSpecs.length);
-
-    if (catalog) {
-        request.set(catalog, offset);
-        offset += catalog.byteLength;
-    }
 
     for (const [
         index,
@@ -634,7 +490,7 @@ function buildV3WasmRequest(
         offset = writeF64(view, offset, spec.pageSize.heightPoints);
         offset = writeU32(view, offset, boundedU32OrDefault(spec.jpegQuality, integerOrDefault(options?.jpegQuality, 0)));
         offset = writeU32(view, offset, boundedU32OrDefault(spec.ppiCap, integerOrDefault(options?.ppiCap, 0)));
-        if (version === REQUEST_VERSION_CATALOG) {
+        if (version === REQUEST_VERSION_PAGE_TRANSFORMS) {
             const rotationDegrees = spec.rotationDegrees ?? 0;
             if (![
                 0,

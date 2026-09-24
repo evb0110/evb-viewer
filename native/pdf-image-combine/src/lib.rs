@@ -62,7 +62,6 @@ pub use crate::{
     netpbm::{probe_netpbm_path, NetpbmProbe},
     pdf::{PdfImagePlacement, PdfPageSize},
 };
-pub use evb_native_support::pdf_catalog::{BookmarkEntry, PageLabelRange};
 
 pub const DEFAULT_DPI: u32 = 72;
 pub const DEFAULT_MAX_IMAGE_PIXELS: u64 = 80_000_000;
@@ -272,10 +271,6 @@ pub struct PdfBuildOptions {
     /// substantial wall-clock time without reliably beating the generic
     /// per-page payloads on scanned books.
     pub enable_shared_symbol_encoding: bool,
-    /// Optional outline entries written into the output catalog.
-    pub outlines: Vec<BookmarkEntry>,
-    /// Optional page-label ranges written into the output catalog.
-    pub page_labels: Vec<PageLabelRange>,
 }
 
 impl Default for PdfBuildOptions {
@@ -291,8 +286,6 @@ impl Default for PdfBuildOptions {
             provenance_stamp_hex: None,
             worker_threads: 1,
             enable_shared_symbol_encoding: false,
-            outlines: Vec::new(),
-            page_labels: Vec::new(),
         }
     }
 }
@@ -335,44 +328,38 @@ where
     let output = OutputLimitWriter::new(output, max_output_bytes);
     let mut page_count = 0usize;
     let mut processed = 0usize;
-    let output = write_pdf_to_writer(
-        output,
-        options.provenance_stamp_hex.as_deref(),
-        &options.outlines,
-        &options.page_labels,
-        |pdf| {
-            let mut symbol_chunk = options
-                .enable_shared_symbol_encoding
-                .then(|| Vec::with_capacity(JBIG2_SYMBOL_CHUNK_PAGES));
-            loop {
-                let batch = page_specs
-                    .by_ref()
-                    .take(batch_size)
-                    .collect::<Vec<PdfPageSpec<'a>>>();
-                if batch.is_empty() {
-                    if let Some(symbol_chunk) = symbol_chunk.as_mut() {
-                        write_symbol_chunk(pdf, symbol_chunk)?;
-                    }
-                    return Ok(());
+    let output = write_pdf_to_writer(output, options.provenance_stamp_hex.as_deref(), |pdf| {
+        let mut symbol_chunk = options
+            .enable_shared_symbol_encoding
+            .then(|| Vec::with_capacity(JBIG2_SYMBOL_CHUNK_PAGES));
+        loop {
+            let batch = page_specs
+                .by_ref()
+                .take(batch_size)
+                .collect::<Vec<PdfPageSpec<'a>>>();
+            if batch.is_empty() {
+                if let Some(symbol_chunk) = symbol_chunk.as_mut() {
+                    write_symbol_chunk(pdf, symbol_chunk)?;
                 }
-                for prepared in encoders.prepare(batch, options) {
-                    for page in prepared? {
-                        page_count = next_page_count_with_limit(page_count, options.max_pages)?;
-                        if let Some(symbol_chunk) = symbol_chunk.as_mut() {
-                            symbol_chunk.push(page);
-                            if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
-                                write_symbol_chunk(pdf, symbol_chunk)?;
-                            }
-                        } else {
-                            write_prepared_page(pdf, page)?;
-                        }
-                    }
-                    processed += 1;
-                    on_processed(processed);
-                }
+                return Ok(());
             }
-        },
-    )
+            for prepared in encoders.prepare(batch, options) {
+                for page in prepared? {
+                    page_count = next_page_count_with_limit(page_count, options.max_pages)?;
+                    if let Some(symbol_chunk) = symbol_chunk.as_mut() {
+                        symbol_chunk.push(page);
+                        if symbol_chunk.len() == JBIG2_SYMBOL_CHUNK_PAGES {
+                            write_symbol_chunk(pdf, symbol_chunk)?;
+                        }
+                    } else {
+                        write_prepared_page(pdf, page)?;
+                    }
+                }
+                processed += 1;
+                on_processed(processed);
+            }
+        }
+    })
     .map_err(|error| {
         if is_output_limit_exceeded(error.as_ref()) {
             too_large_error(error.to_string())
@@ -1222,52 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn catalog_block_writes_outlines_and_page_labels() {
-        let options = PdfBuildOptions {
-            outlines: vec![BookmarkEntry {
-                title: "Cover".to_string(),
-                page_index: Some(0),
-                page_y_ratio: None,
-                named_dest: None,
-                bold: false,
-                italic: false,
-                color: None,
-                items: Vec::new(),
-            }],
-            page_labels: vec![PageLabelRange {
-                start_page: 1,
-                style: Some("D".to_string()),
-                prefix: "Page ".to_string(),
-                start_number: 1,
-            }],
-            ..PdfBuildOptions::default()
-        };
-
-        let pdf = write_pdf(
-            Vec::new(),
-            [image_page(
-                "cover.ppm",
-                b"P6\n1 1\n255\n\x10\x20\x30",
-                Some(PdfPageSize {
-                    width_points: 72.0,
-                    height_points: 36.0,
-                }),
-                FramePolicy::ExactlyOne,
-            )],
-            &options,
-            |_| {},
-        )
-        .unwrap();
-        let text = String::from_utf8_lossy(&pdf);
-
-        assert!(text.contains("/Outlines 3 0 R /PageMode /UseOutlines"));
-        assert!(text.contains("/PageLabels 4 0 R"));
-        assert!(text.contains("/Type /Outlines /Count 1"));
-        assert!(text.contains("/PageLabel /S /D /P <FEFF00500061006700650020>"));
-    }
-
-    #[test]
-    fn catalog_block_is_absent_when_empty() {
+    fn catalog_holds_only_the_page_tree() {
         let options = PdfBuildOptions::default();
         let pdf = write_pdf(
             Vec::new(),
@@ -1281,13 +1223,10 @@ mod tests {
             |_| {},
         )
         .unwrap();
-        let text = String::from_utf8_lossy(&pdf);
 
         assert!(pdf.starts_with(
             b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>"
         ));
-        assert!(!text.contains("/Outlines"));
-        assert!(!text.contains("/PageLabels"));
     }
 
     #[test]

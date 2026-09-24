@@ -616,7 +616,7 @@ describe('tryCombineImageInputsWithWasm', () => {
     it.each([
         90,
         630,
-    ] as const)('encodes catalog metadata and page transform %i as a version 5 WASM request', async (rotationDegrees) => {
+    ] as const)('encodes page transform %i as a version 5 WASM request', async (rotationDegrees) => {
         const wasmMock = createWasmExportsMock({output: new Uint8Array([
             4,
             5,
@@ -629,41 +629,21 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        await expect(tryCombineImageInputsWithWasm([], {
-            catalog: {
-                bookmarks: [{
-                    title: 'Chapter 1',
-                    pageIndex: 0,
-                    pageYRatio: 0.25,
-                    namedDest: 'chapter-1',
-                    bold: true,
-                    italic: false,
-                    color: '#336699',
-                    items: [],
-                }],
-                pageLabels: [{
-                    pageIndex: 0,
-                    style: 'D',
-                    prefix: 'Page ',
-                    start: 1,
-                }],
+        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
+            kind: 'image',
+            pageSize: {
+                widthPoints: 72,
+                heightPoints: 36,
             },
-            pageSpecs: [{
-                kind: 'image',
-                pageSize: {
-                    widthPoints: 72,
-                    heightPoints: 36,
-                },
-                rotationDegrees,
-                image: {
-                    fileName: 'page.ppm',
-                    data: new Uint8Array([
-                        0x50,
-                        0x36,
-                    ]),
-                },
-            }],
-        })).resolves.toEqual({
+            rotationDegrees,
+            image: {
+                fileName: 'page.ppm',
+                data: new Uint8Array([
+                    0x50,
+                    0x36,
+                ]),
+            },
+        }]})).resolves.toEqual({
             status: 'success',
             data: new Uint8Array([
                 4,
@@ -677,47 +657,7 @@ describe('tryCombineImageInputsWithWasm', () => {
         expect(new TextDecoder().decode(request.slice(0, 4))).toBe('EPIC');
         expect(view.getUint32(4, true)).toBe(5);
         expect(view.getUint32(24, true)).toBe(1);
-        let offset = 28;
-        expect(view.getUint32(offset, true)).toBe(1);
-        offset += 4;
-        expect(view.getUint32(offset, true)).toBe(1);
-        offset += 4;
-        const titleLength = view.getUint32(offset, true);
-        offset += 4;
-        expect(new TextDecoder().decode(request.slice(offset, offset + titleLength))).toBe('Chapter 1');
-        offset += titleLength;
-        expect(view.getUint32(offset, true)).toBe(0);
-        offset += 4;
-        expect(view.getFloat64(offset, true)).toBe(0.25);
-        offset += 8;
-        const namedDestinationLength = view.getUint32(offset, true);
-        offset += 4;
-        expect(new TextDecoder().decode(request.slice(offset, offset + namedDestinationLength))).toBe('chapter-1');
-        offset += namedDestinationLength;
-        expect(view.getUint32(offset, true)).toBe(1);
-        offset += 4;
-        expect(view.getUint32(offset, true)).toBe(0);
-        offset += 4;
-        const colorLength = view.getUint32(offset, true);
-        offset += 4;
-        expect(new TextDecoder().decode(request.slice(offset, offset + colorLength))).toBe('#336699');
-        offset += colorLength;
-        expect(view.getUint32(offset, true)).toBe(0);
-        offset += 4;
-        expect(view.getUint32(offset, true)).toBe(1);
-        offset += 4;
-        const styleLength = view.getUint32(offset, true);
-        offset += 4;
-        expect(new TextDecoder().decode(request.slice(offset, offset + styleLength))).toBe('D');
-        offset += styleLength;
-        const prefixLength = view.getUint32(offset, true);
-        offset += 4;
-        expect(new TextDecoder().decode(request.slice(offset, offset + prefixLength))).toBe('Page ');
-        offset += prefixLength;
-        expect(view.getUint32(offset, true)).toBe(1);
-        offset += 4;
-        expect(view.getUint32(offset, true)).toBe(1);
-        offset += 4 + 8 + 8 + 4 + 4;
+        const offset = 28 + 4 + 8 + 8 + 4 + 4;
         expect(view.getUint32(offset, true)).toBe(rotationDegrees);
     });
 

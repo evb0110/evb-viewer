@@ -2,9 +2,7 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
-import {decodeBrowserPdfCatalog} from '@contracts/browserPdfCatalog';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
-import type {IBrowserPdfCombineCatalog} from '@app/platform/browser-api/browserPageOpsWorker.types';
 
 interface IBrowserPdfCombineInput {
     fileName: string;
@@ -18,12 +16,6 @@ interface IBrowserPdfCombinePageSize {
 
 type TBrowserPdfCombineWasmPageKind = 'image' | 'mask' | 'layered' | 'layered-color';
 type TBrowserPdfCombineRgb = [number, number, number];
-
-const BROWSER_PDF_COMBINE_CATALOG_POLICY = {
-    maxBookmarkDepth: 64,
-    maxBookmarkItems: 5_000,
-    maxPageLabels: 2_048,
-} as const;
 
 interface IBrowserPdfCombineWasmPageSpec {
     kind: TBrowserPdfCombineWasmPageKind;
@@ -42,7 +34,6 @@ interface IBrowserPdfCombineWasmImagePreprocessing {
     ppiCap?: number;
     pageSizes?: IBrowserPdfCombinePageSize[];
     pageSpecs?: IBrowserPdfCombineWasmPageSpec[];
-    catalog?: IBrowserPdfCombineCatalog;
 }
 
 interface IBrowserPdfCombinePayload {
@@ -253,10 +244,6 @@ function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineW
     return parsed;
 }
 
-function parseBrowserPdfCombineCatalog(value: unknown): IBrowserPdfCombineCatalog | null {
-    return decodeBrowserPdfCatalog(value, BROWSER_PDF_COMBINE_CATALOG_POLICY);
-}
-
 function parseBrowserPdfCombineWasmImagePreprocessing(
     value: unknown,
 ): IBrowserPdfCombineWasmImagePreprocessing | null | undefined {
@@ -268,12 +255,7 @@ function parseBrowserPdfCombineWasmImagePreprocessing(
     }
     const jpegQuality = parseOptionalBoundedInteger(value.jpegQuality, 1, 100);
     const ppiCap = parseOptionalBoundedInteger(value.ppiCap, 0, 1200);
-    const catalog = parseBrowserPdfCombineCatalog(value.catalog);
-    if (
-        jpegQuality === null
-        || ppiCap === null
-        || (value.catalog !== undefined && catalog === null)
-    ) {
+    if (jpegQuality === null || ppiCap === null) {
         return null;
     }
 
@@ -319,9 +301,6 @@ function parseBrowserPdfCombineWasmImagePreprocessing(
     }
     if (pageSpecs !== undefined) {
         parsed.pageSpecs = pageSpecs;
-    }
-    if (catalog !== null && catalog !== undefined) {
-        parsed.catalog = catalog;
     }
     return parsed;
 }
