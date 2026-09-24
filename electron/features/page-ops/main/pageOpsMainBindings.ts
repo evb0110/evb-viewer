@@ -104,7 +104,10 @@ import {
     normalizeExpectedDocumentRevisionToken,
 } from '@electron/file-access/documentMutationGuards';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
-import { getWorkingCopyDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
+import {
+    getAutomationSaveDialogPath,
+    getWorkingCopyDialogDefaultPath,
+} from '@electron/utils/dialogDefaultPaths';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
 import {applyPageMetadataRemap} from '@electron/features/page-ops/main/pageMetadataRemap';
@@ -500,9 +503,15 @@ async function handlePageOpsExtract(
             extensions: ['pdf'],
         }],
     };
-    const result = context.parentWindow
-        ? await dialog.showSaveDialog(context.parentWindow, dialogOptions)
-        : await dialog.showSaveDialog(dialogOptions);
+    const automationTargetPath = getAutomationSaveDialogPath();
+    const result = automationTargetPath
+        ? {
+            canceled: false,
+            filePath: automationTargetPath,
+        }
+        : context.parentWindow
+            ? await dialog.showSaveDialog(context.parentWindow, dialogOptions)
+            : await dialog.showSaveDialog(dialogOptions);
 
     if (result.canceled || !result.filePath) {
         return {

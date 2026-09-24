@@ -8,6 +8,7 @@ import {
 import {existsSync} from 'fs';
 import { extname } from 'path';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
+import { getAutomationSaveDialogPath } from '@electron/utils/dialogDefaultPaths';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
@@ -290,7 +291,18 @@ function recreateImageExportFailure(error: TImageExportError): Error {
     return recreated;
 }
 
-async function showImageExportDialog(parentWindow: BrowserWindow | null, defaultName: string, format: TImageExportProgressFormat) {
+async function showImageExportDialog(
+    parentWindow: BrowserWindow | null,
+    defaultName: string,
+    format: TImageExportProgressFormat,
+): Promise<Pick<Electron.SaveDialogReturnValue, 'canceled' | 'filePath'>> {
+    const automationTargetPath = getAutomationSaveDialogPath();
+    if (automationTargetPath) {
+        return {
+            canceled: false,
+            filePath: automationTargetPath,
+        };
+    }
     const tiffFilter = {
         name: te('dialogs.tiffImages'),
         extensions: [

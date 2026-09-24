@@ -11,7 +11,10 @@ import {
     IPC_FILENAME_MAX_LENGTH,
     truncateForIpc,
 } from '@electron/utils/ipcLimits';
-import { getDocumentsDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
+import {
+    getAutomationSaveDialogPath,
+    getDocumentsDialogDefaultPath,
+} from '@electron/utils/dialogDefaultPaths';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
 
 interface IOpenDocumentDialogOptions {
@@ -124,8 +127,7 @@ export async function showSaveDialogWithExtension(
     context: IDocumentsDialogContext,
     options: ISaveDialogOptions,
 ) {
-    const automationTargetPath = process.env.EVB_AUTOMATION_USER_DATA_DIR
-        && process.env.EVB_E2E_SAVE_DIALOG_PATH?.trim();
+    const automationTargetPath = getAutomationSaveDialogPath();
     if (automationTargetPath) {
         return automationTargetPath;
     }

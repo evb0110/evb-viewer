@@ -6,6 +6,8 @@ import {
     mkdir,
     open,
     readFile,
+    rename,
+    writeFile,
 } from 'node:fs/promises';
 import {
     dirname,
@@ -19,6 +21,7 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
+import {PDFDocument} from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunProcessIdentity';
@@ -47,6 +50,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     assertOcrPdfSemanticOutput,
     consumeOcrResultIntoActiveWorkspace,
@@ -195,6 +199,45 @@ async function createDirtyStickyNote(page: Page) {
     await page.keyboard.press('Escape');
     await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
     await waitForSaveFrontierReady(page);
+}
+
+const ENABLED_SAVE_BUTTON_SELECTOR = 'button[aria-label="Save"], button[aria-label^="Save ("]';
+
+async function findEnabledSaveButton(page: Page) {
+    for (const button of await page.$$(ENABLED_SAVE_BUTTON_SELECTOR)) {
+        const enabled = await button.evaluate((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            const style = window.getComputedStyle(candidate);
+            return !candidate.hasAttribute('disabled')
+                && candidate.getAttribute('aria-disabled') !== 'true'
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && rect.width > 0
+                && rect.height > 0;
+        });
+        if (enabled) {
+            return button;
+        }
+    }
+    return null;
+}
+
+async function isSaveButtonEnabled(page: Page) {
+    return await findEnabledSaveButton(page) !== null;
+}
+
+// Clicks the visible toolbar Save control with a trusted pointer event.
+async function clickEnabledSaveButton(page: Page) {
+    const deadline = Date.now() + SAVE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        const button = await findEnabledSaveButton(page);
+        if (button) {
+            await button.click();
+            return;
+        }
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    }
+    throw new Error('The toolbar Save button did not become enabled');
 }
 
 async function saveFromWorkspace(page: Page, path: string) {
@@ -586,6 +629,54 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             document.querySelector('[data-testid="workspace-document-pdf-error"]')?.textContent ?? null
         ))).toBeNull();
         expect(existsSync(`${readOnlyDirectory}/refused.pdf`)).toBe(false);
+    }, E2E_TIMEOUT_MS);
+
+    it('refuses to overwrite a PDF another program replaced while it was open', async () => {
+        const pdfPath = await createMultiPageTextFixturePdf(`save-external-replace-${Date.now()}.pdf`, 2);
+        session = await startElectronE2ESession(`e2e-save-external-replace-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        const {page} = session;
+        await waitForOpenedPdf(page, pdfPath);
+        await openAnnotationsTab(page, 30_000);
+        await createFreeTextAnnotationWithPointer(page, `Unsaved edit ${Date.now()}`, {
+            x: 0.4,
+            y: 0.3,
+        });
+        await waitForSaveFrontierReady(page);
+
+        // Another program edits the same document and saves it the way editors
+        // usually do: write a sibling, then rename it into place.
+        const externalDocument = await PDFDocument.load(await readFile(pdfPath), {updateMetadata: false});
+        externalDocument.setTitle('Edited in another program');
+        const externalBytes = Buffer.from(await externalDocument.save({useObjectStreams: false}));
+        const stagedExternalPath = `${pdfPath}.external`;
+        await writeFile(stagedExternalPath, externalBytes);
+        await rename(stagedExternalPath, pdfPath);
+
+        const baselineEventId = await getLatestAutomationEventId(page);
+        await clickEnabledSaveButton(page);
+
+        // The user is told the save did not happen, the other program's file
+        // survives byte for byte, and the edit is still waiting to be saved.
+        await page.waitForFunction(
+            () => Array.from(document.querySelectorAll('[role="status"], [role="alert"]'))
+                .some(notification => notification.textContent?.includes('Failed to save file')),
+            {timeout: SAVE_TIMEOUT_MS},
+        );
+        await page.waitForSelector('[aria-label="Last save failed"]', {
+            timeout: SAVE_TIMEOUT_MS,
+            visible: true,
+        });
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        await expect(readFile(pdfPath)).resolves.toEqual(externalBytes);
+        expect(await waitForAutomationEvent(page, 'save-committed', {
+            afterEventId: baselineEventId,
+            path: pdfPath,
+            timeoutMs: 1_000,
+        }).catch(() => null)).toBeNull();
+        expect(await isSaveButtonEnabled(page)).toBe(true);
     }, E2E_TIMEOUT_MS);
 
     it('uses the configured Unicode display name as the native annotation author', async () => {

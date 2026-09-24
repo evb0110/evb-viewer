@@ -1,3 +1,5 @@
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {
     describe,
     expect,
@@ -6,11 +8,14 @@ import {
 } from 'vitest';
 import {
     copyFile,
+    mkdir,
+    readdir,
     readFile,
     rm,
     truncate,
     writeFile,
 } from 'node:fs/promises';
+import { decode as decodePng } from 'fast-png';
 import { PDFDocument } from 'pdf-lib';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { requirePageIndex } from '@contracts/pageNumbers';
@@ -19,6 +24,7 @@ import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import {mkdirSync} from 'node:fs';
 import {
     dirname,
+    join,
     resolve,
 } from 'node:path';
 import {
@@ -62,6 +68,7 @@ import {
     waitForViewportQuiet,
 } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
+import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
@@ -262,6 +269,7 @@ interface IDjvuNativeSearchProgressProbe {
 
 interface IDjvuNativeSearchProgressWindow extends Window {__djvuNativeSearchProgressProbe?: IDjvuNativeSearchProgressProbe;}
 
+const execFileAsync = promisify(execFile);
 const VIEWER_SMOKE_OPEN_TIMEOUT_MS = 45_000;
 const DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS = 90_000;
 const DJVU_VIDEO_LIKE_VIEWPORT = {
@@ -4347,6 +4355,202 @@ describe('Electron E2E - Viewer Smoke', () => {
     });
 });
 
+// Each case restarts the app with a test-mode destination for a native save or
+// print dialog, so these run under their own session instead of the shared one.
+describe('Electron E2E - Document Output', () => {
+    const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-document-output-${Date.now()}`});
+
+    it('prints a typed page range of a PDF through the print dialog', async () => {
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-range-${Date.now()}.pdf`, 4);
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-print-range-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        // The system print dialog cannot be driven headlessly; this test mode
+        // hands the job the dialog would receive to a file instead.
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-print-range-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        // The toolbar keeps a hidden measuring copy of itself; press the one the user sees.
+        await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Print"]'))
+            .some(button => !button.disabled && button.checkVisibility()), {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        let printButton: Awaited<ReturnType<typeof session.page.$>> = null;
+        for (const candidate of await session.page.$$('button[aria-label="Print"]')) {
+            if (await candidate.evaluate(button => !(button as HTMLButtonElement).disabled && button.checkVisibility())) {
+                printButton = candidate;
+                break;
+            }
+        }
+        await printButton!.click();
+        const rangeInput = await session.page.waitForSelector('[role="dialog"] input[aria-label="Page range"]', {
+            timeout: 15_000,
+            visible: true,
+        });
+        await rangeInput!.click();
+        await session.page.keyboard.type('1, 3');
+        const submit = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await submit!.click();
+
+        await expect.poll(async () => {
+            try {
+                return (await PDFDocument.load(await readFile(printedPath), {updateMetadata: false})).getPageCount();
+            } catch {
+                return null;
+            }
+        }, {timeout: 60_000}).toBe(2);
+        const {stdout: printedText} = await execFileAsync(resolve(
+            process.cwd(),
+            'resources',
+            'poppler',
+            resolvePlatformArchTag(),
+            'bin',
+            process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext',
+        ), [
+            printedPath,
+            '-',
+        ], {timeout: 30_000});
+        const printedPages = printedText.split('\f').filter(pageText => pageText.trim().length > 0);
+        expect(printedPages).toHaveLength(2);
+        expect(printedPages[0]).toContain('Page 1 sample text');
+        expect(printedPages[1]).toContain('Page 3 sample text');
+    }, 120_000);
+
+    it('extracts a page from the thumbnail menu into a new document', async () => {
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-extract-${Date.now()}.pdf`, 3);
+        const sourceBytes = await readFile(fixturePath);
+        const extractDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-extract-${Date.now()}`);
+        const extractedPath = join(extractDirectory, 'extracted.pdf');
+        await mkdir(extractDirectory, {recursive: true});
+        onTestFinished(() => rm(extractDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-extract-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: extractedPath},
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        await openDocumentSidebarTab(session.page, 'Pages');
+        const thumbnailSelector = '.editor-pane.is-active [data-document-thumbnail-item][data-page="2"], '
+            + '.editor-pane.is-active [data-document-thumbnail-item][data-thumbnail-page="2"]';
+        await session.page.waitForSelector(thumbnailSelector, {
+            timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS,
+            visible: true,
+        });
+        await (await session.page.$(thumbnailSelector))!.click({button: 'right'});
+        const extractItem = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Extract to New PDF")])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await extractItem!.click();
+
+        // The extracted page opens as its own one-page document.
+        await expect.poll(async () => (await readToolbarPageIndicator(session.page)).totalPagesText?.replace(/\D+/gu, ''), {timeout: 60_000})
+            .toBe('1');
+        expect((await PDFDocument.load(await readFile(extractedPath), {updateMetadata: false})).getPageCount()).toBe(1);
+        const {stdout: extractedText} = await execFileAsync(resolve(
+            process.cwd(),
+            'resources',
+            'poppler',
+            resolvePlatformArchTag(),
+            'bin',
+            process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext',
+        ), [
+            extractedPath,
+            '-',
+        ], {timeout: 30_000});
+        expect(extractedText).toContain('Page 2 sample text');
+        await expect(readFile(fixturePath)).resolves.toEqual(sourceBytes);
+    }, 120_000);
+
+    it('exports a page as a decodable image of the page from the thumbnail menu', async () => {
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-export-image-${Date.now()}.pdf`, 2);
+        const sourceBytes = await readFile(fixturePath);
+        const exportDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-export-image-${Date.now()}`);
+        await mkdir(exportDirectory, {recursive: true});
+        onTestFinished(() => rm(exportDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-export-image-${Date.now()}`,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: join(exportDirectory, 'exported.png')},
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+
+        await openDocumentSidebarTab(session.page, 'Pages');
+        const thumbnailSelector = '.editor-pane.is-active [data-document-thumbnail-item][data-page="1"], '
+            + '.editor-pane.is-active [data-document-thumbnail-item][data-thumbnail-page="1"]';
+        await session.page.waitForSelector(thumbnailSelector, {
+            timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS,
+            visible: true,
+        });
+        const thumbnail = await session.page.$(thumbnailSelector);
+        await thumbnail!.click({button: 'right'});
+        const exportItem = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Export Pages")])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await exportItem!.click();
+        const exportAction = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Export Images"])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await exportAction!.click();
+
+        await expect.poll(async () => (await readdir(exportDirectory)).filter(name => name.endsWith('.png')), {timeout: 60_000})
+            .not.toEqual([]);
+        const [exportedName] = (await readdir(exportDirectory)).filter(name => name.endsWith('.png'));
+        const image = decodePng(await readFile(join(exportDirectory, exportedName!)));
+        const channels = image.data.length / (image.width * image.height);
+        let inkPixels = 0;
+        for (let offset = 0; offset < image.data.length; offset += channels) {
+            if ((image.data[offset] ?? 255) < 128 && (image.data[offset + 1] ?? 255) < 128 && (image.data[offset + 2] ?? 255) < 128) {
+                inkPixels += 1;
+            }
+        }
+        // A portrait page carrying its line of text, not a blank or clipped raster.
+        expect(image.height).toBeGreaterThan(image.width);
+        expect(image.width).toBeGreaterThan(300);
+        expect(inkPixels).toBeGreaterThan(100);
+        await expect(readFile(fixturePath)).resolves.toEqual(sourceBytes);
+    }, 120_000);
+});
+
 runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-viewer-smoke-${Date.now()}`});
 
@@ -5959,6 +6163,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             document.querySelector<HTMLElement>('.editor-pane.is-active .djvu-banner') !== null
             && document.querySelector<HTMLElement>('.editor-pane.is-active [data-open-surface-phase]')?.dataset.openSurfacePhase === 'ready'
         ), {timeout: DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const shownPageCount = Number((await readToolbarPageIndicator(session.page)).totalPagesText?.replace(/\D+/gu, ''));
+        expect(shownPageCount).toBeGreaterThan(1);
         const initiator = await session.page.$('.djvu-banner button');
         expect(initiator).not.toBeNull();
         await initiator!.click();
@@ -5973,7 +6179,10 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             document.querySelector('.editor-pane.is-active .djvu-banner') === null
             && document.querySelector('.app-progress-overlay[role="dialog"]') === null
         ), {timeout: 30_000});
-        expect((await readFile(destinationPath)).subarray(0, 5).toString()).toBe('%PDF-');
+        const convertedBytes = await readFile(destinationPath);
+        expect(convertedBytes.subarray(0, 5).toString()).toBe('%PDF-');
+        // The converted PDF keeps every page the viewer showed for the DjVu.
+        expect((await PDFDocument.load(convertedBytes, {updateMetadata: false})).getPageCount()).toBe(shownPageCount);
         expect(await session.page.evaluate(() => (
             document.activeElement instanceof HTMLElement
             && document.activeElement !== document.body
