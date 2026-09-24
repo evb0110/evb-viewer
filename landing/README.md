@@ -20,8 +20,8 @@ The landing runtime reads these environment variables at runtime:
 - `NUXT_GITHUB_API_BASE` (default: `https://api.github.com`)
 - `NUXT_GITHUB_TOKEN` (optional; recommended to raise GitHub API limits)
 
-Page views and installer downloads go to Vercel Web Analytics, which must be
-enabled in the Vercel dashboard.
+Page views and installer downloads go to Vercel Web Analytics. Setup and use:
+[Vercel deploy, Analytics](../docs/contributing/vercel-deploy.md#analytics).
 
 ## Local development
 

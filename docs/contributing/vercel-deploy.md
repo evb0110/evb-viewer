@@ -42,9 +42,29 @@
 
 ## Analytics
 
-- Both Vercel projects use Vercel Web Analytics. Enable it in each project's dashboard; nothing is stored by this repository.
-- The browser app loads the analytics script only when `NUXT_PUBLIC_ANALYTICS_ENABLED=1`, and never inside Electron. It strips query strings and fragments and sends two custom events: `document_opened` (document kind and open method) and `browser_install_hint_interacted`.
-- The landing site records page views and a `download` event for GitHub and mirror installer links.
+Both Vercel projects (browser viewer and landing) use Vercel Web Analytics. The data lives in Vercel; this repository stores none. The desktop app sends no analytics.
+
+### Turning it on
+
+1. In the Vercel dashboard, open each project, then Analytics, and select Enable. Vercel then serves the collector at `/_vercel/insights/*` on that project's domains.
+2. Browser viewer only: add `NUXT_PUBLIC_ANALYTICS_ENABLED=1` to the project's Production environment variables, then redeploy with `pnpm run deploy:web:prod`. The flag is read at build time, so an existing deployment does not pick it up. Leave it unset for Preview so preview traffic is not counted.
+3. The landing site needs no flag; its analytics module is always installed and starts reporting once step 1 is done.
+4. Check it: open the production site in a normal browser window (ad blockers hide the request), and confirm a request to `/_vercel/insights/view` in the network panel. The visit appears in the dashboard within a minute or so.
+
+### What is collected
+
+- Page views, with query strings and fragments stripped before sending. The browser app never loads the script inside Electron.
+- Browser app custom events: `document_opened` (document kind and open method) and `browser_install_hint_interacted`.
+- Landing custom event: `download` for GitHub and mirror installer links.
+- Custom events are shown only on Vercel plans that include them; page views work on every plan.
+
+### Reading it
+
+Open the project in Vercel, then Analytics. Filter by path, country, device or referrer; custom events are under Events. For questions such as "how many downloads per platform last week", open the `download` event and break it down by its properties.
+
+### Adding an event
+
+Call `trackWebEvent(name, properties)` from `app/utils/trackWebEvent.ts` in the browser app, or `track` from `@vercel/analytics` on the landing site. Properties must not contain file names, paths, document text or other personal data. List the new event in this section and in the privacy text (`packages/i18n-core/privacyMessages.ts` and the landing privacy page).
 
 ## Private Email CLI Deploys
 
