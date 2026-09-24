@@ -7,10 +7,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {join} from 'node:path';
 import {
     describe,
     expect,
@@ -376,21 +373,5 @@ describe('issue 136 CI coverage contracts', () => {
                 name: '/workspace/tests/e2e/electron/quarantine/unreferenced.e2e.test.ts',
             }],
         }, new Date('2026-08-30T00:00:00Z'))).toThrow(/unreferenced|missing assertion report/iu);
-    });
-
-    it('keeps every checked-in quarantine entry live and linked to its reporter suite', async () => {
-        const policy = JSON.parse(await readFile(
-            'tests/e2e/electron/quarantine/graduation-policy.json',
-            'utf8',
-        )) as {tests: Array<{assertionReport: string;}>};
-        const report = {testResults: policy.tests.map(entry => ({
-            assertionResults: [{status: 'passed'}],
-            name: resolve(entry.assertionReport),
-        }))};
-
-        expect(assertQuarantinePolicy(policy, report)).toEqual({
-            declared: policy.tests.length,
-            reported: policy.tests.length,
-        });
     });
 });

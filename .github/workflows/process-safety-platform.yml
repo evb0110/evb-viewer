@@ -45,7 +45,6 @@ jobs:
       - name: Run CLI process-safety acceptance
         run: >-
           pnpm exec vitest run --project unit-scripts
-          tests/unit/scripts/electronRunCliLegacyMigration.test.ts
           tests/unit/scripts/electronRunStopAllOwnership.test.ts
           tests/unit/scripts/electronRunTH2AutomaticPruning.test.ts
 

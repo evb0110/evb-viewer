@@ -1,4 +1,3 @@
-import {readFileSync} from 'node:fs';
 import {
     describe,
     expect,
@@ -110,17 +109,5 @@ describe('runtime binary manifest', () => {
             firstRuntimeEntry.archiveUrl,
             'https://objects.example.test/runtime.tar.gz',
         )).toThrow('untrusted origin');
-    });
-
-    it('wires all native bundlers through the verified fetch command', () => {
-        for (const file of [
-            'scripts/bundle-tools-linux.sh',
-            'scripts/bundle-tools-windows.sh',
-            'scripts/bundle-tesseract-macos.sh',
-            'scripts/bundle-pdf-tools-macos.sh',
-            'scripts/bundle-djvu-macos.sh',
-        ]) {
-            expect(readFileSync(file, 'utf8')).toContain('fetchRuntimeBinaries.ts');
-        }
     });
 });

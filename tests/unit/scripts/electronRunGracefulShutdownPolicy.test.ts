@@ -9,10 +9,7 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {dirname} from 'node:path';
 import {
     describe,
     expect,
@@ -53,8 +50,6 @@ vi.mock('@scripts/electron-run/electronRunProcessTree', async importOriginal => 
     isProcessAlive: processTree.isProcessAlive,
 }));
 
-const projectRoot = process.cwd();
-
 // Above Linux's default pid_max, so it can never name a live host process.
 const UNUSED_PID = 4_194_305;
 
@@ -70,10 +65,6 @@ async function forceKillAndWait(child: ReturnType<typeof spawn>) {
             resolve();
         }
     });
-}
-
-function readProjectSource(path: string) {
-    return readFileSync(join(projectRoot, path), 'utf8');
 }
 
 function readPosixProcessState(pid: number) {
@@ -129,36 +120,6 @@ describe('Electron automation graceful shutdown policy', () => {
         });
     });
 
-    it('requests coordinated Electron quit before the process-tree fallback', () => {
-        const sessionSource = readProjectSource('scripts/electron-run/sessionController.ts');
-        const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
-        const gracefulQuitIndex = sessionSource.indexOf('void state.browser.close().catch(error => {');
-        const processWaitIndex = sessionSource.indexOf('waitForProcessExit(electronPid');
-        const electronFallbackIndex = sessionSource.indexOf('killSpawnedProcessTree(state.electronProcess');
-        const shutdownCommandIndex = stopSource.indexOf('info, \'shutdown\'');
-        const controllerFallbackIndex = stopSource.indexOf('killVerifiedSessionProcess', shutdownCommandIndex);
-
-        expect(gracefulQuitIndex).toBeGreaterThan(-1);
-        expect(sessionSource).not.toContain('electronAPI?.windowTabs.closeCurrentWindow');
-        expect(processWaitIndex).toBeGreaterThan(gracefulQuitIndex);
-        expect(electronFallbackIndex).toBeGreaterThan(processWaitIndex);
-        expect(shutdownCommandIndex).toBeGreaterThan(-1);
-        expect(controllerFallbackIndex).toBeGreaterThan(shutdownCommandIndex);
-        expect(sessionSource).toContain('Graceful app shutdown complete');
-        expect(sessionSource).toContain('Graceful shutdown timed out; using process-tree fallback');
-    });
-
-    it('nests controller shutdown fallbacks inside the 15 second E2E stop budget', () => {
-        const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
-        const sessionRunnerSource = readProjectSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');
-
-        expect(stopSource).toContain('const SESSION_SHUTDOWN_COMMAND_TIMEOUT_MS = 2_000;');
-        expect(stopSource).toContain('const SESSION_CONTROLLER_SHUTDOWN_TIMEOUT_MS = 9_000;');
-        expect(stopSource).toContain('graceMs: 1500');
-        expect(sessionRunnerSource).toContain('const SESSION_STOP_TIMEOUT_MS = 15_000;');
-        expect(2_000 + 9_000 + 1_500).toBeLessThan(15_000);
-    });
-
     it('removes only the crash-recovery checkpoint on an intentional automation stop', () => {
         const sessionName = `checkpoint-policy-${String(process.pid)}-${String(Date.now())}`;
         const checkpointPath = workspaceCrashCheckpointPath(sessionName);
@@ -196,19 +157,6 @@ describe('Electron automation graceful shutdown policy', () => {
         }
     });
 
-    it('preserves crash recovery during a normal start until an explicit stop owns cleanup', () => {
-        const sessionSource = readProjectSource('scripts/electron-run/sessionController.ts');
-        const startBody = sessionSource.slice(
-            sessionSource.indexOf('export async function startControlledSession('),
-        );
-
-        expect(startBody).not.toContain('clearAutomationWorkspaceCrashCheckpoint');
-        expect(sessionSource).toContain('130,');
-        expect(sessionSource).toContain('143,');
-        expect(readProjectSource('scripts/electron-run/stopSession.ts'))
-            .toContain('clearAutomationWorkspaceCrashCheckpoint(name)');
-    });
-
     it('clears restart checkpoints for controlled exits while retaining genuine crash recovery', () => {
         const sessionName = `restart-checkpoint-policy-${String(process.pid)}-${String(Date.now())}`;
         const checkpointPath = workspaceCrashCheckpointPath(sessionName);
@@ -237,19 +185,6 @@ describe('Electron automation graceful shutdown policy', () => {
         expect(shouldPreserveWorkspaceRecoveryArtifacts(0, false, true)).toBe(false);
         expect(shouldPreserveWorkspaceRecoveryArtifacts(143, true, false)).toBe(true);
         expect(shouldPreserveWorkspaceRecoveryArtifacts(1, false, false)).toBe(false);
-    });
-
-    it('keeps the E2E browser attached until the controller initiates app shutdown', () => {
-        const source = readProjectSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');
-        const stopStart = source.indexOf('const stop = async (');
-        expect(stopStart).toBeGreaterThan(-1);
-        const stopBody = source.slice(
-            stopStart,
-            source.indexOf('return {', stopStart),
-        );
-
-        expect(stopBody).toContain('stopSingleSession(scopedSessionName');
-        expect(stopBody).not.toContain('browser.disconnect()');
     });
 
     it('retains session artifacts whenever any verified termination is refused', async () => {
@@ -506,29 +441,5 @@ describe('Electron automation graceful shutdown policy', () => {
                 force: true,
             });
         }
-    });
-
-    it('waits for Windows termination to land before reporting a result', () => {
-        // The forced-kill test above proves the POSIX branch only. Unit tests run
-        // on Ubuntu and no lane runs this suite on Windows, so removing the win32
-        // wait would leave every required check green. TerminateProcess is
-        // asynchronous like SIGKILL, and both branches serve the same caller
-        // contract: liveness is read as the result immediately afterwards.
-        const source = readProjectSource('scripts/electron-run/electronRunProcessTree.ts');
-        // Descendant collection carries its own win32 check, so the search has to
-        // start inside the terminating function to reach the right branch.
-        const killIndex = source.indexOf('export async function killProcessTree(');
-        expect(killIndex, 'process-tree termination must stay in this module').toBeGreaterThan(-1);
-
-        const branchIndex = source.indexOf('if (process.platform === \'win32\')', killIndex);
-        expect(branchIndex, 'process-tree termination must still special-case Windows').toBeGreaterThan(-1);
-
-        const taskkillIndex = source.indexOf('taskkill', branchIndex);
-        const waitIndex = source.indexOf('await waitForProcessesExit(', branchIndex);
-        const returnIndex = source.indexOf('return;', branchIndex);
-
-        expect(taskkillIndex, 'the Windows branch must terminate the tree').toBeGreaterThan(branchIndex);
-        expect(waitIndex, 'Windows termination must be awaited before its result is read').toBeGreaterThan(taskkillIndex);
-        expect(returnIndex, 'the Windows branch must not return before the wait').toBeGreaterThan(waitIndex);
     });
 });

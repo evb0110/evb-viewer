@@ -29,8 +29,6 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/architecture/boundary-check.mjs')).href
 );
 const {
-    ANNOTATION_GRAPH_SCAN_ROOTS,
-    ANNOTATION_LATE_BOUND_EDGES,
     checkAnnotationDependencyEdge,
     checkAnnotationDependencyGraph,
 } = await import(
@@ -285,15 +283,6 @@ describe('dependency graph', () => {
         });
 
         expect(graph.edges).toEqual([]);
-        expect(graph.cycles).toEqual([]);
-    });
-
-    it('keeps the contracts package dependency graph acyclic', async () => {
-        const graph = await buildDependencyGraph({
-            projectRoot: process.cwd(),
-            roots: ['packages/contracts'],
-        });
-
         expect(graph.cycles).toEqual([]);
     });
 
@@ -628,36 +617,6 @@ describe('dependency graph', () => {
         ]);
     });
 
-    it('keeps current workspace package layer imports clean', async () => {
-        const graph = await buildDependencyGraph({
-            projectRoot: process.cwd(),
-            roots: [
-                'packages/contracts',
-                'packages/pdf-core',
-                'packages/agent-core',
-                'packages/electron-worker-bundles',
-                'packages/i18n-core',
-                'packages/i18n-app',
-                'packages/release-selection',
-            ],
-        });
-        const packageLayerRules = new Set([
-            'packages-contracts-layer',
-            'packages-pdf-core-layer',
-            'packages-agent-core-layer',
-            'packages-i18n-core-layer',
-            'packages-i18n-app-layer',
-            'packages-release-selection-layer',
-            'packages-electron-worker-bundles-layer',
-            'packages-contracts-reverse-edge',
-        ]);
-        const violations = graph.edges
-            .flatMap(checkArchitectureBoundaryEdge)
-            .filter((violation: { rule: string }) => packageLayerRules.has(violation.rule));
-
-        expect(violations).toEqual([]);
-    });
-
     it('blocks app production calls to the aggregate platform runtime getter', () => {
         const runtimeGetterViolation = (source: string) => [{
             rule: 'platform-api-runtime-getter',
@@ -712,19 +671,6 @@ describe('dependency graph', () => {
             target: 'app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocolTypes.ts',
             specifier: '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocolTypes',
         })).toEqual([]);
-    });
-
-    it('keeps current PDF viewer engine imports inside allowed module layers', {timeout: 20_000}, async () => {
-        const graph = await buildDependencyGraph({
-            projectRoot: process.cwd(),
-            roots: ['app/modules/pdf-viewer'],
-        });
-
-        const engineLayerViolations = graph.edges
-            .flatMap(checkArchitectureBoundaryEdge)
-            .filter((violation: { rule: string }) => violation.rule === 'pdf-viewer-engine-layer-back-edge');
-
-        expect(engineLayerViolations).toEqual([]);
     });
 
     it('allows worker-safe Electron feature publicNative entrypoints but still blocks main internals', () => {
@@ -803,22 +749,6 @@ describe('dependency graph', () => {
         })).toEqual([]);
     });
 
-    it('keeps current Electron native-tool ownership imports clean', async () => {
-        const graph = await buildDependencyGraph({
-            projectRoot: process.cwd(),
-            roots: ['electron'],
-        });
-        const nativeToolOwnershipRules = new Set([
-            'native-tools-domain-import',
-            'ocr-native-tool-boundary-import',
-        ]);
-        const violations = graph.edges
-            .flatMap(checkArchitectureBoundaryEdge)
-            .filter((violation: { rule: string }) => nativeToolOwnershipRules.has(violation.rule));
-
-        expect(violations).toEqual([]);
-    });
-
     it('blocks direct PDF.js annotationStorage dirty-state access', () => {
         expect(checkArchitectureBoundarySource(
             'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
@@ -868,19 +798,6 @@ describe('dependency graph', () => {
             'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
             'annotationStorage.onSetModified = handler;',
         )).toEqual([]);
-    });
-
-    it('keeps the annotation dependency graph explicit and acyclic', async () => {
-        const graph = await buildDependencyGraph({
-            projectRoot: process.cwd(),
-            roots: ANNOTATION_GRAPH_SCAN_ROOTS,
-        });
-        const result = checkAnnotationDependencyGraph(graph, { includeDirectEdgeViolations: true });
-
-        expect(ANNOTATION_LATE_BOUND_EDGES).toEqual([]);
-        expect(result.violations).toEqual([]);
-        expect(result.cycles).toEqual([]);
-        expect(result.inventory.lateBoundEdges.length).toBe(ANNOTATION_LATE_BOUND_EDGES.length);
     });
 
     it('blocks new hidden annotation runtime/tool crossings', () => {

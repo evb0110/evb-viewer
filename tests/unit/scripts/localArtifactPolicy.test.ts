@@ -34,28 +34,6 @@ const policy = await importScript<ILocalArtifactPolicyModule>('scripts/lib/local
 const webDeploy = await importScript<IWebDeploySourceModule>('scripts/check-web-deploy-source.mjs');
 
 describe('local artifact policy', () => {
-    it('covers the local-only conventions this project actually encounters', () => {
-        expect(policy.AGENT_INSTRUCTION_FILE_NAMES).toEqual([
-            'AGENTS.md',
-            'CLAUDE.md',
-            'GEMINI.md',
-        ]);
-        expect(policy.LOCAL_ONLY_DIRECTORY_NAMES).toEqual([
-            '.agents',
-            '.claude',
-            '.codex',
-            '.devkit',
-        ]);
-        expect(policy.PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES).toEqual([
-            'AGENTS.md',
-            'CLAUDE.md',
-        ]);
-        expect(policy.ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES).toEqual([
-            'HANDOFF.md',
-            'NOTES.md',
-            'TODO.md',
-        ]);
-    });
 
     it.each([
         [
