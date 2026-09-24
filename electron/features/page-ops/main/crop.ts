@@ -36,10 +36,7 @@ import { materializePageOperationWorkingCopy } from '@electron/features/page-ops
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/main/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {
     PdfPageOpsCapabilityError,
     type TPdfPageOpsCapabilityErrorCode,
@@ -137,16 +134,6 @@ async function tryGetPageGeometryWithNativePageOps(
     signal?: AbortSignal,
 ): Promise<IPageGeometry | null> {
     throwIfAborted(signal);
-    if (isNativePageOpsDisabled()) {
-        await assertPageOpsLocalFallbackAllowed(
-            workingCopyPath,
-            'get-page-geometry',
-            signal,
-            'native-unavailable',
-        );
-        return null;
-    }
-
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         await assertPageOpsLocalFallbackAllowed(

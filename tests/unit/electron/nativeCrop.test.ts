@@ -44,7 +44,6 @@ describe('native page crop helper', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         process.env = { ...originalEnv };
-        process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
         tempDir = await mkdtemp(join(tmpdir(), 'native-crop-test-'));
         pdfPath = join(tempDir, 'work.pdf');
         nativeBinaryPath = join(tempDir, process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
@@ -193,13 +192,12 @@ describe('native page crop helper', () => {
         expect(copyFileCopyOnWriteMock).toHaveBeenCalledWith(pdfPath, inputPath);
     });
 
-    it('rejects instead of silently falling back when the native helper fails in enabled test mode', async () => {
+    it('leaves a small working copy untouched for the local fallback when the native helper fails', async () => {
         runNativeToolCommandMock.mockRejectedValueOnce(new Error('native failed'));
 
         const { tryRemoveCropWithNativePageOps } = await import('@electron/features/page-ops/main/nativeCrop');
 
-        await expect(tryRemoveCropWithNativePageOps(pdfPath, [1]))
-            .rejects.toThrow('Native page ops fallback is not allowed in tests');
+        await expect(tryRemoveCropWithNativePageOps(pdfPath, [1])).resolves.toBe(false);
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\noriginal');
     });
 });

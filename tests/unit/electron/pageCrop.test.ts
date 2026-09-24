@@ -31,6 +31,7 @@ import { PdfPageOpsCapabilityError } from '@electron/features/page-ops/main/page
 
 const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn(),
+    nativePageOpsPath: null as string | null,
     readFileCount: 0,
     runNativeToolCommand: vi.fn(),
 }));
@@ -56,6 +57,7 @@ vi.mock('fs/promises', async () => {
 });
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: (...args: unknown[]) => mocks.ensureWorkingCopyDirectory(...args)}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => mocks.nativePageOpsPath}));
 
 const originalEnv = { ...process.env };
 
@@ -80,6 +82,7 @@ describe('page crop operations', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         mocks.readFileCount = 0;
+        mocks.nativePageOpsPath = null;
         process.env = { ...originalEnv };
         mocks.ensureWorkingCopyDirectory.mockResolvedValue(true);
         tempDir = await mkdtemp(join(tmpdir(), 'page-crop-test-'));
@@ -103,10 +106,7 @@ describe('page crop operations', () => {
             180,
             90,
         ] });
-        const nativeBinaryPath = join(tempDir, process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
-        await writeFile(nativeBinaryPath, '');
-        process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
-        process.env.EVB_PDF_PAGE_OPS_PATH = nativeBinaryPath;
+        mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             expect(args.slice(0, 1)).toEqual(['page-geometry']);
             await writeFile(args[args.indexOf('--output') + 1]!, JSON.stringify({
@@ -157,10 +157,7 @@ describe('page crop operations', () => {
     it('fails closed for a large path when native page geometry fails', async () => {
         await createPdf(pdfPath);
         await truncate(pdfPath, 2 * 1024 * 1024 * 1024 + 1);
-        const nativeBinaryPath = join(tempDir, process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
-        await writeFile(nativeBinaryPath, '');
-        process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
-        process.env.EVB_PDF_PAGE_OPS_PATH = nativeBinaryPath;
+        mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
         mocks.runNativeToolCommand.mockRejectedValue(new Error('native geometry unavailable'));
         const loadSpy = vi.spyOn(PDFDocument, 'load');
 
@@ -180,7 +177,6 @@ describe('page crop operations', () => {
     it('fails closed for large local crop compatibility calls', async () => {
         await createPdf(pdfPath);
         await truncate(pdfPath, 16 * 1024 * 1024 + 1);
-        process.env.EVB_PDF_PAGE_OPS_DISABLE = '1';
         const loadSpy = vi.spyOn(PDFDocument, 'load');
 
         try {
@@ -203,10 +199,7 @@ describe('page crop operations', () => {
 
     it('propagates cancellation while native page geometry is running', async () => {
         await createPdf(pdfPath);
-        const nativeBinaryPath = join(tempDir, process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
-        await writeFile(nativeBinaryPath, '');
-        process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
-        process.env.EVB_PDF_PAGE_OPS_PATH = nativeBinaryPath;
+        mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
         mocks.runNativeToolCommand.mockImplementation(async (
             _binaryPath: string,
             _args: string[],
@@ -230,10 +223,7 @@ describe('page crop operations', () => {
 
     it('publishes the native crop without parsing the document in JavaScript', async () => {
         await createPdf(pdfPath);
-        const nativeBinaryPath = join(tempDir, process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops');
-        await writeFile(nativeBinaryPath, '');
-        process.env.EVB_PDF_PAGE_OPS_ENABLE = '1';
-        process.env.EVB_PDF_PAGE_OPS_PATH = nativeBinaryPath;
+        mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\nnative crop');
             return {

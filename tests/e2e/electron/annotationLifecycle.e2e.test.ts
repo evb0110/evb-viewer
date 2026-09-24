@@ -1102,7 +1102,6 @@ async function editCanonicalNoteText(page: Page, currentText: string, nextText: 
 describe('Electron E2E - Annotation Lifecycle', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
-        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
     });
 

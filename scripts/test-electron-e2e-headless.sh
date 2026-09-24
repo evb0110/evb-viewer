@@ -30,9 +30,6 @@ else
   exit 1
 fi
 
-if [ "${EVB_PDF_PAGE_OPS_DISABLE:-0}" != "1" ]; then
-  export EVB_PDF_PAGE_OPS_ENABLE=1
-fi
 
 export EVB_AUTOMATION_DISABLE_SANDBOX=1
 export EVB_AUTOMATION_NO_FOCUS="$no_focus"

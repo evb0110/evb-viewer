@@ -13,10 +13,7 @@ import {
 import { hasNativeErrorCode } from '@contracts/nativeErrors';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {createManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -124,9 +121,6 @@ export async function decryptWorkingCopyWithWriter(
 ): Promise<TWorkingCopyDecryptionResult> {
     if (typeof password === 'string') {
         assertPasswordSize(password);
-    }
-    if (isNativePageOpsDisabled()) {
-        throw new Error('Native PDF decrypt operation is disabled');
     }
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {

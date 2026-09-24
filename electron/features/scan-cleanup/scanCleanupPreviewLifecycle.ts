@@ -43,10 +43,7 @@ import {
     extractPdfMrcLayers,
     extractPdfMrcLayersBatch,
 } from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import type {
@@ -116,7 +113,7 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     },
     runSidecar: runScanCleanupSidecar,
     resolveBinary: resolveScanCleanupPreviewPath,
-    resolvePageOpsBinary: () => (isNativePageOpsDisabled() ? null : resolveNativePageOpsPath()),
+    resolvePageOpsBinary: resolveNativePageOpsPath,
     resolveQpdfBinary: () => getPdfNativeToolPaths().qpdf,
     resolvePdfInfoBinary: () => getPdfNativeToolPaths().pdfinfo,
     getTempDir: getAppTempDir,

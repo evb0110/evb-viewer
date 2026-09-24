@@ -506,7 +506,6 @@ async function expectVisibleTypingFrame(page: Page, selector: string) {
 describe('Electron E2E - annotation controls', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
-        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         sessionName: () => `e2e-annotation-controls-${Date.now()}`,
     });
 

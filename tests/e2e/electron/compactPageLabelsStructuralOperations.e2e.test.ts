@@ -407,7 +407,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
         let expected = labelsFromRanges(PAGE_COUNT, initialRanges);
         session = await startElectronE2ESession(`e2e-compact-page-labels-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForPdfLoaded(session.page, 60_000);
@@ -474,7 +473,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await savedSession.stop();
         session = await startElectronE2ESession(`e2e-compact-page-labels-reopen-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForPdfLoaded(session.page, 60_000);
@@ -498,7 +496,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
         );
         session = await startElectronE2ESession(`e2e-page-mutation-viewer-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForPdfLoaded(session.page, 60_000);

@@ -401,7 +401,6 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             sessionName: () => `e2e-issue-124-lazy-materialization-${Date.now()}`,
             timeoutMs: ISSUE_124_TEST_TIMEOUT_MS,
             extraEnv: {
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
                 EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT: 'unsupported',
                 EVB_WORKING_COPY_MATERIALIZATION_MODE: 'lazy',
             },
@@ -477,7 +476,6 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
         const sessionFixture = createElectronE2ESessionFixture({
             sessionName: () => `e2e-issue-124-image-placement-${Date.now()}`,
             timeoutMs: ISSUE_124_TEST_TIMEOUT_MS,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         });
 
         it('releases canceled and failed native placements before a fresh retry', async () => {
@@ -557,10 +555,7 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
         const sessionFixture = createElectronE2ESessionFixture({
             sessionName: () => `e2e-issue-124-qpdf-cancel-${Date.now()}`,
             timeoutMs: ISSUE_124_TEST_TIMEOUT_MS,
-            extraEnv: {
-                EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER: qpdfHoldMarkerPath,
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
-            },
+            extraEnv: {EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER: qpdfHoldMarkerPath},
         });
 
         it('stops the real selected-page qpdf child and removes its temporary output', async () => {

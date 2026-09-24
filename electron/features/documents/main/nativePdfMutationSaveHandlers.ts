@@ -36,10 +36,7 @@ import { isErrnoException } from '@contracts/runtimeGuards';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {
     getWorkingCopyOriginalPath,
     refreshWorkingCopyOriginalFileExpectation,
@@ -104,9 +101,6 @@ function resolveNativeNoteCommandExecution(
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const modifiedAt = normalizeModifiedAt(rawModifiedAt);
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
-    if (isNativePageOpsDisabled()) {
-        return null;
-    }
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         return null;

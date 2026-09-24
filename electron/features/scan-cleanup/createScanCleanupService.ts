@@ -46,10 +46,7 @@ import {
     MAX_ALLOWED_OPEN_PATHS,
     OPEN_PATH_CAPABILITY_TTL_MS,
 } from '@electron/file-access/openPathCapabilities';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
 import {
     createMainJobRegistry,
     type IMainJobErrorEnvelope,
@@ -835,7 +832,7 @@ export function createScanCleanupService(
                             const requiresPageOps = request.options.preserveOriginalQuality === true
                                 || request.options.matchPageSize
                                 || request.options.outputMode === 'auto';
-                            const pdfPageOpsBinary = requiresPageOps && !isNativePageOpsDisabled()
+                            const pdfPageOpsBinary = requiresPageOps
                                 ? resolveNativePageOpsPath()
                                 : null;
                             const missingTools = [

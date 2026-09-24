@@ -528,10 +528,7 @@ describe('Electron E2E - native save and reopen', () => {
         const sourceBytes = await readFile(sourcePath);
         session = await startElectronE2ESession(`e2e-native-save-as-${Date.now()}`, {
             clean: true,
-            extraEnv: {
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
-                EVB_E2E_SAVE_DIALOG_PATH: destinationPath,
-            },
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
             initialOpenPaths: [sourcePath],
         });
         await waitForOpenedPdf(session, sourcePath);
@@ -548,7 +545,6 @@ describe('Electron E2E - native save and reopen', () => {
         await session.stop();
         session = await startElectronE2ESession(`e2e-native-save-as-reopen-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [destinationPath],
         });
         await waitForOpenedPdf(session, destinationPath);
@@ -571,10 +567,7 @@ describe('Electron E2E - native save and reopen', () => {
         const sourceBytes = await readFile(sourcePath);
         session = await startElectronE2ESession(`e2e-native-save-as-race-${Date.now()}`, {
             clean: true,
-            extraEnv: {
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
-                EVB_E2E_SAVE_DIALOG_PATH: destinationPath,
-            },
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
             initialOpenPaths: [sourcePath],
         });
         await waitForOpenedPdf(session, sourcePath);
@@ -625,7 +618,6 @@ describe('Electron E2E - native save and reopen', () => {
 
         session = await startElectronE2ESession(`e2e-native-save-reopen-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -741,7 +733,6 @@ describe('Electron E2E - native save and reopen', () => {
         await savedSession.stop();
         session = await startElectronE2ESession(`e2e-native-save-reopen-fresh-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -772,7 +763,6 @@ describe('Electron E2E - native save and reopen', () => {
 
         session = await startElectronE2ESession(`e2e-native-save-reopen-created-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -1077,7 +1067,6 @@ describe('Electron E2E - native save and reopen', () => {
         await savedSession.stop();
         session = await startElectronE2ESession(`e2e-native-save-reopen-created-fresh-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -1096,7 +1085,6 @@ describe('Electron E2E - native save and reopen', () => {
 
         session = await startElectronE2ESession(`e2e-native-save-reopen-foreign-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -1228,7 +1216,6 @@ describe('Electron E2E - native save and reopen', () => {
         await savedSession.stop();
         session = await startElectronE2ESession(`e2e-native-save-reopen-foreign-fresh-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -1244,7 +1231,6 @@ describe('Electron E2E - native save and reopen', () => {
         const pdfPath = await createOutlinePageLabelFixturePdf(`native-repair-annotation-${Date.now()}.pdf`);
         session = await startElectronE2ESession(`e2e-native-repair-annotation-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -1274,7 +1260,6 @@ describe('Electron E2E - native save and reopen', () => {
         await session.stop();
         session = await startElectronE2ESession(`e2e-native-repair-annotation-fresh-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
@@ -1421,7 +1406,6 @@ describe('Electron E2E - native save and reopen', () => {
                 : undefined;
             session = await startElectronE2ESession(`e2e-outline-matrix-${testCase.name}-${Date.now()}`, {
                 clean: true,
-                extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 initialOpenPaths: [pdfPath],
             });
             await waitForOpenedPdf(session, pdfPath);
@@ -1457,7 +1441,6 @@ describe('Electron E2E - native save and reopen', () => {
             await previousSession.stop();
             session = await startElectronE2ESession(`e2e-outline-matrix-${testCase.name}-fresh-${Date.now()}`, {
                 clean: true,
-                extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 initialOpenPaths: [pdfPath],
             });
             await waitForOpenedPdf(session, pdfPath);

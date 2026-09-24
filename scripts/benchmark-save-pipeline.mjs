@@ -21,20 +21,10 @@ import {
 import {fileURLToPath} from 'node:url';
 
 const projectRoot = resolve(import.meta.dirname, '..');
-const SCENARIOS = [
-    {
-        mode: 'native-freetext',
-        tier: 'high',
-    },
-    {
-        mode: 'serialized-fallback',
-        tier: 'low',
-    },
-    {
-        mode: 'serialized-fallback',
-        tier: 'high',
-    },
-];
+const SCENARIOS = [{
+    mode: 'native-freetext',
+    tier: 'high',
+}];
 
 function readOptionValue(argument, value) {
     if (!value || value.startsWith('--')) {
@@ -153,7 +143,6 @@ async function runScenario(options, scenario, temporaryDirectory) {
         ...process.env,
         EVB_SAVE_PIPELINE_BENCHMARK_FIXTURE: options.fixture,
         EVB_SAVE_PIPELINE_BENCHMARK_ITERATIONS: String(options.iterations),
-        EVB_SAVE_PIPELINE_BENCHMARK_MODE: scenario.mode,
         EVB_SAVE_PIPELINE_BENCHMARK_OUTPUT: outputPath,
         EVB_SAVE_PIPELINE_BENCHMARK_TIER: scenario.tier,
         EVB_SAVE_PIPELINE_BENCHMARK_WARMUPS: String(options.warmups),

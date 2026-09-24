@@ -22,10 +22,7 @@ import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCre
 import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {
     getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
@@ -640,7 +637,7 @@ function createNativeModifiedAt() {
 }
 
 export function isIncrementalPageRotationAvailable() {
-    return !isNativePageOpsDisabled() && resolveNativePageOpsPath() !== null;
+    return resolveNativePageOpsPath() !== null;
 }
 
 /**
@@ -661,7 +658,7 @@ export async function rotatePagesIncremental(
         options.signal,
     );
     const binaryPath = resolveNativePageOpsPath();
-    if (isNativePageOpsDisabled() || !binaryPath) {
+    if (!binaryPath) {
         throw new Error('Incremental page rotation is unavailable');
     }
 

@@ -34,8 +34,7 @@ const mocks = vi.hoisted(() => {
         success: true,
         exitCode: 0,
     }));
-    const isNativePageOpsDisabled = vi.fn(() => false);
-    const resolveNativePageOpsPath = vi.fn(() => '/native/evb-pdf-page-ops');
+    const resolveNativePageOpsPath = vi.fn((): string | null => '/native/evb-pdf-page-ops');
     const getPdfNativeToolPaths = vi.fn(() => ({qpdf: '/native/qpdf'}));
     const debug = vi.fn();
 
@@ -49,7 +48,6 @@ const mocks = vi.hoisted(() => {
         load,
         writePdfBookmarkOutlines,
         runNativeToolCommand,
-        isNativePageOpsDisabled,
         resolveNativePageOpsPath,
         getPdfNativeToolPaths,
         debug,
@@ -71,10 +69,7 @@ vi.mock('@pdf-core', () => ({writePdfBookmarkOutlines: mocks.writePdfBookmarkOut
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 
-vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({
-    isNativePageOpsDisabled: mocks.isNativePageOpsDisabled,
-    resolveNativePageOpsPath: mocks.resolveNativePageOpsPath,
-}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: mocks.resolveNativePageOpsPath}));
 
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -103,7 +98,6 @@ const bookmarks: IPdfBookmarkEntry[] = [{
 describe('embedBookmarksIntoPdfFile native path', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.isNativePageOpsDisabled.mockReturnValue(false);
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/native/qpdf'});
         mocks.runNativeToolCommand.mockImplementation(async (_command: string, _args: string[], options?: {
@@ -230,8 +224,8 @@ describe('embedBookmarksIntoPdfFile native path', () => {
         expect(mocks.writeFile).not.toHaveBeenCalledWith('/tmp/output.pdf', expect.anything());
     });
 
-    it('returns a typed capability error when native page ops are disabled', async () => {
-        mocks.isNativePageOpsDisabled.mockReturnValue(true);
+    it('returns a typed capability error when the native page tool is missing', async () => {
+        mocks.resolveNativePageOpsPath.mockReturnValue(null);
 
         await expect(embedBookmarksIntoPdfFile('/tmp/input.pdf', '/tmp/output.pdf', bookmarks))
             .rejects

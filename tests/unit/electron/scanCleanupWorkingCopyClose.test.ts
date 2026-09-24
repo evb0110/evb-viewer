@@ -124,7 +124,6 @@ vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => (
 ));
 vi.mock('@electron/features/page-ops/public', async importOriginal => ({
     ...await importOriginal<typeof TPageOpsModule>(),
-    isNativePageOpsDisabled: () => false,
     resolveNativePageOpsPath: () => '/page-ops',
 }));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({

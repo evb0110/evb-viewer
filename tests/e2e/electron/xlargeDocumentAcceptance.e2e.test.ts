@@ -1663,7 +1663,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 () => startElectronE2ESession(`e2e-xlarge-document-a-${Date.now()}`, {
                     clean: true,
                     initialOpenPaths: [stagedFixture!.stagedPath],
-                    extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 }),
             );
             activeRssSampler = createRssSampler(
@@ -1740,7 +1739,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 () => startElectronE2ESession(`e2e-xlarge-document-b-${Date.now()}`, {
                     clean: true,
                     initialOpenPaths: [stagedFixture!.stagedPath],
-                    extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 }),
             );
             activeRssSampler = createRssSampler(

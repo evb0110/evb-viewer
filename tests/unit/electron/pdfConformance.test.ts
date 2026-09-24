@@ -236,7 +236,7 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
 }));
-vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/page-ops'}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/page-ops'}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
     error: vi.fn(),

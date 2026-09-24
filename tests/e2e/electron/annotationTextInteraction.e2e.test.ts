@@ -378,7 +378,6 @@ async function resize(page: Page, handle: string, dx: number, dy: number) {
 describe('Electron E2E - text interaction contract', () => {
     const sessions = createElectronE2ESessionFixture({
         restartBeforeEach: true,
-        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         sessionName: () => `e2e-text-interaction-${Date.now()}`,
     });
 

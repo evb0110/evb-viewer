@@ -1,4 +1,1 @@
-export {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/main/nativePageOpsPath';
+export {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';

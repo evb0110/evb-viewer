@@ -38,10 +38,7 @@ writeFileSync(STAMP_FIXTURE_PATH, Buffer.from(
 const sessionFixture = createElectronE2ESessionFixture({
     restartBeforeEach: true,
     sessionName: () => 'e2e-stamp-picker-' + Date.now(),
-    extraEnv: {
-        EVB_E2E_OPEN_IMAGE_PATH: STAMP_FIXTURE_PATH,
-        EVB_PDF_PAGE_OPS_ENABLE: '1',
-    },
+    extraEnv: {EVB_E2E_OPEN_IMAGE_PATH: STAMP_FIXTURE_PATH},
 });
 
 describe('stamp placement through the native picker', () => {

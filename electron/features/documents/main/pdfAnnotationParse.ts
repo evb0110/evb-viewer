@@ -29,10 +29,7 @@ import {
     getWorkingCopyRevision,
 } from '@electron/file-access/documentRevisionStore';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {registerNativePdfSenderCleanup} from '@electron/features/documents/main/nativePdfMetadata';
@@ -213,9 +210,6 @@ async function runParseNative(
     signal: AbortSignal,
     cancelGroup: string,
 ) {
-    if (isNativePageOpsDisabled()) {
-        throw new Error('Cannot parse PDF annotations while native page operations are disabled');
-    }
     const nativePath = resolveNativePageOpsPath();
     if (!nativePath) {
         throw new Error('Cannot parse PDF annotations because the native page tool is unavailable');

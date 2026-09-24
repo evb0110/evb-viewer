@@ -2217,7 +2217,6 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
     // between save cycles. The fixture must not also reset a session this suite
     // has already stopped.
     const sessionFixture = createElectronE2ESessionFixture({
-        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         restartBeforeEach: false,
         sessionName: () => `e2e-draw-shapes-${Date.now()}`,
     });

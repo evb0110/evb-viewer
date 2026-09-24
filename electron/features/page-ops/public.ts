@@ -10,10 +10,7 @@ export {
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
 } from '@electron/features/page-ops/main/qpdf';
-export {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/main/nativePageOpsPath';
+export {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 export {
     isPdfPageOpsCapabilityError,
     PdfPageOpsCapabilityError,

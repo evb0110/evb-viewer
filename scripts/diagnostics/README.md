@@ -36,8 +36,7 @@ pnpm run benchmark:save-pipeline -- --fixture path/to/source.pdf --iterations 10
 
 `--pdf` aliases `--fixture`, and `--out` aliases `--output`. Relative paths resolve
 from the caller's working directory; the source must be a non-empty PDF. The benchmark builds the native page-operations tool and
-Electron, then runs native FreeText and serialized-fallback saves at the configured low
-and high tiers in isolated hidden sessions.
+Electron, then runs native FreeText saves at the high tier in an isolated hidden session.
 
 The top-level JSON retains the existing schema-version, generation time, fixture size,
 warmup/iteration counts, clone mode, and scenario fields. It additionally records the

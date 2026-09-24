@@ -825,7 +825,6 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-receipt-reuse-${Date.now()}.pdf`, 2);
         session = await startElectronE2ESession(`e2e-save-receipt-reuse-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session.page, pdfPath);
@@ -887,7 +886,6 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             const beforeHash = await hashFile(pdfPath);
             session = await startElectronE2ESession(`e2e-save-interrupt-${Date.now()}`, {
                 clean: true,
-                extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 initialOpenPaths: [pdfPath],
             });
             await waitForOpenedPdf(session.page, pdfPath);
@@ -945,7 +943,6 @@ describe('Electron E2E - save pipeline diagnostics', () => {
 
             session = await startElectronE2ESession(`e2e-save-interrupt-reopen-${Date.now()}`, {
                 clean: true,
-                extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 initialOpenPaths: [pdfPath],
             });
             await waitForOpenedPdf(session.page, pdfPath);
@@ -959,7 +956,6 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         const beforeHash = await hashFile(pdfPath);
         session = await startElectronE2ESession(`e2e-save-receipt-drift-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session.page, pdfPath);

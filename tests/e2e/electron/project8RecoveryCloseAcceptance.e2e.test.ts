@@ -86,7 +86,6 @@ async function createRecoveredSession(
     const sessionName = `e2e-project8-close-${label}-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
         clean: true,
-        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         initialOpenPaths: [pdfPath],
     });
     // Callers own the session only after this returns, so a failed setup
@@ -126,10 +125,7 @@ async function createRecoveredSession(
         if (options.replacementSourcePath) {
             await rename(options.replacementSourcePath, pdfPath);
         }
-        session = await startElectronE2ESession(sessionName, {
-            clean: false,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-        });
+        session = await startElectronE2ESession(sessionName, {clean: false});
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
         await session.page.waitForFunction((expectedText: string) => Array.from(
@@ -519,10 +515,7 @@ describe('Project 8 recovered close decisions', () => {
         const originalMtime = (await stat(pdfPath)).mtimeMs;
         session = await startElectronE2ESession(`e2e-project8-busy-tab-close-${Date.now()}`, {
             clean: true,
-            extraEnv: {
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
-                EVB_PDF_PAGE_OPS_PATH: heldTool.toolPath,
-            },
+            extraEnv: {EVB_PDF_PAGE_OPS_PATH: heldTool.toolPath},
         });
         await openPdfInApp(session.page, pdfPath, 60_000);
         await waitForPdfLoaded(session.page, 60_000);
@@ -566,10 +559,7 @@ describe('Project 8 recovered close decisions', () => {
         const pdfPath = await createMultiPageTextFixturePdf(`project8-cancel-page-op-${Date.now()}.pdf`, 3);
         session = await startElectronE2ESession(`e2e-project8-cancel-page-op-${Date.now()}`, {
             clean: true,
-            extraEnv: {
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
-                EVB_PDF_PAGE_OPS_PATH: heldTool.toolPath,
-            },
+            extraEnv: {EVB_PDF_PAGE_OPS_PATH: heldTool.toolPath},
         });
         await openPdfInApp(session.page, pdfPath, 60_000);
         await waitForPdfLoaded(session.page, 60_000);
@@ -683,7 +673,6 @@ describe('Project 8 recovered close decisions', () => {
         const sessionName = `e2e-project8-two-tab-${Date.now()}`;
         session = await startElectronE2ESession(sessionName, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [firstPdfPath],
         });
         await waitForPdfLoaded(session.page, 60_000);
@@ -763,10 +752,7 @@ describe('Project 8 recovered close decisions', () => {
             crashElectronBeforeStop: true,
         });
 
-        session = await startElectronE2ESession(sessionName, {
-            clean: false,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-        });
+        session = await startElectronE2ESession(sessionName, {clean: false});
 
         await activateTabWithWorkingCopy(session, secondWorkingCopyPath, secondPdfPath);
         await waitForPdfLoaded(session.page, 60_000);
@@ -798,10 +784,7 @@ describe('Project 8 recovered close decisions', () => {
             preserveWorkspaceCheckpoint: true,
             crashElectronBeforeStop: true,
         });
-        session = await startElectronE2ESession(sessionName, {
-            clean: false,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-        });
+        session = await startElectronE2ESession(sessionName, {clean: false});
         const finalFailedState = await activateTabWithWorkingCopy(session, firstWorkingCopyPath, firstPdfPath);
         await waitForPdfLoaded(session.page, 60_000);
         const recoveryPage = session.page;
@@ -853,7 +836,6 @@ describe('Project 8 recovered close decisions', () => {
         const sessionName = `e2e-project8-owner-isolation-${Date.now()}`;
         session = await startElectronE2ESession(sessionName, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [firstPdfPath],
         });
         await waitForPdfLoaded(session.page, 60_000);
@@ -911,10 +893,7 @@ describe('Project 8 recovered close decisions', () => {
             preserveWorkspaceCheckpoint: true,
             crashElectronBeforeStop: true,
         });
-        session = await startElectronE2ESession(sessionName, {
-            clean: false,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-        });
+        session = await startElectronE2ESession(sessionName, {clean: false});
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
         await expect.poll(async () => (await appPages()).length, {timeout: 60_000}).toBe(2);

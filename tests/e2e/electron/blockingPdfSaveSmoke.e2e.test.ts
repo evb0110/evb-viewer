@@ -189,7 +189,6 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
 
         session = await startElectronE2ESession(`e2e-blocking-save-smoke-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         const { page } = session;
@@ -301,7 +300,6 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
                 EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
                 EVB_PDF_IMAGE_COMBINE_PATH: NATIVE_PDF_IMAGE_COMBINE_PATH,
                 EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
-                EVB_PDF_PAGE_OPS_ENABLE: '1',
             },
         });
         const {page} = session;
@@ -545,7 +543,6 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
 
         session = await startElectronE2ESession(`e2e-blocking-pressure-save-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await Promise.all([
@@ -596,7 +593,6 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await savedSession.stop();
         session = await startElectronE2ESession(`e2e-blocking-pressure-reopen-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
             initialOpenPaths: [pdfPath],
         });
         await Promise.all([

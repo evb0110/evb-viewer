@@ -20,10 +20,7 @@ import {
 } from '@contracts/pageNumbers';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/main/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
@@ -240,9 +237,6 @@ export async function applyPageMetadataRemap(input: {
 }) {
     if (!input.metadataSnapshot) {
         return;
-    }
-    if (isNativePageOpsDisabled()) {
-        throw new Error('Cannot safely remap PDF page metadata while native page operations are disabled');
     }
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {

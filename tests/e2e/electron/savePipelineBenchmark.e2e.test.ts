@@ -24,10 +24,7 @@ import {
     openPdfInApp,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    createFreeTextAnnotation,
-    waitForNoOpenNoteWindows,
-} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {waitForNoOpenNoteWindows} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     callWorkspaceCommand,
     waitForSaveFrontierReady,
@@ -38,7 +35,6 @@ import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
 const execFileAsync = promisify(execFile);
 const benchmarkFixture = process.env.EVB_SAVE_PIPELINE_BENCHMARK_FIXTURE;
 const benchmarkOutput = process.env.EVB_SAVE_PIPELINE_BENCHMARK_OUTPUT;
-const benchmarkMode = process.env.EVB_SAVE_PIPELINE_BENCHMARK_MODE;
 const benchmarkTier = process.env.EVB_SAVE_PIPELINE_BENCHMARK_TIER;
 const benchmarkDescribe = benchmarkFixture && benchmarkOutput ? describe : describe.skip;
 const SAVE_TIMEOUT_MS = 120_000;
@@ -67,47 +63,42 @@ async function runSave(
     path: string,
     text: string,
     electronPid: number | null,
-    mode: 'native-freetext' | 'serialized-fallback',
 ) {
     const position = {
         x: 0.27,
         y: 0.28,
     };
-    if (mode === 'native-freetext') {
-        const created = await callWorkspaceCommand<boolean>(page, 'commentAtPoint', [
-            1,
-            position.x,
-            position.y,
-            {preferTextAnchor: false},
-        ]);
-        expect(created).toEqual({
-            called: true,
-            value: true,
-        });
-        await page.waitForSelector('textarea.note-window__textarea', {timeout: 20_000});
-        await page.evaluate((noteText: string) => {
-            const textarea = Array.from(document.querySelectorAll<HTMLTextAreaElement>(
-                'textarea.note-window__textarea',
-            )).at(-1);
-            if (!textarea) {
-                throw new Error('Benchmark note editor did not open');
-            }
-            const setter = Object.getOwnPropertyDescriptor(
-                HTMLTextAreaElement.prototype,
-                'value',
-            )?.set;
-            setter?.call(textarea, noteText);
-            textarea.dispatchEvent(new InputEvent('input', {
-                bubbles: true,
-                data: noteText,
-                inputType: 'insertText',
-            }));
-            textarea.dispatchEvent(new Event('change', {bubbles: true}));
-            textarea.dispatchEvent(new Event('blur', {bubbles: true}));
-        }, text);
-    } else {
-        expect(await createFreeTextAnnotation(page, text, position)).toBeGreaterThan(0);
-    }
+    const created = await callWorkspaceCommand<boolean>(page, 'commentAtPoint', [
+        1,
+        position.x,
+        position.y,
+        {preferTextAnchor: false},
+    ]);
+    expect(created).toEqual({
+        called: true,
+        value: true,
+    });
+    await page.waitForSelector('textarea.note-window__textarea', {timeout: 20_000});
+    await page.evaluate((noteText: string) => {
+        const textarea = Array.from(document.querySelectorAll<HTMLTextAreaElement>(
+            'textarea.note-window__textarea',
+        )).at(-1);
+        if (!textarea) {
+            throw new Error('Benchmark note editor did not open');
+        }
+        const setter = Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            'value',
+        )?.set;
+        setter?.call(textarea, noteText);
+        textarea.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            data: noteText,
+            inputType: 'insertText',
+        }));
+        textarea.dispatchEvent(new Event('change', {bubbles: true}));
+        textarea.dispatchEvent(new Event('blur', {bubbles: true}));
+    }, text);
     await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
     await waitForSaveFrontierReady(page);
     const beforeBytes = (await stat(path)).size;
@@ -142,10 +133,8 @@ async function runSave(
         await rssSampler;
     }
     const afterBytes = (await stat(path)).size;
-    if (mode === 'native-freetext') {
-        await page.keyboard.press('Escape');
-        await waitForNoOpenNoteWindows(page);
-    }
+    await page.keyboard.press('Escape');
+    await waitForNoOpenNoteWindows(page);
     const closed = await callWorkspaceCommand<boolean>(page, 'handleCloseFileFromUi', [{persist: false}]);
     expect(closed).toEqual({
         called: true,
@@ -180,9 +169,7 @@ async function readResidentBytes(pid: number | null) {
 
 benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
     it('records repeated real-app saves in an isolated headless session', async () => {
-        const mode = benchmarkMode === 'serialized-fallback'
-            ? benchmarkMode
-            : 'native-freetext';
+        const mode = 'native-freetext';
         const tier: TPerformanceMode = benchmarkTier === 'low'
             ? 'low'
             : 'high';
@@ -203,15 +190,9 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
         const session = await startConfiguredSession(
             `e2e-save-benchmark-${mode}-${tier}-${Date.now()}`,
             tier,
-            {
-                EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES: '1',
-                EVB_PDF_PAGE_OPS_ENABLE: mode === 'native-freetext' ? '1' : '0',
-            },
+            {EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES: '1'},
         );
         try {
-            await session.page.evaluate((allowLargeSerializedSave: boolean) => {
-                window.__allowLargeSerializedSaveForAutomation = allowLargeSerializedSave;
-            }, mode === 'serialized-fallback');
             await session.page.waitForFunction(
                 (expectedTier: TPerformanceMode) => (
                     document.documentElement.classList.contains(`performance-tier-${expectedTier}`)
@@ -244,12 +225,11 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
                     runFixture,
                     'save-benchmark-freetext',
                     electronPid,
-                    mode,
                 );
                 const nativeProjectionEngaged = await session.page.evaluate(
                     () => document.documentElement.dataset.evbNativeProjectionEngaged === 'true',
                 );
-                expect(nativeProjectionEngaged).toBe(mode === 'native-freetext');
+                expect(nativeProjectionEngaged).toBe(true);
                 if (measurement.peakRssBytes !== null) {
                     peakRssBytes = Math.max(peakRssBytes ?? 0, measurement.peakRssBytes);
                 }
@@ -270,9 +250,7 @@ benchmarkDescribe('Electron E2E - save pipeline benchmark', () => {
                 schemaVersion: 1,
                 scenario: `${mode}-${tier}`,
                 mode,
-                annotationAction: mode === 'native-freetext'
-                    ? 'page-note'
-                    : 'pdfjs-free-text',
+                annotationAction: 'page-note',
                 tier,
                 hostProfile,
                 fixturePath,

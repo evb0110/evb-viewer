@@ -5,7 +5,6 @@ import {
 } from 'fs/promises';
 import { join } from 'path';
 import type { ICropMargins } from '@contracts/shared';
-import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { hasNativeErrorCode } from '@contracts/nativeErrors';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
@@ -25,11 +24,7 @@ import {
     replaceTempOutput,
 } from '@electron/features/page-ops/main/tempOutput';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
-import {
-    isNativePageOpsDisabled,
-    NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/main/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 
 type TCropOperation = 'crop' | 'remove-crop';
@@ -154,32 +149,8 @@ async function tryRunNativeCropOperation(
     margins?: ICropMargins,
     signal?: AbortSignal,
 ) {
-    if (isNativePageOpsDisabled()) {
-        await assertPageOpsLocalFallbackAllowed(
-            workingCopyPath,
-            operation,
-            signal,
-            'native-unavailable',
-        );
-        return false;
-    }
-
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
-        const testFailure = createNativeFallbackTestError(
-            NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
-            'Native page ops',
-            `no binary path resolved for ${operation}`,
-        );
-        if (testFailure) {
-            await assertPageOpsLocalFallbackAllowed(
-                workingCopyPath,
-                operation,
-                signal,
-                'native-unavailable',
-            );
-            throw testFailure;
-        }
         await assertPageOpsLocalFallbackAllowed(
             workingCopyPath,
             operation,
@@ -215,22 +186,6 @@ async function tryRunNativeCropOperation(
         await cleanupTempOutput(tempPath, log, 'native page crop temp file');
         if (isAbortError(error) || signal?.aborted) {
             throw error;
-        }
-        const testFailure = createNativeFallbackTestError(
-            NATIVE_PAGE_OPS_TEST_ENABLE_ENV,
-            'Native page ops',
-            `${operation} failed`,
-            error,
-        );
-        if (testFailure) {
-            await assertPageOpsLocalFallbackAllowed(
-                workingCopyPath,
-                operation,
-                signal,
-                nativeFailureCode(error),
-                error,
-            );
-            throw testFailure;
         }
         await assertPageOpsLocalFallbackAllowed(
             workingCopyPath,

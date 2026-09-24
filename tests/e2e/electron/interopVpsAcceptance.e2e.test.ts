@@ -62,7 +62,6 @@ const INTEROP_E2E_SCRATCH_ROOT = resolve(process.cwd(), '.devkit', 'artifacts');
 const interopE2eFixtureDirectories: string[] = [];
 
 const sessionFixture = createElectronE2ESessionFixture({
-    extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
     restartBeforeEach: true,
     sessionName: () => `e2e-interop-vps-${Date.now()}`,
 });

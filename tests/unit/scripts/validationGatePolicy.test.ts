@@ -321,7 +321,6 @@ describe('validation gate policy', () => {
             '--no-build',
             'e2e-smoke',
         ]);
-        expect(smoke?.env).toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(stageIds).not.toContain('test.coverage');
         expect(stageIds).not.toContain('typecheck.coverage');
 
@@ -664,7 +663,6 @@ describe('validation gate policy', () => {
             '--no-build',
             'e2e-smoke',
         ]);
-        expect(smoke?.env).toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(smoke?.dependsOn).toEqual(['build.strict']);
     });
 

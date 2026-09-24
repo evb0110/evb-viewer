@@ -1110,7 +1110,6 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
     const sessionFixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-issue-192-canonical-matrix-${Date.now()}`,
         timeoutMs: MATRIX_TIMEOUT_MS,
-        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
     });
 
     it('creates, updates, deletes, recreates, saves, and hard-reopens canonical annotations', async () => {

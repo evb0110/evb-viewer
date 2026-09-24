@@ -36,7 +36,6 @@ const mocks = vi.hoisted(() => ({
     getAppTempDir: vi.fn(),
     getPdfNativeToolPaths: vi.fn(),
     getWorkingCopyRevision: vi.fn(),
-    isNativePageOpsDisabled: vi.fn(),
     registerMainOperation: vi.fn(),
     registerNativePdfSenderCleanup: vi.fn(),
     resolveExistingReadablePdfPath: vi.fn(),
@@ -51,14 +50,8 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({
 }));
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: (...args: unknown[]) => mocks.resolveExistingReadablePdfPath(...args)}));
 vi.mock('@electron/file-access/runWithWorkingCopyReadBacking', () => ({runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args)}));
-vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({
-    isNativePageOpsDisabled: (...args: unknown[]) => mocks.isNativePageOpsDisabled(...args),
-    resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
-}));
-vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({
-    isNativePageOpsDisabled: (...args: unknown[]) => mocks.isNativePageOpsDisabled(...args),
-    resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
-}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args)}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args),
@@ -142,7 +135,6 @@ describe('PDF annotation parse main session', () => {
             path: string,
             operation: (physicalPath: string) => Promise<unknown>,
         ) => operation(path));
-        mocks.isNativePageOpsDisabled.mockReturnValue(false);
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/native/qpdf'});
         mocks.registerNativePdfSenderCleanup.mockReturnValue(() => undefined);

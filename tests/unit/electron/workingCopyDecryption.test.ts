@@ -20,10 +20,7 @@ let tempRoot = '';
 const runNativeToolCommand = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({app: {getPath: vi.fn(() => tempRoot)}}));
-vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({
-    isNativePageOpsDisabled: () => false,
-    resolveNativePageOpsPath: () => '/mock/evb-pdf-page-ops',
-}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/evb-pdf-page-ops'}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand}));
 
 async function loadDecryptModule() {

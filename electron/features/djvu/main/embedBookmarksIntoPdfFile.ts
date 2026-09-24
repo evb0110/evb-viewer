@@ -10,10 +10,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import {
-    isNativePageOpsDisabled,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     PdfCombineCapabilityError,
@@ -110,13 +107,6 @@ async function tryEmbedBookmarksWithNativePageOps(
             await copyFile(inputPdfPath, outputPdfPath);
         }
         return (await stat(outputPdfPath)).size;
-    }
-
-    if (isNativePageOpsDisabled()) {
-        throw createDjvuBookmarkCapabilityError(
-            'native-unavailable',
-            'Native DjVu bookmark embedding is disabled',
-        );
     }
 
     const binaryPath = resolveNativePageOpsPath();

@@ -29,10 +29,7 @@ const mocks = vi.hoisted(() => ({
     runNativeToolCommand: vi.fn(),
 }));
 
-vi.mock('@electron/features/page-ops/main/nativePageOpsPath', () => ({
-    isNativePageOpsDisabled: () => false,
-    resolveNativePageOpsPath: () => '/mock/evb-pdf-page-ops',
-}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/evb-pdf-page-ops'}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),

@@ -785,7 +785,6 @@ function affectedPlan(tier, files, classification) {
                     'e2e-smoke',
                 ], {
                     dependsOn: ['build.strict'],
-                    env: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                     heavyWeight: 3,
                     inputScope: 'build',
                     weight: 3,
@@ -892,7 +891,6 @@ export function getValidationPlan({
                     'build.strict',
                     'electron.bundle-integrity',
                 ],
-                env: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
                 heavyWeight: 3,
                 inputScope: 'build',
                 weight: 3,
