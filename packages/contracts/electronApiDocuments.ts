@@ -985,7 +985,6 @@ export interface IDocumentsFileCapability {
     openDocumentDialog: () => Promise<TOpenFileResult | null>;
     openCombineDialog: () => Promise<TOpenFileResult | null>;
     openFolderDialog: () => Promise<TOpenFileResult | null>;
-    openFolderDialogStructured?: () => Promise<TOpenFolderDialogResult>;
     openImageDialog: () => Promise<string | null>;
     openDocumentDirect: (path: TDocumentRef, password?: string) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
@@ -1029,11 +1028,6 @@ export interface IDocumentsFileCapability {
         options?: IPdfAnnotationIndexChunkOptions,
     ) => Promise<IPdfAnnotationIndexChunk>;
     releasePdfAnnotationIndex?: (sessionId: TSessionId) => Promise<boolean>;
-    cancelPdfAnnotationIndex?: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
-    beginPdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseBegin;
-    readPdfAnnotationParseChunk?: PdfAnnotationParse.TPdfAnnotationParseReadChunk;
-    releasePdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseRelease;
-    cancelPdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseCancel;
     beginPdfEmbeddedShapeIndex?: (
         path: TDocumentRef,
         options: IPdfEmbeddedShapeIndexOptions,
@@ -1059,17 +1053,6 @@ export interface IDocumentsFileCapability {
         path: TDocumentRef,
         options?: IPdfConformanceAnalysisOptions,
     ) => Promise<IPdfConformanceProfile>;
-    validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
-    openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) => Promise<{
-        success: boolean;
-        error?: string;
-        unsupportedReason?: TPlatformUnsupportedReason;
-    }>;
-    openPdfInDefaultAppPath: (path: TDocumentRef, fileName?: string) => Promise<{
-        success: boolean;
-        error?: string;
-        unsupportedReason?: TPlatformUnsupportedReason;
-    }>;
     printPdfData: (data: Uint8Array, fileName?: string, options?: IPdfDataPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -1096,17 +1079,9 @@ export interface IDocumentsFileCapability {
     createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<TDocumentSaveResult>;
-    resyncWorkingCopy?: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
     savePdfData: (
         path: TDocumentRef,
         data: Uint8Array,
-        options?: IPdfSerializedSaveOptions,
-        commitCallbacks?: IPdfSerializedCommitCallbacks,
-    ) => Promise<IPdfValidationResult>;
-    savePdfDataChunks: (
-        path: TDocumentRef,
-        totalBytes: number,
-        chunks: TDocumentChunkSource,
         options?: IPdfSerializedSaveOptions,
         commitCallbacks?: IPdfSerializedCommitCallbacks,
     ) => Promise<IPdfValidationResult>;
@@ -1130,12 +1105,6 @@ export interface IDocumentsFileCapability {
         modifiedAt: TPdfDateString,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
-    savePdfNativeMutations?: (
-        path: TDocumentRef,
-        mutations: IPdfNativeMutationSet,
-        modifiedAt: TPdfDateString,
-        options?: IDocumentMutationRevisionOptions,
-    ) => Promise<IPdfNativeSaveResult>;
     applyPdfNativeMutationsToWorkingCopy?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
@@ -1158,22 +1127,13 @@ export interface IDocumentsFileCapability {
         stagedOutput: ITypedStagedArtifact,
         options: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
-    savePdfDataAs: (
-        workingCopyPath: TDocumentRef,
-        data: Uint8Array,
-        options?: IPdfSaveAsOptions,
-        serializedSaveOptions?: IPdfSerializedSaveOptions,
-        commitCallbacks?: IPdfSerializedCommitCallbacks,
-    ) => Promise<IPdfSaveAsResult>;
     validatePdfPath: (
         path: TDocumentRef,
         options?: IPdfPathValidationOptions,
     ) => Promise<IPdfValidationResult>;
     cleanupFile: (path: TDocumentRef) => Promise<void>;
-    cleanupOcrTemp: (path: TDocumentRef) => Promise<void>;
     setWindowTitle: (title: string) => Promise<void>;
     showItemInFolder: (path: TDocumentRef) => Promise<boolean>;
-    showItemInFolderStructured?: (path: TDocumentRef) => Promise<TShowItemInFolderResult>;
     onDocumentRevisionChanged: (
         callback: (event: IDocumentRevisionChangedEvent) => void,
     ) => TMenuEventUnsubscribe;
@@ -1213,7 +1173,6 @@ export interface IDocumentsPickerCapability extends Pick<
     | 'openDocumentDialog'
     | 'openCombineDialog'
     | 'openFolderDialog'
-    | 'openFolderDialogStructured'
     | 'openImageDialog'
     | 'getPathForFile'
     | 'getPathsForFiles'
@@ -1236,7 +1195,6 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     | 'createWorkingCopyFromPath'
     | 'parsePdfAnnotations'
     | 'cleanupFile'
-    | 'cleanupOcrTemp'
 > {}
 
 export interface IDocumentsReadCapability extends Pick<
@@ -1254,11 +1212,6 @@ export interface IDocumentsReadCapability extends Pick<
     | 'beginPdfAnnotationIndex'
     | 'readPdfAnnotationIndexChunk'
     | 'releasePdfAnnotationIndex'
-    | 'cancelPdfAnnotationIndex'
-    | 'beginPdfAnnotationParse'
-    | 'readPdfAnnotationParseChunk'
-    | 'releasePdfAnnotationParse'
-    | 'cancelPdfAnnotationParse'
     | 'beginPdfEmbeddedShapeIndex'
     | 'readPdfEmbeddedShapeIndexChunk'
     | 'releasePdfEmbeddedShapeIndex'
@@ -1276,13 +1229,10 @@ export interface IDocumentsReadCapability extends Pick<
 export interface IDocumentsPdfValidationCapability extends Pick<
     IDocumentsFileCapability,
     | 'analyzePdfConformance'
-    | 'validatePdfData'
     | 'validatePdfPath'
 > {}
 export interface IDocumentsPdfExternalCapability extends Pick<
     IDocumentsFileCapability,
-    | 'openPdfInDefaultAppData'
-    | 'openPdfInDefaultAppPath'
     | 'printPdfData'
     | 'cancelPdfPrint'
     | 'printPdfPath'
@@ -1291,22 +1241,18 @@ export interface IDocumentsPdfExternalCapability extends Pick<
 export interface IDocumentsPdfPersistenceCapability extends Pick<
     IDocumentsFileCapability,
     | 'savePdfAs'
-    | 'savePdfDataAs'
     | 'savePdfDialog'
     | 'saveDocxAs'
     | 'writeFile'
     | 'replaceWorkingCopyFromPath'
     | 'writeDocxFile'
     | 'saveFileStructured'
-    | 'resyncWorkingCopy'
     | 'savePdfData'
-    | 'savePdfDataChunks'
     | 'repairPdf'
     | 'optimizePdfForInteraction'
     | 'optimizePdfAsCopy'
     | 'savePdfNoteTextUpdates'
     | 'savePdfNoteChanges'
-    | 'savePdfNativeMutations'
     | 'applyPdfNativeMutationsToWorkingCopy'
     | 'commitStagedPdfNativeMutations'
     | 'cloneStagedPdfNativeMutationToWorkingCopy'
@@ -1330,5 +1276,4 @@ export interface IDocumentsWindowCapability extends Pick<
     IDocumentsFileCapability,
     | 'setWindowTitle'
     | 'showItemInFolder'
-    | 'showItemInFolderStructured'
 > {}

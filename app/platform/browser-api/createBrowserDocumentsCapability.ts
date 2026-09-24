@@ -147,7 +147,6 @@ export function createBrowserDocumentsCapability(
         openDocumentDialog: fileCapability.openDocumentDialog,
         openCombineDialog: fileCapability.openCombineDialog,
         openFolderDialog: fileCapability.openFolderDialog,
-        openFolderDialogStructured: fileCapability.openFolderDialogStructured!,
         openImageDialog: fileCapability.openImageDialog,
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
@@ -166,7 +165,6 @@ export function createBrowserDocumentsCapability(
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
         parsePdfAnnotations: fileCapability.parsePdfAnnotations,
         cleanupFile: fileCapability.cleanupFile,
-        cleanupOcrTemp: fileCapability.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
         ...(fileCapability.createManagedTempFileHandle
@@ -183,7 +181,6 @@ export function createBrowserDocumentsCapability(
         ...(fileCapability.optimizePdfAsCopy ? {optimizePdfAsCopy: fileCapability.optimizePdfAsCopy} : {}),
         ...(fileCapability.savePdfNoteTextUpdates ? {savePdfNoteTextUpdates: fileCapability.savePdfNoteTextUpdates} : {}),
         ...(fileCapability.savePdfNoteChanges ? {savePdfNoteChanges: fileCapability.savePdfNoteChanges} : {}),
-        ...(fileCapability.savePdfNativeMutations ? {savePdfNativeMutations: fileCapability.savePdfNativeMutations} : {}),
         ...(fileCapability.applyPdfNativeMutationsToWorkingCopy
             ? {applyPdfNativeMutationsToWorkingCopy: fileCapability.applyPdfNativeMutationsToWorkingCopy}
             : {}),
@@ -202,24 +199,18 @@ export function createBrowserDocumentsCapability(
         getDocumentRevision: fileCapability.getDocumentRevision,
         onDocumentRevisionChanged: fileCapability.onDocumentRevisionChanged,
         savePdfAs: fileCapability.savePdfAs,
-        savePdfDataAs: fileCapability.savePdfDataAs,
         savePdfDialog: fileCapability.savePdfDialog,
         saveDocxAs: fileCapability.saveDocxAs,
         writeFile: fileCapability.writeFile,
         replaceWorkingCopyFromPath: fileCapability.replaceWorkingCopyFromPath,
         writeDocxFile: fileCapability.writeDocxFile,
         saveFileStructured: fileCapability.saveFileStructured,
-        ...(fileCapability.resyncWorkingCopy ? {resyncWorkingCopy: fileCapability.resyncWorkingCopy} : {}),
         savePdfData: fileCapability.savePdfData,
-        savePdfDataChunks: fileCapability.savePdfDataChunks,
         ...optionalDocumentFileMethods,
     } satisfies IDocumentsFileIoCapability;
     const documentPdf = {
         analyzePdfConformance: fileCapability.analyzePdfConformance,
-        validatePdfData: fileCapability.validatePdfData,
         validatePdfPath: fileCapability.validatePdfPath,
-        openPdfInDefaultAppData: fileCapability.openPdfInDefaultAppData,
-        openPdfInDefaultAppPath: fileCapability.openPdfInDefaultAppPath,
         printPdfData: fileCapability.printPdfData,
         printPdfPath: fileCapability.printPdfPath,
     } satisfies IDocumentsPdfCapability;
@@ -242,7 +233,6 @@ export function createBrowserDocumentsCapability(
             return undefined;
         },
         showItemInFolder: fileCapability.showItemInFolder,
-        showItemInFolderStructured: fileCapability.showItemInFolderStructured!,
     } satisfies IDocumentsWindowCapability
         & TFeatureBrowserBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
     const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability

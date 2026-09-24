@@ -50,7 +50,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentPickerOpenDocumentDialogMethod = lazyAsync(pathDescriptors.documentPicker.openDocumentDialog.path);
     const documentPickerOpenCombineDialogMethod = lazyAsync(pathDescriptors.documentPicker.openCombineDialog.path);
     const documentPickerOpenFolderDialogMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialog.path);
-    const documentPickerOpenFolderDialogStructuredMethod = lazyAsync(pathDescriptors.documentPicker.openFolderDialogStructured.path);
     const documentPickerOpenImageDialogMethod = lazyAsync(pathDescriptors.documentPicker.openImageDialog.path);
     const documentPickerGetPathForFileMethod = getPathForFile;
     const documentPickerGetPathsForFilesMethod = getPathsForFiles;
@@ -63,7 +62,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentWorkingCopyCreateWorkingCopyFromPathMethod = lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromPath.path);
     const documentWorkingCopyParsePdfAnnotationsMethod = lazyAsync(pathDescriptors.documentWorkingCopy.parsePdfAnnotations.path);
     const documentWorkingCopyCleanupFileMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupFile.path);
-    const documentWorkingCopyCleanupOcrTempMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupOcrTemp.path);
     const documentFilesReadFileMethod = lazyAsync(pathDescriptors.documentFiles.readFile.path);
     const documentFilesReadPdfPageLabelRangesMethod = lazyAsync(pathDescriptors.documentFiles.readPdfPageLabelRanges.path);
     const documentFilesStatFileMethod = lazyAsync(pathDescriptors.documentFiles.statFile.path);
@@ -73,26 +71,20 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentFilesFileExistsMethod = lazyAsync(pathDescriptors.documentFiles.fileExists.path);
     const documentFilesGetDocumentRevisionMethod = lazyAsync(pathDescriptors.documentFiles.getDocumentRevision.path);
     const documentFilesSavePdfAsMethod = lazyAsync(pathDescriptors.documentFiles.savePdfAs.path);
-    const documentFilesSavePdfDataAsMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDataAs.path);
     const documentFilesSavePdfDialogMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDialog.path);
     const documentFilesSaveDocxAsMethod = lazyAsync(pathDescriptors.documentFiles.saveDocxAs.path);
     const documentFilesWriteFileMethod = lazyAsync(pathDescriptors.documentFiles.writeFile.path);
     const documentFilesReplaceWorkingCopyFromPathMethod = lazyAsync(pathDescriptors.documentFiles.replaceWorkingCopyFromPath.path);
     const documentFilesWriteDocxFileMethod = lazyAsync(pathDescriptors.documentFiles.writeDocxFile.path);
     const documentFilesSaveFileStructuredMethod = lazyAsync(pathDescriptors.documentFiles.saveFileStructured.path);
-    const documentFilesResyncWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.resyncWorkingCopy.path);
     const documentFilesSavePdfDataMethod = lazyAsync(pathDescriptors.documentFiles.savePdfData.path);
-    const documentFilesSavePdfDataChunksMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDataChunks.path);
     const documentFilesReleaseManagedTempFileHandleMethod = lazyAsync(pathDescriptors.documentFiles.releaseManagedTempFileHandle.path);
     const documentFilesApplyPdfNativeMutationsToWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.applyPdfNativeMutationsToWorkingCopy.path);
     const documentFilesCommitStagedPdfNativeMutationsMethod = lazyAsync(pathDescriptors.documentFiles.commitStagedPdfNativeMutations.path);
     const documentFilesCloneStagedPdfNativeMutationToWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.cloneStagedPdfNativeMutationToWorkingCopy.path);
     const documentFilesOnDocumentRevisionChangedMethod = lazyEvent(pathDescriptors.documentFiles.onDocumentRevisionChanged.path);
     const documentPdfAnalyzePdfConformanceMethod = lazyAsync(pathDescriptors.documentPdf.analyzePdfConformance.path);
-    const documentPdfValidatePdfDataMethod = lazyAsync(pathDescriptors.documentPdf.validatePdfData.path);
     const documentPdfValidatePdfPathMethod = lazyAsync(pathDescriptors.documentPdf.validatePdfPath.path);
-    const documentPdfOpenPdfInDefaultAppDataMethod = lazyAsync(pathDescriptors.documentPdf.openPdfInDefaultAppData.path);
-    const documentPdfOpenPdfInDefaultAppPathMethod = lazyAsync(pathDescriptors.documentPdf.openPdfInDefaultAppPath.path);
     const documentPdfPrintPdfDataMethod = lazyAsync(pathDescriptors.documentPdf.printPdfData.path);
     const documentPdfPrintPdfPathMethod = lazyAsync(pathDescriptors.documentPdf.printPdfPath.path);
     const documentRecentFilesRecentFilesGetMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.get.path);
@@ -100,7 +92,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentRecentFilesRecentFilesClearMethod = lazyAsync(pathDescriptors.documentRecentFiles.recentFiles.clear.path);
     const documentWindowSetWindowTitleMethod = lazyAsync(pathDescriptors.documentWindow.setWindowTitle.path);
     const documentWindowShowItemInFolderMethod = lazyAsync(pathDescriptors.documentWindow.showItemInFolder.path);
-    const documentWindowShowItemInFolderStructuredMethod = lazyAsync(pathDescriptors.documentWindow.showItemInFolderStructured.path);
     const documentMenuSetMenuDocumentStateMethod = lazyAsync(pathDescriptors.documentMenu.setMenuDocumentState.path);
     const documentMenuSetMenuTabCountMethod = lazyAsync(pathDescriptors.documentMenu.setMenuTabCount.path);
     const documentMenuOnPdfOptimizeProgressMethod = lazyEvent(pathDescriptors.documentMenu.onPdfOptimizeProgress.path);
@@ -297,7 +288,6 @@ export function createLazyBrowserPlatformApiGenerated({
         openDocumentDialog: documentPickerOpenDocumentDialogMethod,
         openCombineDialog: documentPickerOpenCombineDialogMethod,
         openFolderDialog: documentPickerOpenFolderDialogMethod,
-        openFolderDialogStructured: documentPickerOpenFolderDialogStructuredMethod,
         openImageDialog: documentPickerOpenImageDialogMethod,
         getPathForFile: documentPickerGetPathForFileMethod,
         getPathsForFiles: documentPickerGetPathsForFilesMethod,
@@ -314,7 +304,6 @@ export function createLazyBrowserPlatformApiGenerated({
         createWorkingCopyFromPath: documentWorkingCopyCreateWorkingCopyFromPathMethod,
         parsePdfAnnotations: documentWorkingCopyParsePdfAnnotationsMethod,
         cleanupFile: documentWorkingCopyCleanupFileMethod,
-        cleanupOcrTemp: documentWorkingCopyCleanupOcrTempMethod,
     },
     documentFiles: {
         readFile: documentFilesReadFileMethod,
@@ -326,16 +315,13 @@ export function createLazyBrowserPlatformApiGenerated({
         fileExists: documentFilesFileExistsMethod,
         getDocumentRevision: documentFilesGetDocumentRevisionMethod,
         savePdfAs: documentFilesSavePdfAsMethod,
-        savePdfDataAs: documentFilesSavePdfDataAsMethod,
         savePdfDialog: documentFilesSavePdfDialogMethod,
         saveDocxAs: documentFilesSaveDocxAsMethod,
         writeFile: documentFilesWriteFileMethod,
         replaceWorkingCopyFromPath: documentFilesReplaceWorkingCopyFromPathMethod,
         writeDocxFile: documentFilesWriteDocxFileMethod,
         saveFileStructured: documentFilesSaveFileStructuredMethod,
-        resyncWorkingCopy: documentFilesResyncWorkingCopyMethod,
         savePdfData: documentFilesSavePdfDataMethod,
-        savePdfDataChunks: documentFilesSavePdfDataChunksMethod,
         releaseManagedTempFileHandle: documentFilesReleaseManagedTempFileHandleMethod,
         applyPdfNativeMutationsToWorkingCopy: documentFilesApplyPdfNativeMutationsToWorkingCopyMethod,
         commitStagedPdfNativeMutations: documentFilesCommitStagedPdfNativeMutationsMethod,
@@ -344,10 +330,7 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     documentPdf: {
         analyzePdfConformance: documentPdfAnalyzePdfConformanceMethod,
-        validatePdfData: documentPdfValidatePdfDataMethod,
         validatePdfPath: documentPdfValidatePdfPathMethod,
-        openPdfInDefaultAppData: documentPdfOpenPdfInDefaultAppDataMethod,
-        openPdfInDefaultAppPath: documentPdfOpenPdfInDefaultAppPathMethod,
         printPdfData: documentPdfPrintPdfDataMethod,
         printPdfPath: documentPdfPrintPdfPathMethod,
     },
@@ -361,7 +344,6 @@ export function createLazyBrowserPlatformApiGenerated({
     documentWindow: {
         setWindowTitle: documentWindowSetWindowTitleMethod,
         showItemInFolder: documentWindowShowItemInFolderMethod,
-        showItemInFolderStructured: documentWindowShowItemInFolderStructuredMethod,
     },
     documentMenu: {
         setMenuDocumentState: documentMenuSetMenuDocumentStateMethod,

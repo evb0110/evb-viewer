@@ -1,4 +1,3 @@
-import { shell } from 'electron';
 import type { WebContentsPrintOptions } from 'electron';
 import { uniq } from 'es-toolkit/array';
 import {
@@ -13,8 +12,6 @@ import {
     join,
 } from 'path';
 import { randomUUID } from 'crypto';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { extractPages } from '@electron/features/page-ops/public';
@@ -42,7 +39,6 @@ import {
 } from '@electron/utils/printHandoff';
 import { buildPrintablePdfPath } from '@electron/features/documents/main/buildPrintablePdfPath';
 
-const logger = createLogger('documents-print');
 const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
 const PRINT_DATA_TEMP_PREFIX = 'print-data-';
 const PRINT_PAGE_TEMP_PREFIX = 'print-pages-';
@@ -53,10 +49,6 @@ const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
 const activePdfPrintAborters = new Map<string, (reason: string) => void>();
 
-interface IOpenPdfInDefaultAppResult {
-    success: boolean;
-    error?: string;
-}
 
 function normalizePrintableFileName(fileName?: string) {
     const trimmed = typeof fileName === 'string' ? fileName.trim() : '';
@@ -84,19 +76,6 @@ function buildOpaquePrintTempPath(prefix: string, operationId: string) {
     return join(getAppTempDir(), tempFileName);
 }
 
-function scheduleDefaultAppTempCleanup(path: string, delayMs = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS) {
-    const existingTimer = scheduledDefaultAppTempCleanup.get(path);
-    if (existingTimer) {
-        clearTimeout(existingTimer);
-    }
-
-    const timer = setTimeout(() => {
-        scheduledDefaultAppTempCleanup.delete(path);
-        void unlink(path).catch(() => undefined);
-    }, delayMs);
-    timer.unref();
-    scheduledDefaultAppTempCleanup.set(path, timer);
-}
 
 async function cleanupDefaultAppTempPath(path: string) {
     const existingTimer = scheduledDefaultAppTempCleanup.get(path);
@@ -152,25 +131,6 @@ export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_M
     }));
 }
 
-async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppResult> {
-    try {
-        const result = await shell.openPath(path);
-        if (!result) {
-            return { success: true };
-        }
-
-        return {
-            success: false,
-            error: result,
-        };
-    } catch (error) {
-        logger.warn(`Failed to open PDF in the default app: ${getErrorMessage(error)}`);
-        return {
-            success: false,
-            error: error instanceof Error ? getErrorMessage(error) : 'Failed to open the default PDF app',
-        };
-    }
-}
 
 async function resolveReadablePdfPathForSender(filePath: string, senderId?: number, signal?: AbortSignal) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, senderId);
@@ -328,39 +288,7 @@ export async function handlePrintPdfData(
     }
 }
 
-export async function handleOpenPdfInDefaultAppData(
-    data: Uint8Array,
-    fileName?: string,
-): Promise<IOpenPdfInDefaultAppResult> {
-    validatePdfBytesForHandoff(data, 'PDF handoff');
 
-    const tempFileName = `${DEFAULT_APP_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
-    const tempPath = join(getAppTempDir(), tempFileName);
-    try {
-        await writeFile(tempPath, Buffer.from(data));
-        const result = await openPdfInDefaultApp(tempPath);
-        if (result.success) {
-            scheduleDefaultAppTempCleanup(tempPath);
-            return result;
-        }
-
-        await cleanupDefaultAppTempPath(tempPath);
-        return result;
-    } catch (error) {
-        await cleanupDefaultAppTempPath(tempPath);
-        throw error;
-    }
-}
-
-export async function handleOpenPdfInDefaultAppPath(
-    context: IDocumentsSenderIdContext,
-    filePath: string,
-    _fileName?: string,
-): Promise<IOpenPdfInDefaultAppResult> {
-    const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
-    await assertPdfPathWithinSizeLimit(resolvedPath);
-    return openPdfInDefaultApp(resolvedPath);
-}
 
 export async function handlePrintPdfPath(
     context: IDocumentsWindowContext,

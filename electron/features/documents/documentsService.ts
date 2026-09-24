@@ -17,7 +17,6 @@ import type {
     IPdfNativeNoteChanges,
     IPdfNativeSaveResult,
     IPdfNativeNoteTextSaveResult,
-    IPdfSaveAsResult,
     IPdfCommittedSaveAsResult,
     IPdfNativePagePreview,
     IPdfNativePagePreviewOptions,
@@ -38,11 +37,8 @@ import type {
     IPdfAnnotationIndexChunkOptions,
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
-    IPdfAnnotationParseChunk,
-    IPdfAnnotationParseChunkOptions,
     IPdfAnnotationParseOptions,
     IPdfAnnotationParseResult,
-    IPdfAnnotationParseSession,
     IPdfDataPrintOptions,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
@@ -55,10 +51,7 @@ import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type { IRecentFile } from '@contracts/shared';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
-import type {
-    IBeginSerializedPdfPersistenceResult,
-    IBeginSerializedPdfSaveAsResult,
-} from '@electron/features/documents/serializedPdfPersistenceContract';
+import type {IBeginSerializedPdfPersistenceResult} from '@electron/features/documents/serializedPdfPersistenceContract';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 
 export interface IDocumentsWebContentsContext {
@@ -127,20 +120,6 @@ export interface IDocumentsService {
         options: IPdfSaveAsOptions | undefined,
         revisionOptions?: IDocumentMutationRevisionOptions,
     ) => Promise<string | null>;
-    savePdfDataAs: (
-        context: IDocumentsDialogContext,
-        workingPath: string,
-        data: Uint8Array,
-        options?: IPdfSaveAsOptions,
-        serializedSaveOptions?: IPdfSerializedSaveOptions,
-    ) => Promise<IPdfSaveAsResult>;
-    beginSavePdfDataAs: (
-        context: IDocumentsDialogContext,
-        workingPath: string,
-        totalBytes: number,
-        options?: IPdfSaveAsOptions,
-        serializedSaveOptions?: IPdfSerializedSaveOptions,
-    ) => Promise<IBeginSerializedPdfSaveAsResult>;
     savePdfDialog: (context: IDocumentsDialogContext, suggestedName: string) => Promise<string | null>;
     saveDocxAs: (context: IDocumentsDialogContext, workingPath: string) => Promise<string | null>;
     readFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<Uint8Array>;
@@ -197,29 +176,6 @@ export interface IDocumentsService {
         context: IDocumentsSenderIdContext,
         sessionId: string,
     ) => Promise<boolean>;
-    cancelPdfAnnotationIndex: (
-        context: IDocumentsSenderIdContext,
-        sessionId: string,
-    ) => Promise<{canceled: boolean}>;
-    beginPdfAnnotationParse: (
-        context: IDocumentsSenderIdContext,
-        filePath: string,
-        options: IPdfAnnotationParseOptions,
-    ) => Promise<IPdfAnnotationParseSession>;
-    readPdfAnnotationParseChunk: (
-        context: IDocumentsSenderIdContext,
-        sessionId: string,
-        offset: number,
-        options?: IPdfAnnotationParseChunkOptions,
-    ) => Promise<IPdfAnnotationParseChunk>;
-    releasePdfAnnotationParse: (
-        context: IDocumentsSenderIdContext,
-        sessionId: string,
-    ) => Promise<boolean>;
-    cancelPdfAnnotationParse: (
-        context: IDocumentsSenderIdContext,
-        sessionId: string,
-    ) => Promise<{canceled: boolean}>;
     beginPdfEmbeddedShapeIndex: (
         context: IDocumentsSenderIdContext,
         filePath: string,
@@ -254,20 +210,11 @@ export interface IDocumentsService {
         filePath: string,
         options?: IPdfConformanceAnalysisOptions,
     ) => Promise<IPdfConformanceProfile>;
-    validatePdfData: (data: Uint8Array, fileName?: string) => Promise<IPdfValidationResult>;
     validatePdfPath: (
         context: IDocumentsSenderIdContext,
         filePath: string,
         options?: IPdfPathValidationOptions,
     ) => Promise<IPdfValidationResult>;
-    openPdfInDefaultAppData: (data: Uint8Array, fileName?: string) => Promise<{
-        success: boolean;
-        error?: string;
-    }>;
-    openPdfInDefaultAppPath: (context: IDocumentsSenderIdContext, filePath: string, fileName?: string) => Promise<{
-        success: boolean;
-        error?: string;
-    }>;
     printPdfData: (context: IDocumentsWindowContext, data: Uint8Array, fileName?: string, options?: IPdfDataPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -288,7 +235,6 @@ export interface IDocumentsService {
         data: Uint8Array,
         options?: IPdfSerializedSaveOptions,
     ) => Promise<boolean>;
-    resyncWorkingCopy: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<TDocumentSaveResult>;
     replaceWorkingCopyFromPath: (
         context: IDocumentsSenderIdContext,
         workingCopyPath: string,
@@ -338,13 +284,6 @@ export interface IDocumentsService {
         modifiedAt: string,
         options?: IPdfSerializedSaveOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
-    savePdfNativeMutations: (
-        context: IDocumentsSenderIdContext,
-        workingPath: string,
-        mutations: IPdfNativeMutationSet,
-        modifiedAt: string,
-        options?: IPdfSerializedSaveOptions,
-    ) => Promise<IPdfNativeSaveResult>;
     applyPdfNativeMutationsToWorkingCopy: (
         context: IDocumentsSenderIdContext,
         workingPath: string,
@@ -386,7 +325,6 @@ export interface IDocumentsService {
         stagedOutput: ITypedStagedArtifact,
     ) => Promise<boolean>;
     cleanupFile: (context: IDocumentsSenderIdContext, workingPath: string) => Promise<void>;
-    cleanupOcrTemp: (context: IDocumentsSenderIdContext, filePath: string) => Promise<void>;
     setWindowTitle: (context: IDocumentsWindowContext, title: string) => void;
     showItemInFolder: (context: IDocumentsOpenPathContext, filePath: string) => Promise<boolean>;
     setMenuDocumentState: (

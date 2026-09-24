@@ -19,7 +19,6 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { getErrorMessage } from '@electron/utils/error';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     ensureWorkingCopyMaterialized,
     WorkingCopyMaterializationError,
@@ -39,15 +38,7 @@ import {
     enqueueWorkingCopyMutation,
     type IWorkingCopyMutationOperation,
 } from '@electron/file-access/workingCopyMutationQueue';
-import {
-    awaitWorkingCopyRevisionDurability,
-    clearWorkingCopySyncRequired,
-    markWorkingCopyContentChanged,
-} from '@electron/file-access/documentRevisionStore';
-import {
-    assertQueuedWorkingCopyMutationPreconditions,
-    assertQueuedWorkingCopyMutationPreconditionsForResync,
-} from '@electron/file-access/documentMutationGuards';
+import {assertQueuedWorkingCopyMutationPreconditions} from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
@@ -402,56 +393,6 @@ export async function handleFileSaveStructured(
     }
 }
 
-export async function handleResyncWorkingCopy(
-    context: IDocumentsSenderIdContext,
-    workingPath: string,
-): Promise<TDocumentSaveResult> {
-    try {
-        const senderId = requireSenderId(context);
-        if (!workingPath || workingPath.trim() === '') {
-            return createSaveFailureResult('write-failed', new Error('Invalid file path'), {
-                externalWriteCommitted: false,
-                validation: null,
-            });
-        }
-
-        const normalizedWorkingPath = workingPath.trim();
-        await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            assertQueuedWorkingCopyMutationPreconditionsForResync(
-                normalizedWorkingPath,
-                senderId,
-                'resync-after-external-change',
-            );
-            await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
-            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, senderId)) {
-                throw new WorkingCopyMissingError('Working copy path is not managed');
-            }
-            const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
-            await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-            await refreshWorkingCopyOriginalFileExpectationForSave(normalizedWorkingPath, senderId);
-            clearWorkingCopySyncRequired(normalizedWorkingPath);
-            await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', senderId);
-        });
-
-        return {
-            ok: true,
-            externalWriteCommitted: false,
-            workingCopyRefreshed: true,
-            validation: null,
-        };
-    } catch (error) {
-        if (error instanceof WorkingCopyMissingError) {
-            return createSaveFailureResult('working-copy-missing', error, {
-                externalWriteCommitted: false,
-                validation: null,
-            });
-        }
-        return createSaveFailureResult('write-failed', error, {
-            externalWriteCommitted: false,
-            validation: null,
-        });
-    }
-}
 
 export async function handleSerializedPdfSave(
     context: IDocumentsSenderIdContext,

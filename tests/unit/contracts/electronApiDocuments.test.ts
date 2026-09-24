@@ -7,18 +7,7 @@ import { decodeWorkingCopyBackingStatus } from '@contracts/electronApiDocuments'
 import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_OPEN_PLATFORM_FEATURE,
-    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
-
-describe('working-copy cleanupOcrTemp result codec', () => {
-    it('decodes the void result main actually resolves', () => {
-        const codec = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE
-            .ipcCodecs['file:cleanupOcrTemp']!;
-        expect(codec.decodeResult(undefined)).toBeUndefined();
-        expect(codec.decodeResult(true)).toBeUndefined();
-        expect(() => codec.decodeResult('done')).toThrow('expected a void IPC result');
-    });
-});
 
 describe('progress event payload codecs', () => {
     const decodeOptimize = DOCUMENT_MENU_PLATFORM_FEATURE

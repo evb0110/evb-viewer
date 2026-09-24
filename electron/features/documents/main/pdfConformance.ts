@@ -1,14 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import {
-    stat,
-    unlink,
-    writeFile,
-} from 'fs/promises';
-import {
-    basename,
-    dirname,
-    join,
-} from 'path';
+import {stat} from 'fs/promises';
+import {dirname} from 'path';
 import { fileURLToPath } from 'url';
 import { compact } from 'es-toolkit/array';
 import type {
@@ -18,7 +9,6 @@ import type {
 import { isRecord } from '@contracts/runtimeGuards';
 import { createDefaultPdfConformanceProfile } from '@pdf-core';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -79,13 +69,6 @@ async function tryStatPdfFile(filePath: string): Promise<TPdfFileStat | null> {
     }
 }
 
-function sanitizeValidationFileName(fileName?: string) {
-    const fallback = 'document.pdf';
-    const trimmed = fileName?.trim();
-    const baseName = basename(trimmed && trimmed.length > 0 ? trimmed : fallback);
-    const sanitized = baseName.replace(/[^\w.-]+/gu, '-');
-    return sanitized.toLowerCase().endsWith('.pdf') ? sanitized : `${sanitized}.pdf`;
-}
 
 function extractQpdfWarnings(text: string) {
     return compact(text
@@ -199,14 +182,6 @@ export async function analyzePdfConformanceFile(
     }
 }
 
-function createEmptyPdfValidationResult(): IPdfValidationResult {
-    return {
-        isValid: false,
-        tool: 'qpdf',
-        errors: ['PDF validation failed: empty document data'],
-        warnings: [],
-    };
-}
 
 function isQpdfValidationTimeoutError(error: unknown) {
     return error instanceof Error
@@ -372,24 +347,3 @@ export function validatePdfFileForSave(
     return validatePdfFileWithPageCount(filePath, QPDF_SAVE_VALIDATE_COMMAND_LABEL, options);
 }
 
-export async function validatePdfData(
-    data: Uint8Array,
-    fileName?: string,
-): Promise<IPdfValidationResult> {
-    if (!(data instanceof Uint8Array) || data.byteLength === 0) {
-        return createEmptyPdfValidationResult();
-    }
-
-    const tempPath = join(
-        getAppTempDir(),
-        `pdf-validate-${randomUUID()}-${sanitizeValidationFileName(fileName)}`,
-    );
-
-    await writeFile(tempPath, data);
-
-    try {
-        return await validatePdfFile(tempPath);
-    } finally {
-        await unlink(tempPath).catch(() => undefined);
-    }
-}

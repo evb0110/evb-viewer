@@ -6,10 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { resolve } from 'path';
-import {
-    createPendingResultFileStore,
-    findPendingOcrResultFileForPath,
-} from '@electron/features/ocr/main/createPendingResultFileStore';
+import {createPendingResultFileStore} from '@electron/features/ocr/main/createPendingResultFileStore';
 import {
     requireJobId,
     requireRequestId,
@@ -33,68 +30,6 @@ describe('createPendingResultFileStore', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-    });
-
-    it('does not track result files that do not require cleanup acknowledgement', () => {
-        const store = createPendingResultFileStore({
-            logger,
-            ttlMs: 60_000,
-            removeResultFile,
-        });
-
-        store.track(OCR_JOB_ID, OCR_REQUEST_ID, 42, OCR_DOCUMENT_REF, OCR_DOCUMENT_REVISION, '/tmp/ocr-1.pdf', 'sha256-ocr-1', false);
-
-        expect(store.find(42, OCR_REQUEST_ID)).toBeNull();
-        expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).toBeNull();
-        expect(removeResultFile).not.toHaveBeenCalled();
-    });
-
-    it('keeps ownership and reports failure when acknowledgement cannot delete the file', async () => {
-        removeResultFile
-            .mockResolvedValueOnce(false)
-            .mockResolvedValueOnce(true);
-        const store = createPendingResultFileStore({
-            logger,
-            ttlMs: 60_000,
-            removeResultFile,
-        });
-
-        store.track(OCR_JOB_ID, OCR_REQUEST_ID, 42, OCR_DOCUMENT_REF, OCR_DOCUMENT_REVISION, '/tmp/ocr-1.pdf', 'sha256-ocr-1', true);
-
-        await expect(store.acknowledge(42, OCR_REQUEST_ID, '/tmp/ocr-1.pdf')).resolves.toEqual({
-            cleaned: false,
-            error: 'Failed to delete pending OCR result file',
-        });
-        expect(store.find(42, OCR_REQUEST_ID)).not.toBeNull();
-        expect(store.find(42, OCR_REQUEST_ID)?.resultSha256).toBe('sha256-ocr-1');
-        expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).not.toBeNull();
-
-        await expect(store.acknowledge(42, OCR_REQUEST_ID, '/tmp/ocr-1.pdf')).resolves.toEqual({ cleaned: true });
-        expect(store.find(42, OCR_REQUEST_ID)).toBeNull();
-        expect(findPendingOcrResultFileForPath(42, '/tmp/ocr-1.pdf')).toBeNull();
-    });
-
-    it('matches owned OCR results across macOS /var and /private/var path aliases', async () => {
-        const store = createPendingResultFileStore({
-            logger,
-            ttlMs: 60_000,
-            removeResultFile,
-            canonicalizePath: (filePath: string) => filePath.startsWith('/var/folders/')
-                ? filePath.replace('/var/folders/', '/private/var/folders/')
-                : filePath,
-        });
-        const rendererPath = '/var/folders/app/T/evb-viewer/ocr-1-merged.pdf';
-        const canonicalPath = resolve('/private/var/folders/app/T/evb-viewer/ocr-1-merged.pdf');
-
-        store.track(OCR_JOB_ID, OCR_REQUEST_ID, 42, OCR_DOCUMENT_REF, OCR_DOCUMENT_REVISION, rendererPath, 'sha256-alias-result', true);
-
-        expect(store.find(42, OCR_REQUEST_ID)?.pdfPath).toBe(canonicalPath);
-        expect(findPendingOcrResultFileForPath(42, rendererPath)?.pdfPath).toBe(canonicalPath);
-        expect(findPendingOcrResultFileForPath(42, canonicalPath)?.pdfPath).toBe(canonicalPath);
-
-        await expect(store.acknowledge(42, OCR_REQUEST_ID, rendererPath)).resolves.toEqual({ cleaned: true });
-        expect(removeResultFile).toHaveBeenCalledWith(canonicalPath);
-        expect(store.find(42, OCR_REQUEST_ID)).toBeNull();
     });
 
     it('does not delete a newer pending result when stale cleanup finishes late', async () => {

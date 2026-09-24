@@ -399,22 +399,6 @@ export async function releasePdfAnnotationParse(
     return true;
 }
 
-export function cancelPdfAnnotationParse(
-    context: IDocumentsSenderIdContext,
-    sessionId: string,
-) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        return Promise.resolve({canceled: false});
-    }
-    assertSessionOwner(session, context);
-    if (session.canceled || session.released) {
-        return Promise.resolve({canceled: false});
-    }
-    cancelPdfSidecarSession(session, 'PDF annotation parse canceled');
-    cleanupWhenOperationSettles(session);
-    return Promise.resolve({canceled: true});
-}
 
 export async function parsePdfAnnotations(
     context: IDocumentsSenderIdContext,

@@ -11,9 +11,7 @@ import {
 import { isPdfValidationResult } from '@contracts/pdfConformance';
 import {
     appendOptionalDocumentArg as appendOptional,
-    decodePdfPathValidationResult as decodePathValidationResult,
     decodePdfRevisionOptions as decodeRevisionOptions,
-    decodePdfSaveAsOptions as decodeSaveAsOptions,
     decodePdfValidation,
     decodeRequiredDocumentObject as decodeRequiredObject,
     decodeSaveAsWarning,
@@ -30,10 +28,7 @@ import {
     type IDocxExportStreamBeginResult,
 } from '@contracts/docxExport';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {parseDocumentRef} from '@contracts/documentRef';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     requireSessionId,
@@ -43,10 +38,7 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import type {
-    IBeginSerializedPdfPersistenceResult,
-    IBeginSerializedPdfSaveAsResult,
-} from '@electron/features/documents/serializedPdfPersistenceContract';
+import type {IBeginSerializedPdfPersistenceResult} from '@electron/features/documents/serializedPdfPersistenceContract';
 import {
     decodeBoundedArray,
     decodeSafeIntegerArg,
@@ -138,42 +130,7 @@ function decodePersistenceBeginResult(value: unknown): IBeginSerializedPdfPersis
     };
 }
 
-function decodeOptionalPositiveSafeInteger(value: unknown, fieldName: string): number | undefined {
-    return value === undefined ? undefined : decodePositiveSafeInteger(value, fieldName);
-}
 
-function decodeSaveAsBeginResult(value: unknown): IBeginSerializedPdfSaveAsResult {
-    if (
-        !isRecord(value)
-        || (value.sessionId !== null && typeof value.sessionId !== 'string')
-        || (value.path !== null && typeof value.path !== 'string')
-        || (
-            value.protocolVersion !== undefined
-            && value.protocolVersion !== SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION
-        )
-    ) {
-        throw new Error('invalid serialized save-as begin result');
-    }
-    const maxChunkBytes = decodeOptionalPositiveSafeInteger(value.maxChunkBytes, 'maxChunkBytes');
-    const maxInFlightChunks = decodeOptionalPositiveSafeInteger(value.maxInFlightChunks, 'maxInFlightChunks');
-    const maxTotalBytes = decodeOptionalPositiveSafeInteger(value.maxTotalBytes, 'maxTotalBytes');
-    const ackTimeoutMs = decodeOptionalPositiveSafeInteger(value.ackTimeoutMs, 'ackTimeoutMs');
-    const progressTimeoutMs = decodeOptionalPositiveSafeInteger(value.progressTimeoutMs, 'progressTimeoutMs');
-    const resultTimeoutMs = decodeOptionalPositiveSafeInteger(value.resultTimeoutMs, 'resultTimeoutMs');
-    return {
-        sessionId: value.sessionId === null ? null : requireSessionId(value.sessionId),
-        path: value.path === null ? null : decodeDocumentRef(value.path, 'save-as result.path'),
-        ...(value.protocolVersion === undefined
-            ? {}
-            : {protocolVersion: SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION}),
-        ...(maxChunkBytes === undefined ? {} : {maxChunkBytes}),
-        ...(maxInFlightChunks === undefined ? {} : {maxInFlightChunks}),
-        ...(maxTotalBytes === undefined ? {} : {maxTotalBytes}),
-        ...(ackTimeoutMs === undefined ? {} : {ackTimeoutMs}),
-        ...(progressTimeoutMs === undefined ? {} : {progressTimeoutMs}),
-        ...(resultTimeoutMs === undefined ? {} : {resultTimeoutMs}),
-    };
-}
 
 const decodeValidationResult = (value: unknown) => requireDecoded(
     value,
@@ -232,40 +189,6 @@ export const DOCUMENTS_IPC_CODECS = {
             return [requests.map(item => decodeRendererFileOpenRequest(item, 'request'))];
         },
         decodeResult: decodeBooleanResult,
-    },
-    [DOCUMENTS_CHANNELS.savePdfDataAs]: {
-        decodeArgs: (args: readonly unknown[]) => {
-            const base: [TDocumentRef, Uint8Array] = [
-                decodeDocumentRef(decodeStringArg(args, 0, 'workingPath'), 'workingPath'),
-                decodeUint8ArrayArg(args, 1, 'data'),
-            ];
-            const options = decodeSaveAsOptions(args[2]);
-            if (options === undefined) {
-                return base;
-            }
-            return appendOptional([
-                ...base,
-                options,
-            ], decodeRevisionOptions(args[3]));
-        },
-        decodeResult: decodePathValidationResult,
-    },
-    [DOCUMENTS_CHANNELS.savePdfDataAsBegin]: {
-        decodeArgs: (args: readonly unknown[]) => {
-            const base: [TDocumentRef, number] = [
-                decodeDocumentRef(decodeStringArg(args, 0, 'workingPath'), 'workingPath'),
-                decodeSafeIntegerArg(args, 1, 'totalBytes'),
-            ];
-            const options = decodeSaveAsOptions(args[2]);
-            if (options === undefined) {
-                return base;
-            }
-            return appendOptional([
-                ...base,
-                options,
-            ], decodeRevisionOptions(args[3]));
-        },
-        decodeResult: decodeSaveAsBeginResult,
     },
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
         decodeArgs: (args: readonly unknown[]) => appendOptional([

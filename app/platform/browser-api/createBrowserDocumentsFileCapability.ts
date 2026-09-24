@@ -11,7 +11,6 @@ import {
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
 import {
-    BROWSER_DOCUMENT_CHUNK_SIZE,
     BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
     getBrowserDocumentFileName,
@@ -58,7 +57,6 @@ import {
     saveWorkingBytesToSource,
     saveWorkingBytesToSourceStructured,
 } from '@app/platform/browser-api/browserSaveTargets';
-import { createPlatformUnsupportedResult } from '@contracts/platformUnsupported';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {
     isBrowserPageOpsWasmFailure,
@@ -80,7 +78,6 @@ import {
 import { createEpochMs } from '@contracts/timestamps';
 import { isOneOf } from '@contracts/runtimeGuards';
 
-const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
 
 export async function createBrowserCombinedPdfFromPaths(
@@ -137,11 +134,9 @@ export function createBrowserDocumentsFileCapability(
         }));
     }
 
-    async function savePdfAsWithOptionalData(
+    async function savePdfAsFromWorkingCopy(
         workingCopyPath: TDocumentRef,
-        data?: Uint8Array,
         revisionOptions?: IDocumentMutationRevisionOptions,
-        commitCallbacks?: Parameters<IDocumentsFileCapability['savePdfDataAs']>[4],
     ) {
         await browserDocumentStore.assertDocumentRevisionCurrent(
             workingCopyPath,
@@ -160,11 +155,6 @@ export function createBrowserDocumentsFileCapability(
         if (saveResult.canceled) {
             return null;
         }
-        if (data) {
-            await commitCallbacks?.verifyBytesBeforeCommit?.(data);
-        }
-        await commitCallbacks?.assertBeforeCommit?.();
-
         let externalWriteCommitted: boolean | null = false;
         let savedSourceRef: TDocumentRef | null;
         try {
@@ -178,14 +168,9 @@ export function createBrowserDocumentsFileCapability(
                     let sourceRef: TDocumentRef;
 
                     if (saveResult.handle) {
-                        if (data) {
-                            await writeBytesToHandle(saveResult.handle, data);
-                        } else {
-                            await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
-                        }
+                        await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
                         externalWriteCommitted = true;
-                        const size = data?.byteLength
-                            ?? (await browserDocumentStore.stat(workingCopyPath)).size;
+                        const {size} = await browserDocumentStore.stat(workingCopyPath);
                         sourceRef = await browserDocumentStore.createStoredDocument(
                             normalizedFileName,
                             new Uint8Array(),
@@ -209,22 +194,12 @@ export function createBrowserDocumentsFileCapability(
                             saveResult.handle,
                         );
                     } else {
-                        let bytes: Uint8Array;
-                        if (data) {
-                            bytes = data;
-                            if (bytes.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
-                                throw new Error(
-                                    `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB. ${browserUseNativeAppMessageProvider()}`,
-                                );
-                            }
-                        } else {
-                            await assertBrowserPathWithinFullReadBudget(
-                                workingCopyPath,
-                                'Saving documents',
-                                browserUseNativeAppMessageProvider(),
-                            );
-                            bytes = await browserDocumentStore.read(workingCopyPath);
-                        }
+                        await assertBrowserPathWithinFullReadBudget(
+                            workingCopyPath,
+                            'Saving documents',
+                            browserUseNativeAppMessageProvider(),
+                        );
+                        const bytes = await browserDocumentStore.read(workingCopyPath);
                         const downloadResult = await saveBytesToPickerOrDownload(bytes, {
                             suggestedName,
                             mimeType: 'application/pdf',
@@ -249,9 +224,6 @@ export function createBrowserDocumentsFileCapability(
                                 saveHandle: downloadResult.handle,
                             },
                         );
-                    }
-                    if (data) {
-                        await mutation.write(data);
                     }
                     await mutation.replaceWorkingCopySource(
                         sourceRef,
@@ -285,33 +257,6 @@ export function createBrowserDocumentsFileCapability(
         return savedSourceRef;
     }
 
-    async function copyChunkedDocument(sourcePath: string, targetPath: string, totalBytes: number) {
-        await browserDocumentStore.prepareChunkedDocument(targetPath, {chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE});
-        let copiedBytes = 0;
-        let chunkIndex = 0;
-        try {
-            while (copiedBytes < totalBytes) {
-                const length = Math.min(BROWSER_DOCUMENT_CHUNK_SIZE, totalBytes - copiedBytes);
-                const chunk = await browserDocumentStore.readRange(sourcePath, copiedBytes, length);
-                if (chunk.byteLength !== length) {
-                    throw new Error(`Browser document range copy returned ${chunk.byteLength} bytes for requested ${length} bytes`);
-                }
-                await browserDocumentStore.writeChunk(targetPath, chunkIndex, chunk);
-                copiedBytes += chunk.byteLength;
-                chunkIndex += 1;
-            }
-            await browserDocumentStore.finalizeChunkedDocument(targetPath, {
-                fileSize: totalBytes,
-                chunkCount: chunkIndex,
-                chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
-            });
-        } catch (error) {
-            await browserDocumentStore.clearChunkedDocument(targetPath)
-                .catch(() => undefined);
-            throw error;
-        }
-    }
-
     const capability: TCanonicalDocumentsFileCapability = {
         async openDocumentDialog() {
             const pickedFiles = await pickFiles({
@@ -341,12 +286,6 @@ export function createBrowserDocumentsFileCapability(
         },
         openFolderDialog() {
             return Promise.resolve(null);
-        },
-        openFolderDialogStructured() {
-            return Promise.resolve(createPlatformUnsupportedResult(
-                'requires-native-backend',
-                'Folder dialogs require the desktop app.',
-            ));
         },
         async openCombineDialog() {
             const pickedFiles = await pickFiles({
@@ -428,27 +367,7 @@ export function createBrowserDocumentsFileCapability(
             }
         },
         async savePdfAs(workingCopyPath, _options, revisionOptions?) {
-            return savePdfAsWithOptionalData(workingCopyPath, undefined, revisionOptions);
-        },
-        async savePdfDataAs(workingCopyPath, data, _options, serializedSaveOptions?, commitCallbacks?) {
-            const validation = await validateBrowserPdfData(data);
-            if (!validation.isValid) {
-                return {
-                    path: null,
-                    validation,
-                };
-            }
-
-            const path = await savePdfAsWithOptionalData(
-                workingCopyPath,
-                data,
-                serializedSaveOptions,
-                commitCallbacks,
-            );
-            return {
-                path,
-                validation,
-            };
+            return savePdfAsFromWorkingCopy(workingCopyPath, revisionOptions);
         },
         async savePdfDialog(suggestedName) {
             const nextName = ensurePdfExtension(suggestedName);
@@ -777,25 +696,8 @@ export function createBrowserDocumentsFileCapability(
         async analyzePdfConformance(path) {
             return analyzeBrowserPdfConformance(path);
         },
-        async validatePdfData(data) {
-            return validateBrowserPdfData(data);
-        },
         async validatePdfPath(path, _options) {
             return validateBrowserPdfPath(path);
-        },
-        openPdfInDefaultAppData() {
-            return Promise.resolve({
-                success: false,
-                error: BROWSER_DEFAULT_PDF_APP_UNSUPPORTED,
-                unsupportedReason: 'requires-native-backend',
-            });
-        },
-        openPdfInDefaultAppPath() {
-            return Promise.resolve({
-                success: false,
-                error: BROWSER_DEFAULT_PDF_APP_UNSUPPORTED,
-                unsupportedReason: 'requires-native-backend',
-            });
         },
         printPdfData() {
             return Promise.resolve({
@@ -844,118 +746,6 @@ export function createBrowserDocumentsFileCapability(
             }
             await clearSearchCaches();
             return validation;
-        },
-        async savePdfDataChunks(path, totalBytes, chunks, options, commitCallbacks) {
-            if (!Number.isSafeInteger(totalBytes) || totalBytes < 1) {
-                throw new Error('savePdfDataChunks.totalBytes must be a positive safe integer');
-            }
-            let bytesRead = 0;
-            let stagedChunkCount = 0;
-            let stagingBuffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
-            let stagingOffset = 0;
-            const stagingPath = await browserDocumentStore.createStoredDocument(
-                `${getBrowserDocumentFileName(path)}.staged-save.pdf`,
-                new Uint8Array(),
-                {
-                    mimeType: 'application/pdf',
-                    kind: 'output',
-                    retention: 'transient',
-                    saveKind: 'pdf',
-                },
-            );
-
-            await browserDocumentStore.prepareChunkedDocument(stagingPath, {chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE});
-
-            try {
-                for await (const chunk of chunks) {
-                    if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) {
-                        throw new Error('savePdfDataChunks.chunks must yield non-empty Uint8Array chunks');
-                    }
-                    if (bytesRead + chunk.byteLength > totalBytes) {
-                        throw new Error('savePdfDataChunks chunks exceed the declared total size');
-                    }
-                    bytesRead += chunk.byteLength;
-
-                    let chunkOffset = 0;
-                    while (chunkOffset < chunk.byteLength) {
-                        const writableBytes = Math.min(
-                            stagingBuffer.byteLength - stagingOffset,
-                            chunk.byteLength - chunkOffset,
-                        );
-                        stagingBuffer.set(
-                            chunk.subarray(chunkOffset, chunkOffset + writableBytes),
-                            stagingOffset,
-                        );
-                        stagingOffset += writableBytes;
-                        chunkOffset += writableBytes;
-
-                        if (stagingOffset === stagingBuffer.byteLength) {
-                            await browserDocumentStore.writeChunk(
-                                stagingPath,
-                                stagedChunkCount,
-                                stagingBuffer,
-                            );
-                            stagedChunkCount += 1;
-                            stagingBuffer = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
-                            stagingOffset = 0;
-                        }
-                    }
-                }
-                if (bytesRead !== totalBytes) {
-                    throw new Error('savePdfDataChunks chunks did not match the declared total size');
-                }
-                if (stagingOffset > 0) {
-                    await browserDocumentStore.writeChunk(
-                        stagingPath,
-                        stagedChunkCount,
-                        stagingBuffer.subarray(0, stagingOffset),
-                    );
-                    stagedChunkCount += 1;
-                }
-
-                await browserDocumentStore.finalizeChunkedDocument(stagingPath, {
-                    fileSize: totalBytes,
-                    chunkCount: stagedChunkCount,
-                    chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
-                });
-
-                const validation = await validateBrowserPdfPath(stagingPath);
-                if (!validation.isValid) {
-                    return validation;
-                }
-
-                if (commitCallbacks?.verifyBytesBeforeCommit) {
-                    throw new Error('Chunked browser persistence cannot verify a contiguous byte frontier');
-                }
-                await commitCallbacks?.assertBeforeCommit?.();
-                await browserDocumentStore.assertDocumentRevisionCurrent(
-                    path,
-                    options?.expectedDocumentRevisionToken,
-                );
-                await copyChunkedDocument(stagingPath, path, totalBytes);
-                if (options?.workingCopyOnly === true) {
-                    await clearSearchCaches();
-                    return validation;
-                }
-                const revision = await browserDocumentStore.getDocumentRevision(path);
-                const saved = await saveWorkingBytesToSource(
-                    path,
-                    browserUseNativeAppMessageProvider,
-                    {expectedDocumentRevisionToken: revision.token},
-                );
-                if (!saved) {
-                    return createCanceledSaveValidationResult(validation);
-                }
-                await clearSearchCaches();
-                return validation;
-            } catch (error) {
-                await browserDocumentStore.clearChunkedDocument(stagingPath)
-                    .catch(() => undefined);
-                throw error;
-            } finally {
-                await browserDocumentStore.remove(stagingPath)
-                    .catch(() => undefined);
-            }
         },
         async writeDocxFile(path, data, signal) {
             try {
@@ -1056,32 +846,6 @@ export function createBrowserDocumentsFileCapability(
             }
             return result;
         },
-        async resyncWorkingCopy(path) {
-            try {
-                const sourceRef = await browserDocumentStore.getSourceRef(path);
-                const bytes = await browserDocumentStore.read(sourceRef);
-                await browserDocumentStore.writeForBootstrap(
-                    path,
-                    bytes,
-                    'resync-after-external-change',
-                );
-                await clearSearchCaches(path);
-                return {
-                    ok: true,
-                    externalWriteCommitted: false,
-                    workingCopyRefreshed: true,
-                    validation: null,
-                };
-            } catch (error) {
-                return {
-                    ok: false,
-                    reason: 'write-failed',
-                    message: error instanceof Error ? error.message : String(error),
-                    externalWriteCommitted: false,
-                    validation: null,
-                };
-            }
-        },
         async cleanupFile(path) {
             const entry = await browserDocumentStore.ensureEntry(path);
             if (!entry) {
@@ -1102,7 +866,6 @@ export function createBrowserDocumentsFileCapability(
             await browserDocumentStore.cleanupDetachedDocument(path);
             await clearSearchCaches(path);
         },
-        async cleanupOcrTemp(_path) {},
         setWindowTitle(title) {
             if (typeof document !== 'undefined') {
                 document.title = title;
@@ -1112,12 +875,6 @@ export function createBrowserDocumentsFileCapability(
         },
         showItemInFolder(_path) {
             return Promise.resolve(false);
-        },
-        showItemInFolderStructured(_path) {
-            return Promise.resolve(createPlatformUnsupportedResult(
-                'requires-native-backend',
-                'Showing files in a folder requires the desktop app.',
-            ));
         },
         recentFiles: {
             async get() {

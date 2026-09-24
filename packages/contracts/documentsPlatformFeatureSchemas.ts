@@ -11,8 +11,6 @@ import {
     type IPdfOptimizeResult,
     type TDocumentSaveResult,
     type TOpenFileResult,
-    type TOpenFolderDialogResult,
-    type TShowItemInFolderResult,
 } from '@contracts/electronApiDocuments';
 import {
     decodeDocumentRevisionChangedEvent,
@@ -355,22 +353,6 @@ function decodePreviewOptions(value: unknown): IPdfNativePagePreviewOptions | un
         ...(targetWidthPx === undefined ? {} : {targetWidthPx}),
     };
 }
-function decodePlatformOperationResult(value: unknown) {
-    if (
-        !isRecord(value)
-        || typeof value.success !== 'boolean'
-        || (value.error !== undefined && typeof value.error !== 'string')
-        || (value.unsupportedReason !== undefined && !isOneOf(platformUnsupportedReasons, value.unsupportedReason))
-        || value.canceled !== undefined
-    ) {
-        fail('invalid platform operation result');
-    }
-    return {
-        success: value.success,
-        ...(value.error === undefined ? {} : {error: value.error}),
-        ...(value.unsupportedReason === undefined ? {} : {unsupportedReason: value.unsupportedReason}),
-    };
-}
 function decodePrintResult(value: unknown) {
     if (
         !isRecord(value)
@@ -574,14 +556,6 @@ const openBatchProgress = s.fromParser(decodeOpenBatchProgress, () => ({
     percent: 0,
     elapsedMs: 0,
     estimatedRemainingMs: null,
-}));
-const folderDialogResult = s.trustedDirect<TOpenFolderDialogResult>(() => ({
-    ok: false,
-    reason: 'not-implemented',
-}));
-const showItemResult = s.trustedDirect<TShowItemInFolderResult>(() => ({
-    ok: false,
-    reason: 'not-implemented',
 }));
 type TDocumentMethodName = keyof IDocumentsFileCapability;
 type TDocumentMethod<TName extends TDocumentMethodName> =
@@ -979,22 +953,6 @@ const nativeNoteChangesArgs = documentArgs<'savePdfNoteChanges'>(
         fixtureRevisionOptions,
     ],
 );
-const nativeMutationsArgs = documentArgs<'savePdfNativeMutations'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 3, 4);
-        return appendOptional([
-            decodeDocumentRefValue(args[0], 'path'),
-            normalizePdfNativeMutationSet(args[1], 'mutations'),
-            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
-        ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'savePdfNativeMutations'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        fixtureNativeMutation,
-        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
-        fixtureRevisionOptions,
-    ],
-);
 const applyNativeMutationsArgs = documentArgs<'applyPdfNativeMutationsToWorkingCopy'>(
     (value) => {
         const args = decodeArgumentArray(value, 4);
@@ -1091,16 +1049,6 @@ const replaceWorkingCopyFromStagedNativeMutationArgs = documentArgs<'replaceWork
         fixtureRevisionOptions,
     ],
 );
-const pdfDataArgs = documentArgs<'validatePdfData'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 2);
-        return appendOptional(
-            [decodeUint8ArrayValue(args[0], 'data')],
-            decodeOptionalStringValue(args[1], 'fileName'),
-        );
-    },
-    () => [Uint8Array.of(1)],
-);
 const printPdfDataArgs = documentArgs<'printPdfData'>(
     (value) => {
         const args = decodeArgumentArray(value, 1, 3);
@@ -1125,16 +1073,6 @@ const pdfPathArgs = documentArgs<'analyzePdfConformance'>(
         const purpose = rawOptions?.purpose;
         if (purpose !== undefined && purpose !== 'full' && purpose !== 'save-restrictions') fail('invalid PDF conformance analysis purpose');
         return appendOptional([decodeDocumentRefValue(args[0], 'path')], purpose === undefined ? undefined : {purpose});
-    },
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const openPdfPathArgs = documentArgs<'openPdfInDefaultAppPath'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 2);
-        return appendOptional(
-            [decodeDocumentRefValue(args[0], 'path')],
-            decodeOptionalStringValue(args[1], 'fileName'),
-        );
     },
     () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
@@ -1288,7 +1226,6 @@ export {
     decodeOpenFileResult,
     decodePdfValidation,
     decodePathValidationResult,
-    decodePlatformOperationResult,
     decodePrintResult,
     decodeRevisionOptions,
     decodeSaveAsOptions,
@@ -1298,12 +1235,10 @@ export {
     fileExistsArgs,
     fileStatResult,
     fixtureRevisionOptions,
-    folderDialogResult,
     longNativeIpcTimeoutMs,
     managedHandleArgs,
     managedHandleResult,
     menuStateArgs,
-    nativeMutationsArgs,
     nativeNoteChangesArgs,
     nativeNoteTextArgs,
     nativeSaveResult,
@@ -1316,7 +1251,6 @@ export {
     openFileResult,
     openingGeometryArgs,
     openingGeometryResult,
-    openPdfPathArgs,
     optimizeAsCopyArgs,
     optimizeInteractionArgs,
     optimizeProgress,
@@ -1327,7 +1261,6 @@ export {
     pageSizesResult,
     pdfPageLabelRangesResult,
     pathArgs,
-    pdfDataArgs,
     pdfPathArgs,
     printPdfDataArgs,
     printPdfPathArgs,
@@ -1343,7 +1276,6 @@ export {
     saveFileStructuredArgs,
     savePdfAsArgs,
     savePdfDialogArgs,
-    showItemResult,
     statFileArgs,
     validationResult,
     writeDocxArgs,

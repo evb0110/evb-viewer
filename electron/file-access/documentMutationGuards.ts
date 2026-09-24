@@ -9,7 +9,6 @@ import {
 import { createMissingRevisionError } from '@contracts/documentMutationErrors';
 import {
     assertWorkingCopyMutationAllowed,
-    assertWorkingCopyResyncAllowed,
     assertWorkingCopyRevisionCurrent,
 } from '@electron/file-access/documentRevisionStore';
 
@@ -56,13 +55,3 @@ export function assertQueuedWorkingCopyMutationPreconditionsForBootstrap(
     assertWorkingCopyMutationAllowed(workingCopyPath);
 }
 
-export function assertQueuedWorkingCopyMutationPreconditionsForResync(
-    workingCopyPath: string,
-    senderId: number | undefined,
-    reason: string,
-) {
-    if (reason.trim().length === 0) {
-        throw new TypeError('resync mutation precondition reason must be a non-empty string');
-    }
-    assertWorkingCopyResyncAllowed(workingCopyPath, senderId);
-}

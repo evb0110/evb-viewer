@@ -7,18 +7,14 @@ import {
 import {
     PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
     PDF_ANNOTATION_PARSE_MAX_ENTRIES,
-    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
     type IPdfAnnotationForeignEntry,
     type IPdfAnnotationHighlightEntry,
     type IPdfAnnotationNoteEntry,
     type IPdfAnnotationNoteReply,
-    type IPdfAnnotationParseChunk,
-    type IPdfAnnotationParseChunkOptions,
     type IPdfAnnotationParseEntry,
     type IPdfAnnotationParsePoint,
     type IPdfAnnotationParseOptions,
     type IPdfAnnotationParseResult,
-    type IPdfAnnotationParseSession,
     type IPdfAnnotationShapeEntry,
     type IPdfAnnotationStampEntry,
     type IPdfAnnotationStampImageReference,
@@ -29,7 +25,6 @@ import {
     decodeSafeIntegerValue,
     documentArgs,
     documentResult,
-    type TDocumentMethodArgs,
 } from '@contracts/documentsPlatformFeatureSchemas';
 import {
     parseDocumentRevisionToken,
@@ -39,22 +34,13 @@ import {
     parseDocumentRef,
     requireDocumentRef,
 } from '@contracts/documentRef';
-import {
-    parseSessionId,
-    requireSessionId,
-} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
-    appendOptionalDocumentArg as appendOptional,
-    decodeOptionalDocumentObject as decodeOptionalObject,
     decodePdfRevisionOptions as decodeRevisionOptions,
     decodeRequiredDocumentObject as decodeRequiredObject,
 } from '@contracts/documentsPersistenceSchemas';
 import {isPdfNativeNormalizedRectInsidePageBounds} from '@contracts/nativePdfPageBounds';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isOneOf} from '@contracts/runtimeGuards';
 
 function fail(message: string): never {
     throw new Error(message);
@@ -117,13 +103,6 @@ function decodeDocumentRef(value: unknown, fieldName: string) {
     return parsed;
 }
 
-function decodeSessionId(value: unknown, fieldName: string) {
-    const parsed = parseSessionId(value);
-    if (parsed === null) {
-        fail(`${fieldName} must be a non-empty session ID`);
-    }
-    return parsed;
-}
 
 function decodeMarkerRect(value: unknown, fieldName: string, preserveUnrotatedBounds = false) {
     const decoded = decodeRequiredObject(value, fieldName);
@@ -594,55 +573,6 @@ function decodeParseOptions(value: unknown): IPdfAnnotationParseOptions {
     return {expectedDocumentRevisionToken: decoded.expectedDocumentRevisionToken};
 }
 
-function decodeChunkOptions(value: unknown): IPdfAnnotationParseChunkOptions | undefined {
-    const decoded = decodeOptionalObject(value, 'options');
-    if (decoded === undefined) {
-        return undefined;
-    }
-    if (decoded.chunkBytes === undefined) {
-        return {};
-    }
-    const chunkBytes = decodeSafeIntegerValue(decoded.chunkBytes, 'options.chunkBytes', 1);
-    if (chunkBytes > PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES) {
-        fail(`options.chunkBytes must be at most ${PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES}`);
-    }
-    return {chunkBytes};
-}
-
-const beginPdfAnnotationParseArgs = documentArgs<'beginPdfAnnotationParse'>(
-    value => {
-        const args = decodeArgumentArray(value, 2);
-        return [
-            decodeDocumentRef(args[0], 'path'),
-            decodeParseOptions(args[1]),
-        ];
-    },
-    () => [
-        requireDocumentRef('/tmp/document.pdf'),
-        fixtureRevisionOptions,
-    ],
-);
-const readPdfAnnotationParseChunkArgs = documentArgs<'readPdfAnnotationParseChunk'>(
-    value => {
-        const args = decodeArgumentArray(value, 2, 3);
-        return appendOptional([
-            decodeSessionId(args[0], 'sessionId'),
-            decodeSafeIntegerValue(args[1], 'offset'),
-        ], decodeChunkOptions(args[2])) as TDocumentMethodArgs<'readPdfAnnotationParseChunk'>;
-    },
-    () => [
-        requireSessionId('annotation-parse-1'),
-        0,
-    ],
-);
-const releasePdfAnnotationParseArgs = documentArgs<'releasePdfAnnotationParse'>(
-    value => [decodeSessionId(decodeArgumentArray(value, 1)[0], 'sessionId')],
-    () => [requireSessionId('annotation-parse-1')],
-);
-const cancelPdfAnnotationParseArgs = documentArgs<'cancelPdfAnnotationParse'>(
-    value => [decodeSessionId(decodeArgumentArray(value, 1)[0], 'sessionId')],
-    () => [requireSessionId('annotation-parse-1')],
-);
 
 const parsePdfAnnotationsArgs = documentArgs<'parsePdfAnnotations'>(
     value => {
@@ -668,80 +598,7 @@ const pdfAnnotationParseResult = documentResult<'parsePdfAnnotations'>(
     }),
 );
 
-const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'>(
-    value => {
-        const decoded = decodeRequiredObject(value, 'annotation parse session');
-        const sessionId = decodeSessionId(decoded.sessionId, 'annotation parse session.sessionId');
-        const documentRef = decodeDocumentRef(decoded.documentRef, 'annotation parse session.documentRef');
-        const documentRevisionToken = typeof decoded.documentRevisionToken === 'string'
-            ? parseDocumentRevisionToken(decoded.documentRevisionToken)
-            : null;
-        if (documentRevisionToken === null) fail('annotation parse documentRevisionToken is invalid');
-        return {
-            sessionId,
-            documentRef,
-            documentRevisionToken,
-            pageCount: decodeSafeIntegerValue(decoded.pageCount, 'annotation parse pageCount'),
-            entryCount: decodeSafeIntegerValue(decoded.entryCount, 'annotation parse entryCount'),
-            totalBytes: decodeSafeIntegerValue(decoded.totalBytes, 'annotation parse totalBytes'),
-        } satisfies IPdfAnnotationParseSession;
-    },
-    () => ({
-        sessionId: requireSessionId('annotation-parse-1'),
-        documentRef: requireDocumentRef('/tmp/document.pdf'),
-        documentRevisionToken: fixtureRevisionToken,
-        pageCount: 1,
-        entryCount: 1,
-        totalBytes: 512,
-    }),
-);
-const pdfAnnotationParseChunkResult = documentResult<'readPdfAnnotationParseChunk'>(
-    value => {
-        const decoded = decodeRequiredObject(value, 'annotation parse chunk');
-        const nextOffset = decoded.nextOffset === undefined || decoded.nextOffset === null
-            ? null
-            : decodeSafeIntegerValue(decoded.nextOffset, 'annotation parse chunk nextOffset');
-        if (typeof decoded.done !== 'boolean' || !Array.isArray(decoded.entries)) {
-            fail('invalid annotation parse chunk');
-        }
-        const byteLength = decodeSafeIntegerValue(decoded.byteLength, 'annotation parse chunk byteLength');
-        if (byteLength > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES) {
-            fail(`annotation parse chunk exceeds ${PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} bytes`);
-        }
-        return {
-            offset: decodeSafeIntegerValue(decoded.offset, 'annotation parse chunk offset'),
-            nextOffset,
-            byteLength,
-            done: decoded.done,
-            entries: decoded.entries.map(decodePdfAnnotationParseEntry),
-        } satisfies IPdfAnnotationParseChunk;
-    },
-    () => ({
-        offset: 0,
-        nextOffset: null,
-        byteLength: 0,
-        done: true,
-        entries: [],
-    }),
-);
-const pdfAnnotationParseCancelResult = documentResult<'cancelPdfAnnotationParse'>(
-    value => {
-        if (!isRecord(value) || typeof value.canceled !== 'boolean') {
-            fail('invalid annotation parse cancellation result');
-        }
-        return {canceled: value.canceled};
-    },
-    () => ({canceled: false}),
-);
-
 export {
-    beginPdfAnnotationParseArgs,
-    cancelPdfAnnotationParseArgs,
-    pdfAnnotationParseCancelResult,
-    pdfAnnotationParseChunkResult,
-    pdfAnnotationParseSessionResult,
     pdfAnnotationParseResult,
     parsePdfAnnotationsArgs,
-    readPdfAnnotationParseChunkArgs,
-    releasePdfAnnotationParseArgs,
 };

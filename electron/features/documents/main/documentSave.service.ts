@@ -1,17 +1,11 @@
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import { existsSync } from 'fs';
-import {
-    rm,
-    writeFile,
-} from 'fs/promises';
+import {rm} from 'fs/promises';
 import type {
     IDocumentMutationRevisionOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
-    IPdfSaveAsResult,
-    IPdfSaveAsWarning,
 } from '@contracts/electronApiDocuments';
-import { createWorkingCopySyncWarning } from '@contracts/electronApiDocuments';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -38,7 +32,6 @@ import { te } from '@electron/te';
 import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import { getErrorMessage } from '@electron/utils/error';
-import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteAtomic';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
@@ -186,100 +179,6 @@ export async function savePdfAs(
     return requireDocumentRef(targetPath);
 }
 
-export async function savePdfDataAs(
-    context: IDocumentsDialogContext,
-    workingPath: string,
-    data: unknown,
-    options: IPdfSaveAsOptions | undefined,
-    showSaveDialogWithExtension: TShowSaveDialogWithExtension,
-    serializedSaveOptions?: IPdfSerializedSaveOptions,
-): Promise<IPdfSaveAsResult> {
-    const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        return {
-            path: null,
-            validation: null,
-        };
-    }
-
-    const payload = normalizeIpcWritePayload(data);
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
-        throw new Error('Working copy path is not managed');
-    }
-    if (!existsSync(normalizedWorkingPath)) {
-        throw new Error(`File not found: ${normalizedWorkingPath}`);
-    }
-    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(serializedSaveOptions);
-
-    const targetPath = await promptForPdfSaveAsTarget(
-        context,
-        normalizedWorkingPath,
-        showSaveDialogWithExtension,
-    );
-    if (!targetPath) {
-        return {
-            path: null,
-            validation: null,
-        };
-    }
-
-    const tempPath = makeSiblingTempPath(targetPath);
-    let replaced = false as boolean;
-    try {
-        await writeFile(tempPath, payload);
-        const validation = await validatePdfFile(tempPath);
-        if (!validation.isValid) {
-            return {
-                path: null,
-                validation,
-            };
-        }
-        const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
-        const committedValidation = optimizedValidation ?? validation;
-        const resultRef: {current: IPdfSaveAsResult | null} = { current: null };
-
-        await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
-                throw new Error('Working copy path is not managed');
-            }
-            await assertQueuedWorkingCopyMutationPreconditions(
-                normalizedWorkingPath,
-                expectedDocumentRevisionToken,
-            );
-            if (!existsSync(normalizedWorkingPath)) {
-                throw new Error(`File not found: ${normalizedWorkingPath}`);
-            }
-            await commitPdfTempFile(tempPath, targetPath, {ownerId: `pdf-data-save-as:${context.senderId}`});
-            replaced = true;
-            let warning: IPdfSaveAsWarning | undefined;
-            try {
-                await setWorkingCopyOriginalPath(normalizedWorkingPath, targetPath, context.senderId);
-                await copyFileCopyOnWrite(targetPath, normalizedWorkingPath);
-                await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
-            } catch (syncError) {
-                markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
-                warning = createWorkingCopySyncWarning(getErrorMessage(syncError));
-            }
-            allowOpenPath(targetPath, context.sender);
-            await addRecentFile(targetPath);
-            updateRecentFilesMenu();
-            resultRef.current = {
-                path: requireDocumentRef(targetPath),
-                validation: committedValidation,
-                ...(warning === undefined ? {} : {warning}),
-            };
-        });
-
-        return resultRef.current ?? {
-            path: null,
-            validation: committedValidation,
-        };
-    } finally {
-        if (!replaced) {
-            await rm(tempPath, { force: true }).catch(() => undefined);
-        }
-    }
-}
 
 export async function savePdfDialog(
     context: IDocumentsDialogContext,

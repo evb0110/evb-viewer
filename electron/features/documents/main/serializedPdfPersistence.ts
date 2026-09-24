@@ -5,7 +5,6 @@ import {
 import {
     open,
     rm,
-    stat,
 } from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
 import { isDeepStrictEqual } from 'node:util';
@@ -25,10 +24,7 @@ import {
     parseSessionId,
     type TSessionId,
 } from '@contracts/shared';
-import type {
-    IPdfSaveAsOptions,
-    IPdfSerializedSaveOptions,
-} from '@contracts/electronApiDocuments';
+import type {IPdfSerializedSaveOptions} from '@contracts/electronApiDocuments';
 import { createWorkingCopySyncWarning } from '@contracts/electronApiDocuments';
 import {
     parseDocumentRevisionToken,
@@ -37,7 +33,6 @@ import {
 import { createMissingRevisionError } from '@contracts/documentMutationErrors';
 import type {
     IBeginSerializedPdfPersistenceResult,
-    IBeginSerializedPdfSaveAsResult,
     ISerializedPdfPersistenceLimits,
     TPdfPersistenceErrorPhase,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
@@ -59,14 +54,12 @@ import {
     normalizePdfPersistencePreloadToMainPayload,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
-import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {
     getWorkingCopyOriginalPath,
     refreshWorkingCopyOriginalFileExpectation,
-    setWorkingCopyOriginalPath,
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
@@ -74,23 +67,16 @@ import {
     allowOpenPath,
     removeAllowedOpenPath,
 } from '@electron/file-access/openPathCapabilities';
-import { addRecentFile } from '@electron/recentFiles';
-import { updateRecentFilesMenu } from '@electron/menu';
 import {
     clearWorkingCopyOcrArtifacts,
     enqueueWorkingCopyMutation,
 } from '@electron/file-access/workingCopyMutationQueue';
-import {
-    markWorkingCopySyncRequired,
-    markWorkingCopyContentChanged,
-    transitionWorkingCopyContentRevision,
-} from '@electron/file-access/documentRevisionStore';
+import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
-import {optimizePdfForSaveAs} from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type {
     IDocumentsSenderIdContext,
     IDocumentsWebContentsContext,
@@ -119,7 +105,7 @@ const MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER = (() => {
 })();
 const PDF_EOF_TAIL_BYTES = 64 * 1024;
 
-type TSerializedPdfPersistenceMode = 'save' | 'save_as' | 'working_copy';
+type TSerializedPdfPersistenceMode = 'save' | 'working_copy';
 
 interface ISerializedPdfPersistenceSession {
     id: TSessionId;
@@ -128,7 +114,6 @@ interface ISerializedPdfPersistenceSession {
     sender: WebContents;
     workingPath: string;
     targetPath: string;
-    saveAsOptions: IPdfSaveAsOptions | undefined;
     expectedDocumentRevisionToken: TDocumentRevisionToken;
     changedObjectRefs: string[];
     tempPath: string;
@@ -360,7 +345,6 @@ async function createSession(options: {
     sender: WebContents;
     workingPath: string;
     targetPath: string;
-    saveAsOptions?: IPdfSaveAsOptions | undefined;
     serializedSaveOptions?: IPdfSerializedSaveOptions | undefined;
     totalBytes: number;
 }) {
@@ -393,7 +377,6 @@ async function createSession(options: {
         sender: options.sender,
         workingPath: options.workingPath,
         targetPath: options.targetPath,
-        saveAsOptions: options.saveAsOptions,
         changedObjectRefs: options.serializedSaveOptions?.changedObjectRefs ?? [],
         expectedDocumentRevisionToken,
         tempPath,
@@ -458,45 +441,6 @@ export async function beginSerializedPdfSaveToOriginal(
     };
 }
 
-export async function beginSerializedPdfSaveAs(
-    context: IDocumentsWebContentsContext,
-    workingPath: unknown,
-    totalBytes: unknown,
-    targetPath: string | null,
-    saveAsOptions?: IPdfSaveAsOptions,
-    serializedSaveOptions?: IPdfSerializedSaveOptions,
-): Promise<IBeginSerializedPdfSaveAsResult> {
-    const normalizedWorkingPath = normalizeWorkingPath(workingPath);
-    const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
-    if (!targetPath) {
-        return {
-            sessionId: null,
-            path: null,
-            ...getSerializedPdfPersistenceLimits(),
-        };
-    }
-    await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-        ownerWebContentsId: context.senderId,
-        reason: 'serialized-persistence',
-    });
-
-    const session = await createSession({
-        mode: 'save_as',
-        sender: context.sender,
-        workingPath: normalizedWorkingPath,
-        targetPath,
-        saveAsOptions,
-        serializedSaveOptions,
-        totalBytes: normalizedTotalBytes,
-    });
-
-    return {
-        sessionId: session.id,
-        path: requireDocumentRef(targetPath),
-        ...getSerializedPdfPersistenceLimits(),
-    };
-}
-
 function updateStreamedTail(currentTail: Buffer, bytes: Uint8Array) {
     if (bytes.byteLength >= PDF_EOF_TAIL_BYTES) {
         return Buffer.from(bytes.subarray(bytes.byteLength - PDF_EOF_TAIL_BYTES));
@@ -525,21 +469,6 @@ async function writeSessionBytes(handle: FileHandle, bytes: Uint8Array) {
     }
 }
 
-async function hasPdfEofMarker(path: string) {
-    const file = await stat(path);
-    if (!file.isFile() || file.size < 1) {
-        return false;
-    }
-    const tailBytes = Math.min(file.size, PDF_EOF_TAIL_BYTES);
-    const tail = Buffer.alloc(tailBytes);
-    const handle = await open(path, 'r');
-    try {
-        const result = await handle.read(tail, 0, tailBytes, file.size - tailBytes);
-        return result.bytesRead === tailBytes && containsPdfEofMarker(tail);
-    } finally {
-        await handle.close();
-    }
-}
 
 async function stageSession(
     session: ISerializedPdfPersistenceSession,
@@ -562,29 +491,21 @@ async function stageSession(
             stagedOutput: null,
         };
     }
-    const optimizedValidation = session.mode === 'save_as'
-        ? await optimizePdfForSaveAs(session.tempPath, session.saveAsOptions)
-        : null;
-    const stagedValidation = optimizedValidation ?? validation;
+    const stagedValidation = validation;
     if (stagedValidation.tool !== 'qpdf') {
         throw new Error('Serialized PDF staging requires qpdf validation');
     }
     if (allowOpenPath(session.tempPath, session.sender) === null) {
         throw new Error('Serialized PDF staging path could not be granted for verification');
     }
-    const streamedSha256 = session.hash.digest('hex');
-    const tailCheck = optimizedValidation === null
-        ? containsPdfEofMarker(session.streamedTail)
-        : await hasPdfEofMarker(session.tempPath);
-    const artifactOptions = optimizedValidation === null
-        ? {
-            cleanupOnRelease: true,
-            trustedFingerprint: {
-                bytes: session.totalBytes,
-                sha256: streamedSha256,
-            },
-        }
-        : {cleanupOnRelease: true};
+    const tailCheck = containsPdfEofMarker(session.streamedTail);
+    const artifactOptions = {
+        cleanupOnRelease: true,
+        trustedFingerprint: {
+            bytes: session.totalBytes,
+            sha256: session.hash.digest('hex'),
+        },
+    };
     const stagedOutput = await createTypedStagedArtifact(
         {senderId: session.senderId},
         session.tempPath,
@@ -623,7 +544,7 @@ async function commitSession(
     let conflictValidation = null as IPdfValidationResult | null;
     let targetWriteCommitted = false;
     let workingCopyRefreshed = false;
-    let workingCopySyncError: string | null = null;
+    const workingCopySyncError: string | null = null;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
         await assertQueuedWorkingCopyMutationPreconditions(
             session.workingPath,
@@ -692,29 +613,6 @@ async function commitSession(
             await clearWorkingCopyOcrArtifacts(session.workingPath);
             targetWriteCommitted = true;
             workingCopyRefreshed = true;
-        } else if (session.mode === 'save_as') {
-            await commitPdfTempFile(session.tempPath, session.targetPath, {
-                signal: session.lifecycleOperation.signal,
-                ownerId: `serialized-pdf:${session.id}`,
-                receipt,
-                ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-            });
-            targetWriteCommitted = true;
-            try {
-                await setWorkingCopyOriginalPath(session.workingPath, session.targetPath, session.senderId);
-                await copyFileCopyOnWrite(session.targetPath, session.workingPath);
-                await markWorkingCopyContentChanged(session.workingPath, 'save-sync', session.senderId);
-                workingCopyRefreshed = true;
-            } catch (syncError) {
-                markWorkingCopySyncRequired(
-                    session.workingPath,
-                    `Target file was saved, but the working copy refresh failed: ${getErrorMessage(syncError)}`,
-                );
-                workingCopySyncError = getErrorMessage(syncError);
-            }
-            allowOpenPath(session.targetPath, session.sender);
-            await addRecentFile(session.targetPath);
-            updateRecentFilesMenu();
         } else {
             const transition = await transitionOriginalAndWorkingCopyRevision({
                 workingCopyPath: session.workingPath,

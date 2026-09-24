@@ -436,9 +436,6 @@ export function createElectronApi(
             getPathForFile,
             getPathsForFiles,
             registerFilesForOpen,
-            ...(baseDocuments.openFolderDialogStructured
-                ? {openFolderDialogStructured: baseDocuments.openFolderDialogStructured}
-                : {}),
             ...(baseDocuments.createCombinedPdfFromFiles
                 ? {createCombinedPdfFromFiles: baseDocuments.createCombinedPdfFromFiles}
                 : {}),
@@ -456,9 +453,6 @@ export function createElectronApi(
     const documentWindow = createPlatformFeaturePreloadClient(
         ipcRenderer,
         DOCUMENT_WINDOW_PLATFORM_FEATURE,
-        baseDocuments.showItemInFolderStructured
-            ? {showItemInFolderStructured: baseDocuments.showItemInFolderStructured}
-            : {},
     ) satisfies IDocumentsWindowCapability;
     const documentMenu = createPlatformFeaturePreloadClient(
         ipcRenderer,
@@ -480,7 +474,6 @@ export function createElectronApi(
         createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
         parsePdfAnnotations: baseDocuments.parsePdfAnnotations,
         cleanupFile: baseDocuments.cleanupFile,
-        cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
     const optionalDocumentFileMethods = {
         ...(baseDocuments.createManagedTempFileHandle
@@ -494,7 +487,6 @@ export function createElectronApi(
         ...(baseDocuments.optimizePdfAsCopy ? {optimizePdfAsCopy: baseDocuments.optimizePdfAsCopy} : {}),
         ...(baseDocuments.savePdfNoteTextUpdates ? {savePdfNoteTextUpdates: baseDocuments.savePdfNoteTextUpdates} : {}),
         ...(baseDocuments.savePdfNoteChanges ? {savePdfNoteChanges: baseDocuments.savePdfNoteChanges} : {}),
-        ...(baseDocuments.savePdfNativeMutations ? {savePdfNativeMutations: baseDocuments.savePdfNativeMutations} : {}),
         ...(baseDocuments.applyPdfNativeMutationsToWorkingCopy
             ? {applyPdfNativeMutationsToWorkingCopy: baseDocuments.applyPdfNativeMutationsToWorkingCopy}
             : {}),
@@ -528,21 +520,6 @@ export function createElectronApi(
         ...(baseDocuments.releasePdfAnnotationIndex
             ? {releasePdfAnnotationIndex: baseDocuments.releasePdfAnnotationIndex}
             : {}),
-        ...(baseDocuments.cancelPdfAnnotationIndex
-            ? {cancelPdfAnnotationIndex: baseDocuments.cancelPdfAnnotationIndex}
-            : {}),
-        ...(baseDocuments.beginPdfAnnotationParse
-            ? {beginPdfAnnotationParse: baseDocuments.beginPdfAnnotationParse}
-            : {}),
-        ...(baseDocuments.readPdfAnnotationParseChunk
-            ? {readPdfAnnotationParseChunk: baseDocuments.readPdfAnnotationParseChunk}
-            : {}),
-        ...(baseDocuments.releasePdfAnnotationParse
-            ? {releasePdfAnnotationParse: baseDocuments.releasePdfAnnotationParse}
-            : {}),
-        ...(baseDocuments.cancelPdfAnnotationParse
-            ? {cancelPdfAnnotationParse: baseDocuments.cancelPdfAnnotationParse}
-            : {}),
         ...(baseDocuments.beginPdfEmbeddedShapeIndex
             ? {beginPdfEmbeddedShapeIndex: baseDocuments.beginPdfEmbeddedShapeIndex}
             : {}),
@@ -573,16 +550,13 @@ export function createElectronApi(
         getDocumentRevision: baseDocuments.getDocumentRevision,
         onDocumentRevisionChanged: baseDocuments.onDocumentRevisionChanged,
         savePdfAs: baseDocuments.savePdfAs,
-        savePdfDataAs: baseDocuments.savePdfDataAs,
         savePdfDialog: baseDocuments.savePdfDialog,
         saveDocxAs: baseDocuments.saveDocxAs,
         writeFile: baseDocuments.writeFile,
         replaceWorkingCopyFromPath: baseDocuments.replaceWorkingCopyFromPath,
         writeDocxFile: baseDocuments.writeDocxFile,
         saveFileStructured: baseDocuments.saveFileStructured,
-        ...(baseDocuments.resyncWorkingCopy ? {resyncWorkingCopy: baseDocuments.resyncWorkingCopy} : {}),
         savePdfData: baseDocuments.savePdfData,
-        savePdfDataChunks: baseDocuments.savePdfDataChunks,
         ...optionalDocumentFileMethods,
         beginDocxFileStream: baseDocuments.beginDocxFileStream,
         writeDocxFileStreamChunk: baseDocuments.writeDocxFileStreamChunk,
@@ -591,10 +565,7 @@ export function createElectronApi(
     } satisfies IDocumentsFileIoCapability & IDocxExportFileCapability;
     const documentPdf = {
         analyzePdfConformance: baseDocuments.analyzePdfConformance,
-        validatePdfData: baseDocuments.validatePdfData,
         validatePdfPath: baseDocuments.validatePdfPath,
-        openPdfInDefaultAppData: baseDocuments.openPdfInDefaultAppData,
-        openPdfInDefaultAppPath: baseDocuments.openPdfInDefaultAppPath,
         printPdfData: baseDocuments.printPdfData,
         ...(baseDocuments.cancelPdfPrint
             ? {cancelPdfPrint: baseDocuments.cancelPdfPrint}

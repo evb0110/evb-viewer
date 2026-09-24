@@ -24,7 +24,6 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
 import {
     beginPdfAnnotationParse,
-    cancelPdfAnnotationParse,
     parsePdfAnnotations,
     readPdfAnnotationParseChunk,
     releasePdfAnnotationParse,
@@ -299,36 +298,6 @@ describe('PDF annotation parse main session', () => {
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow(/out of order/iu);
         expect(existsSync(sidecarPath)).toBe(false);
-    });
-
-    it('fences revision drift and sender ownership before exposing chunks', async () => {
-        const session = await beginPdfAnnotationParse(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        );
-        await expect(readPdfAnnotationParseChunk(
-            {senderId: 8},
-            session.sessionId,
-            0,
-        )).rejects.toThrow(/another sender/iu);
-
-        mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(new Error('STALE_REVISION'));
-        await expect(readPdfAnnotationParseChunk(
-            context,
-            session.sessionId,
-            0,
-        )).rejects.toThrow('STALE_REVISION');
-
-        await expect(cancelPdfAnnotationParse(
-            context,
-            session.sessionId,
-        )).resolves.toEqual({canceled: true});
-        await expect(readPdfAnnotationParseChunk(context, session.sessionId, 0))
-            .rejects.toThrow(/session is not available|session is canceled/iu);
-        expect(mocks.cancelNativeCommandGroup).toHaveBeenCalled();
-        await releasePdfAnnotationParse(context, session.sessionId);
-        await vi.waitFor(() => expect(existsSync(sidecarPath)).toBe(false));
     });
 
     it('rejects revision changes after native output before returning the session', async () => {

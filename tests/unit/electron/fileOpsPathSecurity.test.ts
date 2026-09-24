@@ -51,7 +51,6 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
-    findPendingOcrResultFileForPath: vi.fn(),
     claimPendingOcrResultForDocument: vi.fn(),
     releasePendingOcrResultClaim: vi.fn(),
     publishPreparedOcrCatalogV4: vi.fn(),
@@ -105,7 +104,6 @@ vi.mock('@electron/utils/pathValidator', () => ({
 vi.mock('@electron/features/documents/main/pdfConformance', () => ({
     analyzePdfConformanceFile: mocks.analyzePdfConformanceFile,
     validatePdfFile: mocks.validatePdfFile,
-    validatePdfData: vi.fn(),
 }));
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
@@ -167,7 +165,6 @@ vi.mock('@electron/file-access/originalPathSaveWitness', async (importOriginal_1
 vi.mock('@electron/features/djvu/public', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/features/ocr/public/index', () => ({
     claimPendingOcrResultForDocument: mocks.claimPendingOcrResultForDocument,
-    findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath,
     releasePendingOcrResultClaim: mocks.releasePendingOcrResultClaim,
     rebindDocumentTextCatalogRevision: vi.fn(),
     getOcrCatalogV4PreparedDescriptorPath: (path: string) => `${path}.ocr-v4-prepared.json`,
@@ -196,7 +193,6 @@ const {
     handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
 } = await import('@electron/features/documents/main/documentFileWriteHandlers');
-const { handleCleanupOcrTemp } = await import('@electron/features/documents/main/handleCleanupOcrTemp');
 const {
     handleAnalyzePdfConformance,
     handleValidatePdfPath,
@@ -275,23 +271,21 @@ describe('fileOps path security', () => {
             sourceFingerprint: '',
         }));
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
-        mocks.findPendingOcrResultFileForPath.mockReturnValue({
-            scopedJobId: '42:ocr-1',
-            requestId: 'ocr-1',
-            webContentsId: 42,
-            pdfPath: '/tmp/electron-test/ocr-1-merged.pdf',
-            createdAtMs: Date.now(),
-            cleanupTimer: null,
-            resultSha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
-        });
         mocks.claimPendingOcrResultForDocument.mockImplementation((webContentsId: number, pdfPath: string) => {
-            const entry = mocks.findPendingOcrResultFileForPath(webContentsId, pdfPath);
-            return entry === null
-                ? {status: 'not-found' as const}
-                : {
+            return webContentsId === 42 && pdfPath === '/tmp/electron-test/ocr-1-merged.pdf'
+                ? {
                     status: 'claimed' as const,
-                    entry,
-                };
+                    entry: {
+                        scopedJobId: '42:ocr-1',
+                        requestId: 'ocr-1',
+                        webContentsId: 42,
+                        pdfPath: '/tmp/electron-test/ocr-1-merged.pdf',
+                        createdAtMs: Date.now(),
+                        cleanupTimer: null,
+                        resultSha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+                    },
+                }
+                : {status: 'not-found' as const};
         });
         mocks.readFile.mockResolvedValue(Buffer.from([
             1,
@@ -746,39 +740,18 @@ describe('fileOps path security', () => {
 
     it('rejects working-copy replacement from OCR-looking files without pending-result ownership', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
-        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
-        mocks.findPendingOcrResultFileForPath.mockReturnValue(null);
+        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-2-merged.pdf');
 
         await expect(
             handleReplaceWorkingCopyFromPath(
                 writeContext,
                 '/tmp/electron-test/work.pdf',
-                '/tmp/electron-test/ocr-1-merged.pdf',
+                '/tmp/electron-test/ocr-2-merged.pdf',
                 {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
             ),
         ).rejects.toThrow('Invalid source path: OCR result is not authorized for this document revision');
 
-        expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
         expect(mocks.copyFile).not.toHaveBeenCalled();
-    });
-
-    it('deletes legacy OCR temp files only when pending ownership matches the sender', async () => {
-        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
-
-        await handleCleanupOcrTemp(readContext, '/tmp/electron-test/ocr-1-merged.pdf');
-
-        expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
-        expect(mocks.unlink).toHaveBeenCalledWith('/tmp/electron-test/ocr-1-merged.pdf');
-    });
-
-    it('does not delete legacy OCR temp files without pending ownership', async () => {
-        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
-        mocks.findPendingOcrResultFileForPath.mockReturnValue(null);
-
-        await handleCleanupOcrTemp(readContext, '/tmp/electron-test/ocr-1-merged.pdf');
-
-        expect(mocks.findPendingOcrResultFileForPath).toHaveBeenCalledWith(42, '/tmp/electron-test/ocr-1-merged.pdf');
-        expect(mocks.unlink).not.toHaveBeenCalled();
     });
 
     it('falls back to mapped working copy for original file path reads', async () => {

@@ -379,12 +379,6 @@ export function readWorkingCopySyncRequiredJournalEntry(
         ?? null;
 }
 
-export function clearWorkingCopySyncRequiredJournalEntry(workingCopyPath: string) {
-    updateWorkingCopyRevisionJournalEntries(
-        workingCopyPath,
-        entries => entries.filter(entry => entry.kind !== 'working-copy-sync-required'),
-    );
-}
 
 export function stageWorkingCopyRevisionSidecarCommit(
     workingCopyPath: string,

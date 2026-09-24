@@ -2,7 +2,6 @@ export {cancelOcrJobsForWorkingCopy} from '@electron/features/ocr/main/jobManage
 export {
     claimPendingOcrResultForDocument,
     discardPendingOcrResultsForDocument,
-    findPendingOcrResultFileForPath,
     releasePendingOcrResultClaim,
 } from '@electron/features/ocr/main/createPendingResultFileStore';
 export {

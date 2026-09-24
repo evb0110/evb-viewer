@@ -15,9 +15,7 @@ type TDocumentsMigratedMethod =
     | keyof IDocumentsRecentFilesCapability
     | keyof IDocumentsWindowCapability;
 type TDocumentsOptionalDirectMethod =
-    | 'createCombinedPdfFromFiles'
-    | 'openFolderDialogStructured'
-    | 'showItemInFolderStructured';
+    | 'createCombinedPdfFromFiles';
 
 export function createDocumentsPreloadClient(
     ipcRenderer: IpcRenderer,

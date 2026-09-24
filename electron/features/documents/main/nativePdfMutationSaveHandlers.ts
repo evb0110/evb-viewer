@@ -761,25 +761,6 @@ export async function handleNativeNoteChangesSave(
     });
 }
 
-export async function handleNativePdfMutationsSave(
-    context: IDocumentsSenderIdContext,
-    workingPath: unknown,
-    rawMutations: unknown,
-    rawModifiedAt: unknown,
-    revisionOptions?: IDocumentMutationRevisionOptions,
-): Promise<IPdfNativeNoteTextSaveResult> {
-    const mutations = normalizeNativeMutationSet(rawMutations);
-    return runNativeNoteCommand(context, workingPath, rawModifiedAt, revisionOptions, {
-        command: 'save-mutations',
-        payloadFileName: 'mutations.json',
-        payloadFlag: '--mutations-file',
-        payload: mutations,
-        commandLabel: 'evb-pdf-page-ops(save-mutations)',
-        ...(needsNativeIdentityBindingsReport(mutations)
-            ? {identityBindingsFileName: 'identity-bindings.json'}
-            : {}),
-    });
-}
 
 export async function handleNativePdfMutationsApplyToWorkingCopy(
     context: IDocumentsSenderIdContext,

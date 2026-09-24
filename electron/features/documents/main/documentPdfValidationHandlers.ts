@@ -6,7 +6,6 @@ import type {
 import type { IPdfPathValidationOptions } from '@contracts/electronApiDocuments';
 import {
     analyzePdfConformanceFile,
-    validatePdfData as validatePdfBytes,
     validatePdfFile,
     validatePdfFileForOpening,
     validatePdfFileForSave,
@@ -41,19 +40,6 @@ export async function handleAnalyzePdfConformance(
     );
 }
 
-export async function handleValidatePdfData(
-    data: unknown,
-    fileName?: unknown,
-): Promise<IPdfValidationResult> {
-    if (!(data instanceof Uint8Array)) {
-        throw new Error('Invalid data: must be a Uint8Array');
-    }
-    if (typeof fileName !== 'undefined' && typeof fileName !== 'string') {
-        throw new Error('Invalid file name: must be a string');
-    }
-
-    return validatePdfBytes(data, fileName);
-}
 
 export async function handleValidatePdfPath(
     context: IDocumentsSenderIdContext,

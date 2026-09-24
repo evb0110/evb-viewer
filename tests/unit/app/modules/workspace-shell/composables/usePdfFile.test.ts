@@ -27,7 +27,6 @@ const mocks = vi.hoisted(() => ({
     cleanup: vi.fn(),
     cloneWorkingCopy: vi.fn(),
     analyzeConformance: vi.fn(),
-    validatePdfData: vi.fn(),
     getRevision: vi.fn(),
     getOpeningGeometry: vi.fn(),
     repair: vi.fn(),
@@ -52,7 +51,6 @@ const electronApi = createElectronPlatformApiFixture({
             validation: null,
         })),
         statFile: mocks.stat,
-        validatePdfData: mocks.validatePdfData,
         writeFile: mocks.write,
     },
     documentOpen: {
@@ -60,10 +58,7 @@ const electronApi = createElectronPlatformApiFixture({
         openDocumentDirectBatch: mocks.batch,
     },
     documentPicker: {openDocumentDialog: mocks.picker},
-    documentPdf: {
-        analyzePdfConformance: mocks.analyzeConformance,
-        validatePdfData: mocks.validatePdfData,
-    },
+    documentPdf: {analyzePdfConformance: mocks.analyzeConformance},
     documentWorkingCopy: {
         cleanupFile: mocks.cleanup,
         createWorkingCopyFromPath: mocks.cloneWorkingCopy,
@@ -183,12 +178,6 @@ describe('usePdfFile façade', () => {
             hasXfa: false,
             canIncrementalSave: true,
             saveRestrictions: [],
-        });
-        mocks.validatePdfData.mockResolvedValue({
-            isValid: true,
-            tool: 'qpdf',
-            errors: [],
-            warnings: [],
         });
     });
 

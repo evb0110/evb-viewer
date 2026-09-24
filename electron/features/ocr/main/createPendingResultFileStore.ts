@@ -18,7 +18,6 @@ interface ICreatePendingResultFileStoreOptions {
 }
 
 interface IPendingResultFileOwnershipRegistry {
-    findByPath: (webContentsId: number, pdfPath: string) => IOcrPendingResultFile | null;
     claimForDocument: (webContentsId: number, pdfPath: string, documentRef: TDocumentRef, sourceDocumentRevisionToken: TDocumentRevisionToken) => {
         status: 'claimed' | 'already-claimed' | 'not-found';
         entry?: IOcrPendingResultFile;
@@ -55,9 +54,6 @@ function normalizePendingResultPath(
     }
 }
 
-export function findPendingOcrResultFileForPath(webContentsId: number, pdfPath: string) {
-    return activeOwnershipRegistry?.findByPath(webContentsId, pdfPath) ?? null;
-}
 
 export function claimPendingOcrResultForDocument(
     webContentsId: number,
@@ -120,18 +116,6 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
             return Array.from(pendingResultFiles.values())
                 .find(entry => entry.requestId === requestId
                     && (entry.webContentsId === webContentsId || entry.claimedByWebContentsId === webContentsId))
-                ?? null;
-        },
-        findByPath(webContentsId: number, pdfPath: string) {
-            const normalizedPath = typeof pdfPath === 'string'
-                ? normalizePendingResultPath(pdfPath, canonicalizePath)
-                : '';
-            if (!normalizedPath) {
-                return null;
-            }
-
-            return Array.from(pendingResultFiles.values())
-                .find(entry => entry.webContentsId === webContentsId && entry.pdfPath === normalizedPath)
                 ?? null;
         },
         track(

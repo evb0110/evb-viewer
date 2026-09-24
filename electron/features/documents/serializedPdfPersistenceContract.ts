@@ -1,5 +1,3 @@
-import type { ISerializedPdfPersistenceLimits } from '@contracts/documentPersistenceFrames';
-
 export {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
@@ -19,13 +17,8 @@ export {
 } from '@contracts/documentPersistenceFrames';
 
 export type {
+    IBeginSerializedPdfPersistenceResult,
     ISerializedPdfPersistenceLimits,
     TPdfPersistenceErrorPhase,
 } from '@contracts/documentPersistenceFrames';
 
-export interface IBeginSerializedPdfPersistenceResult extends ISerializedPdfPersistenceLimits {sessionId: string;}
-
-export interface IBeginSerializedPdfSaveAsResult extends Partial<ISerializedPdfPersistenceLimits> {
-    sessionId: string | null;
-    path: string | null;
-}

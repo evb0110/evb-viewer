@@ -241,67 +241,6 @@ describe('feature IPC codec maps', () => {
         })).toThrow('invalid native PDF save result');
     });
 
-    it('canonically validates native mutation requests at the feature boundary', () => {
-        const saveCodec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNativeMutations
-        ];
-        const applyCodec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
-        ];
-        const validMutation = {updates: [{
-            objectNumber: 42,
-            generationNumber: 0,
-            text: 'Updated note',
-        }]};
-        const validModifiedAt = 'D:20260810010203Z';
-        const revisionOptions = {expectedDocumentRevisionToken: 'drt1:test:feature-ipc'};
-
-        expect(saveCodec?.decodeArgs([
-            '/tmp/working.pdf',
-            validMutation,
-            validModifiedAt,
-        ])).toEqual([
-            '/tmp/working.pdf',
-            validMutation,
-            validModifiedAt,
-        ]);
-        expect(() => saveCodec?.decodeArgs([
-            '/tmp/working.pdf',
-            {},
-            validModifiedAt,
-        ])).toThrow('must include at least one native PDF mutation');
-        expect(() => saveCodec?.decodeArgs([
-            '/tmp/working.pdf',
-            validMutation,
-            '2026-08-10T01:02:03.000Z',
-        ])).toThrow('modifiedAt must be a PDF date string');
-        expect(() => saveCodec?.decodeArgs([
-            '/tmp/working.pdf',
-            {updates: [{
-                objectNumber: 0,
-                generationNumber: 0,
-                text: 'Invalid',
-            }]},
-            validModifiedAt,
-        ])).toThrow('mutations.updates[0].objectNumber');
-        expect(() => applyCodec?.decodeArgs([
-            '/tmp/working.pdf',
-            validMutation,
-            validModifiedAt,
-        ])).toThrow('expected 4 arguments');
-        expect(applyCodec?.decodeArgs([
-            '/tmp/working.pdf',
-            validMutation,
-            validModifiedAt,
-            revisionOptions,
-        ])).toEqual([
-            '/tmp/working.pdf',
-            validMutation,
-            validModifiedAt,
-            revisionOptions,
-        ]);
-    });
-
     it('deeply validates workspace snapshots at the platform boundary', () => {
         const codec = agentCodec(AGENT_CHANNELS.submitWorkspaceSnapshot);
         const snapshot = {

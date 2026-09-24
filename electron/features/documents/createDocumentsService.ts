@@ -8,10 +8,8 @@ import {
     handleOpenPdfDirectBatch,
 } from '@electron/features/documents/main/documentOpenHandlers';
 import {
-    handleBeginSavePdfDataAs,
     handleSaveDocxAs,
     handleSavePdfAs,
-    handleSavePdfDataAs,
     handleSavePdfDialog,
 } from '@electron/features/documents/main/documentSaveDialogHandlers';
 import {
@@ -38,7 +36,6 @@ import {
 } from '@electron/features/documents/main/nativePdfPreview';
 import {
     beginPdfAnnotationIndex,
-    cancelPdfAnnotationIndex,
     readPdfAnnotationIndexChunk,
     releasePdfAnnotationIndex,
 } from '@electron/features/documents/main/pdfAnnotationIndex';
@@ -48,13 +45,7 @@ import {
     readPdfEmbeddedShapeIndexChunk,
     releasePdfEmbeddedShapeIndex,
 } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
-import {
-    beginPdfAnnotationParse,
-    cancelPdfAnnotationParse,
-    parsePdfAnnotations,
-    readPdfAnnotationParseChunk,
-    releasePdfAnnotationParse,
-} from '@electron/features/documents/main/pdfAnnotationParse';
+import {parsePdfAnnotations} from '@electron/features/documents/main/pdfAnnotationParse';
 import {
     handleFileWrite,
     handleFileWriteDocx,
@@ -62,14 +53,10 @@ import {
 } from '@electron/features/documents/main/documentFileWriteHandlers';
 import {
     handleAnalyzePdfConformance,
-    handleValidatePdfData,
     handleValidatePdfPath,
 } from '@electron/features/documents/main/documentPdfValidationHandlers';
-import { handleCleanupOcrTemp } from '@electron/features/documents/main/handleCleanupOcrTemp';
 import {
     handleCancelPdfPrint,
-    handleOpenPdfInDefaultAppData,
-    handleOpenPdfInDefaultAppPath,
     handlePrintPdfData,
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
@@ -79,7 +66,6 @@ import {
     handleFileSaveStructured,
     handleOptimizePdfForInteraction,
     handleRepairPdfSave,
-    handleResyncWorkingCopy,
     handleSerializedPdfSave,
 } from '@electron/features/documents/main/workingCopySave';
 import { handleOptimizePdfAsCopy } from '@electron/features/documents/main/handleOptimizePdfAsCopy';
@@ -88,7 +74,6 @@ import {
     handleCommitStagedPdfNativeMutations,
     handleNativeNoteChangesSave,
     handleNativeNoteTextSave,
-    handleNativePdfMutationsSave,
 } from '@electron/features/documents/main/nativePdfMutationSaveHandlers';
 import {
     handleCloneStagedPdfNativeMutationToWorkingCopy,
@@ -257,9 +242,6 @@ export function createDocumentsService(): IDocumentsService {
         parsePdfAnnotations: (...args: TDocumentsServiceArgs<'parsePdfAnnotations'>) =>
             parsePdfAnnotations(...args),
         savePdfAs: (...args: TDocumentsServiceArgs<'savePdfAs'>) => handleSavePdfAs(...args),
-        savePdfDataAs: (...args: TDocumentsServiceArgs<'savePdfDataAs'>) => handleSavePdfDataAs(...args),
-        beginSavePdfDataAs: (...args: TDocumentsServiceArgs<'beginSavePdfDataAs'>) =>
-            handleBeginSavePdfDataAs(...args),
         savePdfDialog: (...args: TDocumentsServiceArgs<'savePdfDialog'>) => handleSavePdfDialog(...args),
         saveDocxAs: (...args: TDocumentsServiceArgs<'saveDocxAs'>) => handleSaveDocxAs(...args),
         readFile: (...args: TDocumentsServiceArgs<'readFile'>) => handleFileRead(...args),
@@ -284,16 +266,6 @@ export function createDocumentsService(): IDocumentsService {
             readPdfAnnotationIndexChunk(...args),
         releasePdfAnnotationIndex: (...args: TDocumentsServiceArgs<'releasePdfAnnotationIndex'>) =>
             releasePdfAnnotationIndex(...args),
-        cancelPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationIndex'>) =>
-            cancelPdfAnnotationIndex(...args),
-        beginPdfAnnotationParse: (...args: TDocumentsServiceArgs<'beginPdfAnnotationParse'>) =>
-            beginPdfAnnotationParse(...args),
-        readPdfAnnotationParseChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationParseChunk'>) =>
-            readPdfAnnotationParseChunk(...args),
-        releasePdfAnnotationParse: (...args: TDocumentsServiceArgs<'releasePdfAnnotationParse'>) =>
-            releasePdfAnnotationParse(...args),
-        cancelPdfAnnotationParse: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationParse'>) =>
-            cancelPdfAnnotationParse(...args),
         beginPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'beginPdfEmbeddedShapeIndex'>) =>
             beginPdfEmbeddedShapeIndex(...args),
         readPdfEmbeddedShapeIndexChunk: (...args: TDocumentsServiceArgs<'readPdfEmbeddedShapeIndexChunk'>) =>
@@ -344,12 +316,7 @@ export function createDocumentsService(): IDocumentsService {
         },
         analyzePdfConformance: (...args: TDocumentsServiceArgs<'analyzePdfConformance'>) =>
             handleAnalyzePdfConformance(...args),
-        validatePdfData: (...args: TDocumentsServiceArgs<'validatePdfData'>) => handleValidatePdfData(...args),
         validatePdfPath: (...args: TDocumentsServiceArgs<'validatePdfPath'>) => handleValidatePdfPath(...args),
-        openPdfInDefaultAppData: (...args: TDocumentsServiceArgs<'openPdfInDefaultAppData'>) =>
-            handleOpenPdfInDefaultAppData(...args),
-        openPdfInDefaultAppPath: (...args: TDocumentsServiceArgs<'openPdfInDefaultAppPath'>) =>
-            handleOpenPdfInDefaultAppPath(...args),
         printPdfData: (...args: TDocumentsServiceArgs<'printPdfData'>) => handlePrintPdfData(...args),
         cancelPdfPrint: (...args: TDocumentsServiceArgs<'cancelPdfPrint'>) => handleCancelPdfPrint(...args),
         printPdfPath: (...args: TDocumentsServiceArgs<'printPdfPath'>) => handlePrintPdfPath(...args),
@@ -359,8 +326,6 @@ export function createDocumentsService(): IDocumentsService {
         writeDocxFile: (...args: TDocumentsServiceArgs<'writeDocxFile'>) => handleFileWriteDocx(...args),
         saveFileStructured: (...args: TDocumentsServiceArgs<'saveFileStructured'>) =>
             handleFileSaveStructured(...args),
-        resyncWorkingCopy: (...args: TDocumentsServiceArgs<'resyncWorkingCopy'>) =>
-            handleResyncWorkingCopy(...args),
         repairPdf: (...args: TDocumentsServiceArgs<'repairPdf'>) => handleRepairPdfSave(...args),
         optimizePdfForInteraction: (...args: TDocumentsServiceArgs<'optimizePdfForInteraction'>) =>
             handleOptimizePdfForInteraction(...args),
@@ -371,8 +336,6 @@ export function createDocumentsService(): IDocumentsService {
             handleNativeNoteTextSave(...args),
         savePdfNoteChanges: (...args: TDocumentsServiceArgs<'savePdfNoteChanges'>) =>
             handleNativeNoteChangesSave(...args),
-        savePdfNativeMutations: (...args: TDocumentsServiceArgs<'savePdfNativeMutations'>) =>
-            handleNativePdfMutationsSave(...args),
         applyPdfNativeMutationsToWorkingCopy: (...args: TDocumentsServiceArgs<'applyPdfNativeMutationsToWorkingCopy'>) =>
             handleNativePdfMutationsApplyToWorkingCopy(...args),
         commitStagedPdfNativeMutations: (...args: TDocumentsServiceArgs<'commitStagedPdfNativeMutations'>) =>
@@ -397,7 +360,6 @@ export function createDocumentsService(): IDocumentsService {
                 await discardPendingOcrResultsForDocument(requireDocumentRef(workingPath));
             }
         },
-        cleanupOcrTemp: (...args: TDocumentsServiceArgs<'cleanupOcrTemp'>) => handleCleanupOcrTemp(...args),
         setWindowTitle: (...args: TDocumentsServiceArgs<'setWindowTitle'>) => handleSetWindowTitle(...args),
         showItemInFolder: (...args: TDocumentsServiceArgs<'showItemInFolder'>) => handleShowItemInFolder(...args),
         setMenuDocumentState: (...args: TDocumentsServiceArgs<'setMenuDocumentState'>) => {

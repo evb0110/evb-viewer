@@ -73,8 +73,6 @@ async function createMockedElectronApi() {
         ...fixture.documentFiles,
         ...fixture.documentPdf,
         createCombinedPdfFromFiles: fixture.documentPicker.createCombinedPdfFromFiles,
-        openFolderDialogStructured: fixture.documentPicker.openFolderDialogStructured,
-        showItemInFolderStructured: fixture.documentWindow.showItemInFolderStructured,
     })}));
     vi.doMock('@electron/preload/debugLogBuffer', () => ({getDebugLogMessages: () => []}));
 

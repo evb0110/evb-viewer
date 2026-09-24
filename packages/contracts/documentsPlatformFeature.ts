@@ -2,7 +2,6 @@ import type {
     ICreateCombinedPdfFromFilesOptions,
     IDocumentChunkReadResult,
     IWorkingCopyBackingStatus,
-    TDocumentChunkSource,
 } from '@contracts/electronApiDocuments';
 import {decodeWorkingCopyBackingStatus} from '@contracts/electronApiDocuments';
 import {
@@ -25,7 +24,6 @@ import {
     createWorkingCopyFromDataArgs,
     createWorkingCopyFromPathArgs,
     decodeConformanceResult,
-    decodePlatformOperationResult,
     decodePrintResult,
     documentRevisionArgs,
     documentRevisionEvent,
@@ -33,12 +31,10 @@ import {
     fileExistsArgs,
     fileStatResult,
     fixtureRevisionOptions,
-    folderDialogResult,
     longNativeIpcTimeoutMs,
     managedHandleArgs,
     managedHandleResult,
     menuStateArgs,
-    nativeMutationsArgs,
     nativeNoteChangesArgs,
     nativeNoteTextArgs,
     nativeSaveResult,
@@ -51,7 +47,6 @@ import {
     openFileResult,
     openingGeometryArgs,
     openingGeometryResult,
-    openPdfPathArgs,
     optimizeAsCopyArgs,
     optimizeInteractionArgs,
     optimizeProgress,
@@ -61,7 +56,6 @@ import {
     pageSizesArgs,
     pageSizesResult,
     pathArgs,
-    pdfDataArgs,
     pdfPathArgs,
     printPdfDataArgs,
     printPdfPathArgs,
@@ -78,34 +72,23 @@ import {
     saveFileStructuredArgs,
     savePdfAsArgs,
     savePdfDialogArgs,
-    showItemResult,
     statFileArgs,
     validationResult,
     writeDocxArgs,
     writeFileArgs,
     type TDocumentMethodArgs,
-    type TDocumentMethodResult,
 } from '@contracts/documentsPlatformFeatureSchemas';
 import {decodePdfNativePrintDialogOpenedEvent} from '@contracts/pdfPathPrintOptions';
 import {
     beginPdfAnnotationIndexArgs,
-    cancelPdfAnnotationIndexArgs,
-    pdfAnnotationIndexCancelResult,
     pdfAnnotationIndexChunkResult,
     pdfAnnotationIndexSessionResult,
     readPdfAnnotationIndexChunkArgs,
     releasePdfAnnotationIndexArgs,
 } from '@contracts/pdfAnnotationIndexSchemas';
 import {
-    beginPdfAnnotationParseArgs,
-    cancelPdfAnnotationParseArgs,
     parsePdfAnnotationsArgs,
-    pdfAnnotationParseCancelResult,
-    pdfAnnotationParseChunkResult,
     pdfAnnotationParseResult,
-    pdfAnnotationParseSessionResult,
-    readPdfAnnotationParseChunkArgs,
-    releasePdfAnnotationParseArgs,
 } from '@contracts/pdfAnnotationParseSchemas';
 import {
     beginPdfEmbeddedShapeIndexArgs,
@@ -270,10 +253,6 @@ export const DOCUMENT_PICKER_PLATFORM_FEATURE = definePlatformFeature({
         openFolderDialog: defineIpcMethod(
             'openFolderDialog', 'dialog:openFolder', noArgs, openFileResult, 'openFolderDialog', 'sender',
         ),
-        openFolderDialogStructured: {
-            ...defineLocalMethod('openFolderDialogStructured', 'async', noArgs, folderDialogResult),
-            ...browserImplementedOptional,
-        },
         openImageDialog: defineIpcMethod(
             'openImageDialog', 'dialog:openImage', noArgs, nullableStringResult, 'openImageDialog', 'sender',
         ),
@@ -387,22 +366,6 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
             'cleanupFile',
             'sender',
         ),
-        cleanupOcrTemp: defineIpcMethod(
-            'cleanupOcrTemp',
-            'file:cleanupOcrTemp',
-            pathArgs('path'),
-            s.declared<undefined>()(s.fromParser(
-                value => {
-                    if (value === undefined || typeof value === 'boolean') {
-                        return undefined;
-                    }
-                    return fail('expected a void IPC result');
-                },
-                () => undefined,
-            )),
-            'cleanupOcrTemp',
-            'sender',
-        ),
     },
     events: {},
 });
@@ -417,25 +380,9 @@ const readFileChunksResult = s.trustedDirect<IDocumentChunkReadResult>(() => ({
     bytesRead: 1,
     chunks: 1,
 }));
-const savePdfDataAsLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfDataAs'>>(() => [
-    parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
-    Uint8Array.of(1),
-    undefined,
-    fixtureRevisionOptions,
-]);
-const savePdfDataAsLocalResult = s.trustedDirect<TDocumentMethodResult<'savePdfDataAs'>>(() => ({
-    path: parseDocumentRef('/tmp/saved.pdf') ?? fail('invalid fixture document reference'),
-    validation: null,
-}));
 const savePdfDataLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfData'>>(() => [
     parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
     Uint8Array.of(1),
-    fixtureRevisionOptions,
-]);
-const savePdfDataChunksLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfDataChunks'>>(() => [
-    parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
-    1,
-    [Uint8Array.of(1)] satisfies TDocumentChunkSource,
     fixtureRevisionOptions,
 ]);
 
@@ -525,46 +472,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ),
             ...electronImplementedOptional,
         },
-        cancelPdfAnnotationIndex: {
-            ...defineIpcMethod(
-                'cancelPdfAnnotationIndex', 'pdf:annotationIndex:cancel', cancelPdfAnnotationIndexArgs,
-                pdfAnnotationIndexCancelResult, 'cancelPdfAnnotationIndex', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        beginPdfAnnotationParse: {
-            ...defineIpcMethod(
-                'beginPdfAnnotationParse', 'pdf:annotationParse:begin', beginPdfAnnotationParseArgs,
-                pdfAnnotationParseSessionResult, 'beginPdfAnnotationParse', 'sender',
-            ),
-            ipc: {
-                args: beginPdfAnnotationParseArgs,
-                result: pdfAnnotationParseSessionResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        readPdfAnnotationParseChunk: {
-            ...defineIpcMethod(
-                'readPdfAnnotationParseChunk', 'pdf:annotationParse:readChunk', readPdfAnnotationParseChunkArgs,
-                pdfAnnotationParseChunkResult, 'readPdfAnnotationParseChunk', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        releasePdfAnnotationParse: {
-            ...defineIpcMethod(
-                'releasePdfAnnotationParse', 'pdf:annotationParse:release', releasePdfAnnotationParseArgs,
-                booleanResult, 'releasePdfAnnotationParse', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        cancelPdfAnnotationParse: {
-            ...defineIpcMethod(
-                'cancelPdfAnnotationParse', 'pdf:annotationParse:cancel', cancelPdfAnnotationParseArgs,
-                pdfAnnotationParseCancelResult, 'cancelPdfAnnotationParse', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
         beginPdfEmbeddedShapeIndex: {
             ...defineIpcMethod(
                 'beginPdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:begin', beginPdfEmbeddedShapeIndexArgs,
@@ -625,9 +532,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
         savePdfAs: defineIpcMethod(
             'savePdfAs', 'dialog:savePdfAs', savePdfAsArgs, nullableStringResult, 'savePdfAs', 'sender',
         ),
-        savePdfDataAs: defineLocalMethod(
-            'savePdfDataAs', 'async', savePdfDataAsLocalArgs, savePdfDataAsLocalResult,
-        ),
         savePdfDialog: defineIpcMethod(
             'savePdfDialog', 'dialog:savePdfDialog', savePdfDialogArgs,
             nullableStringResult, 'savePdfDialog', 'sender',
@@ -650,18 +554,8 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             'saveFileStructured', 'file:saveStructured', saveFileStructuredArgs,
             documentSaveResult, 'saveFileStructured', 'sender',
         ),
-        resyncWorkingCopy: {
-            ...defineIpcMethod(
-                'resyncWorkingCopy', 'file:resyncWorkingCopy', pathArgs('path'),
-                documentSaveResult, 'resyncWorkingCopy', 'sender',
-            ),
-            ...browserImplementedOptional,
-        },
         savePdfData: defineLocalMethod(
             'savePdfData', 'async', savePdfDataLocalArgs, validationResult,
-        ),
-        savePdfDataChunks: defineLocalMethod(
-            'savePdfDataChunks', 'async', savePdfDataChunksLocalArgs, validationResult,
         ),
         createManagedTempFileHandle: {
             ...defineIpcMethod(
@@ -733,18 +627,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ),
             ipc: {
                 args: nativeNoteChangesArgs,
-                result: nativeSaveResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        savePdfNativeMutations: {
-            ...defineIpcMethod(
-                'savePdfNativeMutations', 'file:savePdfNativeMutations', nativeMutationsArgs,
-                nativeSaveResult, 'savePdfNativeMutations', 'sender',
-            ),
-            ipc: {
-                args: nativeMutationsArgs,
                 result: nativeSaveResult,
                 timeoutMs: longNativeIpcTimeoutMs,
             },
@@ -855,10 +737,6 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
         },
-        validatePdfData: defineIpcMethod(
-            'validatePdfData', 'pdf:validateData', pdfDataArgs,
-            validationResult, 'validatePdfData', 'none',
-        ),
         validatePdfPath: {
             ...defineIpcMethod(
                 'validatePdfPath', 'pdf:validatePath', pdfValidationPathArgs,
@@ -870,16 +748,6 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
         },
-        openPdfInDefaultAppData: defineIpcMethod(
-            'openPdfInDefaultAppData', 'pdf:openInDefaultAppData', pdfDataArgs,
-            s.fromParser(decodePlatformOperationResult, () => ({success: true})),
-            'openPdfInDefaultAppData', 'none',
-        ),
-        openPdfInDefaultAppPath: defineIpcMethod(
-            'openPdfInDefaultAppPath', 'pdf:openInDefaultAppPath', openPdfPathArgs,
-            s.fromParser(decodePlatformOperationResult, () => ({success: true})),
-            'openPdfInDefaultAppPath', 'sender',
-        ),
         printPdfData: defineIpcMethod(
             'printPdfData', 'pdf:printData', printPdfDataArgs,
             s.fromParser(decodePrintResult, () => ({success: true})),
@@ -948,12 +816,6 @@ export const DOCUMENT_WINDOW_PLATFORM_FEATURE = definePlatformFeature({
             'showItemInFolder', 'shell:showItemInFolder', s.tuple([documentRefResult]),
             s.boolean(), 'showItemInFolder', 'sender',
         ),
-        showItemInFolderStructured: {
-            ...defineLocalMethod(
-                'showItemInFolderStructured', 'async', s.tuple([documentRefResult]), showItemResult,
-            ),
-            ...browserImplementedOptional,
-        },
     },
     events: {},
 });
@@ -1036,9 +898,7 @@ export const DOCUMENT_PLATFORM_FEATURES = [
  */
 export const DOCUMENTS_DIRECT_BINDING_METHODS = [
     'documentFiles.readFileChunks',
-    'documentFiles.savePdfDataAs',
     'documentFiles.savePdfData',
-    'documentFiles.savePdfDataChunks',
 ] as const;
 
 export type IDocumentPickerPlatformCapability =

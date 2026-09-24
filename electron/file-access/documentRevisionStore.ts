@@ -29,7 +29,6 @@ import { getErrorMessage } from '@electron/utils/error';
 import {
     assertWorkingCopyRevisionSidecarCurrent,
     clearWorkingCopyRevisionSidecarCommit,
-    clearWorkingCopySyncRequiredJournalEntry,
     getWorkingCopyRevisionSidecarPath,
     readWorkingCopyRevisionSidecar,
     readWorkingCopySyncRequiredJournalEntry,
@@ -649,9 +648,6 @@ export function hasWorkingCopySyncRequired(workingCopyPath: string) {
     return hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath) !== undefined;
 }
 
-export function assertWorkingCopyResyncAllowed(workingCopyPath: string, senderId?: number) {
-    assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
-}
 
 export function markWorkingCopySyncRequired(workingCopyPath: string, reason: string) {
     const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
@@ -675,17 +671,6 @@ export function markWorkingCopySyncRequired(workingCopyPath: string, reason: str
     }
 }
 
-export function clearWorkingCopySyncRequired(workingCopyPath: string) {
-    const queueKey = getRevisionQueueKey(workingCopyPath);
-    try {
-        clearWorkingCopySyncRequiredJournalEntry(workingCopyPath);
-    } catch (error) {
-        log.debug(`Failed to clear working-copy sync-required journal entry: ${getErrorMessage(error)}`);
-        return;
-    }
-    workingCopySyncRequired.delete(queueKey);
-    workingCopySyncRequiredJournalReadFailures.delete(queueKey);
-}
 
 export function onWorkingCopyRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {
     revisionListeners.add(listener);

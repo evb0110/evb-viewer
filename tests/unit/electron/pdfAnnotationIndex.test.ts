@@ -22,7 +22,6 @@ import {requireDocumentRef} from '@contracts/documentRef';
 
 import {
     beginPdfAnnotationIndex,
-    cancelPdfAnnotationIndex,
     readPdfAnnotationIndexChunk,
     releasePdfAnnotationIndex,
 } from '@electron/features/documents/main/pdfAnnotationIndex';
@@ -301,20 +300,5 @@ describe('PDF annotation index main session', () => {
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow('stale after indexing');
         expect(existsSync(sidecarPath)).toBe(false);
-    });
-
-    it('cancels a ready session and removes its sidecar', async () => {
-        const session = await beginPdfAnnotationIndex(
-            context,
-            requireDocumentRef('/tmp/document.pdf'),
-            {expectedDocumentRevisionToken: revisionToken},
-        );
-
-        await expect(cancelPdfAnnotationIndex(context, session.sessionId))
-            .resolves.toEqual({canceled: true});
-        await releasePdfAnnotationIndex(context, session.sessionId);
-        await vi.waitFor(() => expect(existsSync(sidecarPath)).toBe(false));
-        await expect(readPdfAnnotationIndexChunk(context, session.sessionId, 0))
-            .rejects.toThrow(/session is (?:canceled|not available)/iu);
     });
 });

@@ -29,7 +29,6 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {isRecord} from '@contracts/runtimeGuards';
 import {
     parseSessionId,
     type TSessionId,
@@ -108,13 +107,6 @@ const readPdfAnnotationIndexChunkArgs = documentArgs<'readPdfAnnotationIndexChun
     ],
 );
 const releasePdfAnnotationIndexArgs = documentArgs<'releasePdfAnnotationIndex'>(
-    value => {
-        const args = decodeArgumentArray(value, 1);
-        return [decodeSessionId(args[0], 'sessionId')];
-    },
-    () => [decodeSessionId('annotation-index-1', 'sessionId')],
-);
-const cancelPdfAnnotationIndexArgs = documentArgs<'cancelPdfAnnotationIndex'>(
     value => {
         const args = decodeArgumentArray(value, 1);
         return [decodeSessionId(args[0], 'sessionId')];
@@ -219,20 +211,9 @@ const pdfAnnotationIndexChunkResult = documentResult<'readPdfAnnotationIndexChun
         entries: [],
     }),
 );
-const pdfAnnotationIndexCancelResult = documentResult<'cancelPdfAnnotationIndex'>(
-    value => {
-        if (!isRecord(value) || typeof value.canceled !== 'boolean') {
-            fail('invalid annotation index cancellation result');
-        }
-        return {canceled: value.canceled};
-    },
-    () => ({canceled: false}),
-);
 
 export {
     beginPdfAnnotationIndexArgs,
-    cancelPdfAnnotationIndexArgs,
-    pdfAnnotationIndexCancelResult,
     pdfAnnotationIndexChunkResult,
     pdfAnnotationIndexSessionResult,
     readPdfAnnotationIndexChunkArgs,

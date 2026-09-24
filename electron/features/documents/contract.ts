@@ -11,13 +11,9 @@ import {
 import type {
     IDocumentsFileCapability,
     IPdfCommittedSaveAsResult,
-    IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import type {
-    IBeginSerializedPdfPersistenceResult,
-    IBeginSerializedPdfSaveAsResult,
-} from '@electron/features/documents/serializedPdfPersistenceContract';
+import type {IBeginSerializedPdfPersistenceResult} from '@electron/features/documents/serializedPdfPersistenceContract';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TSessionId } from '@contracts/shared';
@@ -38,8 +34,6 @@ export const DOCUMENTS_CHANNELS = {
     createWorkingCopyFromPath: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
     parsePdfAnnotations: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations,
     savePdfAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfAs,
-    savePdfDataAs: 'dialog:savePdfDataAs',
-    savePdfDataAsBegin: 'dialog:savePdfDataAs:begin',
     savePdfDialog: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfDialog,
     saveDocxAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
     fileRead: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile,
@@ -55,11 +49,6 @@ export const DOCUMENTS_CHANNELS = {
     pdfAnnotationIndexBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfAnnotationIndex,
     pdfAnnotationIndexReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationIndexChunk,
     pdfAnnotationIndexRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationIndex,
-    pdfAnnotationIndexCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfAnnotationIndex,
-    pdfAnnotationParseBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfAnnotationParse,
-    pdfAnnotationParseReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationParseChunk,
-    pdfAnnotationParseRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationParse,
-    pdfAnnotationParseCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfAnnotationParse,
     pdfEmbeddedShapeIndexBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfEmbeddedShapeIndex,
     pdfEmbeddedShapeIndexReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfEmbeddedShapeIndexChunk,
     pdfEmbeddedShapeIndexRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfEmbeddedShapeIndex,
@@ -70,10 +59,7 @@ export const DOCUMENTS_CHANNELS = {
     workingCopyBackingStatusGet:
         DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getWorkingCopyBackingStatus,
     pdfAnalyzeConformance: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.analyzePdfConformance,
-    pdfValidateData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfData,
     pdfValidatePath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath,
-    pdfOpenInDefaultAppData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppData,
-    pdfOpenInDefaultAppPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppPath,
     pdfPrintData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData,
     pdfPrintCancel: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint,
     pdfPrintPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
@@ -85,7 +71,6 @@ export const DOCUMENTS_CHANNELS = {
     fileWriteDocxStreamCommit: DOCX_EXPORT_STREAM_CHANNELS.commit,
     fileWriteDocxStreamCancel: DOCX_EXPORT_STREAM_CHANNELS.cancel,
     fileSaveStructured: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured,
-    fileResyncWorkingCopy: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.resyncWorkingCopy,
     fileRepairPdf: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.repairPdf,
     fileOptimizePdfForInteraction: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfForInteraction,
     fileOptimizePdfAsCopy: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfAsCopy,
@@ -96,7 +81,6 @@ export const DOCUMENTS_CHANNELS = {
     fileCancelStagedSerializedPdf: 'file:cancelStagedSerializedPdf',
     fileSavePdfNoteTextUpdates: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteTextUpdates,
     fileSavePdfNoteChanges: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteChanges,
-    fileSavePdfNativeMutations: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNativeMutations,
     fileApplyPdfNativeMutationsToWorkingCopy:
         DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy,
     fileCommitStagedPdfNativeMutations:
@@ -106,7 +90,6 @@ export const DOCUMENTS_CHANNELS = {
     fileReplaceWorkingCopyFromStagedPdfNativeMutation:
         DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromStagedPdfNativeMutation,
     fileCleanup: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupFile,
-    fileCleanupOcrTemp: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupOcrTemp,
 } as const;
 
 export const DOCUMENTS_EVENT_CHANNELS = {
@@ -138,24 +121,6 @@ interface IDocumentsDirectPersistenceInvokeMap {
             token: string;
         }>];
         result: boolean;
-    };
-    [DOCUMENTS_CHANNELS.savePdfDataAs]: {
-        args: [
-            workingPath: TDocumentRef,
-            data: Uint8Array,
-            options?: IPdfSaveAsOptions,
-            serializedSaveOptions?: IPdfSerializedSaveOptions,
-        ];
-        result: Awaited<ReturnType<IDocumentsFileCapability['savePdfDataAs']>>;
-    };
-    [DOCUMENTS_CHANNELS.savePdfDataAsBegin]: {
-        args: [
-            workingPath: TDocumentRef,
-            totalBytes: number,
-            options?: IPdfSaveAsOptions,
-            serializedSaveOptions?: IPdfSerializedSaveOptions,
-        ];
-        result: IBeginSerializedPdfSaveAsResult;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
         args: [path: TDocumentRef, data: Uint8Array, options?: IPdfSerializedSaveOptions];

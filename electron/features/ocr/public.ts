@@ -6,7 +6,6 @@ export {
 export {
     claimPendingOcrResultForDocument,
     discardPendingOcrResultsForDocument,
-    findPendingOcrResultFileForPath,
     releasePendingOcrResultClaim,
 } from '@electron/features/ocr/main/createPendingResultFileStore';
 export {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';

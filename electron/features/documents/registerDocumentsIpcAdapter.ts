@@ -30,7 +30,6 @@ import {
 } from '@electron/features/documents/contract';
 import {createDocumentsService} from '@electron/features/documents/createDocumentsService';
 import type {
-    IDocumentsDialogContext,
     IDocumentsSenderIdContext,
     IDocumentsService,
     IDocumentsWebContentsContext,
@@ -140,12 +139,6 @@ function createSenderIdContext(event: IpcMainInvokeEvent): IDocumentsSenderIdCon
     };
 }
 
-function createDialogContext(event: IpcMainInvokeEvent): IDocumentsDialogContext {
-    return {
-        ...createWebContentsContext(event),
-        parentWindow: BrowserWindow.fromWebContents(event.sender),
-    };
-}
 
 function pruneRendererFileOpenTokens(senderId: number, now = Date.now()) {
     const tokens = rendererFileOpenTokens.get(senderId);
@@ -401,8 +394,6 @@ export function registerDocumentsIpcAdapter(
             service.parsePdfAnnotations(context, filePath, options),
         cleanupFile: (context, workingPath) =>
             service.cleanupFile(context, workingPath).then(() => undefined),
-        cleanupOcrTemp: (context, filePath) =>
-            service.cleanupOcrTemp(context, filePath).then(() => undefined),
         readFile: (context, filePath) =>
             service.readFile(context, filePath),
         readPdfPageLabelRanges: (context, filePath) =>
@@ -429,16 +420,6 @@ export function registerDocumentsIpcAdapter(
             service.readPdfAnnotationIndexChunk(context, sessionId, offset, options),
         releasePdfAnnotationIndex: (context, sessionId) =>
             service.releasePdfAnnotationIndex(context, sessionId),
-        cancelPdfAnnotationIndex: (context, sessionId) =>
-            service.cancelPdfAnnotationIndex(context, sessionId),
-        beginPdfAnnotationParse: (context, filePath, options) =>
-            service.beginPdfAnnotationParse(context, filePath, options),
-        readPdfAnnotationParseChunk: (context, sessionId, offset, options) =>
-            service.readPdfAnnotationParseChunk(context, sessionId, offset, options),
-        releasePdfAnnotationParse: (context, sessionId) =>
-            service.releasePdfAnnotationParse(context, sessionId),
-        cancelPdfAnnotationParse: (context, sessionId) =>
-            service.cancelPdfAnnotationParse(context, sessionId),
         beginPdfEmbeddedShapeIndex: (context, filePath, options) =>
             service.beginPdfEmbeddedShapeIndex(context, filePath, options),
         readPdfEmbeddedShapeIndexChunk: (context, sessionId, offset, options) =>
@@ -478,8 +459,6 @@ export function registerDocumentsIpcAdapter(
             service.writeDocxFile(context, filePath, data),
         saveFileStructured: (context, workingPath, revisionOptions) =>
             service.saveFileStructured(context, workingPath, revisionOptions),
-        resyncWorkingCopy: (context, workingPath) =>
-            service.resyncWorkingCopy(context, workingPath),
         repairPdf: (context, workingPath, revisionOptions) =>
             service.repairPdf(context, workingPath, revisionOptions),
         optimizePdfForInteraction: (context, workingPath, revisionOptions) =>
@@ -493,8 +472,6 @@ export function registerDocumentsIpcAdapter(
             service.savePdfNoteTextUpdates(context, workingPath, updates, modifiedAt, revisionOptions),
         savePdfNoteChanges: (context, workingPath, changes, modifiedAt, revisionOptions) =>
             service.savePdfNoteChanges(context, workingPath, changes, modifiedAt, revisionOptions),
-        savePdfNativeMutations: (context, workingPath, mutations, modifiedAt, revisionOptions) =>
-            service.savePdfNativeMutations(context, workingPath, mutations, modifiedAt, revisionOptions),
         applyPdfNativeMutationsToWorkingCopy: (
             context,
             workingPath,
@@ -522,14 +499,8 @@ export function registerDocumentsIpcAdapter(
             ),
         analyzePdfConformance: (context, filePath, options) =>
             service.analyzePdfConformance(context, filePath, options),
-        validatePdfData: (data, fileName) =>
-            service.validatePdfData(data, fileName),
         validatePdfPath: (context, filePath, options) =>
             service.validatePdfPath(context, filePath, options),
-        openPdfInDefaultAppData: (data, fileName) =>
-            service.openPdfInDefaultAppData(data, fileName),
-        openPdfInDefaultAppPath: (context, filePath, fileName) =>
-            service.openPdfInDefaultAppPath(context, filePath, fileName),
         printPdfData: (context, data, fileName, options) => {
             registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
             return service.printPdfData({
@@ -631,30 +602,6 @@ export function registerDocumentsIpcAdapter(
         ),
     );
 
-    register(DOCUMENTS_CHANNELS.savePdfDataAs, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            data,
-            options,
-            serializedSaveOptions,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDataAs>
-    ) =>
-        service.savePdfDataAs(createDialogContext(event), workingPath, data, options, serializedSaveOptions)
-            .then(result => ({
-                ...result,
-                path: result.path === null ? null : requireDocumentRef(result.path),
-            })));
-    register(DOCUMENTS_CHANNELS.savePdfDataAsBegin, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            totalBytes,
-            options,
-            serializedSaveOptions,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDataAsBegin>
-    ) =>
-        service.beginSavePdfDataAs(createDialogContext(event), workingPath, totalBytes, options, serializedSaveOptions));
     register(DOCUMENTS_CHANNELS.fileSavePdfData, (
         event: IpcMainInvokeEvent,
         ...[

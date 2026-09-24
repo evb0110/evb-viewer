@@ -3,17 +3,31 @@ import {
     expect,
     it,
 } from 'vitest';
-import {PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
-import {
-    DOCUMENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
+import {DOCUMENT_WORKING_COPY_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 
 const token = requireDocumentRevisionToken('drt1:annotation-parse-test');
-const channels = DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels;
-const codecs = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs;
+const workingCopyParseCodec = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs[
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations
+]!;
+
+// Decodes each entry through the parsePdfAnnotations result codec, keeping entry order.
+function decodeEntries<T extends {entries: ReadonlyArray<{kind: string}>}>(chunk: T) {
+    return {
+        ...chunk,
+        entries: chunk.entries.map((entry) => {
+            const isForeign = entry.kind === 'foreign';
+            const decoded = workingCopyParseCodec.decodeResult({
+                documentRevisionToken: token,
+                pageCount: 1,
+                entities: isForeign ? [] : [entry],
+                foreign: isForeign ? [entry] : [],
+            });
+            return isForeign ? decoded.foreign[0]! : decoded.entities[0]!;
+        }),
+    };
+}
 
 describe('PDF annotation parse IPC contracts', () => {
     it('admits native-validated rotated base rectangles while rejecting impossible bounds', () => {
@@ -37,7 +51,7 @@ describe('PDF annotation parse IPC contracts', () => {
             fontSize: 12,
             color: '#336699',
         };
-        const decode = (entry: typeof textBox) => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+        const decode = (entry: typeof textBox) => decodeEntries({
             offset: 0,
             nextOffset: null,
             byteLength: 0,
@@ -75,7 +89,7 @@ describe('PDF annotation parse IPC contracts', () => {
             .toThrow(/normalized page bounds/iu);
     });
 
-    it('round-trips parse sessions, entries, chunks, and lifecycle payloads', () => {
+    it('round-trips parsed annotation entries and results', () => {
         const textBox = {
             kind: 'text-box' as const,
             pageIndex: 0,
@@ -202,14 +216,6 @@ describe('PDF annotation parse IPC contracts', () => {
             lineStartStyle: 'none' as const,
             lineEndStyle: 'closedArrow' as const,
         };
-        const session = {
-            sessionId: 'annotation-parse-session',
-            documentRef: '/tmp/document.pdf',
-            documentRevisionToken: token,
-            pageCount: 1,
-            entryCount: 6,
-            totalBytes: 512,
-        };
         const chunk = {
             offset: 0,
             nextOffset: null,
@@ -225,24 +231,7 @@ describe('PDF annotation parse IPC contracts', () => {
             ],
         };
 
-        expect(codecs[channels.beginPdfAnnotationParse]!.decodeArgs([
-            '/tmp/document.pdf',
-            {expectedDocumentRevisionToken: token},
-        ])).toEqual([
-            '/tmp/document.pdf',
-            {expectedDocumentRevisionToken: token},
-        ]);
-        expect(codecs[channels.beginPdfAnnotationParse]!.decodeResult(session)).toEqual(session);
-        expect(codecs[channels.readPdfAnnotationParseChunk]!.decodeArgs([
-            'annotation-parse-session',
-            0,
-            {chunkBytes: 512},
-        ])).toEqual([
-            'annotation-parse-session',
-            0,
-            {chunkBytes: 512},
-        ]);
-        const decodedChunk = codecs[channels.readPdfAnnotationParseChunk]!.decodeResult(chunk);
+        const decodedChunk = decodeEntries(chunk);
         expect(decodedChunk).toEqual(chunk);
         expect(decodedChunk.entries.map(entry => entry.kind)).toEqual([
             'text-box',
@@ -292,7 +281,7 @@ describe('PDF annotation parse IPC contracts', () => {
                 }
                 : entry),
         };
-        expect(codecs[channels.readPdfAnnotationParseChunk]!.decodeResult(arbitraryStampRotationChunk).entries[4])
+        expect(decodeEntries(arbitraryStampRotationChunk).entries[4])
             .toMatchObject({
                 kind: 'stamp',
                 rotation: 32.5,
@@ -302,7 +291,7 @@ describe('PDF annotation parse IPC contracts', () => {
             Number.POSITIVE_INFINITY,
             Number.NEGATIVE_INFINITY,
         ]) {
-            expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+            expect(() => decodeEntries({
                 ...chunk,
                 entries: chunk.entries.map(entry => entry.kind === 'stamp'
                     ? {
@@ -332,7 +321,7 @@ describe('PDF annotation parse IPC contracts', () => {
                 }
                 : entry),
         };
-        const normalizedStampChunk = codecs[channels.readPdfAnnotationParseChunk]!.decodeResult(uppercaseStampChunk);
+        const normalizedStampChunk = decodeEntries(uppercaseStampChunk);
         expect(normalizedStampChunk.entries[4]).toMatchObject({
             kind: 'stamp',
             image: {sha256: 'a'.repeat(64)},
@@ -349,7 +338,7 @@ describe('PDF annotation parse IPC contracts', () => {
                 }
                 : entry),
         };
-        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult(invalidStampChunk))
+        expect(() => decodeEntries(invalidStampChunk))
             .toThrow(/sha256/iu);
         const noteWithUnknownReply = {
             ...chunk,
@@ -363,7 +352,7 @@ describe('PDF annotation parse IPC contracts', () => {
                 }
                 : entry),
         };
-        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult(noteWithUnknownReply))
+        expect(() => decodeEntries(noteWithUnknownReply))
             .toThrow(/unsupported field/iu);
 
         const shapeWithUnknownPointField = {
@@ -374,7 +363,7 @@ describe('PDF annotation parse IPC contracts', () => {
                 unexpected: true,
             }],
         };
-        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+        expect(() => decodeEntries({
             ...chunk,
             entries: [
                 textBox,
@@ -386,7 +375,7 @@ describe('PDF annotation parse IPC contracts', () => {
             ],
         })).toThrow(/unsupported field/iu);
 
-        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+        expect(() => decodeEntries({
             ...chunk,
             entries: [
                 {
@@ -401,7 +390,7 @@ describe('PDF annotation parse IPC contracts', () => {
             ],
         })).toThrow(/fontSize.*512/iu);
 
-        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+        expect(() => decodeEntries({
             ...chunk,
             entries: [
                 textBox,
@@ -416,7 +405,7 @@ describe('PDF annotation parse IPC contracts', () => {
             ],
         })).toThrow(/highlight\.opacity.*1/iu);
 
-        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+        expect(() => decodeEntries({
             ...chunk,
             entries: [
                 textBox,
@@ -431,14 +420,6 @@ describe('PDF annotation parse IPC contracts', () => {
             ],
         })).toThrow(/shape\.opacity.*1/iu);
 
-        expect(codecs[channels.releasePdfAnnotationParse]!.decodeArgs(['annotation-parse-session']))
-            .toEqual(['annotation-parse-session']);
-        expect(codecs[channels.releasePdfAnnotationParse]!.decodeResult(true)).toBe(true);
-        expect(codecs[channels.cancelPdfAnnotationParse]!.decodeArgs(['annotation-parse-session']))
-            .toEqual(['annotation-parse-session']);
-        expect(codecs[channels.cancelPdfAnnotationParse]!.decodeResult({canceled: true}))
-            .toEqual({canceled: true});
-
         const parseResult = {
             documentRevisionToken: token,
             pageCount: 1,
@@ -451,9 +432,6 @@ describe('PDF annotation parse IPC contracts', () => {
             ],
             foreign: [foreign],
         };
-        const workingCopyParseCodec = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations
-        ]!;
         expect(workingCopyParseCodec.decodeArgs([
             '/tmp/document.pdf',
             {expectedDocumentRevisionToken: token},
@@ -464,19 +442,12 @@ describe('PDF annotation parse IPC contracts', () => {
         expect(workingCopyParseCodec.decodeResult(parseResult)).toEqual(parseResult);
     });
 
-    it('rejects missing revisions, invalid entities, and oversized chunks', () => {
-        const beginCodec = codecs[channels.beginPdfAnnotationParse]!;
-        const chunkCodec = codecs[channels.readPdfAnnotationParseChunk]!;
-        expect(() => beginCodec.decodeArgs([
+    it('rejects missing revisions, invalid entities, and oversized results', () => {
+        expect(() => workingCopyParseCodec.decodeArgs([
             '/tmp/document.pdf',
             {},
         ])).toThrow(/invalid document revision options/iu);
-        expect(() => chunkCodec.decodeArgs([
-            'annotation-parse-session',
-            0,
-            {chunkBytes: PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES + 1},
-        ])).toThrow(/chunkBytes/iu);
-        expect(() => chunkCodec.decodeResult({
+        expect(() => decodeEntries({
             offset: 0,
             nextOffset: null,
             byteLength: 0,
@@ -502,7 +473,7 @@ describe('PDF annotation parse IPC contracts', () => {
                 color: '#336699',
             }],
         })).toThrow(/normalized page bounds/iu);
-        expect(() => chunkCodec.decodeResult({
+        expect(() => decodeEntries({
             offset: 0,
             nextOffset: null,
             byteLength: 0,
@@ -519,9 +490,6 @@ describe('PDF annotation parse IPC contracts', () => {
             }],
         })).toThrow(/unsupported field/iu);
 
-        const workingCopyParseCodec = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations
-        ]!;
         expect(() => workingCopyParseCodec.decodeResult({
             documentRevisionToken: token,
             pageCount: 1,

@@ -457,22 +457,6 @@ export async function releasePdfAnnotationIndex(
     return true;
 }
 
-export function cancelPdfAnnotationIndex(
-    context: IDocumentsSenderIdContext,
-    sessionId: string,
-) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        return Promise.resolve({canceled: false});
-    }
-    assertSessionOwner(session, context);
-    if (session.canceled || session.released) {
-        return Promise.resolve({canceled: false});
-    }
-    cancelPdfSidecarSession(session, 'PDF annotation index canceled');
-    cleanupWhenOperationSettles(session);
-    return Promise.resolve({canceled: true});
-}
 
 export async function sweepStalePdfAnnotationIndexArtifacts(
     maxAgeMs = ANNOTATION_INDEX_DEFAULT_TTL_MS,

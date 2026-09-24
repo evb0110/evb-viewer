@@ -59,6 +59,8 @@ export interface ISerializedPdfPersistenceLimits {
     readonly resultTimeoutMs: number;
 }
 
+export interface IBeginSerializedPdfPersistenceResult extends ISerializedPdfPersistenceLimits {sessionId: string;}
+
 export interface IPdfPersistenceErrorFrame {
     readonly type: 'error';
     readonly code: TPdfPersistenceErrorCode;

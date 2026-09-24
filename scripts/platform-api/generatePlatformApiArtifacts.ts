@@ -31,9 +31,6 @@ const browserImplementedOptionalMethodNames = new Set<string>([
     'createCombinedPdfFromFiles',
     'applyPdfNativeMutationsToWorkingCopy',
     'commitStagedPdfNativeMutations',
-    'openFolderDialogStructured',
-    'resyncWorkingCopy',
-    'showItemInFolderStructured',
 ]);
 
 const migratedBrowserBindings = new Map<string, boolean>(

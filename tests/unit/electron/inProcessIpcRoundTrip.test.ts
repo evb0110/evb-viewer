@@ -197,32 +197,24 @@ describe('in-process preload to validated IPC round trips', () => {
                 {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
             ],
         });
-        await expect(harness.client.savePdfDataChunks(requireDocumentRef('/tmp/working.pdf'), 5, [
-            Uint8Array.from([
-                1,
-                2,
-            ]),
-            Uint8Array.from([
-                3,
-                4,
-                5,
-            ]),
-        ], {expectedDocumentRevisionToken: requireDocumentRevisionToken('round-trip-revision')}))
+        await expect(harness.client.savePdfData(requireDocumentRef('/tmp/working.pdf'), Uint8Array.from([
+            1,
+            2,
+            3,
+            4,
+            5,
+        ]), {expectedDocumentRevisionToken: requireDocumentRevisionToken('round-trip-revision')}))
             .resolves.toMatchObject({
                 isValid: true,
                 tool: 'browser',
             });
-        expect(receivedChunks).toEqual([
-            Uint8Array.from([
-                1,
-                2,
-            ]),
-            Uint8Array.from([
-                3,
-                4,
-                5,
-            ]),
-        ]);
+        expect(receivedChunks).toEqual([Uint8Array.from([
+            1,
+            2,
+            3,
+            4,
+            5,
+        ])]);
 
         const opened = await Promise.all(sourcePaths.map(path => harness.client.openDocumentDirect(path)));
         expect(opened.map(result => result?.kind === 'pdf' ? result.workingPath : undefined)).toEqual([
