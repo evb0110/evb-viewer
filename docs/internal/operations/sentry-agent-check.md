@@ -1,207 +1,76 @@
 # Sentry agent check
 
 Use this document when a request says `check Sentry`, `verify Sentry`, `look at
-Sentry`, or `inspect Sentry` without naming a more specific operation.
+Sentry`, or `inspect Sentry` without naming a more specific operation. How
+reporting works is in [sentry-runbook.md](./sentry-runbook.md).
 
 ## What the request means
 
-The default is a read-only health and evidence check. It does not send a
-canary, change a Sentry setting, rotate a credential, deploy code, resolve or
-delete an issue, create or close a GitHub issue, or move a board item.
+The default is a read-only health and evidence check. It does not change a
+Sentry setting, rotate a credential, deploy code, resolve or delete an issue,
+create or close a GitHub issue, or move a board item.
 
 The words below select a different operation:
 
 | User wording | Operation | External state changed |
 | --- | --- | --- |
 | `check`, `verify`, `look at`, `inspect` | Read current evidence and report it | No |
-| `send`, `submit`, or `run a canary` | Submit the named synthetic canary, then verify it | Sentry events and a receipt |
 | `triage` or `investigate` | Review issues and prepare a bounded remediation record | No |
 | `file an issue` | Create the explicitly requested remediation record | GitHub issue only |
 | `configure`, `enable`, `disable`, `rotate`, or `change settings` | Change account, project, alert, consent, or credential state | Yes, only in the named scope |
 | `deploy`, `publish`, or `release` | Build or deploy the named release | Yes, only in the named scope |
 
 If the wording does not select one of these operations, stay in the first row.
-Read [sentry-runbook.md](./sentry-runbook.md) for policy. This file is the agent
-entry point, not a replacement for it.
-
-Routine issue triage is narrower than a telemetry acceptance audit. Use the
-installed repository CLI path for an ordinary, read-only issue investigation;
-read the full canonical documents only when the request is to audit telemetry
-acceptance, a release, account controls, or source maps.
-
-### Routine CLI issue triage
-
-Run the pinned local CLI through the repository package manager. Keep the query
-bounded and run each viewer project separately:
-
-```sh
-pnpm exec sentry-cli issues list \
-  --org "$SENTRY_ORG" \
-  --project "$SENTRY_DESKTOP_PROJECT" \
-  --query 'is:unresolved environment:production' \
-  --pages 5 \
-  --max-rows 500
-```
-
-Use `SENTRY_WEB_PROJECT` for the hosted-browser project. `--pages` defaults to
-five pages and `--max-rows` bounds the returned issue rows; do not treat a page
-cap as a complete population. For one named issue, inspect only the minimum
-bounded event surface needed to classify its project, release, dist,
-environment, diagnostic code, and safe application frame. Keep the command
-read-only, redact raw messages and stacks, and report rate limiting or missing
-authorization as `Unknown`.
-
-An event is a lead, not defect proof. Before filing or settling anything,
-reproduce from repository code, an existing test, a public fixture, or a
-maintainer-made synthetic fixture. Reuse the existing issue or task record for
-ownership and evidence pointers; do not create a mandatory triage manifest or
-automatically mutate Sentry or GitHub state.
 
 ## Read-only procedure
 
-Complete these steps in order. A check is complete only when every applicable
-runtime has a result or an explicit `Unknown` with the reason it could not be
-checked.
+1. Record `HEAD`, `origin/main`, and the release being checked. Do not pull,
+   rebase, or clean a checkout another writer owns.
+2. For the release's workflow run, confirm the `Upload Sentry source maps` step
+   ran and succeeded on every desktop target:
 
-### 1. Establish the revision and preserve the workspace
+   ```sh
+   gh run list --repo evb0110/evb-viewer --workflow release.yml --limit 5 \
+     --json databaseId,headSha,conclusion
+   gh run view <run-id> --repo evb0110/evb-viewer --json jobs
+   ```
 
-1. Read this file, the operations runbook, the account-controls file, and the
-   current Sentry ledger before interpreting any event or dashboard state.
-2. Run `git status --short --branch`, inspect active writers and test processes,
-   and preserve dirty files, worktrees, sessions, and processes.
-3. Record `HEAD`, `origin/main`, and the exact release or deployment being
-   checked. A stale local checkout is not release evidence.
-4. If the checkout is clean, is on `main`, and no active writer owns it, it may
-   fast-forward with `git fetch origin` and `git pull --ff-only origin main`.
-   If it is dirty or owned by another writer, do not pull, rebase, reset, or
-   clean it. Report the revision boundary instead.
+3. List unresolved production issues for each project with the pinned CLI,
+   keeping the query bounded:
 
-### 2. Check the enabled runtimes
+   ```sh
+   pnpm exec sentry-cli issues list \
+     --org "$SENTRY_ORG" \
+     --project "$SENTRY_DESKTOP_PROJECT" \
+     --query 'is:unresolved environment:production' \
+     --pages 5 \
+     --max-rows 500
+   ```
 
-Check all enabled runtimes unless the user names one:
+   Repeat with `SENTRY_WEB_PROJECT`. Treat page caps, rate limits and missing
+   authorization as `Unknown`, not as an empty queue.
+4. For a named issue, read only the project, release, environment,
+   `diagnostic_code` tag, Error ID and top application frame. If any field the
+   scrubber does not allowlist appears, stop and follow the privacy incident
+   procedure in the runbook.
 
-- Desktop: inspect the latest exact-SHA matrix and its artifacts for all seven
-  shipping identities.
-- Hosted browser: inspect the exact production deployment and preview when a
-  preview is part of the current release. Check release, dist, environment,
-  served-byte parity, CSP ingest-origin count, consent suppression, Error ID
-  correlation, and revocation behavior.
-- Nitro: treat it as disabled unless the account-controls file and the current
-  ledger say that its preview and legal gates are complete.
-
-Use the repository's current GitHub run and artifact evidence. A green local
-test, a successful upload, a Sentry issue count, or a dashboard screenshot does
-not prove symbolication or acceptance by itself.
-
-The read-only GitHub inspection starts with these commands:
-
-```sh
-gh run list --repo evb0110/evb-viewer --limit 20 \
-  --json databaseId,headSha,status,conclusion,workflowName
-gh run view <run-id> --repo evb0110/evb-viewer \
-  --json headSha,status,conclusion,jobs
-gh run download <run-id> --repo evb0110/evb-viewer \
-  --dir .devkit/sentry-check/<run-id>
-```
-
-Use the run whose `headSha` is the exact release or deployment SHA. If the
-required artifact is absent, report that evidence as `Unknown`; do not select a
-different run just to make the check green.
-
-### 3. Verify source maps through the read-only API
-
-The verifier is the source-map proof. It checks every event in a receipt
-against Sentry's source-map-debug and processed-event APIs, including the exact
-release, dist, Debug ID, original EVB source, function, line, and source
-context.
-
-Run it only when the exact build workspace contains the matching private
-source-map stage and `canary-receipt.json`. Take `target`, `release`, `dist`,
-`environment`, organization, and project from that exact receipt or hosted
-artifact. Never guess them from a current version number.
-
-On the operator Mac, the read-only command has this shape. The token value must
-stay in Keychain and in the process environment; it must never appear in the
-command text, terminal output, a receipt, or a report:
-
-```sh
-SENTRY_VERIFICATION_TOKEN="$(security find-generic-password -a "$USER" -s evb-viewer-sentry-verification-token -w)" \
-EVB_SENTRY_TARGET=<desktop-or-web> \
-EVB_SENTRY_RELEASE=<exact-release> \
-EVB_SENTRY_DIST=<exact-dist> \
-EVB_SENTRY_ENVIRONMENT=<exact-environment> \
-SENTRY_ORG=<organization-slug> \
-SENTRY_DESKTOP_PROJECT=<desktop-project-slug> \
-node scripts/release/verify-sentry-sourcemap-canaries.mjs
-```
-
-For a web target, use `SENTRY_WEB_PROJECT=<web-project-slug>` instead of the
-desktop project variable. Leave the unused project variable unset. Replace
-only the remaining angle-bracket values from the exact receipt. The verifier
-is read-only. It writes a credential-free `canary-verification-receipt.json`.
-The sender, `scripts/release/send-sentry-sourcemap-canaries.mjs`, is not part
-of a plain check. If the private stage or receipt is missing, report
-`Unknown: exact verification inputs unavailable`; do not generate new events
-to fill the gap.
-
-Packaged diagnostics smoke is not this proof. It proves local consent and Error
-ID correlation plus transport acceptance when enabled; it does not prove that
-Sentry processed a renderer frame through the tested artifact's source map.
-
-### 4. Inspect Sentry issues only when issue health is in scope
-
-Use Chrome for the Sentry issue feed when the user asks about current issues,
-alerts, quota, or account controls. Review both viewer projects and the
-`production` environment. For each relevant issue, record only:
-
-- project, release, dist, environment, diagnostic code, and safe platform data;
-- whether the Error ID maps to the application failure record;
-- whether the top frame is an EVB source file, function, and line;
-- event and user counts, age, alert state, and whether the issue is new or
-  regressed.
-
-Do not copy event payloads, raw messages or stacks, user content, URLs, paths,
-document names, screenshots, private Sentry links, or credential material into
-the repository, a GitHub issue, or a report. If a forbidden field appears,
-stop normal triage and follow the privacy-incident procedure in the runbook.
-
-### 5. Report a fixed result
-
-Use this shape so another agent can act on the result without guessing. State
-whether the result concerns the closed desktop/browser delivery scope or the
-continuing Nitro and elapsed-time follow-ups. Delivery closure is not Nitro
-approval and is not a four-week operating result:
+## Report shape
 
 ```text
 Sentry check
 Mode: read-only
-Repository: <HEAD>; origin/main: <SHA>; exact release/deployment: <value>
-Desktop: <Pass | Fail | Unknown>, with all eight shipping identities accounted for
-Hosted browser: <Pass | Fail | Unknown>, production and preview scope stated
-Nitro: <Disabled | Pass | Fail | Unknown>, with the reason
-Source maps: <verified count>/<receipt count>, exact release and dist stated
-Issues and alerts: <summary or Not checked because out of scope>
+Repository: <HEAD>; origin/main: <SHA>; release: <value>
+Source maps: <uploaded on every desktop target | Fail | Unknown>
+Desktop issues: <summary | Unknown and why>
+Web issues: <summary | Unknown and why>
 Privacy: <Pass | Incident | Unknown>
 Actions taken: none
-Blocking evidence or next safe step: <one concrete statement>
 ```
-
-Write `Fail` when a checked assertion fails. Write `Unknown` when evidence is
-missing, stale, or outside the available credential scope. Never turn an
-unverified claim into `Pass` because a dashboard looks healthy.
 
 ## What requires a new instruction
 
-Stop and obtain an explicit operation before doing any of the following:
-
-- sending synthetic events or rerunning a production canary;
-- changing DSNs, consent, alerts, retention, privacy, source-map access, or
-  project settings;
-- uploading, deleting, resolving, archiving, or merging Sentry data;
-- rotating, revoking, copying, or revealing credentials;
-- deploying a release or changing Vercel or GitHub Actions state;
-- creating, editing, closing, or moving GitHub issues and project items.
-
-The user's existing permission to work autonomously does not change the
-meaning of a bare read-only check. It authorizes an explicitly requested
-implementation or operation, not an inferred external mutation.
+Stop and obtain an explicit operation before sending test events, changing
+DSNs, consent, alerts, retention or project settings, uploading or deleting
+Sentry data, rotating or revealing credentials, deploying, or creating, editing
+or closing GitHub issues. Permission to work autonomously does not change the
+meaning of a bare read-only check.

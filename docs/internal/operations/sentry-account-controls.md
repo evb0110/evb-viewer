@@ -9,9 +9,9 @@ send production events. It contains setting names and policy decisions only.
 Never add DSNs, tokens, project identifiers, private endpoints, screenshots, or
 event contents.
 
-The server-side scrubber is a backstop. Runtime adapters must still construct
-every remote event from the closed diagnostic record and must never send a raw
-error, message, path, URL, request, document value, or arbitrary object.
+The server-side scrubber is a backstop. The client scrubber
+(`packages/contracts/diagnostics/scrubSentryEvent.ts`) is the privacy boundary;
+see [sentry-runbook.md](./sentry-runbook.md).
 
 ## Organization access
 
@@ -88,16 +88,12 @@ names and their runtime purpose here, never their values.
 | Item | Required state | Verification |
 | --- | --- | --- |
 | `evb-viewer-desktop` project | One key named `desktop-runtime` | Owner verified 2026-09-04 |
-| `evb-viewer-web` project | Keys named `web-browser` and `web-nitro` | Owner verified 2026-09-04 |
+| `evb-viewer-web` project | Key named `web-browser` (the `web-nitro` key has no consumer) | Owner verified 2026-09-04 |
 | Browser allowed origins | Canonical production viewer and two viewer Vercel aliases | Owner verified 2026-09-04 |
 | Source-map upload token | One token with `org:ci` only | Owner verified by successful strict upload 2026-09-04 |
-| Source-map verification token | Separate read-only token with `project:read` and event-read access; never used for upload | Owner verified 2026-09-05; GitHub secret and local Keychain entry present, and the EU project API returned HTTP 200 |
 | Desktop runtime secret | `SENTRY_DESKTOP_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Browser runtime secret | `SENTRY_BROWSER_DSN` in Vercel Preview and Production | Owner verified by exact production deployment 2026-09-05 |
-| Browser canary secret | `SENTRY_BROWSER_DSN` in GitHub Actions | Owner verified 2026-09-04 |
-| Nitro runtime secret | `SENTRY_NITRO_DSN` in Vercel Preview; runtime remains disabled | Owner verified 2026-09-04 |
 | Release upload settings | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_DESKTOP_PROJECT`, and `SENTRY_WEB_PROJECT` in GitHub Actions | Owner verified 2026-09-04 |
-| Release verification setting | `SENTRY_VERIFICATION_TOKEN` in GitHub Actions and the local private Sentry environment | Owner verified 2026-09-05; the local CLI loads the token from the `evb-viewer-sentry-verification-token` Keychain service |
 
 ## Retention and operations
 
@@ -107,7 +103,6 @@ names and their runtime purpose here, never their values.
 | Resolved-issue deletion | Weekly operator procedure | First cycle found zero resolved issues to delete, verified 2026-09-05 |
 | Quota alerts | Personal error-quota notifications at 80 and 100 percent; pay-as-you-go disabled | Owner verified 2026-09-05; the account UI offers only `100% and 80%` or `100%` |
 | Source-map access review | Debug-file access Owner; source fetching disabled after upload | Owner verified 2026-09-04 |
-| Removal procedure | Tested without sending a production event | Full macOS arm64 source-and-package removal rehearsal verified 2026-09-05; the runbook records the separate pre-existing renderer-settle test failure reproduced on the untouched baseline |
 
 Sentry derived a user geography from ingress metadata on the first closed test
 events even though IP storage was prevented and no user or request field was
@@ -115,29 +110,7 @@ sent. Both projects therefore use the explicit `$user.geo.**` removal rule.
 Post-change desktop and browser test events contained no geography. This rule
 is required and must survive account-control reviews.
 
-The alert definitions, weekly deletion procedure, privacy incident response,
-credential rotation, emergency disablement, canary evidence tables, and package
-removal rehearsal are in `sentry-runbook.md`.
-
-## Production activation record
-
-Release `v0.1.453` is the current production viewer release with consent-gated
-client diagnostics. The exact prebuilt output is deployed at the canonical
-viewer alias. Its public JavaScript matches the private manifest and contains
-no source maps. The exact production receipt contains 259 deterministic
-source-map canaries, all verified through the source-map-debug and
-processed-event checks. The earlier v0.1.452 `missing_source_content` result is
-historical and does not describe the current release. Nitro runtime reporting
-remains disabled pending its legal approval and observation gates. The review
-and objection work stays open in [#222](https://github.com/evb0110/evb-viewer/issues/222),
-enablement and canary work stays open in
-[#261](https://github.com/evb0110/evb-viewer/issues/261), and dated observation
-stays open in [#267](https://github.com/evb0110/evb-viewer/issues/267).
-
-The live browser check on 2026-09-05 recorded no Sentry request before consent,
-one event after the user granted the still-live report, no later event after
-revocation, and no event after first-time denial. The viewer CSP contains one
-EU Sentry ingest origin. The landing CSP contains none. Production deployment
-`dpl_6mz6ywiVqcCUvraULktftokjSe9W` serves the bundled acknowledgement and
-wordmark at `evb-viewer.com`; a fresh browser session made no Sentry request and
-reported zero console errors or warnings.
+The alert definitions, privacy incident response, credential rotation and
+emergency disablement are in `sentry-runbook.md`. `SENTRY_VERIFICATION_TOKEN`,
+`SENTRY_NITRO_DSN` and the GitHub copy of `SENTRY_BROWSER_DSN` are no longer read
+by anything in the repository; the owner may revoke them.

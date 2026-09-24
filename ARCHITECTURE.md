@@ -129,8 +129,8 @@ the build on a violation. The rules worth knowing:
 - Deleted paths stay deleted: retired component and composable locations are
   blocked so they cannot quietly come back.
 
-Dependency cycles, platform-capability composition, and the Sentry integration
-boundary are checked by the same script.
+Dependency cycles and platform-capability composition are checked by the same
+script.
 
 ## Where things live
 

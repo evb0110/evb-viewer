@@ -109,8 +109,9 @@ boundaries around it.
   and revision, over a random port behind a bearer token.
 - **Release engineering**: signed and notarized installers, an auto-update
   canary, and build provenance.
-- **Opt-in diagnostics.** Crash reporting is consent-gated and off until you
-  turn it on.
+- **Opt-in diagnostics.** Crash reporting through `@sentry/electron` is
+  consent-gated and off until you turn it on. One scrubber removes paths, file
+  names, URLs and document text before anything leaves the machine.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) is the one-page map.
 
@@ -130,8 +131,8 @@ uses.
 
 Actively developed. Viewing, editing, annotation, OCR, scan cleanup, export,
 and the release pipeline are stable and used daily. The assistant and the
-external MCP server are opt-in and still moving. Server-side error reporting
-for the hosted browser build is deliberately disabled.
+external MCP server are opt-in and still moving. The hosted browser build
+sends no server-side error reports.
 
 ## Docs
 

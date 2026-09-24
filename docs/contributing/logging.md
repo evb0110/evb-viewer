@@ -11,8 +11,8 @@ interface ILogRecord {
     scope: string;       // logger source or BrowserLogger section
     msg: string;         // short, stable sentence
     data?: object;       // structured details
-    errorId?: string;    // diagnostic event id on captured failures
-    code?: string;       // diagnostic code on captured failures
+    errorId?: string;    // Sentry event id (the UI's Error ID) on captured failures
+    code?: string;       // diagnostic code, sent as the `diagnostic_code` tag
     pid?: number;
     thread?: number;     // worker thread id
     window?: number;     // renderer webContents id
@@ -43,7 +43,7 @@ Choose the level by what a developer should do with the line:
 
 | Level | Meaning |
 | --- | --- |
-| `error` | A user-visible operation failed. Main and renderer errors carry a diagnostic receipt. |
+| `error` | A user-visible operation failed. Main and renderer errors pass a diagnostic `code` (or an existing receipt) and are reported to Sentry when the user consented. |
 | `warn` | Something a developer should look at: a degraded path, a slow operation, a rejected request. |
 | `info` | A milestone worth seeing in the dev terminal. Keep it rare. |
 | `debug` | Detail for reconstructing a timeline after the fact. Lifecycle chatter belongs here or nowhere. |

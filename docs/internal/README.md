@@ -4,7 +4,7 @@ Maintained material for people and agents working on the repository:
 
 - [agents](agents/) — the rules and runbooks agents follow (fix evidence,
   hidden Electron automation, session lifecycle, triage labels, hygiene).
-- [operations](operations/) — Sentry operations.
+- [operations](operations/) — Sentry setup, triage and account controls.
 - [scan-cleanup](scan-cleanup/) — scan-cleanup fixture provenance and the staged
   analyze window.
 
