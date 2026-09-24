@@ -210,7 +210,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
 
     let prints_result = matches!(
         operation,
-        Operation::PageGeometry { .. } | Operation::PdfConformance
+        Operation::PageGeometry { .. } | Operation::PdfConformance | Operation::ReadCatalog
     );
     if prints_result && output_path.is_some() {
         return Err(format!("{command} prints its result on stdout and takes no --output").into());

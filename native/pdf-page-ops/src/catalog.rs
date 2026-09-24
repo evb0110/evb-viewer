@@ -1,5 +1,4 @@
 use super::*;
-use evb_native_support::output::write_bytes_atomically;
 use serde::Serialize;
 
 const CATALOG_WALK_DEPTH_LIMIT: usize = 256;
@@ -127,15 +126,15 @@ pub(crate) fn read_pdf_combine_catalog_from_bytes(data: &[u8]) -> Result<PdfComb
     read_pdf_combine_catalog(&document)
 }
 
-pub(crate) fn write_pdf_combine_catalog_path(
+pub(crate) fn write_pdf_combine_catalog(
     input_path: &Path,
-    output_path: &Path,
     qpdf_path: Option<&Path>,
+    output: &mut impl Write,
 ) -> Result<()> {
     let incremental = load_incremental_pdf_path(input_path, qpdf_path)?;
     let source = AppendedRevision::new(&incremental);
     let catalog = read_pdf_combine_catalog(&source)?;
-    write_bytes_atomically(output_path, &serde_json::to_vec(&catalog)?)?;
+    serde_json::to_writer(output, &catalog)?;
     Ok(())
 }
 

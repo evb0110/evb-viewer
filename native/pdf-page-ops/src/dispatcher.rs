@@ -9,6 +9,13 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &mut std::io::stdout().lock(),
             )
         }
+        Operation::ReadCatalog => {
+            return write_pdf_combine_catalog(
+                &config.input_path,
+                config.qpdf_path.as_deref(),
+                &mut std::io::stdout().lock(),
+            )
+        }
         Operation::PageGeometry { page_number } => {
             return write_page_geometry(
                 &config.input_path,
@@ -127,13 +134,6 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 output_path,
                 password_file.as_deref(),
             );
-        }
-        Operation::ReadCatalog => {
-            return write_pdf_combine_catalog_path(
-                &config.input_path,
-                output_path,
-                config.qpdf_path.as_deref(),
-            )
         }
         _ => {}
     }

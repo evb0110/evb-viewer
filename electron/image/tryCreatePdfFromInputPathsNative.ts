@@ -26,7 +26,10 @@ import {
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
 } from '@electron/features/page-ops/publicNative';
-import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {
+    readNativePdfCatalog,
+    resolveNativePageOpsPath,
+} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
@@ -546,85 +549,65 @@ async function readAndOffsetPdfCatalogs(chunkPaths: string[], signal?: AbortSign
     if (!hasPdfInput) {
         return null;
     }
-    const catalogDir = await mkdtemp(join(tmpdir(), 'pdf-catalog-'));
-    try {
-        const bookmarks: IPdfCatalogBookmark[] = [];
-        const labels: IPdfCatalogLabel[] = [];
-        let pageOffset = 0;
-        for (const [
-            index,
-            inputPath,
-        ] of chunkPaths.entries()) {
-            const pageCount = await getPdfPageCount(inputPath, signal ? {signal} : {});
-            if (extname(inputPath).toLowerCase() !== '.pdf') {
-                pageOffset = addPageCounts(pageOffset, pageCount);
-                continue;
-            }
-            const catalogPath = join(catalogDir, `${index}.json`);
-            await runNativeCommand(pageOpsPath, [
-                'read-catalog',
-                '--input',
-                inputPath,
-                '--output',
-                catalogPath,
-            ], {
-                commandLabel: 'pdf-page-ops(read-catalog)',
-                timeoutMs: QPDF_TIMEOUT_MS,
-                ...(signal ? {signal} : {}),
-            });
-            const catalog = JSON.parse(await readFile(catalogPath, 'utf8')) as {
-                bookmarks?: IPdfCatalogBookmark[];
-                pageLabels?: IPdfCatalogLabel[]
-            };
-            if (!Array.isArray(catalog.bookmarks) || !Array.isArray(catalog.pageLabels)) {
-                throw new Error(`Native PDF catalog read returned an invalid result for ${inputPath}`);
-            }
-            if (pageCount > 0 && (catalog.pageLabels[0]?.pageIndex ?? 1) > 0) {
-                labels.push({
-                    pageIndex: pageOffset,
-                    style: 'D',
-                    prefix: '',
-                    start: 1,
-                });
-            }
-            const offsetBookmark = (item: IPdfCatalogBookmark): IPdfCatalogBookmark => ({
-                ...item,
-                pageIndex: item.pageIndex === null ? null : item.pageIndex + pageOffset,
-                items: item.items.map(offsetBookmark),
-            });
-            bookmarks.push(...catalog.bookmarks.map(offsetBookmark));
-            labels.push(...catalog.pageLabels.map(label => ({
-                ...label,
-                pageIndex: label.pageIndex + pageOffset,
-            })));
+    const bookmarks: IPdfCatalogBookmark[] = [];
+    const labels: IPdfCatalogLabel[] = [];
+    let pageOffset = 0;
+    for (const inputPath of chunkPaths) {
+        const pageCount = await getPdfPageCount(inputPath, signal ? {signal} : {});
+        if (extname(inputPath).toLowerCase() !== '.pdf') {
             pageOffset = addPageCounts(pageOffset, pageCount);
+            continue;
         }
-        if (bookmarks.length === 0 && labels.length === 0) {
-            return null;
-        }
-        const mutations: IPdfCombineCatalogMutations = {
-            pageLabels: {
-                totalPages: pageOffset,
-                ranges: labels.map(label => ({
-                    startPage: label.pageIndex + 1,
-                    style: normalizeNativePageLabelStyle(label.style),
-                    prefix: label.prefix ?? '',
-                    startNumber: label.start ?? 1,
-                })),
-            },
-            bookmarks: {
-                totalPages: pageOffset,
-                untitledLabel: 'Untitled',
-                items: bookmarks,
-            },
+        const catalog = await readNativePdfCatalog(pageOpsPath, inputPath, {
+            commandLabel: 'pdf-page-ops(read-catalog)',
+            ...(signal ? {signal} : {}),
+        }) as {
+            bookmarks?: IPdfCatalogBookmark[];
+            pageLabels?: IPdfCatalogLabel[]
         };
-        return mutations;
-    } finally {
-        await rm(catalogDir, {
-            recursive: true,
-            force: true,
-        }).catch(() => undefined);
+        if (!Array.isArray(catalog.bookmarks) || !Array.isArray(catalog.pageLabels)) {
+            throw new Error(`Native PDF catalog read returned an invalid result for ${inputPath}`);
+        }
+        if (pageCount > 0 && (catalog.pageLabels[0]?.pageIndex ?? 1) > 0) {
+            labels.push({
+                pageIndex: pageOffset,
+                style: 'D',
+                prefix: '',
+                start: 1,
+            });
+        }
+        const offsetBookmark = (item: IPdfCatalogBookmark): IPdfCatalogBookmark => ({
+            ...item,
+            pageIndex: item.pageIndex === null ? null : item.pageIndex + pageOffset,
+            items: item.items.map(offsetBookmark),
+        });
+        bookmarks.push(...catalog.bookmarks.map(offsetBookmark));
+        labels.push(...catalog.pageLabels.map(label => ({
+            ...label,
+            pageIndex: label.pageIndex + pageOffset,
+        })));
+        pageOffset = addPageCounts(pageOffset, pageCount);
     }
+    if (bookmarks.length === 0 && labels.length === 0) {
+        return null;
+    }
+    const mutations: IPdfCombineCatalogMutations = {
+        pageLabels: {
+            totalPages: pageOffset,
+            ranges: labels.map(label => ({
+                startPage: label.pageIndex + 1,
+                style: normalizeNativePageLabelStyle(label.style),
+                prefix: label.prefix ?? '',
+                startNumber: label.start ?? 1,
+            })),
+        },
+        bookmarks: {
+            totalPages: pageOffset,
+            untitledLabel: 'Untitled',
+            items: bookmarks,
+        },
+    };
+    return mutations;
 }
 
 function normalizeNativePageLabelStyle(style: string | undefined): TPdfPageLabelStyle {

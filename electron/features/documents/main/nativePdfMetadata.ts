@@ -1,15 +1,8 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    stat,
-} from 'fs/promises';
+import { stat } from 'fs/promises';
 import {
     basename,
     dirname,
-    join,
 } from 'path';
-import { tmpdir } from 'os';
 import type {
     IPdfNativePageGeometry,
     IPdfNativePageSizesExactOptions,
@@ -43,7 +36,6 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { QPDF_TIMEOUT_MS } from '@electron/features/page-ops/publicNative';
 import {
     isErrnoException,
     isOneOf,
@@ -52,7 +44,10 @@ import {
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
-import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
+import {
+    readNativePdfCatalog,
+    resolveNativePageOpsPath,
+} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {
     assertWorkingCopyRevisionCurrent,
     getWorkingCopyRevision,
@@ -431,8 +426,6 @@ export async function handlePdfPageLabelRanges(
     if (!binaryPath) {
         throw new Error('Native page operations are required to read PDF page labels');
     }
-    const catalogDir = await mkdtemp(join(tmpdir(), 'pdf-page-labels-'));
-    const catalogPath = join(catalogDir, 'catalog.json');
     const abortController = new AbortController();
     let cancelGroup = '';
     const cancelRead = (reason: string) => {
@@ -457,21 +450,13 @@ export async function handlePdfPageLabelRanges(
     mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
 
     try {
-        const readCatalog = async (physicalPath: string) => {
-            await runNativeToolCommand(binaryPath, [
-                'read-catalog',
-                '--input',
-                physicalPath,
-                '--output',
-                catalogPath,
-            ], {
-                timeoutMs: QPDF_TIMEOUT_MS,
+        const readCatalog = async (physicalPath: string) => parseNativePdfPageLabelRanges(
+            await readNativePdfCatalog(binaryPath, physicalPath, {
                 commandLabel: 'evb-pdf-page-ops(read-page-labels)',
                 signal: abortController.signal,
                 cancelGroup,
-            });
-            return parseNativePdfPageLabelRanges(JSON.parse(await readFile(catalogPath, 'utf8')));
-        };
+            }),
+        );
         return originalBackedRead
             ? await originalBackedRead.read(readCatalog)
             : await readCatalog(resolvedPath);
@@ -479,10 +464,6 @@ export async function handlePdfPageLabelRanges(
         mainOperation.signal.removeEventListener('abort', handleMainAbort);
         unregisterSenderCleanup();
         mainOperation.complete();
-        await rm(catalogDir, {
-            recursive: true,
-            force: true,
-        });
     }
 }
 
