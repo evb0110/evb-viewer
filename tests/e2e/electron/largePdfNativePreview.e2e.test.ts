@@ -376,8 +376,6 @@ function assertAtomicNativeToPdfjsHandoff(
     expect(visualHandoffFrames.every(frame => (
         frame.openingPreviewVisible || frame.pdfjsCanvasVisible
     )), JSON.stringify(visualHandoffFrames)).toBe(true);
-    expect(generationFrames.every(frame => !frame.nativeViewerVisible), JSON.stringify(generationFrames)).toBe(true);
-    expect(generationFrames.every(frame => !frame.nativeSkeletonVisible), JSON.stringify(generationFrames)).toBe(true);
     expect(generationFrames.some(frame => (
         frame.pdfjsCanvasVisible && !frame.openingPreviewVisible
     )), JSON.stringify(generationFrames)).toBe(true);
@@ -483,7 +481,6 @@ async function assertFinalPdfjsCapabilities(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
         ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const standardViewer = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
-        const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer-container') ?? null;
         const textSpan = standardViewer?.querySelector<HTMLElement>('.text-layer span, .textLayer span') ?? null;
         let selectedText = '';
         if (textSpan?.firstChild) {
@@ -509,7 +506,6 @@ async function assertFinalPdfjsCapabilities(
                         ?.dataset.pdfTextLayerRendering ?? null,
                     textSpans: container.querySelectorAll('.text-layer span, .textLayer span').length,
                 })),
-            nativeViewerCount: nativeViewer ? 1 : 0,
             openingLayerCount: host?.querySelectorAll('.document-viewer-chassis__opening-page').length ?? 0,
             selectedText,
             standardViewerCount: standardViewer ? 1 : 0,
@@ -517,7 +513,6 @@ async function assertFinalPdfjsCapabilities(
         };
     });
     expect(state.standardViewerCount, JSON.stringify(state)).toBe(1);
-    expect(state.nativeViewerCount, JSON.stringify(state)).toBe(0);
     expect(state.openingLayerCount, JSON.stringify(state)).toBe(0);
     expect(state.annotationEditorLayerCount, JSON.stringify(state)).toBeGreaterThan(0);
     expect(state.textSpanCount, JSON.stringify(state)).toBeGreaterThan(0);

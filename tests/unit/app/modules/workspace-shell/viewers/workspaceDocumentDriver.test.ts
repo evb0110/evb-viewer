@@ -80,15 +80,13 @@ function selectPendingDocument(path: string, size: number | null) {
 function createBindingHarness() {
     const sources = {
         djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.djvu')),
-        nativePdfSourcePath: ref<TDocumentRef | null>(null),
         workingCopyPath: ref<TDocumentRef | null>(null),
     };
-    const createDriver = (id: 'pdf' | 'native-pdf' | 'djvu') => (
+    const createDriver = (id: 'pdf' | 'djvu') => (
         createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter(id), sources)
     );
     const activeDocumentDriver = ref(createDriver('pdf'));
     const pdfViewerRef = ref<unknown>(null);
-    const nativePdfViewerRef = ref<unknown>(null);
     const djvuViewerRef = ref<unknown>(null);
     const isInteractionActive = ref(false);
     const isRenderActive = ref(false);
@@ -110,7 +108,6 @@ function createBindingHarness() {
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
-        nativePdfViewerRef,
         onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
@@ -144,7 +141,6 @@ function createBindingHarness() {
         isInteractionActive,
         isRenderActive,
         isWorkspaceLayoutResizing,
-        nativePdfViewerRef,
         onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
@@ -226,7 +222,6 @@ describe('WorkspaceDocumentDriver', () => {
 
         const pdf = createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), {
             djvuSourcePath: ref<TDocumentRef | null>(null),
-            nativePdfSourcePath: ref<TDocumentRef | null>(null),
             workingCopyPath: ref<TDocumentRef | null>(null),
         });
         expect(pdf.operations).toEqual({
@@ -249,17 +244,9 @@ describe('WorkspaceDocumentDriver', () => {
         const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/managed/working.pdf'));
         const pdfWithPrintPath = createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), {
             djvuSourcePath: ref<TDocumentRef | null>(null),
-            nativePdfSourcePath: ref<TDocumentRef | null>(null),
             workingCopyPath,
         });
         expect(pdfWithPrintPath.operations.print.path).toBe('/managed/working.pdf');
-
-        const nativePrintPath = createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('native-pdf'), {
-            djvuSourcePath: ref<TDocumentRef | null>(null),
-            nativePdfSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/managed/native.pdf')),
-            workingCopyPath: ref<TDocumentRef | null>(null),
-        });
-        expect(nativePrintPath.operations.print.path).toBe('/managed/native.pdf');
 
         const save = vi.fn(async () => true);
         const saveAs = vi.fn(async () => true);
@@ -396,7 +383,6 @@ describe('WorkspaceDocumentDriver', () => {
             save: true,
             sidebar: true,
         });
-        expect(getWorkspaceViewerAdapter('native-pdf').capabilities.sidebar).toBe(false);
         expect(getWorkspaceViewerAdapter('djvu')).toMatchObject({
             capabilities: {
                 conversionDialog: true,
@@ -438,7 +424,6 @@ describe('WorkspaceDocumentDriver', () => {
         const djvuViewer = markRaw({});
         harness.binding.bindActiveViewerRef(djvuViewer);
         expect(harness.pdfViewerRef.value).toBeNull();
-        expect(harness.nativePdfViewerRef.value).toBeNull();
         expect(harness.djvuViewerRef.value).toBe(djvuViewer);
         expect(harness.binding.activeViewerProps.value).toHaveProperty('searchResults');
         expect(harness.binding.activeViewerListeners.value['update:pageSource']).toBe(harness.onPageSourceUpdate);
@@ -461,14 +446,6 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.binding.activeViewerProps.value).toMatchObject({
             sourceKind: 'djvu',
             rendererKind: 'page-source',
-        });
-
-        harness.activeDocumentDriver.value = harness.createDriver('native-pdf');
-        expect(harness.binding.activeViewerComponent.value)
-            .toMatchObject({name: getWorkspaceViewerAdapter('native-pdf').component.name});
-        expect(harness.binding.activeViewerProps.value).toMatchObject({
-            sourceKind: 'pdf',
-            rendererKind: 'native-pdf',
         });
     });
 

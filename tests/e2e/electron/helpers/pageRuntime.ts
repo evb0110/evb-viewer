@@ -13,7 +13,6 @@ type TPageFunction<TResult, TArgs extends TSerializableValue[]> = (...args: TArg
 
 interface IE2EPageHelpers {
     getActiveWorkspaceHost: (requiredSelector?: string) => HTMLElement | null;
-    getRequiredRasterWidth: (image: HTMLElement, rasterWidthCeilingPx: number) => number;
     isElementVisible: (element: HTMLElement | null, minSizePx?: number) => boolean;
 }
 
@@ -47,12 +46,6 @@ const PAGE_DOMAIN_HELPERS_SOURCE = `globalThis.__evbE2E = globalThis.__evbE2E ||
         const matchingHosts = visibleHosts.filter(matchesRequirement);
         if (matchingHosts.length === 1) return matchingHosts[0];
         return visibleHosts.length === 1 ? visibleHosts[0] : null;
-    },
-    getRequiredRasterWidth(image, rasterWidthCeilingPx) {
-        return Math.min(
-            rasterWidthCeilingPx,
-            Math.ceil(image.getBoundingClientRect().width * Math.min(globalThis.devicePixelRatio || 1, 2)),
-        );
     },
 };`;
 

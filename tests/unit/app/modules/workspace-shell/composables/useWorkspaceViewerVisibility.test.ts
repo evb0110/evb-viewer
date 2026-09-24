@@ -38,7 +38,6 @@ function createDriver(
         sourcePath: null,
         defaultSourceCapabilities: null,
         showDjvuSource: false,
-        showNativePdf: false,
         showPdfSidebar: true,
         startupVisualSource: null,
         ...viewOverrides,
@@ -97,17 +96,17 @@ function createVisibility(driver: IWorkspaceDocumentDriver) {
 describe('useWorkspaceViewerVisibility', () => {
     it('reads viewer presentation and toolbar guards from the active driver', () => {
         const visibility = createVisibility(createDriver({
-            showNativePdf: true,
+            showDjvuSource: true,
             showPdfSidebar: false,
-            startupVisualSource: 'native-pdf-src',
+            startupVisualSource: 'djvu-src',
         }, {
             repairSave: true,
             sidebar: false,
         }));
 
-        expect(visibility.driverShowsNativePdf.value).toBe(true);
+        expect(visibility.driverShowsDjvuSource.value).toBe(true);
         expect(visibility.driverShowsPdfSidebar.value).toBe(false);
-        expect(visibility.driverStartupVisualSource.value).toBe('native-pdf-src');
+        expect(visibility.driverStartupVisualSource.value).toBe('djvu-src');
         expect(visibility.toolbarHasPdf.value).toBe(true);
         expect(visibility.sidebarPresentationEnabled.value).toBe(false);
         expect(visibility.canToggleSidebar.value).toBe(false);

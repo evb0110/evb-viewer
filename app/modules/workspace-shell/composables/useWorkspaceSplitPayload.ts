@@ -324,7 +324,6 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 : options.pdfSrc.value
                     ? parseDocumentRef('browser://documents/in-memory-pdf')
                     : null,
-            shouldUseNativePdf: false,
         });
         // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null.
         if (activeViewerAdapter === DJVU_VIEWER_ADAPTER && activeViewerAdapter.capabilities.sidebar && options.djvuSourcePath.value) {

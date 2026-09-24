@@ -41,13 +41,6 @@ const PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     viewRotation: true,
 };
 
-const NATIVE_PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
-    ...createDefaultWorkspaceViewerCapabilities(),
-    closeableDocument: true,
-    pdfDocument: true,
-    print: true,
-};
-
 const DJVU_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     ...createDefaultWorkspaceViewerCapabilities(),
     closeableDocument: true,
@@ -105,7 +98,6 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
         driverProfile: {
             id: 'pdfjs',
             isDjvu: false,
-            isNativePdf: false,
             isPdfjs: true,
             rendererKind: 'pdfjs',
             sourceKind: 'pdf',
@@ -118,25 +110,10 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
         capabilities: PDF_VIEWER_CAPABILITIES,
     },
     {
-        id: 'native-pdf',
-        driverProfile: {
-            id: 'native-pdf',
-            isDjvu: false,
-            isNativePdf: true,
-            isPdfjs: false,
-            rendererKind: 'native-pdf',
-            sourceKind: 'pdf',
-        },
-        component: DocumentViewerChassis,
-        documentTypes: ['pdf'],
-        capabilities: NATIVE_PDF_VIEWER_CAPABILITIES,
-    },
-    {
         id: 'djvu',
         driverProfile: {
             id: 'djvu',
             isDjvu: true,
-            isNativePdf: false,
             isPdfjs: false,
             rendererKind: 'page-source',
             sourceKind: 'djvu',
@@ -164,17 +141,13 @@ export function resolveWorkspaceViewerAdapter(
     }
 
     if (context.pdfSourcePath) {
-        return context.shouldUseNativePdf
-            ? getWorkspaceViewerAdapter('native-pdf')
-            : getWorkspaceViewerAdapter('pdf');
+        return getWorkspaceViewerAdapter('pdf');
     }
 
     return null;
 }
 
-// Pending/pre-mount records cannot know yet whether a PDF routes to the
-// native viewer (a size-based decision made at resolve time); each document
-// type therefore seeds from an explicit default adapter, and the mounted
+// Pending/pre-mount records seed from the document type's adapter; the mounted
 // workspace overwrites capabilities with the resolved adapter's set.
 const DEFAULT_VIEWER_ADAPTER_ID_BY_DOCUMENT_TYPE: Record<TWorkspaceViewerDocumentType, TWorkspaceViewerAdapterId> = {
     pdf: 'pdf',

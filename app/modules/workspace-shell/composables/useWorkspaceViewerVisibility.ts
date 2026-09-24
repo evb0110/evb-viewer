@@ -24,7 +24,6 @@ interface IWorkspaceViewerVisibilityOptions {
 export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibilityOptions) => {
     const activeDriverCapabilities = computed(() => options.activeDocumentDriver.value?.capabilities);
     const activeDriverView = computed(() => options.activeDocumentDriver.value?.view);
-    const driverShowsNativePdf = computed(() => activeDriverView.value?.showNativePdf === true);
     const driverShowsPdfSidebar = computed(() => activeDriverView.value?.showPdfSidebar === true);
     const driverShowsDjvuSource = computed(() => activeDriverView.value?.showDjvuSource === true);
     const driverStartupVisualSource = computed(() => activeDriverView.value?.startupVisualSource ?? null);
@@ -47,7 +46,6 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
     const toolbarHasPdf = computed(() => (
         options.hasPdf.value
         || options.pendingDocumentOpen.value
-        || driverShowsNativePdf.value
         || driverShowsDjvuSource.value
         || isDjvuOpening.value
         || options.hasQueuedSplitRestore.value
@@ -79,7 +77,6 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
 
     return {
         activeDriverCapabilities,
-        driverShowsNativePdf,
         driverShowsPdfSidebar,
         driverShowsDjvuSource,
         driverStartupVisualSource,

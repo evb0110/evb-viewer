@@ -7,15 +7,14 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import type { IDocumentSourceActivation } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 
-export type TWorkspaceViewerAdapterId = 'pdf' | 'native-pdf' | 'djvu';
+export type TWorkspaceViewerAdapterId = 'pdf' | 'djvu';
 export type TWorkspaceViewerDocumentType = 'pdf' | 'image' | 'djvu';
-export type TWorkspaceDocumentDriverId = 'pdfjs' | 'native-pdf' | 'djvu';
-export type TWorkspaceViewerRendererKind = 'pdfjs' | 'native-pdf' | 'page-source';
+export type TWorkspaceDocumentDriverId = 'pdfjs' | 'djvu';
+export type TWorkspaceViewerRendererKind = 'pdfjs' | 'page-source';
 
 export interface IWorkspaceViewerDriverProfile {
     id: TWorkspaceDocumentDriverId;
     isDjvu: boolean;
-    isNativePdf: boolean;
     isPdfjs: boolean;
     rendererKind: TWorkspaceViewerRendererKind;
     sourceKind: 'pdf' | 'djvu';
@@ -54,5 +53,4 @@ export interface IWorkspaceViewerResolveContext {
     djvuSourcePath: TDocumentRef | null;
     isDjvuMode: boolean;
     pdfSourcePath: TDocumentRef | null;
-    shouldUseNativePdf: boolean;
 }

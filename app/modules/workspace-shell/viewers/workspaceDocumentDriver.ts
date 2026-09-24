@@ -285,14 +285,13 @@ export interface IWorkspaceDocumentDriverLifecycle {createHooks: (context: IWork
 export interface IWorkspaceDocumentDriverView {
     component: Component;
     isPdfjs: boolean;
-    rendererKind: 'pdfjs' | 'native-pdf' | 'page-source';
+    rendererKind: 'pdfjs' | 'page-source';
     sourceKind: 'pdf' | 'djvu';
     sourcePath: TDocumentRef | null;
     defaultSourceCapabilities: IDocumentSourceCapabilities | null;
     showDjvuSource: boolean;
-    showNativePdf: boolean;
     showPdfSidebar: boolean;
-    startupVisualSource: 'native-pdf-src' | 'djvu-src' | null;
+    startupVisualSource: 'djvu-src' | null;
 }
 
 export interface IWorkspaceDriverPrintRequest {
@@ -330,7 +329,6 @@ export interface IWorkspaceDocumentDriver {
 
 interface IWorkspaceDocumentDriverSources {
     djvuSourcePath: Ref<TDocumentRef | null>;
-    nativePdfSourcePath: TReadableRef<TDocumentRef | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     save?: {
         save: () => Promise<boolean>;
@@ -458,10 +456,7 @@ export function createWorkspaceDocumentDriverForAdapter(
     sources: IWorkspaceDocumentDriverSources,
 ): IWorkspaceDocumentDriver {
     const {driverProfile} = adapter;
-    const {
-        isDjvu,
-        isNativePdf,
-    } = driverProfile;
+    const {isDjvu} = driverProfile;
     return {
         id: driverProfile.id,
         capabilities: adapter.capabilities,
@@ -483,11 +478,7 @@ export function createWorkspaceDocumentDriverForAdapter(
             const multiPageTiffTarget = imageTarget === null
                 ? null
                 : {...imageTarget};
-            const printPath = isDjvu
-                ? null
-                : isNativePdf
-                    ? sources.nativePdfSourcePath.value
-                    : sourcePath;
+            const printPath = isDjvu ? null : sourcePath;
             return {
                 open: {strategy: isDjvu ? 'djvu-activation' : 'pdf-working-copy'},
                 restore: {supportsWorkingCopyRecovery: !isDjvu && adapter.capabilities.pdfDocument},
@@ -526,22 +517,11 @@ export function createWorkspaceDocumentDriverForAdapter(
                 isPdfjs: driverProfile.isPdfjs,
                 rendererKind: driverProfile.rendererKind,
                 sourceKind: driverProfile.sourceKind,
-                sourcePath: isDjvu
-                    ? sources.djvuSourcePath.value
-                    : isNativePdf
-                        ? sources.nativePdfSourcePath.value
-                        : null,
-                defaultSourceCapabilities: isDjvu || isNativePdf
-                    ? null
-                    : PDF_SOURCE_CAPABILITIES,
+                sourcePath: isDjvu ? sources.djvuSourcePath.value : null,
+                defaultSourceCapabilities: isDjvu ? null : PDF_SOURCE_CAPABILITIES,
                 showDjvuSource: isDjvu,
-                showNativePdf: isNativePdf,
-                showPdfSidebar: !isDjvu && !isNativePdf,
-                startupVisualSource: isDjvu
-                    ? 'djvu-src'
-                    : isNativePdf
-                        ? 'native-pdf-src'
-                        : null,
+                showPdfSidebar: !isDjvu,
+                startupVisualSource: isDjvu ? 'djvu-src' : null,
             };
         },
         run: isDjvu
@@ -553,11 +533,9 @@ export function createWorkspaceDocumentDriverForAdapter(
 export const useWorkspaceDocumentDriver = (
     options: IWorkspaceDocumentDriverOptions,
 ) => {
-    const nativePdfSourcePath = computed<TDocumentRef | null>(() => null);
     const pendingDocumentKind = computed(() => getDocumentKindFromPath(options.pendingDocumentPath?.value ?? ''));
     const sources = {
         djvuSourcePath: options.djvuSourcePath,
-        nativePdfSourcePath,
         workingCopyPath: options.workingCopyPath,
         save: options.save ?? {
             save: async () => {
@@ -576,13 +554,11 @@ export const useWorkspaceDocumentDriver = (
     };
     const drivers = {
         djvu: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('djvu'), sources),
-        nativePdf: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('native-pdf'), sources),
         pdfjs: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), sources),
     };
     const driverList = [
         drivers.djvu,
         drivers.pdfjs,
-        drivers.nativePdf,
     ] as const;
     const activeDocumentDriver = computed(() => {
         const adapter = resolveWorkspaceViewerAdapter({
@@ -596,10 +572,6 @@ export const useWorkspaceDocumentDriver = (
                     : pendingDocumentKind.value === 'pdf'
                         ? options.pendingDocumentPath?.value ?? null
                         : null,
-            // Native PDF rendering owns only the staged opening preview. The
-            // document driver remains PDF.js so selection, annotations, page
-            // edits, save, and the full sidebar become available at handoff.
-            shouldUseNativePdf: false,
         });
         return adapter
             ? driverList.find(driver => driver.id === adapter.driverProfile.id) ?? null
@@ -644,7 +616,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     pdfSrc: Ref<TPdfSource | null>;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null>;
     pdfViewerRef: Ref<IPdfViewerExpose | null>;
-    nativePdfViewerRef: Ref<IDocumentViewerExpose | null>;
     djvuViewerRef: Ref<IDocumentViewerExpose | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     sourcePdfData: TReadableRef<Uint8Array | null>;
@@ -821,12 +792,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             options.pdfViewerRef,
             driverView.isPdfjs && instance
                 ? instance as IPdfViewerExpose
-                : null,
-        );
-        setViewerRef(
-            options.nativePdfViewerRef,
-            driverView.showNativePdf && instance
-                ? instance as IDocumentViewerExpose
                 : null,
         );
         setViewerRef(

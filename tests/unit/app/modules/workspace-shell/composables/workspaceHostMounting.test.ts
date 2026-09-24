@@ -35,7 +35,6 @@ function createRecordingViewerChunkLoaders(loadedChunks: string[]) {
     return {
         chassis: record('chassis'),
         pdfjs: record('pdfjs'),
-        'native-pdf': record('native-pdf'),
         'page-source': record('page-source'),
     } satisfies Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>;
 }
@@ -219,7 +218,6 @@ describe('workspace preload policy', () => {
         expect(loadedChunks).toEqual([
             'chassis',
             'pdfjs',
-            'native-pdf',
             'page-source',
         ]);
     });
@@ -238,7 +236,6 @@ describe('workspace preload policy', () => {
         expect(loadedChunks).toEqual([
             'chassis',
             'pdfjs',
-            'native-pdf',
         ]);
         expect(getWorkspaceViewerChunkTargetsForPaths(['/docs/book.pdf'])).toEqual(loadedChunks);
     });
@@ -260,7 +257,6 @@ describe('workspace preload policy', () => {
         ])).toEqual([
             'chassis',
             'pdfjs',
-            'native-pdf',
             'page-source',
         ]);
     });

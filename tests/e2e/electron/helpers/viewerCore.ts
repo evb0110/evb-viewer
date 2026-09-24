@@ -396,90 +396,6 @@ export async function waitForDjvuLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_
     });
 }
 
-async function waitForNativePdfPreviewLoaded(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await runWithExecutionContextRetry(page, async () => {
-        await waitForActiveWorkspaceHost(page, timeoutMs);
-
-        await waitForFunctionInPage(page, () => {
-            const isElementVisible = (element: HTMLElement | null) => {
-                if (!element?.isConnected) {
-                    return false;
-                }
-
-                let current: HTMLElement | null = element;
-                while (current) {
-                    const style = window.getComputedStyle(current);
-                    if (
-                        style.display === 'none'
-                        || style.visibility === 'hidden'
-                        || Number(style.opacity || '1') === 0
-                    ) {
-                        return false;
-                    }
-                    current = current.parentElement;
-                }
-
-                const rect = element.getBoundingClientRect();
-                return rect.width > 100 && rect.height > 100;
-            };
-
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isElementVisible);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const host = activeHost && visibleHosts.includes(activeHost)
-                ? activeHost
-                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const container = host?.querySelector<HTMLElement>('.native-pdf-viewer-container') ?? null;
-            if (!container || !isElementVisible(container)) {
-                return false;
-            }
-
-            const standardPdfViewer = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
-            if (isElementVisible(standardPdfViewer)) {
-                return false;
-            }
-
-            const blockingState = host?.querySelector([
-                '[data-testid="native-pdf-viewer-error"]',
-                '[data-testid="workspace-document-pdf-error"]',
-                '[data-testid="workspace-document-djvu-error"]',
-                '.native-pdf-page-placeholder',
-            ].join(','));
-            if (blockingState) {
-                return false;
-            }
-
-            return Array.from(container.querySelectorAll<HTMLImageElement>('.native-pdf-page-shell img'))
-                .some((image) => {
-                    const rect = image.getBoundingClientRect();
-                    return image.complete
-                        && image.naturalWidth > 0
-                        && image.naturalHeight > 0
-                        && rect.width > 100
-                        && rect.height > 100;
-                });
-        }, {timeout: timeoutMs});
-
-        const toolbarDeadline = Date.now() + timeoutMs;
-        let lastToolbarSnapshot: Awaited<ReturnType<typeof getWorkspaceToolbarSnapshot>> | null = null;
-        while (Date.now() < toolbarDeadline) {
-            const toolbarSnapshot = await getWorkspaceToolbarSnapshot(page);
-            lastToolbarSnapshot = toolbarSnapshot;
-            if (
-                toolbarSnapshot
-                && toolbarSnapshot.hasPdf
-                && !toolbarSnapshot.isOpeningDocument
-                && toolbarSnapshot.totalPages > 1
-            ) {
-                return;
-            }
-            await delay(100);
-        }
-
-        throw new Error(`Native PDF preview toolbar did not settle (${JSON.stringify(lastToolbarSnapshot)})`);
-    });
-}
-
 async function openPathInApp(
     page: Page,
     path: string,
@@ -637,10 +553,6 @@ export async function openPdfInApp(page: Page, pdfPath: string, timeoutMs = DEFA
 
 export async function openDjvuInApp(page: Page, djvuPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
     await openPathInApp(page, djvuPath, waitForDjvuLoaded, timeoutMs);
-}
-
-export async function openNativePdfPreviewInApp(page: Page, pdfPath: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await openPathInApp(page, pdfPath, waitForNativePdfPreviewLoaded, timeoutMs);
 }
 
 export async function setTabMemoryPolicyForE2E(

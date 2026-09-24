@@ -1,5 +1,4 @@
 import type { Page } from 'puppeteer-core';
-import { PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX } from '@contracts/electronApiDocuments';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 
 export interface INativePdfOpeningFrame {
@@ -12,8 +11,6 @@ export interface INativePdfOpeningFrame {
     emptyStateVisible: boolean;
     generation: number;
     nativeOpeningPreviewState: string;
-    nativeSkeletonVisible: boolean;
-    nativeViewerVisible: boolean;
     openingPreviewPage: number | null;
     openingPreviewVisible: boolean;
     pdfjsOpeningPageRect: {
@@ -56,7 +53,7 @@ export interface INativePdfOpeningFrame {
 }
 
 export async function installNativePdfOpeningSampler(page: Page) {
-    await evaluateInPage(page, (rasterWidthCeilingPx: number) => {
+    await evaluateInPage(page, () => {
         const testWindow = window as typeof window & {
             __nativePdfOpeningMutationObserver?: MutationObserver;
             __nativePdfOpeningSamplingTimer?: number;
@@ -114,24 +111,11 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 transitionSurface?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
             ).filter(isVisible);
             const viewportRect = viewportHost?.getBoundingClientRect() ?? null;
-            const nativeViewer = host?.querySelector<HTMLElement>('.native-pdf-viewer') ?? null;
             const pdfjsViewer = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
             const pdfjsOpeningPage = pdfjsViewer?.querySelector<HTMLElement>(
                 '.page_container[data-page="1"]',
             ) ?? null;
             const pdfjsHost = host?.querySelector<HTMLElement>('[data-pdf-viewer-host]') ?? null;
-            const committedRasterImages = Array.from(
-                host?.querySelectorAll<HTMLImageElement>(
-                    '.native-pdf-page-content.document-page-visual--committed img',
-                ) ?? [],
-            ).filter(image => (
-                isVisible(image)
-                && intersects(image, viewportHost)
-                && image.complete
-                && image.naturalWidth > 0
-            ));
-            const rasterIsHighResolution = (image: HTMLImageElement) => image.naturalWidth
-                >= globalThis.__evbE2E.getRequiredRasterWidth(image, rasterWidthCeilingPx);
             const committedPdfjsCanvases = Array.from(
                 pdfjsViewer?.querySelectorAll<HTMLCanvasElement>(
                     '.page_container--rendered .page_canvas__render-layer canvas, .page_container--rendered .page_canvas canvas',
@@ -172,18 +156,12 @@ export async function installNativePdfOpeningSampler(page: Page) {
                 claimed: viewportHost?.dataset.openSurfacePhase !== undefined
                     && viewportHost.dataset.openSurfacePhase !== 'idle'
                     && (chassis?.dataset.openSurfaceDocumentId ?? '').length > 0,
-                committedHighResolutionRasterVisible: committedRasterImages.some(rasterIsHighResolution)
-                    || committedPdfjsCanvases.some(pdfjsCanvasIsHighResolution),
-                committedLowResolutionRasterVisible: committedRasterImages.some(image => !rasterIsHighResolution(image))
-                    || committedPdfjsCanvases.some(canvas => !pdfjsCanvasIsHighResolution(canvas)),
+                committedHighResolutionRasterVisible: committedPdfjsCanvases.some(pdfjsCanvasIsHighResolution),
+                committedLowResolutionRasterVisible: committedPdfjsCanvases.some(canvas => !pdfjsCanvasIsHighResolution(canvas)),
                 documentId: chassis?.dataset.openSurfaceDocumentId ?? '',
                 emptyStateVisible: Array.from(host?.querySelectorAll<HTMLElement>('.empty-state') ?? []).some(isVisible),
                 generation: Number(chassis?.dataset.openSurfaceGeneration ?? 0),
                 nativeOpeningPreviewState: chassis?.dataset.nativeOpeningPreviewState ?? 'inactive',
-                nativeSkeletonVisible: Array.from(
-                    nativeViewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
-                ).some(element => isVisible(element) && intersects(element, viewportHost)),
-                nativeViewerVisible: isVisible(nativeViewer),
                 openingPreviewPage: parsePage(transitionShell?.dataset.pageNumber),
                 openingPreviewVisible: openingPreview !== null
                     && isVisible(openingPreview)
@@ -247,7 +225,7 @@ export async function installNativePdfOpeningSampler(page: Page) {
         });
         testWindow.__nativePdfOpeningMutationObserver = observer;
         testWindow.__nativePdfOpeningSamplingTimer = window.setInterval(capture, 35);
-    }, PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX);
+    });
 }
 
 export async function stopNativePdfOpeningSampler(page: Page): Promise<INativePdfOpeningFrame[]> {

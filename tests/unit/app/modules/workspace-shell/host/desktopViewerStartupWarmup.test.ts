@@ -21,7 +21,6 @@ function createHarness(overrides: Partial<Record<TWorkspaceViewerChunkTarget, TW
     const loaderOverrides = Object.fromEntries([
         'chassis',
         'pdfjs',
-        'native-pdf',
         'page-source',
     ].map((target) => {
         const typedTarget = target as TWorkspaceViewerChunkTarget;
@@ -86,14 +85,13 @@ describe('scheduleDesktopViewerWarmup', () => {
         for (const expected of [
             'chassis',
             'pdfjs',
-            'native-pdf',
             'page-source',
         ]) {
             await harness.runNextIdle();
             expect(harness.loaded.at(-1)).toBe(expected);
         }
         await expect(handle?.completion).resolves.toBeUndefined();
-        expect(harness.scheduleIdle).toHaveBeenCalledTimes(4);
+        expect(harness.scheduleIdle).toHaveBeenCalledTimes(3);
     });
 
     it('runs every high-tier loader concurrently from one idle turn', async () => {
@@ -108,7 +106,6 @@ describe('scheduleDesktopViewerWarmup', () => {
         expect(harness.loaded).toEqual([
             'chassis',
             'pdfjs',
-            'native-pdf',
             'page-source',
         ]);
         expect(harness.scheduleIdle).toHaveBeenCalledOnce();

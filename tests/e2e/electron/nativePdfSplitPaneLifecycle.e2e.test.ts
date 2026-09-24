@@ -11,7 +11,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
-    openNativePdfPreviewInApp,
+    openPdfInApp,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -56,12 +56,12 @@ lifecycleDescribe('Electron E2E - Large PDF split-pane lifecycle', () => {
             height: 1_200,
             width: 4_000,
         });
-        await openNativePdfPreviewInApp(session.page, sourceFixture.path, LIFECYCLE_TIMEOUT_MS);
+        await openPdfInApp(session.page, sourceFixture.path, LIFECYCLE_TIMEOUT_MS);
         await waitForActivePdfReady(session);
 
         for (let paneIndex = 1; paneIndex < SOURCE_PANE_COUNT; paneIndex += 1) {
             await splitActiveWorkspaceDocument(session, 'right');
-            await openNativePdfPreviewInApp(session.page, sourceFixture.path, LIFECYCLE_TIMEOUT_MS);
+            await openPdfInApp(session.page, sourceFixture.path, LIFECYCLE_TIMEOUT_MS);
             await waitForActivePdfReady(session);
         }
 

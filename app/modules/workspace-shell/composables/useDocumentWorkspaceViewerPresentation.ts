@@ -21,7 +21,6 @@ interface IUseDocumentWorkspaceViewerPresentationOptions {
     initialDocumentVisualReady: Readonly<Ref<boolean>>;
     pendingDjvuDocumentOpen: Readonly<Ref<boolean>>;
     showDjvuSource: Readonly<Ref<boolean>>;
-    showNativePdfViewer: Readonly<Ref<boolean>>;
     showStandardPdfViewer: Readonly<Ref<boolean>>;
 }
 
@@ -45,7 +44,6 @@ export const useDocumentWorkspaceViewerPresentation = (
         activeDriverCanPresentDocument.value
         && (
             options.showStandardPdfViewer.value
-            || options.showNativePdfViewer.value
             || options.showDjvuSource.value
         )
     ));

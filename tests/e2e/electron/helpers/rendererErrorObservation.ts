@@ -39,7 +39,6 @@ const ERROR_SURFACE_SELECTORS = [
     '.viewer-error',
     '[data-testid="workspace-document-pdf-error"]',
     '[data-testid="workspace-document-djvu-error"]',
-    '[data-testid="native-pdf-viewer-error"]',
     '[data-error="true"]',
 ];
 

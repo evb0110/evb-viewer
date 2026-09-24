@@ -20,7 +20,6 @@ import {
     ensureSidebarOpen,
     goToPageViaToolbar,
     installNativePdfOpeningSampler,
-    openNativePdfPreviewInApp,
     openPdfInApp,
     stopNativePdfOpeningSampler,
     triggerOpenPathInApp,
@@ -219,7 +218,6 @@ async function readViewerAuthorityState(session: IElectronE2ESession) {
             activeTabId: activeHost?.dataset.workspaceTabId ?? null,
             chassisCurrentPage: Number(chassis?.dataset.chassisCurrentPage) || null,
             committedPage: Number(chassis?.dataset.viewportCommittedPage) || null,
-            hasNativePreviewSurface: Boolean(activeHost?.querySelector('.native-pdf-viewer')),
             hasStandardPdfSurface: Boolean(viewport),
             mostVisiblePage: pages[0]?.page ?? null,
             mostVisiblePageRendered: pages[0]?.rendered ?? false,
@@ -1171,7 +1169,6 @@ describe('standard PDF.js fit-mode continuity', () => {
 
         const routing = await readViewerAuthorityState(session);
         expect(routing.hasStandardPdfSurface).toBe(true);
-        expect(routing.hasNativePreviewSurface).toBe(false);
 
         await ensureSidebarOpen(session.page, OPEN_TIMEOUT_MS);
         await goToPageViaToolbar(session.page, DEEP_PAGE);
@@ -1715,7 +1712,7 @@ describe('standard PDF.js fit-mode continuity', () => {
         await installNativePdfOpeningSampler(session.page);
         let frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>> = [];
         try {
-            await openNativePdfPreviewInApp(session.page, mixedWidthPdfPath, OPEN_TIMEOUT_MS);
+            await openPdfInApp(session.page, mixedWidthPdfPath, OPEN_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
             await waitForAnimationFrames(session.page, 5);
         } finally {

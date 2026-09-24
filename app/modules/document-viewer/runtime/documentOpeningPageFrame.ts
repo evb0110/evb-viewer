@@ -51,7 +51,7 @@ function isDjvuDocument(documentId: string) {
 
 export function resolveDocumentOpeningPageMargin(
     _geometry: IDocumentOpenSurfacePageGeometry | null,
-    _rendererKind?: 'pdfjs' | 'native-pdf' | 'page-source',
+    _rendererKind?: 'pdfjs' | 'page-source',
 ) {
     return DOCUMENT_PAGE_GUTTER_PX;
 }

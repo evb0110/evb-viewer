@@ -56,7 +56,6 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders
     });
     return {workspaceViewerFeatureChunkLoaders: {
         pdfjs: async () => ({PdfViewer: createFeaturePackStub('pdfjs')}),
-        'native-pdf': async () => ({NativePdfViewer: createFeaturePackStub('native-pdf')}),
         'page-source': async () => ({default: createFeaturePackStub('page-source')}),
     }};
 });
@@ -106,7 +105,7 @@ const mountedApps = new Set<() => void>();
 
 function mountWorkspaceChain(
     openInitially: boolean,
-    rendererKind: 'pdfjs' | 'native-pdf' | 'page-source' = 'pdfjs',
+    rendererKind: 'pdfjs' | 'page-source' = 'pdfjs',
 ) {
     const host = document.createElement('div');
     document.body.append(host);
@@ -201,10 +200,6 @@ describe('DocumentWorkspace page-source integration', () => {
         [
             'pdfjs',
             'pdfjs',
-        ],
-        [
-            'native-pdf',
-            'native-pdf',
         ],
         [
             'page-source',

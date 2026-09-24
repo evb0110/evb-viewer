@@ -206,7 +206,7 @@ async function installStartupReadinessSampler(session: IElectronE2ESession) {
             sample.appReadyObservedAt = Date.now();
             sample.appReadyAt = (window as Window & {__appReadyAt?: number}).__appReadyAt ?? null;
             sample.viewerPresentAtAppReady = document.querySelector(
-                '#pdf-viewer canvas, .native-pdf-page-content canvas, [data-testid="document-page-source-image"]',
+                '#pdf-viewer canvas, [data-testid="document-page-source-image"]',
             ) !== null;
             sampleOverlay();
         }, {once: true});

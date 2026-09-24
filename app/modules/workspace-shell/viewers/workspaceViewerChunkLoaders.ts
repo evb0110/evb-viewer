@@ -25,7 +25,6 @@ export const workspaceViewerChunkLoaders = {
 export const PDF_WORKSPACE_VIEWER_CHUNK_TARGETS = [
     'chassis',
     'pdfjs',
-    'native-pdf',
 ] as const satisfies readonly TWorkspaceViewerChunkTarget[];
 
 export const DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS = [
@@ -36,6 +35,5 @@ export const DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS = [
 export const ALL_WORKSPACE_VIEWER_CHUNK_TARGETS = [
     'chassis',
     'pdfjs',
-    'native-pdf',
     'page-source',
 ] as const satisfies readonly TWorkspaceViewerChunkTarget[];

@@ -153,7 +153,7 @@ import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspa
 
 defineOptions({ inheritAttrs: false });
 
-type TDocumentViewerRendererKind = 'pdfjs' | 'native-pdf' | 'page-source';
+type TDocumentViewerRendererKind = 'pdfjs' | 'page-source';
 
 const props = defineProps<{
     sourceKind: TDocumentPageSourceKind;
@@ -180,18 +180,12 @@ const DocumentPageSourceFeaturePack = defineAsyncComponent(
     () => workspaceViewerFeatureChunkLoaders['page-source']()
         .then(componentModule => componentModule.default),
 ) as Component;
-const NativePdfFeaturePack = defineAsyncComponent(
-    () => workspaceViewerFeatureChunkLoaders['native-pdf']()
-        .then(componentModule => componentModule.NativePdfViewer),
-) as Component;
 const featurePacks: Record<TDocumentViewerRendererKind, Component> = {
     pdfjs: PdfFeaturePack,
-    'native-pdf': NativePdfFeaturePack,
     'page-source': DocumentPageSourceFeaturePack,
 };
 const viewportIds: Record<TDocumentViewerRendererKind, string | undefined> = {
     pdfjs: 'pdf-viewer',
-    'native-pdf': undefined,
     'page-source': undefined,
 };
 const activeFeaturePackRef = shallowRef<Record<PropertyKey, unknown> | null>(null);
@@ -894,7 +888,6 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
    renderer still mounts underneath so it can prepare pixels, but its matching
    shadow must not composite through the opening shell's translucent shadow. */
 .document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.page_canvas),
-.document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.native-pdf-page-shell),
 .document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.document-source-viewer__page) {
     box-shadow: none;
 }

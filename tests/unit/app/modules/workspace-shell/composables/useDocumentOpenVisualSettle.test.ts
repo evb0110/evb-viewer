@@ -31,7 +31,6 @@ interface IHarnessOverrides {
     pdfError?: unknown;
     pdfSrc?: unknown;
     showDjvuSource?: boolean;
-    showNativePdfViewer?: boolean;
     totalPages?: number;
     openSurfaceSnapshot?: IDocumentOpenSurfaceSnapshot;
 }
@@ -46,7 +45,6 @@ function createHarness(overrides: IHarnessOverrides = {}) {
     const pdfError = ref(overrides.pdfError ?? null);
     const djvuError = ref(overrides.djvuError ?? null);
     const showDjvuSource = ref(overrides.showDjvuSource ?? false);
-    const showNativePdfViewer = ref(overrides.showNativePdfViewer ?? false);
     const markAnnotationCommentsLoading = vi.fn();
     const surfaceSession = createDocumentOpenSurfaceSession();
     const openSurface = overrides.openSurfaceSnapshot
@@ -68,7 +66,6 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         pdfError,
         djvuError,
         showDjvuSource,
-        showNativePdfViewer,
         openSurface,
         markAnnotationCommentsLoading,
     });
@@ -85,7 +82,6 @@ function createHarness(overrides: IHarnessOverrides = {}) {
         settle,
         surfaceSession,
         showDjvuSource,
-        showNativePdfViewer,
         totalPages,
     };
 }
@@ -244,59 +240,10 @@ describe('useDocumentOpenVisualSettle', () => {
         expect(harness.pageLabelsResolved.value).toBe(false);
     });
 
-    it.each([
-        [
-            'native PDF',
-            'showNativePdfViewer' as const,
-        ],
-        [
-            'native DjVu',
-            'showDjvuSource' as const,
-        ],
-    ])('does not settle %s on viewer selection alone', async (_label, viewerFlag) => {
-        const harness = createHarness({
-            [viewerFlag]: true,
-            isLoading: false,
-            totalPages: 1,
-        });
-        const settled = observeSettlement(harness.settle.waitForDocumentOpenSettled());
-
-        await expectStillPending(settled);
-
-        commitHarnessSurfaceReady(harness);
-
-        await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
-    });
-
-    it.each([
-        [
-            'native PDF',
-            'showNativePdfViewer' as const,
-        ],
-        [
-            'native DjVu',
-            'showDjvuSource' as const,
-        ],
-    ])('keeps %s pending after initial visual readiness while loading continues', async (_label, viewerFlag) => {
-        const harness = createHarness({
-            [viewerFlag]: true,
-            isLoading: true,
-            totalPages: 1,
-        });
-        const settled = observeSettlement(harness.settle.waitForDocumentOpenSettled());
-
-        commitHarnessSurfaceReady(harness);
-        await expectStillPending(settled);
-
-        harness.isLoading.value = false;
-
-        await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
-    });
-
     it('still settles immediately for document-open errors', async () => {
         const harness = createHarness({
             pdfError: new Error('open failed'),
-            showNativePdfViewer: true,
+            showDjvuSource: true,
             isLoading: true,
         });
         const settled = observeSettlement(harness.settle.waitForDocumentOpenSettled());
@@ -307,7 +254,7 @@ describe('useDocumentOpenVisualSettle', () => {
     it('cancels the pending visual wait without waiting for its timeout', async () => {
         vi.useFakeTimers();
         const harness = createHarness({
-            showNativePdfViewer: true,
+            showDjvuSource: true,
             isLoading: true,
             totalPages: 1,
         });

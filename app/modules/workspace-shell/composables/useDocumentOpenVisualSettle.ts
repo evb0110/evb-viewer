@@ -14,7 +14,6 @@ interface IUseDocumentOpenVisualSettleOptions {
     pdfError: Ref<unknown>;
     djvuError: Ref<unknown>;
     showDjvuSource: Ref<boolean>;
-    showNativePdfViewer?: Ref<boolean>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     markAnnotationCommentsLoading: () => void;
 }
@@ -126,7 +125,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             return true;
         }
 
-        if (options.showDjvuSource.value || options.showNativePdfViewer?.value) {
+        if (options.showDjvuSource.value) {
             return Boolean(
                 !options.isLoading.value
                 && initialDocumentVisualReady.value,
@@ -147,7 +146,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             return true;
         }
 
-        if (options.showDjvuSource.value || options.showNativePdfViewer?.value) {
+        if (options.showDjvuSource.value) {
             return Boolean(
                 !options.isLoading.value
                 && options.totalPages.value > 0,
@@ -271,7 +270,6 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             pageLabelsResolved: options.pageLabelsResolved.value,
             isLoading: options.isLoading.value,
             showDjvuSource: options.showDjvuSource.value,
-            showNativePdfViewer: options.showNativePdfViewer?.value ?? false,
             hasPdfError: Boolean(options.pdfError.value),
             hasDjvuError: Boolean(options.djvuError.value),
             initialVisualReady: initialDocumentVisualReady.value,
@@ -307,7 +305,6 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
         options.pdfError,
         options.djvuError,
         options.showDjvuSource,
-        ...(options.showNativePdfViewer ? [options.showNativePdfViewer] : []),
         initialDocumentVisualReady,
         options.openSurface.snapshot,
     ], () => {

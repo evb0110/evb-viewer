@@ -1106,7 +1106,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 ? {}
                 : {pendingDocumentPath: deps.pendingDocumentPath}),
             pdfViewerRef,
-            nativePdfViewerRef: sidebarSearch.nativePdfViewerRef,
             djvuViewerRef: sidebarSearch.djvuViewerRef,
             sourcePdfData: pdfData,
             viewMode,

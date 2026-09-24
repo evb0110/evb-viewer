@@ -278,7 +278,7 @@ async function readRecentOpenDomState(
             .filter(isVisible);
         const viewer = activeHost.querySelector<HTMLElement>('#pdf-viewer');
         const hasOpeningSurface = Array.from(activeHost.querySelectorAll<HTMLElement>(
-            '.document-viewer-chassis__opening-page, .native-pdf-page-content, .document-page-source-feature-pack__page',
+            '.document-viewer-chassis__opening-page, .document-page-source-feature-pack__page',
         )).some(isVisible);
         const hasRenderedContent = Array.from(viewer?.querySelectorAll<HTMLElement>(
             '.page_canvas canvas, .text-layer span, .textLayer span',
@@ -1091,7 +1091,7 @@ describe('Electron E2E - Recent Files', () => {
                     '.tab-list .tab.is-active .tab-label',
                 )?.textContent?.trim() ?? '',
                 hasVisibleDocumentContent: Array.from(activeHost?.querySelectorAll<HTMLElement>(
-                    '#pdf-viewer .page_canvas canvas, .document-viewer-chassis__opening-page, .native-pdf-page-content',
+                    '#pdf-viewer .page_canvas canvas, .document-viewer-chassis__opening-page',
                 ) ?? []).some(isVisible),
             };
         });

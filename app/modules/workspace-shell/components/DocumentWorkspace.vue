@@ -959,7 +959,6 @@ const {
 
 const {
     activeDriverCapabilities,
-    driverShowsNativePdf,
     driverShowsPdfSidebar,
     driverShowsDjvuSource,
     driverStartupVisualSource,
@@ -1018,7 +1017,6 @@ const {
     pdfError,
     djvuError,
     showDjvuSource: driverShowsDjvuSource,
-    showNativePdfViewer: driverShowsNativePdf,
     openSurface: documentOpenSurface,
     markAnnotationCommentsLoading,
 });
@@ -1154,7 +1152,6 @@ const {
     initialDocumentVisualReady,
     pendingDjvuDocumentOpen,
     showDjvuSource: driverShowsDjvuSource,
-    showNativePdfViewer: driverShowsNativePdf,
     showStandardPdfViewer: driverShowsPdfSidebar,
 });
 const showWorkspaceViewerDocument = computed(() => {
