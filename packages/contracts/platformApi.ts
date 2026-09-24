@@ -73,7 +73,6 @@ export type * from '@contracts/geometry';
 export type * from '@contracts/pageNumbers';
 export type * from '@contracts/pdfPageLabels';
 export type * from '@contracts/annotations';
-export type * from '@contracts/viewerHost';
 export type * from '@contracts/agent';
 export type * from '@contracts/agentPlatformFeature';
 export type * from '@contracts/electronApiCommon';

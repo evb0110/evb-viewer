@@ -460,12 +460,6 @@ describe('dependency graph', () => {
         })).toEqual(aggregatePlatformApiViolation('app/modules/workspace-shell/composables/usePdfFile.ts'));
 
         expect(checkArchitectureBoundaryEdge({
-            source: 'app/utils/getViewerHostApi.ts',
-            target: 'packages/contracts/platformApi.ts',
-            specifier: '@contracts/platformApi',
-        })).toEqual(aggregatePlatformApiViolation('app/utils/getViewerHostApi.ts'));
-
-        expect(checkArchitectureBoundaryEdge({
             source: 'app/modules/workspace-shell/menu/registerTabsMenuBindings.ts',
             target: 'packages/contracts/platformApi.ts',
             specifier: '@contracts/platformApi',

@@ -1,4 +1,8 @@
-import type { IViewerAssetResolver } from '@contracts/viewerHost';
+interface IViewerAssetResolver {
+    pdfWorkerUrl(): string;
+    pdfAssetUrl(path: string): string;
+    standardFontUrl(fileName: string): string;
+}
 
 const PDF_ASSET_BASE_URL = '/pdf/';
 const PDF_WORKER_FILE = 'pdf.worker.min.mjs';
