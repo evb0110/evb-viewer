@@ -40,7 +40,6 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             apply: () => {},
             awaitVisual: () => new Promise<void>((resolve) => {
                 releaseVisual = resolve;
@@ -77,7 +76,6 @@ describe('ViewportAuthority', () => {
                 top: 0,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             apply: () => {},
             awaitVisual: async () => {},
         });
@@ -101,7 +99,6 @@ describe('ViewportAuthority', () => {
                 top: 0,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             apply: () => {},
             awaitVisual: async () => {},
             onPositionCommitted,
@@ -147,7 +144,6 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => { events.push('metrics'); },
-            awaitSlots: async () => { events.push('slots'); },
             awaitVisual: () => new Promise<void>((resolve) => {
                 events.push('visual-requested');
                 releaseVisual = resolve;
@@ -164,7 +160,6 @@ describe('ViewportAuthority', () => {
         await expect(pending).resolves.toMatchObject({outcome: 'settled'});
         expect(events).toEqual([
             'metrics',
-            'slots',
             'visual-requested',
             'before-apply',
             'applied',
@@ -188,7 +183,6 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             awaitVisual: async () => {},
             beforeApply: () => new Promise<void>((resolve) => {
                 events.push('before-apply');
@@ -223,7 +217,6 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             awaitVisual: async () => {
                 await heldVisual;
             },
@@ -270,7 +263,6 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             awaitVisual: async () => {
                 throw new DOMException('PDF navigation readiness not reached', 'AbortError');
             },
@@ -298,7 +290,6 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             awaitVisual: (request, signal) => request.id === 'stale-visual'
                 ? new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => {
                     reject(new DOMException('superseded', 'AbortError'));
@@ -331,7 +322,6 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             apply: (_request, commit) => writes.push(commit.top),
             awaitVisual: async () => {},
             refine: async (_request, commit) => ({
@@ -362,7 +352,6 @@ describe('ViewportAuthority', () => {
                 top: 100,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             awaitVisual: async () => {
                 events.push('visual');
             },
@@ -407,7 +396,6 @@ describe('ViewportAuthority', () => {
             awaitMetrics: (request, signal) => request.id === 'A'
                 ? new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {once: true}))
                 : Promise.resolve(),
-            awaitSlots: async () => {},
             apply: request => writes.push(request.id),
             awaitVisual: async () => {},
         });
@@ -434,7 +422,6 @@ describe('ViewportAuthority', () => {
                 top: 10,
             }),
             awaitMetrics: () => new Promise<void>(resolve => { release = resolve; }),
-            awaitSlots: async () => {},
             apply: request => writes.push(request.id),
             awaitVisual: async () => {},
         });
@@ -462,7 +449,6 @@ describe('ViewportAuthority', () => {
                 top: 0,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             awaitVisual: async () => {},
             apply: () => {
                 authority.observeUserScroll({
@@ -495,7 +481,6 @@ describe('ViewportAuthority', () => {
                 top: 0,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             awaitVisual: async () => {},
             apply: () => {},
         });
@@ -530,7 +515,6 @@ describe('ViewportAuthority', () => {
                 top: 10,
             }),
             awaitMetrics: () => new Promise<void>((resolve) => { release = resolve; }),
-            awaitSlots: async () => {},
             apply: request => writes.push(request.id),
             awaitVisual: async () => {},
         });
@@ -573,7 +557,6 @@ describe('ViewportAuthority', () => {
                 top: 0,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             apply: () => {},
             awaitVisual: async () => {},
         });
@@ -607,7 +590,6 @@ describe('ViewportAuthority', () => {
                 top: 10,
             }),
             awaitMetrics: async () => {},
-            awaitSlots: async () => {},
             apply: () => {},
             awaitVisual: async () => {},
             postArrival: async (request, signal) => {

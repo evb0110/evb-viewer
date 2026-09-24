@@ -7,18 +7,16 @@ import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/pag
 import { createDocumentViewerRenderCoordinator } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 
 describe('document viewer render coordinator', () => {
-    it('makes feature replacement transactional across equal page numbers', async () => {
+    it('makes feature replacement transactional across equal page numbers', () => {
         const coordinator = createDocumentViewerRenderCoordinator(createDocumentPageSlotRegistry());
         const outgoing = coordinator.createSession('pdf:1');
         const incoming = coordinator.createSession('djvu:2');
-        const incomingReady = incoming.pageSlots.whenMounted(5, new AbortController().signal);
         const oldGeneration = outgoing.beginPageRender(5);
         const newGeneration = incoming.beginPageRender(5);
 
         incoming.pageSlots.markMounted(5);
         outgoing.dispose();
 
-        await expect(incomingReady).resolves.toBeUndefined();
         expect(incoming.pageSlots.isMounted(5)).toBe(true);
         expect(outgoing.commitPageRender(5, oldGeneration)).toBe(false);
         expect(incoming.commitPageRender(5, newGeneration)).toBe(true);

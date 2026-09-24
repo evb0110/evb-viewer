@@ -8,7 +8,6 @@ import type {IUsePdfSinglePageScrollOptions} from '@app/modules/pdf-viewer/runti
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
-import type {IPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import {
     createPdfViewportGeometryFromLayout,
     getViewportGeometryRowForPage,
@@ -65,7 +64,6 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
     chassisAuthority?: IDocumentViewerRuntime | null | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     cancelPendingSearchScroll: () => void;
-    pageSlots: IPdfPageSlotRegistry;
     bindCurrentPageProjection?: ((projection: Readonly<Ref<number>>) => void) | undefined;
     getDocumentRevision: () => number;
     getGeometryRevision: () => number;
@@ -296,8 +294,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 livePageCount(captured.document),
             ));
             captured.page = page;
-            await options.ensurePageMetricsInRange?.(page, page);
-            requireIntentDocument(intent, signal);
             if (!options.continuousScroll.value || intent.navigation) {
                 await options.prepareNavigationLayout?.(page, signal);
                 requireIntentDocument(intent, signal);
@@ -328,8 +324,17 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 ...(intent.viewMode === undefined ? {} : {viewMode: intent.viewMode}),
             });
         },
-        refine: (intent, commit) => {
-            if (intent.navigation) return refineNavigationCommit(intent, commit);
+        refine: async (intent, commit, signal) => {
+            if (intent.navigation) {
+                // The target row is retained in the virtual window as the
+                // navigation target; one render flush mounts it, and its
+                // mounted bounds place the destination.
+                if (!hasMatchingOpeningRenderFence(intent, requireIntentPage(intent, signal))) {
+                    await nextTick();
+                    requireIntentDocument(intent, signal);
+                }
+                return refineNavigationCommit(intent, commit);
+            }
             if (intent.kind === 'dpr') return Promise.resolve(commit);
             // Slots now carry the committed layout, including padding and
             // scrollbar admission. Resolve the semantic point once against
@@ -352,29 +357,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 ? refineNavigationCommit(intent, commit)
                 : Promise.resolve(commit)
         ),
-        awaitSlots: async (intent, signal) => {
-            // Ambient geometry intents (zoom, fit, resize, and activation)
-            // must place the semantic anchor before waiting for its page slot.
-            // Virtualization may have released that page after a scale change;
-            // waiting for it here would deadlock because applying the scroll is
-            // what brings the target row back into the mounted window.
-            if (!intent.navigation) {
-                return;
-            }
-            const page = requireIntentPage(intent, signal);
-            const captured = requireIntentDocument(intent, signal);
-            if (hasMatchingOpeningRenderFence(intent, page)) {
-                return;
-            }
-            const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
-            const start = row?.startPage ?? page;
-            const end = row?.endPage ?? page;
-            await nextTick();
-            requireIntentDocument(intent, signal);
-            await Promise.all(Array.from({length: end - start + 1}, (_, offset) => (
-                options.pageSlots.whenMounted(requirePageNumber(start + offset, livePageCount(captured.document)), signal)
-            )));
-        },
         apply: (intent, commit) => {
             requireIntentDocument(intent);
             const container = options.viewerContainer.value;

@@ -310,13 +310,11 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         sequence: number,
     ) {
         const documentFence = documentSession.captureFence();
-        const geometryRevision = pageMetricsVersion.value;
         void nextTick(() => {
             if (
                 sequence !== physicalScrollTransitionSequence
                 || !documentSession.isCurrent(documentFence)
                 || viewportLayoutMetrics.value !== layout
-                || pageMetricsVersion.value !== geometryRevision
                 || getActivePhysicalScrollOrigin() !== transition.origin
             ) {
                 return;
@@ -380,7 +378,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         updateCurrentPage: scroll.updateCurrentPage,
         commitVisibleRange: (range, commitOptions) => commitVisibleRange(range, commitOptions?.transactionId ?? null),
         renderVisiblePages: (range, renderOptions) => requestMandatoryRaster(range, renderOptions),
-        ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         prepareNavigationLayout,
         isPageFreshlyRenderedForNavigation: options.isPageFreshlyRenderedForNavigation,
         waitForPageTextLayerReady: options.waitForPageTextLayerReady,
@@ -393,7 +390,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         bindCurrentPageProjection: scroll.bindCurrentPageProjection,
         getDocumentRevision: () => documentSession.captureFence().loadToken,
         getGeometryRevision: () => pageMetricsVersion.value + 1,
-        pageSlots,
         cancelPendingSearchScroll: () => {
             cancelPendingSearchRevision.value += 1;
         },

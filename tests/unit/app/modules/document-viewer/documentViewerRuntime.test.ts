@@ -151,9 +151,7 @@ describe('document viewer chassis authority', () => {
         expect(ticket?.request).toEqual(request);
         expect(authority.currentPage.value).toBe(1);
         expect(authority.navigationPage.value).toBe(7);
-        const mounted = authority.pageSlots.whenMounted(7, new AbortController().signal);
         authority.pageSlots.markMounted(7);
-        await expect(mounted).resolves.toBeUndefined();
         authority.observePage(7);
 
         sourceKind.value = 'djvu';

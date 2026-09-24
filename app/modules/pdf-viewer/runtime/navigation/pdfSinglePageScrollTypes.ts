@@ -55,7 +55,6 @@ export interface IUsePdfSinglePageScrollOptions {
         renderOptions?: IRenderVisiblePagesOptions,
     ) => Promise<boolean>;
     /** Resolves once the target pages have a size exact enough to place them. */
-    ensurePageMetricsInRange?: ((startPage: number, endPage: number) => Promise<boolean>) | undefined;
     prepareNavigationLayout?: ((pageNumber: TPageNumber, signal: AbortSignal) => Promise<void>) | undefined;
     isPageFreshlyRenderedForNavigation?: ((pageNumber: TPageNumber) => boolean) | undefined;
     waitForPageTextLayerReady?: ((pageNumber: TPageNumber, signal: AbortSignal) => Promise<boolean>) | undefined;

@@ -11,7 +11,7 @@ export type TPdfViewportIntentKind =
     | 'navigate' | 'user-scroll' | 'wheel-page' | 'zoom' | 'fit'
     | 'view-mode' | 'resize' | 'search' | 'activation' | 'document-restore' | 'dpr';
 type TPdfViewportPhase =
-    | 'idle' | 'resolving' | 'awaiting-metrics' | 'awaiting-slots'
+    | 'idle' | 'resolving' | 'awaiting-metrics'
     | 'applying' | 'awaiting-visual' | 'settled' | 'cancelled';
 
 export interface IPdfViewportIntent {
@@ -92,7 +92,6 @@ interface IViewportAuthorityDependencies {
     ): boolean;
     resolve(intent: IPdfViewportIntent, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     awaitMetrics(intent: IPdfViewportIntent, signal: AbortSignal): Promise<unknown>;
-    awaitSlots(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     refine?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     refineAfterVisual?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     apply(
@@ -336,9 +335,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             assertCurrent(next, signal);
             phase.value = 'resolving';
             let commit = await awaitWithAbort(deps.resolve(next, signal), signal);
-            assertCurrent(next, signal);
-            phase.value = 'awaiting-slots';
-            await awaitWithAbort(deps.awaitSlots(next, signal), signal);
             assertCurrent(next, signal);
             if (deps.refine) {
                 commit = await awaitWithAbort(deps.refine(next, commit, signal), signal);
