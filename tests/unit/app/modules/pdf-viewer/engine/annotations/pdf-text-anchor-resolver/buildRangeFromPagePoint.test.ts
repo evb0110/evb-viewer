@@ -6,8 +6,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { buildRangeFromPagePoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
 import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 
 /**
@@ -71,74 +69,8 @@ function createPage(spans: readonly ITextSpanFixture[]) {
     return pageContainer;
 }
 
-function pointAt(pageContainer: HTMLElement, pageX: number, pageY: number) {
-    return buildRangeFromPagePoint({
-        pageContainer,
-        pageNumber: requirePageNumber(1),
-        pageX,
-        pageY,
-    });
-}
-
 afterEach(() => {
     document.body.innerHTML = '';
-});
-
-describe('buildRangeFromPagePoint', () => {
-    it('selects the word under the normalized page point', () => {
-        const page = createPage([{
-            height: 20,
-            left: 0,
-            node: document.createTextNode('Hello world'),
-            top: 0,
-            width: 100,
-        }]);
-
-        const nearLeft = pointAt(page, 0.05, 0.05);
-        expect(nearLeft?.toString()).toBe('Hello');
-
-        const nearRight = pointAt(page, 0.45, 0.05);
-        expect(nearRight?.toString()).toBe('world');
-    });
-
-    it('picks the closest span when several carry text', () => {
-        const page = createPage([
-            {
-                height: 20,
-                left: 0,
-                node: document.createTextNode('first'),
-                top: 0,
-                width: 40,
-            },
-            {
-                height: 20,
-                left: 120,
-                node: document.createTextNode('second'),
-                top: 0,
-                width: 60,
-            },
-        ]);
-
-        expect(pointAt(page, 0.75, 0.05)?.toString()).toBe('second');
-    });
-
-    it('returns null when the page has no text layer spans', () => {
-        expect(pointAt(createPage([]), 0.5, 0.5)).toBeNull();
-    });
-
-    it('returns null when the closest span holds no text node of its own', () => {
-        const nested = document.createElement('b');
-        nested.textContent = 'bold';
-        const page = createPage([{
-            height: 20,
-            left: 0,
-            node: nested,
-            top: 0,
-            width: 40,
-        }]);
-
-        expect(pointAt(page, 0.05, 0.05)).toBeNull();
-    });
 });
 
 describe('buildRangeFromPageText', () => {

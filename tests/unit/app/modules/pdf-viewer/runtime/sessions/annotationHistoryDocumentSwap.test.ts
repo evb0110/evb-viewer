@@ -27,11 +27,6 @@ import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireDocumentRef} from '@contracts/documentRef';
 
-vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
-    EventBus: vi.fn(),
-    GenericL10n: vi.fn(),
-}));
-
 const { createPdfAnnotationSession } = await import(
     '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
 );

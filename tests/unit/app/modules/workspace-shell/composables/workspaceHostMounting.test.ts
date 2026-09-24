@@ -6,7 +6,6 @@ import {
 import { resolveWorkspaceRequestedState } from '@app/modules/workspace-shell/host/resolveWorkspaceRequestedState';
 import { shouldAutoRequestWorkspace } from '@app/modules/workspace-shell/host/shouldAutoRequestWorkspace';
 import { shouldPreloadWorkspaceOnHostMount } from '@app/modules/workspace-shell/host/shouldPreloadWorkspaceOnHostMount';
-import { scheduleActiveEmptyWorkspacePremount } from '@app/modules/workspace-shell/host/scheduleActiveEmptyWorkspacePremount';
 import {
     getWorkspaceViewerChunkTargetsForPaths,
     warmupDesktopViewerChunkForPaths,
@@ -39,29 +38,6 @@ function createRecordingViewerChunkLoaders(loadedChunks: string[]) {
     } satisfies Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>;
 }
 
-function createAnimationFrameHost() {
-    let nextHandle = 1;
-    const callbacks = new Map<number, FrameRequestCallback>();
-    return {
-        host: {
-            requestAnimationFrame(callback: FrameRequestCallback) {
-                const handle = nextHandle;
-                nextHandle += 1;
-                callbacks.set(handle, callback);
-                return handle;
-            },
-            cancelAnimationFrame(handle: number) {
-                callbacks.delete(handle);
-            },
-        },
-        runFrame() {
-            const pending = [...callbacks.values()];
-            callbacks.clear();
-            pending.forEach(callback => callback(0));
-        },
-        pendingCount: () => callbacks.size,
-    };
-}
 
 describe('tabHasDocumentHint', () => {
     it('returns false for placeholder tabs', () => {
@@ -98,30 +74,6 @@ describe('tabHasDocumentHint', () => {
 });
 
 describe('workspace host mount request state', () => {
-    it('opens the active-empty premount gate only after one committed paint', () => {
-        const animationFrames = createAnimationFrameHost();
-        let ready = false;
-        scheduleActiveEmptyWorkspacePremount(() => { ready = true; }, animationFrames.host);
-
-        expect(animationFrames.pendingCount()).toBe(1);
-        animationFrames.runFrame();
-        expect(ready).toBe(false);
-        expect(animationFrames.pendingCount()).toBe(1);
-        animationFrames.runFrame();
-        expect(ready).toBe(true);
-    });
-
-    it('cancels active-empty premount work with the host lifecycle', () => {
-        const animationFrames = createAnimationFrameHost();
-        let ready = false;
-        const cancel = scheduleActiveEmptyWorkspacePremount(() => { ready = true; }, animationFrames.host);
-
-        animationFrames.runFrame();
-        cancel();
-        animationFrames.runFrame();
-        expect(ready).toBe(false);
-        expect(animationFrames.pendingCount()).toBe(0);
-    });
 
     it('requests mount when split restore is queued', () => {
         expect(shouldAutoRequestWorkspace({

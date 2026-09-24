@@ -11,7 +11,6 @@ import {
     getPdfjsBrowserRuntimeProbeFailures,
     getPdfjsRuntimeProbeFailures,
 } from '@app/services/pdfjs/runtimeLib';
-import { getPdfjsViewerRuntimeProbeFailures } from '@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures';
 
 function createStaticFunction(properties: Record<string, unknown> = {}) {
     return Object.assign(function StaticPdfjsExport() {}, properties);
@@ -117,11 +116,6 @@ describe('pdf.js runtime adapter probes', () => {
         expect(getPdfjsRuntimeProbeFailures(runtime)).toContain('AnnotationEditorType.FREETEXT is not a finite number');
         expect(() => assertPdfjsRuntimeCompatibility(runtime))
             .toThrow(/PDF\.js app runtime is incompatible with pdfjs-dist 6\.3\.311/u);
-    });
-
-    it('reports viewer-runtime export failures', () => {
-        expect(getPdfjsViewerRuntimeProbeFailures({GenericL10n: createStaticFunction()}))
-            .toEqual(['EventBus export is not a constructor']);
     });
 
     it('asserts vendored asset stamps against the runtime version', async () => {

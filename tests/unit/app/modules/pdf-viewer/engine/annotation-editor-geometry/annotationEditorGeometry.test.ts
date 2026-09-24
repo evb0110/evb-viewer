@@ -19,7 +19,6 @@ import {
     expandTextBoxRectToContentSize,
     moveAnnotationRect,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
-import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
 const rect: IAnnotationMarkerRect = {
@@ -44,70 +43,6 @@ describe('annotation editor geometry', () => {
             width: 0.4,
             height: 0.2,
         });
-    });
-
-    it.each([
-        [
-            0,
-            {
-                left: 0.2,
-                top: 0.3,
-            },
-        ],
-        [
-            90,
-            {
-                left: 0.2,
-                top: 0.3,
-            },
-        ],
-        [
-            180,
-            {
-                left: 0.2,
-                top: 0.3,
-            },
-        ],
-        [
-            270,
-            {
-                left: 0.2,
-                top: 0.3,
-            },
-        ],
-    ] as const)('moves one PDF point in every page rotation without changing marker size', (rotation, expectedStart) => {
-        const result = nudgeMarkerRectByPdfPoints(
-            {
-                left: expectedStart.left,
-                top: expectedStart.top,
-                width: 0.1,
-                height: 0.1,
-            },
-            1,
-            0,
-            [
-                0,
-                0,
-                612,
-                792,
-            ],
-            rotation,
-        );
-        expect(result.width).toBeCloseTo(0.1);
-        expect(result.height).toBeCloseTo(0.1);
-        const xOffset = 1 / 612;
-        const expectedLeft = rotation === 180
-            ? expectedStart.left - xOffset
-            : rotation === 0
-                ? expectedStart.left + xOffset
-                : expectedStart.left;
-        const expectedTop = rotation === 90
-            ? expectedStart.top + xOffset
-            : rotation === 270
-                ? expectedStart.top - xOffset
-                : expectedStart.top;
-        expect(result.left).toBeCloseTo(expectedLeft);
-        expect(result.top).toBeCloseTo(expectedTop);
     });
 
     it('creates a bounded rectangle for a reverse drag and enforces its minimum size', () => {

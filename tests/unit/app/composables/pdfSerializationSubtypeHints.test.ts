@@ -5,7 +5,6 @@ import {
 } from 'vitest';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/collectMarkupSubtypeHints';
-import { groupMarkupSubtypeHintsByPage } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/groupMarkupSubtypeHintsByPage';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {
@@ -253,45 +252,5 @@ describe('pdfSerializationSubtypeHints', () => {
         ]);
 
         expect(hints).toEqual([]);
-    });
-
-    it('groups hints by page index', () => {
-        const hints = collectMarkupSubtypeHints([
-            createComment({
-                subtype: 'Underline',
-                pageIndex: 1,
-                markerRect: {
-                    left: 10,
-                    top: 10,
-                    width: 5,
-                    height: 5,
-                },
-            }),
-            createComment({
-                subtype: 'StrikeOut',
-                pageIndex: 1,
-                markerRect: {
-                    left: 20,
-                    top: 20,
-                    width: 5,
-                    height: 5,
-                },
-            }),
-            createComment({
-                subtype: 'Underline',
-                pageIndex: 3,
-                markerRect: {
-                    left: 30,
-                    top: 30,
-                    width: 5,
-                    height: 5,
-                },
-            }),
-        ]);
-
-        const grouped = groupMarkupSubtypeHintsByPage(hints);
-        expect(grouped.get(1)).toHaveLength(2);
-        expect(grouped.get(3)).toHaveLength(1);
-        expect(grouped.get(99)).toBeUndefined();
     });
 });

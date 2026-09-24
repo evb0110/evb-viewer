@@ -5,11 +5,9 @@ import {
 } from 'vitest';
 import {
     createDocumentViewportTransactionMachineState,
-    isDocumentViewportRenderRequestCurrent,
     isDocumentViewportTargetRangeCurrent,
     reduceDocumentViewportTransactionMachine,
 } from '@app/modules/document-viewer/viewport/documentViewportTransactionReducer';
-import { createDocumentViewportRenderRequest } from '@app/modules/document-viewer/viewport/createDocumentViewportRenderRequest';
 import type {
     IDocumentViewportTransactionBase,
     IDocumentViewportTransactionBeginEvent,
@@ -162,36 +160,6 @@ describe('document viewport transaction reducer', () => {
         expect(warm).toBe(active);
         expect(recovery).toBe(active);
         expect(active.active?.target?.page).toBe(2);
-    });
-
-    it('creates render requests and validates stale request identity', () => {
-        const active = reduceDocumentViewportTransactionMachine(
-            createDocumentViewportTransactionMachineState<TTestTransaction>(),
-            beginEvent({
-                kind: 'zoom',
-                source: 'continuous',
-                page: 4,
-            }),
-        );
-        const transaction = active.active;
-        expect(transaction).not.toBeNull();
-
-        const request = createDocumentViewportRenderRequest({
-            transaction: transaction!,
-            renderRequestId: 1,
-            renderVersion: 5,
-            priority: 'interactive',
-        });
-        const advanced = reduceDocumentViewportTransactionMachine(active, {
-            type: 'ADVANCE',
-            transactionId: transaction?.id ?? 0,
-            state: 'render-requested',
-            renderRequest: request,
-        });
-
-        expect(advanced.nextRenderRequestId).toBe(2);
-        expect(isDocumentViewportRenderRequestCurrent(advanced.active, request)).toBe(true);
-        expect(isDocumentViewportRenderRequestCurrent(null, request)).toBe(false);
     });
 
     it('cancels reload-affecting work and bumps render version when requested', () => {

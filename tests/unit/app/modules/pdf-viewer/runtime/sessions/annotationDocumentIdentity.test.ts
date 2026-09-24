@@ -30,11 +30,6 @@ import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement'
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
-    EventBus: vi.fn(),
-    GenericL10n: vi.fn(),
-}));
-
 const revisionRead = vi.fn<IDocumentsFileIoCapability['getDocumentRevision']>();
 const electronApi = createElectronPlatformApiFixture({documentFiles: {getDocumentRevision: revisionRead}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));

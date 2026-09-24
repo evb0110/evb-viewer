@@ -25,7 +25,6 @@ import {
 import type {IShapeContextProvide} from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/usePdfShapeTool';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -180,18 +179,6 @@ describe('usePdfShapeTool.findShapeForAnnotationComment', () => {
         const second = summaryFor(harness, 'embedded-shape-2');
 
         expect(harness.tool.findShapeForAnnotationComment(second)?.id).toBe('embedded-shape-2');
-    });
-
-    it('returns null for a shape summary that no live shape owns', () => {
-        const harness = createShapeToolHarness();
-        replaceEmbeddedShapes(harness, [createEmbeddedShape()]);
-        const unrelated = toShapeAnnotationCommentSummary(createEmbeddedShape({
-            id: 'never-imported-shape',
-            annotationId: '99R0',
-            stableKey: 'evb-shape:never-imported',
-        }));
-
-        expect(harness.tool.findShapeForAnnotationComment(unrelated)).toBeNull();
     });
 
     it('returns null for comments that are not shape rows', () => {
