@@ -46,7 +46,7 @@ Both Vercel projects (browser viewer and landing) use Vercel Web Analytics. The 
 
 ### Turning it on
 
-1. In the Vercel dashboard, open each project, then Analytics, and select Enable. Vercel then serves the collector at `/_vercel/insights/*` on that project's domains.
+1. In the Vercel dashboard, open each project, then Analytics, and select Enable. Vercel then serves the collector at `/_vercel/insights/*` on that project's domains. Ignore the dashboard's "Get Started" install steps: the package is already installed (a client plugin in the browser app, the Nuxt module on the landing site), and the page stays on those steps until the first visit is recorded.
 2. Browser viewer only: add `NUXT_PUBLIC_ANALYTICS_ENABLED=1` to the project's Production environment variables, then redeploy with `pnpm run deploy:web:prod`. The flag is read at build time, so an existing deployment does not pick it up. Leave it unset for Preview so preview traffic is not counted.
 3. The landing site needs no flag; its analytics module is always installed and starts reporting once step 1 is done.
 4. Check it: open the production site in a normal browser window (ad blockers hide the request), and confirm a request to `/_vercel/insights/view` in the network panel. The visit appears in the dashboard within a minute or so.
@@ -56,7 +56,7 @@ Both Vercel projects (browser viewer and landing) use Vercel Web Analytics. The 
 - Page views, with query strings and fragments stripped before sending. The browser app never loads the script inside Electron.
 - Browser app custom events: `document_opened` (document kind and open method) and `browser_install_hint_interacted`.
 - Landing custom event: `download` for GitHub and mirror installer links.
-- Custom events are shown only on Vercel plans that include them; page views work on every plan.
+- Custom events need a Vercel Pro or Enterprise plan. The projects are on Hobby, so the dashboard shows page views only; the events are still sent and cost nothing.
 
 ### Reading it
 
