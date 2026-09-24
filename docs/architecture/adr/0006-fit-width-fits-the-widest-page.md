@@ -21,9 +21,16 @@ The existing Poppler preview reader samples large documents and omits
 
 The implementation now loads a revision-checked, metadata-only native page
 geometry table for path-backed documents. It includes the effective crop box,
-`/Rotate` and direct-page `UserUnit`. The document session converts that opening
-snapshot to viewport dimensions, then reconciles entries with PDF.js as their
-pages are loaded. PDF.js remains the session's geometry authority.
+`/Rotate` and direct-page `UserUnit`. The document session converts it to
+viewport dimensions before the first layout, and the table is final for that
+revision: pages are never re-measured under the reader, so a navigation can
+compute its target offset from the layout. PDF.js reads page 1 for its first
+raster, and a disagreement there is logged as a geometry defect, not applied.
+On 2026-09-24 the table matched PDF.js's viewport on every page of the owner's
+desktop corpus and the repository fixtures (20 files, 7,315 pages, largest
+difference 0.0001 pt) and on synthetic pages with an inherited or oversized
+crop box, `/Rotate` of -90 and 450, and `UserUnit` 2.5. A reversed media box
+makes the native reader fail, which falls back to the PDF.js read below.
 
 Blob sources and unavailable-native fallbacks collect PDF.js metrics in bounded
 parallel batches and publish them once before first navigation, up to the

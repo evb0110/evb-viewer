@@ -71,7 +71,6 @@ import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
-import {resolvePdfReadyMetricRange} from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfReadyMetricRange';
 import type { IPdfViewportReloadPlacement } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportReloadPlacement';
 import { resolvePdfFlingBackdrop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfFlingBackdrop';
 import type {
@@ -264,7 +263,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             viewMode: options.viewMode.value,
             totalPages: numPages.value,
         });
-        await documentSession.ensureNavigationPageMetrics(range.start, range.end);
+        await documentSession.ensurePageMetricsInRange(range.start, range.end);
         if (signal.aborted || options.zoomMode.value === 'custom') {
             return;
         }
@@ -382,7 +381,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         updateCurrentPage: scroll.updateCurrentPage,
         commitVisibleRange: (range, commitOptions) => transactionController.commitVisibleRange(range, commitOptions),
         renderVisiblePages: (range, renderOptions) => requestMandatoryRaster(range, renderOptions),
-        ensureNavigationPageMetrics: documentSession.ensureNavigationPageMetrics,
+        ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         prepareNavigationLayout,
         isPageFreshlyRenderedForNavigation: options.isPageFreshlyRenderedForNavigation,
         waitForPageTextLayerReady: options.waitForPageTextLayerReady,
@@ -1128,23 +1127,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const isPreservedSelectiveReload = transition.plan.preserveVisibleContent
             && transition.plan.isSelectiveReload;
         if (!transition.plan.preserveVisibleContent || isPreservedSelectiveReload) {
-            const readyMetricRange = resolvePdfReadyMetricRange({
-                currentPage: currentPage.value,
-                totalPages: numPages.value,
-                isReload: transition.plan.isReload,
-                isSelectiveReload: transition.plan.isSelectiveReload,
-            });
-            if (transition.plan.isSelectiveReload) {
-                await documentSession.ensurePageMetricsInRange(
-                    readyMetricRange.start,
-                    readyMetricRange.end,
-                    transition.plan.preservePageMetrics
-                        ? []
-                        : transition.plan.pagesToInvalidate ?? [],
-                );
-            } else {
-                await documentSession.ensurePageMetricsInRange(readyMetricRange.start, readyMetricRange.end);
-            }
+            // Geometry is complete at ready except on a sparse source, which
+            // measures the page it restores.
+            await documentSession.ensurePageMetricsInRange(currentPage.value, currentPage.value);
             if (!transition.isCurrent()) {
                 return;
             }

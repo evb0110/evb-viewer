@@ -96,7 +96,6 @@ function createDocumentFixture(pageCount = 100) {
         pageMetricsVersion,
         acceptedSource: computed(() => new Blob(['pdf'], {type: 'application/pdf'})),
         ensurePageMetricsInRange: vi.fn(async () => true),
-        ensureNavigationPageMetrics: vi.fn(async () => true),
         hasExactPageGeometry: vi.fn(() => true),
         captureFence: () => ({
             loadToken: loadToken.value,
@@ -964,7 +963,7 @@ describe('PdfViewportSession behavior', () => {
                 end: 2,
             };
             const metrics = Promise.withResolvers<boolean>();
-            fixture.documentSession.ensureNavigationPageMetrics
+            fixture.documentSession.ensurePageMetricsInRange
                 .mockResolvedValueOnce(true)
                 .mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(4))).toBe(true);
@@ -979,7 +978,7 @@ describe('PdfViewportSession behavior', () => {
             })).toBe(true);
 
             await vi.waitFor(() => {
-                expect(fixture.documentSession.ensureNavigationPageMetrics).toHaveBeenCalledWith(3, 4);
+                expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledWith(3, 4);
             });
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cancel');
             metrics.resolve(true);
@@ -1297,7 +1296,7 @@ describe('PdfViewportSession behavior', () => {
         const metrics = Promise.withResolvers<boolean>();
         try {
             fixture.viewport.markPageMounted(requirePageNumber(1));
-            fixture.documentSession.ensureNavigationPageMetrics.mockReturnValueOnce(metrics.promise);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value,
@@ -1343,7 +1342,7 @@ describe('PdfViewportSession behavior', () => {
         const metrics = Promise.withResolvers<boolean>();
         try {
             fixture.viewport.markPageMounted(requirePageNumber(1));
-            fixture.documentSession.ensureNavigationPageMetrics.mockReturnValueOnce(metrics.promise);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.documentRevision,
@@ -1388,7 +1387,7 @@ describe('PdfViewportSession behavior', () => {
         const metrics = Promise.withResolvers<boolean>();
         try {
             fixture.viewport.markPageMounted(requirePageNumber(2));
-            fixture.documentSession.ensureNavigationPageMetrics.mockReturnValueOnce(metrics.promise);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
@@ -1428,7 +1427,7 @@ describe('PdfViewportSession behavior', () => {
         const metrics = Promise.withResolvers<boolean>();
         try {
             fixture.viewport.markPageMounted(requirePageNumber(2));
-            fixture.documentSession.ensureNavigationPageMetrics.mockReturnValueOnce(metrics.promise);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
@@ -1450,7 +1449,7 @@ describe('PdfViewportSession behavior', () => {
             await Promise.resolve();
             await nextTick();
             expect(fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value).toBeNull();
-            expect(fixture.documentSession.ensureNavigationPageMetrics).toHaveBeenCalledTimes(1);
+            expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledTimes(1);
         } finally {
             metrics.resolve(true);
             fixture.app.unmount();

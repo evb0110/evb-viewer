@@ -287,7 +287,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 livePageCount(captured.document),
             ));
             captured.page = page;
-            await options.ensureNavigationPageMetrics?.(page, page);
+            await options.ensurePageMetricsInRange?.(page, page);
             requireIntentDocument(intent, signal);
             if (!options.continuousScroll.value || intent.navigation) {
                 await options.prepareNavigationLayout?.(page, signal);

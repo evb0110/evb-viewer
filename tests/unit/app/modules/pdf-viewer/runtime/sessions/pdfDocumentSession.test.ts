@@ -20,6 +20,7 @@ import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-s
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loggerError = vi.fn();
+const loggerWarn = vi.fn();
 const loggerDebug = vi.fn();
 const rangeReadFailureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
@@ -34,7 +35,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     diagnostic: vi.fn(),
     diagnosticThrottled: vi.fn(),
     error: loggerError,
-    warn: vi.fn(),
+    warn: loggerWarn,
     warnThrottled: vi.fn(),
     debug: loggerDebug,
 }}));
@@ -276,7 +277,7 @@ describe('PdfDocumentSession range loading', () => {
         }));
     });
 
-    it('places a page from exact native geometry while PDF.js is still busy with another page', async () => {
+    it('keeps the native geometry table final when PDF.js disagrees with it', async () => {
         const pageCount = 6;
         const revision = requireDocumentRevisionToken('rev-native-geometry');
         const path = requireDocumentRef('/tmp/native-geometry.pdf');
@@ -284,7 +285,7 @@ describe('PdfDocumentSession range loading', () => {
             ? Promise.resolve({
                 cleanup: vi.fn(),
                 getViewport: vi.fn(() => ({
-                    width: 612,
+                    width: 600,
                     height: 792,
                 })),
             })
@@ -329,26 +330,14 @@ describe('PdfDocumentSession range loading', () => {
                 revision,
             });
             expect(result).not.toBeNull();
-            expect(getPdfNativePageSizes).toHaveBeenCalled();
-
-            const settled = vi.fn();
-            void documentState.ensureNavigationPageMetrics(4, 5).then(settled);
-            await vi.waitFor(() => expect(settled).toHaveBeenCalledWith(false));
-
-            // Rendering still needs the PDF.js page, so its metric wait stays open.
-            const rendered = vi.fn();
-            void documentState.ensurePageMetricsInRange(4, 4).then(rendered);
-            await Promise.resolve();
-            expect(rendered).not.toHaveBeenCalled();
-
-            // A page refreshed after a mutation has no trusted size until PDF.js
-            // measures it again, so navigation waits for it.
-            void documentState.ensurePageMetricsInRange(5, 5, [5]);
-            const refreshed = vi.fn();
-            void documentState.ensureNavigationPageMetrics(5, 5).then(refreshed);
-            await Promise.resolve();
-            await Promise.resolve();
-            expect(refreshed).not.toHaveBeenCalled();
+            expect(documentState.pageMetrics.value.map(metric => metric.width)).toEqual(Array(pageCount).fill(612));
+            expect(loggerWarn).toHaveBeenCalledWith(
+                'pdf-document',
+                expect.stringContaining('disagrees with PDF.js'),
+                expect.anything(),
+            );
+            // A range request needs no PDF.js page while another page renders.
+            await expect(documentState.ensurePageMetricsInRange(4, 5)).resolves.toBe(false);
         } finally {
             Reflect.deleteProperty(electronApi.documentFiles, 'getPdfNativePageSizes');
         }
