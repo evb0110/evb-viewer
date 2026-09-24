@@ -8,8 +8,6 @@ editing and `pnpm validate:integration` when the change needs the affected
 Electron regression lane. Preview or inspect the selected plan before an
 expensive run when its scope is unclear.
 
-Run `pnpm test:tooling` when editing `scripts/stress`; it is not part of `pnpm test:unit`.
-
 The pre-push hook checks commit attribution and runs the existing affected
 typecheck plan for the commits being pushed. It reads the ref-update lines once
 and passes them to both checks, so first pushes, force pushes, deletions, and

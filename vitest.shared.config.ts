@@ -27,7 +27,6 @@ const vitestProjectNames = {
     unitApp: 'unit-app',
     unitElectron: 'unit-electron',
     unitScripts: 'unit-scripts',
-    unitTooling: 'unit-tooling',
     unitPolicy: 'unit-policy',
     unitStaticArchitecture: 'unit-static-architecture',
     unitLanding: 'unit-landing',
@@ -52,7 +51,6 @@ const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleInteg
 const browserIntegrationTestFiles = ['tests/integration/browser/**/*.test.ts'];
 const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
 const unitPolicyTestFiles = ['tests/unit/scripts/*Policy.test.ts'];
-const unitToolingTestFiles = ['tests/unit/scripts/stress/**/*.test.ts'];
 export const staticArchitectureTestFiles = [
     'tests/unit/architecture/**/*.test.ts',
     'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts',
@@ -270,14 +268,7 @@ export const vitestProjects = [
     createUnitTestProject(
         vitestProjectNames.unitScripts,
         ['tests/unit/scripts/**/*.test.ts'],
-        { exclude: [
-            ...unitPolicyTestFiles,
-            ...unitToolingTestFiles,
-        ] },
-    ),
-    createUnitTestProject(
-        vitestProjectNames.unitTooling,
-        unitToolingTestFiles,
+        { exclude: [...unitPolicyTestFiles] },
     ),
     createUnitTestProject(
         vitestProjectNames.unitPolicy,
