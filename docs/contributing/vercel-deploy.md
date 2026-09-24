@@ -56,7 +56,7 @@ Both Vercel projects (browser viewer and landing) use Vercel Web Analytics. The 
 - Page views, with query strings and fragments stripped before sending. The browser app never loads the script inside Electron.
 - Browser app custom events: `document_opened` (document kind and open method) and `browser_install_hint_interacted`.
 - Landing custom event: `download` for GitHub and mirror installer links.
-- Custom events need a Vercel Pro or Enterprise plan. The projects are on Hobby, so the dashboard shows page views only; the events are still sent and cost nothing.
+- Custom events need a Vercel Pro or Enterprise plan. The projects are on Hobby, so the dashboard shows page views only; upgrading makes the events visible without code changes.
 
 ### Reading it
 
