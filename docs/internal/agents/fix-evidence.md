@@ -3,8 +3,7 @@
 Rules for fixing a defect a user could see or feel: viewer, annotations,
 navigation, scroll, zoom, resize, tabs, save, search, OCR, scan cleanup, DjVu.
 This protocol covers defect fixes. New behavior needs acceptance evidence in the
-running app but no fabricated pre-existing failure. The reasons are in the
-[methodology review](../methodology-review-2026-09-19.md).
+running app but no fabricated pre-existing failure.
 
 ## The standard
 
@@ -41,15 +40,20 @@ running app but no fabricated pre-existing failure. The reasons are in the
    `owner-observed` with its `family:` label, as
    [triage labels](triage-labels.md#origin-and-defect-family) describes.
 
-## A family that keeps returning
+## Fix chains
 
 When the report belongs to a defect family that was repaired before (see
-[triage labels](triage-labels.md#origin-and-defect-family)), do not add another
-repair first. In the failing run, trace the user's intent, the owner of the state
-involved, the stale completion, and the point where the wrong value was
-committed. Prefer deleting a redundant state or lifecycle path when the trace
-supports it. The viewer already has one viewport write port; another authority
-layer is not the answer, and neither is a broad rewrite justified by counts.
+[triage labels](triage-labels.md#origin-and-defect-family)), or the file you are
+about to change has taken three fix commits in the last seven days, do not add
+another repair first. In the failing run, trace the user's intent, the owner of
+the state involved, the stale completion, and the point where the wrong value was
+committed. Then delete the redundant state or lifecycle path, or revert to the
+last good state. A fix that grows such a file is rejected on push and in CI by
+`scripts/lib/fix-chain.mjs`. Only the owner can waive it, quoted in a
+`Fix-Chain-Override:` trailer.
+
+Do not relax a test until it accepts either side of a race. Remove the race in
+the product, or leave the test red and report it.
 
 ## When reproduction fails
 
@@ -68,28 +72,13 @@ Say "unconfirmed" and distinguish a candidate fix from a mitigation. Do not say
 "fixed". A failed reproduction is not permission to spend days building a
 harness.
 
-## Verifier and implementer
-
-An orchestrated task names one verifier. Only the verifier launches and controls
-the task's hidden session; workers request access and may diagnose through it
-under that ownership. The verifier writes the reproduction from the report, the
-behavior contract and the public UI. The reproduction author must not read the
-implementation or proposed changes before recording expectations, and discloses
-any unavoidable exposure. Implementers receive the timeline, screenshots and
-logs. Keep the verifier's remit narrow: it does not review every edit or unit
-test.
-
-Independence comes from the predeclared contract and protected expectations, not
-from the agent's title or model. An implementer may challenge a reproduction or
-its tolerances. It may not edit them. A second agent adjudicates a technical
-dispute, so a mistaken test does not become law. Changed product semantics or
-genuine ambiguity goes to the owner. Record the source of each expectation, keep
-the original failing revision and the fixture hash.
+## Delegation
 
 Delegation prompts must permit and require the hidden session. Never write
-"do not launch Electron" into a worker prompt for a user-facing change. If a
-worker's environment cannot run a hidden session, the orchestrator assigns the
-real-app step to a verifier that can.
+"do not launch Electron" into a worker prompt for a user-facing change. The
+author of a reproduction writes its expectations from the report and the
+behavior contract before reading the fix; an implementer may challenge a
+reproduction but not edit it.
 
 ## Tests
 
@@ -114,21 +103,16 @@ real-app step to a verifier that can.
 
 ## Red `main`
 
-Wait for the required verdict only: `ci-wait -w CI <sha>` as a background
-task, about 12 minutes. The extended and nightly tiers report separately and do
-not block your push. A newer push supersedes an in-progress extended run, so
-plain `ci-wait` would report that cancellation as a failure. Before diagnosing a red run for your commit, run
-`node scripts/ci/ci-health.mjs --sha <your sha>` and read its attribution. A
-failure marked INHERITED already has an owner; do not re-diagnose it. A failure
-your commit introduced in the required set is yours: repair it promptly or revert your commit. Do not widen a tolerance, skip a
-test, or mark a step allowed to fail to get green.
+Wait for the required verdict: `ci-wait -w CI <sha>` as a background task. A
+failure your commit introduced is yours: repair it promptly or revert your
+commit. Do not widen a tolerance, skip a test, or mark a step allowed to fail to
+get green. `node scripts/ci/ci-health.mjs` reports failure trends across recent
+runs.
 
 ## Viewer-core integration
 
 Viewer core means `app/modules/pdf-viewer`, `app/modules/document-viewer`,
-`app/modules/workspace-shell`, and the annotation session and layers. At most two
-viewer-core changes are active at once. Integration is exclusive from fetch
+`app/modules/workspace-shell`, and the annotation session and layers. One
+viewer-core change is active at a time. Integration is exclusive from fetch
 through push: fetch, rebase, run the affected real-app lane on the rebased
-candidate, push. If `main` moves in between, rebase and revalidate before
-retrying. Before starting viewer-core work, check open threads and branches for
-another active viewer-core change and agree file ownership with its owner.
+candidate, push. If `main` moves in between, rebase and revalidate.

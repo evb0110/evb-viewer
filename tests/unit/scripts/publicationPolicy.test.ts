@@ -1095,3 +1095,69 @@ describe('pushed range resolution for CI', () => {
         }
     });
 });
+
+describe('fix chains', () => {
+    async function repositoryWithThreeFixes() {
+        const repository = await createRepository('evb-fix-chain-');
+        let body = 'export const state = 0;\n';
+        await commit(repository, 'Add viewport state', {'app/viewport.ts': body});
+        for (const index of [
+            1,
+            2,
+            3,
+        ]) {
+            body += `export const fence${index} = ${index};\n`;
+            await commit(repository, `fix(viewer): fence stale viewport write ${index}`, {'app/viewport.ts': body});
+        }
+        return {
+            body,
+            repository,
+        };
+    }
+
+    it('blocks a fourth fix that grows a file fixed three times this week', async () => {
+        const {
+            body,
+            repository,
+        } = await repositoryWithThreeFixes();
+        try {
+            const head = await commit(repository, 'fix(viewer): add one more fence', {
+                'app/viewport.ts': `${body}export const fence4 = 4;\n`,
+                'tests/unit/viewport.test.ts': 'export {};\n',
+            });
+
+            const violations = checker.findPushPolicyViolations([head], repository);
+
+            expect(violationSubjects(violations)).toEqual([head]);
+            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows by 1 lines after 3 fix commits');
+        } finally {
+            await removeRepository(repository);
+        }
+    });
+
+    it('accepts a fix that shrinks the file, a revert, a non-fix change, and an owner override', async () => {
+        const {
+            body,
+            repository,
+        } = await repositoryWithThreeFixes();
+        try {
+            const shrinking = await commit(repository, 'fix(viewer): delete the redundant fences', {'app/viewport.ts': 'export const state = 0;\n'});
+            const revert = await commit(repository, 'Revert "fix(viewer): delete the redundant fences"', {'app/viewport.ts': body});
+            const refactor = await commit(repository, 'refactor(viewer): name the state', {'app/viewport.ts': `${body}export const named = 1;\n`});
+            const overridden = await commit(
+                repository,
+                'fix(viewer): hold the fence for the release\n\nFix-Chain-Override: ship the fence today, redesign next week',
+                {'app/viewport.ts': `${body}export const named = 1;\nexport const held = 1;\n`},
+            );
+
+            expect(checker.findPushPolicyViolations([
+                shrinking,
+                revert,
+                refactor,
+                overridden,
+            ], repository)).toEqual([]);
+        } finally {
+            await removeRepository(repository);
+        }
+    });
+});

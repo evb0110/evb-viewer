@@ -9,6 +9,10 @@ import {
     findStagedAddedChecks,
     readAddsChecksTrailer,
 } from './lib/added-checks.mjs';
+import {
+    describeFixChainRule,
+    findFixChainViolations,
+} from './lib/fix-chain.mjs';
 
 const ZERO_OID = '0'.repeat(40);
 const OID_PATTERN = /^[0-9a-f]{40,64}$/u;
@@ -384,6 +388,7 @@ export function findPushPolicyViolations(commits, cwd = process.cwd(), {
         })),
         findHistoryArtifactViolations(commits, cwd),
         findAddedCheckViolations(commits, cwd),
+        findFixChainViolations(commits, cwd),
     ]);
 }
 
@@ -392,7 +397,7 @@ function rejectViolations(violations) {
     if (violations.length === 0) {
         return;
     }
-    console.error('Push blocked: local-only artifacts, unexplained new checks, or ref destinations were found.');
+    console.error('Push blocked: local-only artifacts, unexplained new checks, fix chains, or ref destinations were found.');
     for (const {
         matches,
         subject,
@@ -403,6 +408,7 @@ function rejectViolations(violations) {
         'Fix every listed unpublished commit, not only the tip (amend, rebase, or drop it), '
         + 'and retry. Published history is not rewritten.',
     );
+    console.error(describeFixChainRule());
     process.exitCode = 1;
 }
 
