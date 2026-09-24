@@ -67,6 +67,7 @@ import type { TStartSection } from '@app/types/startSection';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
+import { describeDocumentTarget } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
@@ -180,7 +181,17 @@ async function openRecentFile(file: IRecentFile) {
             return false;
         }
     }
-    return withWorkspace(workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath));
+    const open = (workspace: IWorkspaceExpose) => workspace.handleOpenFileDirectWithPersist(file.originalPath);
+    const mounted = documentSession.mountedWorkspace.value;
+    if (mounted) {
+        return open(mounted);
+    }
+    // The tab is opening from the click, not from when the workspace chunk
+    // arrives; the workspace's own open replaces this transaction once mounted.
+    return documentSession.runOpen({
+        kind: 'open',
+        target: describeDocumentTarget(file.originalPath),
+    }, () => withWorkspace(open));
 }
 
 async function revealRecentFile(file: IRecentFile) {

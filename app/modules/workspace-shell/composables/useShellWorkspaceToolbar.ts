@@ -18,10 +18,17 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     const shellToolbarOverflowMenuOpen = ref(false);
     const shellToolbarAppMenuOpen = ref(false);
 
-    const shellToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => (
-        options.activeDocumentSession.value?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot()
-    ));
-    const shellToolbarHasPdf = computed(() => shellToolbarSnapshot.value.hasPdf);
+    // An open is the tab controller's phase from the command that starts it;
+    // the workspace fills in its toolbar snapshot only once it has mounted.
+    const isActiveTabOpening = computed(() => options.activeDocumentSession.value?.snapshot.value.phase === 'opening');
+    const shellToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => {
+        const snapshot = options.activeDocumentSession.value?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot();
+        return isActiveTabOpening.value ? {
+            ...snapshot,
+            isOpeningDocument: true,
+        } : snapshot;
+    });
+    const shellToolbarHasPdf = computed(() => shellToolbarSnapshot.value.hasPdf || isActiveTabOpening.value);
     const shellToolbarOcrWorkingCopyPath = computed<TDocumentRef | null>(() => (
         options.activeDocumentSession.value?.snapshot.value.identity.revisionInfo?.documentRef ?? null
     ));
