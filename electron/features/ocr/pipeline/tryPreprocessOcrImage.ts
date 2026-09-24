@@ -4,7 +4,6 @@ import {
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import type { IOcrDiagnostic } from '@contracts/electronApiOcr';
 import type { INativeScanCleanupOptionsV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
@@ -67,7 +66,7 @@ const OCR_PREPROCESS_PINNED_OPTIONS: Omit<
     maxDimensionPx: 40_000,
 };
 
-const OCR_PREPROCESS_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_PREPROCESS_TIMEOUT_MS', 30_000, 1_000);
+const OCR_PREPROCESS_TIMEOUT_MS = 30_000;
 function createOptionalPreprocessingLog(log: TWorkerLog): TWorkerLog {
     return (level, message) => {
         log(level === 'error' ? 'warn' : level, message);

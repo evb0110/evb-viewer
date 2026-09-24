@@ -44,7 +44,6 @@ import { forEachConcurrent } from '@electron/utils/concurrency';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getOcrRuntimePolicy } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import { resolveOcrResourcesBase } from '@electron/features/ocr/main/resolveOcrResourcesBase';
 import { OCR_LANGUAGE_MODEL_SHA256 } from '@contracts/ocrLanguages';
@@ -100,12 +99,6 @@ const globalDownloadWaiters: Array<{
     abortHandler?: () => void;
 }> = [];
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OCR_MAX_UNIQUE_MODEL_CODES = parseIntegerEnv(
-    'EVB_OCR_MAX_UNIQUE_LANGUAGES_PER_JOB',
-    AVAILABLE_OCR_LANGUAGE_CODES.size,
-    1,
-    AVAILABLE_OCR_LANGUAGE_CODES.size,
-);
 
 let runtimeTessdataSeedPromise: Promise<void> | null = null;
 let activeModelDownloads = 0;
@@ -1105,9 +1098,6 @@ export async function ensureTessdataLanguages(
         return;
     }
     throwIfAborted(options.signal);
-    if (requiredCodes.length > OCR_MAX_UNIQUE_MODEL_CODES) {
-        throw new Error(`Too many OCR languages requested (${requiredCodes.length})`);
-    }
     for (const languageCode of requiredCodes) {
         if (!AVAILABLE_OCR_LANGUAGE_CODES.has(languageCode)) {
             throw new Error(`Unsupported OCR language: ${languageCode}`);

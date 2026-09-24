@@ -7,18 +7,13 @@ import { join } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 const logger = createLogger('ocr-temp-cleanup');
 const OCR_TEMP_ARTIFACT_PREFIXES = [
     'ocr-',
     'searchable-',
 ] as const;
-const OCR_TEMP_STALE_MAX_AGE_MS = parseIntegerEnv(
-    'EVB_OCR_TEMP_STALE_MAX_AGE_MS',
-    24 * 60 * 60 * 1000,
-    60_000,
-);
+const OCR_TEMP_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function isManagedOcrTempArtifactName(entryName: string) {
     return OCR_TEMP_ARTIFACT_PREFIXES.some(prefix => entryName.startsWith(prefix));
