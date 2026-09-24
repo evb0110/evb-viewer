@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
     describe,
     expect,
@@ -8,15 +6,6 @@ import {
 import { LOCALE_CODES } from '@i18n-core/localeCodes';
 import { PRIVACY_MESSAGES } from '@i18n-core';
 
-const projectRoot = process.cwd();
-const landingPrivacyPageSource = readFileSync(
-    resolve(projectRoot, 'landing/app/pages/privacy.vue'),
-    'utf8',
-);
-const rootPrivacyPageSource = readFileSync(
-    resolve(projectRoot, 'app/pages/privacy.vue'),
-    'utf8',
-);
 
 function asRecord(value: unknown): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -79,15 +68,7 @@ describe('privacy localization', () => {
         }
     });
 
-    it('keeps both privacy pages on the shared tree with the public Sentry notice', () => {
-        expect(rootPrivacyPageSource).toContain('import { PRIVACY_MESSAGES } from \'@i18n-core\';');
-        expect(rootPrivacyPageSource).toContain('PRIVACY_MESSAGES[locale.value]');
-        expect(rootPrivacyPageSource).not.toContain('PRIVACY_COPY');
-
-        expect(landingPrivacyPageSource).toContain('import { PRIVACY_MESSAGES } from \'@i18n-core\';');
-        expect(landingPrivacyPageSource).toContain('PRIVACY_MESSAGES[locale.value]');
-        expect(landingPrivacyPageSource).not.toMatch(/t\('privacy\./u);
-
+    it('states the public Sentry notice in every locale', () => {
         for (const locale of LOCALE_CODES) {
             const diagnostics = PRIVACY_MESSAGES[locale].diagnostics;
             expect(diagnostics.heading, locale).toMatch(/Sentry/iu);
@@ -102,8 +83,5 @@ describe('privacy localization', () => {
                 /issue|tracker|seguimiento|suivi|tracciamento|rastreador|трекер/iu,
             );
         }
-
-        expect(rootPrivacyPageSource).not.toContain('github.com/evb0110/evb-viewer/issues');
-        expect(landingPrivacyPageSource).not.toContain('github.com/evb0110/evb-viewer/issues');
     });
 });

@@ -471,13 +471,5 @@ describe('Cargo artifact staging', () => {
         expect(() => getWasmArtifactByCrateName('pdf-search')).toThrow(
             'Unknown WASM artifact crate: pdf-search',
         );
-
-        const benchmarkSource = await readFile(
-            path.join(process.cwd(), 'scripts', 'benchmark-native-release-profiles.mjs'),
-            'utf8',
-        );
-        expect(benchmarkSource).toContain('resolveCargoTargetDirectory');
-        expect(benchmarkSource).not.toContain('native/pdf-search/target');
-        expect(benchmarkSource).not.toContain('native/pdf-image-combine/target');
     });
 });

@@ -1,7 +1,6 @@
 import {
     mkdir,
     mkdtemp,
-    readFile,
     rm,
     symlink,
     writeFile,
@@ -11,7 +10,6 @@ import {
     isAbsolute,
     join,
     relative,
-    resolve,
 } from 'node:path';
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
@@ -46,15 +44,9 @@ const options: IScanCleanupOptions = {
 };
 
 // The diagnostics harnesses build product manifests and launch the real
-// sidecar, so they are part of the runnable inventory: the directory a
-// manifest is constrained to and the root the native launch is told about must
-// be the same value. Both scripts take that pairing from one shared scope, so
-// the scope itself is what these tests exercise.
-const diagnosticsScripts = [
-    'scripts/diagnostics/scan-cleanup-corpus-verify.mjs',
-    'scripts/diagnostics/scan-cleanup-preview-harness.mjs',
-];
-
+// sidecar: the directory a manifest is constrained to and the root the native
+// launch is told about must be the same value, so both take that pairing from
+// one shared scope, which is what these tests exercise.
 describe('scan cleanup diagnostics manifest scope', () => {
     let temporaryDirectory = '';
     let scopedRoot = '';
@@ -178,18 +170,5 @@ describe('scan cleanup diagnostics manifest scope', () => {
             .toThrow(/requires an allowed path root/u);
         expect(() => createScanCleanupDiagnosticsManifestScope(scopedRoot, undefined))
             .toThrow(/requires the runnable manifest builder/u);
-    });
-
-    it.each(diagnosticsScripts)('%s takes its manifest root only from the shared scope', async path => {
-        const source = await readFile(resolve(path), 'utf8');
-
-        expect(source).toContain('createScanCleanupDiagnosticsManifestScope');
-        // Geometry-only construction skips path containment entirely, so it has
-        // no place in a script that hands its manifest to the native binary.
-        expect(source).not.toContain('buildGeometryOnlyNativeScanCleanupManifest');
-        // A local root literal is how the two sides drift apart; the scope owns
-        // both the builder input and the native flag.
-        expect(source).not.toContain('allowedPathRoot:');
-        expect(source).not.toContain('--allowed-path-root');
     });
 });

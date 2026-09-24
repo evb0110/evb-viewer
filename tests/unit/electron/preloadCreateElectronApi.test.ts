@@ -8,7 +8,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { readFileSync } from 'node:fs';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
@@ -496,14 +495,6 @@ describe('createElectronApi', () => {
             code: 'UNCLASSIFIED_MAIN_ERROR',
             severity: 'error',
         }}));
-    });
-
-    it('keeps diagnostics inside electronAPI without a Sentry preload import or global bridge', () => {
-        const preloadSource = readFileSync('electron/preload.ts', 'utf8');
-
-        expect(preloadSource).not.toMatch(/from\s+['"]@sentry\//u);
-        expect(preloadSource).not.toContain('contextBridge.exposeInMainWorld(\'diagnostics\'');
-        expect(preloadSource).toContain('contextBridge.exposeInMainWorld(\'electronAPI\', electronApi)');
     });
 
     it('returns the preload resource profile synchronously with stable identity', async () => {

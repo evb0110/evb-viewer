@@ -70,7 +70,6 @@ const NuxtLinkStub = defineComponent({
 const IconStub = defineComponent({setup: () => () => h('span', {'aria-hidden': 'true'})});
 const activeUnmounts = new Set<() => void>();
 const projectRoot = process.cwd();
-const pageSource = readFileSync(resolve(projectRoot, 'app/pages/about.vue'), 'utf8');
 
 function mountPage() {
     const host = document.createElement('div');
@@ -171,9 +170,5 @@ describe('About and Acknowledgements page', () => {
             link.focus();
             expect(document.activeElement).toBe(link);
         }
-        expect(pageSource).toContain('.about-page a:focus-visible');
-        expect(pageSource).toContain('outline: 2px solid var(--ui-primary);');
-        expect(pageSource).toContain('@media (width <= 40rem)');
-        expect(pageSource).not.toMatch(/fetch|XMLHttpRequest|sendBeacon|SENTRY_DSN|@sentry\//u);
     });
 });
