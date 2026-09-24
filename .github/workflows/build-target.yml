@@ -28,16 +28,6 @@ on:
         required: false
         default: artifact-build
         type: string
-      sentry_environment:
-        description: Closed Sentry build environment for this artifact.
-        required: false
-        default: test
-        type: string
-      send_sentry_canaries:
-        description: Send one test source-map canary for every private bundle after upload.
-        required: false
-        default: false
-        type: boolean
       upload_artifacts:
         description: >-
           Upload the verified release files as a workflow artifact. Push CI's
@@ -62,8 +52,6 @@ on:
       WIN_CSC_KEY_PASSWORD:
         required: false
       SENTRY_AUTH_TOKEN:
-        required: false
-      SENTRY_VERIFICATION_TOKEN:
         required: false
       SENTRY_ORG:
         required: false
@@ -91,15 +79,13 @@ jobs:
     env:
       EVB_RELEASE_TARGET_ARCH: ${{ inputs.arch }}
       EVB_RELEASE_TARGET_PLATFORM: ${{ inputs.platform }}
-      EVB_SENTRY_TARGET: desktop
-      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
+      # With a token the build emits source maps, uploads them to Sentry and
+      # deletes them before packaging; the DSN is compiled into Electron main.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}
     runs-on: ${{ inputs.os }}
-    # Shared by every release target. Source-map canary processing is remote
-    # work and can outlive packaging by several minutes; keep a bounded margin
-    # so a valid symbolication proof is not killed at the old 45-minute limit.
     timeout-minutes: 60
 
     steps:
@@ -121,10 +107,6 @@ jobs:
           rust-targets: ${{ inputs.platform == 'win' && inputs.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
           brew-formulae: ${{ inputs.platform == 'mac' && 'tesseract poppler qpdf djvulibre' || '' }}
           needs-system-fpm: ${{ inputs.platform == 'linux' }}
-
-      - name: Resolve Sentry build identity
-        shell: bash
-        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
 
       - name: Test Windows PDF append sharing
         if: runner.os == 'Windows' && inputs.arch == 'x64'
@@ -186,6 +168,14 @@ jobs:
           name: build-log-${{ inputs.platform }}-${{ inputs.arch }}-${{ github.run_attempt }}
           path: .tmp/build.log
           if-no-files-found: ignore
+
+      - name: Upload Sentry source maps
+        if: env.SENTRY_AUTH_TOKEN != ''
+        shell: bash
+        env:
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+        run: node scripts/release/upload-sentry-sourcemaps.mjs dist-electron nuxt-output/public
 
       - name: Configure optional macOS signing and notarization
         if: runner.os == 'macOS'
@@ -547,132 +537,6 @@ jobs:
           EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ env.WIN_EXPECT_SIGNATURE }}
         run: node scripts/release/assert-build-artifacts.mjs release "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH"
 
-      - name: Check private Sentry upload readiness
-        id: sentry_upload
-        if: ${{ inputs.upload_artifacts }}
-        shell: bash
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_VERIFICATION_CONFIGURED: ${{ secrets.SENTRY_VERIFICATION_TOKEN != '' }}
-          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-        run: |
-          set -euo pipefail
-          configured=0
-          for value in "$SENTRY_AUTH_TOKEN" "$SENTRY_DESKTOP_DSN" "$SENTRY_DESKTOP_PROJECT" "$SENTRY_ORG"; do
-            if [ -n "$value" ]; then configured=$((configured + 1)); fi
-          done
-          if [ "$configured" -eq 4 ]; then
-            if [ "${{ inputs.send_sentry_canaries }}" != 'true' ]; then
-              echo 'enabled=false' >> "$GITHUB_OUTPUT"
-              echo '::notice::Routine artifact builds keep diagnostics disabled; a named release-candidate probe is required for remote Sentry acceptance.'
-            elif [ "$SENTRY_VERIFICATION_CONFIGURED" != 'true' ]; then
-              echo '::error::SENTRY_VERIFICATION_TOKEN is required when source-map canaries are enabled.'
-              exit 1
-            else
-              echo 'enabled=true' >> "$GITHUB_OUTPUT"
-            fi
-          elif [ "$configured" -eq 0 ]; then
-            echo 'enabled=false' >> "$GITHUB_OUTPUT"
-            echo '::notice::Private Sentry upload is not configured; diagnostics remain disabled.'
-          else
-            echo '::error::Sentry diagnostics credentials are partially configured.'
-            exit 1
-          fi
-
-      - name: Upload private Sentry source maps
-        if: steps.sentry_upload.outputs.enabled == 'true'
-        shell: bash
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-        run: node scripts/release/upload-sentry-sourcemaps.mjs
-
-      - name: Verify packaged diagnostics consent and crash matrix
-        id: packaged_diagnostics
-        if: ${{ inputs.upload_artifacts }}
-        shell: bash
-        env:
-          EVB_PACKAGED_DIAGNOSTICS_RECEIPT: .devkit/release/packaged-diagnostics-receipt.json
-        run: |
-          if [ "${{ steps.sentry_upload.outputs.enabled }}" = 'true' ]; then
-            if [ "${{ runner.os }}" = 'Linux' ]; then
-              EVB_SENTRY_RUNTIME_PROBE=packaged-smoke xvfb-run -a pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts
-            else
-              EVB_SENTRY_RUNTIME_PROBE=packaged-smoke pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts
-            fi
-          else
-            if [ "${{ runner.os }}" = 'Linux' ]; then
-              xvfb-run -a pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts --diagnostics-disabled
-            else
-              pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts --diagnostics-disabled
-            fi
-          fi
-
-      - name: Send private Sentry source-map canaries
-        if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
-        shell: bash
-        run: node scripts/release/send-sentry-sourcemap-canaries.mjs
-
-      - name: Verify private Sentry source-map canaries
-        if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
-        shell: bash
-        env:
-          SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
-          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-        run: node scripts/release/verify-sentry-sourcemap-canaries.mjs
-
-      - name: Record diagnostics artifact evidence
-        if: ${{ always() && inputs.upload_artifacts }}
-        shell: bash
-        env:
-          SENTRY_ENABLED: ${{ steps.sentry_upload.outputs.enabled }}
-          PACKAGED_MATRIX: ${{ steps.packaged_diagnostics.outcome }}
-          CANARIES_REQUESTED: ${{ inputs.send_sentry_canaries }}
-        run: |
-          set -euo pipefail
-          # artifactDiagnostics: whether the packaged app carries a runtime DSN
-          # (the caller decides by passing or omitting the secret).
-          # mode: whether this run exercised the remote packaged-smoke probe.
-          artifact=disabled
-          if [ -n "${SENTRY_DESKTOP_DSN:-}" ]; then
-            artifact=enabled
-          fi
-          mode=local-only
-          probe=none
-          canaries=not-run
-          if [ "$SENTRY_ENABLED" = 'true' ]; then
-            mode=remote-probe
-            probe=packaged-smoke
-            canaries=true
-          fi
-          mkdir -p .devkit/release
-          cat > .devkit/release/diagnostics-evidence.json <<EOF
-          {
-            "schemaVersion": 1,
-            "diagnostics": {
-              "artifactDiagnostics": "$artifact",
-              "mode": "$mode",
-              "runtimeProbe": "$probe",
-              "sourceMapCanaries": "$canaries",
-              "requestedCandidateProbe": "$CANARIES_REQUESTED",
-              "packagedLocalMatrix": "$PACKAGED_MATRIX"
-            }
-          }
-          EOF
-          echo "Diagnostics artifact evidence recorded: artifact=$artifact, mode=$mode, local_matrix=$PACKAGED_MATRIX"
-
-      - name: Upload Sentry source-map verification receipt
-        if: ${{ always() && steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: sentry-sourcemap-verification-${{ inputs.artifact_group }}
-          path: .tmp/private-sourcemaps/**/canary-verification-receipt.json
-          if-no-files-found: error
-
       - name: Upload artifacts
         id: upload_artifacts
         if: ${{ inputs.upload_artifacts }}
@@ -687,9 +551,6 @@ jobs:
             release/latest*.yml
             release/*.blockmap
             release/*-provenance.json
-            .devkit/release/diagnostics-evidence.json
-            .devkit/release/packaged-diagnostics-receipt.json
-          include-hidden-files: true
           if-no-files-found: error
 
       - name: Record artifact readiness

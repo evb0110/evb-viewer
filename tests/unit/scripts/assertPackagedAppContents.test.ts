@@ -177,7 +177,7 @@ describe('assert-packaged-app-contents', () => {
         expect(JSON.stringify(violations)).not.toContain(token);
     });
 
-    it('rejects every Sentry ingest endpoint from the desktop renderer', async () => {
+    it('rejects every Sentry DSN from the desktop renderer', async () => {
         const { collectPublicArtifactContentViolations } = await loadBuildArtifactHygieneModule();
 
         expect(collectPublicArtifactContentViolations(

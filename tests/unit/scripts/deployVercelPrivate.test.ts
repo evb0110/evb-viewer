@@ -31,7 +31,6 @@ interface IPrivateDeployModule {
         rawArgs?: string[],
         options?: {prebuilt?: boolean},
     ) => string[];
-    assertServedSentryBundleParity: (options: Record<string, unknown>) => Promise<boolean>;
     extractVercelDeploymentUrl: (output: string) => string | null;
     extractVercelDeploymentIdentity: (output: string, options?: {
         expectedAliasUrl?: string;
@@ -57,7 +56,6 @@ interface IPrivateDeployModule {
 }
 
 const {
-    assertServedSentryBundleParity,
     buildVercelRollbackArgs,
     buildPrivateDeployArgs,
     extractVercelDeploymentUrl,
@@ -71,8 +69,6 @@ const {
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
 ) as IPrivateDeployModule;
-const {createSentryBuildIdentity} = await import('@contracts/diagnostics/releaseIdentity.js');
-const {stagePrivateSourcemaps} = await import('@scripts/release/stage-private-sourcemaps.mjs');
 
 function createProjectFixture() {
     const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-private-deploy-fixture-'));
@@ -389,242 +385,6 @@ describe('private Vercel deployment source', () => {
             expect(existsSync(path.join(prepared.sourceRoot, '.tmp'))).toBe(false);
         } finally {
             prepared?.cleanup();
-            rmSync(projectRoot, {
-                force: true,
-                maxRetries: 5,
-                recursive: true,
-                retryDelay: 20,
-            });
-        }
-    });
-
-    it('builds and deploys diagnostics-enabled viewer output through the prebuilt path', async () => {
-        const projectRoot = createProjectFixture();
-        const outputRoot = path.join(projectRoot, '.vercel', 'output');
-        const bundlePath = path.join(outputRoot, 'static', '_nuxt', 'app.js');
-        const sourcePath = path.join(projectRoot, 'app', 'index.ts');
-        const identity = createSentryBuildIdentity({
-            target: 'web',
-            deployment: '1.2.3',
-            dist: 'preview-local',
-            environment: 'preview',
-        });
-        const calls: Array<{
-            args: string[];
-            command: string
-        }> = [];
-        const lifecycle: string[] = [];
-        try {
-            mkdirSync(path.dirname(bundlePath), {recursive: true});
-            writeFileSync(path.join(outputRoot, 'config.json'), '{"version":3}\n');
-            writeFileSync(bundlePath, 'export const viewer=true;\n//# sourceMappingURL=app.js.map\n');
-            writeFileSync(`${bundlePath}.map`, JSON.stringify({
-                version: 3,
-                file: 'app.js',
-                sources: [path.relative(path.dirname(bundlePath), sourcePath)],
-                names: [],
-                mappings: '',
-            }));
-            await expect(runPrivateVercelDeploy({
-                command: 'vercel-test',
-                env: {EVB_SENTRY_DIAGNOSTICS_BUILD: '1'},
-                fetchImpl: async () => ({
-                    arrayBuffer: async () => readFileSync(bundlePath),
-                    ok: true,
-                    status: 200,
-                }),
-                projectRoot,
-                rawArgs: [],
-                stageSourcemaps: async (options: Parameters<typeof stagePrivateSourcemaps>[0]) => {
-                    lifecycle.push('stage');
-                    return stagePrivateSourcemaps(options);
-                },
-                uploadSourcemaps: async () => {
-                    lifecycle.push('upload');
-                    return {
-                        schemaVersion: 3,
-                        bundleCount: 1,
-                        destinationFingerprint: 'a'.repeat(64),
-                        manifestSha256: 'b'.repeat(64),
-                        identity,
-                    };
-                },
-                spawnSyncImpl: (command: string, args: string[]) => {
-                    calls.push({
-                        args,
-                        command,
-                    });
-                    if (command === 'pnpm') {
-                        lifecycle.push(args[0] === 'run' ? 'generate' : 'build');
-                        return {status: 0};
-                    }
-                    if (command === process.execPath) {
-                        lifecycle.push(args[0]?.includes('prune-') ? 'prune' : 'check');
-                        return {status: 0};
-                    }
-                    lifecycle.push('deploy');
-                    const deploySourceRoot = args[1];
-                    expect(deploySourceRoot).toBeTypeOf('string');
-                    expect(existsSync(path.join(
-                        deploySourceRoot as string,
-                        '.vercel',
-                        'output',
-                        'static',
-                        '_nuxt',
-                        'app.js.map',
-                    ))).toBe(false);
-                    return {
-                        stderr: '',
-                        stdout: 'Preview: https://evb-viewer-test.vercel.app\n',
-                        status: 0,
-                    };
-                },
-            })).resolves.toBe(0);
-
-            expect(calls[0]).toMatchObject({
-                args: [
-                    'run',
-                    'generate:build-artifacts',
-                ],
-                command: 'pnpm',
-            });
-            expect(calls[1]).toMatchObject({
-                args: [
-                    'exec',
-                    'nuxi',
-                    'build',
-                ],
-                command: 'pnpm',
-            });
-            expect(calls[2]).toMatchObject({
-                args: ['scripts/prune-build-artifacts.mjs'],
-                command: process.execPath,
-            });
-            expect(calls[3]).toMatchObject({
-                args: ['scripts/check-web-deploy-assets.mjs'],
-                command: process.execPath,
-            });
-            expect(calls[4]?.args).toEqual(expect.arrayContaining([
-                'deploy',
-                '--prebuilt',
-            ]));
-            expect(calls[4]?.args).not.toContain('--archive=tgz');
-            expect(lifecycle).toEqual([
-                'generate',
-                'build',
-                'stage',
-                'prune',
-                'check',
-                'upload',
-                'deploy',
-            ]);
-            expect(existsSync(`${bundlePath}.map`)).toBe(false);
-            await expect(assertServedSentryBundleParity({
-                deploymentUrl: 'https://evb-viewer-test.vercel.app',
-                fetchImpl: async () => ({
-                    arrayBuffer: async () => readFileSync(bundlePath),
-                    ok: true,
-                    status: 200,
-                }),
-                identity,
-                projectRoot,
-            })).resolves.toBe(true);
-
-            await expect(assertServedSentryBundleParity({
-                deploymentUrl: 'https://evb-viewer-test.vercel.app',
-                fetchImpl: async () => ({
-                    ok: true,
-                    status: 200,
-                    url: 'https://vercel.com/sso-api',
-                }),
-                identity,
-                projectRoot,
-                protectedBundleReader: async (
-                    {bundles}: {bundles: Array<{servedPath: string}>},
-                ) => new Map(bundles.map(bundle => [
-                    bundle.servedPath,
-                    readFileSync(bundlePath),
-                ])),
-            })).resolves.toBe(true);
-        } finally {
-            rmSync(projectRoot, {
-                force: true,
-                maxRetries: 5,
-                recursive: true,
-                retryDelay: 20,
-            });
-        }
-    });
-
-    it('rolls back a production deploy when its served bundle differs from the manifest', async () => {
-        const projectRoot = createProjectFixture();
-        const outputRoot = path.join(projectRoot, '.vercel', 'output');
-        const bundlePath = path.join(outputRoot, 'static', '_nuxt', 'app.js');
-        const sourcePath = path.join(projectRoot, 'app', 'index.ts');
-        const calls: string[][] = [];
-
-        try {
-            mkdirSync(path.dirname(bundlePath), {recursive: true});
-            writeFileSync(path.join(outputRoot, 'config.json'), '{"version":3}\n');
-            writeFileSync(bundlePath, 'export const viewer=true;\n//# sourceMappingURL=app.js.map\n');
-            writeFileSync(`${bundlePath}.map`, JSON.stringify({
-                version: 3,
-                file: 'app.js',
-                sources: [path.relative(path.dirname(bundlePath), sourcePath)],
-                names: [],
-                mappings: '',
-            }));
-
-            await expect(runPrivateVercelDeploy({
-                command: 'vercel-test',
-                env: {
-                    CI: 'true',
-                    EVB_SENTRY_DIAGNOSTICS_BUILD: '1',
-                },
-                fetchImpl: async () => ({
-                    arrayBuffer: async () => Buffer.from('served bundle from another deployment'),
-                    ok: true,
-                    status: 200,
-                }),
-                projectRoot,
-                rawArgs: ['--prod'],
-                stageSourcemaps: stagePrivateSourcemaps,
-                uploadSourcemaps: async (options: Parameters<typeof stagePrivateSourcemaps>[0]) => ({
-                    schemaVersion: 3,
-                    bundleCount: 1,
-                    destinationFingerprint: 'a'.repeat(64),
-                    manifestSha256: 'b'.repeat(64),
-                    identity: options!.identity,
-                }),
-                spawnSyncImpl: (command: string, args: string[]) => {
-                    calls.push(args);
-                    if (command === 'pnpm' || command === process.execPath) {
-                        return {status: 0};
-                    }
-                    return calls.length === 5
-                        ? {
-                            stderr: '',
-                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
-                            status: 0,
-                        }
-                        : calls.length === 6
-                            ? {
-                                stderr: '',
-                                stdout: 'Production: https://evb-viewer-test.vercel.app\n',
-                                status: 0,
-                            }
-                            : {status: 0};
-                },
-            })).rejects.toThrow(
-                'Served bundle does not match private manifest: /_nuxt/app.js. The failed deployment was rolled back.',
-            );
-
-            expect(calls.at(-1)).toEqual([
-                'rollback',
-                'dpl_previous',
-                '--yes',
-            ]);
-        } finally {
             rmSync(projectRoot, {
                 force: true,
                 maxRetries: 5,

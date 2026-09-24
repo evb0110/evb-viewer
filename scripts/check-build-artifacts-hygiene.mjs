@@ -29,7 +29,6 @@ export const forbiddenPublicArtifactPathPatterns = [
 
 const remoteCredentialPattern = /\bsntry[su]_[A-Za-z0-9_-]{16,}\b/u;
 const sentryEndpointPattern = /https:\/\/[A-Za-z0-9]+@[A-Za-z0-9.-]*sentry\.io\/\d+/giu;
-const sentryIngestHostPattern = /\b(?:o\d+\.)?ingest(?:\.[a-z0-9-]+)*\.sentry\.io\b/iu;
 
 /** @typedef {{absolutePath: string, relativePath: string}} IArtifactFile */
 
@@ -58,10 +57,9 @@ export function collectPublicArtifactContentViolations(
         violations.push('remote auth credential');
     }
     const endpoints = new Set(text.match(sentryEndpointPattern) ?? []);
-    if (
-        target === 'desktop-renderer'
-        && (endpoints.size > 0 || sentryIngestHostPattern.test(text))
-    ) {
+    // The desktop renderer reports through Electron main and carries no DSN.
+    // The SDK's own connectivity-check URL has no key and does not match.
+    if (target === 'desktop-renderer' && endpoints.size > 0) {
         violations.push('web Sentry ingest endpoint in desktop renderer');
     }
     if (endpoints.size > 1) {

@@ -11,20 +11,10 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { getRequestedNativeRustTarget } from '../native-rust-targets.mjs';
-import {
-    assertSameSentryBuildIdentity,
-    isSentryDiagnosticsBuild,
-    resolveSentryBuildIdentity,
-    resolveSentryBuildTarget,
-} from '../../packages/contracts/diagnostics/releaseIdentity.js';
-import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const RECEIPT_SCHEMA_VERSION = 1;
 export const RELEASE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_BUILD_RECEIPT';
 /** @typedef {{schemaVersion: number, platformArch: string, stagingRoots: string[]}} IBuildManifest */
-/** @typedef {{bundle: string, bundleSha256: string, stagedMapPath: string, mapSha256: string}} IManifestBundle */
-/** @typedef {{stagedPath: string, sha256: string}} IManifestSource */
-/** @typedef {{schemaVersion: number, identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity, bundles: IManifestBundle[], sources: IManifestSource[], unmappedGeneratedBundles?: IManifestBundle[]}} IPrivateSourcemapManifest */
 /** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
 /** @typedef {{env?: NodeJS.ProcessEnv | undefined, inputFiles?: string[] | undefined, outputPaths?: string[] | undefined, projectRoot?: string | undefined, runCommand?: TCommandRunner | undefined}} IComputeReleaseBuildStateOptions */
 
@@ -65,11 +55,6 @@ const BUILD_ENVIRONMENT_KEYS = [
     'EVB_RELEASE_TARGET_ARCH',
     'EVB_RELEASE_TARGET_PLATFORM',
     'EVB_RELEASE_TARGET_DIST',
-    'EVB_SENTRY_TARGET',
-    'EVB_SENTRY_RELEASE',
-    'EVB_SENTRY_DIST',
-    'EVB_SENTRY_ENVIRONMENT',
-    'EVB_SENTRY_DIAGNOSTICS_BUILD',
     'EVB_ELECTRON_SOURCEMAP',
 ];
 const BUILD_ENVIRONMENT_PREFIXES = [
@@ -169,121 +154,6 @@ function buildEnvironment(env) {
         .sort(([left], [right]) => left.localeCompare(right, 'en')));
 }
 
-/** @param {string} projectRoot @param {NodeJS.ProcessEnv} env @returns {string | undefined} */
-function readPackageVersion(projectRoot, env) {
-    const packagePath = path.join(projectRoot, 'package.json');
-    try {
-        const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
-        return typeof packageJson.version === 'string'
-            ? packageJson.version
-            : undefined;
-    } catch (error) {
-        const isMissing = error
-            && typeof error === 'object'
-            && 'code' in error
-            && error.code === 'ENOENT';
-        if (!isMissing) {
-            throw error;
-        }
-        return env.EVB_PACKAGE_VERSION ?? env.npm_package_version;
-    }
-}
-
-/** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
-function buildSentryIdentity(env, projectRoot) {
-    if (!isSentryDiagnosticsBuild(env)) {
-        return null;
-    }
-    return resolveSentryBuildIdentity({
-        target: resolveSentryBuildTarget(env),
-        version: readPackageVersion(projectRoot, env),
-        environment: env,
-        platform: process.platform,
-        architecture: process.arch,
-    });
-}
-
-/** @param {string} filePath */
-function sha256File(filePath) {
-    return createHash('sha256').update(readFileSync(filePath)).digest('hex');
-}
-
-/** @param {string} stageRoot @param {string} relativePath @param {string} label */
-function resolvePrivateStagePath(stageRoot, relativePath, label) {
-    if (typeof relativePath !== 'string' || relativePath.length === 0) {
-        throw new Error(`Invalid ${label} path in the private source-map manifest`);
-    }
-    const resolved = path.resolve(stageRoot, relativePath);
-    const relative = path.relative(stageRoot, resolved);
-    if (
-        relative === '..'
-        || relative.startsWith(`..${path.sep}`)
-        || path.isAbsolute(relative)
-    ) {
-        throw new Error(`Unsafe ${label} path in the private source-map manifest`);
-    }
-    return resolved;
-}
-
-/**
- * @param {{
- *   identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
- *   projectRoot?: string,
- * }} options
- */
-export function assertSentryPrivateManifestParity(
-    {
-        identity,
-        projectRoot = process.cwd(),
-    },
-) {
-    const manifestPath = getPrivateSourcemapManifestPath({
-        projectRoot,
-        identity,
-    });
-    const manifest = /** @type {IPrivateSourcemapManifest} */ (JSON.parse(readFileSync(manifestPath, 'utf8')));
-    if (
-        manifest?.schemaVersion !== 1
-        || !Array.isArray(manifest.bundles)
-        || manifest.bundles.length === 0
-        || !Array.isArray(manifest.sources)
-        || !Array.isArray(manifest.unmappedGeneratedBundles ?? [])
-    ) {
-        throw new Error(`Invalid private source-map manifest: ${manifestPath}`);
-    }
-    assertSameSentryBuildIdentity(identity, manifest.identity);
-    const stageRoot = path.dirname(manifestPath);
-
-    for (const bundle of manifest.bundles) {
-        const publicBundlePath = resolvePrivateStagePath(projectRoot, bundle.bundle, 'public bundle');
-        const injectedBytes = readFileSync(publicBundlePath);
-        if (!injectedBytes.includes(Buffer.from('_sentryDebugIds'))) {
-            throw new Error(`Sentry Debug ID is missing from injected bundle: ${bundle.bundle}`);
-        }
-        if (sha256File(publicBundlePath) !== bundle.bundleSha256) {
-            throw new Error(`Injected bundle does not match private manifest: ${bundle.bundle}`);
-        }
-        const privateMapPath = resolvePrivateStagePath(stageRoot, bundle.stagedMapPath, 'staged map');
-        if (sha256File(privateMapPath) !== bundle.mapSha256) {
-            throw new Error(`Private source map does not match its manifest: ${bundle.stagedMapPath}`);
-        }
-    }
-
-    for (const source of manifest.sources) {
-        const privateSourcePath = resolvePrivateStagePath(stageRoot, source.stagedPath, 'staged source');
-        if (sha256File(privateSourcePath) !== source.sha256) {
-            throw new Error(`Private source does not match its manifest: ${source.stagedPath}`);
-        }
-    }
-    for (const bundle of manifest.unmappedGeneratedBundles ?? []) {
-        const publicBundlePath = resolvePrivateStagePath(projectRoot, bundle.bundle, 'generated public bundle');
-        if (sha256File(publicBundlePath) !== bundle.bundleSha256) {
-            throw new Error(`Generated bundle does not match private manifest: ${bundle.bundle}`);
-        }
-    }
-    return true;
-}
-
 /** @param {TCommandRunner} runCommand */
 function toolchain(runCommand) {
     return {
@@ -306,18 +176,10 @@ export function computeReleaseBuildState({
         projectRoot,
         runCommand,
     });
-    const sentryIdentity = buildSentryIdentity(env, projectRoot);
-    if (sentryIdentity) {
-        assertSentryPrivateManifestParity({
-            identity: sentryIdentity,
-            projectRoot,
-        });
-    }
     const contract = {
         environment: buildEnvironment(env),
         platform: process.platform,
         architecture: process.arch,
-        sentryIdentity,
         toolchain: toolchain(runCommand),
     };
     const contractHash = createHash('sha256')

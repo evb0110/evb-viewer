@@ -1,11 +1,9 @@
 import {
     mkdirSync,
     mkdtempSync,
-    readFileSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
-import {createHash} from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -14,13 +12,10 @@ import {
     it,
 } from 'vitest';
 import {
-    assertSentryPrivateManifestParity,
     computeReleaseBuildState,
     validateReleaseBuildReceipt,
     writeReleaseBuildReceipt,
 } from '@scripts/release/build-receipt.mjs';
-import {stagePrivateSourcemaps} from '@scripts/release/stage-private-sourcemaps.mjs';
-import {createSentryBuildIdentity} from '@contracts/diagnostics/releaseIdentity.js';
 
 function fakeToolchain(command: string, args: string[]) {
     return `${command} ${args.join(' ')} test-version`;
@@ -96,88 +91,34 @@ describe('release strict-build receipts', () => {
         }
     });
 
-    it('requires injected bytes to match the private manifest before recording identity', async () => {
-        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-sentry-'));
-        const packagePath = path.join(projectRoot, 'package.json');
-        const inputPath = path.join(projectRoot, 'source.ts');
-        const outputPath = path.join(projectRoot, 'dist-electron', 'main.js');
-        mkdirSync(path.dirname(outputPath), {recursive: true});
-        mkdirSync(path.join(projectRoot, 'electron'), {recursive: true});
-        writeFileSync(packagePath, JSON.stringify({version: '1.2.3'}));
-        writeFileSync(inputPath, 'export const value = 1;\n');
-        writeFileSync(path.join(projectRoot, 'electron', 'main.ts'), 'export const value = 1;\n');
-        writeFileSync(
-            outputPath,
-            'export const value=1;\n//# sourceMappingURL=main.js.map\n',
-        );
-        writeFileSync(`${outputPath}.map`, JSON.stringify({
-            version: 3,
-            file: 'main.js',
-            sources: ['../electron/main.ts'],
-            names: [],
-            mappings: '',
-        }));
-
-        const desktopDsn = 'desktop-dsn-secret';
-        const browserDsn = 'browser-dsn-secret';
-        const nitroDsn = 'nitro-dsn-secret';
-        const databaseUrl = 'database-url-secret';
-        const options = {
-            env: {
-                NODE_ENV: 'production',
-                EVB_RELEASE_TARGET_ARCH: 'arm64',
-                EVB_RELEASE_TARGET_PLATFORM: 'mac',
-                EVB_SENTRY_ENVIRONMENT: 'test',
-                EVB_ELECTRON_SOURCEMAP: '1',
-                SENTRY_DESKTOP_DSN: desktopDsn,
-                NUXT_PUBLIC_SENTRY_DSN: browserDsn,
-                NUXT_SENTRY_NITRO_DSN: nitroDsn,
-                NUXT_ANALYTICS_DATABASE_URL: databaseUrl,
-            },
-            inputFiles: ['source.ts'],
-            outputPaths: ['dist-electron'],
-            projectRoot,
-            runCommand: fakeToolchain,
-        };
-
+    it('keeps DSNs and database URLs out of the recorded build environment', () => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-secrets-'));
+        writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({version: '1.2.3'}));
+        writeFileSync(path.join(projectRoot, 'source.ts'), 'export const value = 1;\n');
+        mkdirSync(path.join(projectRoot, 'dist-electron'));
+        const secrets = [
+            'desktop-dsn-secret',
+            'browser-dsn-secret',
+            'database-url-secret',
+        ];
         try {
-            const identity = createSentryBuildIdentity({
-                target: 'desktop',
-                version: '1.2.3',
-                dist: 'macos-arm64',
-                environment: 'test',
-            });
-            expect(() => assertSentryPrivateManifestParity({
-                identity,
+            const state = computeReleaseBuildState({
+                env: {
+                    NODE_ENV: 'production',
+                    EVB_ELECTRON_SOURCEMAP: '1',
+                    SENTRY_DESKTOP_DSN: secrets[0],
+                    NUXT_PUBLIC_SENTRY_DSN: secrets[1],
+                    NUXT_ANALYTICS_DATABASE_URL: secrets[2],
+                },
+                inputFiles: ['source.ts'],
+                outputPaths: ['dist-electron'],
                 projectRoot,
-            })).toThrow();
-            await stagePrivateSourcemaps({
-                identity,
-                outputRoots: ['dist-electron'],
-                projectRoot,
-                reset: true,
+                runCommand: fakeToolchain,
             });
-            const state = computeReleaseBuildState(options);
-            expect(state.contract.sentryIdentity).toEqual({
-                target: 'desktop',
-                release: 'evb-viewer-desktop@1.2.3',
-                dist: 'macos-arm64',
-                environment: 'test',
-            });
-            expect(state.contract.environment).not.toHaveProperty('SENTRY_DESKTOP_DSN');
-            expect(state.contract.environment).not.toHaveProperty('NUXT_PUBLIC_SENTRY_DSN');
-            expect(state.contract.environment).not.toHaveProperty('NUXT_SENTRY_NITRO_DSN');
-            expect(state.contract.environment).not.toHaveProperty('NUXT_ANALYTICS_DATABASE_URL');
-            expect(JSON.stringify(state.contract)).not.toContain(desktopDsn);
-            expect(JSON.stringify(state.contract)).not.toContain(browserDsn);
-            expect(JSON.stringify(state.contract)).not.toContain(nitroDsn);
-            expect(JSON.stringify(state.contract)).not.toContain(databaseUrl);
-            const beforeTamperHash = createHash('sha256').update(readFileSync(outputPath)).digest('hex');
-            writeFileSync(outputPath, `${readFileSync(outputPath, 'utf8')}\n`);
-            expect(() => computeReleaseBuildState(options)).toThrow(/does not match private manifest/iu);
-            expect(beforeTamperHash).not.toBe(
-                createHash('sha256').update(readFileSync(outputPath)).digest('hex'),
-            );
+            expect(state.contract.environment).toHaveProperty('EVB_ELECTRON_SOURCEMAP', '1');
+            for (const secret of secrets) {
+                expect(JSON.stringify(state.contract)).not.toContain(secret);
+            }
         } finally {
             rmSync(projectRoot, {
                 force: true,

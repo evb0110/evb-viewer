@@ -33,19 +33,6 @@ import {
     isExcludedWebDeploySourceDirectoryName,
     isExcludedWebDeploySourceFileName,
 } from './check-web-deploy-source.mjs';
-import {
-    isSentryDiagnosticsBuild,
-    resolveSentryBuildIdentity,
-} from '../packages/contracts/diagnostics/releaseIdentity.js';
-import {assertSentryPrivateManifestParity} from './release/build-receipt.mjs';
-import {
-    getPrivateSourcemapManifestPath,
-    stagePrivateSourcemaps,
-} from './release/stage-private-sourcemaps.mjs';
-import {
-    assertSentryUploadReceipt,
-    uploadSentrySourcemaps,
-} from './release/upload-sentry-sourcemaps.mjs';
 export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -297,19 +284,15 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {prebuilt = fal
 function getViewerBuildEnvironment(env, isProduction) {
     return {
         ...env,
-        EVB_SENTRY_DIAGNOSTICS_BUILD: '1',
-        EVB_SENTRY_ENVIRONMENT: isProduction ? 'production' : 'preview',
-        EVB_SENTRY_TARGET: 'web',
         VERCEL: '1',
         VERCEL_ENV: isProduction ? 'production' : 'preview',
     };
 }
 
-async function runViewerPrebuiltBuild({
+function runViewerPrebuiltBuild({
     env,
     isProduction,
     projectRoot,
-    stageSourcemaps,
     spawnSyncImpl,
 }) {
     const buildEnvironment = getViewerBuildEnvironment(env, isProduction);
@@ -346,25 +329,15 @@ async function runViewerPrebuiltBuild({
             throw new Error(`Local prebuilt viewer ${step.label} exited with ${result.status ?? 1}.`);
         }
     }
-    const packageJson = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
-    const identity = resolveSentryBuildIdentity({
-        target: 'web',
-        version: packageJson.version,
-        environment: buildEnvironment,
-        platform: process.platform,
-        architecture: process.arch,
-    });
-    await stageSourcemaps({
-        identity,
-        outputRoots: ['.vercel/output'],
-        projectRoot,
-        reset: true,
-    });
-    for (const script of [
-        'scripts/prune-build-artifacts.mjs',
-        'scripts/check-web-deploy-assets.mjs',
+    for (const args of [
+        [
+            'scripts/release/upload-sentry-sourcemaps.mjs',
+            '.vercel/output/static',
+        ],
+        ['scripts/prune-build-artifacts.mjs'],
+        ['scripts/check-web-deploy-assets.mjs'],
     ]) {
-        const result = spawnSyncImpl(process.execPath, [script], {
+        const result = spawnSyncImpl(process.execPath, args, {
             cwd: projectRoot,
             env: buildEnvironment,
             shell: false,
@@ -374,154 +347,9 @@ async function runViewerPrebuiltBuild({
             throw result.error;
         }
         if ((result.status ?? 1) !== 0) {
-            throw new Error(`Local prebuilt viewer finalizer ${script} exited with ${result.status ?? 1}.`);
+            throw new Error(`Local prebuilt viewer finalizer ${args[0]} exited with ${result.status ?? 1}.`);
         }
     }
-    assertSentryPrivateManifestParity({
-        identity,
-        projectRoot,
-    });
-    return identity;
-}
-
-function getServedBundlePath(bundlePath) {
-    const staticPrefix = '.vercel/output/static/';
-    return bundlePath.startsWith(staticPrefix)
-        ? `/${bundlePath.slice(staticPrefix.length)}`
-        : null;
-}
-
-function isCrossOriginResponse(responseUrl, deploymentUrl) {
-    if (typeof responseUrl !== 'string' || responseUrl.length === 0) {
-        return false;
-    }
-    return new URL(responseUrl).origin !== new URL(deploymentUrl).origin;
-}
-
-function assertServedBundleBytes(bundle, bytes) {
-    const hash = createHash('sha256').update(bytes).digest('hex');
-    if (hash !== bundle.bundleSha256) {
-        throw new Error(`Served bundle does not match private manifest: ${bundle.servedPath}`);
-    }
-}
-
-function readProtectedVercelBundles({
-    bundles,
-    deploymentUrl,
-    projectRoot,
-    spawnSyncImpl = spawnSync,
-}) {
-    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'evb-vercel-parity-'));
-    try {
-        const outputPaths = bundles.map((_, index) => path.join(temporaryRoot, `${index}.bundle`));
-        const args = [
-            'curl',
-            bundles[0].servedPath,
-            '--deployment',
-            deploymentUrl,
-            '--',
-            '--silent',
-            '--show-error',
-            '--fail-with-body',
-            '--output',
-            outputPaths[0],
-        ];
-        for (let index = 1; index < bundles.length; index += 1) {
-            args.push(
-                '--url',
-                new URL(bundles[index].servedPath, deploymentUrl).href,
-                '--output',
-                outputPaths[index],
-            );
-        }
-        const result = spawnSyncImpl(
-            process.platform === 'win32' ? 'vercel.cmd' : 'vercel',
-            args,
-            {
-                cwd: projectRoot,
-                encoding: 'utf8',
-                maxBuffer: 16 * 1024 * 1024,
-                shell: false,
-                stdio: [
-                    'ignore',
-                    'ignore',
-                    'pipe',
-                ],
-            },
-        );
-        if (result.error) {
-            throw result.error;
-        }
-        if ((result.status ?? 1) !== 0) {
-            throw new Error('Authenticated Vercel bundle fetch failed.');
-        }
-        return new Map(bundles.map((bundle, index) => [
-            bundle.servedPath,
-            readFileSync(outputPaths[index]),
-        ]));
-    } finally {
-        rmSync(temporaryRoot, {
-            force: true,
-            recursive: true,
-        });
-    }
-}
-
-export async function assertServedSentryBundleParity({
-    deploymentUrl,
-    fetchImpl = globalThis.fetch,
-    identity,
-    projectRoot = defaultProjectRoot,
-    protectedBundleReader = readProtectedVercelBundles,
-} = {}) {
-    if (typeof fetchImpl !== 'function') {
-        throw new Error('Served bundle parity requires a fetch implementation.');
-    }
-    const manifestPath = getPrivateSourcemapManifestPath({
-        identity,
-        projectRoot,
-    });
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    const servedBundles = [
-        ...manifest.bundles,
-        ...(manifest.unmappedGeneratedBundles ?? []),
-    ]
-        .map(bundle => ({
-            ...bundle,
-            servedPath: getServedBundlePath(bundle.bundle),
-        }))
-        .filter(bundle => bundle.servedPath !== null);
-    if (servedBundles.length === 0) {
-        throw new Error('Private manifest has no served viewer bundles.');
-    }
-    for (const bundle of servedBundles) {
-        const url = new URL(bundle.servedPath, deploymentUrl);
-        const response = await fetchImpl(url, {
-            redirect: 'follow',
-            signal: AbortSignal.timeout(30_000),
-        });
-        if (isCrossOriginResponse(response.url, deploymentUrl)) {
-            const protectedBundles = await protectedBundleReader({
-                bundles: servedBundles,
-                deploymentUrl,
-                projectRoot,
-            });
-            for (const protectedBundle of servedBundles) {
-                const bytes = protectedBundles.get(protectedBundle.servedPath);
-                if (!bytes) {
-                    throw new Error(`Authenticated Vercel fetch omitted ${protectedBundle.servedPath}.`);
-                }
-                assertServedBundleBytes(protectedBundle, bytes);
-            }
-            return true;
-        }
-        if (!response.ok) {
-            throw new Error(`Served bundle ${bundle.servedPath} responded with HTTP ${response.status}.`);
-        }
-        const bytes = Buffer.from(await response.arrayBuffer());
-        assertServedBundleBytes(bundle, bytes);
-    }
-    return true;
 }
 
 export function extractVercelDeploymentUrl(output) {
@@ -809,33 +637,25 @@ export async function runPrivateVercelDeploy({
     env = process.env,
     fetchImpl = globalThis.fetch,
     spawnSyncImpl = spawnSync,
-    stageSourcemaps = stagePrivateSourcemaps,
-    uploadSourcemaps = uploadSentrySourcemaps,
 } = {}) {
     const {
         deployArgs,
         deployTarget,
         prebuilt: explicitPrebuilt,
     } = parsePrivateDeployOptions(rawArgs);
-    const diagnosticsEnabled = deployTarget === 'viewer' && isSentryDiagnosticsBuild(env);
-    const prebuilt = explicitPrebuilt || diagnosticsEnabled;
+    // A viewer deploy that reports to Sentry builds locally so its source maps
+    // can be uploaded and removed before the prebuilt output is deployed.
+    const uploadsSourceMaps = deployTarget === 'viewer'
+        && Boolean(env.SENTRY_AUTH_TOKEN && env.SENTRY_BROWSER_DSN);
+    const prebuilt = explicitPrebuilt || uploadsSourceMaps;
     const isProduction = deployArgs.includes('--prod');
-    const identity = diagnosticsEnabled
-        ? await runViewerPrebuiltBuild({
+    if (uploadsSourceMaps) {
+        runViewerPrebuiltBuild({
             env,
             isProduction,
             projectRoot,
-            stageSourcemaps,
             spawnSyncImpl,
-        })
-        : null;
-    if (identity) {
-        const uploadReceipt = await uploadSourcemaps({
-            identity,
-            projectRoot,
-            environment: env,
         });
-        assertSentryUploadReceipt(uploadReceipt, identity);
     }
     const prepared = preparePrivateDeploySource({
         deployTarget,
@@ -903,17 +723,6 @@ export async function runPrivateVercelDeploy({
         }
         const deploymentUrl = extractVercelDeploymentUrl(output);
         try {
-            if (identity) {
-                if (!deploymentUrl) {
-                    throw new Error('Diagnostics-enabled Vercel deploy did not report a deployment URL.');
-                }
-                await assertServedSentryBundleParity({
-                    deploymentUrl,
-                    fetchImpl,
-                    identity,
-                    projectRoot,
-                });
-            }
             if (!isProduction) {
                 return 0;
             }
