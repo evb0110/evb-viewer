@@ -478,6 +478,11 @@ jobs:
           restore-keys: |
             electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Install Playwright Chromium
+        # annotationStrokeParity compares Electron with standalone Chromium.
+        if: ${{ matrix.lane == 'e2e-draw-shapes' }}
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Electron E2E ${{ matrix.lane }}
         run: pnpm run test:e2e "${{ matrix.lane }}" --reporter verbose
 
