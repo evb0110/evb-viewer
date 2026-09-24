@@ -21,10 +21,8 @@ The words below select a different operation:
 | `deploy`, `publish`, or `release` | Build or deploy the named release | Yes, only in the named scope |
 
 If the wording does not select one of these operations, stay in the first row.
-Read [sentry-runbook.md](./sentry-runbook.md) for policy and the
-[implementation ledger](../sentry-implementation-ledger-2026-09-01.md)
-for acceptance criteria. This file is the agent entry point, not a replacement
-for either source of truth.
+Read [sentry-runbook.md](./sentry-runbook.md) for policy. This file is the agent
+entry point, not a replacement for it.
 
 Routine issue triage is narrower than a telemetry acceptance audit. Use the
 installed repository CLI path for an ordinary, read-only issue investigation;

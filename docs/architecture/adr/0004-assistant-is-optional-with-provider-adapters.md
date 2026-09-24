@@ -79,44 +79,6 @@ and this decision adds no new third-party API compatibility promise. New
 assistant code reuses the existing MCP tools and workspace bridge rather than
 adding another command path.
 
-### Production code budget
-
-At the decision base, the assistant-owned production scope contains 108 tracked
-TypeScript and Vue files and 28,777 code lines. The count excludes tests,
-generated and vendored code, blanks, comments, documentation, localization
-catalogs, and shared host components whose main responsibility is outside the
-assistant. It includes these paths:
-
-- `electron/features/agent/**`
-- `app/modules/agent-panel/**`
-- `app/modules/workspace-shell/agent/**`
-- `packages/contracts/agent*.ts`
-- `app/components/settings/SettingsAgentPanel.vue`
-- `app/composables/useAssistantPanel.ts`
-- `app/modules/workspace-shell/composables/useAssistantPanelResize.ts`
-- `app/platform/browser-api/browserAgentCapability.ts`
-
-The maintained file manifest is
-`docs/internal/assistant-production-files.txt`. Any commit that moves an
-assistant production file updates its entry in the same change. New assistant
-production files must be added. Removing an entry requires deleting its code,
-not relocating it to an unlisted path.
-
-Run the baseline from the repository root at the recorded commit:
-
-```sh
-pnpm dlx cloc@2.6.0-cloc \
-  --list-file=docs/internal/assistant-production-files.txt \
-  --include-lang=TypeScript,'Vuejs Component' --json
-```
-
-The command reports 30,931 physical lines, with 2,041 blank lines, 113 comment
-lines, and 28,777 code lines. That 28,777-line result is the hard no-growth
-budget for #329. Its after-count uses the updated manifest and must not count a
-move as a deletion. A 15 percent reduction is the planning target. It never
-permits removal of supported behavior, coverage, data compatibility, or
-provider differences.
-
 ## Consequences
 
 - #327 separates non-initializing status reads from provider startup and makes

@@ -55,8 +55,7 @@ Evidence lives under `.devkit/sessions/<session>/recordings/<run>/`:
   action timestamps and an orange input-coordinate overlay.
 - `window-*.mp4`: actual rendered pixels, including idle time. New windows get
   separate tracks. Only EVB Viewer app renderer routes are recorded; hidden
-  PDF print-support pages are excluded. Windows guest-desktop footage covers
-  native print and save dialogs. Output is 1280×800 with aspect-preserving letterboxing.
+  PDF print-support pages are excluded. Output is 1280×800 with aspect-preserving letterboxing.
 - `actions.jsonl`: commands, delivered inputs, markers, errors and track boundaries.
 - `manifest.json`: source identity, capture scope, status, paths and video probes.
 
@@ -122,24 +121,11 @@ The recorder finishes before normal app teardown; app startup before attachment,
 native menus/dialogs, and OS desktop pixels are outside renderer capture.
 Recording health is separate from the outcome of the actions being tested.
 
-## Windows and native UI
+## Native UI
 
-The renderer recorder uses the same code on Windows. For the packaged Windows
-lab, follow [UTM tests](utm-windows-tests.md); keep the guest interactive and
-unlocked and keep host input capture off. Native file/print dialogs require a
-desktop or native-window recording inside that guest. Renderer video must never
-be presented as proof of a native dialog. Lock, secure-desktop transitions and
-capture loss are explicit evidence gaps, not permission to capture the host.
-
-For lab runs use `EVB_RECORD_SESSION=1 pnpm windows:test ...` (with the usual
-suite/environment arguments). The host sends that request in the validated guest
-job. Instrumented launches produce renderer tracks plus **guest desktop** footage;
-native acceptance launches produce guest desktop footage through FFmpeg `gdigrab`.
-Prepare with `EVB_RECORD_SESSION=1 pnpm windows:test:prepare`. This downloads a
-pinned, SHA-256-verified FFmpeg build for the qualified guest architecture. The
-existing input staging and hash checks deliver FFmpeg/FFprobe into each run; no
-global guest PATH changes are needed. The normal evidence collector retrieves
-the videos. Repeat preparation after updating the worker code. Do not bypass a failing `windows:test:doctor` preflight.
+Renderer video never proves a native dialog (file, print, save). Record the OS
+desktop for those, for example on the BGK Windows guest, and name capture loss
+as an evidence gap.
 
 ## Installation
 

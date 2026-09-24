@@ -7,9 +7,6 @@ existing automation session. Operator scenarios hand a task card to a model
 that drives the app through screenshots or through semantic tools, so the
 harness exercises the interaction patterns a scripted step never produces.
 
-Design and status live in `docs/internal/research/stress-test-automation-plan-2026-09-04.md`
-and the matching implementation ledger.
-
 ## Commands
 
 ```sh

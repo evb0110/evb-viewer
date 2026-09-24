@@ -112,7 +112,7 @@ For a change that needs packaged-tool proof, use the existing build or hosted CI
 scripts/verify-packaged-native-tools.sh <mac|win|linux> <x64|arm64>
 ```
 
-See [Design Principles](docs/architecture/design-principles.md) for the
+See [Design charter](docs/architecture/design-charter.md) for the
 architectural criteria that reviews apply and that these checks only partly
 mechanize.
 

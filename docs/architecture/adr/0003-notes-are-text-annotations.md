@@ -1,9 +1,9 @@
 # ADR 0003: notes are /Text annotations
 
 - Status: accepted (2026-08-30)
-- Evidence: issue #151; `docs/architecture/freetext-note-persistence.md`;
-  `native/pdf-page-ops/src/annotations.rs` (FreeText subtype writes);
-  `app/modules/pdf-viewer/engine/annotations/pointNoteMarkerPolicy.ts`
+- Evidence: issue #151; `native/pdf-page-ops/src/annotations.rs` (note
+  writes and marker rewrites);
+  `app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy.ts`
 
 ## Context
 
@@ -40,10 +40,26 @@ the user did not touch.
   remaining use of the threshold. That recognition may be deleted when no file
   from before this decision matters, which for an alpha with a small user
   circle is a judgment call the owner makes, not a scheduled removal.
-- `docs/architecture/freetext-note-persistence.md` describes the superseded form and stays
-  as history until the reader-side recognition is deleted.
 - The `/Text` icon name is a writer default, not a canonical property; the
   editor does not offer icon choice.
+
+## Legacy marker recognition
+
+The old form existed because pdf.js's Popup reads `/Contents` from its parent:
+a FreeText parent needed the note text in `/Contents` for the Popup, and a blank
+appearance stream so that text did not paint on the page. The reader still
+recognizes that form:
+
+- `pointNoteMarkerPolicy.ts` owns the threshold and `isPointNoteMarkerSizedRect`.
+  A FreeText with a linked Popup is a marker when both normalized sides are
+  greater than zero and at most 0.02 (inclusive, with a `Number.EPSILON * 16`
+  rounding tolerance). Nothing else may hold the constant. Larger third-party
+  FreeText annotations stay FreeText content.
+- Old saves left `\u200B` or `\uFEFF` in `/Contents`. The canonical ingestion
+  boundary (`annotationEntity.ts`) strips both before text enters the store, so
+  an invisible character never counts as note text.
+- Note text becomes empty only through an explicit newer `setNoteText(id, '')`
+  command.
 
 ## Revisit when
 

@@ -344,8 +344,7 @@ pass without keeping its raster workspace.
 
 ## Scan-cleanup stroke-weight studies
 
-Two one-off measurement scripts back the stroke-weight closure numbers quoted in
-`docs/internal/scan-cleanup/audit-2026-08-14/SYNTHESIS.md` and the process ledger. They were
+Two one-off measurement scripts back the scan-cleanup stroke-weight numbers. They were
 written inside untracked `.devkit` analysis directories, which made those numbers
 impossible to recompute from a clone; they are tracked here so the numbers can be
 reproduced. Their corpora, renders, OCR caches, and image outputs stay untracked —

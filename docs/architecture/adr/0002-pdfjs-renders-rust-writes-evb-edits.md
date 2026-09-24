@@ -3,11 +3,8 @@
 - Status: accepted (2026-08-30)
 - Evidence: issues #139, #111, #143, #149; commit history since 2026-06
   (556 fix commits: scan-cleanup 89, pdf 41, ci 25, e2e 23, annotations 18,
-  save 15; 1 of 71 issues attributable to pdf.js itself);
-  `docs/internal/research/rust-pdf-engine-rewrite-feasibility-2026-08-30.md`,
-  `docs/internal/research/pdf-engine-architecture-assessment-2026-08-30.md`,
-  `docs/internal/research/pdfjs-dependency-cost-assessment-2026-08-30.md`,
-  `docs/internal/research/pdf-engine-strategy-assessment-2026-08-30.md`
+  save 15; 1 of 71 issues attributable to pdf.js itself); four engine
+  assessments dated 2026-08-30, retained in git history
 
 ## Context
 
@@ -99,24 +96,29 @@ Electron output. Only copied runtime workers, fonts, CMaps, Wasm, ICC assets,
 and sanitized viewer assets cross that boundary. Human legal review remains
 required for the fork notices and bundled third-party inventory.
 
+## Writer role, status 2026-09-24
+
+The editor and save-route parts of this decision are done: annotation saves go
+only through `pdf-page-ops`. The writer role is not yet single. These still
+produce PDF bytes:
+
+- the qpdf CLI, for desktop page restructuring (delete, extract, reorder, move,
+  insert, one rotation path), merges, optimization and OCR reassembly
+  (`electron/features/page-ops/main/qpdf.ts` and callers);
+- pdf-lib, in OCR page assembly (`electron/features/ocr/worker/pdfAssembler.ts`)
+  and print layout (`packages/pdf-core/pdfPrintLayout.ts`);
+- the serializer in `native/pdf-image-combine/src/pdf.rs`, including outlines
+  and page labels.
+
+`pdf-page-ops` also shells out to `qpdf --json` to load large files. The
+approved target is one writer per operation class: qpdf for whole-file
+restructuring or `pdf-page-ops` for everything, `pdf-page-ops` for append-only
+incremental edits, the OCR text layer written by `pdf-page-ops` from word
+boxes, and no pdf-lib writer. Until that lands, this list is the truth.
+
 ## Revisit when
 
 After the cutover and writer consolidation, a renderer-attributable defect
 class remains with issue evidence (fidelity, speed, or memory) that the
 source-fork patch cannot address. Only then open a renderer-replacement map,
 and evaluate hayro and PDFium side by side on that evidence.
-
-## Scope amendment, 2026-09-06
-
-Issue #167 now closes through the Linux VPS acceptance path. The project uses
-the committed stock unpatched pdf.js and synthetic corpus, native and wasm
-writer checks, real EVB Electron coverage, qpdf, and an independent Linux
-renderer. The report records the exact tool versions, commands, hashes and
-artifacts and states that Linux evidence does not establish Acrobat Reader or
-macOS Preview compatibility. A Mac, Acrobat, Preview, owner-created fixture,
-human hand-check, and owner sign-off are outside this project's completion
-gate. The owner may perform separate visual verification later.
-
-This amendment changes only the acceptance route. The renderer, writer,
-editor ownership, preservation, identity, and cross-viewer product goals in
-this ADR remain unchanged.

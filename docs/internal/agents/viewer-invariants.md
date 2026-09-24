@@ -100,9 +100,7 @@ discards it, so the bundle identifies the document without naming it. It never
 carries document text, file names or annotation content. The screenshot is a
 picture of the window and therefore shows whatever is on screen.
 
-A bundle is a diagnostic snapshot, not a replayable checkpoint. What is missing
-for a replay is measured and named in
-`.devkit/methodology/findings/capture-reconstruction.md`.
+A bundle is a diagnostic snapshot, not a replayable checkpoint.
 
 Production exclusion works like the dev-only agent widget: the plugin reaches
 its implementation through an `import.meta.dev` ternary, so rollup drops the

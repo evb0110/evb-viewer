@@ -25,7 +25,7 @@ heavy document work. This page is the map. The decisions behind it are in
 │   scan-cleanup · pdf-page-ops · pdf-image-combine ·      │
 │   pdf-search · jbig2-codec · evb-raster-io ·             │
 │   scan-primitives · evb-native-support                   │
-│   plus third-party: tesseract, poppler, qpdf, unpaper    │
+│   plus third-party: tesseract, poppler, qpdf, djvulibre  │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -33,7 +33,8 @@ heavy document work. This page is the map. The decisions behind it are in
 
 [ADR 0002](docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md) is
 the decision that shapes everything else. PDF.js is a read-only renderer and
-never produces PDF bytes. The Rust `pdf-page-ops` crate is the only writer. The
+never produces PDF bytes. The Rust `pdf-page-ops` crate is the intended only
+writer; ADR 0002 lists the components that still write PDF bytes today. The
 app owns the canonical annotation state, and every other view of an annotation,
 on the page, in the sidebar, in the written file, derives from it.
 
@@ -56,7 +57,7 @@ without a desktop install.
 | `pdf-image-combine` | Images to PDF, across bilevel, JBIG2, JPEG, JPEG 2000, and TIFF paths | ~12k lines |
 | `jbig2-codec` | Lossless JBIG2 generic-region encode and decode, in the layout PDF readers expect | ~4.6k lines |
 | `scan-primitives` | Deterministic image and geometry types shared by the imaging crates | ~4.5k lines |
-| `pdf-search` | A persistent search sidecar over a memory-mapped index, with Unicode casefolding | ~3.4k lines |
+| `pdf-search` | A persistent search sidecar over a streamed index file, with Unicode casefolding | ~3.4k lines |
 | `evb-raster-io` | PNG encode and decode with explicit decode limits and DPI metadata | ~2.5k lines |
 | `evb-native-support` | Shared error envelopes, bounded readers, and the generated protocol tables | ~2.1k lines |
 | `protocol-fixtures` | Golden JSON fixtures pinning cross-version protocol compatibility | fixtures only |

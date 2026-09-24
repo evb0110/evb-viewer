@@ -142,7 +142,7 @@ for the hosted browser build is deliberately disabled.
 - [Formats, runtimes, and languages](docs/user/formats-and-languages.md)
 - [The assistant](docs/user/assistant.md) and
   [connecting an MCP client](docs/user/mcp-clients.md)
-- [Architecture](ARCHITECTURE.md) and [design principles](docs/architecture/design-principles.md)
+- [Architecture](ARCHITECTURE.md) and [design charter](docs/architecture/design-charter.md)
 - [Development and checks](docs/contributing/development.md)
 - [Release process](docs/contributing/releasing.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Support](SUPPORT.md) · [Code of Conduct](CODE_OF_CONDUCT.md)

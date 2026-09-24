@@ -72,8 +72,8 @@ flowchart LR
 - `packages/contracts/agent.ts`
   Shared agent/MCP contracts for snapshots, commands, readiness, Codex integration status, and update results.
 
-- `packages/contracts/electronApiAgent.ts`
-  Platform capability for agent IPC: request subscriptions, response submission, MCP status, MCP toggle, and embedded assistant lifecycle methods.
+- `packages/contracts/agentPlatformFeature.ts`
+  Platform feature for agent IPC: request subscriptions, response submission, MCP status, MCP toggle, and embedded assistant lifecycle methods.
 
 - `app/components/settings/SettingsAgentPanel.vue`
   Desktop settings panel with separate in-app assistant visibility and external MCP status/setup controls.

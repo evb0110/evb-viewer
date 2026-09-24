@@ -669,7 +669,7 @@ export interface INativeScanCleanupManifestV3 {
      * when it stages a bounded window of replayable rasters instead of the
      * whole document, which puts the sidecar on the lease protocol below.
      * Omitted means every Analyze input must already exist, the direct-CLI
-     * contract. See docs/internal/scan-cleanup/staged-analyze-window.md.
+     * contract.
      */
     stagedInputWindow?: number;
     /**

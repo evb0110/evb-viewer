@@ -1,9 +1,13 @@
-# Internal notes
+# Internal docs
 
-Dated working notes: audits, implementation ledgers, research write-ups,
-reliability acceptance records, operating runbooks, and the rules the automated
-workflow follows.
+Maintained material for people and agents working on the repository:
 
-These are kept as evidence of how decisions were reached. They are not
-documentation, they are not maintained after their date, and they may describe
-code that has since changed. Start at [../README.md](../README.md) instead.
+- [agents](agents/) — the rules and runbooks agents follow (fix evidence,
+  hidden Electron automation, session lifecycle, triage labels, hygiene).
+- [operations](operations/) — Sentry operations.
+- [scan-cleanup](scan-cleanup/) — scan-cleanup fixture provenance and the staged
+  analyze window.
+
+Dated audits, ledgers and campaign notes are not kept here. Git history holds
+them; a finding that still matters becomes an issue or a change to the code or
+to these docs.

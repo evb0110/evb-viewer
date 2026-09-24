@@ -1,15 +1,9 @@
 # Design charter
 
-These are the binding design rules for this repository. They outrank convenience,
-and they apply to reviewers as well as authors: a change that violates one of them
-is wrong even when it is small, local, and passes every gate.
-
-Until now these rules lived only in the untracked agent-instruction file, so no
-reviewer working from a clone — human or automated — could read them. This document
-is the tracked home for them; `.coderabbit.yaml` points its per-path review
-instructions here. The rules themselves are unchanged, and the reasoning behind the
-architecture rules is recorded in
-[`docs/internal/architecture-audit-2026-07-23.md`](../internal/architecture-audit-2026-07-23.md).
+These are the binding design rules for this repository. They apply to reviewers
+as well as authors: a change that violates one of them is wrong even when it is
+small, local, and passes every gate. `.coderabbit.yaml` points its per-path
+review instructions here.
 
 ## Design
 
@@ -25,8 +19,20 @@ architecture rules is recorded in
   compatibility code must state its removal condition.
 - Test observable invariants with shared harnesses, at the layer that can see the
   defect: geometry, lifecycle and interaction defects need the real app with real
-  input, and one adequate real-app proof per scenario is enough. Revert failed
-  approaches instead of patching around them.
+  input, and one adequate real-app proof per scenario is enough.
+- Revert failed approaches instead of patching around them. After a fix, delete
+  what it made dead. When the same file has taken three fix commits in seven
+  days, the next change there removes a path or reverts; it does not add another
+  fence, flag, timer, retry or generation counter.
+- Prefer generation when two representations of one shape can drift, for example
+  TypeScript mirrors of Rust wire types.
+- Wire shapes, schemas and guards for IPC, workers and native tools live in
+  `packages/contracts`, imported through an owned `@contracts/<subpath>` entry
+  point. Contracts depend only on themselves and `@i18n-core`. Domain algorithms
+  belong in their owning module.
+- Native tools write into managed scratch. Electron or Node validates the result
+  and publishes it atomically, so an interrupted tool never leaves a partial file
+  at a path the user chose.
 
 ## OCR
 
@@ -39,8 +45,8 @@ architecture rules is recorded in
 
 - Use design tokens from `app/assets/css/main.css`; raw CSS values do not belong in
   components.
-- Localize UI-facing text with `t()`, and update the English and Russian message
-  files together.
+- Localize UI-facing text with `t()` and update all nine locale message files in
+  the same change.
 - Register every icon in `clientBundle.icons` in `nuxt.config.ts`.
 
 ## Native and CI

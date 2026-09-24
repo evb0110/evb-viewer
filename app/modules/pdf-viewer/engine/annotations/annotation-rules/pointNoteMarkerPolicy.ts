@@ -10,8 +10,8 @@ import { isFiniteNumber } from '@contracts/runtimeGuards';
  * stay FreeText; only this point-sized anchor shape becomes an app note
  * marker.
  *
- * See `docs/architecture/freetext-note-persistence.md` for why the save pipeline rewrites
- * app note rects down to this shape.
+ * ADR 0003 (docs/architecture/adr/0003-notes-are-text-annotations.md) records
+ * why this legacy marker form is still recognized.
  */
 // fallow-ignore-next-line unused-export
 export const POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE = 0.02;
