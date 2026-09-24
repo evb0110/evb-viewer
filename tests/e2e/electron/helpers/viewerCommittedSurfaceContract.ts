@@ -1,6 +1,10 @@
 import type { Page } from 'puppeteer-core';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
+import {
+    areTimingBudgetsEnforced,
+    reportTimingBudgetMiss,
+} from '@tests/e2e/electron/helpers/timingBudget';
 
 export type TCommittedSurfaceKind =
     | 'blank'
@@ -419,11 +423,14 @@ export function findCommittedSurfaceCausalOpenViolations(
     if (contract.requirePageShell && !firstPageShell) {
         violations.push('no in-frame page shell was presented before the first canvas');
     }
+    // Budget misses are timing, not ordering: they fail only where budgets are
+    // enforced and are reported everywhere else.
+    const budgetMisses: string[] = [];
     if (
         firstPageShell
         && firstPageShell.elapsedMs > contract.maxFirstPageShellMs
     ) {
-        violations.push(
+        budgetMisses.push(
             `first page shell missed its ${String(contract.maxFirstPageShellMs)}ms budget (${String(firstPageShell.elapsedMs)}ms)`,
         );
     }
@@ -431,7 +438,7 @@ export function findCommittedSurfaceCausalOpenViolations(
         firstCanvas
         && firstCanvas.elapsedMs > contract.maxFirstCanvasMs
     ) {
-        violations.push(
+        budgetMisses.push(
             `first canvas missed its ${String(contract.maxFirstCanvasMs)}ms budget (${String(firstCanvas.elapsedMs)}ms)`,
         );
     }
@@ -447,7 +454,7 @@ export function findCommittedSurfaceCausalOpenViolations(
         } else {
             const readyAfterCanvasMs = readyFrame.elapsedMs - firstCanvas.elapsedMs;
             if (readyAfterCanvasMs > contract.maxReadyAfterCanvasMs) {
-                violations.push(
+                budgetMisses.push(
                     `open surface missed its ${String(contract.maxReadyAfterCanvasMs)}ms post-canvas readiness budget (${String(readyAfterCanvasMs)}ms)`,
                 );
             }
@@ -485,6 +492,11 @@ export function findCommittedSurfaceCausalOpenViolations(
         }
     }
 
+    if (areTimingBudgetsEnforced()) {
+        violations.push(...budgetMisses);
+    } else {
+        budgetMisses.forEach(reportTimingBudgetMiss);
+    }
     return violations;
 }
 

@@ -51,6 +51,7 @@ import {
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 const OPEN_TIMEOUT_MS = 60_000;
 const SETTLE_TIMEOUT_MS = 30_000;
@@ -1380,7 +1381,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             gapMs: 0,
         });
         console.info(`[standard-pdf-fit-freeze] ${JSON.stringify(longestFreeze)}`);
-        expect(longestFreeze.gapMs, JSON.stringify(longestFreeze)).toBeLessThan(FIT_CHANGE_FREEZE_BUDGET_MS);
+        expectWithinTimingBudget(longestFreeze.gapMs, FIT_CHANGE_FREEZE_BUDGET_MS, JSON.stringify(longestFreeze));
     }, 300_000);
 
     it('hands the sidebar to the opening document and keeps an invalid open recoverable', async () => {

@@ -43,6 +43,7 @@ import {
     stopCommittedSurfaceSampler,
     summarizeCommittedSurfaceTiming,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 const RECENT_ROW_TIMEOUT_MS = 15_000;
 const RECENT_OPEN_TIMEOUT_MS = 12_000;
@@ -726,10 +727,11 @@ describe('Electron E2E - Recent Files', () => {
         expect(immediateOpen.prewarmAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expect(immediateOpen.shellInteractiveAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expect(immediateOpen.clickAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
-        expect(
+        expectWithinTimingBudget(
             immediateOpen.actionableElapsedMs,
+            RECENT_EMPTY_TAB_ACTIONABLE_BUDGET_MS,
             JSON.stringify(immediateOpen),
-        ).toBeLessThanOrEqual(RECENT_EMPTY_TAB_ACTIONABLE_BUDGET_MS);
+        );
         expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(

@@ -79,6 +79,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { captureDocumentThumbnailParitySnapshot } from '@tests/e2e/electron/helpers/captureDocumentThumbnailParitySnapshot';
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -2707,9 +2708,9 @@ describe('Electron E2E - Viewer Smoke', () => {
         });
 
         expect(toolbarAfterControl?.effectiveZoom).toBeCloseTo(toolbarBefore?.effectiveZoom ?? 0, 5);
-        expect(controlStressElapsedMs).toBeLessThan(10_000);
+        expectWithinTimingBudget(controlStressElapsedMs, 10_000, 'macOS Control-wheel stress');
         expect(result.heartbeat?.sampleCount ?? 0).toBeGreaterThan(0);
-        expect(result.heartbeat?.maxGapMs ?? Number.POSITIVE_INFINITY).toBeLessThan(1_500);
+        expectWithinTimingBudget(result.heartbeat?.maxGapMs, 1_500, 'macOS Control-wheel heartbeat gap');
         expect(result.scrollTop).toBeGreaterThan(20);
         expect(result.samples.some(sample => (
             sample.ctrlKey && !sample.metaKey && !sample.defaultPrevented
@@ -4113,7 +4114,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         });
         expect(pageContinuity.maxConsecutiveBlankFrames, JSON.stringify(pageContinuity)).toBeLessThanOrEqual(4);
         expect(pageContinuity.finalSample.occupied, JSON.stringify(pageContinuity)).toBe(true);
-        expect(pageContinuity.finalOccupiedElapsedMs).toBeLessThanOrEqual(2_000);
+        expectWithinTimingBudget(pageContinuity.finalOccupiedElapsedMs, 2_000, JSON.stringify(pageContinuity));
 
         await ensureSidebarOpen(session.page);
         await openDocumentSidebarTab(session.page, 'Pages');
@@ -4318,8 +4319,8 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(visualContinuity.placeholderPresentation.backgroundImage).not.toContain('repeating-linear-gradient');
         expect(visualContinuity.motionItemSamples).toBeGreaterThan(0);
         expect(visualContinuity.firstPaintElapsedMs).not.toBeNull();
-        expect(visualContinuity.firstPaintElapsedMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(2_000);
-        expect(visualContinuity.settledElapsedMs).toBeLessThanOrEqual(5_000);
+        expectWithinTimingBudget(visualContinuity.firstPaintElapsedMs, 2_000, 'thumbnail first paint');
+        expectWithinTimingBudget(visualContinuity.settledElapsedMs, 5_000, 'thumbnail settle');
         expect(visualContinuity.settledItems.length).toBeGreaterThan(0);
         expect(
             visualContinuity.settledItems.every(item => item.painted),

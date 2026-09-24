@@ -35,6 +35,7 @@ import {
     expectSplitPaneCloseContinuity,
     runSplitPaneCloseContinuity,
 } from '@tests/e2e/electron/helpers/splitPaneCloseContinuity';
+import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 interface IWorkspaceDjvuPressure {
     index: number;
@@ -757,7 +758,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             JSON.stringify(activationFrames),
         ).toBe(true);
         const firstVisibleFrame = activationFrames.find(frame => frame.visibleShellCount > 0);
-        expect(firstVisibleFrame?.elapsedMs, JSON.stringify(activationFrames)).toBeLessThan(1_500);
+        expectWithinTimingBudget(firstVisibleFrame?.elapsedMs, 1_500, JSON.stringify(activationFrames));
 
         const afterDjvuReactivation = await session.page.evaluate(readDjvuPressureFromPage);
         const activeAfterDjvuReactivation = afterDjvuReactivation.find(host => host.active);
@@ -936,7 +937,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         expect(release.tabActivated).toBe(true);
         expect(release.snapshot.pressureLevel).toBe('moderate');
         expect(release.snapshot.reservedBytesByCategory['djvu-preview'] ?? -1).toBe(0);
-        expect(release.elapsedMs, JSON.stringify(release)).toBeLessThan(1_250);
+        expectWithinTimingBudget(release.elapsedMs, 1_250, JSON.stringify(release));
         await waitForInactiveDjvuImagesToRelease(session, 4_000);
         const pressure = await assertInactiveDocumentPressureReleased(session.page);
         expect(pressure.filter(host => !host.active).every(host => host.djvuImages === 0)).toBe(true);

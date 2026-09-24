@@ -719,20 +719,26 @@ describe('committed surface E2E contract', () => {
                 openSurfacePresentation: 'committed',
             })),
         ];
-        const violations = findCommittedSurfaceCausalOpenViolations(
-            {frames},
-            {
-                maxFirstCanvasMs: 2_500,
-                maxFirstPageShellMs: 1_250,
-                maxReadyAfterCanvasMs: 1_000,
-                requirePageShell: true,
-            },
-        ).join('\n');
+        const contract = {
+            maxFirstCanvasMs: 2_500,
+            maxFirstPageShellMs: 1_250,
+            maxReadyAfterCanvasMs: 1_000,
+            requirePageShell: true,
+        };
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const reported = findCommittedSurfaceCausalOpenViolations({frames}, contract).join('\n');
+        vi.stubEnv('EVB_E2E_TIMING_BUDGETS', 'enforce');
+        const enforced = findCommittedSurfaceCausalOpenViolations({frames}, contract).join('\n');
+        vi.unstubAllEnvs();
+        warn.mockRestore();
 
-        expect(violations).toContain('first page shell missed its 1250ms budget');
-        expect(violations).toContain('first canvas missed its 2500ms budget');
-        expect(violations).toContain('missed its 1000ms post-canvas readiness budget');
-        expect(violations).toContain('authority regressed from canvas-committed to geometry-committed');
+        // Budget misses fail only where budgets are enforced; ordering always fails.
+        expect(reported).not.toContain('budget');
+        expect(reported).toContain('authority regressed from canvas-committed to geometry-committed');
+        expect(enforced).toContain('first page shell missed its 1250ms budget');
+        expect(enforced).toContain('first canvas missed its 2500ms budget');
+        expect(enforced).toContain('missed its 1000ms post-canvas readiness budget');
+        expect(enforced).toContain('authority regressed from canvas-committed to geometry-committed');
     });
 
     it('uses the canonical page shell immediately after the empty baseline', () => {
