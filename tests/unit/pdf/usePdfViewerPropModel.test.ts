@@ -37,36 +37,28 @@ describe('usePdfViewerPropModel', () => {
         expect(model.authorName.value).toBeUndefined();
     });
 
-    it('derives fit-height zoom mode from height fit mode unless zoom mode is explicit', () => {
+    it('derives zoom mode, fit axis and manual scale from one zoom state', () => {
         const props = reactive<IPdfViewerProps>({
             src: null,
-            fitMode: 'height',
+            zoomState: {
+                kind: 'custom',
+                scale: 1.75,
+            },
         });
-
         const model = usePdfViewerPropModel(props);
-
-        expect(model.zoomMode.value).toBe('fit-height');
-
-        props.zoomMode = 'custom';
 
         expect(model.zoomMode.value).toBe('custom');
-    });
+        expect(model.zoom.value).toBe(1.75);
 
-    it('uses one zoom-state authority when legacy mode props disagree', () => {
-        const props = reactive<IPdfViewerProps>({
-            src: null,
-            fitMode: 'height',
-            zoomMode: 'fit-width',
-            zoom: 1.75,
-        });
-        const model = usePdfViewerPropModel(props);
-
-        expect(model.zoomState.value).toEqual({
+        props.zoomState = {
             kind: 'fit',
-            axis: 'width',
-        });
-        expect(model.fitMode.value).toBe('width');
-        expect(model.zoomMode.value).toBe('fit-width');
+            axis: 'height',
+        };
+
+        expect(model.zoomMode.value).toBe('fit-height');
+        expect(model.fitMode.value).toBe('height');
+        // A fit keeps the last manual scale.
+        expect(model.zoom.value).toBe(1.75);
     });
 
     it('keeps invertColors as a public component prop instead of feature-model state', () => {

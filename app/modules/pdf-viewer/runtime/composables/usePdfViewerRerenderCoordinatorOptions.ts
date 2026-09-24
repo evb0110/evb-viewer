@@ -32,7 +32,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     visibleRange: Ref<IPageRange>;
     commitVisibleRange?: ((range: IPageRange) => boolean | undefined) | undefined;
     zoom: ComputedRef<number>;
-    zoomMode?: ComputedRef<TZoomMode> | undefined;
+    zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
     viewRotation?: ComputedRef<TPdfViewRotation>;

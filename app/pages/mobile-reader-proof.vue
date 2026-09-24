@@ -177,9 +177,7 @@
                     ref="pdfViewerRef"
                     :src="pdfSrc"
                     :source-pdf-data="pdfData"
-                    :zoom="zoom"
-                    :zoom-mode="zoomMode"
-                    :fit-mode="fitMode"
+                    :zoom-state="zoomState"
                     :view-mode="viewMode"
                     :continuous-scroll="continuousScroll"
                     :drag-mode="dragMode"
@@ -189,9 +187,7 @@
                     :current-search-match="currentResult"
                     :current-search-match-navigation-id="currentResultNavigationId"
                     :working-copy-path="workingCopyPath"
-                    @update:zoom="zoom = $event"
-                    @update:zoom-mode="zoomMode = $event"
-                    @update:fit-mode="fitMode = $event"
+                    @update:zoom-state="applyZoomState"
                     @update:effective-zoom="effectiveZoom = $event"
                     @update:current-page="currentPage = $event"
                     @update:total-pages="totalPages = $event"
@@ -214,7 +210,12 @@
 </template>
 
 <script setup lang="ts">
-import type { IRecentFile } from '@contracts/shared';
+import {
+    createZoomState,
+    getZoomMode,
+    type IRecentFile,
+    type TPdfZoomState,
+} from '@contracts/shared';
 import type {
     TFitMode,
     TPdfViewMode,
@@ -272,6 +273,12 @@ const zoom = ref(1);
 const effectiveZoom = ref(1);
 const zoomMode = ref<TZoomMode>('fit-width');
 const fitMode = ref<TFitMode>('width');
+const zoomState = computed(() => createZoomState(zoomMode.value, zoom.value));
+function applyZoomState(state: TPdfZoomState) {
+    zoom.value = state.kind === 'custom' ? state.scale : zoom.value;
+    fitMode.value = state.kind === 'fit' ? state.axis : fitMode.value;
+    zoomMode.value = getZoomMode(state);
+}
 const viewMode = ref<TPdfViewMode>('single');
 const continuousScroll = ref(true);
 const dragMode = ref(false);

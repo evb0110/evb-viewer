@@ -10,6 +10,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type { IPageRange } from '@app/types/pdfUi';
+import type { TPdfZoomState } from '@contracts/shared';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol';
 
@@ -44,7 +45,7 @@ interface IUsePdfViewerFitWidthControllerOptions {
             renderBufferOverride?: number;
         },
     ) => Promise<void>;
-    emitZoomMode: (mode: TZoomMode) => void;
+    emitZoomState: (state: TPdfZoomState) => void;
 }
 
 export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthControllerOptions) => {
@@ -97,7 +98,10 @@ export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthCon
             isEffectiveScaleAtFitWidthScale()
             && options.isFitWidthScaleCurrent(options.viewerContainer.value)
         ) {
-            options.emitZoomMode('fit-width');
+            options.emitZoomState({
+                kind: 'fit',
+                axis: 'width',
+            });
         }
     }
 

@@ -9,16 +9,11 @@ import type {
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import type {
-    TFitMode,
-    TZoomMode,
-} from '@app/types/pdfContracts';
+import type { TPdfZoomState } from '@contracts/shared';
 import type { IPdfViewerEmit } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 
 export interface IPdfViewerEventAdapter {
-    updateZoom(value: number): void;
-    updateZoomMode(mode: TZoomMode): void;
-    updateFitMode(mode: TFitMode): void;
+    updateZoomState(state: TPdfZoomState): void;
     updateEffectiveZoom(value: number): void;
     updateCurrentPage(page: number): void;
     updateNavigationFeedbackPage(page: number | null): void;
@@ -50,9 +45,7 @@ export interface IPdfViewerEventAdapter {
 
 export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEventAdapter {
     return {
-        updateZoom: value => emit('update:zoom', value),
-        updateZoomMode: mode => emit('update:zoomMode', mode),
-        updateFitMode: mode => emit('update:fitMode', mode),
+        updateZoomState: state => emit('update:zoomState', state),
         updateEffectiveZoom: value => emit('update:effectiveZoom', value),
         updateCurrentPage: page => emit('update:currentPage', page),
         updateNavigationFeedbackPage: page => emit('update:navigationFeedbackPage', page),

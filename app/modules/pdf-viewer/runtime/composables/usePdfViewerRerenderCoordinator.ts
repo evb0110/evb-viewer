@@ -270,15 +270,11 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
     }
 
     function isFitWidthZoomModeActive() {
-        return zoomMode
-            ? zoomMode.value === 'fit-width'
-            : fitMode.value === 'width';
+        return zoomMode.value === 'fit-width';
     }
 
     function isFitHeightZoomModeActive() {
-        return zoomMode
-            ? zoomMode.value === 'fit-height'
-            : fitMode.value === 'height';
+        return zoomMode.value === 'fit-height';
     }
 
     function syncHorizontalScrollAfterLayoutUpdate() {
@@ -637,22 +633,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
     }
 
-    // Fit axis and zoom mode are one effective state. One watcher owns their
-    // render replacement, including custom -> fit with an unchanged axis.
-    const effectiveZoomMode = computed(() => {
-        const mode = zoomMode?.value
-            ?? (fitMode.value === 'height' ? 'fit-height' : 'fit-width');
-        // Props can arrive separately during restore. Only plan a fit once
-        // the selected mode and the scale calculator agree on its axis.
-        return mode === 'custom' || fitMode.value === (mode === 'fit-height' ? 'height' : 'width')
-            ? mode
-            : null;
-    });
-    const stopZoomModeWatch = watch(effectiveZoomMode, async (mode) => {
+    // Fit axis and zoom mode are one state. One watcher owns their render
+    // replacement, including custom -> fit with an unchanged axis.
+    const stopZoomModeWatch = watch(zoomMode, async (mode) => {
         const runId = ++fitModeRunId;
-        if (mode === null) {
-            return;
-        }
         if (mode === 'custom') {
             queueZoomOrchestration({modeChangedToCustom: true});
             return;
@@ -668,7 +652,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             physicalNavigationEpoch,
             () => (
                 isViewerAsyncRunActive(runId, fitModeRunId, document)
-                && effectiveZoomMode.value === mode
+                && zoomMode.value === mode
             ),
             { forceRerender: true },
         );

@@ -1,10 +1,12 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type {
-    TFitMode,
-    TPdfViewRotation,
-    TPdfViewMode,
-    TPdfZoomState,
-    TZoomMode,
+import {
+    createZoomState,
+    getZoomMode,
+    type TFitMode,
+    type TPdfViewRotation,
+    type TPdfViewMode,
+    type TPdfZoomState,
+    type TZoomMode,
 } from '@contracts/shared';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { useDropdownManager } from '@app/modules/workspace-shell/composables/useDropdownManager';
@@ -94,53 +96,32 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const rememberedFitAxis = ref<TFitMode>(initialState?.zoomMode === 'fit-height'
         ? 'height'
         : initialState?.zoomMode === 'fit-width' ? 'width' : initialState?.fitMode ?? 'width');
-    const initialZoomMode = initialState?.zoomMode ?? 'fit-width';
-    const zoomState = ref<TPdfZoomState>(initialZoomMode === 'custom'
-        ? {
-            kind: 'custom',
-            scale: zoom.value,
+    const zoomState = ref<TPdfZoomState>(createZoomState(initialState?.zoomMode ?? 'fit-width', zoom.value));
+    /** The one write path for zoom: a manual scale or a fit axis, as the viewer reports it. */
+    function setZoomState(state: TPdfZoomState) {
+        if (state.kind === 'custom') {
+            zoom.value = state.scale;
+        } else {
+            rememberedFitAxis.value = state.axis;
         }
-        : {
-            kind: 'fit',
-            axis: initialZoomMode === 'fit-height' ? 'height' : 'width',
-        });
+        zoomState.value = state;
+    }
     const zoomMode = computed<TZoomMode>({
-        get: () => zoomState.value.kind === 'custom'
-            ? 'custom'
-            : zoomState.value.axis === 'height' ? 'fit-height' : 'fit-width',
-        set: (mode) => {
-            if (mode === 'custom') {
-                zoomState.value = {
-                    kind: 'custom',
-                    scale: zoom.value,
-                };
-                return;
-            }
-            rememberedFitAxis.value = mode === 'fit-height' ? 'height' : 'width';
-            zoomState.value = {
-                kind: 'fit',
-                axis: rememberedFitAxis.value,
-            };
-        },
+        get: () => getZoomMode(zoomState.value),
+        set: mode => setZoomState(createZoomState(mode, zoom.value)),
     });
     const fitMode = computed<TFitMode>({
         get: () => zoomState.value.kind === 'fit' ? zoomState.value.axis : rememberedFitAxis.value,
         set: (axis) => {
             rememberedFitAxis.value = axis;
             if (zoomState.value.kind === 'fit') {
-                zoomState.value = {
-                    kind: 'fit',
-                    axis,
-                };
+                setZoomState(createZoomState(axis === 'height' ? 'fit-height' : 'fit-width', zoom.value));
             }
         },
     });
     watch(zoom, (scale) => {
         if (zoomState.value.kind === 'custom') {
-            zoomState.value = {
-                kind: 'custom',
-                scale,
-            };
+            zoomState.value = createZoomState('custom', scale);
         }
     }, {flush: 'sync'});
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
@@ -192,6 +173,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         zoom,
         effectiveZoom,
         zoomState,
+        setZoomState,
         zoomMode,
         fitMode,
         viewMode,

@@ -93,11 +93,9 @@ describe('usePdfViewerWheelZoom', () => {
     function setupWheelZoom(options?: {
         zoom?: number;
         effectiveScale?: number;
-        zoomMode?: 'fit-width' | 'fit-height' | 'custom';
     }) {
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const zoom = ref(options?.zoom ?? 1);
-        const zoomMode = ref<'fit-width' | 'fit-height' | 'custom'>(options?.zoomMode ?? 'fit-width');
         const effectiveScale = ref(options?.effectiveScale ?? 1);
         const zoomVirtualizationFreeze = ref(null);
         const singlePageScroll = {
@@ -129,7 +127,6 @@ describe('usePdfViewerWheelZoom', () => {
             src: computed(() => ({ kind: 'data' }) as never),
             isLoading: ref(false),
             zoom: computed(() => zoom.value),
-            zoomMode: computed(() => zoomMode.value),
             effectiveScale,
             currentPage: ref(4),
             visibleRange: ref({
@@ -193,12 +190,11 @@ describe('usePdfViewerWheelZoom', () => {
             const emittedEffectiveZoom = setup.emit.mock.calls.find(
                 call => call[0] === 'update:effectiveZoom',
             )?.[1];
-            const emittedZoom = setup.emit.mock.calls.find(call => call[0] === 'update:zoom')?.[1];
+            const emittedZoom = setup.emit.mock.calls.find(call => call[0] === 'update:zoomState')?.[1]?.scale;
 
             expect(event.defaultPrevented).toBe(true);
-            expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', expect.any(Number));
-            expect(setup.emit).toHaveBeenCalledWith('update:zoom', expect.any(Number));
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomState', expect.objectContaining({kind: 'custom'}));
             expect(Number.isFinite(emittedEffectiveZoom)).toBe(true);
             expect(Number.isFinite(emittedZoom)).toBe(true);
             expect(emittedEffectiveZoom).toBeGreaterThan(1);
@@ -261,9 +257,8 @@ describe('usePdfViewerWheelZoom', () => {
             setup.handleWheel(event);
 
             expect(event.defaultPrevented).toBe(true);
-            expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', expect.any(Number));
-            expect(setup.emit).toHaveBeenCalledWith('update:zoom', expect.any(Number));
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomState', expect.objectContaining({kind: 'custom'}));
         } finally {
             setup.scope.stop();
         }
@@ -272,7 +267,6 @@ describe('usePdfViewerWheelZoom', () => {
     it('converts fit-height wheel zoom to an absolute manual zoom', () => {
         const setup = setupWheelZoom({
             zoom: 1,
-            zoomMode: 'fit-height',
             effectiveScale: 0.12,
         });
 
@@ -286,9 +280,11 @@ describe('usePdfViewerWheelZoom', () => {
 
             setup.handleWheel(event);
 
-            expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
-            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MIN);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomState', {
+                kind: 'custom',
+                scale: ZOOM.MIN,
+            });
         } finally {
             setup.scope.stop();
         }
@@ -297,7 +293,6 @@ describe('usePdfViewerWheelZoom', () => {
     it('does not let ignored below-min zoom-out packets delay the next zoom-in', () => {
         const setup = setupWheelZoom({
             zoom: 1,
-            zoomMode: 'fit-height',
             effectiveScale: 0.12,
         });
 
@@ -312,9 +307,8 @@ describe('usePdfViewerWheelZoom', () => {
             setup.handleWheel(zoomOutEvent);
 
             expect(zoomOutEvent.defaultPrevented).toBe(true);
-            expect(setup.emit).not.toHaveBeenCalledWith('update:zoomMode', 'custom');
             expect(setup.emit).not.toHaveBeenCalledWith('update:effectiveZoom', expect.any(Number));
-            expect(setup.emit).not.toHaveBeenCalledWith('update:zoom', expect.any(Number));
+            expect(setup.emit).not.toHaveBeenCalledWith('update:zoomState', expect.objectContaining({kind: 'custom'}));
 
             setup.emit.mockClear();
 
@@ -328,9 +322,11 @@ describe('usePdfViewerWheelZoom', () => {
             setup.handleWheel(zoomInEvent);
 
             expect(zoomInEvent.defaultPrevented).toBe(true);
-            expect(setup.emit).toHaveBeenCalledWith('update:zoomMode', 'custom');
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
-            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MIN);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomState', {
+                kind: 'custom',
+                scale: ZOOM.MIN,
+            });
         } finally {
             setup.scope.stop();
         }
@@ -470,7 +466,10 @@ describe('usePdfViewerWheelZoom', () => {
             setup.handleWheel(zoomInToMax);
 
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MAX);
-            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MAX);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomState', {
+                kind: 'custom',
+                scale: ZOOM.MAX,
+            });
 
             setup.effectiveScale.value = ZOOM.MAX;
             setup.zoom.value = ZOOM.MAX;
@@ -507,7 +506,10 @@ describe('usePdfViewerWheelZoom', () => {
             setup.handleWheel(zoomOutToMin);
 
             expect(setup.emit).toHaveBeenCalledWith('update:effectiveZoom', ZOOM.MIN);
-            expect(setup.emit).toHaveBeenCalledWith('update:zoom', ZOOM.MIN);
+            expect(setup.emit).toHaveBeenCalledWith('update:zoomState', {
+                kind: 'custom',
+                scale: ZOOM.MIN,
+            });
 
             setup.effectiveScale.value = ZOOM.MIN;
             setup.zoom.value = ZOOM.MIN;

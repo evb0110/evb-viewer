@@ -87,6 +87,11 @@ import type {
     Component,
     ComponentPublicInstance,
 } from 'vue';
+import {
+    FIT_WIDTH_ZOOM_STATE,
+    getZoomMode,
+    type TPdfZoomState,
+} from '@contracts/shared';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 import {
@@ -295,13 +300,17 @@ function handleViewportInteraction(type: 'mousedown', event: Event) {
     chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined);
     chassisAuthority.dispatchViewportEvent(type, event);
 }
-function readNumericAttr(name: string, fallback: number) {
-    const value = attrs[name];
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
 function readStringAttr<T extends string>(name: string, values: readonly T[], fallback: T) {
     const value = attrs[name];
     return typeof value === 'string' && values.includes(value as T) ? value as T : fallback;
+}
+function readZoomPolicy() {
+    const state = attrs.zoomState as TPdfZoomState | undefined ?? FIT_WIDTH_ZOOM_STATE;
+    return {
+        fitMode: state.kind === 'fit' ? state.axis : 'width' as const,
+        zoom: state.kind === 'custom' ? state.scale : 1,
+        zoomMode: getZoomMode(state),
+    };
 }
 function readOpeningViewportSize() {
     const viewport = chassisAuthority.viewportElement.value;
@@ -324,21 +333,12 @@ const openingPageFrameAuthority = createDocumentOpeningPageFrame({
     openSurface: documentOpenSurface,
     readLayoutRevision: () => openingFrameLayoutRevision.value,
     readPolicy: () => ({
-        fitMode: readStringAttr('fitMode', [
-            'width',
-            'height',
-        ] as const, 'width'),
+        ...readZoomPolicy(),
         viewMode: readStringAttr('viewMode', [
             'single',
             'facing',
             'facing-first-single',
         ] as const, 'single'),
-        zoom: readNumericAttr('zoom', 1),
-        zoomMode: readStringAttr('zoomMode', [
-            'custom',
-            'fit-width',
-            'fit-height',
-        ] as const, 'fit-width'),
         continuousScroll: attrs.continuousScroll !== false,
     }),
     readViewportSize: readOpeningViewportSize,
@@ -438,13 +438,13 @@ const chassisOpeningPageShell = computed(() => {
         height: `${String(provisionalWidth * (792 / 612))}px`,
     };
     const geometry = snapshot.openingPageGeometry;
+    const {
+        zoom,
+        zoomMode,
+    } = readZoomPolicy();
     const policy = {
-        zoom: readNumericAttr('zoom', 1),
-        zoomMode: readStringAttr('zoomMode', [
-            'custom',
-            'fit-width',
-            'fit-height',
-        ] as const, 'fit-width'),
+        zoom,
+        zoomMode,
     };
     const liveFrame = !isPdf && geometry !== null ? resolveDocumentPageSourceOpeningFrame({
         geometry,
@@ -492,10 +492,8 @@ watch(
         () => chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? '',
         () => chassisAuthority.openSurface.snapshot.value.phase,
         () => chassisAuthority.openSurface.snapshot.value.openingPageGeometry,
-        () => attrs.fitMode,
+        () => attrs.zoomState,
         () => attrs.viewMode,
-        () => attrs.zoom,
-        () => attrs.zoomMode,
         () => attrs.continuousScroll,
         () => rendererKind.value,
         // Frame preparation needs a measurable viewport. When geometry is already

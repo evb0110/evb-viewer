@@ -39,6 +39,10 @@
     </div>
 </template>
 <script setup lang="ts">
+import {
+    FIT_WIDTH_ZOOM_STATE,
+    getZoomMode,
+} from '@contracts/shared';
 import DocumentPageSourcePageVisual from '@app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue';
 import type {
     IDocumentPageSourceFeaturePackEmit,
@@ -59,8 +63,7 @@ const {
     searchResults = [],
     src,
     viewMode = 'single',
-    zoom = 1,
-    zoomMode = 'fit-width',
+    zoomState = FIT_WIDTH_ZOOM_STATE,
 } = defineProps<IDocumentPageSourceFeaturePackProps>();
 const emit = defineEmits<IDocumentPageSourceFeaturePackEmit>();
 const runtime = reactive(useDocumentPageSourceRuntime({
@@ -74,8 +77,8 @@ const runtime = reactive(useDocumentPageSourceRuntime({
         isResizing,
         src,
         viewMode,
-        zoom,
-        zoomMode,
+        zoom: zoomState.kind === 'custom' ? zoomState.scale : 1,
+        zoomMode: getZoomMode(zoomState),
     }),
 }));
 function getPageVisualProps(pageNumber: number, hostOwnsSkeleton = false) {

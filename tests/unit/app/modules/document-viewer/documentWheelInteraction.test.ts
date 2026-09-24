@@ -371,7 +371,7 @@ describe('document wheel interaction policy', () => {
             timeStamp: 400,
         }), viewport, true));
 
-        const emittedZooms = emit.mock.calls.map(call => call[1] as number);
+        const emittedZooms = emit.mock.calls.map(call => call[1].scale as number);
         expect(emittedZooms[1]).toBeGreaterThan(emittedZooms[0]!);
         expect(emittedZooms[2]).toBe(emittedZooms[0]);
     });
@@ -397,12 +397,12 @@ describe('document wheel interaction policy', () => {
 
         handler(interaction());
         handler(interaction());
-        effectiveZoom.value = emit.mock.calls[0]?.[1] as number;
+        effectiveZoom.value = emit.mock.calls[0]?.[1]?.scale as number;
         handler(interaction());
 
         const expected = resolveDocumentWheelZoomTarget(1, -240, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls[2]?.[1]).toBe(expected.valid ? expected.nextZoom : null);
+        expect(emit.mock.calls[2]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             false,
@@ -431,7 +431,7 @@ describe('document wheel interaction policy', () => {
         }
 
         expect(emit).toHaveBeenCalledOnce();
-        expect(emit).toHaveBeenCalledWith('update:zoom', expect.any(Number));
+        expect(emit).toHaveBeenCalledWith('update:zoomState', expect.objectContaining({kind: 'custom'}));
         expect(beforeZoom).toHaveBeenCalledTimes(3);
     });
 
@@ -458,7 +458,7 @@ describe('document wheel interaction policy', () => {
 
         const expected = resolveDocumentWheelZoomTarget(2, 0, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls[1]?.[1]).toBe(expected.valid ? expected.nextZoom : null);
+        expect(emit.mock.calls[1]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             true,
@@ -488,8 +488,8 @@ describe('document wheel interaction policy', () => {
         handler(interaction());
 
         const emittedZooms = emit.mock.calls
-            .filter(call => call[0] === 'update:zoom')
-            .map(call => call[1]);
+            .filter(call => call[0] === 'update:zoomState')
+            .map(call => call[1].scale);
         expect(emittedZooms).toEqual([
             emittedZooms[0],
             emittedZooms[0],
@@ -525,7 +525,7 @@ describe('document wheel interaction policy', () => {
         sessionKey.value = 'second';
         handler(interaction());
 
-        expect(emit.mock.calls[1]?.[1]).toBe(emit.mock.calls[0]?.[1]);
+        expect(emit.mock.calls[1]?.[1]?.scale).toBe(emit.mock.calls[0]?.[1]?.scale);
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             true,
@@ -553,7 +553,7 @@ describe('document wheel interaction policy', () => {
         handler.reset();
         handler(interaction());
 
-        expect(emit.mock.calls[1]?.[1]).toBe(emit.mock.calls[0]?.[1]);
+        expect(emit.mock.calls[1]?.[1]?.scale).toBe(emit.mock.calls[0]?.[1]?.scale);
         expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
             true,
             true,
@@ -579,16 +579,16 @@ describe('document wheel interaction policy', () => {
         }), viewport, true);
 
         handler(interaction());
-        effectiveZoom.value = emit.mock.calls[0]?.[1] as number;
+        effectiveZoom.value = emit.mock.calls[0]?.[1]?.scale as number;
         handler(interaction());
-        effectiveZoom.value = emit.mock.calls[1]?.[1] as number;
+        effectiveZoom.value = emit.mock.calls[1]?.[1]?.scale as number;
         handler(interaction());
         effectiveZoom.value = 1;
         handler(interaction());
 
         const expected = resolveDocumentWheelZoomTarget(1, 0, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls[3]?.[1]).toBe(expected.valid ? expected.nextZoom : null);
+        expect(emit.mock.calls[3]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
     });
 
     it('retires duplicate coalesced emits before reconciling an external reset', () => {
@@ -615,8 +615,8 @@ describe('document wheel interaction policy', () => {
         handler(interaction(-120));
         handler(interaction(-120));
         handler(interaction(120));
-        const firstEmittedZoom = emit.mock.calls[0]?.[1] as number;
-        const supersededZoom = emit.mock.calls[1]?.[1] as number;
+        const firstEmittedZoom = emit.mock.calls[0]?.[1]?.scale as number;
+        const supersededZoom = emit.mock.calls[1]?.[1]?.scale as number;
         effectiveZoom.value = firstEmittedZoom;
         handler(interaction(0));
         effectiveZoom.value = supersededZoom;
@@ -624,7 +624,7 @@ describe('document wheel interaction policy', () => {
 
         const expected = resolveDocumentWheelZoomTarget(supersededZoom, 0, -120);
         expect(expected.valid).toBe(true);
-        expect(emit.mock.calls.at(-1)?.[1]).toBe(expected.valid ? expected.nextZoom : null);
+        expect(emit.mock.calls.at(-1)?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
         expect(beforeZoom.mock.calls.at(-1)?.[2]).toBe(true);
     });
 
@@ -654,7 +654,7 @@ describe('document wheel interaction policy', () => {
 
         const expected = resolveDocumentWheelZoomTarget(2, 0, -120);
         expect(onNonZoom).toHaveBeenCalledOnce();
-        expect(emit.mock.calls[1]?.[1]).toBe(expected.valid ? expected.nextZoom : null);
+        expect(emit.mock.calls[1]?.[1]?.scale).toBe(expected.valid ? expected.nextZoom : null);
     });
 
     it('does not replace the active anchor for a clamped no-op packet', () => {

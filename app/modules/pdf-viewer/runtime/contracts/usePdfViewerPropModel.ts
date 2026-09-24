@@ -6,9 +6,12 @@ import type {
     TFitMode,
     TPdfViewRotation,
     TPdfViewMode,
-    TZoomMode,
 } from '@app/types/pdfContracts';
-import type {TPdfZoomState} from '@contracts/shared';
+import {
+    FIT_WIDTH_ZOOM_STATE,
+    getZoomMode,
+    type TPdfZoomState,
+} from '@contracts/shared';
 import { parseDocumentRef } from '@contracts/documentRef';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
@@ -26,22 +29,20 @@ function isPropProvided(...names: string[]) {
 
 export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
     const performanceProfile = getPerformanceProfile();
-    const zoomState = computed<TPdfZoomState>(() => {
-        const zoomMode = props.zoomMode ?? (props.fitMode === 'height' ? 'fit-height' : 'fit-width');
-        if (zoomMode === 'custom') {
-            return {
-                kind: 'custom',
-                scale: props.zoom ?? 1,
-            };
+    const zoomState = computed<TPdfZoomState>(() => props.zoomState ?? FIT_WIDTH_ZOOM_STATE);
+    const fitMode = computed<TFitMode>(() => zoomState.value.kind === 'fit' ? zoomState.value.axis : 'width');
+    // A fit keeps the last manual scale, so leaving and re-entering custom
+    // zoom does not read as a manual zoom change.
+    const manualZoom = ref(1);
+    watch(zoomState, (state) => {
+        if (state.kind === 'custom') {
+            manualZoom.value = state.scale;
         }
-        return {
-            kind: 'fit',
-            axis: zoomMode === 'fit-height' ? 'height' : 'width',
-        };
+    }, {
+        flush: 'sync',
+        immediate: true,
     });
-    const fitMode = computed<TFitMode>(() => zoomState.value.kind === 'fit'
-        ? zoomState.value.axis
-        : props.fitMode ?? 'width');
+    const zoom = computed(() => manualZoom.value);
     const hasShowAnnotationsProp = isPropProvided('showAnnotations', 'show-annotations');
 
     return {
@@ -52,13 +53,11 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         suppressLoadingOverlay: computed(() => props.suppressLoadingOverlay === true),
         bufferPages: computed(() => props.bufferPages ?? performanceProfile.pdfBufferPages),
         isAnySaving: computed(() => props.isAnySaving ?? false),
-        zoom: computed(() => props.zoom ?? 1),
+        zoom,
         zoomState,
         dragMode: computed(() => props.dragMode ?? false),
         fitMode,
-        zoomMode: computed<TZoomMode>(() => zoomState.value.kind === 'custom'
-            ? 'custom'
-            : zoomState.value.axis === 'height' ? 'fit-height' : 'fit-width'),
+        zoomMode: computed(() => getZoomMode(zoomState.value)),
         viewMode: computed<TPdfViewMode>(() => props.viewMode ?? 'single'),
         viewRotation: computed<TPdfViewRotation>(() => props.viewRotation ?? 0),
         isResizing: computed(() => props.isResizing ?? false),

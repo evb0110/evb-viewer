@@ -80,6 +80,10 @@
 <script setup lang="ts">
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
+import {
+    FIT_WIDTH_ZOOM_STATE,
+    getZoomMode,
+} from '@contracts/shared';
 
 import PdfViewerPortalLayers from '@app/modules/pdf-viewer/components/PdfViewerPortalLayers.vue';
 import PdfViewerViewport from '@app/modules/pdf-viewer/components/PdfViewerViewport.vue';
@@ -257,8 +261,9 @@ const hasProjectedOpeningPageFrame = computed(() => (
 watchEffect(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const pageNumber = committedInitialPageNumber.value;
-    const zoomMode = props.zoomMode ?? 'fit-width';
-    const zoom = props.zoom ?? 1;
+    const zoomState = props.zoomState ?? FIT_WIDTH_ZOOM_STATE;
+    const zoomMode = getZoomMode(zoomState);
+    const zoom = zoomState.kind === 'custom' ? zoomState.scale : 1;
     const isOpeningTransition = snapshot.phase === 'pending'
         || snapshot.phase === 'geometry-committed'
         || snapshot.phase === 'canvas-committed'

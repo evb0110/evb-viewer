@@ -4,7 +4,7 @@ import type {
 } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
-import type { TZoomMode } from '@app/types/pdfContracts';
+import type { TPdfZoomState } from '@contracts/shared';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
@@ -29,9 +29,8 @@ interface IViewerRange {
 }
 
 interface IWheelEmit {
-    (event: 'update:zoomMode', mode: TZoomMode): void;
     (event: 'update:effectiveZoom', value: number): void;
-    (event: 'update:zoom', value: number): void;
+    (event: 'update:zoomState', state: TPdfZoomState): void;
 }
 
 interface IUsePdfViewerWheelZoomOptions {
@@ -39,7 +38,6 @@ interface IUsePdfViewerWheelZoomOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
     zoom: ComputedRef<number>;
-    zoomMode: ComputedRef<TZoomMode>;
     effectiveScale: Ref<number>;
     currentPage: Ref<number>;
     visibleRange: Ref<IViewerRange>;
@@ -83,7 +81,6 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         src,
         isLoading,
         zoom,
-        zoomMode,
         effectiveScale,
         currentPage,
         visibleRange,
@@ -514,11 +511,11 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
             x: anchorX,
             y: anchorY,
         });
-        if (zoomMode.value !== 'custom') {
-            emit('update:zoomMode', 'custom');
-        }
         emit('update:effectiveZoom', zoomTarget.nextEffectiveZoom);
-        emit('update:zoom', zoomTarget.nextZoom);
+        emit('update:zoomState', {
+            kind: 'custom',
+            scale: zoomTarget.nextZoom,
+        });
         markExpectedZoomScroll(wheelZoomExpectedScrollWindowMs, {
             operationId: zoomLockOperationId,
             reason: 'wheel-zoom-emitted',

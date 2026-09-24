@@ -166,6 +166,27 @@ export type TPdfZoomState =
         kind: 'fit';
         axis: TFitMode
     };
+export const FIT_WIDTH_ZOOM_STATE: TPdfZoomState = Object.freeze({
+    kind: 'fit',
+    axis: 'width',
+});
+export function createZoomState(mode: TZoomMode, scale: number): TPdfZoomState {
+    return mode === 'custom'
+        ? {
+            kind: 'custom',
+            scale,
+        }
+        : {
+            kind: 'fit',
+            axis: mode === 'fit-height' ? 'height' : 'width',
+        };
+}
+export function getZoomMode(state: TPdfZoomState): TZoomMode {
+    if (state.kind === 'custom') {
+        return 'custom';
+    }
+    return state.axis === 'height' ? 'fit-height' : 'fit-width';
+}
 export type TDocumentViewMode = 'single' | 'facing' | 'facing-first-single';
 export type TPdfViewMode = TDocumentViewMode;
 /** Quarter-turn projection applied to the whole PDF viewer, without editing the PDF. */

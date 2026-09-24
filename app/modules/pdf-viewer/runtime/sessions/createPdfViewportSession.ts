@@ -14,6 +14,7 @@ import type {
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
+import type { TPdfZoomState } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import {
@@ -124,7 +125,7 @@ export interface ICreatePdfViewportSessionOptions {
     classState: Parameters<typeof usePdfViewportViewModel>[0]['classState'];
     emitCurrentPage: (page: number) => void;
     emitNavigationFeedbackPage: (page: number | null) => void;
-    emitZoom: (value: number) => void;
+    emitZoomState: (state: TPdfZoomState) => void;
     emitEffectiveZoom: (value: number) => void;
     summarizeViewerStateForLog: () => unknown;
     clearPendingImagePlacement: () => void;
@@ -821,7 +822,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (nextZoom === null || Math.abs(nextZoom - options.zoom.value) <= 0.001) {
             return;
         }
-        options.emitZoom(nextZoom);
+        options.emitZoomState({
+            kind: 'custom',
+            scale: nextZoom,
+        });
         for (let attempt = 0; attempt < 6; attempt += 1) {
             await nextTick();
             if (Math.abs(options.zoom.value - nextZoom) <= 0.001) {

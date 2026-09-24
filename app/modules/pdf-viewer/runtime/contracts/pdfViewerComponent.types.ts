@@ -11,11 +11,10 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type {
-    TFitMode,
     TPdfViewRotation,
     TPdfViewMode,
-    TZoomMode,
 } from '@app/types/pdfContracts';
+import type { TPdfZoomState } from '@contracts/shared';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -34,10 +33,8 @@ export interface IPdfViewerProps {
     suppressLoadingOverlay?: boolean | undefined;
     bufferPages?: number | undefined;
     isAnySaving?: boolean | undefined;
-    zoom?: number | undefined;
-    zoomMode?: TZoomMode | undefined;
+    zoomState?: TPdfZoomState | undefined;
     dragMode?: boolean | undefined;
-    fitMode?: TFitMode | undefined;
     viewMode?: TPdfViewMode | undefined;
     viewRotation?: TPdfViewRotation | undefined;
     continuousScroll?: boolean | undefined;
@@ -63,9 +60,7 @@ export interface IPdfViewerProps {
 }
 
 export interface IPdfViewerEmit {
-    (e: 'update:zoom', value: number): void;
-    (e: 'update:zoomMode', mode: TZoomMode): void;
-    (e: 'update:fitMode', mode: TFitMode): void;
+    (e: 'update:zoomState', state: TPdfZoomState): void;
     (e: 'update:effectiveZoom', value: number): void;
     (e: 'update:currentPage', page: number): void;
     (e: 'update:navigationFeedbackPage', page: number | null): void;

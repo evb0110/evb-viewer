@@ -196,13 +196,12 @@ describe('usePdfViewerFeatureController wiring', () => {
         harness.controller.handleViewerWheel(interaction);
 
         expect(interaction.event.preventDefault).toHaveBeenCalledTimes(1);
-        expect(harness.emitted).toContainEqual([
-            'update:zoomMode',
-            'custom',
-        ]);
-        const zoomUpdate = harness.emitted.find(([event]) => event === 'update:zoom');
-        expect(zoomUpdate?.[1]).toEqual(expect.any(Number));
-        expect(zoomUpdate?.[1]).toBeGreaterThan(1);
+        const zoomUpdate = harness.emitted.find(([event]) => event === 'update:zoomState');
+        expect(zoomUpdate?.[1]).toEqual({
+            kind: 'custom',
+            scale: expect.any(Number),
+        });
+        expect((zoomUpdate?.[1] as {scale: number}).scale).toBeGreaterThan(1);
     });
 
     it('routes a plain wheel packet to the viewport session as a user interaction', () => {

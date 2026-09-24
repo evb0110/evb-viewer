@@ -1,7 +1,10 @@
 import { ZOOM } from '@app/constants/pdfLayout';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { clampDocumentManualZoom } from '@app/modules/document-viewer/zoomPolicy';
-import type { TZoomMode } from '@contracts/shared';
+import type {
+    TPdfZoomState,
+    TZoomMode,
+} from '@contracts/shared';
 
 const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
 export const DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS = 180;
@@ -85,10 +88,7 @@ interface IDocumentWheelZoomSink {
 
 interface IReadonlyValue<TValue> {readonly value: TValue;}
 
-interface IDocumentWheelZoomEmit {
-    (event: 'update:zoom', value: number): void;
-    (event: 'update:zoomMode', value: TZoomMode): void;
-}
+type IDocumentWheelZoomEmit = (event: 'update:zoomState', value: TPdfZoomState) => void;
 
 interface IDocumentWheelZoomHandlerOptions {beforeZoom?: (interaction: IDocumentWheelInteraction, packetAt: number, startsNewSession: boolean) => void;}
 
@@ -330,14 +330,18 @@ export function createDocumentWheelZoomHandler(
         return consumeDocumentWheelZoomInteraction(interaction, {
             effectiveZoom: activeSession.effectiveZoom,
             zoomMode: zoomMode.value,
+            // A wheel zoom always leaves fit mode, so the mode switch and the
+            // scale reach the host as one custom zoom state.
             emitZoomMode: (mode) => {
                 activeSession.pendingZoomModes.push(mode);
-                emit('update:zoomMode', mode);
             },
             emitZoom: (value) => {
                 activeSession.effectiveZoom = value;
                 activeSession.pendingEffectiveZooms.push(value);
-                emit('update:zoom', value);
+                emit('update:zoomState', {
+                    kind: 'custom',
+                    scale: value,
+                });
             },
         }, {
             accumulator: activeSession,

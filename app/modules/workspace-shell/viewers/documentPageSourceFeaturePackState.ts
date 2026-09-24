@@ -1,7 +1,11 @@
 import type { ComponentPublicInstance } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TDocumentViewMode } from '@contracts/shared';
+import type {
+    TDocumentViewMode,
+    TPdfZoomState,
+    TZoomMode,
+} from '@contracts/shared';
 import type {
     IDocumentSearchMatch,
     IDocumentPageMetrics,
@@ -157,8 +161,7 @@ export function createDocumentPageSourceLifecycle(options: {
 }
 export interface IDocumentPageSourceFeaturePackProps {
     src: TDocumentRef | null;
-    zoom?: number;
-    zoomMode?: 'custom' | 'fit-width' | 'fit-height';
+    zoomState?: TPdfZoomState;
     viewMode?: TDocumentViewMode;
     continuousScroll?: boolean;
     documentRevisionToken?: TDocumentRevisionToken | null;
@@ -171,11 +174,13 @@ export interface IDocumentPageSourceFeaturePackProps {
 }
 export type TDocumentPageSourceRuntimeProps = Required<Pick<
     IDocumentPageSourceFeaturePackProps,
-    'continuousScroll' | 'currentPage' | 'isActive' | 'isInteractionActive' | 'isResizing' | 'viewMode' | 'zoom' | 'zoomMode'
->> & Pick<IDocumentPageSourceFeaturePackProps, 'documentRevisionToken' | 'src'>;
+    'continuousScroll' | 'currentPage' | 'isActive' | 'isInteractionActive' | 'isResizing' | 'viewMode'
+>> & Pick<IDocumentPageSourceFeaturePackProps, 'documentRevisionToken' | 'src'> & {
+    zoom: number;
+    zoomMode: TZoomMode;
+};
 export interface IDocumentPageSourceFeaturePackEmit {
-    (event: 'update:zoom', value: number): void;
-    (event: 'update:zoomMode', value: 'custom' | 'fit-width' | 'fit-height'): void;
+    (event: 'update:zoomState', value: TPdfZoomState): void;
     (event: 'update:effectiveZoom', value: number): void;
     (event: 'update:currentPage', value: number): void;
     (event: 'update:totalPages', value: number): void;

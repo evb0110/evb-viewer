@@ -217,7 +217,7 @@ export const usePdfViewerFeatureController = (
         },
         emitCurrentPage: viewerEvents.updateCurrentPage,
         emitNavigationFeedbackPage: viewerEvents.updateNavigationFeedbackPage,
-        emitZoom: value => emit('update:zoom', value),
+        emitZoomState: viewerEvents.updateZoomState,
         emitEffectiveZoom: viewerEvents.updateEffectiveZoom,
         summarizeViewerStateForLog,
         clearPendingImagePlacement,
@@ -235,7 +235,6 @@ export const usePdfViewerFeatureController = (
         src,
         isLoading: documentSession.isLoading,
         zoom,
-        zoomMode,
         effectiveScale: viewportSession.scale.effectiveScale,
         currentPage: viewportSession.currentPage,
         visibleRange: viewportSession.visibleRange,
@@ -481,7 +480,7 @@ export const usePdfViewerFeatureController = (
         isFitWidthScaleCurrent: viewportSession.scale.isFitWidthScaleCurrent,
         cancelInFlightRenders: renderingSession.cancelInFlightRenders,
         reRenderAllVisiblePages: renderingSession.reRenderAllVisiblePages,
-        emitZoomMode: viewerEvents.updateZoomMode,
+        emitZoomState: viewerEvents.updateZoomState,
     });
     async function renderLoadedPdfPagesForBrowserPrint(
         targetDocument: IBrowserPrintDocument,

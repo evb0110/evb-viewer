@@ -184,6 +184,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         requestThumbnailInvalidation,
         zoom,
         effectiveZoom,
+        zoomState,
+        setZoomState,
         zoomMode,
         fitMode,
         viewMode,
@@ -1049,7 +1051,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             documentSourceSearchResults: options.documentSourceSearchResults,
             currentPage,
             dragMode,
-            fitMode,
             isAnySaving,
             isInteractionActive: options.isInteractionActive,
             mountPresentation: options.mountPresentation,
@@ -1070,8 +1071,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             workingCopyPath,
             originalPath,
             documentRevisionToken,
-            zoom,
-            zoomMode,
+            zoomState,
             onAnnotationCommentClick: annotationActions.handleAnnotationCommentClick,
             onAnnotationComments: handleAnnotationComments,
             onAnnotationInventory: applyAnnotationInventory,
@@ -1090,7 +1090,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 pdfRasterScheduler.value = scheduler;
             },
             onEffectiveZoomUpdate: value => { effectiveZoom.value = value; },
-            onFitModeUpdate: value => { fitMode.value = value; },
             onInitialVisualPending: options.onInitialVisualPending,
             onInitialVisualReady: options.onInitialVisualReady,
             onLoadError: handleLoadError,
@@ -1110,8 +1109,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                     handleTotalPages(value);
                 }
             },
-            onZoomModeUpdate: value => { zoomMode.value = value; },
-            onZoomUpdate: value => { zoom.value = value; },
+            onZoomStateUpdate: setZoomState,
         });
     }
     return {

@@ -15,11 +15,10 @@ import type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type {
-    TFitMode,
     TPdfViewRotation,
     TPdfViewMode,
+    TPdfZoomState,
     TPrintOrientation,
-    TZoomMode,
 } from '@contracts/shared';
 import {
     createJobId,
@@ -594,7 +593,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
     currentPage: Ref<number>;
     dragMode: Ref<boolean>;
-    fitMode: Ref<TFitMode>;
     isAnySaving: Ref<boolean>;
     isInteractionActive: TReadableRef<boolean>;
     mountPresentation: TReadableRef<boolean>;
@@ -613,8 +611,7 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     viewRotation: Ref<TPdfViewRotation>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
-    zoom: Ref<number>;
-    zoomMode: Ref<TZoomMode>;
+    zoomState: Ref<TPdfZoomState>;
     onAnnotationCommentClick: unknown;
     onAnnotationComments: unknown;
     onAnnotationInventory: TAnnotationInventoryListener;
@@ -631,7 +628,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onDocumentUpdate: (value: unknown) => void;
     onRasterSchedulerUpdate: (scheduler: IPdfPageRasterScheduler | null) => void;
     onEffectiveZoomUpdate: (value: number) => void;
-    onFitModeUpdate: (value: TFitMode) => void;
 
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
@@ -642,8 +638,7 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onSourceCapabilitiesUpdate: (capabilities: IDocumentSourceCapabilities) => void;
     onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
     onTotalPagesUpdate: (value: number) => void;
-    onZoomModeUpdate: (value: TZoomMode) => void;
-    onZoomUpdate: (value: number) => void;
+    onZoomStateUpdate: (value: TPdfZoomState) => void;
 }
 
 export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDriverBindingOptions) => {
@@ -656,9 +651,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
     function createNativeViewerProps(source: TDocumentRef | null) {
         return {
             src: source,
-            zoom: options.zoom.value,
-            zoomMode: options.zoomMode.value,
-            fitMode: options.fitMode.value,
+            zoomState: options.zoomState.value,
             viewMode: resolveWorkspaceViewerViewMode(
                 options.activeDocumentDriver.value.capabilities,
                 options.viewMode.value,
@@ -683,9 +676,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 rasterDisplayProfile: options.pdfRasterDisplayProfile.value,
                 sourcePdfData: options.sourcePdfData.value,
                 isAnySaving: options.isAnySaving.value,
-                zoom: options.zoom.value,
-                zoomMode: options.zoomMode.value,
-                fitMode: options.fitMode.value,
+                zoomState: options.zoomState.value,
                 viewMode: resolveWorkspaceViewerViewMode(
                     driver.capabilities,
                     options.viewMode.value,
@@ -732,8 +723,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
     const activeViewerComponent = computed(() => options.activeDocumentDriver.value.view.component);
 
     const nativeViewerListeners = {
-        'update:zoom': options.onZoomUpdate,
-        'update:zoomMode': options.onZoomModeUpdate,
+        'update:zoomState': options.onZoomStateUpdate,
         'update:effectiveZoom': options.onEffectiveZoomUpdate,
         'update:currentPage': options.onCurrentPageUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
@@ -754,7 +744,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
         return {
             ...nativeViewerListeners,
-            'update:fitMode': options.onFitModeUpdate,
             'update:navigationFeedbackPage': options.onNavigationFeedbackPageUpdate,
             annotationState: options.onAnnotationState,
             annotationModified: options.onAnnotationModified,
