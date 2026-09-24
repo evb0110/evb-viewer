@@ -465,7 +465,7 @@ jobs:
 
       # A tarball keeps the native tools executable.
       - name: Pack build
-        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops
+        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops .tmp/pdf-search
 
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
