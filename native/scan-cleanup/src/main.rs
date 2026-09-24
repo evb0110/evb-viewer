@@ -23,8 +23,9 @@ fn install_sigterm_handler() {}
 fn main() {
     install_sigterm_handler();
     evb_native_support::run_native_cli(
-        evb_native_support::generated_native_tool_protocols::SCAN_CLEANUP,
+        "evb-scan-cleanup",
         env!("CARGO_PKG_VERSION"),
+        option_env!("EVB_NATIVE_BUILD_ID"),
         std::env::args().skip(1),
         |args| {
             evb_scan_cleanup::adapters::batch_cli::run_with_cancellation(args, &SIGTERM_CANCELED)

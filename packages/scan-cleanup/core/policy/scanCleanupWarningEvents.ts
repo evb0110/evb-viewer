@@ -142,12 +142,7 @@ function describeScanCleanupWarningEvent(event: TScanCleanupWarningEvent) {
  * Everything one native output has to say: its structured conditions, then the
  * unstructured diagnostics that carry no program logic.
  *
- * The string channel is permanent for those unstructured diagnostics. It is
- * also where an artifact written before scan-cleanup runtime revision 10 left
- * its *conditions*, as sentences — such an artifact decodes and displays
- * unchanged here and nowhere decides aggregation. That legacy case ends when no
- * pre-revision-10 artifact is read: those artifacts live only in a run's
- * scratch directory and in preserved JSON evidence, never in shipped state.
+ * The string channel is permanent for those unstructured diagnostics.
  */
 export function describeScanCleanupNativeWarnings(
     metadata: {

@@ -64,7 +64,6 @@ import {
     type IDetectedPageRaster,
     type IScanCleanupRasterRenderLimits,
     type IScanCleanupPageRasterSource,
-    type IScanCleanupSidecarProtocolCapabilities,
     type IPdfPageSizeChunk,
     type TScanCleanupLog,
     isScanCleanupCompactLayeredRaster,
@@ -196,27 +195,23 @@ export function reportScanCleanupNativeWarnings(
     summary: TScanCleanupSummary,
     metadata: Pick<INativeScanCleanupOutputMetadataV3, 'half' | 'warnings' | 'warningEvents'>,
     pageNumber: number,
-    sidecarCapabilities: IScanCleanupSidecarProtocolCapabilities | undefined,
     fittedMarginBoxPages: Set<number>,
     report: (message: string) => void,
 ) {
-    if (sidecarCapabilities?.structuredWarningEventsSupported === true) {
-        for (const event of metadata.warningEvents ?? []) {
-            // One aggregate names every page the document's scale could not
-            // hold; per-page lines would bury it.
-            if (event.code === 'matched-canvas-content-fitted') {
-                fittedMarginBoxPages.add(pageNumber);
-                continue;
-            }
-            reportScanCleanupSummaryWarningEvent(summary, {
-                event,
-                pageNumber: requirePageNumber(pageNumber),
-                ...(metadata.half === undefined ? {} : {half: metadata.half}),
-            }, report);
+    for (const event of metadata.warningEvents ?? []) {
+        // One aggregate names every page the document's scale could not
+        // hold; per-page lines would bury it.
+        if (event.code === 'matched-canvas-content-fitted') {
+            fittedMarginBoxPages.add(pageNumber);
+            continue;
         }
+        reportScanCleanupSummaryWarningEvent(summary, {
+            event,
+            pageNumber: requirePageNumber(pageNumber),
+            ...(metadata.half === undefined ? {} : {half: metadata.half}),
+        }, report);
     }
-    // Diagnostics the engine carries no structure for. An artifact written
-    // before runtime revision 10 still carries these sentences.
+    // Diagnostics the engine carries no structure for.
     for (const warning of metadata.warnings ?? []) {
         report(`Page ${String(pageNumber)}: ${warning}`);
     }
@@ -2897,9 +2892,8 @@ export async function runScanCleanupConversion(
                 }
                 emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
             };
-            let sidecarCapabilities: IScanCleanupSidecarProtocolCapabilities | undefined;
             try {
-                sidecarCapabilities = await runRasterProducerConsumer<IScanCleanupSidecarProtocolCapabilities | undefined>({
+                await runRasterProducerConsumer({
                     signal,
                     stream: canStreamRasters,
                     ...(canStreamRasters ? {createStreams: () => dependencies.createRasterPipes!(
@@ -3178,7 +3172,6 @@ export async function runScanCleanupConversion(
                         summary,
                         metadata,
                         pageNumber,
-                        sidecarCapabilities,
                         fittedMarginBoxPages,
                         report,
                     );

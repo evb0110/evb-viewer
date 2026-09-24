@@ -227,7 +227,6 @@ impl SearchService {
         stdout.read_line(&mut line).expect("read ready frame");
         let ready: Value = serde_json::from_str(&line).expect("parse ready frame");
         assert_eq!(ready["type"], "ready");
-        assert_eq!(ready["protocolVersion"], 1);
         Self {
             child,
             stdin: Some(stdin),

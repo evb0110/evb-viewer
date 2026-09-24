@@ -93,10 +93,6 @@ describe('build artifact generation', () => {
                 path.join(root, '.tmp/generated-electron-builder-resources.yml'),
                 'utf8',
             )).rejects.toMatchObject({code: 'ENOENT'});
-            await expect(readFile(
-                path.join(root, 'native/evb-native-support/src/generated_native_tool_protocols.rs'),
-                'utf8',
-            )).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
             await rm(root, {
                 force: true,

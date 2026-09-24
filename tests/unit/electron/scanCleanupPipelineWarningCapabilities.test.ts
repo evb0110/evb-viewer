@@ -10,11 +10,8 @@ import {reportScanCleanupNativeWarnings} from '@evb/scan-cleanup/core/runScanCle
 
 const nativeWarningEvent = {code: 'matched-canvas-margins-reduced'} satisfies TScanCleanupWarningEvent;
 
-describe('scan cleanup pipeline warning capabilities', () => {
-    it.each([
-        false,
-        true,
-    ])('always reports native warning strings and gates structured events (%s)', (structuredWarningEventsSupported) => {
+describe('scan cleanup pipeline native warnings', () => {
+    it('reports native warning strings and structured events', () => {
         const summary = createEmptyScanCleanupSummary(1, []);
         const reported: string[] = [];
 
@@ -26,23 +23,16 @@ describe('scan cleanup pipeline warning capabilities', () => {
                 warningEvents: [nativeWarningEvent],
             },
             1,
-            {structuredWarningEventsSupported},
             new Set(),
             message => reported.push(message),
         );
 
         expect(reported).toContain('Page 1: Deskew was skipped because the native page had no usable content box');
-        expect(summary.warningEvents).toEqual(structuredWarningEventsSupported
-            ? [{
-                event: nativeWarningEvent,
-                pageNumber: 1,
-                half: 'full',
-            }]
-            : []);
-        if (structuredWarningEventsSupported) {
-            expect(reported).toContain(formatScanCleanupWarningEvent(nativeWarningEvent, 1));
-        } else {
-            expect(reported).not.toContain(formatScanCleanupWarningEvent(nativeWarningEvent, 1));
-        }
+        expect(summary.warningEvents).toEqual([{
+            event: nativeWarningEvent,
+            pageNumber: 1,
+            half: 'full',
+        }]);
+        expect(reported).toContain(formatScanCleanupWarningEvent(nativeWarningEvent, 1));
     });
 });

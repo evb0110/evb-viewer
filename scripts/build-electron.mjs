@@ -13,6 +13,8 @@ import {
     join,
 } from 'node:path';
 import esbuild from 'esbuild';
+import {fileURLToPath} from 'node:url';
+import {computeNativeBuildIds} from './native-build-id.mjs';
 
 const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href);
 
@@ -24,7 +26,10 @@ const buildGitShaDefine = {
     '__EVB_BUILD_GIT_SHA__': JSON.stringify(buildGitSha),
     'process.env.EVB_BUILD_GIT_SHA': JSON.stringify(buildGitSha ?? ''),
 };
-const buildMetadataDefine = buildGitShaDefine;
+const buildMetadataDefine = {
+    ...buildGitShaDefine,
+    '__EVB_NATIVE_BUILD_IDS__': JSON.stringify(computeNativeBuildIds(fileURLToPath(new URL('..', import.meta.url)))),
+};
 const mainSentryDefine = {
     ...buildMetadataDefine,
     '__EVB_SENTRY_DSN__': JSON.stringify(process.env.SENTRY_DESKTOP_DSN?.trim() ?? ''),

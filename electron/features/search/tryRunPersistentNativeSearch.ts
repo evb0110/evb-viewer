@@ -5,12 +5,12 @@ import {
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { isRecord } from '@contracts/runtimeGuards';
-import { SEARCH_NATIVE_PROTOCOL_VERSION } from '@contracts/nativeToolProtocols';
 import {
     isNativeErrorEnvelope,
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
+import { assertNativeToolBuild } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     createDetachedChildProcessSpawnOptions,
@@ -78,11 +78,11 @@ class PersistentNativeSearchService {
     private readonly exited: Promise<void>;
 
     constructor(
-        binaryPath: string,
+        private readonly binaryPath: string,
         private readonly idleTimeoutMs: number,
         private readonly onStopped: () => void,
     ) {
-        this.child = spawn(binaryPath, ['serve'], createDetachedChildProcessSpawnOptions({
+        this.child = spawn(this.binaryPath, ['serve'], createDetachedChildProcessSpawnOptions({
             stdio: [
                 'pipe',
                 'pipe',
@@ -154,18 +154,10 @@ class PersistentNativeSearchService {
             return;
         }
         if (frame.type === 'ready') {
-            if (frame.protocolVersion !== SEARCH_NATIVE_PROTOCOL_VERSION) {
-                const receivedProtocolVersion = typeof frame.protocolVersion === 'number'
-                    ? String(frame.protocolVersion)
-                    : '<missing>';
-                this.stop(new Error(
-                    'Persistent native search service protocol mismatch: '
-                    + `expected ${SEARCH_NATIVE_PROTOCOL_VERSION}, got ${receivedProtocolVersion}`,
-                ));
-                return;
-            }
-            this.resolveReady?.();
-            this.clearReadyCallbacks();
+            assertNativeToolBuild(this.binaryPath).then(() => {
+                this.resolveReady?.();
+                this.clearReadyCallbacks();
+            }, (error: unknown) => this.stop(error as Error));
             return;
         }
         const requestId = typeof frame.requestId === 'string' ? frame.requestId : '';

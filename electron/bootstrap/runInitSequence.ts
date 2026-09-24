@@ -132,7 +132,6 @@ export interface IRunInitSequenceOptions {
     sweepStaleScanCleanupScratchDirs?: () => Promise<unknown>;
     sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
-    warmNativeToolProtocolHandshakes?: () => Promise<unknown>;
 }
 
 function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
@@ -414,7 +413,6 @@ function createPostRendererReadyMaintenanceRunner(
         sweepStaleScanCleanupScratchDirs,
         sweepStaleOcrTempArtifacts,
         pruneStaleDjvuArtifactJobs,
-        warmNativeToolProtocolHandshakes,
     } = options;
 
     const steps: IStartupMaintenanceStepDefinition[] = [
@@ -439,12 +437,6 @@ function createPostRendererReadyMaintenanceRunner(
             label: 'default-app temp PDFs',
             run: sweepStaleDefaultAppTempPdfs,
         },
-        ...(warmNativeToolProtocolHandshakes
-            ? [{
-                label: 'native tool protocol warmup',
-                run: warmNativeToolProtocolHandshakes,
-            }]
-            : []),
         ...(pruneStaleDjvuArtifactJobs
             ? [{
                 label: 'DjVu artifact jobs',

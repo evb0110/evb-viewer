@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => {
         rm: vi.fn(async () => undefined),
         spawn: vi.fn(),
         terminateDetachedChildProcess: vi.fn(async () => true),
-        verifyNativeToolProtocol: vi.fn(async () => undefined),
+        assertNativeToolBuild: vi.fn(async () => undefined),
         warn: vi.fn(),
         writeFile: vi.fn(async () => undefined),
     };
@@ -41,7 +41,7 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/native/evb-pdf-image-combine'}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({verifyNativeToolProtocol: mocks.verifyNativeToolProtocol}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({assertNativeToolBuild: mocks.assertNativeToolBuild}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: object) => ({
         ...options,
@@ -351,16 +351,9 @@ describe('native PDF image combiner output validation', () => {
             maxOutputBytes: Number.MAX_SAFE_INTEGER,
             outputMode: 'file-backed',
         })).resolves.toEqual(new Uint8Array(validPdf));
-        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith(
-            '/native/evb-pdf-image-combine',
-            {env: expect.objectContaining({EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(16 * 1024 * 1024)})},
-        );
-        expect(mocks.verifyNativeToolProtocol).not.toHaveBeenCalledWith(
-            '/native/evb-pdf-image-combine',
-            {env: expect.objectContaining({EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed'})},
-        );
-        expect(mocks.verifyNativeToolProtocol.mock.invocationCallOrder[0]!)
-            .toBeLessThan(mocks.spawn.mock.invocationCallOrder[0]!);
+        const spawnEnv = (mocks.spawn.mock.calls[0]![2] as {env: NodeJS.ProcessEnv}).env;
+        expect(spawnEnv.EVB_PDF_COMBINE_MAX_OUTPUT_BYTES).toBe(String(16 * 1024 * 1024));
+        expect(spawnEnv.EVB_PDF_COMBINE_OUTPUT_MODE).toBeUndefined();
     });
 
     it('validates file-backed native PDF output without reading the whole file into memory', async () => {
@@ -417,13 +410,10 @@ describe('native PDF image combiner output validation', () => {
             },
         )).resolves.toBe(true);
 
-        expect(mocks.verifyNativeToolProtocol).toHaveBeenCalledWith(
-            '/native/evb-pdf-image-combine',
-            {env: expect.objectContaining({
-                EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(Number.MAX_SAFE_INTEGER),
-                EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed',
-            })},
-        );
+        expect((mocks.spawn.mock.calls.at(-1)![2] as {env: NodeJS.ProcessEnv}).env).toMatchObject({
+            EVB_PDF_COMBINE_MAX_OUTPUT_BYTES: String(Number.MAX_SAFE_INTEGER),
+            EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed',
+        });
         expect(mocks.readFile).not.toHaveBeenCalled();
     });
 
@@ -471,11 +461,11 @@ describe('native PDF image combiner output validation', () => {
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/output.pdf', { force: true });
     });
 
-    it('rejects before spawning when protocol verification fails', async () => {
-        mocks.verifyNativeToolProtocol.mockRejectedValueOnce(new Error('expected 1, got 99'));
+    it('rejects before spawning when the binary was built from other sources', async () => {
+        mocks.assertNativeToolBuild.mockRejectedValueOnce(new Error('built from other native sources'));
         const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
 
-        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'])).rejects.toThrow('expected 1, got 99');
+        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'])).rejects.toThrow('built from other native sources');
         expect(mocks.spawn).not.toHaveBeenCalled();
     });
 });

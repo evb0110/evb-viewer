@@ -18,7 +18,7 @@ import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
     terminateDetachedChildProcess: vi.fn(async (_proc: unknown, _graceMs: number): Promise<boolean> => false),
-    verifyNativeToolProtocol: vi.fn(async () => {}),
+    assertNativeToolBuild: vi.fn(async () => {}),
 }));
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
@@ -26,7 +26,7 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({verifyNativeToolProtocol: mocks.verifyNativeToolProtocol}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({assertNativeToolBuild: mocks.assertNativeToolBuild}));
 
 class MockSidecarProcess extends EventEmitter {
     readonly stdout = new PassThrough();

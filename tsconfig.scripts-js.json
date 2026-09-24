@@ -18,7 +18,6 @@
         "scripts/afterPack.cjs",
         "scripts/afterSign.cjs",
         "scripts/architecture/formatComparisonRule.mjs",
-        "scripts/assert-electron-native-page-ops.mjs",
         "scripts/benchmark-native-release-profiles.mjs",
         "scripts/benchmark-save-pipeline.mjs",
         "scripts/benchmark-targeted-pdf-validation-rss.mjs",

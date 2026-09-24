@@ -45,8 +45,10 @@ saves, and multi-gigabyte files, and that half is already native.
 ## Native crates
 
 They are separate processes, not linked modules. Electron spawns them as CLI
-sidecars and exchanges JSON envelopes over a versioned protocol, with a
-handshake that refuses a binary older than the minimum the app expects. Two of
+sidecars and exchanges JSON envelopes. The binaries ship with the app they were
+built with, so there is no version negotiation: every binary carries a build ID
+(a hash of the sources it links, from `scripts/native-build-id.mjs`), and a
+development build refuses a binary whose ID differs from its own. Two of
 them also build to WebAssembly so the browser workspace can do the same work
 without a desktop install.
 
@@ -59,8 +61,8 @@ without a desktop install.
 | `scan-primitives` | Deterministic image and geometry types shared by the imaging crates | ~4.5k lines |
 | `pdf-search` | A persistent search sidecar over a streamed index file, with Unicode casefolding | ~3.4k lines |
 | `evb-raster-io` | PNG encode and decode with explicit decode limits and DPI metadata | ~2.5k lines |
-| `evb-native-support` | Shared error envelopes, bounded readers, and the generated protocol tables | ~2.1k lines |
-| `protocol-fixtures` | Golden JSON fixtures pinning cross-version protocol compatibility | fixtures only |
+| `evb-native-support` | Shared CLI entry, error envelopes, and bounded readers | ~2k lines |
+| `protocol-fixtures` | Golden JSON fixtures both the Rust and TS decoders read | fixtures only |
 
 The sandbox boundary is deliberate: the sidecar receives its allowed path root
 in argv rather than in the manifest it is processing, so a manifest cannot widen

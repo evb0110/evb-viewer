@@ -26,22 +26,15 @@ async function createServiceDirectory() {
     return directory;
 }
 
-async function createWrongProtocolService() {
+async function createInvalidFrameService() {
     const directory = await createServiceDirectory();
-    const markerPath = join(directory, 'starts.txt');
     const executablePath = join(directory, 'evb-pdf-search');
     await writeFile(executablePath, `#!/usr/bin/env node
-const fs = require('node:fs');
-fs.appendFileSync(${JSON.stringify(markerPath)}, 'started\\n');
-process.stderr.write('x'.repeat(70 * 1024) + ' diagnostic-tail\\n');
-setTimeout(() => process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 99}) + '\\n'), 20);
+setTimeout(() => process.stdout.write(JSON.stringify({type: 7}) + '\\n'), 20);
 process.stdin.resume();
 `, 'utf8');
     await chmod(executablePath, 0o755);
-    return {
-        executablePath,
-        markerPath,
-    };
+    return {executablePath};
 }
 
 async function createSearchService(source: string) {
@@ -74,26 +67,9 @@ describe('persistent native search service', () => {
         })));
     });
 
-    it('rejects a mismatched daemon protocol immediately, retains bounded stderr, and evicts the daemon', async () => {
-        vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
-        const {
-            executablePath,
-            markerPath,
-        } = await createWrongProtocolService();
-        const {tryRunPersistentNativeSearch} = await import('@electron/features/search/tryRunPersistentNativeSearch');
-        const startedAt = Date.now();
-        await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000}))
-            .rejects.toThrow(/protocol mismatch: expected 1, got 99; \[native stderr truncated to 65536 bytes\] native stderr: .*diagnostic-tail/u);
-        expect(Date.now() - startedAt).toBeLessThan(4_500);
-
-        await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000}))
-            .rejects.toThrow('protocol mismatch: expected 1, got 99');
-        expect((await readFile(markerPath, 'utf8')).trim().split('\n')).toHaveLength(2);
-    });
-
     it('awaits and reports spontaneous daemon cleanup already in flight', async () => {
         vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
-        const {executablePath} = await createWrongProtocolService();
+        const {executablePath} = await createInvalidFrameService();
         const {
             persistentNativeSearchRuntime,
             shutdownPersistentNativeSearchServices,
@@ -115,7 +91,7 @@ describe('persistent native search service', () => {
             return false;
         });
         await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000}))
-            .rejects.toThrow('protocol mismatch');
+            .rejects.toThrow('emitted an invalid frame');
         await terminationStarted;
         const shutdownPromise = shutdownPersistentNativeSearchServices('app shutdown');
         const settled = vi.fn();
@@ -130,7 +106,7 @@ describe('persistent native search service', () => {
 
     it('retains a spontaneous daemon cleanup failure until coordinated shutdown observes it', async () => {
         vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
-        const {executablePath} = await createWrongProtocolService();
+        const {executablePath} = await createInvalidFrameService();
         const {
             persistentNativeSearchRuntime,
             shutdownPersistentNativeSearchServices,
@@ -147,7 +123,7 @@ describe('persistent native search service', () => {
             return false;
         });
         await expect(tryRunPersistentNativeSearch(executablePath, request, {timeoutMs: 1_000}))
-            .rejects.toThrow('protocol mismatch');
+            .rejects.toThrow('emitted an invalid frame');
         await cleanupCompletion;
 
         await expect(shutdownPersistentNativeSearchServices('app shutdown'))
@@ -157,7 +133,7 @@ describe('persistent native search service', () => {
     it('honors cancellation while daemon startup is still pending', async () => {
         vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
         const executablePath = await createSearchService(`
-setTimeout(() => process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n'), 250);
+setTimeout(() => process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n'), 250);
 setTimeout(() => process.exit(0), 500);
 process.stdin.resume();
 `);
@@ -175,7 +151,7 @@ process.stdin.resume();
     it('settles a timed-out request even when the daemon has closed stdin', async () => {
         vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
         const executablePath = await createSearchService(`
-process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n');
 process.stdin.destroy();
 setTimeout(() => process.exit(0), 500);
 `);
@@ -189,7 +165,7 @@ setTimeout(() => process.exit(0), 500);
         vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
         const executablePath = await createSearchService(`
 const readline = require('node:readline');
-process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n');
 readline.createInterface({input: process.stdin}).on('line', line => {
     const frame = JSON.parse(line);
     if (frame.type === 'shutdown') process.exit(0);
@@ -218,7 +194,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const executablePath = await createSearchService(`
 const fs = require('node:fs');
 const readline = require('node:readline');
-process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n');
 readline.createInterface({input: process.stdin}).on('line', line => {
     const frame = JSON.parse(line);
     if (frame.type === 'shutdown') process.exit(0);
@@ -254,7 +230,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const executablePath = await createSearchService(`
 const fs = require('node:fs');
 const readline = require('node:readline');
-process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n');
 readline.createInterface({input: process.stdin}).on('line', line => {
     const frame = JSON.parse(line);
     if (frame.type === 'search') {
@@ -285,7 +261,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
         const executablePath = await createSearchService(`
 const readline = require('node:readline');
-process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n');
 readline.createInterface({input: process.stdin}).on('line', line => {
     const frame = JSON.parse(line);
     if (frame.type === 'shutdown') process.exit(0);
@@ -313,7 +289,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const executablePath = await createSearchService(`
 const fs = require('node:fs');
 const readline = require('node:readline');
-process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n');
 readline.createInterface({input: process.stdin}).on('line', line => {
     const frame = JSON.parse(line);
     if (frame.type === 'search') {
@@ -351,7 +327,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         vi.stubEnv('EVB_PDF_SEARCH_SERVICE_ENABLE', '1');
         const executablePath = await createSearchService(`
 const readline = require('node:readline');
-process.stdout.write(JSON.stringify({type: 'ready', protocolVersion: 1}) + '\\n');
+process.stdout.write(JSON.stringify({type: 'ready'}) + '\\n');
 readline.createInterface({input: process.stdin}).on('line', line => {
     const frame = JSON.parse(line);
     if (frame.type === 'search') {

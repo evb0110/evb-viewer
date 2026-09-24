@@ -576,7 +576,7 @@ export async function scanCleanupPreviewRenderer(
             allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
         });
         await fileSystem.writeFile(manifestPath, JSON.stringify(manifest));
-        const sidecarCapabilities = await dependencies.runSidecar(
+        await dependencies.runSidecar(
             binary,
             manifestPath,
             signal,
@@ -857,9 +857,7 @@ export async function scanCleanupPreviewRenderer(
                         warnings: [
                             ...[
                                 ...previewWarningEvents,
-                                ...(sidecarCapabilities?.structuredWarningEventsSupported === true
-                                    ? nativeMetadata.warningEvents ?? []
-                                    : []),
+                                ...nativeMetadata.warningEvents ?? [],
                             ].map(event => formatScanCleanupWarningEvent(event)),
                             ...describeScanCleanupNativeWarnings({warnings: nativeMetadata.warnings}),
                         ],

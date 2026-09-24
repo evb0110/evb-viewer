@@ -334,7 +334,7 @@ export function resolveScanCleanupCombineEnv(outputPageCount: number) {
     });
 }
 
-export async function runRasterProducerConsumer<TResult = void>({
+export async function runRasterProducerConsumer({
     signal,
     stream,
     createStreams,
@@ -346,13 +346,14 @@ export async function runRasterProducerConsumer<TResult = void>({
     stream: boolean;
     createStreams?: () => Promise<void>;
     produce: (signal: AbortSignal) => Promise<void>;
-    consume: (signal: AbortSignal) => Promise<TResult> | Promise<void>;
+    consume: (signal: AbortSignal) => Promise<void>;
     onProducerComplete: () => void;
 }) {
     if (!stream) {
         await produce(signal);
         onProducerComplete();
-        return consume(signal) as Promise<TResult | undefined>;
+        await consume(signal);
+        return;
     }
 
     if (createStreams === undefined) {
@@ -364,7 +365,7 @@ export async function runRasterProducerConsumer<TResult = void>({
         signal,
         abort.signal,
     ]);
-    const run = <T>(operation: (signal: AbortSignal) => Promise<T> | Promise<void>) => Promise.resolve(operation(operationSignal))
+    const run = (operation: (signal: AbortSignal) => Promise<void>) => operation(operationSignal)
         .catch((error: unknown) => {
             abort.abort(error);
             throw error;
@@ -381,10 +382,7 @@ export async function runRasterProducerConsumer<TResult = void>({
     try {
         await producer;
         onProducerComplete();
-        const [
-            , result,
-        ] = await combined;
-        return result as TResult | undefined;
+        await combined;
     } catch (error) {
         abort.abort(error);
         await Promise.allSettled([

@@ -22,8 +22,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": null,
-            "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
                 "tesseract"
@@ -125,8 +123,6 @@ const manifest = JSON.parse(String.raw`{
                     "!share/poppler/poppler-data.pc.in"
                 ]
             },
-            "protocolCapabilities": null,
-            "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
                 "poppler"
@@ -150,8 +146,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": null,
-            "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
                 "qpdf"
@@ -193,8 +187,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": null,
-            "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
                 "djvulibre"
@@ -221,8 +213,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": null,
-            "protocolVersion": null,
             "sourceRootSegments": [
                 ".tmp",
                 "pdf-print-dialog"
@@ -246,8 +236,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": null,
-            "protocolVersion": 4,
             "sourceRootSegments": [
                 ".tmp",
                 "pdf-image-combine"
@@ -271,10 +259,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": [
-                "incremental-page-rotation"
-            ],
-            "protocolVersion": 2,
             "sourceRootSegments": [
                 ".tmp",
                 "pdf-page-ops"
@@ -298,8 +282,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": null,
-            "protocolVersion": 1,
             "sourceRootSegments": [
                 ".tmp",
                 "pdf-search"
@@ -323,11 +305,6 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
-            "protocolCapabilities": [
-                "manifest-v3",
-                "structured-warning-events"
-            ],
-            "protocolVersion": 10,
             "sourceRootSegments": [
                 ".tmp",
                 "scan-cleanup"
@@ -433,7 +410,7 @@ const manifest = JSON.parse(String.raw`{
     }
 }`);
 /** @typedef {{id: string, label: string, pathSegments: string[], platforms?: string[], type: string}} TPackagedEntry */
-/** @typedef {{binaryName: string | null, id: string, label: string, packagedEntries: TPackagedEntry[], packageFiltersByPlatform?: Record<string, string[]>, protocolCapabilities: string[] | null, protocolVersion: number | null, sourceRootSegments: string[], stagedRootSegments: string[]}} TFamily */
+/** @typedef {{binaryName: string | null, id: string, label: string, packagedEntries: TPackagedEntry[], packageFiltersByPlatform?: Record<string, string[]>, sourceRootSegments: string[], stagedRootSegments: string[]}} TFamily */
 /** @typedef {{filters?: string[], id: string, label: string, requiredFiles?: string[], sourceSegments: string[], stagedSegments: string[], type: string}} TGlobalResource */
 /** @typedef {{entitlementsPathSegments: string[], executableRoots: unknown[][], platforms: string[]}} TSigning */
 /** @typedef {{electronBuilderPlatformKeys: Record<string, string>, families: TFamily[], globalResources: TGlobalResource[], platformArches: string[], schemaVersion: number, signing: TSigning}} TManifest */
@@ -475,7 +452,7 @@ function assertManifest(value) {
     if (!record(value.electronBuilderPlatformKeys) || Object.keys(value.electronBuilderPlatformKeys).length !== platforms.size || Object.entries(builderKeys).some(([platform, key]) => value.electronBuilderPlatformKeys[platform] !== key)) throw new Error('[release manifest] Invalid electronBuilderPlatformKeys');
     const familyIds = new Set(), entryIds = new Set(), familyRoots = new Set(); for (const family of value.families) {
         if (!record(family) || !string(family.id) || !string(family.label) || familyIds.has(family.id) || !paths(family.sourceRootSegments) || !paths(family.stagedRootSegments) || familyRoots.has(family.stagedRootSegments.join('/')) || !Array.isArray(family.packagedEntries) || family.packagedEntries.length === 0) throw new Error('[release manifest] Invalid family'); familyIds.add(family.id); familyRoots.add(family.stagedRootSegments.join('/'));
-        const hasBinary = string(family.binaryName); const protocolVersion = family.protocolVersion; const protocolCapabilities = family.protocolCapabilities; if (!(family.binaryName === null || hasBinary) || (hasBinary ? typeof protocolVersion !== 'number' || !Number.isSafeInteger(protocolVersion) || protocolVersion < 1 : protocolVersion !== null) || !(protocolCapabilities === null || strings(protocolCapabilities))) throw new Error('[release manifest] Invalid family protocol');
+        if (!(family.binaryName === null || string(family.binaryName))) throw new Error('[release manifest] Invalid family binary');
         if (family.packageFiltersByPlatform !== undefined && (!record(family.packageFiltersByPlatform) || Object.keys(family.packageFiltersByPlatform).length === 0 || Object.entries(family.packageFiltersByPlatform).some(([platform, filters]) => !platforms.has(platform) || !strings(filters)))) throw new Error('[release manifest] Invalid package filters');
         for (const entry of family.packagedEntries) {
             if (!record(entry) || !string(entry.id) || !string(entry.label) || entryIds.has(entry.id) || !paths(entry.pathSegments) || !resourceType(entry.type)) throw new Error('[release manifest] Invalid packaged entry'); entryIds.add(entry.id);

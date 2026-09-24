@@ -1,6 +1,5 @@
 use evb_native_support::{
-    bounded_io::read_open_file_bounded, generated_native_tool_protocols::PDF_SEARCH, NativeError,
-    NativeErrorCode, NativeErrorEnvelope,
+    bounded_io::read_open_file_bounded, NativeError, NativeErrorCode, NativeErrorEnvelope,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -1484,10 +1483,7 @@ fn default_context_chars() -> usize {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 enum ServiceResponse<'a> {
-    Ready {
-        #[serde(rename = "protocolVersion")]
-        protocol_version: u32,
-    },
+    Ready,
     Result {
         #[serde(rename = "requestId")]
         request_id: &'a str,
@@ -1652,12 +1648,7 @@ fn run_service() -> Result<(), Box<dyn Error>> {
     let cache: ServiceIndexCache = Arc::new(Mutex::new(ServiceIndexCacheState::default()));
     let cancellations: ServiceCancellationMap = Arc::new(Mutex::new(HashMap::new()));
     let output = Arc::new(Mutex::new(io::stdout()));
-    write_service_response(
-        &output,
-        &ServiceResponse::Ready {
-            protocol_version: PDF_SEARCH.protocol_version,
-        },
-    )?;
+    write_service_response(&output, &ServiceResponse::Ready)?;
     let mut workers: Vec<thread::JoinHandle<()>> = Vec::new();
 
     let mut input = BufReader::new(io::stdin());
@@ -1872,8 +1863,9 @@ fn run_cli(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn Error>>
 
 fn main() {
     evb_native_support::run_native_cli(
-        PDF_SEARCH,
+        "evb-pdf-search",
         env!("CARGO_PKG_VERSION"),
+        option_env!("EVB_NATIVE_BUILD_ID"),
         env::args().skip(1),
         |args| run_cli(args.into_iter()),
     );

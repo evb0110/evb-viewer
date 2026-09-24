@@ -967,7 +967,6 @@ describe('release policy', () => {
             'scripts/ci/classify-changed-areas.mjs',
             'scripts/generateBuildArtifacts.ts',
             'scripts/generateElectronBuilderResources.ts',
-            'scripts/generateNativeToolProtocols.ts',
             'scripts/nativeResourceManifest.ts',
             'scripts/nativeResourceManifestCli.ts',
             'scripts/release/**',

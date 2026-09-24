@@ -10,9 +10,8 @@ import { join } from 'node:path';
 import { getCliErrorMessage } from '../lib/cli-error.mjs';
 
 // A packaged sidecar that is merely stale reports the same identity as a fresh
-// one: the batch manifest stays v3 across schema-additive protocol changes,
-// while the runtime `--protocol-version` advances as strict parser fields are
-// added, and the crate version is not bumped per change. A same-version stale
+// one: the batch manifest stays v3 across schema-additive changes and the
+// crate version is not bumped per change. A same-version stale
 // binary can therefore still evade version probes. This smoke runs the
 // packaged binary on a synthesized spread and reads the fields back out of the
 // metadata it writes.

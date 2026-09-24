@@ -1,36 +1,8 @@
 import releaseTargetManifest from './generated-release-targets.cjs';
 
-/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[], requiredOutputTokens?: string[], requiredOutputPattern?: RegExp}} IToolSmokePolicy */
+/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[], requiredOutputPattern?: RegExp}} IToolSmokePolicy */
 
 export const RELEASE_TARGET_MANIFEST = releaseTargetManifest.manifest;
-
-const protocolVersionByBinaryName = new Map(
-    RELEASE_TARGET_MANIFEST.families
-        .flatMap(family => family.binaryName !== null && family.protocolVersion !== null
-            ? [[
-                family.binaryName,
-                family.protocolVersion,
-            ]]
-            : []),
-);
-
-/** @param {string} binaryName @returns {number} */
-function getGeneratedProtocolVersion(binaryName) {
-    const protocolVersion = protocolVersionByBinaryName.get(binaryName);
-    if (protocolVersion === undefined) {
-        throw new Error(`Missing generated native tool protocol for "${binaryName}"`);
-    }
-    return protocolVersion;
-}
-
-/** @param {string} binaryName @returns {string[]} */
-function getGeneratedProtocolCapabilities(binaryName) {
-    const family = RELEASE_TARGET_MANIFEST.families.find(item => item.binaryName === binaryName);
-    if (family?.protocolCapabilities === null || family?.protocolCapabilities === undefined) {
-        throw new Error(`Missing generated native tool capabilities for "${binaryName}"`);
-    }
-    return family.protocolCapabilities;
-}
 
 // One exit-code and output-signature policy for every host that can execute the
 // packaged tools it verifies: macOS arm64, linux-x64, linux-arm64, win-x64, and
@@ -44,10 +16,6 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
     'evb-pdf-image-combine': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-pdf-image-combine'],
-    },
-    'evb-pdf-image-combine-protocol': {
-        allowedExitCodes: new Set([0]),
-        expectedOutputTokens: [String(getGeneratedProtocolVersion('evb-pdf-image-combine'))],
     },
     'evb-pdf-image-combine-compact-manifest': {
         allowedExitCodes: new Set([1]),
@@ -64,15 +32,6 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
     'evb-scan-cleanup': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-scan-cleanup'],
-    },
-    'evb-scan-cleanup-protocol': {
-        allowedExitCodes: new Set([0]),
-        expectedOutputTokens: [String(getGeneratedProtocolVersion('evb-scan-cleanup'))],
-        requiredOutputTokens: [
-            `"protocolVersion":${String(getGeneratedProtocolVersion('evb-scan-cleanup'))}`,
-            '"capabilities"',
-            ...getGeneratedProtocolCapabilities('evb-scan-cleanup').map(capability => `"${capability}"`),
-        ],
     },
     ddjvu: {
         allowedExitCodes: new Set([
@@ -172,12 +131,5 @@ export function assertPackagedToolSmoke(toolName, exitCode, output) {
         throw new Error(
             `Packaged tool smoke test output for ${toolName} did not report a supported version`,
         );
-    }
-    for (const token of policy.requiredOutputTokens ?? []) {
-        if (!normalizedOutput.includes(token.toLowerCase())) {
-            throw new Error(
-                `Packaged tool smoke test output for ${toolName} did not contain required token ${token}`,
-            );
-        }
     }
 }

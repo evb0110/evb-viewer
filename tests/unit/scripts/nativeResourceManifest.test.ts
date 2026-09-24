@@ -3,7 +3,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
 import { formatNativeSourceMatrixCliEntry } from '@scripts/nativeResourceManifestCli';
 import {
     GENERATED_NATIVE_TOOL_RESOURCES,
@@ -90,14 +89,6 @@ describe('native resource manifest', () => {
 
     it('keeps generated native tools attached to package resource families', () => {
         const familyIds = new Set(NATIVE_TOOL_RESOURCE_FAMILIES.map(family => family.id));
-        const contractResourceRows = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
-            binaryName: tool.binaryName,
-            crateName: tool.crateName,
-            familyId: tool.resourceFamilyId,
-            stagingName: tool.stagingName,
-        }));
-
-        expect(GENERATED_NATIVE_TOOL_RESOURCES).toEqual(contractResourceRows);
         expect(GENERATED_NATIVE_TOOL_RESOURCES.map(tool => tool.familyId)).toEqual([
             'pdf-image-combine',
             'pdf-page-ops',

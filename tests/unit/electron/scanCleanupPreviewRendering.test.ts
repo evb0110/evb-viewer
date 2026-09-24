@@ -1998,75 +1998,66 @@ export async function scenarioMeasuresUnderTheDocumentRatherThanUnderTheRequestT
 
 export async function scenarioCarriesAPageTheEngineFittedBelowTheDocumentScaleAcrossTheBridge(): Promise<void> {
 
-    for (const structuredWarningEventsSupported of [
-        true,
-        false,
-    ]) {
-        const {deps} = await previewDependencies();
-        const originalSidecar = deps.runSidecar;
-        deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
-            await originalSidecar(binary, manifestPath, signal, log, onProgress);
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{outputs: Array<{metadataPath: string}>}>};
-            const output = manifest.pages[0]!.outputs[0]!;
-            const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
-            await writeFile(output.metadataPath, JSON.stringify({
-                ...metadata,
-                outputWidthPx: 252,
-                outputHeightPx: 232,
-                canvasWidthPx: 200,
-                canvasHeightPx: 180,
-                canvasPolicy: 'strict-maximum',
-                canvasOverflow: true,
-                matchedCanvasTargetWidthPx: 200,
-                matchedCanvasTargetHeightPx: 180,
-                matchedCanvasTargetWidthPoints: 96,
-                matchedCanvasTargetHeightPoints: 86.4,
-                matchedCanvasContentWidthPx: 196,
-                matchedCanvasContentHeightPx: 180,
-                placementOffsetXPx: 2,
-                placementOffsetYPx: 0,
-                warnings: [],
-                warningEvents: [{
-                    code: 'matched-canvas-content-fitted',
-                    unit: 'px',
-                    contentWidth: 196,
-                    contentHeight: 180,
-                    innerWidth: 196,
-                    innerHeight: 180,
-                    documentCanvasWidth: 200,
-                    documentCanvasHeight: 180,
-                }],
-            }));
-            return {structuredWarningEventsSupported};
-        });
-
-        const result = await previewOf(createRenderingScenarioOwner(deps), sender(), request);
-
-        // The page arrives whole, with the native sentence only when the
-        // sidecar negotiated the structured warning capability.
-        expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [{metadata: {
+    const {deps} = await previewDependencies();
+    const originalSidecar = deps.runSidecar;
+    deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
+        await originalSidecar(binary, manifestPath, signal, log, onProgress);
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{outputs: Array<{metadataPath: string}>}>};
+        const output = manifest.pages[0]!.outputs[0]!;
+        const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
+        await writeFile(output.metadataPath, JSON.stringify({
+            ...metadata,
             outputWidthPx: 252,
             outputHeightPx: 232,
             canvasWidthPx: 200,
             canvasHeightPx: 180,
+            canvasPolicy: 'strict-maximum',
+            canvasOverflow: true,
+            matchedCanvasTargetWidthPx: 200,
+            matchedCanvasTargetHeightPx: 180,
+            matchedCanvasTargetWidthPoints: 96,
+            matchedCanvasTargetHeightPoints: 86.4,
             matchedCanvasContentWidthPx: 196,
             matchedCanvasContentHeightPx: 180,
             placementOffsetXPx: 2,
-            canvasOverflow: true,
-            warnings: structuredWarningEventsSupported
-                ? [formatScanCleanupWarningEvent({
-                    code: 'matched-canvas-content-fitted',
-                    unit: 'px',
-                    contentWidth: 196,
-                    contentHeight: 180,
-                    innerWidth: 196,
-                    innerHeight: 180,
-                    documentCanvasWidth: 200,
-                    documentCanvasHeight: 180,
-                })]
-                : [],
-        }}]});
-    }
+            placementOffsetYPx: 0,
+            warnings: [],
+            warningEvents: [{
+                code: 'matched-canvas-content-fitted',
+                unit: 'px',
+                contentWidth: 196,
+                contentHeight: 180,
+                innerWidth: 196,
+                innerHeight: 180,
+                documentCanvasWidth: 200,
+                documentCanvasHeight: 180,
+            }],
+        }));
+    });
+
+    const result = await previewOf(createRenderingScenarioOwner(deps), sender(), request);
+
+    // The page arrives whole, with the native sentence.
+    expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [{metadata: {
+        outputWidthPx: 252,
+        outputHeightPx: 232,
+        canvasWidthPx: 200,
+        canvasHeightPx: 180,
+        matchedCanvasContentWidthPx: 196,
+        matchedCanvasContentHeightPx: 180,
+        placementOffsetXPx: 2,
+        canvasOverflow: true,
+        warnings: [formatScanCleanupWarningEvent({
+            code: 'matched-canvas-content-fitted',
+            unit: 'px',
+            contentWidth: 196,
+            contentHeight: 180,
+            innerWidth: 196,
+            innerHeight: 180,
+            documentCanvasWidth: 200,
+            documentCanvasHeight: 180,
+        })],
+    }}]});
 
 }
 

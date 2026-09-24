@@ -5511,7 +5511,6 @@ describe('scan cleanup pipeline', () => {
                         ...metadataByPage(page.sourcePageIndex + 1),
                     }));
                 }
-                return {structuredWarningEventsSupported: true};
             },
         );
         const pipelineDependencies = dependencies(runSidecar);

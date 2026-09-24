@@ -58,7 +58,6 @@ import {
     shutdownDjvuConversions,
     pruneStaleDjvuArtifactJobs,
 } from '@electron/features/djvu/public';
-import { warmNativeToolProtocolHandshakes } from '@electron/native-tools/warmNativeToolProtocolHandshakes';
 import { shutdownLocalMcpServer } from '@electron/features/agent/mcpServer';
 import { syncAgentMcpServerWithSettings } from '@electron/features/agent/codexMcpIntegration';
 import {
@@ -835,7 +834,6 @@ void runInitSequence({
     sweepStaleScanCleanupScratchDirs: () => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,
-    warmNativeToolProtocolHandshakes,
 })
     .then(() => syncAgentMcpServerWithSettings())
     .catch((error) => {

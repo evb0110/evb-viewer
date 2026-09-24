@@ -10,7 +10,6 @@ use std::{
 
 use evb_native_support::{
     bounded_io::{deserialize_bounded_vec, read_file_bounded},
-    generated_native_tool_protocols::PDF_IMAGE_COMBINE,
     output::{AtomicOutput, ValidatedInputFiles},
     pdf_catalog::deserialize_bounded_bookmark_items,
     NativeError, NativeErrorCode, MAX_WORKER_THREADS,
@@ -58,8 +57,9 @@ enum OutputFormat {
 
 fn main() {
     evb_native_support::run_native_cli(
-        PDF_IMAGE_COMBINE,
+        "evb-pdf-image-combine",
         env!("CARGO_PKG_VERSION"),
+        option_env!("EVB_NATIVE_BUILD_ID"),
         env::args().skip(1),
         run,
     );

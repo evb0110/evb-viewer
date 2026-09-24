@@ -1,9 +1,4 @@
 import path from 'node:path';
-import {
-    GENERATED_RUST_NATIVE_TOOL_PROTOCOLS,
-    type IGeneratedRustNativeToolCapability,
-    type IGeneratedRustNativeToolProtocol,
-} from '@contracts/nativeToolProtocols';
 import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
 import {TESSERACT_PDF_FONT_FILE_NAME} from '@scripts/tesseractPdfFont';
 
@@ -104,12 +99,27 @@ export const NATIVE_RESOURCE_PLATFORM_ARCHES = [
     'win32-arm64',
 ] as const satisfies readonly TNativeResourcePlatformArch[];
 
-const GENERATED_NATIVE_TOOL_FAMILY_LABELS: Record<TGeneratedNativeToolResourceFamilyId, string> = {
-    'pdf-image-combine': 'PDF image combine native tool',
-    'pdf-page-ops': 'PDF page ops native tool',
-    'pdf-search': 'PDF search native tool',
-    'scan-cleanup': 'Scan cleanup native tool',
-};
+const NATIVE_TOOLS = [
+    {
+        crateName: 'pdf-image-combine',
+        label: 'PDF image combine native tool',
+    },
+    {
+        crateName: 'pdf-page-ops',
+        label: 'PDF page ops native tool',
+    },
+    {
+        crateName: 'pdf-search',
+        label: 'PDF search native tool',
+    },
+    {
+        crateName: 'scan-cleanup',
+        label: 'Scan cleanup native tool',
+    },
+] as const satisfies ReadonlyArray<{
+    crateName: TGeneratedNativeToolResourceFamilyId;
+    label: string
+}>;
 
 function packagedBinary(
     id: string,
@@ -241,15 +251,15 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
         ],
         stagedRootSegments: ['pdf-print-dialog'],
     },
-    ...GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
-        id: tool.resourceFamilyId,
-        label: GENERATED_NATIVE_TOOL_FAMILY_LABELS[tool.resourceFamilyId],
-        packagedEntries: [packagedBinary(tool.binaryName)],
+    ...NATIVE_TOOLS.map(tool => ({
+        id: tool.crateName,
+        label: tool.label,
+        packagedEntries: [packagedBinary(`evb-${tool.crateName}`)],
         sourceRootSegments: [
             '.tmp',
-            tool.stagingName,
+            tool.crateName,
         ],
-        stagedRootSegments: [tool.stagingName],
+        stagedRootSegments: [tool.crateName],
     })),
 ] as const;
 
@@ -292,11 +302,11 @@ export const GLOBAL_PACKAGED_RESOURCES: readonly IGlobalPackagedResource[] = [
     },
 ] as const;
 
-export const GENERATED_NATIVE_TOOL_RESOURCES = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
-    binaryName: tool.binaryName,
+export const GENERATED_NATIVE_TOOL_RESOURCES = NATIVE_TOOLS.map(tool => ({
+    binaryName: `evb-${tool.crateName}`,
     crateName: tool.crateName,
-    familyId: tool.resourceFamilyId,
-    stagingName: tool.stagingName,
+    familyId: tool.crateName,
+    stagingName: tool.crateName,
 })) satisfies readonly IGeneratedNativeToolResource[];
 
 export function getGeneratedNativeToolResource(toolId: string) {
@@ -309,9 +319,7 @@ export function getGeneratedNativeToolResource(toolId: string) {
 
 export function getPackagedNativeToolFamilies() {
     return NATIVE_TOOL_RESOURCE_FAMILIES.map((family) => {
-        const generated = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.find(
-            (tool: IGeneratedRustNativeToolProtocol) => tool.resourceFamilyId === family.id,
-        );
+        const generated = GENERATED_NATIVE_TOOL_RESOURCES.find(tool => tool.familyId === family.id);
         return {
             binaryName: generated?.binaryName ?? null,
             id: family.id,
@@ -320,10 +328,6 @@ export function getPackagedNativeToolFamilies() {
             ...('packageFiltersByPlatform' in family
                 ? {packageFiltersByPlatform: family.packageFiltersByPlatform}
                 : {}),
-            protocolCapabilities: generated && 'capabilities' in generated
-                ? generated.capabilities.map((capability: IGeneratedRustNativeToolCapability) => capability.name)
-                : null,
-            protocolVersion: generated?.protocolVersion ?? null,
             sourceRootSegments: family.sourceRootSegments,
             stagedRootSegments: family.stagedRootSegments,
         };

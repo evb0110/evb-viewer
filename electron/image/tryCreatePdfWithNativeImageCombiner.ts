@@ -15,7 +15,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import { verifyNativeToolProtocol } from '@electron/native-tools/runNativeToolCommand';
+import { assertNativeToolBuild } from '@electron/native-tools/runNativeToolCommand';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
@@ -699,10 +699,7 @@ async function runNativePdfImageCombine(
         ...(maxPages ? {EVB_PDF_COMBINE_MAX_PAGES: maxPages} : {}),
     };
 
-    await verifyNativeToolProtocol(binaryPath, {
-        env,
-        ...(options?.signal ? { signal: options.signal } : {}),
-    });
+    await assertNativeToolBuild(binaryPath);
     if (options?.signal?.aborted) {
         throw abortErrorFromSignal(options.signal);
     }

@@ -481,9 +481,8 @@ run_host_packaged_tool_smoke() {
   rm -f "$output_file"
 }
 
-# Version and protocol numbers are schema-additive-stable, so they cannot tell a
-# current sidecar from one built before the fields its consumers now read. This
-# runs the packaged binary over a synthesized spread and asserts the fold-clip
+# A version number cannot tell a current sidecar from one built before the
+# fields its consumers now read. This runs the packaged binary over a synthesized spread and asserts the fold-clip
 # terms come back in the metadata it writes.
 run_packaged_scan_cleanup_fold_clip_smoke() {
   local tool_path="$1"
@@ -554,12 +553,10 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "pdftotext" "$(packaged_entry_path pdftotext)" -v
   run_macos_packaged_tool_smoke "pdf-print-dialog" "$(packaged_entry_path pdf-print-dialog)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$(packaged_entry_path evb-pdf-image-combine)" --version
-  run_macos_packaged_tool_smoke "evb-pdf-image-combine-protocol" "$(packaged_entry_path evb-pdf-image-combine)" --protocol-version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$(packaged_entry_path evb-pdf-image-combine)" --compact-manifest
   run_macos_packaged_tool_smoke "evb-pdf-page-ops" "$(packaged_entry_path evb-pdf-page-ops)" --version
   run_macos_packaged_tool_smoke "evb-pdf-search" "$(packaged_entry_path evb-pdf-search)" --version
   run_macos_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
-  run_macos_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
   if is_macos_app_adhoc_signed "$mac_app_path"; then
     echo "Named gap: skipping the packaged sidecar fold-clip smoke for $platform_arch; an ad-hoc signed app is killed by provenance policy when run in place, and this smoke needs the packaged binary to write its own outputs."
   else
@@ -598,7 +595,6 @@ if [ "$platform" = "linux" ]; then
   if host_can_execute_target "$platform" "$arch"; then
     run_host_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
     run_host_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
-    run_host_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
     run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
   else
     echo "Named gap: no packaged-binary execution evidence for $platform_arch; host $(uname -s)/$(uname -m) cannot execute the target. Evidence for this leg is limited to the static ELF dependency checks above."
@@ -627,7 +623,6 @@ if [ "$platform" = "win" ]; then
   if host_can_execute_target "$platform" "$arch"; then
     run_host_packaged_tool_smoke "tesseract" "$(packaged_entry_path tesseract)" --version
     run_host_packaged_tool_smoke "evb-scan-cleanup" "$(packaged_entry_path evb-scan-cleanup)" --version
-    run_host_packaged_tool_smoke "evb-scan-cleanup-protocol" "$(packaged_entry_path evb-scan-cleanup)" --protocol-version
     run_packaged_scan_cleanup_fold_clip_smoke "$(packaged_entry_path evb-scan-cleanup)"
   else
     echo "Named gap: no packaged-binary execution evidence for $platform_arch; host $(uname -s)/$(uname -m) cannot execute the target. The release workflow uses windows-11-arm for this lane; this fallback is retained for cross-host invocations. Evidence for this invocation is limited to the static PE machine, dependency, and tesseract payload checks above."

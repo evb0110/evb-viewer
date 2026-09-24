@@ -21,6 +21,7 @@ import {
     readValidCargoBuildReceipt,
     writeCargoBuildReceipt,
 } from './cargo-artifacts.mjs';
+import { computeNativeBuildId } from './native-build-id.mjs';
 import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -248,13 +249,6 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         return;
     }
 
-    if (process.env.EVB_BUILD_ARTIFACTS_PREPARED !== '1') {
-        const { generateNativeToolProtocols } = await tsImport(
-            './generateNativeToolProtocols.ts',
-            import.meta.url,
-        );
-        await generateNativeToolProtocols();
-    }
     const cargoEnvironment = getCargoBuildEnvironment();
     const metadataArgs = [
         'metadata',
@@ -345,12 +339,15 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
     }
 
     console.log(
-        `Building ${missingPlans.length} native tool(s) with shared protocol/metadata preparation; sccache ${cargoEnvironment.sccache}.`,
+        `Building ${missingPlans.length} native tool(s) with shared metadata preparation; sccache ${cargoEnvironment.sccache}.`,
     );
     for (const plan of missingPlans) {
         const result = spawnSync('cargo', plan.cargoArgs, {
             cwd: projectRoot,
-            env: cargoEnvironment.env,
+            env: {
+                ...cargoEnvironment.env,
+                EVB_NATIVE_BUILD_ID: computeNativeBuildId(projectRoot, plan.tool.crateName),
+            },
             stdio: 'inherit',
         });
         if (result.status !== 0) {

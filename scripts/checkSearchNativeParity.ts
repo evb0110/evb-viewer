@@ -11,7 +11,6 @@ import {
     join,
     resolve,
 } from 'node:path';
-import {SEARCH_NATIVE_PROTOCOL_VERSION} from '@contracts/nativeToolProtocols';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
@@ -52,7 +51,6 @@ function runBinary(args: string[]) {
 }
 
 async function main() {
-    assert.equal(runBinary(['--protocol-version']).trim(), String(SEARCH_NATIVE_PROTOCOL_VERSION));
     const corpus = JSON.parse(await readFile(
         join(root, 'packages/contracts/searchConformanceCorpus.json'),
         'utf8',

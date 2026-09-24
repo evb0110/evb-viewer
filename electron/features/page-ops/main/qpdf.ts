@@ -633,8 +633,6 @@ export async function movePageRanges(
 
 export type TRotationAngle = 90 | 180 | 270;
 
-const INCREMENTAL_PAGE_ROTATION_CAPABILITY = 'incremental-page-rotation';
-
 function createNativeModifiedAt() {
     const date = new Date();
     const pad = (value: number, length = 2) => String(value).padStart(length, '0');
@@ -692,7 +690,6 @@ export async function rotatePagesIncremental(
         ], {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: 'evb-pdf-page-ops(incremental-page-rotation)',
-            requiredCapabilities: [INCREMENTAL_PAGE_ROTATION_CAPABILITY],
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
         });
