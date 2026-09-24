@@ -46,36 +46,45 @@ export function readElectronWindowMetrics(page: Page) {
 
 /**
  * Resizes the real window so its content area becomes `contentSize`, then
- * waits until the renderer reports that size. The native frame is measured
- * first, because the resize request names the whole window.
+ * waits until the renderer reports that size. The resize request names the
+ * whole window, so it adds the frame the window has at that moment.
  */
 export async function resizeElectronWindowContentArea(
     page: Page,
     contentSize: IElectronWindowSize,
     settleTimeoutMs: number,
 ): Promise<IResizeElectronWindowResult> {
-    const before = await readElectronWindowMetrics(page);
-    await page.evaluate((requested: IElectronWindowSize) => {
+    const requestContentSize = () => page.evaluate((requested: IElectronWindowSize) => {
         const frameWidth = window.outerWidth - window.innerWidth;
         const frameHeight = window.outerHeight - window.innerHeight;
         window.resizeTo(requested.width + frameWidth, requested.height + frameHeight);
     }, contentSize);
+    const hasContentSize = (metrics: IElectronWindowMetrics) => (
+        metrics.contentSize.width === contentSize.width && metrics.contentSize.height === contentSize.height
+    );
+
+    const before = await readElectronWindowMetrics(page);
+    await requestContentSize();
 
     const deadline = Date.now() + settleTimeoutMs;
     let after = await readElectronWindowMetrics(page);
-    while (
-        Date.now() < deadline
-        && (after.contentSize.width !== contentSize.width || after.contentSize.height !== contentSize.height)
-    ) {
+    while (Date.now() < deadline && !hasContentSize(after)) {
         await delay(SETTLE_POLL_INTERVAL_MS);
+        const previous = after;
         after = await readElectronWindowMetrics(page);
+        // A frame that changes after it was measured, as the Linux menu bar
+        // and decorations can early in a session, leaves the content area
+        // short by the difference. Once the window holds still at the wrong
+        // size, ask again with the frame it has now.
+        if (!hasContentSize(after) && JSON.stringify(after) === JSON.stringify(previous)) {
+            await requestContentSize();
+        }
     }
 
     return {
         requestedContentSize: contentSize,
         before,
         after,
-        settled: after.contentSize.width === contentSize.width
-            && after.contentSize.height === contentSize.height,
+        settled: hasContentSize(after),
     };
 }
