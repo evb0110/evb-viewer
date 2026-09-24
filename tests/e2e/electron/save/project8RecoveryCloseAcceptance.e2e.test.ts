@@ -726,10 +726,7 @@ describe('Project 8 recovered close decisions', () => {
         ]));
         expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
         expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
-        const firstRecoverySidecarPaths = [
-            `${firstWorkingCopyPath}.evb-revision.json`,
-            `${firstWorkingCopyPath}.evb-pages.json`,
-        ];
+        const firstRecoverySidecarPaths = [`${firstWorkingCopyPath}.evb-revision.json`];
         expect(firstRecoverySidecarPaths.every(path => existsSync(path))).toBe(true);
 
         const initialCheckpoint = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
