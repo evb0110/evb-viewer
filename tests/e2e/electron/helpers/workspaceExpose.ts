@@ -4,7 +4,6 @@ import type {
     TEvbAutomationEventType,
 } from '@app/types/evbAutomationEvents';
 import type { IEvbTestApi } from '@app/types/evbTestApi';
-import { isWorkspaceExposeSyncCommandName } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
@@ -432,13 +431,9 @@ export async function callWorkspaceCommand<TResult = unknown>(
         args: unknown[];
         commandName: string;
         searchOptions: IFindWorkspaceExposeOptions;
-        syncCommand: boolean;
     }): IWorkspaceCommandResult<TResult> | Promise<IWorkspaceCommandResult<TResult>> => {
         const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
         if (api) {
-            if (payload.syncCommand) {
-                return api.callActiveWorkspaceSyncCommand<TResult>(payload.commandName, payload.args);
-            }
             return api.callActiveWorkspaceCommand<TResult>(payload.commandName, payload.args);
         }
 
@@ -452,12 +447,6 @@ export async function callWorkspaceCommand<TResult = unknown>(
         }
 
         const value = (command as (...values: unknown[]) => unknown)(...payload.args);
-        if (payload.syncCommand) {
-            return {
-                called: true,
-                value: (value ?? null) as TResult | null,
-            };
-        }
         return Promise.resolve(value).then(resolvedValue => ({
             called: true,
             value: (resolvedValue ?? null) as TResult | null,
@@ -469,7 +458,6 @@ export async function callWorkspaceCommand<TResult = unknown>(
             ...options,
             requiredMethods: collectRequiredMethods(options, commandName),
         },
-        syncCommand: isWorkspaceExposeSyncCommandName(commandName),
     });
 }
 

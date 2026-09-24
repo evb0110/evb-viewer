@@ -27,30 +27,30 @@ export const useDocumentWorkspaceScanCleanupSurface = (
         initialViewState,
     } = options;
     const surface = useDocumentWorkspaceSurfaceMode({
-        initialScanCleanup: documentSession?.snapshot.value.viewState.scanCleanup
+        initialScanCleanup: documentSession?.viewState.value.scanCleanup
             ?? initialViewState?.scanCleanup
             ?? null,
-        initialSurfaceMode: documentSession?.snapshot.value.viewState.surfaceMode
+        initialSurfaceMode: documentSession?.viewState.value.surfaceMode
             ?? initialViewState?.surfaceMode
             ?? 'reader',
         applyViewState: documentSession
             ? updates => documentSession.applyViewState({
-                ...documentSession.snapshot.value.viewState,
+                ...documentSession.viewState.value,
                 ...updates,
             })
             : undefined,
         readScanCleanup: documentSession
-            ? () => documentSession.snapshot.value.viewState.scanCleanup ?? null
+            ? () => documentSession.viewState.value.scanCleanup ?? null
             : undefined,
         readSurfaceMode: documentSession
-            ? () => documentSession.snapshot.value.viewState.surfaceMode
+            ? () => documentSession.viewState.value.surfaceMode
             : undefined,
         clearScanCleanupViewState: documentSession
             ? () => {
                 const {
                     scanCleanup: _scanCleanup,
                     ...viewState
-                } = documentSession.snapshot.value.viewState;
+                } = documentSession.viewState.value;
                 documentSession.applyViewState(viewState);
             }
             : undefined,

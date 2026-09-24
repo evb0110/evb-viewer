@@ -1,23 +1,46 @@
 import type {Ref} from 'vue';
 import {guardAsync} from '@app/utils/asyncGuard';
-import {BrowserLogger} from '@app/utils/browserLogger';
 import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
-import {
-    invokeWorkspaceExposeCommand,
-    workspaceExposeToolbarCommandDescriptors,
-    WorkspaceExposeCommandUnavailableError,
-    type TWorkspaceExposeMethod,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+
+// Toolbar events the shell toolbar forwards to the active workspace while its
+// own toolbar is not mounted yet.
+const TOOLBAR_COMMANDS = {
+    'save': 'handleSave',
+    'repair-save': 'handleRepairSave',
+    'optimize-pdf-for-interaction': 'handleOptimizePdfForInteraction',
+    'save-as': 'handleSaveAs',
+    'print': 'handlePrint',
+    'print-current-page': 'handlePrintCurrentPage',
+    'undo': 'handleUndo',
+    'redo': 'handleRedo',
+    'export-docx': 'handleExportDocx',
+    'export-images': 'handleExportImages',
+    'export-multi-page-tiff': 'handleExportMultiPageTiff',
+    'fit-width': 'handleFitWidth',
+    'fit-height': 'handleFitHeight',
+    'go-to-page': 'handleGoToPage',
+    'toggle-sidebar': 'handleToggleSidebar',
+    'toggle-continuous-scroll': 'handleToggleContinuousScroll',
+    'enable-drag': 'handleEnableDragMode',
+    'disable-drag': 'handleDisableDragMode',
+    'capture-region': 'handleCaptureRegion',
+    'crop': 'handleCrop',
+    'quick-note': 'handleQuickNote',
+    'insert-image-from-file': 'handleInsertImageFromFile',
+    'paste-image-from-clipboard': 'handlePasteImageFromClipboard',
+    'delete-pages': 'handleDeletePages',
+    'extract-pages': 'handleExtractPages',
+    'rotate-cw': 'handleRotateCw',
+    'rotate-ccw': 'handleRotateCcw',
+    'insert-pages': 'handleInsertPages',
+    'convert-to-pdf': 'handleConvertToPdf',
+    'ocr-complete': 'handleOcrComplete',
+} as const satisfies Record<string, keyof IWorkspaceExpose>;
 
 export function createFallbackToolbarCommandListeners(activeWorkspace: Readonly<Ref<IWorkspaceExpose | null>>) {
-    function run(commandName: TWorkspaceExposeMethod, args: readonly unknown[] = []) {
-        const workspace = activeWorkspace.value;
-        if (!workspace) {
-            BrowserLogger.error('shell', 'Fallback workspace command unavailable', {error: new WorkspaceExposeCommandUnavailableError(commandName)}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-            return;
-        }
-
-        const result: unknown = invokeWorkspaceExposeCommand(workspace, commandName, args);
+    function run(commandName: string, args: readonly unknown[] = []) {
+        const command = (activeWorkspace.value as Record<string, ((...commandArgs: unknown[]) => unknown) | undefined> | null)?.[commandName];
+        const result = command?.(...args);
         if (result instanceof Promise) {
             guardAsync(result, {
                 category: 'user-visible-operation',
@@ -28,9 +51,12 @@ export function createFallbackToolbarCommandListeners(activeWorkspace: Readonly<
     }
 
     return {
-        listeners: Object.fromEntries(workspaceExposeToolbarCommandDescriptors.map(descriptor => [
-            descriptor.toolbar.eventName,
-            (...args: unknown[]) => run(descriptor.name, args),
+        listeners: Object.fromEntries(Object.entries(TOOLBAR_COMMANDS).map(([
+            eventName,
+            commandName,
+        ]) => [
+            eventName,
+            (...args: unknown[]) => run(commandName, args),
         ])),
         run,
     };

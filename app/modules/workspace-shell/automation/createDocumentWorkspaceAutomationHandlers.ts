@@ -10,7 +10,6 @@ interface IDocumentWorkspaceAutomationContext extends Record<string, unknown> {
 
 interface ICreateDocumentWorkspaceAutomationHandlersOptions {
     getContext: () => IDocumentWorkspaceAutomationContext;
-    handleInitialVisualReady: () => void;
     handleSave: () => Promise<boolean>;
 }
 
@@ -18,7 +17,6 @@ export function createDocumentWorkspaceAutomationHandlers(
     options: ICreateDocumentWorkspaceAutomationHandlersOptions,
 ) {
     function handleInitialVisualReady() {
-        options.handleInitialVisualReady();
         emitAutomationEvent('first-page-rendered', options.getContext());
     }
 

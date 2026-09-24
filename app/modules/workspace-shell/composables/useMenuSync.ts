@@ -5,7 +5,6 @@ import type {
     IWorkspaceShellState,
 } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
 import type { IApplicationMenuDocumentState } from '@contracts/electronApiDocuments';
 import type { Ref } from 'vue';
@@ -36,7 +35,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     let lastSyncedMenuTabCount: number | null = null;
 
     function syncMenuDocumentState() {
-        const toolbar = deps.activeDocumentRecord.value?.toolbarSnapshot;
+        const toolbar = deps.activeDocumentSession.value?.toolbarSnapshot.value;
         const capabilities = toolbar?.viewerCapabilities;
         const context = deps.menuContext?.value;
         const hasDocument = shellState.hasDocument.value;
@@ -132,10 +131,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         syncMenuTabCount();
     });
 
-    return {
-        shellState,
-        workspaceHasPdf,
-    };
+    return {shellState};
 };
 
 export const useAppShellMenuSync = (deps: IUseAppShellMenuSyncDeps) => {
@@ -152,8 +148,7 @@ export const useAppShellMenuSync = (deps: IUseAppShellMenuSyncDeps) => {
         };
     });
     return useMenuSync({
-        activeDocumentRecord: deps.activeDocumentRecord,
-        activeTabId: deps.activeTabId,
+        activeDocumentSession: deps.activeDocumentSession,
         tabs: deps.tabs,
         shellState: deps.shellState,
         menuContext,

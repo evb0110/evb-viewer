@@ -3,7 +3,8 @@ import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 import {
     effectScope,
     nextTick,
-    ref,
+    shallowRef,
+    triggerRef,
 } from 'vue';
 import {
     afterEach,
@@ -12,9 +13,13 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { ITab } from '@app/types/tabs';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import {
+    createWorkspaceDocumentController,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -23,25 +28,33 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 
 const scopes: Array<ReturnType<typeof effectScope>> = [];
 
-function createTab(id: string, fileName: string, documentInstanceId: string): ITab {
-    return {
-        id,
-        fileName,
-        originalPath: requireDocumentRef(`/documents/${fileName}`),
-        documentInstanceId: documentInstanceId as Exclude<ITab['documentInstanceId'], undefined>,
-        isDirty: true,
-        isDjvu: false,
-    };
+function createDirtyTab(id: string, fileName: string, documentInstanceId: string) {
+    return createWorkspaceDocumentController({
+        tabId: id,
+        assignment: {
+            fileName,
+            originalPath: requireDocumentRef(`/documents/${fileName}`),
+            documentInstanceId: requireDocumentInstanceId(documentInstanceId),
+            isDirty: true,
+            isDjvu: false,
+        },
+    });
 }
 
-function createHarness(initialTabs: ITab[]) {
-    const tabs = ref(initialTabs);
+function createHarness(initialTabs: IWorkspaceDocumentController[]) {
+    const sessions = shallowRef(new Map(initialTabs.map(session => [
+        session.tabId,
+        session,
+    ])));
     const scope = effectScope();
     scopes.push(scope);
-    const dialog = scope.run(() => useDirtyTabCloseDialog({tabs}))!;
+    const dialog = scope.run(() => useDirtyTabCloseDialog({getSession: tabId => sessions.value.get(tabId) ?? null}))!;
     return {
         dialog,
-        tabs,
+        removeTab(tabId: string) {
+            sessions.value.delete(tabId);
+            triggerRef(sessions);
+        },
     };
 }
 
@@ -52,125 +65,96 @@ afterEach(() => {
 });
 
 describe('useDirtyTabCloseDialog', () => {
-    it('resolves a tab close with the discard decision when confirmed', async () => {
-        const tabs = ref<ITab[]>([{
-            id: 'tab-1',
-            fileName: 'a.pdf',
-            originalPath: requireDocumentRef('/docs/a.pdf'),
-            isDirty: true,
-            isDjvu: false,
-        }]);
-        const dialog = useDirtyTabCloseDialog({tabs});
+    it('names the document and resolves with the chosen decision', async () => {
+        const {dialog} = createHarness([createDirtyTab('tab-1', 'a.pdf', 'generation-1')]);
 
-        const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('tab-1');
+        const discard = dialog.requestDirtyTabCloseConfirmation('tab-1');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(true);
         expect(dialog.dirtyTabCloseTargetName.value).toBe('a.pdf');
-
         dialog.resolveDirtyTabCloseDialog('discard');
-        await expect(confirmationPromise).resolves.toBe('discard');
+        await expect(discard).resolves.toBe('discard');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
+
+        const save = dialog.requestDirtyTabCloseConfirmation('tab-1');
+        dialog.resolveDirtyTabCloseDialog('save');
+        await expect(save).resolves.toBe('save');
     });
 
-    it('resolves a native window close with an explicit decision', async () => {
-        const target = createTab('target', 'Zaliznyak.pdf', 'generation-1');
+    it('keeps a native window close prompt open when tabs change underneath it', async () => {
         const {
             dialog,
-            tabs,
-        } = createHarness([target]);
+            removeTab,
+        } = createHarness([createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1')]);
 
         const decision = dialog.requestDirtyWindowCloseConfirmation();
-        expect(dialog.dirtyTabCloseDialogOpen.value).toBe(true);
         expect(dialog.dirtyTabCloseDialogMode.value).toBe('window');
-
-        tabs.value = [];
+        removeTab('target');
         await nextTick();
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(true);
 
         dialog.resolveDirtyTabCloseDialog('save');
         await expect(decision).resolves.toBe('save');
-        expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
-    it('falls back to new-tab label and resolves cancel on external close', async () => {
-        const tabs = ref([]);
-        const dialog = useDirtyTabCloseDialog({tabs});
+    it('cancels for a tab that does not exist', async () => {
+        const {dialog} = createHarness([]);
 
-        const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('missing-tab');
+        await expect(dialog.requestDirtyTabCloseConfirmation('missing-tab')).resolves.toBe('cancel');
         expect(dialog.dirtyTabCloseTargetName.value).toBe('tabs.newTab');
-        await expect(confirmationPromise).resolves.toBe('cancel');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
     it('settles a pending confirmation when its scope is disposed', async () => {
-        const tabs = ref([]);
+        const target = createDirtyTab('tab-1', 'a.pdf', 'generation-1');
         const scope = effectScope();
-        const dialog = scope.run(() => useDirtyTabCloseDialog({tabs}));
+        const dialog = scope.run(() => useDirtyTabCloseDialog({getSession: () => target}))!;
 
-        if (!dialog) {
-            throw new Error('Expected dialog composable to initialize in scope');
-        }
-
-        const confirmationPromise = dialog.requestDirtyTabCloseConfirmation('tab-1');
+        const confirmation = dialog.requestDirtyTabCloseConfirmation('tab-1');
         scope.stop();
 
-        await expect(confirmationPromise).resolves.toBe('cancel');
+        await expect(confirmation).resolves.toBe('cancel');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
-    it('keeps the requested name when the tab list is regenerated', async () => {
-        const target = createTab('target', 'Zaliznyak.pdf', 'generation-1');
-        const other = createTab('other', 'Other.pdf', 'generation-1');
-        const {
-            dialog,
-            tabs,
-        } = createHarness([
+    it('dismisses when the tab now holds another document', async () => {
+        const target = createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1');
+        const other = createDirtyTab('other', 'Other.pdf', 'generation-1');
+        const {dialog} = createHarness([
             target,
             other,
         ]);
 
-        const confirmation = dialog.requestDirtyTabCloseConfirmation(target.id);
-        expect(dialog.dirtyTabCloseTargetName.value).toBe('Zaliznyak.pdf');
-
-        tabs.value = [
-            createTab(target.id, 'Replacement.pdf', 'generation-2'),
-            other,
-        ];
-        expect(dialog.dirtyTabCloseTargetName.value).toBe('Zaliznyak.pdf');
+        const confirmation = dialog.requestDirtyTabCloseConfirmation(target.tabId);
+        target.assign({
+            fileName: 'Replacement.pdf',
+            originalPath: requireDocumentRef('/documents/Replacement.pdf'),
+            documentInstanceId: requireDocumentInstanceId('generation-2'),
+            isDirty: true,
+            isDjvu: false,
+        });
         await nextTick();
 
-        expect(dialog.dirtyTabCloseTargetName.value).not.toBe('tabs.newTab');
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
         await expect(confirmation).resolves.toBe('cancel');
-        expect(tabs.value.find(tab => tab.id === other.id)?.isDirty).toBe(true);
+        expect(other.snapshot.value.dirty).toBe(true);
     });
 
-    it('dismisses when the requested tab disappears without affecting another dirty tab', async () => {
-        const target = createTab('target', 'Zaliznyak.pdf', 'generation-1');
-        const other = createTab('other', 'Other.pdf', 'generation-1');
+    it('dismisses when the tab closes without affecting another dirty tab', async () => {
+        const other = createDirtyTab('other', 'Other.pdf', 'generation-1');
         const {
             dialog,
-            tabs,
+            removeTab,
         } = createHarness([
-            target,
+            createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1'),
             other,
         ]);
 
-        const confirmation = dialog.requestDirtyTabCloseConfirmation(target.id);
-        tabs.value = [other];
+        const confirmation = dialog.requestDirtyTabCloseConfirmation('target');
+        removeTab('target');
         await nextTick();
 
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
         await expect(confirmation).resolves.toBe('cancel');
-        expect(other.isDirty).toBe(true);
-    });
-
-    it('passes the save decision through the tab close path', async () => {
-        const target = createTab('target', 'Zaliznyak.pdf', 'generation-1');
-        const {dialog} = createHarness([target]);
-
-        const confirmation = dialog.requestDirtyTabCloseConfirmation(target.id);
-        dialog.resolveDirtyTabCloseDialog('save');
-
-        await expect(confirmation).resolves.toBe('save');
+        expect(other.snapshot.value.dirty).toBe(true);
     });
 });

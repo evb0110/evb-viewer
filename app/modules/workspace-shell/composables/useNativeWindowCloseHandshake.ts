@@ -8,8 +8,6 @@ import type {
     ISystemCapability,
     TWindowCloseDecision,
 } from '@contracts/systemPlatformFeature';
-import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSystemCapability } from '@app/utils/getSystemCapability';
@@ -21,37 +19,22 @@ interface IUseNativeWindowCloseHandshakeOptions {
     requestDirtyCloseConfirmation: () => Promise<TWindowCloseDecision>;
     flushSettings?: () => Promise<boolean>;
     systemCapability?: Pick<ISystemCapability, 'onWindowCloseRequest'>;
-    tabs: TReadableRef<ITab[]>;
-    workspaceWaitTimeoutMs?: number;
 }
-
-const DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS = 2_000;
 
 export const useNativeWindowCloseHandshake = (
     options: IUseNativeWindowCloseHandshakeOptions,
 ) => {
     const systemCapability = options.systemCapability ?? getSystemCapability();
-    const workspaceWaitTimeoutMs = options.workspaceWaitTimeoutMs ?? DEFAULT_WORKSPACE_WAIT_TIMEOUT_MS;
     let closeRequestInFlight = false;
 
     function getDirtyTabs() {
-        return options.tabs.value.filter((tab) => {
-            const session = options.documentSessionsByTabId.value[tab.id];
-            return session?.snapshot.value.dirty ?? tab.isDirty;
-        });
+        return Object.values(options.documentSessionsByTabId.value)
+            .filter(session => session.snapshot.value.dirty);
     }
 
-    async function saveTab(tab: ITab) {
-        const session = options.documentSessionsByTabId.value[tab.id];
-        if (!session) {
-            return false;
-        }
-
-        let workspace: IWorkspaceExpose | null = session.mountedWorkspace.value;
-        workspace ??= await session.waitForWorkspace(
-            session.createCommandTarget(),
-            workspaceWaitTimeoutMs,
-        );
+    // Dirty tabs are save-protected, so their workspaces stay mounted.
+    async function saveTab(session: IWorkspaceDocumentController) {
+        const workspace = session.mountedWorkspace.value;
         if (!workspace) {
             return false;
         }
@@ -84,8 +67,8 @@ export const useNativeWindowCloseHandshake = (
                 return decision;
             }
 
-            for (const tab of dirtyTabs) {
-                if (!await saveTab(tab)) {
+            for (const session of dirtyTabs) {
+                if (!await saveTab(session)) {
                     return 'cancel';
                 }
             }

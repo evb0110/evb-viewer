@@ -2,13 +2,7 @@ import { getErrorMessage } from '@app/utils/error';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 
-interface IDocumentWorkspaceCrashOptions {
-    failActiveTransaction: () => void;
-    releaseWorkspace: () => void;
-    resetWorkspaceLoad: () => void;
-    setError: (error: unknown) => void;
-    tabId: string;
-}
+interface IDocumentWorkspaceCrashOptions {tabId: string;}
 
 export function handleDocumentWorkspaceCrash(
     error: unknown,
@@ -36,9 +30,5 @@ export function handleDocumentWorkspaceCrash(
         info,
         error: errorDiagnostic,
     }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-    options.failActiveTransaction();
-    options.releaseWorkspace();
-    options.resetWorkspaceLoad();
-    options.setError(error);
     return failure;
 }

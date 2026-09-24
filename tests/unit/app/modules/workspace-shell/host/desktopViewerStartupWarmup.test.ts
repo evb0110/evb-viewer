@@ -7,7 +7,7 @@ import {
 import {
     scheduleDesktopViewerWarmup,
     type IScheduleDesktopViewerWarmupOptions,
-} from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
+} from '@app/modules/workspace-shell/viewers/warmupDesktopViewerChunks';
 import type {
     TWorkspaceViewerChunkLoader,
     TWorkspaceViewerChunkTarget,

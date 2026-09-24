@@ -70,14 +70,11 @@
                 :panes="panes"
                 :tabs="tabs"
                 :active-pane-id="activePaneId"
-                :is-startup-open-claim-pending="isStartupOpenClaimPending"
                 :is-tab-transition-busy="isTabTransitionBusy"
                 :presentation-fallback-tab-id="presentationFallbackTabId"
                 :tab-context-availability-by-pane="tabContextAvailabilityByPane"
                 :start-section-by-tab-id="startSectionByTabId"
                 :tab-lifecycle-by-id="tabLifecycleById"
-                :view-state-by-tab-id="viewStateByTabId"
-                :document-records-by-tab-id="documentRecordsByTabId"
                 :document-sessions-by-tab-id="documentSessionsByTabId"
                 :zen-mode="isFullscreen"
                 :zen-active-tab-id="activeTabId"
@@ -91,9 +88,6 @@
                 @reorder-tab="moveTabWithinPane"
                 @move-tab-direction="handleTabMoveDirection"
                 @tab-context-command="handleTabContextCommand"
-                @set-workspace-ref="setWorkspaceRef"
-                @update-document-record="handleDocumentRecordUpdate"
-                @update-tab-session-state="updateTabViewState"
                 @update-tab-start-section="setTabStartSection"
                 @open-in-new-tab="handleOpenInNewTab"
                 @request-close-tab="handleCloseTab"
@@ -174,7 +168,6 @@ import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTa
 import DocumentPasswordDialog from '@app/modules/workspace-shell/components/DocumentPasswordDialog.vue';
 import UnencryptedSaveDialog from '@app/modules/workspace-shell/components/UnencryptedSaveDialog.vue';
 import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import ShellWorkspaceToolbar from '@app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
@@ -188,7 +181,10 @@ import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composabl
 import { useAppShellMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
-import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {
+    describeTabDocument,
+    snapshotOccupiesTab,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { useWorkspaceToolbarContentPresence } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarContentPresence';
 import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
 import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
@@ -219,8 +215,6 @@ import type { TPdfViewMode } from '@contracts/shared';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
 import type { TStartSection } from '@app/types/startSection';
 import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
-import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { parseTabId } from '@contracts/windowTabs';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
@@ -232,7 +226,7 @@ useDirectOpenAutomationDispatcherShell();
 const AgentAssistantPanel = defineAsyncComponent(() =>
     import('@app/modules/agent-panel/public/component-exports/agentAssistantPanel').then(module => module.AgentAssistantPanel));
 const CombinePdfPage = defineAsyncComponent(() => import('@app/components/combine/CombinePdfPage.vue'));
-const editorPanesManager = useEditorPanesManager();
+const editorPanesManager = useEditorPanesManager({isTabEmpty: tabId => isTabEmpty(tabId)});
 const {
     panes,
     tabs,
@@ -365,6 +359,9 @@ const tabLifecycleById = computed(() => Object.fromEntries(
         panes: panes.value,
         policy: appSettings.value.tabMemoryPolicy,
         tabs: tabs.value,
+        dirtyTabIds: new Set(Object.values(documentSessionsByTabId.value)
+            .filter(session => session.snapshot.value.dirty)
+            .map(session => session.tabId)),
         tier: workspaceMemoryBudget.value.deviceTier,
         targetWarmViewers: workspaceMemoryBudget.value.targetWarmViewers,
     }).map(state => [
@@ -384,6 +381,17 @@ const {
     installUpdateNow,
     skipUpdateVersion,
 } = useAppUpdates();
+const documentSessions = useWorkspaceDocumentSessions({
+    activeTabId,
+    tabs,
+});
+const {
+    activeDocumentSession,
+    activeWorkspace,
+    documentSessionsByTabId,
+    getSession: getDocumentSession,
+    workspaceRefs,
+} = documentSessions;
 const {
     dirtyTabCloseDialogOpen,
     dirtyTabCloseDialogMode,
@@ -391,61 +399,36 @@ const {
     requestDirtyTabCloseConfirmation,
     requestDirtyWindowCloseConfirmation,
     resolveDirtyTabCloseDialog,
-} = useDirtyTabCloseDialog({tabs});
-const {
-    activeDocumentRecord,
-    activeWorkspace,
-    documentRecordsByTabId,
-    documentSessionsByTabId,
-    applyViewState: applySessionViewState,
-    getSession: getDocumentSession,
-    getDocumentRecord,
-    removeDocumentRecord: removeSessionDocumentRecord,
-    seedTabDocumentRecord: seedSessionTabDocumentRecord,
-    setWorkspaceDocumentRecord: setSessionWorkspaceDocumentRecord,
-    setWorkspaceRef: setSessionWorkspaceRef,
-    viewStateByTabId,
-    waitForWorkspace,
-    workspaceRefs,
-} = useWorkspaceDocumentSessions({
-    activeTabId,
-    tabs,
-});
+} = useDirtyTabCloseDialog({getSession: getDocumentSession});
 useNativeWindowCloseHandshake({
     documentSessionsByTabId,
     flushSettings: flushDesktopSettings,
     requestDirtyCloseConfirmation: requestDirtyWindowCloseConfirmation,
-    tabs,
 });
 useBrowserDirtyUnloadGuard(() => isBrowserRuntime.value && Object.values(documentSessionsByTabId.value)
     .some(session => session.snapshot.value.dirty));
-function updateTabViewState(tabId: string, state: IWorkspaceDocumentRecord['viewState']) {
-    applySessionViewState(tabId, state);
-}
-function setWorkspaceRef(tabId: string, el: unknown) {
-    setSessionWorkspaceRef(tabId, el);
-}
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
 const presentationFallbackTabId = ref<string | null>(null);
 const { hasWorkspaceToolbarContent } = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
 function activateTab(paneId: string, tabId: string) {
     activateEditorTab(paneId, tabId);
 }
-const activeTab = computed(() => activeTabId.value ? getTabById(activeTabId.value) : null);
+const activeTabDocument = computed(() => {
+    const session = activeDocumentSession.value;
+    return session ? describeTabDocument(session.snapshot.value) : null;
+});
 const shellState = useWorkspaceShellState({
-    activeDocumentRecord,
-    activeTabId,
+    activeDocumentSession,
     tabs,
 });
 const {
     isTabTransitionBusy,
     enqueueTabTransition,
-    updateTab: updateTabInState,
-    removeTabFromState: removeTabFromLifecycleState,
+    removeTabFromState,
     cleanupEmptyPanes,
     isSingletonPlaceholderCloseBlocked,
     resolveTabForAction,
-    closeTabInState: closeTabInLifecycleState,
+    closeTabInState,
     handoffActiveTabBeforeClose,
     handleCloseTab,
 } = useAppShellTabLifecycle({
@@ -453,9 +436,7 @@ const {
     tabs,
     activePaneId,
     activeTabId,
-    workspaceRefs,
     documentSessionsByTabId,
-    getDocumentRecord,
     workspaceSplitCache,
     workspaceRestoreTracker,
     getPaneById,
@@ -467,23 +448,6 @@ const {
     closePane,
     requestDirtyTabCloseConfirmation,
 });
-function updateTab(tabId: string, updates: Partial<ITab>) {
-    updateTabInState(tabId, updates);
-    seedSessionTabDocumentRecord(tabId, updates);
-}
-function removeTabFromState(tabId: string) {
-    removeSessionDocumentRecord(tabId);
-    removeTabFromLifecycleState(tabId);
-}
-function closeTabInState(paneId: string, tabId: string) {
-    removeSessionDocumentRecord(tabId);
-    closeTabInLifecycleState(paneId, tabId);
-}
-function handleDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRecord) {
-    setSessionWorkspaceDocumentRecord(tabId, record);
-    const sessionRecord = getDocumentRecord(tabId) ?? record;
-    updateTabInState(tabId, sessionRecord.tab);
-}
 const {
     listeners: fallbackToolbarCommandListeners,
     run: runFallbackWorkspaceCommand,
@@ -609,7 +573,7 @@ const {
     handleShellToolbarOverflowSetViewMode: handleShellToolbarOverflowSetViewModeInternal,
     showShellToolbar,
 } = useShellWorkspaceToolbar({
-    activeDocumentRecord,
+    activeDocumentSession,
     hasWorkspaceToolbarContent,
 });
 
@@ -647,10 +611,7 @@ const {
     removeTabFromState,
     cleanupEmptyPanes,
     closeTabInState,
-    workspaceRefs,
-    documentSessionsByTabId,
-    waitForWorkspace,
-    updateTab,
+    documentSessions,
     workspaceRestoreTracker,
     handleCloseTab,
     handoffActiveTabBeforeClose,
@@ -661,21 +622,17 @@ const {
     handleOpenInNewTab,
     openResultInAppropriateTab,
     openPathInAppropriateTab,
-    openPathInReservedTab,
     openPathsInAppropriateTab,
     beginOpenPathsInAppropriateTab,
     handleWindowTabsAction,
 } = useAppShellWorkspaceRouting({
     activePaneId,
     activeTabId,
-    activeWorkspace,
     presentationFallbackTabId,
-    workspaceRefs,
-    waitForWorkspace,
-    getDocumentRecord,
+    documentSessions,
+    tabLifecycleById,
     createTab,
     getTabById,
-    updateTab,
     removeTabFromState,
     resolveTabForAction,
     handleCloseTab,
@@ -703,58 +660,38 @@ function setTabStartSection(tabId: string, section: TStartSection) {
 }
 
 function isTabEmpty(tabId: string) {
-    const tab = getTabById(tabId);
-    const record = getDocumentRecord(tabId);
-    if (!tab || (record?.tab && tabHasDocumentHint(record.tab)) || tabHasDocumentHint(tab)) {
-        return false;
-    }
-    const snapshot = record?.toolbarSnapshot;
-    return !hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities) && !snapshot?.isOpeningDocument && !snapshot?.hasOpenError;
+    const session = getDocumentSession(tabId);
+    return !session || !snapshotOccupiesTab(session.snapshot.value);
 }
 
-const assistantHasActiveDocument = computed(() => (activeTab.value ? !isTabEmpty(activeTab.value.id) : false));
+const assistantHasActiveDocument = computed(() => (activeTabId.value ? !isTabEmpty(activeTabId.value) : false));
 const assistantHasAnyDocument = computed(() => tabs.value.some(tab => !isTabEmpty(tab.id)));
 const assistantActiveDocumentName = computed(() => assistantHasActiveDocument.value
-    ? activeTab.value?.fileName ?? null
+    ? activeTabDocument.value?.fileName ?? null
     : null);
 const assistantChatScopePending = computed(() => {
-    const tab = activeTab.value;
-    if (!tab || !tabHasDocumentHint(tab)) {
-        return false;
-    }
-
-    const session = documentSessionsByTabId.value[tab.id] ?? null;
-    if (!session) {
-        return true;
-    }
-
-    const snapshot = unref(session.snapshot);
-    return snapshot.activeTransaction !== null
-        || snapshot.toolbarSnapshot.isOpeningDocument
-        || snapshot.phase === 'opening'
-        || snapshot.phase === 'restoring'
-        || snapshot.phase === 'reloading'
-        || snapshot.phase === 'closing';
+    const phase = activeDocumentSession.value?.snapshot.value.phase;
+    return phase === 'opening' || phase === 'closing';
 });
 const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
-    const tab = activeTab.value;
-    if (!tab || !assistantHasActiveDocument.value) {
+    const session = activeDocumentSession.value;
+    const tabDocument = activeTabDocument.value;
+    if (!session || !tabDocument || !assistantHasActiveDocument.value) {
         return null;
     }
 
-    const tabId = parseTabId(tab.id);
+    const tabId = parseTabId(session.tabId);
     if (tabId === null) {
         return null;
     }
-    const session = documentSessionsByTabId.value[tab.id] ?? null;
-    const identity = session ? unref(session.snapshot).identity : null;
-    const documentSessionKey = identity?.documentSessionKey ?? null;
-    const documentInstanceId = identity?.documentInstanceId ?? null;
-    const documentRef = tab.originalPath;
+    const identity = session.snapshot.value.identity;
+    const documentSessionKey = identity.documentSessionKey;
+    const documentInstanceId = identity.documentInstanceId;
+    const documentRef = tabDocument.originalPath;
     const documentBackend = resolveDocumentRefBackend(documentRef);
-    const documentIdentity = activeDocumentRecord.value?.documentIdentity ?? null;
-    const commandTarget = session?.createCommandTarget();
-    const title = tab.fileName ?? documentRef ?? null;
+    const documentIdentity = identity.revisionInfo;
+    const commandTarget = session.createCommandTarget();
+    const title = tabDocument.fileName ?? documentRef ?? null;
     return {
         kind: 'document',
         // Saved chats are looked up by this key after a relaunch, and every
@@ -769,7 +706,7 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
         ...(documentRef ? { documentRef } : {}),
         ...(documentBackend === undefined ? {} : {documentBackend}),
         ...(documentIdentity ? { documentIdentity } : {}),
-        ...(commandTarget ? { commandTarget } : {}),
+        commandTarget,
     };
 });
 const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
@@ -813,21 +750,17 @@ useAgentWorkspaceSnapshot({
     activeTabId,
     recentFiles,
     recentFilesResolved,
-    workspaceRefs,
-    documentRecordsByTabId,
     documentSessionsByTabId,
     shouldWaitForDesktopBridge: () => shouldWaitForDesktopBridge.value,
     getPaneByTabId,
     activateTab,
-    waitForWorkspace,
 });
 
 useAppShellResilience({
     enabled: computed(() => isDesktopRuntime.value && !isStartupOpenClaimPending.value),
     browserEnabled: computed(() => isBrowserRuntime.value && !isStartupOpenClaimPending.value),
     editorPanesManager,
-    workspaceRefs,
-    documentRecordsByTabId,
+    documentSessionsByTabId,
 });
 
 const {
@@ -858,9 +791,7 @@ const {
     activePaneId,
     panes,
     tabs,
-    workspaceRefs,
     documentSessionsByTabId,
-    getDocumentRecord,
     isTabTransitionBusy,
     getPaneById,
     getTabById,
@@ -885,9 +816,8 @@ const {
 });
 
 useAppShellMenuSync({
-    activeDocumentRecord,
+    activeDocumentSession,
     activePaneId,
-    activeTabId,
     assistantPanelEnabled,
     shellState,
     tabContextAvailabilityByPane,
@@ -902,7 +832,7 @@ const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({
 const windowTitle = computed(() => resolveAppWindowTitle({
     appTitle: t('app.title'),
     webTitle: t('app.webTitle'),
-    fileName: activeTab.value?.fileName ?? null,
+    fileName: activeTabDocument.value?.fileName ?? null,
     isBrowserRuntime: isBrowserRuntime.value,
 }));
 
@@ -939,7 +869,6 @@ watch(windowTitle, (nextTitle) => {
 useTabsShellBindings({
     tabs,
     workspaceRefs,
-    documentRecordsByTabId,
     activeTabId,
     activeWorkspace,
     createTab: () => {
@@ -963,12 +892,11 @@ useTabsShellBindings({
     openPathsInAppropriateTab,
     beginOpenPathsInAppropriateTab,
     restoreWorkspaceCheckpointGraph,
-    openPathInReservedTab,
-    getDocumentSession,
+    documentSessions,
     transferActiveTabToWindow: async (windowId) => {
-        const tab = tabs.value.find(candidate => candidate.id === activeTabId.value);
+        const tabDocument = activeTabDocument.value;
         const workspace = activeWorkspace.value;
-        if (!tab || !workspace) {
+        if (!tabDocument || !workspace) {
             return {
                 success: false,
                 error: 'No active workspace is available for browser transfer acceptance.',
@@ -981,10 +909,10 @@ useTabsShellBindings({
                 windowId,
             },
             tab: {
-                fileName: tab.fileName,
-                originalPath: tab.originalPath,
-                isDirty: tab.isDirty,
-                isDjvu: tab.isDjvu,
+                fileName: tabDocument.fileName,
+                originalPath: tabDocument.originalPath,
+                isDirty: tabDocument.isDirty,
+                isDjvu: tabDocument.isDjvu,
             },
             payload,
         });

@@ -48,6 +48,7 @@ interface IWorkspaceDocumentControlsOptions extends Omit<IPageFileOperationsDeps
     openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => Promise<TDocumentOpenOutcome>;
     openFileDirectWithViewerLifecycle: (path: TDocumentRef) => Promise<TDocumentOpenOutcome>;
     openFileDirectBatchWithViewerLifecycle: (paths: TDocumentRef[]) => Promise<TDocumentOpenOutcome>;
+    runDocumentOpen: IPageFileOperationsDeps['runDocumentOpen'];
     closeFileWithViewerLifecycle: () => Promise<void>;
 }
 
@@ -108,6 +109,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         openFileWithViewerLifecycle,
         openFileDirectWithViewerLifecycle,
         openFileDirectBatchWithViewerLifecycle,
+        runDocumentOpen,
         closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab,
@@ -191,6 +193,7 @@ export const useWorkspaceDocumentControls = (options: IWorkspaceDocumentControls
         openFile: openFileWithViewerLifecycle,
         openFileDirect: openFileDirectWithViewerLifecycle,
         openFileDirectBatch: openFileDirectBatchWithViewerLifecycle,
+        runDocumentOpen,
         closeFile: closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab,

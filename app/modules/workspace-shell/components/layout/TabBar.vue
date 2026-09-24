@@ -84,7 +84,7 @@
 
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core';
-import type { ITab } from '@app/types/tabs';
+import type { TTabView } from '@app/types/tabs';
 import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
 import type { TPaneDirection } from '@contracts/editorPanes';
 import {
@@ -134,7 +134,7 @@ const {
     contextAvailability = undefined,
     tabs,
 } = defineProps<{
-    tabs: ITab[];
+    tabs: TTabView[];
     activeTabId: string | null;
     contextAvailability?: ITabContextAvailability | null;
 }>();
@@ -224,7 +224,7 @@ const clickedTabFilePath = computed(() => {
 });
 const canRevealClickedPath = computed(() => Boolean(clickedTabFilePath.value));
 
-function resolveTabTitle(tab: ITab) {
+function resolveTabTitle(tab: TTabView) {
     return getDocumentRefBaseName(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');
 }
 

@@ -197,8 +197,7 @@
             </template>
             <WorkspaceViewerHost
                 :has-document="showWorkspaceViewerDocument"
-                :keep-document-layout-mounted="suppressEmptyStateProp"
-                :suppress-empty-state="suppressEmptyStateProp || suppressEmptyStateForRestore || isDocumentOpenPlaceholderVisible"
+                :suppress-empty-state="suppressEmptyStateForRestore || isDocumentOpenPlaceholderVisible"
             >
                 <template #document>
                     <component
@@ -207,15 +206,17 @@
                         :ref="bindActiveViewerRef"
                         v-bind="activeViewerProps"
                         v-on="activeViewerListeners"
-                        @feature-pack-ready="emit('viewer-owner-ready', $event)"
                     />
                 </template>
                 <template #empty>
                     <PdfEmptyState
                         :recent-files="recentFiles"
                         :recent-files-resolved="recentFilesResolved"
+                        :recent-files-error="recentFilesError"
+                        :open-failure="startOpenFailure"
                         :open-batch-progress="openBatchProgress"
-                        :open-in-progress="pendingDocumentOpen"
+                        :open-in-progress="isOpeningDocument"
+                        :is-recent-open-ready="isRecentFileOpenReady"
                         :start-section="startSection"
                         can-combine-files
                         :open-combine-result="documentControls.handleOpenFileWithResult"
@@ -226,6 +227,8 @@
                         @remove-recent="removeRecentFile"
                         @reveal-recent="revealRecentFile"
                         @clear-recent="clearRecentFiles"
+                        @retry-recent="retryRecentFiles"
+                        @dismiss-open-failure="documentSession.dismissFailure()"
                     />
                 </template>
             </WorkspaceViewerHost>
@@ -382,6 +385,7 @@
 </template>
 
 <script setup lang="ts">
+import { until } from '@vueuse/core';
 import '@app/assets/css/pdfjs-overrides.scss';
 import '@app/assets/css/pdf-comment-markers.scss';
 import '@app/assets/css/pdf-comment-ui.scss';
@@ -415,7 +419,6 @@ import {
     type IOcrPopupAgentExpose,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
-import { createDeferredWorkspaceSearch } from '@app/modules/workspace-shell/composables/createDeferredWorkspaceSearch';
 import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
@@ -431,18 +434,22 @@ import { createWorkspacePdfSearchResultNavigation } from '@app/modules/workspace
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
-import { DESKTOP_EDITOR_READER_COMMAND_SURFACE } from '@app/utils/readerCommandSurface';
+import {
+    DESKTOP_EDITOR_READER_COMMAND_SURFACE,
+    EMPTY_STATE_READER_COMMAND_SURFACE,
+} from '@app/utils/readerCommandSurface';
 import type { IRecentFile } from '@contracts/shared';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
-import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
+import { useWorkspaceDocumentLifecycle } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle';
+import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import { DjvuConversionOverlay } from '@app/modules/djvu-viewer/public';
 import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
 import {
+    createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
-    injectDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/public';
 import {
     createDocumentWorkspaceCommandBindings,
@@ -456,11 +463,7 @@ const ScanCleanupWorkspace = defineAsyncComponent({
     loadingComponent: ScanCleanupWorkspaceLoading,
     delay: 0,
 });
-const injectedDocumentOpenSurface = injectDocumentOpenSurfaceSession();
-if (!injectedDocumentOpenSurface) {
-    throw new Error('DocumentWorkspace requires the host-owned document open surface session');
-}
-const documentOpenSurface = injectedDocumentOpenSurface;
+const documentOpenSurface = createDocumentOpenSurfaceSession();
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
 const physicalToolbarPage = computed(() => (
     documentOpenSurface.viewportSession.value.observedPage
@@ -475,14 +478,13 @@ const {
     isRenderActive = isActive,
     isTabTransitionBusy,
     documentSession,
-    initialViewState = null,
-    pendingDocumentOpen: pendingDocumentOpenProp = false,
-    pendingDocumentPath = null,
-    suppressEmptyState: suppressEmptyStateProp = false,
     splitCacheSession = null,
     startSection = 'recent',
     tabId,
 } = defineProps<IDocumentWorkspaceProps>();
+// The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
+// comes back where it was.
+const initialViewState = documentSession.viewState.value;
 const {
     canTeleportStatus,
     canTeleportToolbar,
@@ -494,7 +496,6 @@ const { isDesktopRuntime } = useRuntimeEnvironment();
 const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
 const canUseOcr = hasDesktopRuntime;
 const canUseDjvu = true;
-const toolbarSurface = DESKTOP_EDITOR_READER_COMMAND_SURFACE;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 const {
@@ -529,11 +530,13 @@ const emit = defineEmits<IDocumentWorkspaceEmits>();
 const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
 const { t } = useTypedI18n();
 const toast = useToast();
-const { isResolved: recentFilesResolved } = useRecentFiles();
+const {
+    isResolved: recentFilesResolved,
+    error: recentFilesError,
+    retryRecentFiles,
+} = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
-const SEARCH_DOCUMENT_READY_TIMEOUT_MS = 20_000;
-const SEARCH_DOCUMENT_READY_POLL_MS = 50;
 const isRestoringSplitPayload = ref(false);
 const currentPageTransitionHistory = ref<Array<{
     page: number;
@@ -543,21 +546,22 @@ function discardScanCleanupState() {
     discardScanCleanupSurfaceState();
 }
 const navigationFeedbackPage = ref<number | null>(null);
-const {
-    pendingDjvuDocumentOpen,
-    pendingDocumentOpen,
-    pendingDocumentStatusPath,
-} = usePendingWorkspaceDocumentOpen({
-    isPending: () => pendingDocumentOpenProp === true,
-    path: () => pendingDocumentPath,
+const documentSnapshot = computed(() => documentSession.snapshot.value);
+const openingTransaction = computed(() => {
+    const transaction = documentSnapshot.value.activeTransaction;
+    return transaction && transaction.kind !== 'close' ? transaction : null;
 });
+const isOpeningDocument = computed(() => openingTransaction.value !== null);
+const pendingDocumentPath = computed(() => (
+    isOpeningDocument.value ? openingTransaction.value?.target?.originalPath ?? null : null
+));
+const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
 const isActiveRef = computed({
     get: () => isActive,
     set: () => {},
 });
-const preserveInitialStateForFirstSource = Boolean(initialViewState
-    && documentSession.snapshot.value.phase === 'ready'
-    && documentSession.snapshot.value.toolbarSnapshot.initialVisualReady);
+const preserveInitialStateForFirstSource = documentSession.snapshot.value.phase === 'presented'
+    && documentSession.toolbarSnapshot.value.initialVisualReady;
 const documentSourceCapabilities = ref({
     annotations: false,
     directImageExport: false,
@@ -573,11 +577,12 @@ const orchestration = useWorkspaceOrchestration({
     preserveInitialStateForFirstSource,
     documentSession,
     openSurface: documentOpenSurface,
-    pendingDocumentPath: pendingDocumentStatusPath,
+    pendingDocumentPath,
     pendingDocumentSize: computed(() => (
         documentOpenSurface.snapshot.value.openingPageGeometry?.size ?? null
     )),
     sourceCapabilities: documentSourceCapabilities,
+    runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
     emit,
 });
 const {
@@ -883,7 +888,7 @@ const {
     suppressEmptyState: suppressEmptyStateForRestore,
 } = useDocumentWorkspaceSplitRestore({
     tabId: tabId,
-    pendingDocumentOpen,
+    pendingDocumentOpen: isOpeningDocument,
     isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
     workspaceSplitCache,
     workspaceRestoreTracker,
@@ -932,7 +937,7 @@ const {
     isHistoryBusy,
     isOcrRunning,
     isRestoringSplitPayload,
-    pendingDocumentOpen,
+    pendingDocumentOpen: isOpeningDocument,
     showSidebar,
 });
 useDocumentWorkspacePageSessionRestore({
@@ -951,24 +956,18 @@ const {
     dispatchStartupOpenVisualReady,
 } = useWorkspaceStartupReadiness({documentViewerRef});
 const {
-    handlePdfInitialVisualPending,
-    handlePdfInitialVisualReady,
+    documentOpenAccepted,
+    documentOpenSettled,
     initialDocumentVisualReady,
-    resolveDocumentOpenVisualSettleIfReady,
-    waitForDocumentOpenSettled,
 } = useDocumentOpenVisualSettle({
-    tabId,
-    hasPdf,
     pdfSrc,
     pdfDocument,
     totalPages,
-    pageLabelsResolved,
     isLoading,
     pdfError,
     djvuError,
     showDjvuSource: driverShowsDjvuSource,
     openSurface: documentOpenSurface,
-    markAnnotationCommentsLoading,
 });
 const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
     sidebarPresentationEnabled,
@@ -977,8 +976,6 @@ const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
     hasDocumentOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
     openSurfaceSnapshot: documentOpenSurface.snapshot,
 });
-const handleDocumentInitialVisualPending = handlePdfInitialVisualPending;
-const handleDocumentInitialVisualReady = handlePdfInitialVisualReady;
 const {
     handleInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEventBase,
     handleSave: handleSaveWithAutomationEvent,
@@ -990,7 +987,6 @@ const {
         tabId,
         totalPages: totalPages.value,
     }),
-    handleInitialVisualReady: handleDocumentInitialVisualReady,
     handleSave,
 });
 function handleDocumentInitialVisualReadyWithAutomationEvent() {
@@ -1028,7 +1024,7 @@ const {
     isRenderActive: isDocumentViewerRenderActive,
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
     navigationFeedbackPage,
-    onInitialVisualPending: handleDocumentInitialVisualPending,
+    onInitialVisualPending: markAnnotationCommentsLoading,
     onInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
     onPageSourceUpdate: handlePageSourceUpdate,
 });
@@ -1060,6 +1056,10 @@ const {
     isAnySaving,
     t,
 });
+// Start shows only the shell's own actions; document commands arrive with a document.
+const toolbarSurface = computed(() => (
+    toolbarHasPdf.value ? DESKTOP_EDITOR_READER_COMMAND_SURFACE : EMPTY_STATE_READER_COMMAND_SURFACE
+));
 const {
     showDjvuConversionBanner,
     showDjvuConversionUi,
@@ -1239,45 +1239,49 @@ watch([
 ]) => {
     if (nextPdfError || nextDjvuError) {
         dispatchStartupOpenVisualReady('document-error', true);
-        resolveDocumentOpenVisualSettleIfReady();
     }
 });
-const deferredWorkspaceSearch = createDeferredWorkspaceSearch({
-    tabId,
-    pollIntervalMs: SEARCH_DOCUMENT_READY_POLL_MS,
-    timeoutMs: SEARCH_DOCUMENT_READY_TIMEOUT_MS,
-    isReady: () => Boolean(
-        workingCopyPath.value
-        && pdfDocument.value
-        && totalPages.value > 0
-        && !isLoading.value
-        && !isOpeningDocumentForToolbarDisplay.value,
-    ),
-    readDiagnostics: () => ({
-        hasWorkingCopyPath: Boolean(workingCopyPath.value),
-        hasPdfDocument: Boolean(pdfDocument.value),
-        totalPages: totalPages.value,
-        isLoading: isLoading.value,
-        isOpeningDocument: isOpeningDocumentForToolbarDisplay.value,
-    }),
-    readIdentity: () => ({
-        documentRevisionToken: documentRevisionToken.value,
-        workingCopyPath: workingCopyPath.value,
-    }),
-    isIdentityCurrent: identity => (
-        identity.workingCopyPath === workingCopyPath.value
-        && identity.documentRevisionToken === documentRevisionToken.value
-    ),
-    readQuery: () => searchQuery.value,
-    readOptions: () => ({ ...searchOptions.value }),
-    restoreSearch: (query, options) => {
+const documentOpenIdle = computed(() => (
+    !isOpeningDocument.value && (documentOpenSettled.value || !toolbarHasPdf.value)
+));
+/** Resolves once no open is in flight and any document shows its first page. */
+async function waitForDocumentOpenSettled() {
+    await until(documentOpenIdle).toBe(true);
+}
+function isRecentFileOpenReady(file: IRecentFile) {
+    return pendingDocumentPath.value !== file.originalPath;
+}
+const searchDocumentReady = computed(() => Boolean(
+    workingCopyPath.value
+    && pdfDocument.value
+    && totalPages.value > 0
+    && !isLoading.value
+    && !isOpeningDocumentForToolbarDisplay.value,
+));
+let latestSearchRequest = 0;
+// A search typed while the document opens runs once it is searchable.
+async function handleSearchWhenDocumentReady() {
+    const request = ++latestSearchRequest;
+    const identity = [
+        workingCopyPath.value,
+        documentRevisionToken.value,
+    ];
+    const query = searchQuery.value;
+    const options = {...searchOptions.value};
+    await until(searchDocumentReady).toBe(true);
+    if (
+        request !== latestSearchRequest
+        || identity[0] !== workingCopyPath.value
+        || identity[1] !== documentRevisionToken.value
+    ) {
+        return;
+    }
+    if (!searchQuery.value && query) {
         searchQuery.value = query;
         searchOptions.value = options;
-    },
-    waitForDocumentOpenSettled,
-    handleSearch,
-});
-const handleSearchWhenDocumentReady = deferredWorkspaceSearch.handleSearchWhenDocumentReady;
+    }
+    await handleSearch();
+}
 const {
     runAgentAction,
     readAgentResource,
@@ -1372,7 +1376,7 @@ const workspaceExpose = createWorkspaceExposeFromOwners({
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,
     handleExportDocx,
-    handleGoToPage,
+    handleGoToPage: (page, options) => documentLifecycle.goToPage(page, options),
     handleCrop: () => { void handleToolbarCrop(); },
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
@@ -1389,27 +1393,45 @@ const workspaceExpose = createWorkspaceExposeFromOwners({
     readAgentResource,
 });
 const workspaceToolbarSnapshot = computed(workspaceExpose.getToolbarSnapshot);
-fileLifecycle.bindWorkspaceProjection({
-    pendingDocumentPath: computed(() => pendingDocumentPath),
+const documentLifecycle = useWorkspaceDocumentLifecycle({
+    documentSession,
+    openSurface: documentOpenSurface,
+    isShown: () => isActive || isRenderActive,
+    fileName: fileLifecycle.fileName,
+    originalPath,
+    isDjvuMode,
+    djvuSourcePath,
+    documentRevisionInfo: fileLifecycle.documentRevisionInfo,
+    isDirty: orchestration.saveWorkflow.hasPendingUnsavedChanges,
+    openBatchProgress,
+    documentOpenSettled,
+    documentOpenAccepted,
+    readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
-    currentViewState: computed(() => {
-        const retainedState = documentSession.snapshot.value.viewState ?? initialViewState;
-        return {
-            ...retainedState,
-            surfaceMode: surfaceMode.value,
-            ...(scanCleanupSessionState.value ? {scanCleanup: scanCleanupSessionState.value} : {}),
-        };
-    }),
-    formatPendingBatchLabel: values => t('tabs.preparingBatch', values),
-    publishRecord: record => emit('update-document-record', record),
+    readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentSession.viewState.value),
+    openPath: path => documentControls.handleOpenFileDirectWithPersist(path),
+    closeFailedDocument: () => documentControls.handleCloseFileFromUi({persist: false}),
+    hasWorkingCopy: () => workingCopyPath.value !== null,
+    goToPage: handleGoToPage,
+    formatBatchLabel: values => t('tabs.preparingBatch', values),
 });
+const startOpenFailure = documentLifecycle.startOpenFailure;
+watch(() => isActive || isRenderActive, (shown, wasShown) => {
+    if (wasShown && !shown) {
+        documentLifecycle.captureViewState();
+    }
+}, {flush: 'sync'});
 useDocumentWorkspaceLifecycle({
-    emit,
-    workspaceExpose,
     surfaceMode,
     discardScanCleanupState,
-    disposeDeferredSearch: deferredWorkspaceSearch.dispose,
     handleOptimizeProgress,
+    attach: () => documentSession.attachWorkspace(workspaceExpose),
+    detach: () => {
+        // A cold tab can unmount in the same render that hides it; capture
+        // while the workspace is still live.
+        documentLifecycle.captureViewState();
+        documentSession.detachWorkspace(workspaceExpose);
+    },
 });
 defineExpose(workspaceExpose);
 </script>

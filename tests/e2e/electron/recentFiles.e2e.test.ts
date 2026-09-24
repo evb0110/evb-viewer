@@ -231,7 +231,6 @@ function assertToolbarTransitionStable(
     const workspaceTopDelta = Math.max(...workspaceTops) - Math.min(...workspaceTops);
     expect(workspaceTopDelta, JSON.stringify(samples)).toBeLessThanOrEqual(TOOLBAR_MAX_OPEN_SHIFT_PX);
 
-    expect(relevantSamples.some(sample => sample.owner === 'shell'), JSON.stringify(samples)).toBe(true);
     expect(relevantSamples.some(sample => sample.owner === 'workspace'), JSON.stringify(samples)).toBe(true);
 }
 

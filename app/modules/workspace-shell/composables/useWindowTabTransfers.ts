@@ -1,6 +1,5 @@
 import type { Ref } from 'vue';
 import type {
-    ITransferredTabState,
     IWindowTabTransferSessionState,
     IWindowTabIncomingTransfer,
     TSplitPayload,
@@ -8,11 +7,9 @@ import type {
 } from '@contracts/windowTabs';
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
 import type {ITab} from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';
 import { shouldCloseSourceWindowAfterTransfer } from '@app/modules/workspace-shell/window-tabs/shouldCloseSourceWindowAfterTransfer';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 import {
     canUseNativeWindowTabTransfers,
@@ -22,9 +19,14 @@ import { getErrorMessage } from '@app/utils/error';
 import { parseSessionId } from '@contracts/shared';
 import { withTimeout } from 'es-toolkit/promise';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    describeTabDocument,
+    identityHasDocument,
+    snapshotOccupiesTab,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
-import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 
 interface IPaneLike {
     paneId: string;
@@ -37,7 +39,6 @@ type TSourceTransferOutcome = 'success' | 'failed' | 'window-closed';
 interface IIncomingTransferTargetTab {
     tabId: string;
     created: boolean;
-    previousTabState: Partial<ITab> | null;
     previousActiveTabId: string | null;
 }
 
@@ -64,7 +65,6 @@ interface IUseWindowTabTransfersOptions {
     createTab: (options: {
         paneId?: string;
         activate?: boolean;
-        initial?: Partial<ITab>;
     }) => ITab;
     getPaneById: (paneId: string | null | undefined) => IPaneLike | null;
     getTabById: (tabId: string | null | undefined) => ITab | null;
@@ -72,12 +72,9 @@ interface IUseWindowTabTransfersOptions {
     activatePane: (paneId: string) => void;
     activateTab: (paneId: string, tabId: string) => void;
     removeTabFromState: (tabId: string) => void;
-    updateTab: (tabId: string, updates: Partial<ITab>) => void;
     cleanupEmptyPanes: () => void;
     closeTabInState: (paneId: string, tabId: string) => void;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
-    waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
+    documentSessions: TWorkspaceDocumentSessions;
     workspaceRestoreTracker: {
         start: (tabId: string) => void;
         finish: (tabId: string) => void;
@@ -89,62 +86,20 @@ interface IUseWindowTabTransfersOptions {
 const DEFAULT_CAPTURE_TIMEOUT_MS = 4000;
 const MERGE_CAPTURE_TIMEOUT_MS = 4000;
 
-function buildTransferredTabState(
-    tab: ITab,
-    session: IWorkspaceDocumentController | null,
-): ITransferredTabState {
-    const sessionTab = session?.toWorkspaceRecord().tab;
-    const originalPath = sessionTab?.originalPath ?? tab.originalPath;
-    const originalBackend = resolveDocumentRefBackend(originalPath);
-    const documentInstanceId = sessionTab?.documentInstanceId ?? tab.documentInstanceId ?? null;
-    return {
-        fileName: sessionTab?.fileName ?? tab.fileName,
-        originalPath,
-        ...(originalBackend === undefined ? {} : {originalBackend}),
-        documentInstanceId,
-        isDirty: sessionTab?.isDirty ?? tab.isDirty,
-        isDjvu: sessionTab?.isDjvu ?? tab.isDjvu,
-    };
-}
-
-function isPlaceholderTab(tab: ITab) {
-    return tab.fileName === null
-        && tab.originalPath === null
-        && !tab.isDirty
-        && !tab.isDjvu;
-}
-
-function isOnlyOpenTargetTab(targetPane: IPaneLike) {
-    return targetPane.tabIds.length === 1;
-}
-
-function canReuseIncomingTransferTab(
-    tab: ITab | null,
-    targetPane: IPaneLike,
-    existingHasDocument: boolean,
-): tab is ITab {
-    return !!tab
-        && isOnlyOpenTargetTab(targetPane)
-        && isPlaceholderTab(tab)
-        && !existingHasDocument;
-}
-
-function cloneTabTransferState(tab: ITab): Partial<ITab> {
-    return {
-        fileName: tab.fileName,
-        originalPath: tab.originalPath,
-        ...(tab.originalBackend === undefined ? {} : {originalBackend: tab.originalBackend}),
-        documentInstanceId: tab.documentInstanceId ?? null,
-        isDirty: tab.isDirty,
-        isDjvu: tab.isDjvu,
-    };
-}
-
 export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) => {
     const { t } = useTypedI18n();
 
     function getDocumentSession(tabId: string | null | undefined) {
-        return tabId ? options.documentSessionsByTabId?.value[tabId] ?? null : null;
+        return options.documentSessions.getSession(tabId);
+    }
+
+    async function waitForWorkspace(tabId: string) {
+        return await getDocumentSession(tabId)?.whenMounted() ?? null;
+    }
+
+    function tabHoldsDocument(tabId: string) {
+        const snapshot = getDocumentSession(tabId)?.snapshot.value;
+        return snapshot !== undefined && identityHasDocument(snapshot.identity);
     }
 
     function getTransferSessionState(tabId: string): IWindowTabTransferSessionState | null {
@@ -166,15 +121,11 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return !target || session?.validateCommandTarget(target).ok === true;
     }
 
-    function getIncomingTransferTabContext(targetPane: IPaneLike) {
-        const existingTabId = targetPane.tabIds[0] ?? null;
-        const existingTab = options.getTabById(existingTabId);
-        const existingWorkspace = existingTabId ? options.workspaceRefs.value.get(existingTabId) ?? null : null;
-
-        return {
-            existingTab,
-            existingHasDocument: workspaceHasPdf(existingWorkspace),
-        };
+    // A pane holding only an empty tab gives that tab to the transfer.
+    function findReusableTransferTab(targetPane: IPaneLike) {
+        const existingTab = targetPane.tabIds.length === 1 ? options.getTabById(targetPane.tabIds[0]) : null;
+        const session = getDocumentSession(existingTab?.id);
+        return existingTab && session && !snapshotOccupiesTab(session.snapshot.value) ? existingTab : null;
     }
 
     function createIncomingTransferTargetTab(targetPane: IPaneLike): IIncomingTransferTargetTab {
@@ -186,7 +137,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return {
             tabId: createdTab.id,
             created: true,
-            previousTabState: null,
             previousActiveTabId: targetPane.activeTabId,
         };
     }
@@ -198,7 +148,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return {
             tabId: existingTab.id,
             created: false,
-            previousTabState: cloneTabTransferState(existingTab),
             previousActiveTabId,
         };
     }
@@ -209,11 +158,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return null;
         }
 
-        const {
-            existingTab,
-            existingHasDocument,
-        } = getIncomingTransferTabContext(targetPane);
-        if (canReuseIncomingTransferTab(existingTab, targetPane, existingHasDocument)) {
+        const existingTab = findReusableTransferTab(targetPane);
+        if (existingTab) {
             return reuseIncomingTransferTargetTab(targetPane, existingTab);
         }
 
@@ -274,8 +220,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    function applyIncomingTransferTabState(targetPaneId: string, targetTabId: string, transfer: IWindowTabIncomingTransfer) {
-        options.updateTab(targetTabId, transfer.tab);
+    function activateIncomingTransferTab(targetPaneId: string, targetTabId: string) {
         options.activatePane(targetPaneId);
         options.activateTab(targetPaneId, targetTabId);
     }
@@ -336,13 +281,8 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         shouldCleanupPayload = true,
         closeRestoredWorkspace = false,
     ) {
-        if (closeRestoredWorkspace) {
-            const workspace = options.workspaceRefs.value.get(target.tab.tabId)
-                ?? await options.waitForWorkspace(target.tab.tabId);
-            if (workspace && workspaceHasPdf(workspace)) {
-                await (getDocumentSession(target.tab.tabId)?.close({persist: false})
-                    ?? workspace.handleCloseFileFromUi({persist: false}));
-            }
+        if (closeRestoredWorkspace && tabHoldsDocument(target.tab.tabId)) {
+            await getDocumentSession(target.tab.tabId)?.close({persist: false});
         }
 
         if (target.tab.created) {
@@ -358,9 +298,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return;
         }
 
-        if (target.tab.previousTabState) {
-            options.updateTab(target.tab.tabId, target.tab.previousTabState);
-        }
         if (target.tab.previousActiveTabId) {
             options.activateTab(target.pane.paneId, target.tab.previousActiveTabId);
         }
@@ -386,7 +323,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
         let captureResultClaimed = false;
         const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
-            const workspace = await options.waitForWorkspace(tabId, timeoutMs);
+            const workspace = await waitForWorkspace(tabId);
             if (!workspace) {
                 return null;
             }
@@ -444,7 +381,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function tryRestoreWorkspacePayload(tabId: string, payload: TSplitPayload) {
         try {
-            const workspace = await options.waitForWorkspace(tabId);
+            const workspace = await waitForWorkspace(tabId);
             if (!workspace) {
                 return false;
             }
@@ -459,7 +396,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             }
             await nextTick();
 
-            if (payload.kind === 'pdfSnapshot' && !workspaceHasPdf(workspace)) {
+            if (payload.kind === 'pdfSnapshot' && !tabHoldsDocument(tabId)) {
                 BrowserLogger.warn('tabs', 'Split payload restore finished without an opened document', {
                     tabId,
                     payloadKind: payload.kind,
@@ -515,15 +452,14 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     async function closeSourceWorkspaceWithoutPersist(paneId: string, tabId: string) {
         await options.handoffActiveTabBeforeClose(paneId, tabId);
 
-        const workspace = options.workspaceRefs.value.get(tabId);
-        if (!workspace || !workspaceHasPdf(workspace)) {
+        const session = getDocumentSession(tabId);
+        if (!session || !tabHoldsDocument(tabId)) {
             return true;
         }
 
         options.workspaceRestoreTracker.start(tabId);
         try {
-            return await getDocumentSession(tabId)?.close({persist: false})
-                ?? await workspace.handleCloseFileFromUi({persist: false});
+            return await session.close({persist: false});
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
                 tabId,
@@ -592,7 +528,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         try {
             transferResult = await getWindowTabsCapability().transfer({
                 target,
-                tab: buildTransferredTabState(tab, getDocumentSession(tab.id)),
+                tab: describeTabDocument(getDocumentSession(tab.id)!.snapshot.value),
                 payload,
                 ...(item.session === null ? {} : {session: item.session}),
             });
@@ -641,28 +577,16 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         return finalizeTransferredSourceTab(sourcePane.paneId, tab.id);
     }
 
-    function tabRequiresNonEmptyTransferPayload(tab: ITab | null) {
-        return Boolean(tab?.originalPath ?? tab?.fileName ?? tab?.isDirty ?? tab?.isDjvu);
-    }
-
-    function isValidTransferPayloadForTab(tab: ITab | null, payload: TSplitPayload) {
-        return !(tabRequiresNonEmptyTransferPayload(tab) && payload.kind === 'empty');
-    }
 
     async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
         const item = await captureWorkspaceTransferItem(tabId);
         if (!item) {
             return 'failed';
         }
-        const tab = options.getTabById(tabId);
-        if (!isValidTransferPayloadForTab(tab, item.payload)) {
+        if (tabHoldsDocument(tabId) && item.payload.kind === 'empty') {
             BrowserLogger.warn('tabs', 'Rejected empty split payload for document tab transfer', {
                 tabId,
                 target,
-                fileName: tab?.fileName ?? null,
-                originalPath: tab?.originalPath ?? null,
-                isDirty: tab?.isDirty ?? false,
-                isDjvu: tab?.isDjvu ?? false,
             });
             return 'failed';
         }
@@ -786,7 +710,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             // The browser capability ACK is source-authorized only after its
             // shared transfer decision commits. Apply the tab state only
             // after the committed payload becomes the editable workspace.
-            applyIncomingTransferTabState(target.pane.paneId, target.tab.tabId, transfer);
+            activateIncomingTransferTab(target.pane.paneId, target.tab.tabId);
         } catch (error) {
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {
                 transferId: transfer.transferId,

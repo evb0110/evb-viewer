@@ -1,4 +1,7 @@
-import { ref } from 'vue';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import {
     describe,
     expect,
@@ -14,10 +17,8 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import type { TTabId } from '@contracts/windowTabs';
 import { requireTabId } from '@contracts/windowTabs';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { ITab } from '@app/types/tabs';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
-import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
 
 describe('buildWorkspaceCheckpoint', () => {
@@ -53,35 +54,27 @@ describe('buildWorkspaceCheckpoint', () => {
             tabIds: [tabId],
             activeTabId: tabId,
         };
-        const tab: ITab = {
-            id: 'tab-1',
-            fileName: 'large.pdf',
-            originalPath,
-            isDirty: false,
-            isDjvu: false,
-        };
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            assignment: {
+                fileName: 'large.pdf',
+                originalPath,
+                isDirty: false,
+                isDjvu: false,
+            },
+        });
+        session.publishToolbarSnapshot(toolbar);
+        session.applyViewState(viewState);
         const checkpoint = buildWorkspaceCheckpoint({
             panes: ref<IEditorPaneState[]>([pane]),
-            tabs: ref<ITab[]>([tab]),
+            tabs: ref([{id: 'tab-1'}]),
             layout: ref<TEditorLayoutNode | null>({
                 type: 'leaf',
                 paneId,
             }),
             activePaneId: ref<TPaneId | null>(paneId),
             activeTabId: ref<TTabId | null>(tabId),
-            workspaceRefs: ref(
-                new Map<string, IWorkspaceExpose>(),
-            ),
-            documentRecordsByTabId: ref({'tab-1': createWorkspaceDocumentRecord({
-                tab: {
-                    fileName: 'large.pdf',
-                    originalPath,
-                    isDirty: false,
-                    isDjvu: false,
-                },
-                toolbarSnapshot: toolbar,
-                viewState,
-            })}),
+            documentSessionsByTabId: shallowRef({'tab-1': session}),
             getPaneByTabId: () => pane,
         });
 

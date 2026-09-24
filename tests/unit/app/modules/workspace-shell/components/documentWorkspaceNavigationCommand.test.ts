@@ -12,6 +12,7 @@ import {
     createApp,
     defineComponent,
     h,
+    inject,
     nextTick,
     shallowRef,
 } from 'vue';
@@ -21,19 +22,18 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
-    createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
+    type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { cast } from '@tests/helpers/cast';
 
 const toolbarRenders: Array<Record<string, unknown>> = [];
 const surfaceRenders = vi.hoisted(() => ({
+    openSurface: null as IDocumentOpenSurfaceSession | null,
     sidebars: [] as Array<Record<string, unknown>>,
     viewers: [] as Array<Record<string, unknown>>,
 }));
@@ -56,6 +56,8 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
         attrs,
         expose,
     }) {
+        // The workspace owns its open surface; the viewer is where it is shared.
+        surfaceRenders.openSurface = inject(documentOpenSurfaceSessionKey, null);
         expose({
             scrollToPage: vi.fn(),
             getViewerContainer: () => null,
@@ -138,6 +140,7 @@ afterEach(() => {
     toolbarRenders.length = 0;
     surfaceRenders.sidebars.length = 0;
     surfaceRenders.viewers.length = 0;
+    surfaceRenders.openSurface = null;
     nuxtState.clear();
 });
 
@@ -161,31 +164,23 @@ async function mountDocumentWorkspace(options: {
     const { default: DocumentWorkspace } = await import(
         '@app/modules/workspace-shell/components/DocumentWorkspace.vue'
     );
-    const documentSession = createWorkspaceDocumentController({
-        tabId: 'tab-1',
-        initialRecord: createWorkspaceDocumentRecord({
-            tab: options.pendingDocumentPath
-                ? {
-                    fileName: 'reopened.pdf',
-                    originalPath: options.pendingDocumentPath,
-                }
-                : undefined,
-            toolbarSnapshot: options.pendingDocumentPath
-                ? {
-                    currentPage: 1,
-                    hasPdf: true,
-                    totalPages: 1,
-                }
-                : undefined,
-        }),
-    });
+    const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
     if (options.initialSurfaceMode) {
         documentSession.applyViewState({
-            ...documentSession.snapshot.value.viewState,
+            ...documentSession.viewState.value,
             surfaceMode: options.initialSurfaceMode,
         });
     }
-    const exposes: IWorkspaceExpose[] = [];
+    if (options.pendingDocumentPath) {
+        // An open that has not finished loading keeps the tab opening.
+        void documentSession.runOpen({
+            kind: 'open',
+            target: {
+                fileName: 'reopened.pdf',
+                originalPath: options.pendingDocumentPath,
+            },
+        }, () => new Promise<boolean>(() => {}));
+    }
     // Nuxt UI registers its primitives globally in the app; unit mounts resolve
     // them to an inert passthrough so the workspace tree itself stays real.
     const designSystemStub = defineComponent({
@@ -204,28 +199,15 @@ async function mountDocumentWorkspace(options: {
             isFullscreen: false,
             fullscreenSupported: false,
             isWorkspaceLayoutResizing: false,
-            initialViewState: null,
-            pendingDocumentOpen: Boolean(options.pendingDocumentPath),
-            pendingDocumentPath: options.pendingDocumentPath ?? null,
-            suppressEmptyState: false,
             splitCacheSession: null,
             startSection: 'recent',
             documentSession,
-            onExposeReady: (expose: IWorkspaceExpose) => exposes.push(expose),
         });
     }}));
     cast<{_context: {components: unknown}}>(app)._context.components = new Proxy({}, {
         get: () => designSystemStub,
         has: () => true,
     });
-    const openSurface = createDocumentOpenSurfaceSession();
-    if (options.openSurfaceDocument) {
-        openSurface.begin({
-            documentId: options.openSurfaceDocument,
-            documentRevision: 'revision:test-navigation',
-        });
-    }
-    app.provide(documentOpenSurfaceSessionKey, openSurface);
     // The shell teleports its toolbar into the app-owned host element, so the
     // toolbar only renders when that target exists.
     for (const hostId of [
@@ -247,9 +229,17 @@ async function mountDocumentWorkspace(options: {
     // has been torn down.
     await workspaceViewerChunkLoaders.chassis();
     await nextTick();
-    const expose = exposes.at(-1);
+    const expose = documentSession.mountedWorkspace.value;
     if (!expose) {
-        throw new Error('DocumentWorkspace never published its workspace expose.');
+        throw new Error('DocumentWorkspace never attached to its tab controller.');
+    }
+    if (options.openSurfaceDocument) {
+        await vi.waitFor(() => expect(surfaceRenders.openSurface).not.toBeNull());
+        surfaceRenders.openSurface!.begin({
+            documentId: options.openSurfaceDocument,
+            documentRevision: 'revision:test-navigation',
+        });
+        await nextTick();
     }
     return {expose};
 }

@@ -1,51 +1,40 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type { Ref } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { buildPendingTabDocumentHint } from '@app/modules/workspace-shell/tabs/buildPendingTabDocumentHint';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
-import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceOpenFailure,
-} from '@app/types/workspaceExpose';
+import type { IWorkspaceOpenFailure } from '@app/types/workspaceExpose';
 import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import { snapshotOccupiesTab } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { describeDocumentTarget } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 
-interface IResolvedTabAction {
-    tab: ITab;
-    pane: IEditorPaneState;
-}
+type TWorkspaceOpenDocumentTarget = TDocumentRef | TOpenFileResult;
 
 interface IUseAppShellWorkspaceRoutingOptions {
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
-    activeWorkspace: ComputedRef<IWorkspaceExpose | null>;
     presentationFallbackTabId: Ref<string | null>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
-    getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
+    documentSessions: TWorkspaceDocumentSessions;
+    tabLifecycleById: Readonly<Ref<Record<string, ITabLifecycleState>>>;
     createTab: (options: {
         paneId?: string | null;
         activate?: boolean;
-        initial?: Partial<ITab>;
     }) => ITab;
     getTabById: (tabId: string | null | undefined) => ITab | null;
-    updateTab: (tabId: string, updates: Partial<ITab>) => void;
     removeTabFromState: (tabId: string) => void;
-    resolveTabForAction: (tabId: string | undefined) => IResolvedTabAction | null;
+    resolveTabForAction: (tabId: string | undefined) => {
+        tab: ITab;
+        pane: IEditorPaneState;
+    } | null;
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
     moveTabToNewWindow: (tabId: string) => Promise<void>;
     moveTabToWindow: (windowId: number, tabId: string) => Promise<void>;
@@ -54,58 +43,13 @@ interface IUseAppShellWorkspaceRoutingOptions {
     reportOpenFailure?: (fileName: string | null, failure: IWorkspaceOpenFailure) => void;
 }
 
-type TWorkspaceOpenDocumentTarget = TDocumentRef | TOpenFileResult;
-
-interface IOpenInExistingTabOptions {
-    documentHintAlreadySeeded?: boolean;
-    reuseAlreadyReserved?: boolean;
-}
-
-interface ISeededTabDocumentHint {
-    pending: Partial<ITab>;
-    previous: Pick<ITab, 'fileName' | 'originalPath' | 'isDjvu'>;
-}
-
-const DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS = 800;
-const DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS = 50;
-// A document that failed to open fails the same way in any tab, so its
-// failure is reported where it happened instead of retried elsewhere. Opens
-// that failed without one, because a tab was not available, keep their retry.
-function readWorkspaceOpenFailure(workspace: IWorkspaceExpose | null | undefined) {
-    try {
-        return workspace?.getOpenFailure() ?? null;
-    } catch {
-        return null;
-    }
-}
-
-function readWorkspaceToolbarSnapshot(workspace: IWorkspaceExpose) {
-    try {
-        return workspace.getToolbarSnapshot();
-    } catch (error) {
-        BrowserLogger.warn('workspace-routing', 'Failed to read workspace toolbar snapshot', { error });
-        return null;
-    }
-}
-
+/** Decides which tab a document opens in and asks that tab's controller to open it. */
 export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutingOptions) => {
     const {
         activePaneId,
         activeTabId,
-        activeWorkspace,
-        presentationFallbackTabId,
-        workspaceRefs,
-        waitForWorkspace,
-        getDocumentRecord,
+        documentSessions,
         createTab,
-        getTabById,
-        updateTab,
-        removeTabFromState,
-        resolveTabForAction,
-        handleCloseTab,
-        moveTabToNewWindow,
-        moveTabToWindow,
-        mergeWindowInto,
     } = options;
 
     function createTabInPane(paneId: string) {
@@ -115,128 +59,132 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         });
     }
 
-    function recordOccupiesTab(record: IWorkspaceDocumentRecord | null) {
-        if (!record) {
-            return false;
-        }
-
-        const snapshot = record.toolbarSnapshot;
-        return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities)
-            || snapshot.isOpeningDocument === true
-            || snapshot.hasOpenError === true
-            || record.documentIdentity !== null
-            || tabHasDocumentHint(record.tab);
+    function canReuseTab(tabId: string | null) {
+        const session = documentSessions.getSession(tabId);
+        return session !== null && !snapshotOccupiesTab(session.snapshot.value);
     }
 
-    function recordMatchesDocumentTarget(
-        record: IWorkspaceDocumentRecord,
-        pathOrResult: TWorkspaceOpenDocumentTarget,
-    ) {
-        const expected = buildPendingTabDocumentHint(pathOrResult);
-        const matchesManagedPdf = typeof pathOrResult !== 'string'
-            && pathOrResult.kind === 'pdf'
-            && record.documentIdentity?.documentRef === pathOrResult.workingPath;
-        const matchesOriginalPath = Boolean(
-            expected.originalPath
-            && record.tab.originalPath === expected.originalPath,
-        );
-
-        if (expected.fileName && record.tab.fileName !== expected.fileName) {
-            return false;
-        }
-
-        return matchesManagedPdf || (typeof pathOrResult === 'string' && matchesOriginalPath);
+    function readFailure(tabId: string) {
+        return documentSessions.getSession(tabId)?.snapshot.value.failure ?? null;
     }
 
-    function recordHasSettledDocumentEvidence(
-        record: IWorkspaceDocumentRecord | null,
-        pathOrResult: TWorkspaceOpenDocumentTarget,
-    ) {
-        if (!record || record.toolbarSnapshot.isOpeningDocument || record.toolbarSnapshot.hasOpenError) {
+    async function openInTab(tabId: string, target: TWorkspaceOpenDocumentTarget) {
+        const session = documentSessions.getSession(tabId);
+        if (!session) {
             return false;
         }
-
-        return recordMatchesDocumentTarget(record, pathOrResult)
-            && (
-                record.toolbarSnapshot.initialVisualReady
-                || record.toolbarSnapshot.hasPdf
-                || hasWorkspaceViewerDocumentCapabilities(record.toolbarSnapshot.viewerCapabilities)
-            );
-    }
-
-    function workspaceHasSettledDocumentEvidence(
-        tabId: string,
-        workspace: IWorkspaceExpose | null,
-        pathOrResult: TWorkspaceOpenDocumentTarget,
-    ) {
-        if (recordHasSettledDocumentEvidence(getDocumentRecord(tabId), pathOrResult)) {
+        // A tab that is not shown opens its file when it is; until then it
+        // only names it.
+        if (typeof target === 'string' && options.tabLifecycleById.value[tabId]?.shouldMountHost === false) {
+            const described = describeDocumentTarget(target);
+            session.assign({
+                fileName: described.fileName ?? null,
+                originalPath: target,
+                isDjvu: described.isDjvu === true,
+                isDirty: false,
+            });
             return true;
         }
-
+        const workspace = await session.whenMounted();
         if (!workspace) {
             return false;
         }
-
-        const snapshot = readWorkspaceToolbarSnapshot(workspace);
-        const documentState = workspace.getAutomationStateSnapshot();
-        const targetMatches = typeof pathOrResult === 'string'
-            ? documentState.originalPath === pathOrResult
-            : pathOrResult.kind === 'pdf'
-                ? documentState.workingCopyPath === pathOrResult.workingPath
-                : documentState.originalPath === pathOrResult.originalPath;
-        return Boolean(
-            snapshot
-            && !snapshot.isOpeningDocument
-            && !snapshot.hasOpenError
-            && targetMatches
-            && (
-                snapshot.initialVisualReady
-                || snapshot.hasPdf
-                || hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities)
-            ),
-        );
+        return typeof target === 'string'
+            ? workspace.handleOpenFileDirectWithPersist(target)
+            : workspace.handleOpenFileWithResult(target);
     }
 
-    async function waitForSettledDocumentEvidence(
-        tabId: string,
-        workspace: IWorkspaceExpose | null,
-        pathOrResult: TWorkspaceOpenDocumentTarget,
-    ) {
-        const deadline = Date.now() + DOCUMENT_OPEN_RECOVERY_TIMEOUT_MS;
-        while (Date.now() < deadline) {
-            if (workspaceHasSettledDocumentEvidence(tabId, workspace, pathOrResult)) {
-                return true;
+    async function handleFallbackToolbarOpenFile() {
+        const session = documentSessions.activeDocumentSession.value;
+        const workspace = session ? await session.whenMounted() : null;
+        if (workspace) {
+            await workspace.handleOpenFileFromUi();
+            return;
+        }
+        const fallbackTab = createTab({
+            paneId: activePaneId.value,
+            activate: true,
+        });
+        const fallbackWorkspace = await documentSessions.getSession(fallbackTab.id)?.whenMounted() ?? null;
+        if (!fallbackWorkspace) {
+            options.removeTabFromState(fallbackTab.id);
+            return;
+        }
+        await fallbackWorkspace.handleOpenFileFromUi();
+    }
+
+    // The outgoing tab keeps painting until the new tab presents its document,
+    // so an open never flashes an empty pane. A document that does not open
+    // takes its tab with it and says why.
+    async function handleOpenInNewTab(target: TWorkspaceOpenDocumentTarget, paneId?: string) {
+        const outgoingTabId = activeTabId.value;
+        options.presentationFallbackTabId.value = outgoingTabId;
+        try {
+            const tab = createTab({
+                paneId: paneId ?? activePaneId.value,
+                activate: true,
+            });
+            let opened = false;
+            try {
+                opened = await openInTab(tab.id, target);
+            } catch (error) {
+                BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
+                    error,
+                    tabId: tab.id,
+                }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             }
-
-            await new Promise(resolve => setTimeout(resolve, DOCUMENT_OPEN_RECOVERY_POLL_INTERVAL_MS));
+            if (!opened) {
+                logPdfRenderTrace('pdf-open-replacement-rollback', {
+                    failedTabId: tab.id,
+                    restoredTabId: outgoingTabId,
+                });
+                const failure = readFailure(tab.id);
+                options.removeTabFromState(tab.id);
+                if (failure) {
+                    options.reportOpenFailure?.(failure.fileName, failure);
+                }
+            }
+            return opened;
+        } finally {
+            if (options.presentationFallbackTabId.value === outgoingTabId) {
+                options.presentationFallbackTabId.value = null;
+            }
         }
-
-        return workspaceHasSettledDocumentEvidence(tabId, workspace, pathOrResult);
     }
 
-    function workspaceOccupiesTab(tabId: string, workspace: IWorkspaceExpose) {
-        const record = getDocumentRecord(tabId);
-        if (record) {
-            return recordOccupiesTab(record);
+    // A document that failed fails the same way in any tab, so it is reported
+    // where it happened instead of retried in a new tab.
+    async function openDocumentInAppropriateTab(target: TWorkspaceOpenDocumentTarget) {
+        const tabId = activeTabId.value;
+        if (tabId && canReuseTab(tabId)) {
+            return openInTab(tabId, target);
         }
-
-        if (workspaceHasPdf(workspace)) {
-            return true;
-        }
-
-        const snapshot = readWorkspaceToolbarSnapshot(workspace);
-        return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
-            || snapshot?.isOpeningDocument === true
-            || snapshot?.hasOpenError === true;
+        return handleOpenInNewTab(target, activePaneId.value ?? undefined);
     }
 
-    function canReuseTabForDocument(tab: ITab | null, workspace: IWorkspaceExpose | null) {
-        return Boolean(
-            tab
-            && !tabHasDocumentHint(tab)
-            && !recordOccupiesTab(getDocumentRecord(tab.id))
-            && (!workspace || !workspaceOccupiesTab(tab.id, workspace)),
-        );
+    async function openResultInAppropriateTab(result: TOpenFileResult) {
+        return openDocumentInAppropriateTab(result);
+    }
+
+    async function openPathInAppropriateTab(path: TDocumentRef) {
+        const routeStartedAt = performance.now();
+        logPdfRenderTrace('pdf-open-route-start', {
+            path,
+            immediateWorkspaceClaim: true,
+        });
+        let opened = false;
+        try {
+            opened = await openDocumentInAppropriateTab(path);
+            return opened;
+        } finally {
+            logPdfRenderTrace('pdf-open-route-capability-end', {
+                path,
+                elapsedMs: performance.now() - routeStartedAt,
+                failed: !opened,
+                resultKind: null,
+                immediateWorkspaceClaim: true,
+            });
+        }
     }
 
     function normalizeOpenPaths(paths: TDocumentRef[]) {
@@ -246,337 +194,14 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }));
     }
 
-    async function resolveWorkspaceForTab(tabId: string | null) {
-        if (!tabId) {
-            return null;
-        }
-        return workspaceRefs.value.get(tabId) ?? waitForWorkspace(tabId);
-    }
-
-    function seedTabDocumentHint(tabId: string | null | undefined, pathOrResult: TWorkspaceOpenDocumentTarget): ISeededTabDocumentHint | null {
-        if (!tabId) {
-            return null;
-        }
-
-        const tab = getTabById(tabId);
-        if (!tab || tabHasDocumentHint(tab)) {
-            return null;
-        }
-
-        const pending = buildPendingTabDocumentHint(pathOrResult);
-        const previous = {
-            fileName: tab.fileName,
-            originalPath: tab.originalPath,
-            isDjvu: tab.isDjvu,
-        };
-        updateTab(tab.id, pending);
-        delete tab.recoveryWorkingCopyPath;
-        return {
-            pending,
-            previous,
-        };
-    }
-
-    function replaceTabDocumentHint(tabId: string, pathOrResult: TWorkspaceOpenDocumentTarget): ISeededTabDocumentHint | null {
-        const tab = getTabById(tabId);
-        if (!tab) {
-            return null;
-        }
-
-        const pending = buildPendingTabDocumentHint(pathOrResult);
-        const previous = {
-            fileName: tab.fileName,
-            originalPath: tab.originalPath,
-            isDjvu: tab.isDjvu,
-        };
-        updateTab(tab.id, pending);
-        // The checkpoint target only protects the restore transaction. Once a
-        // document hint has been accepted, a later close or open must not
-        // inherit that old recovery path.
-        delete tab.recoveryWorkingCopyPath;
-        return {
-            pending,
-            previous,
-        };
-    }
-
-    function tabStillShowsSeededDocumentHint(tab: ITab, hint: Partial<ITab>) {
-        return tab.fileName === (hint.fileName ?? null)
-            && tab.originalPath === (hint.originalPath ?? null)
-            && tab.isDjvu === (hint.isDjvu ?? false);
-    }
-
-    function rollbackSeededTabDocumentHint(tabId: string, seededHint: ISeededTabDocumentHint | null) {
-        if (!seededHint) {
-            return;
-        }
-
-        const tab = getTabById(tabId);
-        if (!tab || !tabStillShowsSeededDocumentHint(tab, seededHint.pending)) {
-            return;
-        }
-
-        updateTab(tabId, seededHint.previous);
-    }
-
-    async function openDocumentInWorkspace(
-        workspace: IWorkspaceExpose,
-        pathOrResult: TWorkspaceOpenDocumentTarget,
-    ) {
-        if (typeof pathOrResult === 'string') {
-            return workspace.handleOpenFileDirectWithPersist(pathOrResult);
-        }
-
-        return workspace.handleOpenFileWithResult(pathOrResult);
-    }
-
-    async function openInExistingTab(
-        tabId: string,
-        pathOrResult: TWorkspaceOpenDocumentTarget,
-        openOptions: IOpenInExistingTabOptions = {},
-    ) {
-        const workspace = activeTabId.value === tabId
-            ? activeWorkspace.value ?? await resolveWorkspaceForTab(tabId)
-            : await resolveWorkspaceForTab(tabId);
-        if (!workspace) {
-            return false;
-        }
-
-        if (!openOptions.reuseAlreadyReserved && workspaceOccupiesTab(tabId, workspace)) {
-            return false;
-        }
-
-        // The workspace must claim the open transaction before its display hint
-        // changes. Otherwise DeferredDocumentWorkspaceHost interprets the live
-        // hint as a restored-session command and opens the same path twice.
-        const opened = await openDocumentInWorkspace(workspace, pathOrResult);
-        const seededHint = opened && !openOptions.documentHintAlreadySeeded
-            ? seedTabDocumentHint(tabId, pathOrResult)
-            : null;
-        if (opened) {
-            return true;
-        }
-        if (readWorkspaceOpenFailure(workspace)) {
-            return false;
-        }
-
-        if (await waitForSettledDocumentEvidence(tabId, workspace, pathOrResult)) {
-            if (!openOptions.documentHintAlreadySeeded) {
-                seedTabDocumentHint(tabId, pathOrResult);
-            }
-            BrowserLogger.warn('workspace-routing', 'Keeping existing tab after open returned false because document state settled', {tabId});
-            return true;
-        }
-
-        rollbackSeededTabDocumentHint(tabId, seededHint);
-        return false;
-    }
-
-    async function handleFallbackToolbarOpenFile() {
-        const workspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-        if (workspace) {
-            await workspace.handleOpenFileFromUi();
-            return;
-        }
-
-        const fallbackTab = createTab({
-            paneId: activePaneId.value,
-            activate: true,
-        });
-        const fallbackWorkspace = await waitForWorkspace(fallbackTab.id);
-        if (!fallbackWorkspace) {
-            removeTabFromState(fallbackTab.id);
-            return;
-        }
-        await fallbackWorkspace.handleOpenFileFromUi();
-    }
-
-    async function handleOpenInNewTab(pathOrResult: TWorkspaceOpenDocumentTarget, paneId?: string) {
-        const targetPaneId = paneId ?? activePaneId.value ?? undefined;
-        const pendingHint = buildPendingTabDocumentHint(pathOrResult);
-        const outgoingTabId = activeTabId.value;
-        presentationFallbackTabId.value = outgoingTabId;
-        try {
-            const tab = createTab({
-                ...(targetPaneId !== undefined ? { paneId: targetPaneId } : {}),
-                activate: true,
-                initial: {
-                    fileName: pendingHint.fileName ?? null,
-                    isDjvu: pendingHint.isDjvu ?? false,
-                },
-            });
-            const workspace = await waitForWorkspace(tab.id);
-            if (!workspace) {
-                removeTabFromState(tab.id);
-                return false;
-            }
-
-            let opened: boolean;
-            try {
-                opened = await openDocumentInWorkspace(workspace, pathOrResult);
-            } catch (error) {
-                BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
-                    error,
-                    tabId: tab.id,
-                }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-                logPdfRenderTrace('pdf-open-replacement-rollback', {
-                    failedTabId: tab.id,
-                    restoredTabId: outgoingTabId,
-                    reason: 'open-threw',
-                });
-                removeTabFromState(tab.id);
-                return false;
-            }
-            if (!opened) {
-                if (await waitForSettledDocumentEvidence(tab.id, workspace, pathOrResult)) {
-                    replaceTabDocumentHint(tab.id, pathOrResult);
-                    BrowserLogger.warn('workspace-routing', 'Keeping new tab after open returned false because document state settled', {tabId: tab.id});
-                    return true;
-                }
-
-                logPdfRenderTrace('pdf-open-replacement-rollback', {
-                    failedTabId: tab.id,
-                    restoredTabId: outgoingTabId,
-                    reason: 'open-did-not-settle',
-                });
-                const failure = readWorkspaceOpenFailure(workspace);
-                removeTabFromState(tab.id);
-                if (failure) {
-                    options.reportOpenFailure?.(pendingHint.fileName ?? null, failure);
-                }
-                return false;
-            }
-            replaceTabDocumentHint(tab.id, pathOrResult);
-            return true;
-        } finally {
-            if (presentationFallbackTabId.value === outgoingTabId) {
-                presentationFallbackTabId.value = null;
-            }
-        }
-    }
-
-    async function openDocumentInAppropriateTab(pathOrResult: TWorkspaceOpenDocumentTarget) {
-        const tabId = activeTabId.value;
-        const tab = getTabById(tabId);
-        const workspace = activeWorkspace.value;
-        let attemptedExistingTabId: string | null = null;
-        if (tab && canReuseTabForDocument(tab, workspace)) {
-            attemptedExistingTabId = tab.id;
-            const opened = await openInExistingTab(tab.id, pathOrResult);
-            if (opened) {
-                return true;
-            }
-            if (readWorkspaceOpenFailure(workspaceRefs.value.get(tab.id) ?? workspace)) {
-                return false;
-            }
-        }
-
-        const resolvedWorkspace = workspace ?? await resolveWorkspaceForTab(tabId);
-        if (resolvedWorkspace && tabId && tabId !== attemptedExistingTabId && !workspaceOccupiesTab(tabId, resolvedWorkspace)) {
-            const opened = await openDocumentInWorkspace(resolvedWorkspace, pathOrResult);
-            const seededHint = opened ? seedTabDocumentHint(tabId, pathOrResult) : null;
-            if (opened) {
-                return true;
-            }
-            if (readWorkspaceOpenFailure(resolvedWorkspace)) {
-                rollbackSeededTabDocumentHint(tabId, seededHint);
-                return false;
-            }
-            if (await waitForSettledDocumentEvidence(tabId, resolvedWorkspace, pathOrResult)) {
-                seedTabDocumentHint(tabId, pathOrResult);
-                return true;
-            }
-            rollbackSeededTabDocumentHint(tabId, seededHint);
-        }
-
-        return handleOpenInNewTab(pathOrResult, activePaneId.value ?? undefined);
-    }
-
-    async function openResultInAppropriateTab(result: TOpenFileResult) {
-        return openDocumentInAppropriateTab(result);
-    }
-
-    async function openPathInAppropriateTab(path: TDocumentRef) {
-        // Claim the workspace before any cold-path work. The document session
-        // owns the direct capability call and can present its skeleton while
-        // the main process admits the file and stages its working copy.
-        const routeStartedAt = performance.now();
-        logPdfRenderTrace('pdf-open-route-start', {
-            path,
-            immediateWorkspaceClaim: true,
-        });
-        try {
-            const opened = await openDocumentInAppropriateTab(path);
-            logPdfRenderTrace('pdf-open-route-capability-end', {
-                path,
-                elapsedMs: performance.now() - routeStartedAt,
-                failed: !opened,
-                resultKind: null,
-                immediateWorkspaceClaim: true,
-            });
-            return opened;
-        } catch (error) {
-            logPdfRenderTrace('pdf-open-route-capability-end', {
-                path,
-                elapsedMs: performance.now() - routeStartedAt,
-                failed: true,
-                resultKind: null,
-                immediateWorkspaceClaim: true,
-            });
-            throw error;
-        }
-    }
-
-    async function openPathInReservedTab(tabId: string, path: TWorkspaceOpenDocumentTarget) {
-        const tab = getTabById(tabId);
-        if (!tab) {
-            return false;
-        }
-        const workspace = await resolveWorkspaceForTab(tabId);
-        if (!workspace) {
-            return false;
-        }
-        const opened = await openDocumentInWorkspace(workspace, path);
-        const seededHint = opened ? replaceTabDocumentHint(tabId, path) : null;
-        if (!opened) {
-            if (await waitForSettledDocumentEvidence(tabId, workspace, path)) {
-                replaceTabDocumentHint(tabId, path);
-                BrowserLogger.warn('workspace-routing', 'Keeping reserved tab after open returned false because document state settled', {tabId});
-                return true;
-            }
-            rollbackSeededTabDocumentHint(tabId, seededHint);
-        }
-        return opened;
-    }
-
     async function openPathsInAppropriateTab(paths: TDocumentRef[]) {
-        const normalizedPaths = normalizeOpenPaths(paths);
-        if (normalizedPaths.length === 0) {
-            return;
-        }
-
-        const initialActiveWorkspace = activeWorkspace.value;
-        const initialActiveTab = getTabById(activeTabId.value);
-        let canReuseActiveTab = canReuseTabForDocument(initialActiveTab, initialActiveWorkspace);
-
         for (const [
             index,
             path,
-        ] of normalizedPaths.entries()) {
+        ] of normalizeOpenPaths(paths).entries()) {
             try {
-                if (canReuseActiveTab) {
-                    const opened = await openDocumentInAppropriateTab(path);
-                    canReuseActiveTab = !opened;
-                    continue;
-                }
-
-                await handleOpenInNewTab(path, activePaneId.value ?? undefined);
+                await openDocumentInAppropriateTab(path);
             } catch (error) {
-                const activeTab = getTabById(activeTabId.value);
-                const currentActiveWorkspace = activeWorkspace.value ?? await resolveWorkspaceForTab(activeTabId.value);
-                canReuseActiveTab = activeTab && currentActiveWorkspace
-                    ? canReuseTabForDocument(activeTab, currentActiveWorkspace)
-                    : false;
                 BrowserLogger.warn('workspace-routing', 'Failed to open dropped/external path in its own tab', {
                     path,
                     pathIndex: index,
@@ -586,6 +211,11 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
     }
 
+    /**
+     * Opens the files the app was launched with. The first reuses the empty
+     * startup tab; each other file gets its own tab, and the last one is
+     * shown. Returns the paths no tab could take, for the main process to retry.
+     */
     async function beginOpenPathsInAppropriateTab(paths: TDocumentRef[]) {
         const normalizedPaths = normalizeOpenPaths(paths);
         if (normalizedPaths.length === 0) {
@@ -593,115 +223,61 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
         markStartupMetricOnce('evb:document-open-started');
 
-        const startupOpenTasks: Array<Promise<void>> = [];
-        const initialActiveWorkspace = activeWorkspace.value;
-        const initialActiveTab = getTabById(activeTabId.value);
-        let canReuseActiveTab = canReuseTabForDocument(initialActiveTab, initialActiveWorkspace);
-
-        for (const [
-            index,
-            path,
-        ] of normalizedPaths.entries()) {
-            if (canReuseActiveTab && initialActiveTab) {
-                canReuseActiveTab = false;
-                startupOpenTasks.push((async () => {
-                    const opened = await openInExistingTab(initialActiveTab.id, path, {reuseAlreadyReserved: true});
-                    // A document that failed is already reported in its tab;
-                    // only an unavailable tab sends the path back for a retry.
-                    if (!opened && !readWorkspaceOpenFailure(workspaceRefs.value.get(initialActiveTab.id))) {
-                        throw new Error('Startup active tab was not available for external open');
-                    }
-                })());
-                continue;
-            }
-
-            const tab = createTab({
-                paneId: activePaneId.value,
-                activate: index === normalizedPaths.length - 1,
-            });
-            startupOpenTasks.push((async () => {
-                const workspace = await waitForWorkspace(tab.id);
-                if (!workspace) {
-                    removeTabFromState(tab.id);
-                    return;
-                }
-                const opened = await workspace.handleOpenFileDirectWithPersist(path);
-                const seededHint = opened ? seedTabDocumentHint(tab.id, path) : null;
-                if (!opened) {
-                    if (await waitForSettledDocumentEvidence(tab.id, workspace, path)) {
-                        seedTabDocumentHint(tab.id, path);
-                        BrowserLogger.warn('workspace-routing', 'Keeping startup-created tab after open returned false because document state settled', {
-                            tabId: tab.id,
-                            pathIndex: index,
-                        });
-                        return;
-                    }
-
-                    rollbackSeededTabDocumentHint(tab.id, seededHint);
-                    const failure = readWorkspaceOpenFailure(workspace);
-                    removeTabFromState(tab.id);
-                    if (failure) {
-                        options.reportOpenFailure?.(buildPendingTabDocumentHint(path).fileName ?? null, failure);
-                        return;
-                    }
-                    throw new Error('Startup tab document open did not complete');
-                }
-            })());
-        }
-
-        const startupOpenResults = await Promise.allSettled(startupOpenTasks);
-        const failedPaths: TDocumentRef[] = [];
-        for (const [
-            index,
-            result,
-        ] of startupOpenResults.entries()) {
-            if (result.status === 'rejected') {
-                const reason: unknown = result.reason;
-                const failedPath = normalizedPaths[index];
-                if (failedPath) {
-                    failedPaths.push(failedPath);
-                }
-                BrowserLogger.warn('workspace-routing', 'Failed to begin startup external path open', {
-                    path: failedPath,
-                    pathIndex: index,
-                    error: reason,
-                });
-            }
-        }
-
+        const reusableTabId = activeTabId.value && canReuseTab(activeTabId.value) ? activeTabId.value : null;
+        const tabIds = normalizedPaths.map((_path, index) => (
+            index === 0 && reusableTabId
+                ? reusableTabId
+                : createTab({
+                    paneId: activePaneId.value,
+                    activate: index === normalizedPaths.length - 1,
+                }).id
+        ));
         await nextTick();
-        return failedPaths;
+        const results = await Promise.allSettled(normalizedPaths.map(async (path, index) => {
+            const tabId = tabIds[index]!;
+            if (await openInTab(tabId, path)) {
+                return;
+            }
+            const failure = readFailure(tabId);
+            if (tabId !== reusableTabId) {
+                options.removeTabFromState(tabId);
+                if (failure) {
+                    options.reportOpenFailure?.(failure.fileName, failure);
+                }
+            }
+            if (!failure) {
+                throw new Error('Startup tab was not available for external open');
+            }
+        }));
+        return results.flatMap((result, index) => {
+            if (result.status === 'fulfilled') {
+                return [];
+            }
+            BrowserLogger.warn('workspace-routing', 'Failed to begin startup external path open', {
+                path: normalizedPaths[index],
+                pathIndex: index,
+                error: result.reason as unknown,
+            });
+            return [normalizedPaths[index]!];
+        });
     }
 
     async function handleWindowTabsAction(action: TWindowTabsAction) {
+        if (action.kind === 'merge-window-into') {
+            await options.mergeWindowInto(action.targetWindowId);
+            return;
+        }
+        const resolved = options.resolveTabForAction(action.tabId);
+        if (!resolved) {
+            return;
+        }
         if (action.kind === 'close-tab') {
-            const resolved = resolveTabForAction(action.tabId);
-            if (!resolved) {
-                return;
-            }
-            await handleCloseTab(resolved.pane.paneId, resolved.tab.id);
-            return;
+            await options.handleCloseTab(resolved.pane.paneId, resolved.tab.id);
+        } else if (action.kind === 'move-tab-to-new-window') {
+            await options.moveTabToNewWindow(resolved.tab.id);
+        } else {
+            await options.moveTabToWindow(action.targetWindowId, resolved.tab.id);
         }
-
-        if (action.kind === 'move-tab-to-new-window') {
-            const resolved = resolveTabForAction(action.tabId);
-            if (!resolved) {
-                return;
-            }
-            await moveTabToNewWindow(resolved.tab.id);
-            return;
-        }
-
-        if (action.kind === 'move-tab-to-window') {
-            const resolved = resolveTabForAction(action.tabId);
-            if (!resolved) {
-                return;
-            }
-            await moveTabToWindow(action.targetWindowId, resolved.tab.id);
-            return;
-        }
-
-        await mergeWindowInto(action.targetWindowId);
     }
 
     return {
@@ -710,7 +286,6 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         handleOpenInNewTab,
         openResultInAppropriateTab,
         openPathInAppropriateTab,
-        openPathInReservedTab,
         openPathsInAppropriateTab,
         beginOpenPathsInAppropriateTab,
         handleWindowTabsAction,

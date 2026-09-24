@@ -101,8 +101,8 @@ describe('nightly OCR journey', () => {
                 for (const record of records) {
                     for (const node of record.addedNodes) {
                         if (node instanceof Element && (
-                            node.matches('.workspace-host__placeholder')
-                            || node.querySelector('.workspace-host__placeholder') !== null
+                            node.matches('.workspace-viewer-host__empty')
+                            || node.querySelector('.workspace-viewer-host__empty') !== null
                         )) {
                             probeWindow.__evbOcrPlaceholderInsertions! += 1;
                         }
@@ -151,7 +151,7 @@ describe('nightly OCR journey', () => {
         await waitForFunctionInPage(session.page, (tabId: string) => (
             !Array.from(document.querySelectorAll<HTMLElement>('[data-tab-id]'))
                 .some(tab => tab.dataset.tabId === tabId)
-            || document.querySelector('.workspace-host[data-workspace-active="true"] .workspace-host__placeholder') !== null
+            || document.querySelector('.workspace-host[data-workspace-active="true"] .workspace-viewer-host__empty') !== null
         ), {}, savedTabId!);
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForViewerInteractive(session.page, 90_000);

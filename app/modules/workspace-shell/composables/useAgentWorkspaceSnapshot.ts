@@ -17,10 +17,7 @@ import type {
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
-import type {
-    IWorkspaceAgentCommandContext,
-    IWorkspaceExpose,
-} from '@app/types/workspaceExpose';
+import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import {
     isElectronUserAgent,
@@ -30,8 +27,10 @@ import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    describeTabDocument,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
 const AGENT_BRIDGE_RETRY_DELAY_MS = 250;
@@ -44,13 +43,10 @@ interface IUseAgentWorkspaceSnapshotOptions {
     activeTabId: Ref<string | null>;
     recentFiles?: Ref<IRecentFile[]>;
     recentFilesResolved?: Ref<boolean>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     shouldWaitForDesktopBridge: () => boolean;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
     activateTab(paneId: string, tabId: string): void;
-    waitForWorkspace(tabId: string): Promise<IWorkspaceExpose | null>;
 }
 
 export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOptions) => {
@@ -64,7 +60,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     const activeCommandAbortControllers = new Map<string, AbortController>();
 
     function createToolbarSnapshotSignature(tabId: string) {
-        const snapshot = options.documentRecordsByTabId.value[tabId]?.toolbarSnapshot;
+        const snapshot = options.documentSessionsByTabId.value[tabId]?.toolbarSnapshot.value;
         if (!snapshot) {
             return null;
         }
@@ -80,8 +76,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function createDocumentSessionSignature(tabId: string) {
-        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
-        const snapshot = session ? unref(session.snapshot) : null;
+        const snapshot = options.documentSessionsByTabId.value[tabId]?.snapshot.value ?? null;
         if (!snapshot) {
             return null;
         }
@@ -113,12 +108,8 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             })),
             tabs: options.tabs.value.map(tab => ({
                 id: tab.id,
-                fileName: tab.fileName,
-                originalPath: tab.originalPath,
-                originalBackend: resolveDocumentRefBackend(tab.originalPath),
-                isDirty: tab.isDirty,
-                isDjvu: tab.isDjvu,
-                documentIdentity: options.documentRecordsByTabId.value[tab.id]?.documentIdentity ?? null,
+                document: getTabSession(tab.id) ? describeTabDocument(getTabSession(tab.id)!.snapshot.value) : null,
+                documentIdentity: getTabDocumentIdentity(tab.id),
                 documentSession: createDocumentSessionSignature(tab.id),
                 toolbar: createToolbarSnapshotSignature(tab.id),
             })),
@@ -231,26 +222,15 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function getTabDocumentIdentity(tabId: string): IDocumentRevisionInfo | null {
-        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
-        return (session ? unref(session.snapshot).identity.revisionInfo : null)
-            ?? options.documentRecordsByTabId.value[tabId]?.documentIdentity
-            ?? null;
+        return getTabSession(tabId)?.snapshot.value.identity.revisionInfo ?? null;
     }
 
     function getTabDocumentInstanceId(tabId: string) {
-        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
-        return session ? unref(session.snapshot).identity.documentInstanceId : null;
+        return getTabSession(tabId)?.snapshot.value.identity.documentInstanceId ?? null;
     }
 
     function getTabDocumentRef(tabId: string) {
-        const session = options.documentSessionsByTabId?.value[tabId] ?? null;
-        const sessionRef = session ? unref(session.snapshot).identity.documentRef : null;
-        if (sessionRef) {
-            return sessionRef;
-        }
-
-        const record = options.documentRecordsByTabId.value[tabId];
-        return record?.documentIdentity?.documentRef ?? record?.tab.originalPath ?? null;
+        return getTabSession(tabId)?.snapshot.value.identity.documentRef ?? null;
     }
 
     function getTabDocumentBackend(tabId: string) {
@@ -258,7 +238,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     function getTabSession(tabId: string) {
-        return options.documentSessionsByTabId?.value[tabId] ?? null;
+        return options.documentSessionsByTabId.value[tabId] ?? null;
     }
 
     function getTabCommandTarget(tabId: string): TAgentWorkspaceCommandTarget | null {
@@ -403,14 +383,11 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         tabId: string,
         expectedCommandTarget: TAgentWorkspaceCommandTarget | null,
     ) {
-        if (expectedCommandTarget) {
-            const session = getTabSession(tabId);
-            if (session) {
-                return session.waitForWorkspace(expectedCommandTarget);
-            }
-        }
-
-        return options.waitForWorkspace(tabId);
+        const session = getTabSession(tabId);
+        const workspace = await session?.whenMounted() ?? null;
+        return expectedCommandTarget && session && !session.validateCommandTarget(expectedCommandTarget).ok
+            ? null
+            : workspace;
     }
 
     function createCommandContext(
@@ -540,8 +517,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         workspace.handleGoToPage(request.command.arguments.page);
         await nextTick();
         assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-        const snapshot = options.documentRecordsByTabId.value[tabId]?.toolbarSnapshot
-            ?? workspace.getToolbarSnapshot();
+        const snapshot = workspace.getToolbarSnapshot();
         return {
             activePaneId: paneId,
             activeTabId: tabId,

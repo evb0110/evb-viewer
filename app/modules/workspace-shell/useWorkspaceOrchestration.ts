@@ -32,7 +32,15 @@ import { useWorkspaceViewState } from '@app/modules/workspace-shell/composables/
 import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {
+    IWorkspaceDocumentController,
+    IWorkspaceOpenRequest,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { describeOpenResult } from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import {
+    didOpenDocument,
+    type TDocumentOpenOutcome,
+} from '@app/types/documentOpenOutcome';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -63,8 +71,6 @@ import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
 interface IWorkspaceOrchestrationDeps {
@@ -77,6 +83,8 @@ interface IWorkspaceOrchestrationDeps {
     openSurface?: IDocumentOpenSurfaceSession | undefined;
     preserveInitialStateForFirstSource?: boolean | undefined;
     sourceCapabilities: Ref<IDocumentSourceCapabilities>;
+    /** Runs a user open as the tab controller's open transaction. */
+    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
     emit: {
         (e: 'open-in-new-tab', result: TDocumentRef | TOpenFileResult): void;
         (e: 'request-close-tab'): void;
@@ -95,16 +103,6 @@ interface IWorkspaceDocumentViewBindingOptions {
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
     onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
-}
-interface IWorkspaceProjectionBindingOptions {
-    pendingDocumentPath: Ref<TDocumentRef | null | undefined>;
-    toolbarSnapshot: Ref<IWorkspaceToolbarSnapshot>;
-    currentViewState: Ref<ITabViewSessionState | null | undefined>;
-    formatPendingBatchLabel: (values: {
-        processed: number;
-        total: number;
-    }) => string;
-    publishRecord: (record: IWorkspaceDocumentRecord) => void;
 }
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => {
@@ -130,9 +128,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         djvuSourceSizeBytes,
         loadRecentFiles,
         pickFileToOpen,
-        openFileWithViewerLifecycle,
-        openFileDirectWithViewerLifecycle,
-        openFileDirectBatchWithViewerLifecycle,
         closeFileWithViewerLifecycle,
         hasPdf,
         pdfSrc,
@@ -161,6 +156,15 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         markDirty,
         setWorkspaceCommandSink,
     } = fileLifecycle;
+    // A split restore reopens its payload as the tab's open transaction.
+    async function openSplitPayloadResult(result: TOpenFileResult) {
+        const opened: {outcome: TDocumentOpenOutcome} = {outcome: {status: 'cancelled'}};
+        const presented = await deps.runDocumentOpen(describeOpenResult(result), async () => {
+            opened.outcome = await fileLifecycle.openFileWithViewerLifecycle(result);
+            return didOpenDocument(opened.outcome);
+        });
+        return presented || !didOpenDocument(opened.outcome) ? opened.outcome : {status: 'cancelled' as const};
+    }
     const sidebarSearch = useWorkspaceSidebarSearchSyncController({
         workingCopyPath,
         documentRevisionToken,
@@ -736,9 +740,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         bookmarksDirty,
         persistAllAnnotationNotes,
         pickFileToOpen,
-        openFileWithViewerLifecycle,
-        openFileDirectWithViewerLifecycle,
-        openFileDirectBatchWithViewerLifecycle,
+        openFileWithViewerLifecycle: fileLifecycle.openFileWithViewerLifecycle,
+        openFileDirectWithViewerLifecycle: fileLifecycle.openFileDirectWithViewerLifecycle,
+        openFileDirectBatchWithViewerLifecycle: fileLifecycle.openFileDirectBatchWithViewerLifecycle,
+        runDocumentOpen: deps.runDocumentOpen,
         closeFileWithViewerLifecycle,
         closeAllDropdowns,
         emitOpenInNewTab: (pathOrResult) => emit('open-in-new-tab', pathOrResult),
@@ -906,7 +911,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasPendingTabChanges,
         requiresSaveAsOnFirstSave,
         pdfData,
-        openFileWithViewerLifecycle,
+        openFileWithViewerLifecycle: openSplitPayloadResult,
         waitForPdfReload,
         loadPdfFromPath,
         documentRevisionToken,
@@ -1109,23 +1114,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             onZoomUpdate: value => { zoom.value = value; },
         });
     }
-    function bindWorkspaceProjection(options: IWorkspaceProjectionBindingOptions) {
-        deps.documentSession.bindWorkspaceProjection({
-            pendingDocumentPath: options.pendingDocumentPath,
-            openBatchProgress: fileLifecycle.openBatchProgress,
-            hasPdf,
-            isDjvuMode,
-            fileName,
-            originalPath,
-            documentIdentity: documentRevisionInfo,
-            isDirty: hasPendingUnsavedChanges,
-            djvuSourcePath,
-            toolbarSnapshot: options.toolbarSnapshot,
-            currentViewState: options.currentViewState,
-            formatPendingBatchLabel: options.formatPendingBatchLabel,
-            publishRecord: options.publishRecord,
-        });
-    }
     return {
         failureSurface,
         documentDriver: {
@@ -1134,7 +1122,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         },
         fileLifecycle: {
             ...fileLifecycle,
-            bindWorkspaceProjection,
             documentKey,
         },
         viewerShell: {

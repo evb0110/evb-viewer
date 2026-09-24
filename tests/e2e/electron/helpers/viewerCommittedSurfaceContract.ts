@@ -1007,7 +1007,7 @@ export async function installCommittedSurfaceSampler(
                 const visibleToolSurface = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.scan-cleanup-surface',
                 ) ?? []).find(ownsVisibleCenter) ?? null;
-                const outerPlaceholder = host?.querySelector<HTMLElement>('.workspace-host__placeholder') ?? null;
+                const outerPlaceholder = host?.querySelector<HTMLElement>('.workspace-viewer-host__empty') ?? null;
                 const visibleLiveEmptyState = Array.from(
                     outerPlaceholder?.querySelectorAll<HTMLElement>('.empty-state') ?? [],
                 ).find(ownsVisibleCenter) ?? null;

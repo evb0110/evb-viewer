@@ -11,18 +11,11 @@ import {
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireTabId } from '@contracts/windowTabs';
 
 function tab(id: string): ITab {
-    return {
-        id,
-        fileName: `${id}.pdf`,
-        originalPath: requireDocumentRef(`/docs/${id}.pdf`),
-        isDirty: false,
-        isDjvu: false,
-    };
+    return {id};
 }
 
 function pane(id: string, activeTabId: string, tabIds: string[]): IEditorPaneState {
@@ -153,6 +146,7 @@ describe('tab session memory policy', () => {
         expectedWarmTabIds,
     }) => {
         const states = resolveTabLifecycleStates({
+            dirtyTabIds: new Set(),
             tabs: [
                 tab('a'),
                 tab('b'),
@@ -187,6 +181,7 @@ describe('tab session memory policy', () => {
         5,
     ])('cools non-active tabs aggressively at a target of %i except visible split panes', (targetWarmViewers) => {
         const states = resolveTabLifecycleStates({
+            dirtyTabIds: new Set(),
             tabs: [
                 tab('a'),
                 tab('b'),
@@ -220,16 +215,13 @@ describe('tab session memory policy', () => {
     });
 
     it('keeps dirty inactive tabs warm but not reclaimable', () => {
-        const dirtyTab = {
-            ...tab('b'),
-            isDirty: true,
-        };
         const states = resolveTabLifecycleStates({
             tabs: [
                 tab('a'),
-                dirtyTab,
+                tab('b'),
                 tab('c'),
             ],
+            dirtyTabIds: new Set(['b']),
             panes: [pane('pane-1', 'a', [
                 'a',
                 'b',
@@ -289,6 +281,7 @@ describe('tab session memory policy', () => {
         expectedWarmTabIds,
     }) => {
         const states = resolveTabLifecycleStates({
+            dirtyTabIds: new Set(),
             tabs: [
                 tab('a'),
                 tab('b'),

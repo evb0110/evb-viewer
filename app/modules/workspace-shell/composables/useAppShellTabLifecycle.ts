@@ -9,29 +9,27 @@ import {
     waitForVisualFrames,
     waitUntilIdle,
 } from '@app/utils/asyncHelpers';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { parseTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
     IWorkspaceRestoreTrackerLike,
     IWorkspaceSplitCacheLike,
 } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    identityHasDocument,
+    snapshotOccupiesTab,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 interface IUseAppShellTabLifecycleOptions {
     panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
     documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
-    getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
     workspaceSplitCache: IWorkspaceSplitCacheLike;
     workspaceRestoreTracker: IWorkspaceRestoreTrackerLike;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
@@ -74,7 +72,6 @@ function serializeTransitionError(error: unknown) {
 interface IUseAppShellTabLifecycleResult {
     isTabTransitionBusy: ComputedRef<boolean>;
     enqueueTabTransition: <T>(task: () => Promise<T>, context?: ITabTransitionReportContext) => Promise<T>;
-    updateTab: (tabId: string, updates: Partial<ITab>) => void;
     removeTabFromState: (tabId: string) => void;
     cleanupEmptyPanes: () => void;
     isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
@@ -92,9 +89,7 @@ export const useAppShellTabLifecycle = (
         tabs,
         activePaneId,
         activeTabId,
-        workspaceRefs,
         documentSessionsByTabId,
-        getDocumentRecord,
         workspaceSplitCache,
         getPaneById,
         getTabById,
@@ -155,15 +150,6 @@ export const useAppShellTabLifecycle = (
         return guarded;
     }
 
-    function updateTab(tabId: string, updates: Partial<ITab>) {
-        const tab = getTabById(tabId);
-        if (!tab) {
-            return;
-        }
-
-        Object.assign(tab, updates);
-    }
-
     function removeTabFromState(tabId: string) {
         const pane = getPaneByTabId(tabId);
         if (pane) {
@@ -183,44 +169,24 @@ export const useAppShellTabLifecycle = (
         }
     }
 
-    // The retained singleton tab keeps its mounted workspace, so its record must
-    // be returned to the empty-tab shape explicitly. Leaving the closed
-    // document's identity behind keeps `tabHasDocumentHint` true, which the host
-    // reads as an open still in flight and renders as a skeleton forever.
-    function resetTabToPlaceholder(tabId: string) {
-        const tab = getTabById(tabId);
-        if (!tab) {
-            return;
-        }
-
-        Object.assign(tab, {
-            fileName: null,
-            originalPath: null,
-            documentInstanceId: null,
-            isDirty: false,
-            isDjvu: false,
-        });
-        // `originalBackend` is presence-encoded everywhere it is read, so the
-        // empty-tab shape drops the key instead of holding an undefined value.
-        delete tab.originalBackend;
-        workspaceSplitCache.clear(tabId);
-    }
-
-    function isPlaceholderTab(tab: ITab) {
-        return tab.fileName === null
-            && tab.originalPath === null
-            && !tab.isDirty
-            && !tab.isDjvu;
-    }
-
     function getDocumentSession(tabId: string | null | undefined) {
         return tabId ? documentSessionsByTabId.value[tabId] ?? null : null;
     }
 
+    function tabOccupied(tabId: string) {
+        const session = getDocumentSession(tabId);
+        return session !== null && snapshotOccupiesTab(session.snapshot.value);
+    }
+
+    function tabHoldsDocument(tabId: string) {
+        const snapshot = getDocumentSession(tabId)?.snapshot.value;
+        return snapshot !== undefined && (snapshot.phase === 'opening' || identityHasDocument(snapshot.identity));
+    }
+
     function hasTabBusyOperation(tabId: string) {
-        const sessionBusy = getDocumentSession(tabId)?.operationLease.isBusy.value === true;
-        const toolbarSnapshot = workspaceRefs.value.get(tabId)?.getToolbarSnapshot();
-        return sessionBusy || Boolean(toolbarSnapshot && (
+        const session = getDocumentSession(tabId);
+        const toolbarSnapshot = session?.mountedWorkspace.value ? session.toolbarSnapshot.value : null;
+        return session?.operationLease.isBusy.value === true || Boolean(toolbarSnapshot && (
             toolbarSnapshot.isAnySaving
             || toolbarSnapshot.isHistoryBusy
             || toolbarSnapshot.isExportingDocx
@@ -263,14 +229,10 @@ export const useAppShellTabLifecycle = (
         }
     }
 
-    function recordHasCloseableDocument(tabId: string | null | undefined) {
-        const sessionCloseable = getDocumentSession(tabId)?.snapshot.value.closeable;
-        if (sessionCloseable !== undefined) {
-            return sessionCloseable;
-        }
-
-        const snapshot = getDocumentRecord(tabId)?.toolbarSnapshot;
-        return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities);
+    function tabHasCloseableDocument(tabId: string | null | undefined) {
+        const session = getDocumentSession(tabId);
+        return Boolean(session?.mountedWorkspace.value)
+            && hasWorkspaceViewerDocumentCapabilities(session?.toolbarSnapshot.value.viewerCapabilities);
     }
 
     function isSingletonPlaceholderCloseBlocked(paneId: string, tabId: string) {
@@ -284,16 +246,7 @@ export const useAppShellTabLifecycle = (
             return false;
         }
 
-        const tab = getTabById(tabId);
-        if (!tab || !isPlaceholderTab(tab)) {
-            return false;
-        }
-
-        if (recordHasCloseableDocument(tabId)) {
-            return false;
-        }
-        const workspace = workspaceRefs.value.get(tabId) ?? null;
-        return !workspaceHasPdf(workspace);
+        return !tabHoldsDocument(tabId);
     }
 
     function resolveTabForAction(tabId: string | undefined) {
@@ -319,16 +272,10 @@ export const useAppShellTabLifecycle = (
     }
 
     function scoreTabDocumentReadiness(tabId: string) {
-        if (recordHasCloseableDocument(tabId)) {
+        if (tabHasCloseableDocument(tabId)) {
             return 3;
         }
-
-        const tab = getTabById(tabId);
-        if (tab && tabHasDocumentHint(tab)) {
-            return 2;
-        }
-
-        return 1;
+        return tabOccupied(tabId) ? 2 : 1;
     }
 
     function pickBestTabCandidate(tabIds: Array<string | null | undefined>) {
@@ -487,13 +434,10 @@ export const useAppShellTabLifecycle = (
         };
     }
 
-    async function resolveClosePersistence(tabId: string, tab: ITab) {
+    async function resolveClosePersistence(tabId: string) {
         await waitForTabOperationsToSettle(tabId);
 
-        const session = getDocumentSession(tabId);
-        const record = getDocumentRecord(tabId);
-        const isDirty = session ? session.snapshot.value.dirty : record?.tab.isDirty ?? tab.isDirty;
-        if (!isDirty) {
+        if (getDocumentSession(tabId)?.snapshot.value.dirty !== true) {
             return false;
         }
 
@@ -504,59 +448,22 @@ export const useAppShellTabLifecycle = (
         return decision === 'save';
     }
 
-    function workspaceHasCloseableDocument(tabId: string, workspace: IWorkspaceExpose | undefined) {
-        const sessionSnapshot = getDocumentSession(tabId)?.snapshot.value;
-        const activeKind = sessionSnapshot?.activeTransaction?.kind;
-        if (activeKind === 'open' || activeKind === 'restore' || activeKind === 'reload') {
-            return true;
-        }
-        if (!workspace) {
-            return false;
-        }
-        if (sessionSnapshot?.closeable === true) {
-            return true;
-        }
-        if (recordHasCloseableDocument(tabId)) {
-            return true;
-        }
-        return workspaceHasPdf(workspace)
-            || hasWorkspaceViewerDocumentCapabilities(workspace.getToolbarSnapshot().viewerCapabilities);
-    }
-
     async function closeWorkspaceDocument(
         paneId: string,
         tabId: string,
-        workspace: IWorkspaceExpose | undefined,
         shouldPersistBeforeClose: boolean,
     ) {
         const controller = getDocumentSession(tabId);
-        if (!controller && !workspace) {
+        if (!controller || !await controller.close({persist: shouldPersistBeforeClose})) {
             return;
         }
-        const closed = controller
-            ? await controller.close({persist: shouldPersistBeforeClose})
-            : workspace
-                ? await workspace.handleCloseFileFromUi({persist: shouldPersistBeforeClose})
-                : false;
-
-        // `closed` is the close call's own verdict and the only untainted one:
-        // the toolbar snapshot still advertises a viewer adapter here, because
-        // the host keeps a pending-document hint alive until this tab drops its
-        // file name. Re-deriving "document gone" from that snapshot deadlocks.
-        if (closed) {
-            const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
-            const retainMountedSingletonOwner = panes.value.length === 1
-                && pane?.tabIds.length === 1
-                && pane.tabIds[0] === tabId;
-            // The final tab is already the product's required empty-tab slot.
-            // Keep its mounted workspace/chassis authority instead of deleting
-            // it and constructing an equivalent replacement asynchronously;
-            // Recent-file commands then remain actionable in the close commit.
-            if (retainMountedSingletonOwner) {
-                resetTabToPlaceholder(tabId);
-            } else {
-                closeResolvedTabInState(paneId, tabId);
-            }
+        const pane = getPaneByTabId(tabId) ?? getPaneById(paneId);
+        // The final tab is the product's required empty-tab slot. It keeps its
+        // mounted workspace, so Start stays actionable in the close commit.
+        if (panes.value.length === 1 && pane?.tabIds.length === 1 && pane.tabIds[0] === tabId) {
+            workspaceSplitCache.clear(tabId);
+        } else {
+            closeResolvedTabInState(paneId, tabId);
         }
     }
 
@@ -571,7 +478,7 @@ export const useAppShellTabLifecycle = (
             shouldDeferCrossPaneHandoff,
         } = resolveCloseHandoffContext(paneId, tabId);
 
-        const shouldPersistBeforeClose = await resolveClosePersistence(tabId, tab);
+        const shouldPersistBeforeClose = await resolveClosePersistence(tabId);
         if (shouldPersistBeforeClose === null) {
             return;
         }
@@ -580,9 +487,8 @@ export const useAppShellTabLifecycle = (
             await handoffActiveTabBeforeClose(paneId, tabId);
         }
 
-        const workspace = workspaceRefs.value.get(tabId);
-        if (workspaceHasCloseableDocument(tabId, workspace)) {
-            await closeWorkspaceDocument(paneId, tabId, workspace, shouldPersistBeforeClose);
+        if (tabHoldsDocument(tabId)) {
+            await closeWorkspaceDocument(paneId, tabId, shouldPersistBeforeClose);
         } else {
             closeResolvedTabInState(paneId, tabId);
         }
@@ -638,7 +544,6 @@ export const useAppShellTabLifecycle = (
     return {
         isTabTransitionBusy,
         enqueueTabTransition,
-        updateTab,
         removeTabFromState,
         cleanupEmptyPanes,
         isSingletonPlaceholderCloseBlocked,

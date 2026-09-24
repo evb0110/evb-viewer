@@ -4,14 +4,10 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { TPdfViewMode } from '@contracts/shared';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import {
-    getWorkspaceViewModeCommandName,
-    type TWorkspaceExposeMethod,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 interface IUseShellWorkspaceToolbarOptions {
-    activeDocumentRecord: Readonly<Ref<IWorkspaceDocumentRecord | null | undefined>>;
+    activeDocumentSession: Readonly<Ref<IWorkspaceDocumentController | null>>;
     hasWorkspaceToolbarContent: Readonly<Ref<boolean>>;
 }
 
@@ -23,14 +19,14 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     const shellToolbarAppMenuOpen = ref(false);
 
     const shellToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => (
-        options.activeDocumentRecord.value?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot()
+        options.activeDocumentSession.value?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot()
     ));
     const shellToolbarHasPdf = computed(() => shellToolbarSnapshot.value.hasPdf);
     const shellToolbarOcrWorkingCopyPath = computed<TDocumentRef | null>(() => (
-        options.activeDocumentRecord.value?.documentIdentity?.documentRef ?? null
+        options.activeDocumentSession.value?.snapshot.value.identity.revisionInfo?.documentRef ?? null
     ));
     const shellToolbarOcrDocumentRevision = computed<TDocumentRevisionToken | null>(() => (
-        options.activeDocumentRecord.value?.documentIdentity?.token ?? null
+        options.activeDocumentSession.value?.snapshot.value.identity.revisionInfo?.token ?? null
     ));
     const showShellToolbar = computed(() => !options.hasWorkspaceToolbarContent.value);
 
@@ -42,8 +38,10 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     }
 
     return {
-        handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode, runCommand: (commandName: TWorkspaceExposeMethod) => void) {
-            runCommand(getWorkspaceViewModeCommandName(mode));
+        handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode, runCommand: (commandName: string) => void) {
+            runCommand(mode === 'single'
+                ? 'handleViewModeSingle'
+                : mode === 'facing' ? 'handleViewModeFacing' : 'handleViewModeFacingFirstSingle');
         },
         shellToolbarAppMenuOpen,
         shellToolbarEffectiveZoom: createSnapshotFieldModel('effectiveZoom'),

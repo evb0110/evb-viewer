@@ -10,7 +10,6 @@ import type {
     TPaneDirection,
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
     ITabContextAvailability,
     TDirectionalCommandAvailability,
@@ -22,7 +21,6 @@ import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const DIRECTION_ORDER = [
@@ -36,9 +34,7 @@ interface IUseAppShellDirectionalTabsOptions {
     activePaneId: Ref<string | null>;
     panes: Ref<IEditorPaneState[]>;
     tabs: Ref<ITab[]>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
-    getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     isTabTransitionBusy: ComputedRef<boolean>;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
     getTabById: (tabId: string | null | undefined) => ITab | null;
@@ -54,7 +50,6 @@ interface IUseAppShellDirectionalTabsOptions {
     createTab: (options: {
         paneId?: string | null;
         activate?: boolean;
-        initial?: Partial<ITab>;
     }) => ITab;
     activatePane: (paneId: string) => void;
     activateTab: (paneId: string, tabId: string) => void;
@@ -307,19 +302,12 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             const {
                 payload,
                 sourcePane,
-                sourceTab,
                 sourceTabId,
             } = activeTabPayload;
 
             const targetTab = createTab({
                 paneId: route.targetPaneId,
                 activate: true,
-                initial: {
-                    fileName: sourceTab.fileName,
-                    originalPath: sourceTab.originalPath,
-                    isDirty: sourceTab.isDirty,
-                    isDjvu: sourceTab.isDjvu,
-                },
             });
 
             const restored = await restoreWorkspacePayload(targetTab.id, payload);
@@ -365,7 +353,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     }
 
     function getTabFilePath(tabId: string): TDocumentRef | null {
-        const path = getTabById(tabId)?.originalPath ?? null;
+        const path = options.documentSessionsByTabId.value[tabId]?.snapshot.value.identity.originalPath ?? null;
         return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path)
             ? path
             : null;

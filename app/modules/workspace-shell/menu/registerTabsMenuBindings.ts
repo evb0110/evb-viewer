@@ -9,11 +9,167 @@ import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    invokeWorkspaceExposeCommand,
-    workspaceExposeMenuCommandDescriptors,
-    type TWorkspaceExposeMethod,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+
+// Menu items that run a command on the active tab's workspace:
+// [menu registration, command, action name, capability].
+const WORKSPACE_MENU_COMMANDS: ReadonlyArray<readonly [string, keyof IWorkspaceExpose, string, ('documentMenu' | 'djvu')?]> = [
+    [
+        'onMenuSave',
+        'handleSave',
+        'save',
+    ],
+    [
+        'onMenuRepairSave',
+        'handleRepairSave',
+        'repair-save',
+    ],
+    [
+        'onMenuOptimizePdfForInteraction',
+        'handleOptimizePdfForInteraction',
+        'optimize-pdf-for-interaction',
+    ],
+    [
+        'onMenuSaveAs',
+        'handleSaveAs',
+        'save-as',
+    ],
+    [
+        'onMenuPrint',
+        'handlePrint',
+        'print',
+    ],
+    [
+        'onMenuPrintCurrentPage',
+        'handlePrintCurrentPage',
+        'print-current-page',
+    ],
+    [
+        'onMenuUndo',
+        'handleUndo',
+        'undo',
+    ],
+    [
+        'onMenuRedo',
+        'handleRedo',
+        'redo',
+    ],
+    [
+        'onMenuSelectAll',
+        'handleSelectAll',
+        'select-all',
+    ],
+    [
+        'onMenuExportDocx',
+        'handleExportDocx',
+        'export-docx',
+    ],
+    [
+        'onMenuExportImages',
+        'handleExportImages',
+        'export-images',
+    ],
+    [
+        'onMenuExportMultiPageTiff',
+        'handleExportMultiPageTiff',
+        'export-multi-page-tiff',
+    ],
+    [
+        'onMenuZoomIn',
+        'handleZoomIn',
+        'zoom-in',
+    ],
+    [
+        'onMenuZoomOut',
+        'handleZoomOut',
+        'zoom-out',
+    ],
+    [
+        'onMenuFitWidth',
+        'handleFitWidth',
+        'fit-width',
+    ],
+    [
+        'onMenuFitHeight',
+        'handleFitHeight',
+        'fit-height',
+    ],
+    [
+        'onMenuActualSize',
+        'handleActualSize',
+        'actual-size',
+    ],
+    [
+        'onMenuToggleContinuousScroll',
+        'handleToggleContinuousScroll',
+        'toggle-continuous-scroll',
+    ],
+    [
+        'onMenuInsertImageFromFile',
+        'handleInsertImageFromFile',
+        'insert-image-from-file',
+    ],
+    [
+        'onMenuPasteImageFromClipboard',
+        'handlePasteImageFromClipboard',
+        'paste-image-from-clipboard',
+    ],
+    [
+        'onMenuViewModeSingle',
+        'handleViewModeSingle',
+        'view-mode-single',
+    ],
+    [
+        'onMenuViewModeFacing',
+        'handleViewModeFacing',
+        'view-mode-facing',
+    ],
+    [
+        'onMenuViewModeFacingFirstSingle',
+        'handleViewModeFacingFirstSingle',
+        'view-mode-facing-first-single',
+    ],
+    [
+        'onMenuViewRotationCw',
+        'handleViewRotationCw',
+        'view-rotation-cw',
+    ],
+    [
+        'onMenuViewRotationCcw',
+        'handleViewRotationCcw',
+        'view-rotation-ccw',
+    ],
+    [
+        'onMenuDeletePages',
+        'handleDeletePages',
+        'delete-pages',
+    ],
+    [
+        'onMenuExtractPages',
+        'handleExtractPages',
+        'extract-pages',
+    ],
+    [
+        'onMenuRotateCw',
+        'handleRotateCw',
+        'rotate-cw',
+    ],
+    [
+        'onMenuRotateCcw',
+        'handleRotateCcw',
+        'rotate-ccw',
+    ],
+    [
+        'onMenuInsertPages',
+        'handleInsertPages',
+        'insert-pages',
+    ],
+    [
+        'onMenuConvertToPdf',
+        'handleConvertToPdf',
+        'convert-to-pdf',
+        'djvu',
+    ],
+];
 
 export interface ITabsMenuBindingApi {
     documentMenu: IDocumentsMenuCapability;
@@ -79,14 +235,10 @@ function resolveWorkspaceMenuApi(
 
 function runWorkspaceMenuCommand(
     deps: ITabsMenuBindingDeps,
-    commandName: TWorkspaceExposeMethod,
+    commandName: keyof IWorkspaceExpose,
 ) {
-    const workspace = deps.activeWorkspace.value;
-    if (!workspace) {
-        return undefined;
-    }
-
-    return invokeWorkspaceExposeCommand(workspace, commandName) as unknown;
+    const command = deps.activeWorkspace.value?.[commandName] as (() => unknown) | undefined;
+    return command?.();
 }
 
 function registerWorkspaceMenuActions(
@@ -95,10 +247,15 @@ function registerWorkspaceMenuActions(
     runMenuAction: TMenuRunAction,
 ) {
     const cleanups: TCleanup[] = [];
-    for (const binding of workspaceExposeMenuCommandDescriptors) {
-        const register = getNoArgDocumentMenuRegister(resolveWorkspaceMenuApi(menuApi, binding.menu.source), binding.menu.register);
+    for (const [
+        registerName,
+        commandName,
+        actionName,
+        source,
+    ] of WORKSPACE_MENU_COMMANDS) {
+        const register = getNoArgDocumentMenuRegister(resolveWorkspaceMenuApi(menuApi, source), registerName);
         const cleanup = toCleanup(register?.(() => {
-            runMenuAction(binding.menu.actionName, () => runWorkspaceMenuCommand(deps, binding.name));
+            runMenuAction(actionName, () => runWorkspaceMenuCommand(deps, commandName));
         }));
         if (cleanup) {
             cleanups.push(cleanup);

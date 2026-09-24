@@ -1,10 +1,11 @@
-import type {
-    InjectionKey,
-    Ref,
-} from 'vue';
-import type { ITab } from '@app/types/tabs';
+import type { InjectionKey } from 'vue';
+import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import {
+    describeTabDocument,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
-interface IUseDirtyTabCloseDialogDeps {tabs: Ref<ITab[]>;}
+interface IUseDirtyTabCloseDialogDeps {getSession: (tabId: string) => IWorkspaceDocumentController | null;}
 
 export type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
 export type TDirtyCloseDialogMode = 'tab' | 'window';
@@ -14,14 +15,13 @@ export const dirtyTabCloseConfirmationKey: InjectionKey<TDirtyTabCloseConfirmati
 
 interface IDirtyTabCloseTarget {
     id: string;
-    documentInstanceId: ITab['documentInstanceId'] | null;
+    documentInstanceId: TDocumentInstanceId | null;
     name: string | null;
 }
 
 export const useDirtyTabCloseDialog = (
     deps: IUseDirtyTabCloseDialogDeps,
 ) => {
-    const { tabs } = deps;
     const { t } = useTypedI18n();
     const dirtyTabCloseDialogOpen = ref(false);
     const dirtyTabCloseTargetId = ref<string | null>(null);
@@ -31,11 +31,8 @@ export const useDirtyTabCloseDialog = (
 
     const dirtyTabCloseTargetName = computed(() => dirtyTabCloseTarget.value?.name ?? t('tabs.newTab'));
 
-    function isCurrentTarget(tab: ITab | undefined) {
-        const target = dirtyTabCloseTarget.value;
-        return target !== null
-            && tab?.id === target.id
-            && (tab.documentInstanceId ?? null) === target.documentInstanceId;
+    function readTargetInstanceId(tabId: string) {
+        return deps.getSession(tabId)?.snapshot.value.identity.documentInstanceId ?? null;
     }
 
     function resolveDirtyTabCloseDialog(decision: TDirtyCloseDecision | boolean) {
@@ -54,14 +51,14 @@ export const useDirtyTabCloseDialog = (
         if (dirtyTabCloseDialogResolver) {
             resolveDirtyTabCloseDialog(false);
         }
-        const tab = tabs.value.find(candidate => candidate.id === tabId);
-        if (!tab) {
+        const session = deps.getSession(tabId);
+        if (!session) {
             return Promise.resolve<TDirtyCloseDecision>('cancel');
         }
         dirtyTabCloseTarget.value = {
-            id: tab.id,
-            documentInstanceId: tab.documentInstanceId ?? null,
-            name: tab.fileName,
+            id: tabId,
+            documentInstanceId: session.snapshot.value.identity.documentInstanceId,
+            name: describeTabDocument(session.snapshot.value).fileName,
         };
         dirtyTabCloseTargetId.value = tabId;
         dirtyTabCloseDialogMode.value = 'tab';
@@ -90,28 +87,15 @@ export const useDirtyTabCloseDialog = (
         provide(dirtyTabCloseConfirmationKey, requestDirtyTabCloseConfirmation);
     }
 
+    // The prompt names one document. If the tab closes or now holds another
+    // document, the question no longer applies.
     watch(() => {
-        if (dirtyTabCloseDialogMode.value !== 'tab') {
-            return null;
-        }
         const target = dirtyTabCloseTarget.value;
-        const tab = target ? tabs.value.find(candidate => candidate.id === target.id) : undefined;
-        return tab ? [
-            tab.id,
-            tab.documentInstanceId ?? null,
-        ] : [
-            null,
-            null,
-        ];
-    }, () => {
-        if (dirtyTabCloseDialogMode.value !== 'tab') {
-            return;
-        }
-        if (dirtyTabCloseDialogResolver && !isCurrentTarget(
-            dirtyTabCloseTarget.value
-                ? tabs.value.find(candidate => candidate.id === dirtyTabCloseTarget.value?.id)
-                : undefined,
-        )) {
+        return dirtyTabCloseDialogMode.value === 'tab' && target
+            ? deps.getSession(target.id) !== null && readTargetInstanceId(target.id) === target.documentInstanceId
+            : true;
+    }, (current) => {
+        if (!current && dirtyTabCloseDialogResolver) {
             resolveDirtyTabCloseDialog(false);
         }
     });

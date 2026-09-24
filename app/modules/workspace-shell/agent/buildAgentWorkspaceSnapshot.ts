@@ -14,17 +14,17 @@ import type {
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
+import type { ITabMetadataCore } from '@contracts/windowTabs';
 import type { IRecentFile } from '@contracts/shared';
 import { parseDocumentRef } from '@contracts/documentRef';
 import { requireIsoTimestamp } from '@contracts/timestamps';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireTabId } from '@contracts/windowTabs';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import {
+    describeTabDocument,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 
 interface IBuildAgentWorkspaceSnapshotOptions {
@@ -35,9 +35,7 @@ interface IBuildAgentWorkspaceSnapshotOptions {
     activeTabId: Ref<string | null>;
     recentFiles?: Ref<IRecentFile[]>;
     recentFilesResolved?: Ref<boolean>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
-    documentSessionsByTabId?: Ref<Record<string, IWorkspaceDocumentController>>;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -65,7 +63,7 @@ function cloneEditorLayoutNode(node: TEditorLayoutNode | null): TEditorLayoutNod
     };
 }
 
-function getTabPath(tab: ITab) {
+function getTabPath(tab: ITabMetadataCore) {
     return parseDocumentRef(tab.originalPath);
 }
 
@@ -98,7 +96,7 @@ function cloneCommandTarget(target: TAgentWorkspaceCommandTarget | undefined) {
 }
 
 function inferDocumentKind(
-    tab: ITab,
+    tab: ITabMetadataCore,
     toolbarSnapshot: IWorkspaceToolbarSnapshot | null,
 ): TAgentDocumentKind {
     const path = getTabPath(tab);
@@ -167,42 +165,39 @@ function buildDocumentReadiness(
 }
 
 function buildAgentTabSnapshot(
-    tab: ITab,
+    tabId: string,
     pane: IEditorPaneState | null,
-    workspace: IWorkspaceExpose | null,
-    record: IWorkspaceDocumentRecord | null,
-    session: IWorkspaceDocumentController | null,
+    session: IWorkspaceDocumentController,
 ): IAgentTabSnapshot {
-    const toolbarSnapshot = record?.toolbarSnapshot ?? null;
+    const snapshot = session.snapshot.value;
+    const tab = describeTabDocument(snapshot);
+    const toolbarSnapshot = session.toolbarSnapshot.value;
     const kind = inferDocumentKind(tab, toolbarSnapshot);
-    const commandTarget = cloneCommandTarget(session?.createCommandTarget());
-    const documentIdentity = record?.documentIdentity === undefined
-        ? undefined
-        : cloneDocumentIdentity(record.documentIdentity);
-    const identity = session ? unref(session.snapshot).identity : null;
-    const documentSessionKey = identity?.documentSessionKey ?? null;
-    const documentInstanceId = identity?.documentInstanceId ?? null;
+    const commandTarget = cloneCommandTarget(session.createCommandTarget());
+    const documentIdentity = cloneDocumentIdentity(snapshot.identity.revisionInfo);
+    const documentSessionKey = snapshot.identity.documentSessionKey;
+    const documentInstanceId = snapshot.identity.documentInstanceId;
     const originalPath = getTabPath(tab);
     const originalBackend = resolveDocumentRefBackend(originalPath);
     return {
-        tabId: requireTabId(tab.id),
+        tabId: requireTabId(tabId),
         paneId: pane ? requirePaneId(pane.paneId) : null,
         fileName: tab.fileName,
         originalPath,
         ...(originalBackend === undefined ? {} : {originalBackend}),
         ...(documentSessionKey === null ? {} : {documentSessionKey}),
         ...(documentInstanceId === null ? {} : {documentInstanceId}),
-        ...(documentIdentity === undefined ? {} : { documentIdentity }),
+        documentIdentity,
         ...(commandTarget === undefined ? {} : { commandTarget }),
         isDirty: tab.isDirty,
         kind,
-        workspaceAttached: Boolean(workspace),
-        hasPdf: toolbarSnapshot?.hasPdf === true,
-        isDjvu: tab.isDjvu || toolbarSnapshot?.isDjvuMode === true,
-        isOpeningDocument: toolbarSnapshot?.isOpeningDocument === true,
-        hasOpenError: toolbarSnapshot?.hasOpenError === true,
-        currentPage: toolbarSnapshot ? toolbarSnapshot.currentPage : null,
-        totalPages: toolbarSnapshot ? toolbarSnapshot.totalPages : null,
+        workspaceAttached: session.mountedWorkspace.value !== null,
+        hasPdf: toolbarSnapshot.hasPdf,
+        isDjvu: tab.isDjvu || toolbarSnapshot.isDjvuMode,
+        isOpeningDocument: snapshot.phase === 'opening' || toolbarSnapshot.isOpeningDocument,
+        hasOpenError: snapshot.phase === 'failed' || toolbarSnapshot.hasOpenError,
+        currentPage: toolbarSnapshot.currentPage,
+        totalPages: toolbarSnapshot.totalPages,
         readiness: buildDocumentReadiness(kind, toolbarSnapshot),
     };
 }
@@ -250,13 +245,10 @@ function createRecentFileSnapshot(file: IRecentFile): IAgentRecentFileSnapshot {
 export function buildAgentWorkspaceSnapshot(
     options: IBuildAgentWorkspaceSnapshotOptions,
 ): IAgentWorkspaceSnapshot {
-    const tabSnapshots = options.tabs.value.map(tab => buildAgentTabSnapshot(
-        tab,
-        options.getPaneByTabId(tab.id),
-        options.workspaceRefs.value.get(tab.id) ?? null,
-        options.documentRecordsByTabId.value[tab.id] ?? null,
-        options.documentSessionsByTabId?.value[tab.id] ?? null,
-    ));
+    const tabSnapshots = options.tabs.value.flatMap((tab) => {
+        const session = options.documentSessionsByTabId.value[tab.id];
+        return session ? [buildAgentTabSnapshot(tab.id, options.getPaneByTabId(tab.id), session)] : [];
+    });
     const documentTabs = tabSnapshots.filter(isAgentDocumentTab);
     const activeDocumentTab = documentTabs.find(tab => tab.tabId === options.activeTabId.value) ?? null;
     const recentFiles = (options.recentFiles?.value ?? []).map(createRecentFileSnapshot);

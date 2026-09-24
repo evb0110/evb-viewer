@@ -1,20 +1,29 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import type { IStartOpenFailure } from '@app/types/startSection';
 
+/**
+ * The tab's document lifecycle. `presented` means the tab owns a document the
+ * viewer has shown; a cold tab keeps it while its view is released and
+ * restores it when the tab is shown again.
+ */
 export type TWorkspaceDocumentPhase =
     | 'empty'
     | 'opening'
-    | 'restoring'
-    | 'ready'
-    | 'reloading'
-    | 'closing'
-    | 'error';
+    | 'presented'
+    | 'failed'
+    | 'closing';
 
-export type TWorkspaceDocumentTransactionKind = 'open' | 'restore' | 'reload' | 'close';
+export type TWorkspaceDocumentTransactionKind = 'open' | 'restore' | 'close';
+
+/** What the tab shows while an open is in flight. */
+export interface IWorkspaceDocumentTarget {
+    fileName?: string | null | undefined;
+    originalPath?: TDocumentRef | null | undefined;
+    isDjvu?: boolean | undefined;
+}
+
 export interface IWorkspaceDocumentIdentity {
     documentSessionKey: string | null;
     documentInstanceId: TDocumentInstanceId | null;
@@ -25,18 +34,14 @@ export interface IWorkspaceDocumentIdentity {
     isDjvu: boolean;
     revisionInfo: IDocumentRevisionInfo | null;
 }
+
 export interface IWorkspaceDocumentTransaction {
     id: string;
-    tabId: string;
     kind: TWorkspaceDocumentTransactionKind;
-    documentRef: TDocumentRef | null;
-    startedAt: number;
-    persist?: boolean | undefined;
+    target: IWorkspaceDocumentTarget | null;
+    acceptDocumentWithoutVisual: boolean;
 }
-export interface IWorkspacePendingCloseDecision {
-    persist: boolean;
-    target: TWorkspaceCommandTarget;
-}
+
 export interface IWorkspaceDocumentSnapshot {
     tabId: string;
     sessionId: string;
@@ -44,11 +49,12 @@ export interface IWorkspaceDocumentSnapshot {
     phase: TWorkspaceDocumentPhase;
     identity: IWorkspaceDocumentIdentity;
     activeTransaction: IWorkspaceDocumentTransaction | null;
-    mounted: boolean;
-    toolbarSnapshot: IWorkspaceToolbarSnapshot;
-    viewState: ITabViewSessionState;
+    /** Batch opens name the tab by their progress instead of a file. */
+    openingLabel: string | null;
+    /** Why the last open failed, with the file it tried to open. */
+    failure: IStartOpenFailure | null;
     dirty: boolean;
-    closeable: boolean;
-    pendingDocumentPath: TDocumentRef | null;
-    pendingClose: IWorkspacePendingCloseDecision | null;
+    /** A checkpoint working copy that must be recovered before the source file. */
+    recoveryWorkingCopyPath: TDocumentRef | null;
+    mounted: boolean;
 }

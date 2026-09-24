@@ -18,6 +18,11 @@ import { getErrorMessage } from '@app/utils/error';
 import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
+import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    describeDocumentTarget,
+    describeOpenResult,
+} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
@@ -64,6 +69,8 @@ export interface IPageFileOperationsDeps {
     closeFile: () => void | Promise<void>;
     closeAllDropdowns: () => void;
     emitOpenInNewTab: (pathOrResult: TDocumentRef | TOpenFileResult) => void;
+    /** Runs one open as the tab controller's transaction, which ends when the viewer presents it. */
+    runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<boolean>) => Promise<boolean>;
 }
 
 export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
@@ -94,6 +101,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         closeFile,
         closeAllDropdowns,
         emitOpenInNewTab,
+        runDocumentOpen,
     } = deps;
     const toast = useToast();
     const { t } = useTypedI18n();
@@ -109,6 +117,22 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     function recordOpenOutcome(outcome: TPageFileOpenOutcome) {
         lastOpenOutcome.value = outcome;
         return outcome;
+    }
+
+    // The transaction starts in the command's own call so page commands that
+    // follow it queue behind the open instead of reaching an empty viewer.
+    async function trackOpen(
+        request: IWorkspaceOpenRequest,
+        open: () => Promise<TPageFileOpenOutcome>,
+    ): Promise<TPageFileOpenOutcome> {
+        const result: {outcome: TPageFileOpenOutcome} = {outcome: {status: 'cancelled'}};
+        const presented = await runDocumentOpen(request, async () => {
+            result.outcome = await open();
+            return result.outcome.status === 'opened';
+        });
+        return presented || result.outcome.status !== 'opened'
+            ? result.outcome
+            : recordOpenOutcome({status: 'cancelled'});
     }
 
     type TBusyGateAction = 'close' | 'switch';
@@ -351,7 +375,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             });
         }
 
-        return runOpenOutcomeDetailed(() => openFile(result));
+        return trackOpen(describeOpenResult(result), () => runOpenOutcomeDetailed(() => openFile(result)));
     }
 
     async function runPickerWithPersistence(
@@ -442,7 +466,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return pending;
         }
 
-        const request = runOpenFileDirectWithPersistDetailed(path);
+        const request = trackOpen({
+            kind: 'open',
+            target: describeDocumentTarget(path),
+        }, () => runOpenFileDirectWithPersistDetailed(path));
         pendingDirectOpenRequests.set(path, request);
         void request.then(
             () => {
@@ -478,30 +505,37 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return recordOpenOutcome(outcome);
     }
 
-    async function handleOpenFileWithResultDetailed(result: TOpenFileResult) {
-        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-        if (!canProceed) {
-            return recordOpenOutcome({
-                status: 'blocked',
-                reason: 'persistence-gate',
-            });
-        }
-        return runOpenOutcomeDetailed(() => openFile(result));
+    function handleOpenFileWithResultDetailed(result: TOpenFileResult) {
+        return trackOpen(describeOpenResult(result), async () => {
+            const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+            if (!canProceed) {
+                return recordOpenOutcome({
+                    status: 'blocked',
+                    reason: 'persistence-gate',
+                });
+            }
+            return runOpenOutcomeDetailed(() => openFile(result));
+        });
     }
 
     async function handleOpenFileWithResult(result: TOpenFileResult) {
         return didCompletePageFileOpen(await handleOpenFileWithResultDetailed(result));
     }
 
-    async function handleOpenFileDirectBatchWithPersistDetailed(paths: TDocumentRef[]) {
-        const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-        if (!canProceed) {
-            return recordOpenOutcome({
-                status: 'blocked',
-                reason: 'persistence-gate',
-            });
-        }
-        return runOpenOutcomeDetailed(() => openFileDirectBatch(paths));
+    function handleOpenFileDirectBatchWithPersistDetailed(paths: TDocumentRef[]) {
+        return trackOpen({
+            kind: 'open',
+            target: null,
+        }, async () => {
+            const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+            if (!canProceed) {
+                return recordOpenOutcome({
+                    status: 'blocked',
+                    reason: 'persistence-gate',
+                });
+            }
+            return runOpenOutcomeDetailed(() => openFileDirectBatch(paths));
+        });
     }
 
     async function handleOpenFileDirectBatchWithPersist(paths: TDocumentRef[]) {

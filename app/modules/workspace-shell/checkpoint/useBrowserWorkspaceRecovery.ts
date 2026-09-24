@@ -5,8 +5,7 @@ import type {
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
 import {
     buildWorkspaceCheckpointChangeSignature,
@@ -37,8 +36,7 @@ interface IUseBrowserWorkspaceRecoveryOptions {
     layout: Ref<TEditorLayoutNode | null>;
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -154,7 +152,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     function hasDirtyTabs() {
-        return options.tabs.value.some(tab => tab.isDirty);
+        return dirtyTabIds().size > 0;
     }
 
     async function cleanupSnapshots(refs: Iterable<string>, retainedRefs = new Set<string>()) {
@@ -166,7 +164,9 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     function dirtyTabIds() {
-        return new Set(options.tabs.value.filter(tab => tab.isDirty).map(tab => tab.id));
+        return new Set(Object.values(options.documentSessionsByTabId.value)
+            .filter(session => session.snapshot.value.dirty)
+            .map(session => session.tabId));
     }
 
     function markMutation(tabIds: Iterable<string>) {
@@ -306,8 +306,8 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 let bytes: Uint8Array | null | undefined;
                 if (tab.workingCopyRef) {
                     try {
-                        bytes = await options.workspaceRefs.value
-                            .get(tab.tabId)
+                        bytes = await options.documentSessionsByTabId.value[tab.tabId]
+                            ?.mountedWorkspace.value
                             ?.createRecoverySnapshotBytes();
                     } catch (error) {
                         BrowserLogger.warn(

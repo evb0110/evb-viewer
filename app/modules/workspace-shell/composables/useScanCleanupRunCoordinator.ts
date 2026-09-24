@@ -59,7 +59,7 @@ export async function recoverScanCleanupWorkspaceForDocument(
     // cleanup session when it already owns the surface; otherwise enter with a
     // fresh selection, then make that tab visible for persisted error details.
     session.applyViewState(resolveScanCleanupEntryViewState(
-        session.snapshot.value.viewState,
+        session.viewState.value,
     ));
     activateTab(tabId);
     await nextTick();

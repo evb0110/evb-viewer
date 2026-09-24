@@ -12,12 +12,13 @@ import type {
 } from '@contracts/editorPanes';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requireTabId } from '@contracts/windowTabs';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
+const occupiedTabIds = new Set<string>();
+const isTabEmpty = (tabId: string) => !occupiedTabIds.has(tabId);
 
 interface ILegacyEditorPaneState {
     id: string;
@@ -52,11 +53,12 @@ function collectLeafPaneIds(node: TEditorLayoutNode | null, target: Set<string>)
 describe('useEditorPanesManager', () => {
     beforeEach(() => {
         stateStore.clear();
+        occupiedTabIds.clear();
         installUseStateStub();
     });
 
     it('repairs duplicate tab assignment and invalid active tab references', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const firstPane = manager.panes.value[0]!;
@@ -75,10 +77,7 @@ describe('useEditorPanesManager', () => {
             secondPane.activeTabId = requireTabId('missing-tab-id');
         }
         firstPane.activeTabId = requireTabId('missing-tab-id');
-        manager.tabs.value.push({
-            ...firstTab,
-            fileName: 'duplicate-id',
-        });
+        manager.tabs.value.push({...firstTab});
         const panesWithLegacyState = manager.panes.value as Array<IEditorPaneState | ILegacyEditorPaneState>;
         panesWithLegacyState.push({
             id: firstPane.paneId,
@@ -110,7 +109,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('repairs layout leaves that reference removed panes', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
 
         manager.layout.value = {
             type: 'leaf',
@@ -133,7 +132,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('keeps key refs stable when normalization is a no-op', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const panesRef = manager.panes.value;
@@ -152,7 +151,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('selects the adjacent source tab after moving the active tab to another pane', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const sourcePane = manager.activePane.value!;
@@ -178,23 +177,17 @@ describe('useEditorPanesManager', () => {
     });
 
     it('replaces a singleton destination placeholder when moving a tab between panes', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const sourcePane = manager.activePane.value!;
         const movedTabId = sourcePane.activeTabId!;
-        Object.assign(manager.getTabById(movedTabId)!, {
-            fileName: 'moved.pdf',
-            originalPath: requireDocumentRef('/tmp/moved.pdf'),
-        });
+        occupiedTabIds.add(movedTabId);
         const remainingTab = manager.createTab({
             paneId: sourcePane.paneId,
             activate: false,
-            initial: {
-                fileName: 'remaining.pdf',
-                originalPath: requireDocumentRef('/tmp/remaining.pdf'),
-            },
         });
+        occupiedTabIds.add(remainingTab.id);
         const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
         expect(targetPaneId).toBeTruthy();
         const placeholder = manager.createTab({
@@ -214,7 +207,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('inserts a moved tab at the requested destination index', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const sourcePane = manager.activePane.value!;
@@ -228,19 +221,13 @@ describe('useEditorPanesManager', () => {
         const targetFirstTab = manager.createTab({
             paneId: targetPaneId,
             activate: true,
-            initial: {
-                fileName: 'target-1.pdf',
-                originalPath: requireDocumentRef('/tmp/target-1.pdf'),
-            },
         });
         const targetSecondTab = manager.createTab({
             paneId: targetPaneId,
             activate: false,
-            initial: {
-                fileName: 'target-2.pdf',
-                originalPath: requireDocumentRef('/tmp/target-2.pdf'),
-            },
         });
+        occupiedTabIds.add(targetFirstTab.id);
+        occupiedTabIds.add(targetSecondTab.id);
         manager.activateTab(sourcePane.paneId, movedTabId);
 
         expect(manager.moveTabToPane(movedTabId, targetPaneId!, true, 0)).toBe(true);
@@ -255,7 +242,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('reorders tabs within a pane without changing the active tab', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const pane = manager.activePane.value!;
@@ -281,7 +268,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('closes active tabs by selecting the next neighbor and removes empty panes', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const sourcePane = manager.activePane.value!;
@@ -322,7 +309,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('moves and copies active tabs by direction while updating pane focus', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const sourcePane = manager.activePane.value!;
@@ -354,12 +341,12 @@ describe('useEditorPanesManager', () => {
         expect(copied?.createdPane).toBe(true);
         expect(copied?.targetPaneId).not.toBe(sourcePane.paneId);
         expect(manager.getPaneById(copied!.targetPaneId)?.activeTabId).toBe(copied?.targetTabId);
-        expect(manager.getTabById(copied!.targetTabId)?.fileName).toBe(secondTab.fileName);
+        expect(copied?.targetTabId).not.toBe(secondTab.id);
         expect(manager.activePaneId.value).toBe(copied?.targetPaneId);
     });
 
     it('clamps split ratios and focuses directional panes', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         const sourcePane = manager.activePane.value!;
@@ -381,7 +368,7 @@ describe('useEditorPanesManager', () => {
     });
 
     it('restores the exact checkpoint pane, tab, layout, and active graph', async () => {
-        const manager = useEditorPanesManager();
+        const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
         manager.restoreWorkspaceCheckpointGraph({
@@ -466,12 +453,6 @@ describe('useEditorPanesManager', () => {
             'tab-a',
             'tab-b',
         ]);
-        expect(manager.getTabById('tab-b')).toMatchObject({
-            fileName: 'b.pdf',
-            originalPath: '/documents/b.pdf',
-            documentInstanceId: requireDocumentInstanceId('document-b'),
-            isDirty: true,
-        });
         expect(manager.layout.value).toMatchObject({
             type: 'split',
             id: 'split-a',

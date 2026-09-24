@@ -4,8 +4,10 @@ import type {
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import {
+    describeTabDocument,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 interface IBuildWorkspaceCheckpointSignatureOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -13,8 +15,7 @@ interface IBuildWorkspaceCheckpointSignatureOptions {
     layout: Ref<TEditorLayoutNode | null>;
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -26,11 +27,11 @@ export interface IWorkspaceCheckpointChangeSignature {
 function buildTabSignature(
     tab: ITab,
     paneId: string | null,
-    workspace: IWorkspaceExpose | null,
-    record: IWorkspaceDocumentRecord | undefined,
+    session: IWorkspaceDocumentController | undefined,
 ) {
-    const toolbar = record?.toolbarSnapshot ?? null;
-    const identity = record?.documentIdentity ?? null;
+    const workspace = session?.mountedWorkspace.value ?? null;
+    const toolbar = session?.toolbarSnapshot.value ?? null;
+    const identity = session?.snapshot.value.identity ?? null;
     let workspaceDocumentRefs: readonly [unknown, unknown, boolean] = [
         null,
         null,
@@ -44,7 +45,7 @@ function buildTabSignature(
             state?.requiresSaveAsOnFirstSave ?? false,
         ];
     } catch {
-        // A deferred workspace can be mounted before its real expose is ready.
+        // A capture failure is reported by the checkpoint builder.
     }
     let annotationRecoverySignature: readonly unknown[] = [];
     try {
@@ -65,19 +66,13 @@ function buildTabSignature(
     return JSON.stringify([
         tab.id,
         paneId,
-        tab.fileName,
-        tab.originalPath,
-        tab.documentInstanceId ?? null,
-        tab.isDirty,
-        tab.isDjvu,
+        session ? describeTabDocument(session.snapshot.value) : null,
         workspace !== null,
         ...workspaceDocumentRefs,
-        record?.tab.fileName ?? null,
-        record?.tab.originalPath ?? null,
-        identity?.token ?? null,
-        identity?.documentRef ?? null,
-        identity?.contentRevision ?? null,
-        identity?.authority ?? null,
+        identity?.revisionInfo?.token ?? null,
+        identity?.revisionInfo?.documentRef ?? null,
+        identity?.revisionInfo?.contentRevision ?? null,
+        identity?.revisionInfo?.authority ?? null,
         toolbar?.hasPdf ?? null,
         toolbar?.currentPage ?? null,
         toolbar?.zoom ?? null,
@@ -99,15 +94,12 @@ function buildTabSignature(
 export function buildWorkspaceCheckpointChangeSignature(
     options: IBuildWorkspaceCheckpointSignatureOptions,
 ): IWorkspaceCheckpointChangeSignature {
-    const records = options.documentRecordsByTabId.value;
-    const mountedWorkspaces = options.workspaceRefs.value;
     const tabSignatures = new Map(options.tabs.value.map(tab => [
         tab.id,
         buildTabSignature(
             tab,
             options.getPaneByTabId(tab.id)?.paneId ?? null,
-            mountedWorkspaces.get(tab.id) ?? null,
-            records[tab.id],
+            options.documentSessionsByTabId.value[tab.id],
         ),
     ]));
     const workspace = JSON.stringify([

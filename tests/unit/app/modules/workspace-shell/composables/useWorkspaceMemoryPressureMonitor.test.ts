@@ -17,7 +17,6 @@ import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/res
 import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import { requirePaneId } from '@contracts/editorPanes';
-import { requireDocumentRef } from '@contracts/documentRef';
 import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -105,27 +104,9 @@ describe('workspace memory pressure monitor', () => {
     it('exposes a readonly budget and recomputes it through one sampling interval', () => {
         const budget = useWorkspaceMemoryPressureMonitor();
         const tabs = [
-            {
-                id: 'active',
-                fileName: 'active.pdf',
-                originalPath: requireDocumentRef('/docs/active.pdf'),
-                isDirty: false,
-                isDjvu: false,
-            },
-            {
-                id: 'inactive',
-                fileName: 'inactive.pdf',
-                originalPath: requireDocumentRef('/docs/inactive.pdf'),
-                isDirty: false,
-                isDjvu: false,
-            },
-            {
-                id: 'visible-split',
-                fileName: 'visible-split.djvu',
-                originalPath: requireDocumentRef('/docs/visible-split.djvu'),
-                isDirty: false,
-                isDjvu: true,
-            },
+            {id: 'active'},
+            {id: 'inactive'},
+            {id: 'visible-split'},
         ] satisfies ITab[];
         const panes = [
             {
@@ -151,6 +132,7 @@ describe('workspace memory pressure monitor', () => {
             panes,
             policy: 'conservative',
             tabs,
+            dirtyTabIds: new Set(),
             tier: budget.value.deviceTier,
             targetWarmViewers: budget.value.targetWarmViewers,
         }).map(state => [

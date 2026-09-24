@@ -10,7 +10,7 @@ import type {
 import { createEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 
 interface IBuildWorkspaceCheckpointOptions {
@@ -19,8 +19,7 @@ interface IBuildWorkspaceCheckpointOptions {
     layout: Ref<TEditorLayoutNode | null>;
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -57,10 +56,6 @@ export function buildWorkspaceCheckpoint(
     options: IBuildWorkspaceCheckpointOptions,
 ): IWorkspaceCheckpoint {
     const workspaceSnapshot = buildAgentWorkspaceSnapshot(options);
-    const tabById = new Map(options.tabs.value.map(tab => [
-        tab.id,
-        tab,
-    ]));
 
     return {
         version: 1,
@@ -74,28 +69,20 @@ export function buildWorkspaceCheckpoint(
             activeTabId: pane.activeTabId,
         })),
         tabs: workspaceSnapshot.tabs.map((snapshot) => {
-            const tab = tabById.get(snapshot.tabId);
-            const workspace = options.workspaceRefs.value.get(snapshot.tabId) ?? null;
+            const session = options.documentSessionsByTabId.value[snapshot.tabId];
+            const workspace = session?.mountedWorkspace.value ?? null;
             const documentRefs = readWorkspaceDocumentRefs(workspace, snapshot.tabId);
-            const documentIdentity = options.documentRecordsByTabId.value[snapshot.tabId]?.documentIdentity;
-            const workingByteRevision = documentIdentity?.token ?? null;
+            const workingByteRevision = session?.snapshot.value.identity.revisionInfo?.token ?? null;
             const capturedAnnotationRecovery = workspace?.captureCanonicalAnnotationRecovery?.() ?? null;
             const annotationRecovery = capturedAnnotationRecovery && workingByteRevision
                 ? capturedAnnotationRecovery
                 : null;
-            const toolbar = options.documentRecordsByTabId.value[snapshot.tabId]?.toolbarSnapshot
-                ?? (() => {
-                    try {
-                        return workspace?.getToolbarSnapshot() ?? null;
-                    } catch {
-                        return null;
-                    }
-                })();
+            const toolbar = session?.toolbarSnapshot.value ?? null;
             return {
                 tabId: snapshot.tabId,
                 paneId: snapshot.paneId,
                 fileName: snapshot.fileName,
-                sourceRef: documentRefs.sourceRef ?? tab?.originalPath ?? null,
+                sourceRef: documentRefs.sourceRef ?? snapshot.originalPath ?? null,
                 workingCopyRef: documentRefs.workingCopyRef,
                 requiresSaveAsOnFirstSave: documentRefs.requiresSaveAsOnFirstSave,
                 isDirty: snapshot.isDirty,
@@ -112,7 +99,7 @@ export function buildWorkspaceCheckpoint(
                 ...(annotationRecovery
                     ? {annotationRecovery: {
                         artifactId: `capture-${snapshot.tabId}`,
-                        documentInstanceId: tab?.documentInstanceId ?? snapshot.tabId,
+                        documentInstanceId: session?.snapshot.value.identity.documentInstanceId ?? snapshot.tabId,
                         workingCopyRef: documentRefs.workingCopyRef,
                         workingByteRevision: workingByteRevision ?? '',
                         annotationMutationGeneration: annotationRecovery.annotationMutationGeneration,

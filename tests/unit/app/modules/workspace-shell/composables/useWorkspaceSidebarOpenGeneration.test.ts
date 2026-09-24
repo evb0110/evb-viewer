@@ -131,18 +131,14 @@ function createGenerationHarness() {
     const scope = createTrackedScope();
     const harness = scope.run(() => {
         const settle = useDocumentOpenVisualSettle({
-            tabId: 'tab-1',
-            hasPdf: ref(true),
             pdfSrc: ref({path: DOCUMENT_IDENTITY.documentId}),
             pdfDocument: ref({}),
             totalPages: ref(1),
-            pageLabelsResolved: ref(true),
             isLoading: ref(false),
             pdfError: ref(null),
             djvuError: ref(null),
             showDjvuSource: ref(false),
             openSurface: surface,
-            markAnnotationCommentsLoading: () => undefined,
         });
         const session = useWorkspaceSidebarOpenGeneration({
             sidebarPresentationEnabled,

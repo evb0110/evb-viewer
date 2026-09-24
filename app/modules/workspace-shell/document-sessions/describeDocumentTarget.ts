@@ -1,16 +1,18 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
-import type { TTabUpdate } from '@app/types/tabs';
+import type { IWorkspaceDocumentTarget } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
+import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { acceptsDocumentWithoutVisual } from '@app/modules/workspace-shell/document-sessions/acceptsDocumentWithoutVisual';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
-type TPendingTabDocumentHintTarget = TDocumentRef | TOpenFileResult | IRecentFile;
+type TDocumentTargetSource = TDocumentRef | TOpenFileResult | IRecentFile;
 
-function isOpenFileResult(target: TPendingTabDocumentHintTarget): target is TOpenFileResult {
+function isOpenFileResult(target: TDocumentTargetSource): target is TOpenFileResult {
     return typeof target === 'object' && 'kind' in target;
 }
 
-function isRecentFile(target: TPendingTabDocumentHintTarget): target is IRecentFile {
+function isRecentFile(target: TDocumentTargetSource): target is IRecentFile {
     return typeof target === 'object' && 'fileName' in target && 'timestamp' in target;
 }
 
@@ -18,7 +20,8 @@ function isDjvuDocumentPath(path: TDocumentRef | null | undefined, fileName: str
     return /\.djvu?$/iu.test(fileName ?? path ?? '');
 }
 
-export function buildPendingTabDocumentHint(target: TPendingTabDocumentHintTarget): TTabUpdate {
+/** Names the document an open is about to present, for the tab while it opens. */
+export function describeDocumentTarget(target: TDocumentTargetSource): IWorkspaceDocumentTarget {
     if (typeof target === 'string') {
         const fileName = getDocumentRefBaseName(target);
         return {
@@ -47,4 +50,13 @@ export function buildPendingTabDocumentHint(target: TPendingTabDocumentHintTarge
     }
 
     return {};
+}
+
+/** The open transaction for an already resolved file: a recovery reopens what the tab owned. */
+export function describeOpenResult(result: TOpenFileResult): IWorkspaceOpenRequest {
+    return {
+        kind: result.kind === 'pdf' && result.recoveryDirtyBaseline === true ? 'restore' : 'open',
+        target: describeDocumentTarget(result),
+        acceptDocumentWithoutVisual: acceptsDocumentWithoutVisual(result),
+    };
 }

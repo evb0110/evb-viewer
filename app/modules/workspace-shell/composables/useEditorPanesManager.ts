@@ -16,7 +16,6 @@ import {
     parseTabId,
     type TTabId,
 } from '@contracts/windowTabs';
-import {parseDocumentInstanceId} from '@contracts/documentInstanceId';
 import {
     removeLeafNode,
     replaceLeafWithSplit,
@@ -28,16 +27,18 @@ import {
     isEditorPanesStateNormalized,
     normalizeEditorPanesState,
 } from '@app/modules/workspace-shell/editor-panes/normalization';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 
 interface ICreateTabOptions {
     paneId?: string | null;
-    initial?: Partial<Pick<ITab, 'fileName' | 'originalPath' | 'documentInstanceId' | 'isDirty' | 'isDjvu'>>;
     activate?: boolean;
 }
 
-export const useEditorPanesManager = () => {
+/**
+ * The pane graph: tab ids, their order, panes and layout. A tab's document
+ * lives in its document controller; `isTabEmpty` asks it.
+ */
+export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: string) => boolean}) => {
     const panes = useState<IEditorPaneState[]>(
         'editorPanes:panes',
         () => [],
@@ -163,20 +164,7 @@ export const useEditorPanesManager = () => {
     }
 
     function restoreWorkspaceCheckpointGraph(checkpoint: IWorkspaceCheckpoint) {
-        tabs.value = checkpoint.tabs.map((tab) => {
-            const documentInstanceId = parseDocumentInstanceId(tab.annotationRecovery?.documentInstanceId);
-            return {
-                id: tab.tabId,
-                fileName: tab.fileName,
-                originalPath: tab.sourceRef,
-                isDirty: tab.isDirty,
-                isDjvu: tab.isDjvu,
-                ...(documentInstanceId === null ? {} : {documentInstanceId}),
-                ...(tab.isDirty && tab.workingCopyRef
-                    ? {recoveryWorkingCopyPath: tab.workingCopyRef}
-                    : {}),
-            };
-        });
+        tabs.value = checkpoint.tabs.map(tab => ({id: tab.tabId}));
         panes.value = checkpoint.panes.map(pane => ({
             paneId: pane.paneId,
             tabIds: [...pane.tabIds],
@@ -197,16 +185,6 @@ export const useEditorPanesManager = () => {
         normalizeManagerState();
     }
 
-    function createEmptyTab(initial?: ICreateTabOptions['initial']): ITab {
-        return {
-            id: createTabId(),
-            fileName: initial?.fileName ?? null,
-            originalPath: initial?.originalPath ?? null,
-            ...(initial?.documentInstanceId === undefined ? {} : {documentInstanceId: initial.documentInstanceId}),
-            isDirty: initial?.isDirty ?? false,
-            isDjvu: initial?.isDjvu ?? false,
-        };
-    }
 
     function touchPaneMru(paneId: string) {
         if (
@@ -252,9 +230,6 @@ export const useEditorPanesManager = () => {
         });
     }
 
-    function isPlaceholderTab(tab: ITab | null | undefined) {
-        return Boolean(tab && !tabHasDocumentHint(tab) && !tab.isDirty);
-    }
 
     function insertTabId(
         tabIds: TTabId[],
@@ -286,7 +261,7 @@ export const useEditorPanesManager = () => {
             return insertTabId(targetPane.tabIds, resolvedTabId, targetIndex);
         }
 
-        if (!isPlaceholderTab(getTabById(placeholderTabId))) {
+        if (!managerOptions.isTabEmpty(placeholderTabId)) {
             return insertTabId(targetPane.tabIds, resolvedTabId, targetIndex);
         }
 
@@ -380,7 +355,7 @@ export const useEditorPanesManager = () => {
             };
         }
 
-        const tab = createEmptyTab(options.initial);
+        const tab: ITab = {id: createTabId()};
         const tabId = parseTabId(tab.id);
         if (tabId === null) {
             throw new TypeError('Created tab ID is invalid');
@@ -676,12 +651,6 @@ export const useEditorPanesManager = () => {
         const copied = createTab({
             paneId: targetPane.paneId,
             activate,
-            initial: {
-                fileName: sourceTab.fileName,
-                originalPath: sourceTab.originalPath,
-                isDirty: sourceTab.isDirty,
-                isDjvu: sourceTab.isDjvu,
-            },
         });
 
         return copied;

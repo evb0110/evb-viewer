@@ -3,85 +3,69 @@ import {
     expect,
     it,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+
+function createAssignedSession() {
+    return createWorkspaceDocumentController({
+        tabId: 'tab-1',
+        assignment: {
+            fileName: 'example.pdf',
+            originalPath: null,
+            isDirty: false,
+            isDjvu: false,
+        },
+    });
+}
 
 describe('useWorkspaceShellState', () => {
-    it('treats a document record hint as an active document before the workspace catches up', () => {
+    it('treats an assigned document as the active document before the workspace loads it', () => {
         const shellState = useWorkspaceShellState({
-            activeDocumentRecord: ref(createWorkspaceDocumentRecord({tab: {
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }})),
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
-                id: 'tab-1',
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: shallowRef(createAssignedSession()),
+            tabs: ref([{id: 'tab-1'}]),
         });
 
         expect(shellState.activeWorkspaceHasDocument.value).toBe(false);
         expect(shellState.activeWorkspaceCanSave.value).toBe(false);
-        expect(shellState.activeTabHasDocumentHint.value).toBe(true);
         expect(shellState.hasDocument.value).toBe(true);
         expect(shellState.tabCount.value).toBe(1);
     });
 
-    it('returns null when there is no active tab', () => {
+    it('has no document without an active tab', () => {
         const shellState = useWorkspaceShellState({
-            activeDocumentRecord: ref(null),
-            activeTabId: ref<string | null>(null),
+            activeDocumentSession: shallowRef(null),
             tabs: ref([]),
         });
 
-        expect(shellState.activeTab.value).toBeNull();
         expect(shellState.activeWorkspaceCanSave.value).toBe(false);
-        expect(shellState.activeTabHasDocumentHint.value).toBe(false);
         expect(shellState.hasDocument.value).toBe(false);
         expect(shellState.tabCount.value).toBe(0);
     });
 
-    it('reads save availability from the active document record toolbar snapshot', () => {
-        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({
-            tab: {
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            },
-            toolbarSnapshot: {
-                hasPdf: true,
-                canSave: false,
-                canRepairSave: true,
-            },
-        }));
+    it('reads save availability from the active workspace toolbar', () => {
+        const session = createAssignedSession();
         const shellState = useWorkspaceShellState({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
-                id: 'tab-1',
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: shallowRef(session),
+            tabs: ref([{id: 'tab-1'}]),
+        });
+        session.publishToolbarSnapshot({
+            ...createDefaultWorkspaceToolbarSnapshot(),
+            hasPdf: true,
+            canSave: false,
+            canRepairSave: true,
         });
 
         expect(shellState.activeWorkspaceCanSave.value).toBe(false);
         expect(shellState.activeWorkspaceCanRepairSave.value).toBe(true);
 
-        activeDocumentRecord.value = createWorkspaceDocumentRecord({
-            ...activeDocumentRecord.value,
-            toolbarSnapshot: {
-                ...activeDocumentRecord.value.toolbarSnapshot,
-                canSave: true,
-            },
+        session.publishToolbarSnapshot({
+            ...session.toolbarSnapshot.value,
+            canSave: true,
         });
 
         expect(shellState.activeWorkspaceCanSave.value).toBe(true);

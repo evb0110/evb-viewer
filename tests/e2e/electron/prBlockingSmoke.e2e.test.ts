@@ -311,15 +311,9 @@ async function waitForCommittedEmptyBaseline(
                 && Number(style.opacity || '1') > 0;
         };
         const startupOverlay = document.querySelector<HTMLElement>('#evb-startup-overlay');
-        const placeholder = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .workspace-host__placeholder',
-        );
-        const mountedEmptyState = document.querySelector<HTMLElement>(
+        const committedEmptySurface = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .empty-state',
         );
-        const committedEmptySurface = isVisible(mountedEmptyState)
-            ? mountedEmptyState
-            : placeholder;
         if (isVisible(startupOverlay) || !isVisible(committedEmptySurface)) {
             return false;
         }

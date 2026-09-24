@@ -3,11 +3,12 @@ import type {
     Ref,
 } from 'vue';
 import type { ITab } from '@app/types/tabs';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import {
+    snapshotOccupiesTab,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 export interface IWorkspaceShellState {
-    activeTab: ComputedRef<ITab | null>;
     activeWorkspaceHasDocument: ComputedRef<boolean>;
     activeWorkspaceCanPrint: ComputedRef<boolean>;
     activeWorkspaceCanSave: ComputedRef<boolean>;
@@ -15,27 +16,17 @@ export interface IWorkspaceShellState {
     activeWorkspaceCanRepairSave: ComputedRef<boolean>;
     activeWorkspaceCanOptimizePdf: ComputedRef<boolean>;
     activeWorkspaceInteractive: ComputedRef<boolean>;
-    activeTabHasDocumentHint: ComputedRef<boolean>;
     hasDocument: ComputedRef<boolean>;
     tabCount: ComputedRef<number>;
 }
 
 export interface IUseWorkspaceShellStateOptions {
-    activeDocumentRecord: Readonly<Ref<IWorkspaceDocumentRecord | null | undefined>>;
-    activeTabId: Ref<string | null>;
+    activeDocumentSession: Readonly<Ref<IWorkspaceDocumentController | null>>;
     tabs: Ref<ITab[]>;
 }
 
 export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions): IWorkspaceShellState => {
-    const activeTab = computed(() => {
-        const tabId = options.activeTabId.value;
-        if (!tabId) {
-            return null;
-        }
-
-        return options.tabs.value.find(candidate => candidate.id === tabId) ?? null;
-    });
-    const activeToolbarSnapshot = computed(() => options.activeDocumentRecord.value?.toolbarSnapshot ?? null);
+    const activeToolbarSnapshot = computed(() => options.activeDocumentSession.value?.toolbarSnapshot.value ?? null);
     const activeWorkspaceHasDocument = computed(() => (
         activeToolbarSnapshot.value?.hasPdf === true
         || activeToolbarSnapshot.value?.isDjvuMode === true
@@ -53,22 +44,17 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
     const activeWorkspaceCanOptimizePdf = computed(() => activeToolbarSnapshot.value?.canOptimizePdf === true);
     const activeWorkspaceInteractive = computed(() => (
         activeWorkspaceHasDocument.value
+        && options.activeDocumentSession.value?.snapshot.value.phase === 'presented'
         && activeToolbarSnapshot.value?.isOpeningDocument !== true
         && (activeToolbarSnapshot.value?.totalPages ?? 0) > 0
     ));
-    const activeTabHasDocumentHint = computed(() => {
-        const tab = options.activeDocumentRecord.value?.tab ?? activeTab.value;
-        if (!tab) {
-            return false;
-        }
-
-        return tabHasDocumentHint(tab);
+    const hasDocument = computed(() => {
+        const session = options.activeDocumentSession.value;
+        return activeWorkspaceHasDocument.value || (session !== null && snapshotOccupiesTab(session.snapshot.value));
     });
-    const hasDocument = computed(() => activeWorkspaceHasDocument.value || activeTabHasDocumentHint.value);
     const tabCount = computed(() => options.tabs.value.length);
 
     return {
-        activeTab,
         activeWorkspaceHasDocument,
         activeWorkspaceCanPrint,
         activeWorkspaceCanSave,
@@ -76,7 +62,6 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
         activeWorkspaceCanRepairSave,
         activeWorkspaceCanOptimizePdf,
         activeWorkspaceInteractive,
-        activeTabHasDocumentHint,
         hasDocument,
         tabCount,
     };

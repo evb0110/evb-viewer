@@ -1,13 +1,14 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
 import type {
     IWorkspaceCheckpoint,
     IWorkspaceCheckpointTab,
-    TWorkspaceCheckpointSurfaceMode,
 } from '@contracts/workspaceCheckpoint';
-import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import {getWorkspaceViewerAdapterForDocumentType} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type {
     TWorkspaceViewerDocumentType,
@@ -15,16 +16,12 @@ import type {
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
 interface IRestoreWorkspaceCheckpointOptions {
-    tabs: Ref<ITab[]>;
     activeTabId: Readonly<Ref<string | null>>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
+    documentSessions: Pick<TWorkspaceDocumentSessions, 'assignDocument' | 'getSession'>;
     restoreGraph: (checkpoint: IWorkspaceCheckpoint) => void;
-    openPathInReservedTab: (tabId: string, target: TDocumentRef | TOpenFileResult) => Promise<boolean>;
     activateTab: (tabId: string) => void;
-    restoreSurfaceMode?: ((tabId: string, mode: TWorkspaceCheckpointSurfaceMode) => void) | undefined;
 }
 
-const WORKSPACE_RESTORE_CONCURRENCY = 2;
 const PDF_DOCUMENT_TYPE: TWorkspaceViewerDocumentType = 'pdf';
 
 export function getRegisteredPdfOpenKind(
@@ -34,57 +31,19 @@ export function getRegisteredPdfOpenKind(
     return adapter.capabilities.pdfDocument ? kind ?? null : null;
 }
 
-function getRestoreTarget(tab: IWorkspaceCheckpointTab): TDocumentRef | TOpenFileResult | null {
-    // A hard Electron restart loses the main-process working-copy registry.
-    // Clean tabs already have their durable state in sourceRef, so reopen them
-    // through the normal open path to recreate the registration and witness.
-    if (!tab.isDirty && tab.sourceRef) {
-        return tab.sourceRef;
-    }
-    if (tab.workingCopyRef && tab.sourceRef) {
-        const pdfKind = getRegisteredPdfOpenKind();
-        if (!pdfKind) {
-            return null;
-        }
-        return {
+// Unsaved work reopens from its working copy. A hard restart loses the main
+// process's working-copy registry, so the open re-registers it.
+function getRecoveryTarget(tab: IWorkspaceCheckpointTab): TOpenFileResult | null {
+    const pdfKind = getRegisteredPdfOpenKind();
+    return tab.isDirty && tab.workingCopyRef && tab.sourceRef && pdfKind
+        ? {
             kind: pdfKind,
             workingPath: tab.workingCopyRef,
             originalPath: tab.sourceRef,
             recoveryDirtyBaseline: true,
             ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),
-        };
-    }
-    return tab.sourceRef;
-}
-
-function findRestoredWorkspace(
-    checkpointTab: IWorkspaceCheckpointTab,
-    options: IRestoreWorkspaceCheckpointOptions,
-) {
-    const requiresWorkingCopy = checkpointTab.isDirty && checkpointTab.workingCopyRef;
-    for (const [
-        tabId,
-        workspace,
-    ] of options.workspaceRefs.value) {
-        const tab = options.tabs.value.find(candidate => candidate.id === tabId);
-        try {
-            const state = workspace.getAutomationStateSnapshot();
-            if (
-                requiresWorkingCopy
-                    ? state.workingCopyPath === checkpointTab.workingCopyRef
-                    : (checkpointTab.sourceRef && state.originalPath === checkpointTab.sourceRef)
-                        || (checkpointTab.sourceRef && tab?.originalPath === checkpointTab.sourceRef)
-            ) {
-                return {
-                    tabId,
-                    workspace,
-                };
-            }
-        } catch {
-            // A deferred workspace may not have attached its real expose yet.
         }
-    }
-    return null;
+        : null;
 }
 
 // Recovery carries annotations that were never written to the file, so it may
@@ -94,7 +53,7 @@ function findRestoredWorkspace(
 function applyAnnotationRecovery(
     checkpointTab: IWorkspaceCheckpointTab,
     workspace: IWorkspaceExpose,
-    restoredTab: ITab | undefined,
+    session: IWorkspaceDocumentController,
 ) {
     const recovery = checkpointTab.annotationRecovery;
     if (!recovery) {
@@ -104,7 +63,7 @@ function applyAnnotationRecovery(
     if (
         state.workingCopyPath !== recovery.workingCopyRef
         || state.documentIdentity?.token !== recovery.workingByteRevision
-        || restoredTab?.documentInstanceId !== recovery.documentInstanceId
+        || session.snapshot.value.identity.documentInstanceId !== recovery.documentInstanceId
     ) {
         return false;
     }
@@ -114,13 +73,7 @@ function applyAnnotationRecovery(
     return true;
 }
 
-async function applyViewState(
-    checkpointTab: IWorkspaceCheckpointTab,
-    workspace: IWorkspaceExpose,
-    restoredTab: ITab | undefined,
-) {
-    await workspace.waitForDocumentOpenSettled();
-    const recoveryApplied = applyAnnotationRecovery(checkpointTab, workspace, restoredTab);
+function applyViewState(checkpointTab: IWorkspaceCheckpointTab, workspace: IWorkspaceExpose) {
     const toolbar = workspace.getToolbarSnapshot();
     if (
         checkpointTab.continuousScroll != null
@@ -151,106 +104,77 @@ async function applyViewState(
     } else if (checkpointTab.zoom !== null) {
         workspace.setCustomZoomFromDisplay(checkpointTab.zoom);
     }
+}
+
+async function restoreTab(
+    checkpointTab: IWorkspaceCheckpointTab,
+    session: IWorkspaceDocumentController,
+    shown: boolean,
+) {
+    const recoveryTarget = getRecoveryTarget(checkpointTab);
+    // A tab that is not shown opens its document when it is. Shown tabs and
+    // tabs with unsaved work (kept mounted) open now.
+    if (!shown && !recoveryTarget) {
+        return true;
+    }
+    const workspace = await session.whenMounted();
+    if (!workspace) {
+        return false;
+    }
+    if (recoveryTarget && !await workspace.handleOpenFileWithResult(recoveryTarget)) {
+        return false;
+    }
+    await workspace.waitForDocumentOpenSettled();
+    if (session.snapshot.value.phase !== 'presented') {
+        return false;
+    }
+    const recoveryApplied = applyAnnotationRecovery(checkpointTab, workspace, session);
+    applyViewState(checkpointTab, workspace);
+    // The tab itself opened and keeps its view. Only an unattributable
+    // recovery is withheld; reporting it keeps the checkpoint as evidence.
     return recoveryApplied;
 }
 
+/**
+ * Rebuilds the saved tabs and panes. Every tab gets its document at once, so
+ * titles and dirty dots show before anything loads; unsaved work reopens from
+ * its working copy, and the others open when their tab is shown. Returns the
+ * paths whose state could not be restored.
+ */
 export async function restoreWorkspaceCheckpoint(
     checkpoint: IWorkspaceCheckpoint,
     options: IRestoreWorkspaceCheckpointOptions,
 ) {
     options.restoreGraph(checkpoint);
-    // Apply this before the document open transaction. Otherwise a crash in
-    // Scan Cleanup re-enters the reader and constructs the whole PDF viewer
-    // before the shell can switch back to the persisted cleanup surface. Old
-    // checkpoints may still contain scan-cleanup here, but that surface is no
-    // longer restorable without its file-backed page mapping; completed
-    // outputs are recovered through the main-process journal instead.
     for (const tab of checkpoint.tabs) {
-        if (tab.surfaceMode === 'reader') {
-            options.restoreSurfaceMode?.(tab.tabId, tab.surfaceMode);
-        }
+        options.documentSessions.assignDocument(tab.tabId, {
+            fileName: tab.fileName,
+            originalPath: tab.sourceRef,
+            isDjvu: tab.isDjvu,
+            isDirty: tab.isDirty,
+            documentInstanceId: parseDocumentInstanceId(tab.annotationRecovery?.documentInstanceId),
+            recoveryWorkingCopyPath: tab.isDirty ? tab.workingCopyRef : null,
+        });
     }
     await nextTick();
     const graphActiveTabId = options.activeTabId.value;
-    const failedPaths: TDocumentRef[] = [];
-    const restoredTabIds = new Set<string>();
-    let nextTabIndex = 0;
-    const restoreWorkers = Array.from(
-        {length: Math.min(WORKSPACE_RESTORE_CONCURRENCY, checkpoint.tabs.length)},
-        async () => {
-            while (nextTabIndex < checkpoint.tabs.length) {
-                const tab = checkpoint.tabs[nextTabIndex++];
-                if (!tab) {
-                    continue;
-                }
-                const restoreTarget = getRestoreTarget(tab);
-                if (!restoreTarget) {
-                    const failedPath = tab.sourceRef ?? tab.workingCopyRef;
-                    if (failedPath) {
-                        failedPaths.push(failedPath);
-                    }
-                    continue;
-                }
-                try {
-                    const opened = await options.openPathInReservedTab(tab.tabId, restoreTarget);
-                    if (opened) {
-                        restoredTabIds.add(tab.tabId);
-                    } else {
-                        const failedPath = tab.sourceRef ?? tab.workingCopyRef;
-                        if (failedPath) {
-                            failedPaths.push(failedPath);
-                        }
-                    }
-                } catch {
-                    const failedPath = tab.sourceRef ?? tab.workingCopyRef;
-                    if (failedPath) {
-                        failedPaths.push(failedPath);
-                    }
-                }
-            }
-        },
-    );
-    await Promise.all(restoreWorkers);
-    await nextTick();
-    const activeCheckpointTab = checkpoint.tabs.find(tab => tab.tabId === checkpoint.activeTabId) ?? null;
-    let restoredActiveTabId: string | null = null;
-    for (const checkpointTab of checkpoint.tabs) {
-        const restoreTarget = getRestoreTarget(checkpointTab);
-        if (restoreTarget && !restoredTabIds.has(checkpointTab.tabId)) {
-            continue;
+    const results = await Promise.all(checkpoint.tabs.map(async (tab) => {
+        const session = options.documentSessions.getSession(tab.tabId);
+        try {
+            const shown = checkpoint.panes.some(pane => pane.activeTabId === tab.tabId);
+            return session !== null && await restoreTab(tab, session, shown);
+        } catch {
+            return false;
         }
-        const workspace = options.workspaceRefs.value.get(checkpointTab.tabId) ?? null;
-        const restored = workspace
-            ? {
-                tabId: checkpointTab.tabId,
-                workspace,
-            }
-            : findRestoredWorkspace(checkpointTab, options);
-        if (!restored) {
-            continue;
-        }
-        if (restoreTarget) {
-            const restoredTab = options.tabs.value.find(tab => tab.id === restored.tabId);
-            const recoveryApplied = await applyViewState(checkpointTab, restored.workspace, restoredTab);
-            if (!recoveryApplied) {
-                // The tab itself opened, so keep its view state and let it
-                // activate. Only the unattributable recovery is withheld, and
-                // reporting the path keeps the checkpoint unacknowledged so the
-                // evidence survives for the next attempt.
-                const failedPath = checkpointTab.sourceRef ?? checkpointTab.workingCopyRef;
-                if (failedPath) {
-                    failedPaths.push(failedPath);
-                }
-            }
-        }
-        if (checkpointTab === activeCheckpointTab) {
-            restoredActiveTabId = restored.tabId;
-        }
-    }
+    }));
+    const failedPaths = checkpoint.tabs.flatMap((tab, index): TDocumentRef[] => {
+        const failedPath = tab.sourceRef ?? tab.workingCopyRef;
+        return !results[index] && failedPath ? [failedPath] : [];
+    });
     // Tabs are clickable while their documents reopen. A tab the user chose in
     // that window outranks the checkpoint's choice.
-    if (restoredActiveTabId && options.activeTabId.value === graphActiveTabId) {
-        options.activateTab(restoredActiveTabId);
+    if (checkpoint.activeTabId && options.activeTabId.value === graphActiveTabId) {
+        options.activateTab(checkpoint.activeTabId);
     }
     return failedPaths;
 }

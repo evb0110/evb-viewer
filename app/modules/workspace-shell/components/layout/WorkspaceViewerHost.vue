@@ -1,28 +1,24 @@
 <template>
     <div class="workspace-viewer-host">
+        <!-- The document chassis stays laid out under Start so an open can
+        present its first frame at the final geometry. -->
         <div
-            v-show="documentLayoutVisible"
             class="workspace-viewer-host__document"
             :aria-hidden="!hasDocument ? 'true' : undefined"
         >
             <slot name="document" />
         </div>
-        <slot v-if="!hasDocument && !suppressEmptyState" name="empty" />
+        <div v-if="!hasDocument && !suppressEmptyState" class="workspace-viewer-host__empty">
+            <slot name="empty" />
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { shouldKeepWorkspaceDocumentLayoutVisible } from '@app/modules/workspace-shell/host/shouldKeepWorkspaceDocumentLayoutVisible';
-
-const props = defineProps<{
+defineProps<{
     hasDocument: boolean;
-    keepDocumentLayoutMounted?: boolean;
     suppressEmptyState: boolean;
 }>();
-const documentLayoutVisible = computed(() => shouldKeepWorkspaceDocumentLayoutVisible({
-    hasDocument: props.hasDocument,
-    keepDocumentLayoutMounted: props.keepDocumentLayoutMounted === true,
-}));
 </script>
 
 <style scoped>
@@ -37,4 +33,13 @@ const documentLayoutVisible = computed(() => shouldKeepWorkspaceDocumentLayoutVi
     height: 100%;
 }
 
+.workspace-viewer-host__empty {
+    position: absolute;
+    inset: 0;
+    z-index: var(--app-workspace-transition-overlay-z-index);
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    background: var(--app-window-bg);
+}
 </style>

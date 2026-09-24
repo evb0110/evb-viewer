@@ -1,236 +1,86 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type {
-    ITab,
-    TTabUpdate,
-} from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { isWorkspaceExpose } from '@app/modules/workspace-shell/expose/isWorkspaceExpose';
-import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
+import type { Ref } from 'vue';
+import type { ITab } from '@app/types/tabs';
 import {
-    createPendingWorkspaceDocumentRecord,
-    createWorkspaceDocumentRecordFromTab,
-    type IWorkspaceDocumentRecord,
-} from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+    createWorkspaceDocumentController,
+    type IWorkspaceDocumentController,
+    type TWorkspaceDocumentAssignment,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
-interface IUseWorkspaceDocumentSessionsOptions {
+/** One document controller per tab, created with the tab and disposed with it. */
+export const useWorkspaceDocumentSessions = (options: {
     activeTabId: Ref<string | null>;
     tabs: Ref<ITab[]>;
-}
-
-interface IUseWorkspaceDocumentSessionsResult {
-    activeDocumentRecord: ComputedRef<IWorkspaceDocumentRecord | null>;
-    activeDocumentSession: ComputedRef<IWorkspaceDocumentController | null>;
-    activeWorkspace: ComputedRef<IWorkspaceExpose | null>;
-    documentRecordsByTabId: ComputedRef<Record<string, IWorkspaceDocumentRecord>>;
-    documentSessionsByTabId: ComputedRef<Record<string, IWorkspaceDocumentController>>;
-    viewStateByTabId: ComputedRef<Record<string, ITabViewSessionState>>;
-    workspaceRefs: ComputedRef<Map<string, IWorkspaceExpose>>;
-    applyRevisionInfo: (tabId: string, info: IDocumentRevisionInfo | null) => void;
-    applyViewState: (tabId: string, state: ITabViewSessionState) => void;
-    getDocumentRecord: (tabId: string | null | undefined) => IWorkspaceDocumentRecord | null;
-    getSession: (tabId: string | null | undefined) => IWorkspaceDocumentController | null;
-    removeDocumentRecord: (tabId: string) => void;
-    seedTabDocumentRecord: (tabId: string, updates: TTabUpdate) => void;
-    setWorkspaceDocumentRecord: (tabId: string, record: IWorkspaceDocumentRecord, source?: 'host' | 'workspace') => void;
-    setWorkspaceRef: (tabId: string, el: unknown) => void;
-    validateCommandTarget: (target: TWorkspaceCommandTarget) => {ok: true} | {
-        ok: false;
-        reason: string
-    };
-    waitForWorkspace: (tabId: string, timeoutMs?: number) => Promise<IWorkspaceExpose | null>;
-}
-
-function createSeedRecordForTab(tab: ITab): IWorkspaceDocumentRecord {
-    return tabHasDocumentHint(tab)
-        ? createPendingWorkspaceDocumentRecord(tab)
-        : createWorkspaceDocumentRecordFromTab(tab);
-}
-
-export const useWorkspaceDocumentSessions = (
-    options: IUseWorkspaceDocumentSessionsOptions,
-): IUseWorkspaceDocumentSessionsResult => {
+}) => {
     const sessionsByTabId = shallowRef(new Map<string, IWorkspaceDocumentController>());
+    const pendingAssignments = new Map<string, TWorkspaceDocumentAssignment>();
 
-    function getTabById(tabId: string | null | undefined) {
-        return tabId ? options.tabs.value.find(tab => tab.id === tabId) ?? null : null;
-    }
-
-    function ensureSessionForTab(tab: ITab) {
-        const existing = sessionsByTabId.value.get(tab.id);
+    function ensureSession(tabId: string) {
+        const existing = sessionsByTabId.value.get(tabId);
         if (existing) {
             return existing;
         }
-
         const session = createWorkspaceDocumentController({
-            tabId: tab.id,
-            initialRecord: createSeedRecordForTab(tab),
+            tabId,
+            assignment: pendingAssignments.get(tabId),
         });
-        sessionsByTabId.value.set(tab.id, session);
+        pendingAssignments.delete(tabId);
+        sessionsByTabId.value.set(tabId, session);
         triggerRef(sessionsByTabId);
         return session;
     }
 
     function getSession(tabId: string | null | undefined) {
-        const tab = getTabById(tabId);
-        if (!tab) {
-            return null;
-        }
-
-        return ensureSessionForTab(tab);
+        return tabId && options.tabs.value.some(tab => tab.id === tabId)
+            ? ensureSession(tabId)
+            : null;
     }
 
-    function removeDocumentRecord(tabId: string) {
+    /** Assigns a document to a tab that may not exist yet in the pane graph. */
+    function assignDocument(tabId: string, assignment: TWorkspaceDocumentAssignment) {
         const session = sessionsByTabId.value.get(tabId);
-        session?.detachWorkspace();
-        if (!sessionsByTabId.value.delete(tabId)) {
+        if (session) {
+            session.assign(assignment);
             return;
         }
-        triggerRef(sessionsByTabId);
+        pendingAssignments.set(tabId, assignment);
     }
 
-    function getDocumentRecord(tabId: string | null | undefined) {
-        return getSession(tabId)?.toWorkspaceRecord() ?? null;
-    }
-
-    function setWorkspaceDocumentRecord(
-        tabId: string,
-        record: IWorkspaceDocumentRecord,
-        source: 'host' | 'workspace' = 'workspace',
-    ) {
-        const session = getSession(tabId);
-        session?.applyWorkspaceRecord(record, source);
-    }
-
-    function seedTabDocumentRecord(tabId: string, updates: TTabUpdate) {
-        getSession(tabId)?.applyTabUpdate(updates);
-    }
-
-    function applyViewState(tabId: string, state: ITabViewSessionState) {
-        getSession(tabId)?.applyViewState(state);
-    }
-
-    function applyRevisionInfo(tabId: string, info: IDocumentRevisionInfo | null) {
-        getSession(tabId)?.applyRevisionInfo(info);
-    }
-
-    function setWorkspaceRef(tabId: string, el: unknown) {
-        const session = getSession(tabId);
-        if (!session) {
-            return;
+    watch(options.tabs, (tabs) => {
+        const liveTabIds = new Set(tabs.map(tab => tab.id));
+        for (const tab of tabs) {
+            ensureSession(tab.id);
         }
-
-        if (isWorkspaceExpose(el)) {
-            session.attachWorkspace(el);
-            return;
-        }
-
-        if (el) {
-            BrowserLogger.warn('tabs', 'Ignoring workspace ref with unexpected shape', {
-                tabId,
-                receivedType: typeof el,
-            });
-        }
-        session.detachWorkspace();
-    }
-
-    async function waitForWorkspace(tabId: string, timeoutMs?: number) {
-        const session = getSession(tabId);
-        if (!session) {
-            return null;
-        }
-
-        return session.waitForWorkspace(session.createCommandTarget(), timeoutMs);
-    }
-
-    function validateCommandTarget(target: TWorkspaceCommandTarget) {
-        return getSession(target.tabId)?.validateCommandTarget(target)
-            ?? {
-                ok: false,
-                reason: 'tab-missing',
-            };
-    }
-
-    watch(
-        options.tabs,
-        (tabs) => {
-            const liveTabIds = new Set(tabs.map(tab => tab.id));
-            for (const tab of tabs) {
-                ensureSessionForTab(tab);
+        for (const [
+            tabId,
+            session,
+        ] of [...sessionsByTabId.value]) {
+            if (!liveTabIds.has(tabId)) {
+                session.dispose();
+                sessionsByTabId.value.delete(tabId);
+                triggerRef(sessionsByTabId);
             }
-
-            for (const tabId of [...sessionsByTabId.value.keys()]) {
-                if (!liveTabIds.has(tabId)) {
-                    removeDocumentRecord(tabId);
-                }
-            }
-        },
-        { immediate: true },
-    );
+        }
+    }, {immediate: true});
 
     const documentSessionsByTabId = computed(() => Object.fromEntries(sessionsByTabId.value));
-    const documentRecordsByTabId = computed(() => Object.fromEntries(
-        [...sessionsByTabId.value].map(([
-            tabId,
-            session,
-        ]) => [
-            tabId,
-            session.toWorkspaceRecord(),
-        ]),
-    ));
-    const viewStateByTabId = computed(() => Object.fromEntries(
-        [...sessionsByTabId.value].map(([
-            tabId,
-            session,
-        ]) => [
-            tabId,
-            session.snapshot.value.viewState,
-        ]),
-    ));
-    const workspaceRefs = computed(() => new Map(
-        [...sessionsByTabId.value]
-            .flatMap(([
-                tabId,
-                session,
-            ]) => {
-                const workspace = session.mountedWorkspace.value;
-                return workspace
-                    ? [[
-                        tabId,
-                        workspace,
-                    ] as const]
-                    : [];
-            }),
-    ));
+    const workspaceRefs = computed(() => new Map([...sessionsByTabId.value].flatMap(([
+        tabId,
+        session,
+    ]) => session.mountedWorkspace.value ? [[
+        tabId,
+        session.mountedWorkspace.value,
+    ] as const] : [])));
     const activeDocumentSession = computed(() => getSession(options.activeTabId.value));
-    const activeDocumentRecord = computed(() => activeDocumentSession.value?.toWorkspaceRecord() ?? null);
     const activeWorkspace = computed(() => activeDocumentSession.value?.mountedWorkspace.value ?? null);
 
     return {
-        activeDocumentRecord,
         activeDocumentSession,
         activeWorkspace,
-        applyRevisionInfo,
-        applyViewState,
-        documentRecordsByTabId,
+        assignDocument,
         documentSessionsByTabId,
-        getDocumentRecord,
         getSession,
-        removeDocumentRecord,
-        seedTabDocumentRecord,
-        setWorkspaceDocumentRecord,
-        setWorkspaceRef,
-        validateCommandTarget,
-        viewStateByTabId,
-        waitForWorkspace,
         workspaceRefs,
     };
 };
+
+export type TWorkspaceDocumentSessions = ReturnType<typeof useWorkspaceDocumentSessions>;

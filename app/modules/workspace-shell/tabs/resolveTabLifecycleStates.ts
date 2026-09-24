@@ -14,6 +14,8 @@ import {
 
 export function resolveTabLifecycleStates(options: {
     tabs: ITab[];
+    /** Tabs with unsaved changes stay mounted so they can be saved. */
+    dirtyTabIds: ReadonlySet<string>;
     panes: IEditorPaneState[];
     activationOrder: string[];
     policy: TTabMemoryPolicy;
@@ -43,7 +45,7 @@ export function resolveTabLifecycleStates(options: {
     return options.tabs.map((tab) => {
         const tabId = parseTabId(tab.id);
         const isHot = tabId !== null && visibleTabIds.has(tabId);
-        const isSaveProtected = tab.isDirty;
+        const isSaveProtected = options.dirtyTabIds.has(tab.id);
         const isWarm = !isHot && (tabId !== null && warmTabIds.has(tabId) || isSaveProtected);
         const temperature: TTabTemperature = isHot ? 'hot' : isWarm ? 'warm' : 'cold';
 

@@ -8,7 +8,6 @@ import type {
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
 import { requirePaneId } from '@contracts/editorPanes';
-import { requireDocumentRef } from '@contracts/documentRef';
 import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import { collectLayoutPaneOrder } from '@app/modules/workspace-shell/window-tabs/collectLayoutPaneOrder';
@@ -16,13 +15,7 @@ import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/c
 import { shouldCloseSourceWindowAfterTransfer } from '@app/modules/workspace-shell/window-tabs/shouldCloseSourceWindowAfterTransfer';
 
 function createTab(id: string): ITab {
-    return {
-        id,
-        fileName: `${id}.pdf`,
-        originalPath: requireDocumentRef(`/tmp/${id}.pdf`),
-        isDirty: false,
-        isDjvu: false,
-    };
+    return {id};
 }
 
 describe('window tab transfer orchestration helpers', () => {

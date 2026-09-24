@@ -4,8 +4,7 @@ import type {
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
@@ -23,8 +22,7 @@ interface IUseWorkspaceCrashCheckpointOptions {
     layout: Ref<TEditorLayoutNode | null>;
     activePaneId: Ref<string | null>;
     activeTabId: Ref<string | null>;
-    workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
+    documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
@@ -101,7 +99,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
     }
 
     function hasDirtyTabs() {
-        return options.tabs.value.some(tab => tab.isDirty);
+        return Object.values(options.documentSessionsByTabId.value).some(session => session.snapshot.value.dirty);
     }
 
     function scheduleCheckpoint(delayMs = debounceMs, onlyIfDirty = false) {

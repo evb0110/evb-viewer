@@ -29,24 +29,16 @@ import { getDjvuCapability } from '@app/utils/getDjvuCapability';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
 import { guardAsync } from '@app/utils/asyncGuard';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { ITab } from '@app/types/tabs';
 import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
-import type { TWorkspaceCheckpointSurfaceMode } from '@contracts/workspaceCheckpoint';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import {
     getWorkspaceViewerChunkTargetsForPaths,
     scheduleDesktopViewerWarmup,
     warmupDesktopViewerChunkForPaths,
     type IDesktopViewerWarmupHandle,
-} from '@app/modules/workspace-shell/host/warmupDesktopViewerChunks';
+} from '@app/modules/workspace-shell/viewers/warmupDesktopViewerChunks';
 import { resolveStartupWorkProfile } from '@app/utils/startupWorkProfile';
-import {
-    invokeWorkspaceExposeCommand,
-    isWorkspaceExposeCommandName,
-    isWorkspaceExposeSyncCommandName,
-    type TWorkspaceExposeMethod,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { registerDirectOpenAutomationDelegate } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import {
     getAutomationEvents,
@@ -62,7 +54,7 @@ const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcu
     t: 'new-tab',
     w: 'close-tab',
 };
-const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortcutAction, TWorkspaceExposeMethod> = {
+const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortcutAction, keyof IWorkspaceExpose> = {
     'save-as': 'handleSaveAs',
     'export-docx': 'handleExportDocx',
     undo: 'handleUndo',
@@ -72,13 +64,11 @@ const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortc
 interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     tabs: Ref<ITab[]>;
     workspaceRefs: Ref<Map<string, IWorkspaceExpose>>;
-    documentRecordsByTabId: Ref<Record<string, IWorkspaceDocumentRecord>>;
     isStartupOpenClaimPending: Ref<boolean>;
     activateTab: (tabId: string) => void;
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<TDocumentRef[]>;
     restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
-    openPathInReservedTab: Parameters<typeof restoreWorkspaceCheckpoint>[1]['openPathInReservedTab'];
-    getDocumentSession?: (tabId: string) => IWorkspaceDocumentController | null;
+    documentSessions: TWorkspaceDocumentSessions;
     transferActiveTabToWindow?: (windowId: number) => Promise<unknown>;
 }
 
@@ -90,7 +80,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const {
         tabs,
         workspaceRefs,
-        documentRecordsByTabId,
         isStartupOpenClaimPending,
         activeTabId,
         activeWorkspace,
@@ -102,8 +91,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         openPathsInAppropriateTab,
         beginOpenPathsInAppropriateTab,
         restoreWorkspaceCheckpointGraph,
-        openPathInReservedTab,
-        getDocumentSession,
+        documentSessions,
         transferActiveTabToWindow,
         clearRecentFiles,
         loadRecentFiles,
@@ -117,16 +105,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     } = options;
 
     const menuCleanups: Array<() => void> = [];
-    function restoreSurfaceMode(tabId: string, mode: TWorkspaceCheckpointSurfaceMode) {
-        const session = getDocumentSession?.(tabId);
-        if (!session) {
-            return;
-        }
-        session.applyViewState({
-            ...session.snapshot.value.viewState,
-            surfaceMode: mode,
-        });
-    }
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
     let installedTestApi: IEvbTestApi | null = null;
     let cleanupDirectOpenDelegate: (() => void) | null = null;
@@ -149,12 +127,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             BrowserLogger.warn('tabs-shell', 'Failed to read workspace toolbar snapshot for automation API', error);
         }
 
-        // A mounted workspace owns the current navigation and zoom revision.
-        // The document record is a suspension/checkpoint fallback and can lag
-        // behind a live source adapter between persistence publications.
-        return tabId
-            ? documentRecordsByTabId.value[tabId]?.toolbarSnapshot ?? null
-            : null;
+        // A tab without a mounted workspace keeps its last published view.
+        return documentSessions.getSession(tabId)?.toolbarSnapshot.value ?? null;
     }
 
     function readWorkspaceAutomationState(
@@ -200,42 +174,41 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             return values as TValues;
         }
 
+        function readActiveWorkspaceCommand(commandName: string) {
+            const command: unknown = (getActiveWorkspaceHandle() as Record<string, unknown> | null)?.[commandName];
+            return typeof command === 'function' ? command as (...args: unknown[]) => unknown : null;
+        }
+
         const callActiveWorkspaceSyncCommand = <TResult = unknown>(
             commandName: string,
             args: unknown[] = [],
         ): IEvbTestCommandResult<TResult> => {
-            const workspace = getActiveWorkspaceHandle();
-            if (!workspace || !isWorkspaceExposeSyncCommandName(commandName)) {
-                return {
+            const command = readActiveWorkspaceCommand(commandName);
+            return command
+                ? {
+                    called: true,
+                    value: (command(...args) ?? null) as TResult | null,
+                }
+                : {
                     called: false,
                     value: null,
                 };
-            }
-
-            const value: unknown = invokeWorkspaceExposeCommand(workspace, commandName, args);
-            return {
-                called: true,
-                value: (value ?? null) as TResult | null,
-            };
         };
 
         const callActiveWorkspaceCommand = async <TResult = unknown>(
             commandName: string,
             args: unknown[] = [],
         ): Promise<IEvbTestCommandResult<TResult>> => {
-            const workspace = getActiveWorkspaceHandle();
-            if (!workspace || !isWorkspaceExposeCommandName(commandName)) {
-                return {
+            const command = readActiveWorkspaceCommand(commandName);
+            return command
+                ? {
+                    called: true,
+                    value: (await Promise.resolve(command(...args)) ?? null) as TResult | null,
+                }
+                : {
                     called: false,
                     value: null,
                 };
-            }
-
-            const value: unknown = await Promise.resolve(invokeWorkspaceExposeCommand(workspace, commandName, args));
-            return {
-                called: true,
-                value: (value ?? null) as TResult | null,
-            };
         };
 
         return {
@@ -434,7 +407,8 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             return;
         }
 
-        guard(invokeWorkspaceExposeCommand(workspace, RENDERER_DOCUMENT_SHORTCUT_COMMANDS[action]));
+        const command = workspace[RENDERER_DOCUMENT_SHORTCUT_COMMANDS[action]] as (() => unknown) | undefined;
+        guard(command?.());
     }
 
     function handleTabKeyboardShortcut(event: KeyboardEvent) {
@@ -498,13 +472,10 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             if (workspaceCheckpoint) {
                 traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
                 const failedCheckpointPaths = await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
-                    tabs,
                     activeTabId,
-                    workspaceRefs,
+                    documentSessions,
                     restoreGraph: restoreWorkspaceCheckpointGraph,
-                    openPathInReservedTab,
                     activateTab,
-                    restoreSurfaceMode: getDocumentSession ? restoreSurfaceMode : undefined,
                 });
                 if (lifecycle.isDisposed.valueOf()) {
                     return;

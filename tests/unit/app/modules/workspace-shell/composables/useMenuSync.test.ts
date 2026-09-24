@@ -6,16 +6,20 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     nextTick,
     ref,
+    type Ref,
 } from 'vue';
 import type { ITab } from '@app/types/tabs';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
-import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
-import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    createDefaultWorkspaceViewerCapabilities,
+    type IWorkspaceToolbarSnapshot,
+} from '@app/types/workspaceExpose';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { requireDocumentRef } from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),
@@ -28,6 +32,45 @@ const mockPlatformApi = createElectronPlatformApiFixture({documentMenu: {
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
+interface IActiveDocumentState {
+    tab: {fileName: string | null};
+    toolbarSnapshot: IWorkspaceToolbarSnapshot;
+}
+
+function createWorkspaceDocumentRecord(options: {
+    tab?: {fileName: string | null};
+    toolbarSnapshot?: Partial<IWorkspaceToolbarSnapshot>;
+} = {}): IActiveDocumentState {
+    const toolbarSnapshot = {
+        ...createDefaultWorkspaceToolbarSnapshot(),
+        ...options.toolbarSnapshot,
+    };
+    if (toolbarSnapshot.hasPdf) {
+        toolbarSnapshot.totalPages = Math.max(toolbarSnapshot.totalPages, toolbarSnapshot.currentPage);
+    }
+    return {
+        tab: {fileName: options.tab?.fileName ?? null},
+        toolbarSnapshot,
+    };
+}
+
+// The active tab's controller, rebuilt from the document state the test sets.
+function sessionOf(state: Ref<IActiveDocumentState>) {
+    return computed(() => {
+        const session = createWorkspaceDocumentController({
+            tabId: 'tab-1',
+            assignment: {
+                fileName: state.value.tab.fileName ?? (state.value.toolbarSnapshot.hasPdf ? 'document.pdf' : null),
+                originalPath: null,
+                isDirty: false,
+                isDjvu: false,
+            },
+        });
+        session.publishToolbarSnapshot(state.value.toolbarSnapshot);
+        return session;
+    });
+}
+
 describe('useMenuSync', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -35,17 +78,10 @@ describe('useMenuSync', () => {
 
     it('syncs menu state when workspace or tabs change', async () => {
         const activeDocumentRecord = ref(createWorkspaceDocumentRecord());
-        const tabs = ref([{
-            id: 'tab-1',
-            fileName: null,
-            originalPath: null,
-            isDirty: false,
-            isDjvu: false,
-        }]);
+        const tabs = ref([{id: 'tab-1'}]);
 
         useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
+            activeDocumentSession: sessionOf(activeDocumentRecord),
             tabs,
         });
         await nextTick();
@@ -64,13 +100,7 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuTabCount).toHaveBeenCalledWith(1);
 
         activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: { hasPdf: true }});
-        tabs.value.push({
-            id: 'tab-2',
-            fileName: null,
-            originalPath: null,
-            isDirty: false,
-            isDjvu: false,
-        });
+        tabs.value.push({id: 'tab-2'});
         await nextTick();
 
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -96,15 +126,8 @@ describe('useMenuSync', () => {
         }}));
 
         useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
-                id: 'tab-1',
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: sessionOf(activeDocumentRecord),
+            tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
 
@@ -153,15 +176,8 @@ describe('useMenuSync', () => {
         }}));
 
         useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
-                id: 'tab-1',
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: sessionOf(activeDocumentRecord),
+            tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
 
@@ -211,15 +227,8 @@ describe('useMenuSync', () => {
         }}));
 
         useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
-                id: 'tab-1',
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: sessionOf(activeDocumentRecord),
+            tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
 
@@ -269,15 +278,8 @@ describe('useMenuSync', () => {
         }}));
 
         useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
-                id: 'tab-1',
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: sessionOf(activeDocumentRecord),
+            tabs: ref([{id: 'tab-1'}]),
         });
         await nextTick();
 
@@ -301,12 +303,7 @@ describe('useMenuSync', () => {
 
     it('keeps the DOCX menu command available as a cancellation action while exporting', async () => {
         const activeDocumentRecord = ref(createWorkspaceDocumentRecord({
-            tab: {
-                fileName: 'dictionary.pdf',
-                originalPath: requireDocumentRef('/documents/dictionary.pdf'),
-                isDirty: false,
-                isDjvu: false,
-            },
+            tab: {fileName: 'dictionary.pdf'},
             toolbarSnapshot: {
                 hasPdf: true,
                 totalPages: 1,
@@ -320,15 +317,8 @@ describe('useMenuSync', () => {
         }));
 
         useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref<ITab[]>([{
-                id: 'tab-1',
-                fileName: 'dictionary.pdf',
-                originalPath: requireDocumentRef('/documents/dictionary.pdf'),
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: sessionOf(activeDocumentRecord),
+            tabs: ref<ITab[]>([{id: 'tab-1'}]),
         });
         await nextTick();
 
@@ -363,15 +353,8 @@ describe('useMenuSync', () => {
         });
 
         useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
-                id: 'tab-1',
-                fileName: 'example.pdf',
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            }]),
+            activeDocumentSession: sessionOf(activeDocumentRecord),
+            tabs: ref([{id: 'tab-1'}]),
             menuContext,
         });
         await nextTick();
@@ -391,11 +374,5 @@ describe('useMenuSync', () => {
             canTransferActiveTab: true,
             canToggleAssistant: true,
         }));
-    });
-
-    it('resolves hasPdf from boolean, ref, or null workspace', () => {
-        expect(workspaceHasPdf(null)).toBe(false);
-        expect(workspaceHasPdf({ hasPdf: true })).toBe(true);
-        expect(workspaceHasPdf({ hasPdf: ref(false) })).toBe(false);
     });
 });

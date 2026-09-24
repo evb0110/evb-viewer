@@ -22,14 +22,13 @@ import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
 // What the pane owns is which tabs it presents and how it marks them. Its
 // children render an identifiable placeholder, with the sidebar element the
 // pane's own stylesheet reaches into, so the assertions read the pane's markup
 // instead of a document workspace or a tab strip.
-vi.mock('@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue', () => ({default: defineComponent({
-    name: 'DeferredDocumentWorkspaceHostStub',
+vi.mock('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue', () => ({default: defineComponent({
+    name: 'DocumentWorkspaceTabStub',
     props: {tabId: {
         type: String,
         required: true,
@@ -60,13 +59,7 @@ afterEach(() => {
 });
 
 function createTab(tabId: string): ITab {
-    return {
-        id: tabId,
-        fileName: `${tabId}.pdf`,
-        originalPath: requireDocumentRef(`/documents/${tabId}.pdf`),
-        isDirty: false,
-        isDjvu: false,
-    };
+    return {id: tabId};
 }
 
 function createReleasedHostLifecycle(tabId: string): ITabLifecycleState {
@@ -106,7 +99,12 @@ async function mountEditorPane({
         tabId,
         createWorkspaceDocumentController({
             tabId,
-            initialRecord: createWorkspaceDocumentRecord(),
+            assignment: {
+                fileName: `${tabId}.pdf`,
+                originalPath: requireDocumentRef(`/documents/${tabId}.pdf`),
+                isDirty: false,
+                isDjvu: false,
+            },
         }),
     ]));
     const app = createApp(defineComponent({setup() {
@@ -115,14 +113,11 @@ async function mountEditorPane({
             paneCount: 1,
             tabs: tabIds.map(createTab),
             activePaneId: 'pane-1',
-            isStartupOpenClaimPending: false,
             isTabTransitionBusy: false,
             presentationFallbackTabId,
             tabContextAvailability: null,
             startSectionByTabId: {},
             tabLifecycleById,
-            viewStateByTabId: {},
-            documentRecordsByTabId: {},
             documentSessionsByTabId,
             zenMode,
             zenActiveTabId,

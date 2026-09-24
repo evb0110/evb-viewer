@@ -8,7 +8,6 @@ import { delay } from 'es-toolkit/promise';
 import { ref } from 'vue';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
-import { workspaceExposeMenuCommandDescriptors } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
@@ -141,20 +140,62 @@ function createMenuApi() {
     };
 }
 
+// Menu events and the workspace command each one must run.
+const MENU_COMMANDS = [
+    [
+        'documentMenu',
+        'onMenuSave',
+        'handleSave',
+    ],
+    [
+        'documentMenu',
+        'onMenuSaveAs',
+        'handleSaveAs',
+    ],
+    [
+        'documentMenu',
+        'onMenuUndo',
+        'handleUndo',
+    ],
+    [
+        'documentMenu',
+        'onMenuZoomIn',
+        'handleZoomIn',
+    ],
+    [
+        'documentMenu',
+        'onMenuViewModeFacing',
+        'handleViewModeFacing',
+    ],
+    [
+        'documentMenu',
+        'onMenuRotateCw',
+        'handleRotateCw',
+    ],
+    [
+        'djvu',
+        'onMenuConvertToPdf',
+        'handleConvertToPdf',
+    ],
+] as const;
+
 function createRegistryMenuApi() {
     const callbacks = new Map<string, () => void>();
     const platformApi = createElectronPlatformApiFixture();
     const documentMenu = platformApi.documentMenu;
     const djvu = platformApi.djvu;
 
-    for (const descriptor of workspaceExposeMenuCommandDescriptors) {
-        const target = descriptor.menu.source === 'djvu' ? djvu : documentMenu;
-        Object.defineProperty(target, descriptor.menu.register, {
+    for (const [
+        source,
+        register,
+        commandName,
+    ] of MENU_COMMANDS) {
+        Object.defineProperty(source === 'djvu' ? djvu : documentMenu, register, {
             configurable: true,
             value: vi.fn((callback: () => void) => {
-                callbacks.set(descriptor.name, callback);
+                callbacks.set(commandName, callback);
                 return () => {
-                    callbacks.delete(descriptor.name);
+                    callbacks.delete(commandName);
                 };
             }),
         });
@@ -175,17 +216,21 @@ function createRegistryMenuApi() {
 }
 
 describe('registerTabsMenuBindings', () => {
-    it('routes every registry-backed menu command to the active workspace command surface', async () => {
+    it('routes menu commands to the active workspace command surface', async () => {
         const workspaceCommands = createWorkspaceExposeFixture({hasPdf: true});
         const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(workspaceCommands)});
         const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
-        for (const descriptor of workspaceExposeMenuCommandDescriptors) {
-            menuApi.emit(descriptor.name);
+        for (const [
+            ,
+            ,
+            commandName,
+        ] of MENU_COMMANDS) {
+            menuApi.emit(commandName);
             await flushMicrotasks();
 
-            expect(workspaceCommands[descriptor.name], descriptor.name).toHaveBeenCalledTimes(1);
+            expect(workspaceCommands[commandName], commandName).toHaveBeenCalledTimes(1);
         }
     });
 

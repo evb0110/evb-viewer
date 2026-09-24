@@ -50,14 +50,14 @@ const mountedApps = new Set<() => void>();
 interface IWorkspaceOpenSettleHarness {
     initialVisualReady: Ref<boolean>;
     totalPages: Ref<number>;
-    waitForDocumentOpenSettled: () => Promise<void>;
+    documentOpenSettled: Readonly<Ref<boolean>>;
 }
 
 function createWorkspaceOpenSettleHarness(): IWorkspaceOpenSettleHarness {
     return {
         initialVisualReady: ref(false),
         totalPages: ref(0),
-        waitForDocumentOpenSettled: () => Promise.reject(new Error('Workspace host is not mounted')),
+        documentOpenSettled: ref(false),
     };
 }
 
@@ -97,22 +97,18 @@ function createFeaturePackHost(
             const totalPages = ref(0);
             const isLoading = ref(false);
             const settle = useDocumentOpenVisualSettle({
-                tabId: String(documentRef),
-                hasPdf: ref(false),
                 pdfSrc: ref(null),
                 pdfDocument: ref(null),
                 totalPages,
-                pageLabelsResolved: ref(false),
                 isLoading,
                 pdfError: ref(null),
                 djvuError: ref(null),
                 showDjvuSource: ref(true),
                 openSurface: surface,
-                markAnnotationCommentsLoading: vi.fn(),
             });
             settleHarness.initialVisualReady = settle.initialDocumentVisualReady;
             settleHarness.totalPages = totalPages;
-            settleHarness.waitForDocumentOpenSettled = settle.waitForDocumentOpenSettled;
+            settleHarness.documentOpenSettled = settle.documentOpenSettled;
             provide(documentViewerRuntimeKey, authority);
             return () => {
                 const snapshot = surface.snapshot.value;
@@ -137,8 +133,6 @@ function createFeaturePackHost(
                         documentRevisionToken: requireDocumentRevisionToken(`revision:${documentRef}`),
                         isActive: isActive.value,
                         isResizing: isResizing.value,
-                        onInitialVisualPending: settle.handlePdfInitialVisualPending,
-                        onInitialVisualReady: settle.handlePdfInitialVisualReady,
                         onLoadError: (error: unknown) => loadErrors.value.push(error),
                         onLoading: (loading: boolean) => {
                             isLoading.value = loading;
@@ -290,10 +284,9 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             expect(image).not.toBeNull();
             return image!;
         });
-        const firstSettled = firstSettle.waitForDocumentOpenSettled();
         firstImage.dispatchEvent(new Event('load'));
         await vi.waitFor(() => expect(firstSettle.initialVisualReady.value).toBe(true));
-        await expect(firstSettled).resolves.toBeUndefined();
+        expect(firstSettle.documentOpenSettled.value).toBe(true);
 
         showSecondWorkspace.value = true;
         await nextTick();
@@ -305,7 +298,6 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             expect(image).not.toBeNull();
             return image!;
         });
-        const secondSettled = secondSettle.waitForDocumentOpenSettled();
         const openingTarget = secondImage.parentElement!;
         const openingTargetParent = openingTarget.parentElement!;
         secondImage.dispatchEvent(new Event('load'));
@@ -317,7 +309,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         secondWorkspaceIsResizing.value = false;
 
         await vi.waitFor(() => expect(secondSettle.initialVisualReady.value).toBe(true));
-        await expect(secondSettled).resolves.toBeUndefined();
+        expect(secondSettle.documentOpenSettled.value).toBe(true);
 
         expect(firstSurface.snapshot.value.generation).toBe(firstGeneration);
         expect(firstSurface.snapshot.value.phase).toBe('ready');

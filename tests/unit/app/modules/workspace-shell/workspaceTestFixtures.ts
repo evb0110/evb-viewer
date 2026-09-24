@@ -1,8 +1,5 @@
 import { vi } from 'vitest';
-import {
-    createWorkspaceExposeCommandHandlers,
-    createWorkspaceExposeFromCommandHandlers,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import { cast } from '@tests/helpers/cast';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceAutomationStateSnapshot,
@@ -25,22 +22,26 @@ export function createWorkspaceAutomationStateSnapshot(
     };
 }
 
+const COMMAND_NAME_PATTERN = /^(?:handle|set|pageOps|capture|restore|wait|run|read|create|comment|highlight|scroll|getAll|getDeleted|close)/u;
+
+/** A workspace command surface whose every command is a spy resolving to true. */
 export function createWorkspaceExposeFixture(
     overrides: Partial<IWorkspaceExpose> = {},
     hasPdf: IWorkspaceExpose['hasPdf'] = true,
 ): IWorkspaceExpose {
-    const handlers = createWorkspaceExposeCommandHandlers(descriptor => (
-        descriptor.kind === 'async'
-            ? vi.fn(async () => true)
-            : vi.fn()
-    ));
-
-    return createWorkspaceExposeFromCommandHandlers(hasPdf, handlers, {
+    const surface: Record<string, unknown> = {
+        hasPdf,
         getToolbarSnapshot: () => createDefaultWorkspaceToolbarSnapshot(),
         getOpenFailure: () => null,
         getAutomationStateSnapshot: () => createWorkspaceAutomationStateSnapshot(),
         ...overrides,
-    });
+    };
+    return cast<IWorkspaceExpose>(new Proxy(surface, {get(target, key) {
+        if (typeof key === 'string' && !(key in target) && COMMAND_NAME_PATTERN.test(key)) {
+            target[key] = vi.fn(async () => true);
+        }
+        return target[key as string];
+    }}));
 }
 
 export interface IKeyboardEventFixtureOptions {

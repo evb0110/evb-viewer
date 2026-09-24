@@ -42,12 +42,6 @@ import type {
     IScrollToPageOptions, IAnnotationRecoveryDraft,
 } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import {
-    createWorkspaceExposeCommandHandlers,
-    createWorkspaceExposeCommandRunner,
-    createWorkspaceExposeFromCommandHandlers,
-    type TWorkspaceExposeCommandHandlerMap,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type {
     IWorkspaceDocumentViewerNavigationPort,
     IWorkspacePdfViewerExposeAutomationPort,
@@ -458,7 +452,39 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         return operation();
     }
 
-    const customHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = {
+    return {
+        hasPdf: deps.hasPdf,
+        handleSaveAs: deps.handleSaveAs,
+        handlePrint: deps.handlePrint,
+        handlePrintCurrentPage: deps.handlePrintCurrentPage,
+        handleUndo: deps.handleUndo,
+        handleRedo: deps.handleRedo,
+        handleOpenFileFromUi: deps.handleOpenFileFromUi,
+        handleCombineImages: deps.handleCombineImages,
+        handleOpenFileDirectWithPersist: deps.handleOpenFileDirectWithPersist,
+        handleOpenFileDirectBatchWithPersist: deps.handleOpenFileDirectBatchWithPersist,
+        handleOpenFileWithResult: deps.handleOpenFileWithResult,
+        handleCloseFileFromUi: deps.handleCloseFileFromUi,
+        handleExportDocx: deps.handleExportDocx,
+        handleExportImages: deps.handleExportImages,
+        handleExportMultiPageTiff: deps.handleExportMultiPageTiff,
+        handleGoToPage: deps.handleGoToPage,
+        handleToggleSidebar: deps.handleToggleSidebar,
+        handleEnableDragMode: deps.handleEnableDragMode,
+        handleDisableDragMode: deps.handleDisableDragMode,
+        handleQuickNote: deps.handleQuickNote,
+        handleInsertImageFromFile: deps.handleInsertImageFromFile,
+        handlePasteImageFromClipboard: deps.handlePasteImageFromClipboard,
+        handlePageDelete: deps.handlePageDelete,
+        handlePageReorder: deps.handlePageReorder,
+        handlePageMove: deps.handlePageMove,
+        captureSplitPayload: deps.captureSplitPayload,
+        restoreSplitPayload: deps.restoreSplitPayload,
+        closeAllDropdowns: deps.closeAllDropdowns,
+        waitForDocumentOpenSettled: deps.waitForDocumentOpenSettled,
+        runAgentAction: deps.runAgentAction,
+        readAgentResource: deps.readAgentResource,
+        handleOcrComplete: deps.handleOcrComplete,
         captureCanonicalAnnotationRecovery: () => {
             const viewer = deps.pdfAutomationViewerRef?.value;
             const initial = viewer?.captureCanonicalAnnotationRecovery?.();
@@ -626,33 +652,6 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                     ?? Promise.resolve(false);
         },
     };
-
-    const depsHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = deps;
-    const commandHandlers = createWorkspaceExposeCommandHandlers((descriptor) => {
-        const customHandler = customHandlers[descriptor.name];
-        if (customHandler) {
-            return createWorkspaceExposeCommandRunner(customHandler);
-        }
-
-        if (descriptor.real === 'passthrough') {
-            const handler = depsHandlers[descriptor.name];
-            if (handler) {
-                return createWorkspaceExposeCommandRunner(handler);
-            }
-            if (descriptor.group === 'pageOps') {
-                return createWorkspaceExposeCommandRunner(() => (
-                    descriptor.kind === 'async' && descriptor.deferred === 'mountWaitBoolean'
-                        ? Promise.resolve(false)
-                        : undefined
-                ));
-            }
-            return null;
-        }
-
-        return null;
-    });
-
-    return createWorkspaceExposeFromCommandHandlers(deps.hasPdf, commandHandlers);
 }
 
 export function createWorkspaceExposeFromOwners(
