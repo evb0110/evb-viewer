@@ -11,7 +11,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {createOcrJobManifestController} from '@electron/features/ocr/worker/ocrJobManifest';
+import {createOcrJobManifestController} from '@electron/features/ocr/pipeline/ocrJobManifest';
 
 describe('OCR durable job manifest', () => {
     let root = '';

@@ -2,6 +2,8 @@ import {
     existsSync,
     readdirSync,
 } from 'fs';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 import type { App } from 'electron';
 import * as electron from 'electron';
 import {
@@ -18,6 +20,10 @@ import {
     type IOcrNativeToolPaths,
 } from '@electron/features/ocr/main/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import type { IOcrPipelinePaths } from '@electron/features/ocr/pipeline/types';
 
 
 export interface IOcrToolPaths extends IOcrNativeToolPaths {
@@ -107,6 +113,34 @@ export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     }
 
     return createAwaitablePaths(paths);
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** Native tools and scratch directory for one OCR job. */
+export async function resolveOcrPipelinePaths(): Promise<IOcrPipelinePaths> {
+    const paths = await getOcrToolPaths();
+    const pdfPageOpsBinary = resolveNativePageOpsPath() ?? undefined;
+    const scanCleanupBinary = resolveNativeToolPath({
+        binaryName: process.platform === 'win32' ? 'evb-scan-cleanup.exe' : 'evb-scan-cleanup',
+        crateName: 'scan-cleanup',
+        currentDir: __dirname,
+        envOverridePath: process.env.EVB_SCAN_CLEANUP_PATH,
+        isPackaged: __dirname.includes('app.asar'),
+    }) ?? undefined;
+    return {
+        tesseractBinary: paths.tesseract,
+        tessdataPath: paths.tessdata,
+        pdftoppmBinary: paths.pdftoppm,
+        pdftotextBinary: paths.pdftotext,
+        qpdfBinary: paths.qpdf,
+        tempDir: getAppTempDir(),
+        ...(paths.pdfimages === undefined ? {} : {pdfimagesBinary: paths.pdfimages}),
+        ...(paths.popplerDataDir === undefined ? {} : {popplerDataDir: paths.popplerDataDir}),
+        ...(paths.popplerFontConfigDir === undefined ? {} : {popplerFontConfigDir: paths.popplerFontConfigDir}),
+        ...(pdfPageOpsBinary === undefined ? {} : {pdfPageOpsBinary}),
+        ...(scanCleanupBinary === undefined ? {} : {scanCleanupBinary}),
+    };
 }
 
 async function checkToolExists(path: string) {

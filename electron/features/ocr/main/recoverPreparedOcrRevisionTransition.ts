@@ -17,7 +17,7 @@ import {
 import {
     getOcrCatalogV4PreparedDescriptorPath,
     rollbackPreparedOcrCatalogV4,
-} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
 import {
     invalidDocumentRecoveryJournal,
     readDocumentRecoveryJournal,

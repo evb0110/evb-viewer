@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import {
     open,
     stat,
@@ -11,19 +10,12 @@ import {
     isSupportedPageSegmentationMode,
 } from '@contracts/agentOcr';
 import { isGreekOcrLanguage } from '@contracts/ocrLanguages';
-import type { IOcrFileResult } from '@electron/features/ocr/worker/types';
+import type { IOcrFileResult } from '@electron/features/ocr/pipeline/types';
 import {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
-import {createTesseractFinalize} from '@electron/features/ocr/main/createTesseractFinalize';
 import {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
 import { getErrorMessage } from '@electron/utils/error';
-import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
-import {
-    createDetachedChildProcessSpawnOptions,
-    terminateDetachedChildProcess,
-} from '@electron/utils/nativeChildProcess';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import { getOcrNativeChildRegistrationProvider } from '@electron/features/ocr/worker/nativeChildRegistration';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { isAbortError } from '@electron/utils/abort';
 
 const PNG_SIGNATURE = Buffer.from([
     0x89,
@@ -36,10 +28,9 @@ const PNG_SIGNATURE = Buffer.from([
     0x0A,
 ]);
 
-const FILE_BASED_OCR_TIMEOUT_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_TIMEOUT_MS', 3 * 60 * 1000, 10_000);
-const FILE_BASED_OCR_KILL_GRACE_MS = parseIntegerEnv('EVB_OCR_FILE_BASED_KILL_GRACE_MS', 2_000, 250);
-const FILE_BASED_OCR_MAX_STDERR_BYTES = parseIntegerEnv('EVB_OCR_FILE_BASED_MAX_STDERR_BYTES', 262_144, 1_024);
-const FILE_BASED_OCR_MAX_TSV_BYTES = parseIntegerEnv('EVB_OCR_FILE_BASED_MAX_TSV_MB', 64, 1, 256) * 1024 * 1024;
+const FILE_BASED_OCR_TIMEOUT_MS = 3 * 60 * 1000;
+const FILE_BASED_OCR_MAX_STDERR_BYTES = 262_144;
+const FILE_BASED_OCR_MAX_TSV_BYTES = 64 * 1024 * 1024;
 const OCR_TSV_MAX_ROWS = 500_000;
 const OCR_TSV_MAX_WORDS = 250_000;
 const OCR_TSV_MAX_TEXT_CHARACTERS = 16 * 1024 * 1024;
@@ -156,7 +147,6 @@ export async function runOcrFileBased(
     const languageConfig = resolveTesseractLanguageConfig(languages, {preserveDictionaries: shouldPreserveDictionaries(options)});
     const tsvPath = `${outputBase}.tsv`;
     const pdfPath = `${outputBase}.pdf`;
-
     const args = [
         imagePath,
         outputBase,
@@ -175,247 +165,65 @@ export async function runOcrFileBased(
         '-c',
         'textonly_pdf=1',
     ];
-
-    const registration = await getOcrNativeChildRegistrationProvider()?.prepare(`tesseract(${imagePath})`);
-    let registrationPromise: Promise<void> | null = null;
-    const result = await new Promise<IOcrFileResult>((resolve) => {
-        if (signal?.aborted) {
-            resolve({
-                success: false,
-                pageData: null,
-                pdfPath: null,
-                error: 'Tesseract aborted',
-            });
-            return;
-        }
-
-        const proc = spawn(tesseractBinary, args, createDetachedChildProcessSpawnOptions({ env: buildTesseractEnv(tessdataPath, threads) }));
-        registrationPromise = registration === undefined
-            ? null
-            : typeof proc.pid === 'number' && proc.pid > 0
-                ? registration.register(proc.pid)
-                : Promise.reject(new Error('Tesseract spawned without a valid process id'));
-        void registrationPromise?.catch(() => undefined);
-
-        const stderr = createTextChunkAccumulator(FILE_BASED_OCR_MAX_STDERR_BYTES);
-        let timedOut = false;
-        let aborted = false;
-        const handles = {
-            timeoutHandle: null as NodeJS.Timeout | null,
-            killHandle: null as NodeJS.Timeout | null,
-            forceFinalizeHandle: null as NodeJS.Timeout | null,
-        };
-        let abortHandler: (() => void) | null = null;
-        let terminationPromise: Promise<boolean> | null = null;
-        let terminationRequested = false;
-        let terminationProven = true;
-
-        const requestTermination = () => {
-            terminationRequested = true;
-            if (!terminationPromise) {
-                terminationProven = false;
-                terminationPromise = terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS)
-                    .then(terminated => {
-                        terminationProven = terminated;
-                        return terminated;
-                    }, () => false);
-            }
-            return terminationPromise;
-        };
-
-        const finalize = createTesseractFinalize<IOcrFileResult>(handles, resolve, () => {
-            if (signal && abortHandler) {
-                signal.removeEventListener('abort', abortHandler);
-            }
-        });
-
-        const cleanupTempOutputs = async () => {
-            await Promise.all([
-                safeUnlink(tsvPath),
-                safeUnlink(pdfPath),
-            ]);
-        };
-
-        const getTerminationUnprovenDetail = () => terminationRequested && !terminationProven
-            ? `Tesseract process tree for ${imagePath} was not proven dead`
-            : undefined;
-
-        const createFailureResult = (error: string): IOcrFileResult => {
-            const terminationUnproven = getTerminationUnprovenDetail();
-            return {
-                success: false,
-                pageData: null,
-                pdfPath: null,
-                error,
-                ...(terminationUnproven === undefined ? {} : {terminationUnproven}),
-            };
-        };
-
-        const finalizeFailureAfterCleanup = async (error: string) => {
-            if (getTerminationUnprovenDetail() === undefined) {
-                await cleanupTempOutputs();
-            }
-            finalize(createFailureResult(error));
-        };
-
-        const scheduleForceFinalizeAfterTermination = (error: string) => {
-            if (handles.forceFinalizeHandle) {
-                return;
-            }
-            handles.forceFinalizeHandle = setTimeout(async () => {
-                await finalizeFailureAfterCleanup(error);
-            }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
-            handles.forceFinalizeHandle.unref();
-        };
-
-        const getCloseFailureMessage = (
-            code: number | null,
-            closeSignal: NodeJS.Signals | null,
-            stderrSummary: string,
-        ) => {
-            if (aborted) {
-                return 'Tesseract aborted';
-            }
-            if (timedOut) {
-                return `Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`;
-            }
-            if (code !== 0) {
-                return stderrSummary || (closeSignal
-                    ? `Tesseract exited after signal ${closeSignal}`
-                    : `Tesseract exited with code ${code ?? '<unknown>'}`);
-            }
-            return null;
-        };
-
-        const handleSuccessfulClose = async (stderrText: string) => {
-            try {
-                const tsvContent = await readUtf8FileBounded(tsvPath, FILE_BASED_OCR_MAX_TSV_BYTES);
-                const parsedTsv = parseTsvOcrData(tsvContent.trim());
-                const { words } = parsedTsv;
-                let pageText = parsedTsv.text;
-
-                if (shouldNormalizeGreekMicroSign(languages)) {
-                    for (const word of words) {
-                        word.text = word.text.replace(/\u00B5/g, '\u03BC');
-                    }
-                    pageText = pageText.replace(/\u00B5/g, '\u03BC');
-                }
-
-                try {
-                    await stat(pdfPath);
-                } catch {
-                    await finalizeFailureAfterCleanup('Tesseract did not produce PDF output');
-                    return;
-                }
-
-                await safeUnlink(tsvPath);
-
-                const unsupportedOptions = findUnsupportedTesseractOptions(stderrText);
-                finalize({
-                    success: true,
-                    ...(unsupportedOptions.length > 0 ? {unsupportedOptions} : {}),
-                    pageData: {
-                        pageNumber: 0,
-                        words,
-                        text: pageText,
-                        imageWidth,
-                        imageHeight,
-                    },
-                    pdfPath,
-                });
-            } catch (parseErr) {
-                const parseMsg = getErrorMessage(parseErr);
-                await finalizeFailureAfterCleanup(parseMsg);
-            }
-        };
-
-        if (signal) {
-            abortHandler = () => {
-                aborted = true;
-                void requestTermination();
-                scheduleForceFinalizeAfterTermination('Tesseract aborted');
-            };
-            signal.addEventListener('abort', abortHandler, { once: true });
-        }
-
-        handles.timeoutHandle = setTimeout(() => {
-            timedOut = true;
-            void requestTermination();
-
-            handles.killHandle = setTimeout(() => {
-                try {
-                    proc.kill('SIGKILL');
-                } catch {
-                    // Process may have exited already.
-                }
-            }, FILE_BASED_OCR_KILL_GRACE_MS);
-            handles.killHandle.unref();
-
-            scheduleForceFinalizeAfterTermination(`Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`);
-        }, FILE_BASED_OCR_TIMEOUT_MS);
-        handles.timeoutHandle.unref();
-
-        if (signal?.aborted) {
-            abortHandler?.();
-        }
-
-        // File-output Tesseract jobs should not produce meaningful stdout, but
-        // some builds still write progress text there. Drain it so the child
-        // cannot block on a full pipe while stderr is the only captured stream.
-        proc.stdout.resume();
-
-        proc.stderr.on('data', (data: Buffer) => {
-            stderr.append(data);
-        });
-
-        proc.on('close', async (code, closeSignal) => {
-            const stderrText = stderr.text();
-            const stderrSummary = stderr.truncated
-                ? `[stderr truncated to ${FILE_BASED_OCR_MAX_STDERR_BYTES} bytes]\n${stderrText}`
-                : stderrText;
-            const closeFailureMessage = getCloseFailureMessage(code, closeSignal, stderrSummary);
-            if (closeFailureMessage) {
-                if (terminationPromise) {
-                    await terminationPromise;
-                }
-                await finalizeFailureAfterCleanup(closeFailureMessage);
-                return;
-            }
-
-            await handleSuccessfulClose(stderrText);
-        });
-
-        proc.on('error', async (err) => {
-            await finalizeFailureAfterCleanup(err.message);
-        });
-    });
-
-    if (!registration) {
-        return result;
-    }
-    if (registrationPromise === null) {
-        registration.markNoSpawn();
-        return result;
-    }
-    if (result.terminationUnproven !== undefined) {
-        registration.markUnproven(result.terminationUnproven);
-        return result;
-    }
-    try {
-        await Promise.resolve(registrationPromise);
-        await registration.markExited();
-        return result;
-    } catch (error) {
-        const detail = getUnprovenNativeTerminationDetail(error)
-            ?? (error instanceof Error ? error.message : String(error));
-        registration.markUnproven(detail);
+    const failure = async (error: string): Promise<IOcrFileResult> => {
+        await Promise.all([
+            safeUnlink(tsvPath),
+            safeUnlink(pdfPath),
+        ]);
         return {
             success: false,
             pageData: null,
             pdfPath: null,
-            error: `Tesseract native-child cleanup proof failed: ${detail}`,
-            terminationUnproven: detail,
+            error,
         };
+    };
+
+    let stderrText: string;
+    try {
+        stderrText = (await runNativeToolCommand(tesseractBinary, args, {
+            env: buildTesseractEnv(tessdataPath, threads),
+            timeoutMs: FILE_BASED_OCR_TIMEOUT_MS,
+            maxStderrBytes: FILE_BASED_OCR_MAX_STDERR_BYTES,
+            commandLabel: 'tesseract',
+            ...(signal === undefined ? {} : {signal}),
+        })).stderr;
+    } catch (error) {
+        const result = await failure(getErrorMessage(error));
+        if (isAbortError(error) || signal?.aborted) {
+            throw error;
+        }
+        return result;
+    }
+
+    try {
+        const parsedTsv = parseTsvOcrData((await readUtf8FileBounded(tsvPath, FILE_BASED_OCR_MAX_TSV_BYTES)).trim());
+        const {words} = parsedTsv;
+        let pageText = parsedTsv.text;
+        if (shouldNormalizeGreekMicroSign(languages)) {
+            for (const word of words) {
+                word.text = word.text.replace(/\u00B5/g, '\u03BC');
+            }
+            pageText = pageText.replace(/\u00B5/g, '\u03BC');
+        }
+        if (!(await stat(pdfPath).catch(() => null))?.isFile()) {
+            return await failure('Tesseract did not produce PDF output');
+        }
+        await safeUnlink(tsvPath);
+        const unsupportedOptions = findUnsupportedTesseractOptions(stderrText);
+        return {
+            success: true,
+            ...(unsupportedOptions.length > 0 ? {unsupportedOptions} : {}),
+            pageData: {
+                pageNumber: 0,
+                words,
+                text: pageText,
+                imageWidth,
+                imageHeight,
+            },
+            pdfPath,
+        };
+    } catch (parseError) {
+        return failure(getErrorMessage(parseError));
     }
 }
 

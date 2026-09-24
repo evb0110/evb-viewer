@@ -62,7 +62,7 @@ const PNG_SIGNATURE = Buffer.from([
 
 describe('Tesseract TSV geometry parsing', () => {
     it('uses line-level vertical geometry for word boxes', async () => {
-        const { parseTsvOutput } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const { parseTsvOutput } = await import('@electron/features/ocr/pipeline/tesseractRunner');
         const tsv = [
             'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
             '4\t1\t1\t1\t1\t0\t10\t40\t160\t50\t-1\t',
@@ -89,7 +89,7 @@ describe('Tesseract TSV geometry parsing', () => {
     });
 
     it('parses words and page text from a single TSV pass result', async () => {
-        const { parseTsvOcrData } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const { parseTsvOcrData } = await import('@electron/features/ocr/pipeline/tesseractRunner');
         const tsv = [
             'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
             '4\t1\t1\t1\t1\t0\t10\t40\t160\t50\t-1\t',
@@ -121,7 +121,7 @@ describe('Tesseract TSV geometry parsing', () => {
     });
 
     it('rejects TSV structures before unbounded row, word, or text accumulation', async () => {
-        const { parseTsvOcrData } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const { parseTsvOcrData } = await import('@electron/features/ocr/pipeline/tesseractRunner');
         const header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext';
         const rows = [
             '5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t90\tone',
@@ -172,7 +172,7 @@ describe('file-based Tesseract arguments', () => {
     });
 
     it('reports parameters the engine rejected while still exiting successfully', async () => {
-        const { findUnsupportedTesseractOptions } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const { findUnsupportedTesseractOptions } = await import('@electron/features/ocr/pipeline/tesseractRunner');
         const stderr = [
             'Estimating resolution as 300',
             'Could not set option: thresholding_method=2',
@@ -187,7 +187,7 @@ describe('file-based Tesseract arguments', () => {
         const child = new MockChildProcess();
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcrFileBased } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const { runOcrFileBased } = await import('@electron/features/ocr/pipeline/tesseractRunner');
         const resultPromise = runOcrFileBased(
             '/tmp/page.png',
             ['eng'],
@@ -229,7 +229,7 @@ describe('file-based Tesseract arguments', () => {
         const child = new MockChildProcess();
         mocks.spawn.mockReturnValue(child);
 
-        const { runOcrFileBased } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const { runOcrFileBased } = await import('@electron/features/ocr/pipeline/tesseractRunner');
         const resultPromise = runOcrFileBased(
             '/tmp/page.png',
             ['eng'],
@@ -275,7 +275,7 @@ describe('PNG dimension parsing', () => {
         header.writeUInt32BE(1536, 20);
         await writeFile(imagePath, header);
 
-        const { getPngDimensionsFromFile } = await import('@electron/features/ocr/worker/tesseractRunner');
+        const { getPngDimensionsFromFile } = await import('@electron/features/ocr/pipeline/tesseractRunner');
 
         await expect(getPngDimensionsFromFile(imagePath)).resolves.toEqual({
             width: 2048,

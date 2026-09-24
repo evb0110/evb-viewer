@@ -13,7 +13,6 @@ import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
 import {AVAILABLE_OCR_LANGUAGES} from '@electron/features/ocr/availableLanguages';
 import {
     buildOcrErrorEnvelope,
-    mapStartFailureCode,
     OcrPayloadValidationError,
     toOcrErrorEnvelope,
     validateCancelRequestId,
@@ -351,7 +350,7 @@ export async function handleOcrCreateSearchablePdf(
             return {
                 ...publicResult,
                 errorEnvelope: buildOcrErrorEnvelope(
-                    errorCode ?? mapStartFailureCode(result.error),
+                    errorCode ?? 'OCR_INTERNAL_ERROR',
                     result.error,
                     {retryable: true},
                 ),

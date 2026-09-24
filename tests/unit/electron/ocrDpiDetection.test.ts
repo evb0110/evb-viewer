@@ -8,7 +8,7 @@ import {
 import {
     detectSourceDpi,
     detectSourceDpiDetails,
-} from '@electron/features/ocr/worker/dpiDetection';
+} from '@electron/features/ocr/pipeline/dpiDetection';
 import {detectSourceDpiFromPageSizes} from '@electron/pdf/sourceDpiDetection';
 
 const mocks = vi.hoisted(() => ({runOcrCommand: vi.fn()}));

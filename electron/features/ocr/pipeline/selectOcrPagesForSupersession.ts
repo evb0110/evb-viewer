@@ -6,14 +6,14 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IOcrPdfPageRequest,
     TWorkerLog,
-} from '@electron/features/ocr/worker/types';
+} from '@electron/features/ocr/pipeline/types';
 import { iterateOcrPageRanges } from '@electron/features/ocr/contracts';
 import {
     classifyOcrPageText,
     inspectPdfPageTextVisibility,
     shouldOcrClassifiedPage,
-} from '@electron/features/ocr/worker/pageTextClassifier';
-import { runOcrCommand } from '@electron/features/ocr/worker/runOcrCommand';
+} from '@electron/features/ocr/pipeline/pageTextClassifier';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
     groupContiguousPages,
     splitPdfTextOutput,
@@ -103,7 +103,7 @@ async function extractPageTextForClassification(input: {
 
             const batchLength = lastPage - firstPage + 1;
             try {
-                const probe = await runOcrCommand(input.pdftotextBinary, [
+                const probe = await runNativeToolCommand(input.pdftotextBinary, [
                     '-f',
                     String(firstPage),
                     '-l',

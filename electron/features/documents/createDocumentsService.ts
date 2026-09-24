@@ -58,7 +58,7 @@ import {
     handlePrintPdfPath,
 } from '@electron/features/documents/main/print';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
-import { discardPendingOcrResultsForDocument } from '@electron/features/ocr/public/index';
+import { discardOcrResultsForDocument } from '@electron/features/ocr/public/index';
 import {
     handleFileSaveStructured,
     handleOptimizePdfForInteraction,
@@ -348,7 +348,7 @@ export function createDocumentsService(): IDocumentsService {
             ] = args;
             const deleted = await cleanupWorkingCopy(workingPath, context.senderId);
             if (deleted) {
-                await discardPendingOcrResultsForDocument(requireDocumentRef(workingPath));
+                await discardOcrResultsForDocument(requireDocumentRef(workingPath));
             }
         },
         setWindowTitle: (...args: TDocumentsServiceArgs<'setWindowTitle'>) => handleSetWindowTitle(...args),

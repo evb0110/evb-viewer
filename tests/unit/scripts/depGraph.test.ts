@@ -711,21 +711,21 @@ describe('dependency graph', () => {
 
         expect(checkArchitectureBoundaryEdge({
             source: 'electron/features/image-export/main/export.ts',
-            target: 'electron/features/ocr/worker/dpiDetection.ts',
-            specifier: '@electron/features/ocr/worker/dpiDetection',
+            target: 'electron/features/ocr/pipeline/dpiDetection.ts',
+            specifier: '@electron/features/ocr/pipeline/dpiDetection',
         })).toEqual([
             {
                 rule: 'electron-cross-feature-deep-import',
                 source: 'electron/features/image-export/main/export.ts',
-                target: 'electron/features/ocr/worker/dpiDetection.ts',
-                specifier: '@electron/features/ocr/worker/dpiDetection',
+                target: 'electron/features/ocr/pipeline/dpiDetection.ts',
+                specifier: '@electron/features/ocr/pipeline/dpiDetection',
                 message: 'Cross-feature imports in electron/features must use public entrypoints only.',
             },
             {
                 rule: 'ocr-native-tool-boundary-import',
                 source: 'electron/features/image-export/main/export.ts',
-                target: 'electron/features/ocr/worker/dpiDetection.ts',
-                specifier: '@electron/features/ocr/worker/dpiDetection',
+                target: 'electron/features/ocr/pipeline/dpiDetection.ts',
+                specifier: '@electron/features/ocr/pipeline/dpiDetection',
                 message: 'Non-OCR Electron code must not import OCR-owned native-tool, resource, or DPI helpers.',
             },
         ]);

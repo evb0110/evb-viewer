@@ -1,14 +1,12 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { uniq } from 'es-toolkit/array';
-import type { IOcrPreparingJob } from '@electron/features/ocr/main/jobManager.types';
 import {
     ensureRuntimeTessdataSeeded,
     ensureTessdataLanguages,
 } from '@electron/features/ocr/languageModels';
 import { getOcrToolPaths } from '@electron/features/ocr/main/paths';
-import type { TOcrPdfPageSelection } from '@electron/features/ocr/worker/types';
-import { createTimeoutError } from '@electron/features/ocr/main/jobManagerProtocol';
+import type { TOcrPdfPageSelection } from '@electron/features/ocr/pipeline/types';
 import { createLogger } from '@electron/utils/createLogger';
 
 const log = createLogger('ocr-ipc');
@@ -32,27 +30,16 @@ function logMissingLanguageModels(languages: string[]) {
 }
 
 export async function prepareLanguageModelsForJob(
-    preparingJob: IOcrPreparingJob,
     pages: TOcrPdfPageSelection,
+    jobSignal: AbortSignal,
     timeoutMs: number,
 ) {
     const languages = getOcrJobLanguages(pages);
-    const timeoutController = new AbortController();
-    const modelPrepTimeout = setTimeout(() => {
-        timeoutController.abort(
-            createTimeoutError(`OCR model preparation timed out after ${timeoutMs}ms`),
-        );
-    }, timeoutMs);
-    modelPrepTimeout.unref();
     const signal = AbortSignal.any([
-        preparingJob.registry.signal,
-        timeoutController.signal,
+        jobSignal,
+        AbortSignal.timeout(timeoutMs),
     ]);
-    try {
-        await ensureRuntimeTessdataSeeded({ signal });
-        logMissingLanguageModels(languages);
-        await ensureTessdataLanguages(languages, { signal });
-    } finally {
-        clearTimeout(modelPrepTimeout);
-    }
+    await ensureRuntimeTessdataSeeded({ signal });
+    logMissingLanguageModels(languages);
+    await ensureTessdataLanguages(languages, { signal });
 }

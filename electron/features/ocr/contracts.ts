@@ -478,24 +478,6 @@ export function validateCancelRequestId(requestIdPayload: unknown) {
     return asRequestId(requestIdPayload, 'requestId');
 }
 
-export function mapStartFailureCode(message: string): TOcrErrorCode {
-    const normalized = message.toLowerCase();
-    if (normalized.includes('queue') && normalized.includes('full')) {
-        return 'OCR_QUEUE_BACKPRESSURE';
-    }
-    if (
-        normalized.includes('worker')
-        && (
-            normalized.includes('missing')
-            || normalized.includes('unavailable')
-            || normalized.includes('not found')
-        )
-    ) {
-        return 'OCR_WORKER_UNAVAILABLE';
-    }
-    return 'OCR_INTERNAL_ERROR';
-}
-
 export function buildOcrErrorEnvelope(
     code: TOcrErrorCode,
     message: string,

@@ -53,7 +53,7 @@ import {
 import {
     migrateOcrIndexV3ToV4,
     remapOcrCatalogV4,
-} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
 import {
     readOcrIndexV3ManifestMetadata,
     streamOcrIndexV3ManifestMappings,

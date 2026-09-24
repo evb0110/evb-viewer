@@ -71,10 +71,7 @@ describe('real OCR worker durable page checkpoints', () => {
 
         const calls = await readOcrWorkerCallLog(resumed.callLogPath);
         expect(calls.filter(page => page === 1)).toHaveLength(1);
-        expect(calls, JSON.stringify({
-            result: resumedResult.result,
-            logs: resumed.logs,
-        })).toEqual(expect.arrayContaining([
+        expect(calls, JSON.stringify({result: resumedResult.result})).toEqual(expect.arrayContaining([
             2,
             3,
         ]));

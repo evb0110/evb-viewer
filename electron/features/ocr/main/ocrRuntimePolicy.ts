@@ -13,7 +13,6 @@ const NORMAL_RENDERED_PAGE_BYTES = 33_660_000;
 
 export interface IOcrRuntimePolicy {
     globalPageSlots: number;
-    workerPoolSize: number;
     modelDownloadConcurrency: number;
 }
 
@@ -56,10 +55,6 @@ export function resolveOcrRuntimePolicy(
         min: 1,
         max: MAX_NORMAL_PAGE_SLOTS,
     });
-    const workerPoolSize = parseBoundedEnvInt(env.EVB_OCR_WORKER_POOL_SIZE, {
-        fallback: isLowTier ? 1 : 2,
-        min: 1,
-    });
     const modelDownloadConcurrency = parseBoundedEnvInt(env.EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY, {
         fallback: isLowTier ? 1 : 3,
         min: 1,
@@ -68,7 +63,6 @@ export function resolveOcrRuntimePolicy(
 
     return {
         globalPageSlots,
-        workerPoolSize,
         modelDownloadConcurrency,
     };
 }

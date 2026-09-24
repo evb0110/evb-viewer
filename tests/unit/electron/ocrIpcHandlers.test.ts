@@ -296,43 +296,6 @@ describe('OCR platform feature main bindings', () => {
         expect(mocks.resolveDocumentTextCatalogSnapshot).not.toHaveBeenCalled();
     });
 
-    it('returns typed worker-unavailable envelope for missing OCR worker path', async () => {
-        mocks.handleOcrCreateSearchablePdfAsync.mockResolvedValue({
-            started: false,
-            jobId: 'job-worker-missing',
-            error: 'OCR worker unavailable at path: /tmp/missing-ocr-worker.js',
-        });
-
-        const handler = getHandler('ocr:createSearchablePdf');
-        const result = await handler(
-            {sender: createMockSender(11)},
-            '/tmp/working-copy.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-worker-missing',
-        ) as {
-            started: boolean;
-            jobId: string;
-            error?: string;
-            errorEnvelope?: {
-                code: string;
-                retryable: boolean;
-            };
-        };
-
-        expect(result).toMatchObject({
-            started: false,
-            jobId: 'job-worker-missing',
-            error: 'OCR worker unavailable at path: /tmp/missing-ocr-worker.js',
-            errorEnvelope: {
-                code: 'OCR_WORKER_UNAVAILABLE',
-                retryable: true,
-            },
-        });
-    });
-
     it('marks timeout start failures as typed retriable errors', async () => {
         mocks.handleOcrCreateSearchablePdfAsync.mockResolvedValue({
             started: false,
@@ -360,37 +323,6 @@ describe('OCR platform feature main bindings', () => {
         expect(result.started).toBe(false);
         expect(result.errorEnvelope).toMatchObject({
             code: 'OCR_INTERNAL_ERROR',
-            retryable: true,
-        });
-    });
-
-    it('maps queue saturation to controlled backpressure rejection', async () => {
-        mocks.handleOcrCreateSearchablePdfAsync.mockResolvedValue({
-            started: false,
-            jobId: 'job-queue-full',
-            error: 'OCR queue is full (8 jobs)',
-        });
-
-        const handler = getHandler('ocr:createSearchablePdf');
-        const result = await handler(
-            {sender: createMockSender(13)},
-            '/tmp/working-copy.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'job-queue-full',
-        ) as {
-            started: boolean;
-            errorEnvelope?: {
-                code: string;
-                retryable: boolean;
-            };
-        };
-
-        expect(result.started).toBe(false);
-        expect(result.errorEnvelope).toMatchObject({
-            code: 'OCR_QUEUE_BACKPRESSURE',
             retryable: true,
         });
     });

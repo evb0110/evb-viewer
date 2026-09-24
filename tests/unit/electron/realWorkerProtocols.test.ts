@@ -124,59 +124,6 @@ describe('real search worker protocol', () => {
     });
 });
 
-describe('real OCR worker protocol', () => {
-    let harness: IRealWorkerProtocolHarness;
-
-    beforeAll(async () => {
-        harness = await createRealWorkerProtocolHarness({
-            decoders: ['parseOcrWorkerInboundMessage'],
-            modulePath: protocolModulePath('electron/features/ocr/worker/inboundMessage.ts'),
-        });
-    });
-
-    afterAll(async () => {
-        await harness.close();
-    });
-
-    it('decodes cancellation across a real worker boundary', async () => {
-        await expect(harness.decode('parseOcrWorkerInboundMessage', {
-            type: 'cancel',
-            jobId: 'ocr-job-1',
-        })).resolves.toEqual({
-            type: 'cancel',
-            jobId: 'ocr-job-1',
-        });
-    });
-
-    it.each([
-        ...malformedFrames,
-        {
-            type: 'cancel',
-            jobId: '',
-        },
-        {
-            type: 'start',
-            jobId: 'ocr-job-2',
-            data: null,
-        },
-        {
-            type: 'resource-acquired',
-            jobId: 'ocr-job-3',
-            requestId: 'resource-1',
-            token: 'lease-1',
-            effectiveDpi: Number.POSITIVE_INFINITY,
-        },
-        {
-            type: 'resource-denied',
-            jobId: 'ocr-job-4',
-            requestId: 'resource-2',
-            reason: '',
-        },
-    ])('rejects malformed frames without killing the worker (%j)', async (frame) => {
-        await expect(harness.decode('parseOcrWorkerInboundMessage', frame)).resolves.toBeNull();
-    });
-});
-
 describe('real crop worker protocol', () => {
     let harness: IRealWorkerProtocolHarness;
 

@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     decodeMetadata: vi.fn(),
 }));
 
-vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({runOcrCommand: mocks.runOcrCommand}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runOcrCommand}));
 vi.mock('fs/promises', () => ({
     stat: mocks.stat,
     readFile: mocks.readFile,
@@ -35,7 +35,7 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('uses native scan cleanup with pinned pixel options', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
         const controller = new AbortController();
 
         await expect(tryPreprocessOcrImage(
@@ -132,7 +132,7 @@ describe('tryPreprocessOcrImage', () => {
             ],
         ]};
         mocks.decodeMetadata.mockReturnValue({inverseTransform});
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/tmp/raw.png',
@@ -149,7 +149,7 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('uses only polarity correction for preprocessing-off OCR', async () => {
-        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/tmp/raw.png',
@@ -200,7 +200,7 @@ describe('tryPreprocessOcrImage', () => {
                 1,
             ],
         ]}});
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/tmp/raw.png',
@@ -215,7 +215,7 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('uses the original image without launching a substitute when scan cleanup is unavailable', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
         const onDiagnostic = vi.fn();
         await expect(tryPreprocessOcrImage(
             '/tmp/raw.png',
@@ -233,7 +233,7 @@ describe('tryPreprocessOcrImage', () => {
         mocks.runOcrCommand.mockRejectedValue(abortError);
         const controller = new AbortController();
         controller.abort();
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/worker/tryPreprocessOcrImage');
+        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
         await expect(tryPreprocessOcrImage(
             '/tmp/raw.png',

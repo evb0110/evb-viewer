@@ -1,4 +1,3 @@
-import {Worker} from 'node:worker_threads';
 import {
     chmod,
     mkdtemp,
@@ -6,42 +5,27 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
-import {build} from 'esbuild';
+import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
-import type {TOcrWorkerOutboundMessage} from '@electron/features/ocr/worker/types';
+import {vi} from 'vitest';
+import type {TOcrJobResult} from '@electron/features/ocr/pipeline/types';
+import {getErrorMessage} from '@electron/utils/error';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {resolveTestQpdfBinary} from '@tests/helpers/resolveTestQpdfBinary';
 
 export interface IOcrWorkerPipelineHarness {
     callLogPath: string;
     close: () => Promise<void>;
-    logs: string[];
     root: string;
     sourcePdfPath: string;
-    start: (jobId?: string) => Promise<Extract<TOcrWorkerOutboundMessage, {type: 'complete'}>>;
-    worker: Worker;
+    start: (jobId?: string) => Promise<{result: TOcrJobResult}>;
 }
 
-async function buildWorkerBundle(root: string) {
-    const result = await build({
-        bundle: true,
-        entryPoints: [resolve('electron/features/ocr/worker/main.ts')],
-        format: 'cjs',
-        platform: 'node',
-        target: 'node22',
-        tsconfig: resolve('tsconfig.base.json'),
-        write: false,
-    });
-    const output = result.outputFiles[0]?.contents;
-    if (!output) throw new Error('OCR worker harness bundle produced no output');
-    const path = join(root, 'ocr-worker.cjs');
-    await writeFile(path, output);
-    return path;
-}
-
+/**
+ * Runs the real OCR pipeline in this process with a scripted Tesseract. The
+ * storage limits are read when the pipeline modules load, so a harness sets
+ * them before its first import in a test file.
+ */
 export async function createOcrWorkerPipelineHarness(options: {
     concurrency?: number;
     failPage?: number;
@@ -52,31 +36,23 @@ export async function createOcrWorkerPipelineHarness(options: {
     tempRoot?: string;
 } = {}): Promise<IOcrWorkerPipelineHarness> {
     const root = options.tempRoot ?? await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-'));
-    const workerPath = await buildWorkerBundle(root);
     const sourcePdfPath = join(root, 'source.pdf');
     const document = await PDFDocument.create();
-    document.addPage([
-        600,
-        800,
-    ]);
-    document.addPage([
-        600,
-        800,
-    ]);
-    document.addPage([
-        600,
-        800,
-    ]);
+    for (let page = 0; page < 3; page += 1) {
+        document.addPage([
+            600,
+            800,
+        ]);
+    }
     await writeFile(sourcePdfPath, await document.save());
 
     const fakeTesseractPdf = join(root, 'fake-tesseract-template.pdf');
     const fakeOutputDocument = await PDFDocument.create();
     const fakeOutputFont = await fakeOutputDocument.embedFont('Helvetica');
-    const fakeOutputPage = fakeOutputDocument.addPage([
+    fakeOutputDocument.addPage([
         600,
         800,
-    ]);
-    fakeOutputPage.drawText('checkpoint', {font: fakeOutputFont});
+    ]).drawText('checkpoint', {font: fakeOutputFont});
     await writeFile(fakeTesseractPdf, await fakeOutputDocument.save());
     const fakeTesseract = join(root, 'fake-tesseract.sh');
     await writeFile(fakeTesseract, `#!/bin/sh
@@ -107,154 +83,114 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
 `);
     await chmod(fakeTesseract, 0o755);
     const callLogPath = join(root, 'tesseract-calls.txt');
-    const worker = new Worker(workerPath, {
-        env: {
-            ...process.env,
-            OCR_CONCURRENCY: String(options.concurrency ?? 1),
-            OCR_TESSERACT_THREADS: '1',
-            EVB_OCR_JOB_MAX_TEMP_MB: String(options.jobMaxTempMb ?? 4_096),
-            EVB_OCR_MIN_FREE_SPACE_MB: '1',
-            EVB_OCR_STORAGE_POLL_MS: String(options.storagePollMs ?? 250),
-            EVB_FAKE_OCR_CALL_LOG: callLogPath,
-            ...(options.failPage === undefined ? {} : {EVB_FAKE_OCR_FAIL_PAGE: String(options.failPage)}),
-            ...(options.growOutputKb === undefined ? {} : {EVB_FAKE_OCR_GROW_KB: String(options.growOutputKb)}),
-            ...(options.stallPage === undefined ? {} : {EVB_FAKE_OCR_STALL_PAGE: String(options.stallPage)}),
-            EVB_FAKE_OCR_PDF_TEMPLATE: fakeTesseractPdf,
-        },
-        workerData: {
-            tesseractBinary: fakeTesseract,
-            tessdataPath: root,
-            pdftoppmBinary: process.env.EVB_PDFTOPPM_PATH ?? 'pdftoppm',
-            pdftotextBinary: process.env.EVB_PDFTOTEXT_PATH ?? 'pdftotext',
-            qpdfBinary: resolveTestQpdfBinary(),
-            tempDir: root,
-        },
-    });
-    let activeJobId: string | null = null;
-    const logs: string[] = [];
-    worker.on('message', (message: TOcrWorkerOutboundMessage) => {
-        if (message.type === 'log') {
-            logs.push(`${message.level}: ${message.message}`);
-        }
-        if (message.type === 'resource-acquire') {
-            worker.postMessage({
-                type: 'resource-acquired',
-                jobId: message.jobId,
-                requestId: message.requestId,
-                token: `test-${message.pageNumber}`,
-                effectiveDpi: message.requestedDpi,
-            });
-        }
-        if (message.type === 'native-child-intent') {
-            worker.postMessage({
-                type: 'native-child-intent-ack',
-                jobId: message.jobId,
-                childId: message.childId,
-                accepted: true,
-            });
-        }
-        if (message.type === 'native-child-register') {
-            worker.postMessage({
-                type: 'native-child-register-ack',
-                jobId: message.jobId,
-                childId: message.childId,
-                accepted: true,
-            });
-        }
-        if (message.type === 'native-child-exit') {
-            worker.postMessage({
-                type: 'native-child-exit-ack',
-                jobId: message.jobId,
-                childId: message.childId,
-                accepted: true,
-            });
-        }
-    });
-
-    const start = (jobId = 'ocr-pipeline-test') => new Promise<Extract<TOcrWorkerOutboundMessage, {type: 'complete'}>>((resolvePromise, rejectPromise) => {
-        activeJobId = jobId;
-        const timeout = setTimeout(() => rejectPromise(new Error('Timed out waiting for OCR worker completion')), 60_000);
-        const onError = (error: Error) => {
-            clearTimeout(timeout);
-            rejectPromise(error);
-        };
-        const onMessage = (message: TOcrWorkerOutboundMessage) => {
-            if (message.type !== 'complete' || message.jobId !== jobId) {
-                return;
-            }
-            clearTimeout(timeout);
-            worker.off('error', onError);
-            worker.off('message', onMessage);
-            activeJobId = null;
-            resolvePromise(message);
-        };
-        worker.on('error', onError);
-        worker.on('message', onMessage);
-        worker.postMessage({
-            type: 'start',
-            jobId,
-            data: {
-                sourcePdfPath,
-                documentRevision: {
-                    version: 1,
-                    documentRef: sourcePdfPath,
-                    authority: 'electron-working-copy',
-                    token: 'ocr-pipeline-revision',
-                    contentRevision: 1,
-                    mintedAt: 1,
-                },
-                pages: [
-                    1,
-                    2,
-                    3,
-                ].map(pageNumber => ({
-                    pageNumber,
-                    languages: ['eng'],
-                })),
-                options: {
-                    renderDpi: 150,
-                    supersessionPolicy: 'replace-all',
-                    replaceAllAcknowledged: true,
-                },
-            },
-        });
-    });
-
-    async function cancelActiveJobBeforeTerminate() {
-        const jobId = activeJobId;
-        if (!jobId) {
-            return;
-        }
-        await new Promise<void>((resolvePromise) => {
-            const timeout = setTimeout(resolvePromise, 5_000);
-            const onMessage = (message: TOcrWorkerOutboundMessage) => {
-                if (message.type !== 'cleanup-complete' || message.jobId !== jobId) {
-                    return;
-                }
-                clearTimeout(timeout);
-                worker.off('message', onMessage);
-                resolvePromise();
-            };
-            worker.on('message', onMessage);
-            worker.postMessage({
-                type: 'cancel',
-                jobId,
-            });
-        });
-        activeJobId = null;
+    const env: Record<string, string> = {
+        OCR_CONCURRENCY: String(options.concurrency ?? 1),
+        OCR_TESSERACT_THREADS: '1',
+        EVB_OCR_JOB_MAX_TEMP_MB: String(options.jobMaxTempMb ?? 4_096),
+        EVB_OCR_MIN_FREE_SPACE_MB: '1',
+        EVB_OCR_STORAGE_POLL_MS: String(options.storagePollMs ?? 250),
+        EVB_FAKE_OCR_CALL_LOG: callLogPath,
+        EVB_FAKE_OCR_FAIL_PAGE: options.failPage === undefined ? '' : String(options.failPage),
+        EVB_FAKE_OCR_GROW_KB: options.growOutputKb === undefined ? '' : String(options.growOutputKb),
+        EVB_FAKE_OCR_STALL_PAGE: options.stallPage === undefined ? '' : String(options.stallPage),
+        EVB_FAKE_OCR_PDF_TEMPLATE: fakeTesseractPdf,
+    };
+    for (const [
+        name,
+        value,
+    ] of Object.entries(env)) {
+        vi.stubEnv(name, value);
     }
+    const {runOcrJob} = await import('@electron/features/ocr/pipeline/runOcrJob');
+    const {
+        getHostResourceProfileSnapshot,
+        initializeHostResourceProfile,
+    } = await import('@electron/resources/hostResourceProfile');
+    const {configureMainJobBroker} = await import('@electron/resources/jobBroker');
+    try {
+        getHostResourceProfileSnapshot();
+    } catch {
+        // Main configures both at startup; page leases need them.
+        configureMainJobBroker(initializeHostResourceProfile({
+            app: {getGPUFeatureStatus: () => ({})} as never,
+            performanceMode: 'auto',
+        }));
+    }
+    let active: {
+        controller: AbortController;
+        settled: Promise<unknown>;
+    } | null = null;
+
+    const start = async (jobId = 'ocr-pipeline-test') => {
+        for (const [
+            name,
+            value,
+        ] of Object.entries(env)) {
+            vi.stubEnv(name, value);
+        }
+        const controller = new AbortController();
+        const run = runOcrJob({
+            jobId,
+            sourcePdfPath,
+            documentRevision: {
+                version: 1,
+                documentRef: sourcePdfPath,
+                authority: 'electron-working-copy',
+                token: 'ocr-pipeline-revision',
+                contentRevision: 1,
+                mintedAt: 1,
+            } as Parameters<typeof runOcrJob>[0]['documentRevision'],
+            pages: [
+                1,
+                2,
+                3,
+            ].map(pageNumber => ({
+                pageNumber: requirePageNumber(pageNumber),
+                languages: ['eng'],
+            })),
+            options: {
+                renderDpi: 150,
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: true,
+            },
+            paths: {
+                tesseractBinary: fakeTesseract,
+                tessdataPath: root,
+                pdftoppmBinary: process.env.EVB_PDFTOPPM_PATH ?? 'pdftoppm',
+                pdftotextBinary: process.env.EVB_PDFTOTEXT_PATH ?? 'pdftotext',
+                qpdfBinary: resolveTestQpdfBinary(),
+                tempDir: root,
+            },
+            signal: controller.signal,
+            publish: () => undefined,
+            log: () => undefined,
+        });
+        active = {
+            controller,
+            settled: run.catch(() => undefined),
+        };
+        try {
+            return {result: await run};
+        } catch (error) {
+            return {result: {
+                success: false,
+                errors: [getErrorMessage(error)],
+            } satisfies TOcrJobResult};
+        }
+    };
 
     return {
         callLogPath,
         close: async () => {
-            await cancelActiveJobBeforeTerminate();
-            await worker.terminate();
+            if (active) {
+                active.controller.abort(new Error('OCR pipeline harness closed'));
+                await active.settled;
+                active = null;
+            }
         },
-        logs,
         root,
         sourcePdfPath,
         start,
-        worker,
     };
 }
 

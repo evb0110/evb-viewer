@@ -8,11 +8,11 @@ import type {
     IOcrDiagnostic,
     IOcrSearchablePdfOptions,
 } from '@contracts/electronApiOcr';
-import {tryPreprocessOcrImage} from '@electron/features/ocr/worker/tryPreprocessOcrImage';
+import {tryPreprocessOcrImage} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
 import {
     getPngDimensionsFromFile,
     runOcrFileBased,
-} from '@electron/features/ocr/worker/tesseractRunner';
+} from '@electron/features/ocr/pipeline/tesseractRunner';
 
 export interface IOcrProductionQualityCase {
     dpi: number;

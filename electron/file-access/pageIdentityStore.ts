@@ -66,7 +66,7 @@ import {
 import {
     migrateOcrIndexV3ToV4,
     remapOcrCatalogV4PageRanges,
-} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
 
 /**
  * The v1 sidecar kept one UUID in a JSON array for every page. A range

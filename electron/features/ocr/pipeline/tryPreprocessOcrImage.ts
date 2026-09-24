@@ -1,8 +1,8 @@
 import {
     readFile, stat,
 } from 'fs/promises';
-import { runOcrCommand } from '@electron/features/ocr/worker/runOcrCommand';
-import type { TWorkerLog } from '@electron/features/ocr/worker/types';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import type { IOcrDiagnostic } from '@contracts/electronApiOcr';
@@ -157,7 +157,7 @@ export async function tryPreprocessOcrImage(
                     ocrPolarityOnly: true,
                 }
                 : OCR_PREPROCESS_PINNED_OPTIONS;
-            await runOcrCommand(scanCleanupBinary, [
+            await runNativeToolCommand(scanCleanupBinary, [
                 '--input',
                 inputPath,
                 '--output',

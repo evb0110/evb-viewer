@@ -14,7 +14,7 @@ import type {
     IOcrPageWithWords,
     IOcrPdfPageRequest,
     TOcrPdfPageSelection,
-} from '@electron/features/ocr/worker/types';
+} from '@electron/features/ocr/pipeline/types';
 
 export interface IOcrCheckpointPageResult {
     pageData: IOcrPageWithWords;

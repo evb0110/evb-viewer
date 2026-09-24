@@ -5,5 +5,5 @@ export {
     probeOcrPageSizeInches,
     renderPdfPageToPng,
     renderPdfPageToPpm,
-} from '@electron/features/ocr/worker/popplerStage';
-export type {TWorkerLog} from '@electron/features/ocr/worker/types';
+} from '@electron/features/ocr/pipeline/popplerStage';
+export type {TWorkerLog} from '@electron/features/ocr/pipeline/types';

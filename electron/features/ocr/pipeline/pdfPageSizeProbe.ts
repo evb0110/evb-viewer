@@ -1,6 +1,6 @@
 import { getErrorMessage } from '@electron/utils/error';
-import {runOcrCommand} from '@electron/features/ocr/worker/runOcrCommand';
-import type {TWorkerLog} from '@electron/features/ocr/worker/types';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
 import {
     readPdfPageSizeChunks,
     type IPdfPageSizeChunk,
@@ -50,7 +50,7 @@ async function readNativePageSizes(
         ? null
         : new Set(input.pageNumbers);
     const pageSizes = new Map<number, IOcrPageSizeInches>();
-    const runCommand = input.runCommand ?? runOcrCommand;
+    const runCommand = input.runCommand ?? runNativeToolCommand;
     const options = {
         pdfPageOpsBinary: input.pdfPageOpsBinary,
         ...(input.qpdfBinary === undefined ? {} : {qpdfBinary: input.qpdfBinary}),

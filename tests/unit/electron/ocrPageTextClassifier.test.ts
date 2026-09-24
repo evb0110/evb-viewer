@@ -22,7 +22,7 @@ import {
     inspectPdfTextVisibility,
     inspectPdfPageTextVisibility,
     shouldOcrClassifiedPage,
-} from '@electron/features/ocr/worker/pageTextClassifier';
+} from '@electron/features/ocr/pipeline/pageTextClassifier';
 import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
 
 describe('OCR page text classification and supersession', () => {

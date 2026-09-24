@@ -3,13 +3,13 @@ import {OCR_SHARD_SIZE} from '@contracts/ocrIndex';
 import type {
     IOcrPageWithWords,
     TWorkerLog,
-} from '@electron/features/ocr/worker/types';
-import {resolveSafeOcrIndexBasePath} from '@electron/features/ocr/worker/indexWriter';
+} from '@electron/features/ocr/pipeline/types';
+import {resolveSafeOcrIndexBasePath} from '@electron/features/ocr/pipeline/indexWriter';
 import {
     prepareOcrCatalogV4Generation,
     rollbackPreparedOcrCatalogV4,
-} from '@electron/features/ocr/worker/indexWriterV4';
-import type {TOcrJobStorageBudget} from '@electron/features/ocr/worker/ocrJobStorageBudget';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
+import type {TOcrJobStorageBudget} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 

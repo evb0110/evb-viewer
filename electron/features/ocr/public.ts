@@ -4,12 +4,10 @@ export {
     shutdownOcrJobManager,
 } from '@electron/features/ocr/main/jobManager';
 export {
-    claimPendingOcrResultForDocument,
-    discardPendingOcrResultsForDocument,
-    releasePendingOcrResultClaim,
-} from '@electron/features/ocr/main/createPendingResultFileStore';
+    discardOcrResultsForDocument,
+    findOcrResultForDocument,
+} from '@electron/features/ocr/main/jobManager';
 export {buildTesseractEnv} from '@electron/features/ocr/main/buildTesseractEnv';
-export {createTesseractFinalize} from '@electron/features/ocr/main/createTesseractFinalize';
 export {
     rebindDocumentTextCatalogRevision,
     resolveDocumentTextCatalogWindow,
@@ -31,10 +29,9 @@ export {
     getOcrCatalogV4PreparedDescriptorPath,
     publishPreparedOcrCatalogV4,
     rollbackPreparedOcrCatalogV4,
-} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
 export type {
     IPublishOcrCatalogV4PreparedOptions,
     IRollbackOcrCatalogV4PreparedOptions,
-} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
 export {resolveTesseractLanguageConfig} from '@electron/features/ocr/main/resolveTesseractLanguageConfig';
-export type {IOcrPendingResultFile} from '@electron/features/ocr/main/jobManager.types';

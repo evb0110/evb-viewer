@@ -20,7 +20,7 @@ import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
 import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
-import type { IOcrPdfPageRequest } from '@electron/features/ocr/worker/types';
+import type { IOcrPdfPageRequest } from '@electron/features/ocr/pipeline/types';
 
 const probe = vi.hoisted(() => {
     const state = {
@@ -51,7 +51,7 @@ const probe = vi.hoisted(() => {
     };
 });
 
-vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({runOcrCommand: probe.runPdftotext}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: probe.runPdftotext}));
 
 const catalogReads = vi.hoisted(() => ({
     files: [] as string[],
@@ -88,13 +88,13 @@ vi.mock('node:fs/promises', async (importActual) => {
 
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: () => Promise.resolve()}));
 
-const { selectOcrPagesForSupersession } = await import('@electron/features/ocr/worker/selectOcrPagesForSupersession');
+const { selectOcrPagesForSupersession } = await import('@electron/features/ocr/pipeline/selectOcrPagesForSupersession');
 const {
     getOcrPageSelectionCount,
     iterateOcrPageRequestBatches,
     validateCreateSearchablePdfPayload,
 } = await import('@electron/features/ocr/contracts');
-const { writeOcrIndexV3 } = await import('@electron/features/ocr/worker/indexWriter');
+const { writeOcrIndexV3 } = await import('@electron/features/ocr/pipeline/indexWriter');
 
 let tempDir: string | null = null;
 

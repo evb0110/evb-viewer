@@ -24,7 +24,7 @@ import {
 import type {
     IOcrPageWithWords,
     TWorkerLog,
-} from '@electron/features/ocr/worker/types';
+} from '@electron/features/ocr/pipeline/types';
 import type {
     IOcrIndexV3Manifest,
     IOcrIndexV3Page,
@@ -51,11 +51,11 @@ import {
 import { assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionSidecar';
 import {
     readOcrIndexV3ManifestMetadata,
-    resolveCatalogPath,
     streamOcrIndexV3ManifestMappings,
-} from '@electron/features/ocr/workerPublic';
-import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/features/ocr/workerPublic';
-import {writeOcrIndexV4} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/main/ocrIndexV3Stream';
+import {resolveCatalogPath} from '@electron/features/ocr/main/ocrCatalogV4';
+import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/features/ocr/main/ocrIndexV3Stream';
+import {writeOcrIndexV4} from '@electron/features/ocr/pipeline/indexWriterV4';
 import {
     createEpochMs,
     requireEpochMs,

@@ -17,8 +17,8 @@ import path from 'node:path';
 import {
     createOcrJobStorageBudget,
     OcrStorageBudgetError,
-} from '@electron/features/ocr/worker/ocrJobStorageBudget';
-import {persistOcrPageCheckpoint} from '@electron/features/ocr/worker/persistOcrPageCheckpoint';
+} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
+import {persistOcrPageCheckpoint} from '@electron/features/ocr/pipeline/persistOcrPageCheckpoint';
 
 function createBudget(options: {
     inspect: () => Promise<{
@@ -79,7 +79,7 @@ describe('OCR aggregate job storage budget', () => {
             expect(JSON.parse(await readFile(checkpointJsonPath, 'utf8'))).toMatchObject({
                 completedPages: 1,
                 pdfSha256: 'sha256',
-                version: 3,
+                version: 4,
             });
         } finally {
             await storageBudget.stop();

@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-combine' | 'pdf-conformance' | 'pdf-print-layout' | 'document-save-utility' | 'ocr' | 'scan-cleanup' | 'search' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
+ * @typedef {'pdf-combine' | 'pdf-conformance' | 'pdf-print-layout' | 'document-save-utility' | 'scan-cleanup' | 'search' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
  */
 
 /**
@@ -39,13 +39,6 @@ export const WORKER_BUNDLES = [
         id: 'document-save-utility',
         entryPoint: 'electron/features/documents/main/documentSaveUtilityProcess.ts',
         fileName: 'document-save-utility.js',
-        format: 'esm',
-        unpacked: true,
-    },
-    {
-        id: 'ocr',
-        entryPoint: 'electron/features/ocr/worker/main.ts',
-        fileName: 'ocr-worker.js',
         format: 'esm',
         unpacked: true,
     },

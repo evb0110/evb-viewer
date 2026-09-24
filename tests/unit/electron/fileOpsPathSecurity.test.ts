@@ -51,8 +51,7 @@ const mocks = vi.hoisted(() => ({
     ensureWorkingCopyDirectory: vi.fn<(path: string, senderId?: number) => Promise<boolean>>(),
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
-    claimPendingOcrResultForDocument: vi.fn(),
-    releasePendingOcrResultClaim: vi.fn(),
+    findOcrResultForDocument: vi.fn(),
     publishPreparedOcrCatalogV4: vi.fn(),
     rollbackPreparedOcrCatalogV4: vi.fn(),
     backingSwapCacheInvalidator: null as null | ((logicalRef: string, previousPhysicalPath: string) => Promise<void> | void),
@@ -164,8 +163,7 @@ vi.mock('@electron/file-access/originalPathSaveWitness', async (importOriginal_1
 }));
 vi.mock('@electron/features/djvu/public', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/features/ocr/public/index', () => ({
-    claimPendingOcrResultForDocument: mocks.claimPendingOcrResultForDocument,
-    releasePendingOcrResultClaim: mocks.releasePendingOcrResultClaim,
+    findOcrResultForDocument: mocks.findOcrResultForDocument,
     rebindDocumentTextCatalogRevision: vi.fn(),
     getOcrCatalogV4PreparedDescriptorPath: (path: string) => `${path}.ocr-v4-prepared.json`,
     publishPreparedOcrCatalogV4: mocks.publishPreparedOcrCatalogV4,
@@ -271,22 +269,14 @@ describe('fileOps path security', () => {
             sourceFingerprint: '',
         }));
         mocks.isAllowedDjvuViewingPath.mockReturnValue(false);
-        mocks.claimPendingOcrResultForDocument.mockImplementation((webContentsId: number, pdfPath: string) => {
-            return webContentsId === 42 && pdfPath === '/tmp/electron-test/ocr-1-merged.pdf'
+        mocks.findOcrResultForDocument.mockImplementation((pdfPath: string) => (
+            pdfPath === '/tmp/electron-test/ocr-1-merged.pdf'
                 ? {
-                    status: 'claimed' as const,
-                    entry: {
-                        scopedJobId: '42:ocr-1',
-                        requestId: 'ocr-1',
-                        webContentsId: 42,
-                        pdfPath: '/tmp/electron-test/ocr-1-merged.pdf',
-                        createdAtMs: Date.now(),
-                        cleanupTimer: null,
-                        resultSha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
-                    },
+                    requestId: 'ocr-1',
+                    resultSha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
                 }
-                : {status: 'not-found' as const};
-        });
+                : null
+        ));
         mocks.readFile.mockResolvedValue(Buffer.from([
             1,
             2,

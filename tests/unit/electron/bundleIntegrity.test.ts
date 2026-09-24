@@ -76,7 +76,6 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
         'evb-pdf-page-ops(djvu-bookmarks)',
     ],
     'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
-    ocr: ['detectSourceDpiDetails'],
     'page-ops-crop': ['cropPagesLocal'],
     'pdf-combine': [
         'tryCreatePdfFromInputPathsNative',
@@ -145,7 +144,7 @@ let mainBundleFixture: IElectronBundleMetafileFixture;
 
 const WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES.map(bundle => bundle.fileName));
 const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
-    .filter(bundle => bundle.id === 'search' || bundle.id === 'djvu-pdf' || bundle.id === 'ocr')
+    .filter(bundle => bundle.id === 'search' || bundle.id === 'djvu-pdf')
     .map(bundle => bundle.fileName));
 const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
 const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;

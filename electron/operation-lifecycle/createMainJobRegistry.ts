@@ -54,6 +54,7 @@ interface IMainJobSnapshotBase<TProgress> {
     jobId: string;
     owner: IMainJobOwnerKey;
     operationKind: TMainOperationKind;
+    workingCopyPath?: string;
     status: TMainJobStatus;
     progress: TProgress;
     createdAtMs: number;
@@ -147,6 +148,8 @@ export interface IMainJobRegistryOptions<
     };
     scratch?: IMainJobScratch;
     unbindOnSettlement?: boolean;
+    /** Runs once when a terminal record leaves the registry (retention or dispose). */
+    onEvict?(snapshot: TMainJobTerminalSnapshot<TProgress, TResult, TError>): void;
     now?: () => number;
 }
 export interface IMainJobRegistry<
@@ -165,6 +168,9 @@ export interface IMainJobRegistry<
     ): (() => void) | null;
     subscribeOwner(actor: IMainJobActor<TSender>): () => void;
     cancel(jobId: string, actor: IMainJobActor<TSender>, reason?: string): boolean;
+    /** Main-process view of every record, for owners that look jobs up by content. */
+    list(): Array<TMainJobSnapshot<TProgress, TResult, TError>>;
+    cancelWhere(predicate: (snapshot: TMainJobSnapshot<TProgress, TResult, TError>) => boolean, reason: string): number;
     await(jobId: string, actor: IMainJobActor<TSender>): Promise<TMainJobTerminalSnapshot<TProgress, TResult, TError>>;
     dispose(): Promise<void>;
 }
@@ -264,7 +270,8 @@ export function createMainJobRegistry<
     }
     function remove(record: IRecord) { if (records.get(record.snapshot.jobId) !== record) {
         return;
-    } if (record.retentionTimer) clearTimeout(record.retentionTimer); records.delete(record.snapshot.jobId); closeSubscriptions(record); unbind(record); }
+    } if (record.retentionTimer) clearTimeout(record.retentionTimer); records.delete(record.snapshot.jobId); closeSubscriptions(record); unbind(record);
+    if (record.terminalAtMs !== null) options.onEvict?.(record.snapshot as TTerminal); }
     function prune() {
         const cap = options.retention.maxTerminalRecords;
         if (cap === undefined) {
@@ -373,6 +380,7 @@ export function createMainJobRegistry<
                 jobId,
                 owner,
                 operationKind: startOptions.operation.kind,
+                ...(startOptions.operation.workingCopyPath === undefined ? {} : {workingCopyPath: startOptions.operation.workingCopyPath}),
                 status: 'queued',
                 progress: startOptions.initialProgress,
                 createdAtMs,
@@ -526,6 +534,9 @@ export function createMainJobRegistry<
         cancel: (jobId, actor, reason) => {
             const record = authorized(jobId, actor); return record ? requestCancel(record, reason) : false;
         },
+        list: () => [...records.values()].map(record => record.snapshot),
+        cancelWhere: (predicate, reason) => [...records.values()]
+            .filter(record => predicate(record.snapshot) && requestCancel(record, reason)).length,
         await: async (jobId, actor) => {
             const record = authorized(jobId, actor); if (!record) throw throwable(options.toError(new Error('Job not found or unauthorized'), 'not-found-or-unauthorized'));
             return record.handle.terminal;

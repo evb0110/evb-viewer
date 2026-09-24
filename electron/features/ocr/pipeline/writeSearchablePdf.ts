@@ -1,7 +1,7 @@
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import type {IOcrCheckpointPageResult} from '@electron/features/ocr/worker/ocrPageSelectionStream';
-import {runOcrCommand} from '@electron/features/ocr/worker/runOcrCommand';
+import type {IOcrCheckpointPageResult} from '@electron/features/ocr/pipeline/ocrPageSelectionStream';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getErrorMessage} from '@electron/utils/error';
 
 /**
@@ -38,7 +38,7 @@ export async function writeSearchablePdf(input: {
     const instructionsPath = input.trackTempFile(join(input.tempDir, `${input.sessionId}-text-layer.json`));
     const outputPath = input.trackTempFile(join(input.tempDir, `${input.sessionId}-merged.pdf`));
     await writeFile(instructionsPath, JSON.stringify({pages: instructions}));
-    await runOcrCommand(input.pdfPageOpsBinary, [
+    await runNativeToolCommand(input.pdfPageOpsBinary, [
         'ocr-text-layer',
         '--input',
         input.sourcePdfPath,
@@ -62,7 +62,7 @@ export async function readPdfPageCount(
     signal: AbortSignal,
 ) {
     try {
-        const result = await runOcrCommand(qpdfBinary, [
+        const result = await runNativeToolCommand(qpdfBinary, [
             '--show-npages',
             pdfPath,
         ], {

@@ -7,7 +7,7 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {abortErrorFromSignal} from '@electron/utils/abort';
-import type {TOcrJobStorageBudget} from '@electron/features/ocr/worker/ocrJobStorageBudget';
+import type {TOcrJobStorageBudget} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 
 interface IPersistOcrPageCheckpointOptions {
     checkpointJsonPath: string;

@@ -8,7 +8,7 @@ import {
     vi,
     type Mock,
 } from 'vitest';
-import type { TWorkerLog } from '@electron/features/ocr/worker/types';
+import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),

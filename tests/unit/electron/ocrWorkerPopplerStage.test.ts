@@ -13,8 +13,8 @@ import {
     renderPdfPageToPng,
     renderPdfPageToPpm,
     renderOcrPageToPng,
-} from '@electron/features/ocr/worker/popplerStage';
-import type { IWorkerPaths } from '@electron/features/ocr/worker/types';
+} from '@electron/features/ocr/pipeline/popplerStage';
+import type { IOcrPipelinePaths } from '@electron/features/ocr/pipeline/types';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
 }));
 
-vi.mock('@electron/features/ocr/worker/runOcrCommand', () => ({ runOcrCommand: mocks.runOcrCommand }));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runOcrCommand}));
 vi.mock('@evb/scan-cleanup/core/rasterLayerDimensions', () => ({readPngDimensions: mocks.readPngDimensions}));
 
 vi.mock('node:fs/promises', () => ({
@@ -32,7 +32,7 @@ vi.mock('node:fs/promises', () => ({
     stat: mocks.stat,
 }));
 
-const workerPaths: IWorkerPaths = {
+const workerPaths: IOcrPipelinePaths = {
     tesseractBinary: '/bin/tesseract',
     tessdataPath: '/share/tessdata',
     pdftoppmBinary: '/bin/pdftoppm',

@@ -35,7 +35,7 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireEpochMs} from '@contracts/timestamps';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
-import * as ocrIndexWriter from '@electron/features/ocr/worker/indexWriterV4';
+import * as ocrIndexWriter from '@electron/features/ocr/pipeline/indexWriterV4';
 
 const fsGuards = vi.hoisted(() => ({
     forbidCopy: false,

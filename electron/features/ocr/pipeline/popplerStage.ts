@@ -3,19 +3,19 @@ import {
     stat,
 } from 'node:fs/promises';
 import {join} from 'node:path';
-import type {IOcrPageSizeInches} from '@electron/features/ocr/worker/pdfPageSizeProbe';
+import type {IOcrPageSizeInches} from '@electron/features/ocr/pipeline/pdfPageSizeProbe';
 import type {
-    IWorkerPaths,
+    IOcrPipelinePaths,
     TWorkerLog,
-} from '@electron/features/ocr/worker/types';
+} from '@electron/features/ocr/pipeline/types';
 import {
-    runOcrCommand,
-    type TOcrRunCommandOptions,
-} from '@electron/features/ocr/worker/runOcrCommand';
+    runNativeToolCommand,
+    type IRunNativeToolCommandOptions,
+} from '@electron/native-tools/runNativeToolCommand';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {isOcrStorageFailure} from '@electron/features/ocr/worker/ocrJobStorageBudget';
+import {isOcrStorageFailure} from '@electron/features/ocr/pipeline/ocrJobStorageBudget';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
 import {readPngDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {IScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/types';
@@ -33,7 +33,7 @@ export interface IPreparedPopplerPdf {
     warnings: string[];
 }
 
-const renderers = createScanCleanupRenderers(runOcrCommand, {
+const renderers = createScanCleanupRenderers(runNativeToolCommand, {
     maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
     maxPixels: OCR_MAX_RASTER_PIXELS,
 });
@@ -119,7 +119,7 @@ export async function probeOcrPageSizeInches(
 }
 
 export async function preparePdfForPoppler(
-    paths: Pick<IWorkerPaths, 'qpdfBinary' | 'tempDir'>,
+    paths: Pick<IOcrPipelinePaths, 'qpdfBinary' | 'tempDir'>,
     log: TWorkerLog,
     sourcePdfPath: string,
     sessionId: string,
@@ -129,7 +129,7 @@ export async function preparePdfForPoppler(
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
     try {
-        const commandOptions: TOcrRunCommandOptions = {
+        const commandOptions: IRunNativeToolCommandOptions = {
             commandLabel: 'qpdf(poppler-preflight)',
             allowedExitCodes: [
                 0,
@@ -142,7 +142,7 @@ export async function preparePdfForPoppler(
             commandOptions.signal = signal;
         }
 
-        await runOcrCommand(paths.qpdfBinary, [
+        await runNativeToolCommand(paths.qpdfBinary, [
             sourcePdfPath,
             normalizedPdfPath,
         ], commandOptions);

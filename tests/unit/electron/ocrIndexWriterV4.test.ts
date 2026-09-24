@@ -44,7 +44,7 @@ import {
     OCR_CATALOG_V4_ORPHAN_GRACE_MS,
     sweepOcrCatalogV4Orphans,
     writeOcrIndexV4,
-} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
 
 const revision = requireDocumentRevisionToken('drt1:ocr-index-writer-v4-test');
 const roots: string[] = [];

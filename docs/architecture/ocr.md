@@ -1,15 +1,17 @@
 # OCR
 
 EVB Viewer recognizes text with the bundled Tesseract engine and pinned
-`tessdata_best` models. The OCR worker owns recognition, word geometry and
-searchable-PDF assembly. Saved PDFs, search, selection and DOCX export consume
-the resulting logical text.
+`tessdata_best` models. An OCR job runs in the main process on the shared job
+registry: each page renders and recognizes under its own broker lease, and one
+`pdf-page-ops ocr-text-layer` call writes the searchable layer for the whole
+document. Saved PDFs, search, selection and DOCX export consume the resulting
+logical text.
 
 ## Language models
 
 Select the languages present in the document. The searchable picker keeps every
 selected language and downloads missing models before recognition. Single-language
-and multilingual recognition use the same worker and text-layer writer.
+and multilingual recognition use the same pipeline and text-layer writer.
 
 English and Russian are bundled for offline use. Other languages in
 `packages/contracts/ocrLanguages.ts` download from the pinned `tessdata_best`
@@ -46,7 +48,7 @@ single-block and sparse-text recognition. The shared agent contract rejects
 segmentation modes that produce no recognized text or require an unbundled
 orientation model.
 
-Clean preprocessing uses `evb-scan-cleanup` with fixed pixel options. The worker
+Clean preprocessing uses `evb-scan-cleanup` with fixed pixel options. The pipeline
 requires the original image dimensions and an invertible transform for deskewed
 word positions. Unusable output falls back to the original raster and records a
 per-page diagnostic. There is no unpaper fallback because its output cannot
@@ -58,7 +60,7 @@ Every platform bundles Tesseract 5. Linux builds 5.5.3 from the pinned source in
 `scripts/bundle-tools-linux.sh` and publishes it as a pinned runtime archive.
 The packaged-tool smoke check rejects a 4.x engine, because the Poor scan profile
 passes `thresholding_method`, which 4.x does not know. When Tesseract rejects a
-parameter it still exits successfully, so the worker reports each rejected
+parameter it still exits successfully, so the pipeline reports each rejected
 parameter as a per-page warning instead of silently recognizing without it.
 
 ## Quality evidence

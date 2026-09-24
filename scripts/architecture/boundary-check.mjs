@@ -343,7 +343,7 @@ const OCR_NATIVE_TOOL_BOUNDARY_TARGETS = new Set(`
 electron/features/ocr/main/paths.ts
 electron/features/ocr/main/nativeToolPaths.ts
 electron/features/ocr/main/resolveOcrResourcesBase.ts
-electron/features/ocr/worker/dpiDetection.ts
+electron/features/ocr/pipeline/dpiDetection.ts
 `.trim().split('\n'));
 
 /** @type {IFeatureBoundaryRule[]} */

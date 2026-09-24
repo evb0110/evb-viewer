@@ -1,14 +1,12 @@
 export {cancelOcrJobsForWorkingCopy} from '@electron/features/ocr/main/jobManager';
 export {
-    claimPendingOcrResultForDocument,
-    discardPendingOcrResultsForDocument,
-    releasePendingOcrResultClaim,
-} from '@electron/features/ocr/main/createPendingResultFileStore';
+    discardOcrResultsForDocument,
+    findOcrResultForDocument,
+} from '@electron/features/ocr/main/jobManager';
 export {
     getOcrCatalogV4PreparedDescriptorPath,
     publishPreparedOcrCatalogV4,
     rollbackPreparedOcrCatalogV4,
-} from '@electron/features/ocr/worker/indexWriterV4';
+} from '@electron/features/ocr/pipeline/indexWriterV4';
 export {readOcrIndexV3ManifestMetadata} from '@electron/features/ocr/main/ocrIndexV3Stream';
 export {rebindDocumentTextCatalogRevision} from '@electron/features/ocr/main/documentTextCatalog';
-export type {IOcrPendingResultFile} from '@electron/features/ocr/main/jobManager.types';

@@ -67,7 +67,7 @@ import {
 import type {
     IOcrPageWithWords,
     TWorkerLog,
-} from '@electron/features/ocr/worker/types';
+} from '@electron/features/ocr/pipeline/types';
 import {
     OcrCatalogCorruptError,
     OcrCatalogFencedError,

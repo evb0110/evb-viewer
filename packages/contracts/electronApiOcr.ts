@@ -74,7 +74,7 @@ export interface IOcrRecognizeRequest {
     imageHeight?: number;
 }
 
-/** A single page request sent to the OCR worker. */
+/** A single page request for an OCR job. */
 export interface IOcrSearchablePdfPage {
     pageNumber: TPageNumber;
     languages: string[];

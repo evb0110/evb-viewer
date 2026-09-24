@@ -15,7 +15,7 @@ import {
     it,
 } from 'vitest';
 import {recoverPreparedOcrRevisionTransition} from '@electron/features/ocr/main/recoverPreparedOcrRevisionTransition';
-import {getOcrCatalogV4PreparedDescriptorPath} from '@electron/features/ocr/worker/indexWriterV4';
+import {getOcrCatalogV4PreparedDescriptorPath} from '@electron/features/ocr/pipeline/indexWriterV4';
 
 let root: string | null = null;
 

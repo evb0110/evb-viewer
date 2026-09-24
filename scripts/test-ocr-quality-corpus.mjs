@@ -24,7 +24,6 @@ import {
     pathToFileURL,
 } from 'node:url';
 import {promisify} from 'node:util';
-import {Worker} from 'node:worker_threads';
 import {
     createCanvas,
     GlobalFonts,
@@ -133,8 +132,8 @@ async function loadProductionRunner() {
         bundle: true,
         stdin: {
             contents: `
-                export {runProductionOcrQualityCase} from './electron/features/ocr/worker/runProductionOcrQualityCase.ts';
-                export {shouldNormalizeGreekMicroSign} from './electron/features/ocr/worker/tesseractRunner.ts';
+                export {runProductionOcrQualityCase} from './electron/features/ocr/pipeline/runProductionOcrQualityCase.ts';
+                export {shouldNormalizeGreekMicroSign} from './electron/features/ocr/pipeline/tesseractRunner.ts';
                 export {DEFAULT_OCR_RECOGNITION_OPTIONS, POOR_SCAN_OCR_RECOGNITION_OPTIONS} from './packages/contracts/electronApiOcr.ts';
             `,
             resolveDir: repositoryRoot,
@@ -149,18 +148,32 @@ async function loadProductionRunner() {
     return import(`${pathToFileURL(bundlePath).href}?run=${Date.now()}`);
 }
 
-async function loadProductionWorker() {
-    const bundlePath = join(workDirectory, 'ocr-quality-production-worker.mjs');
+async function loadProductionPipeline() {
+    const bundlePath = join(workDirectory, 'ocr-quality-production-pipeline.mjs');
     await build({
         bundle: true,
-        entryPoints: [join(repositoryRoot, 'electron', 'features', 'ocr', 'worker', 'main.ts')],
+        stdin: {
+            contents: `
+                export {runOcrJob} from './electron/features/ocr/pipeline/runOcrJob.ts';
+                export {configureMainJobBroker} from './electron/resources/jobBroker.ts';
+                export {initializeHostResourceProfile} from './electron/resources/hostResourceProfile.ts';
+            `,
+            resolveDir: repositoryRoot,
+            sourcefile: 'ocr-quality-production-pipeline.ts',
+        },
         format: 'esm',
         outfile: bundlePath,
         platform: 'node',
         target: 'node22',
         tsconfig: join(repositoryRoot, 'tsconfig.base.json'),
     });
-    return bundlePath;
+    const pipeline = await import(`${pathToFileURL(bundlePath).href}?run=${Date.now()}`);
+    // The app configures these at startup; OCR page leases need them.
+    pipeline.configureMainJobBroker(pipeline.initializeHostResourceProfile({
+        app: {getGPUFeatureStatus: () => ({})},
+        performanceMode: 'auto',
+    }));
+    return pipeline;
 }
 
 /**
@@ -204,7 +217,7 @@ async function loadPdfjsTextExtractor() {
 let pdfjsTextExtractor;
 
 async function runProductionOcrQualityDocument({
-    workerBundlePath,
+    pipeline,
     sourcePdfPath,
     pages,
     tempDirectory,
@@ -212,9 +225,28 @@ async function runProductionOcrQualityDocument({
     pdfPageOpsBinary,
 }) {
     await mkdir(tempDirectory, {recursive: true});
-    const worker = new Worker(pathToFileURL(workerBundlePath), {
-        type: 'module',
-        workerData: {
+    return pipeline.runOcrJob({
+        jobId: `ocr-quality-language-${Date.now()}`,
+        sourcePdfPath,
+        documentRevision: {
+            version: 1,
+            documentRef: sourcePdfPath,
+            authority: 'electron-working-copy',
+            token: 'ocr-quality-language-fixture-v1',
+            contentRevision: 1,
+            mintedAt: Date.UTC(2026, 8, 1),
+        },
+        pages: pages.map(page => ({
+            pageNumber: page.pageNumber,
+            languages: [page.language],
+        })),
+        options: {
+            renderDpi: PAGE_DPI,
+            ...recognitionOptions,
+            supersessionPolicy: 'replace-all',
+            replaceAllAcknowledged: true,
+        },
+        paths: {
             tesseractBinary: tesseract,
             tessdataPath: tessdataDirectory,
             pdftoppmBinary: pdftoppm,
@@ -224,92 +256,9 @@ async function runProductionOcrQualityDocument({
             ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
             ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
         },
-    });
-    const jobId = `ocr-quality-language-${Date.now()}`;
-    const documentRevision = {
-        version: 1,
-        documentRef: sourcePdfPath,
-        authority: 'electron-working-copy',
-        token: 'ocr-quality-language-fixture-v1',
-        contentRevision: 1,
-        mintedAt: Date.UTC(2026, 8, 1),
-    };
-    const startMessage = {
-        type: 'start',
-        jobId,
-        data: {
-            sourcePdfPath,
-            documentRevision,
-            pages: pages.map(page => ({
-                pageNumber: page.pageNumber,
-                languages: [page.language],
-            })),
-            options: {
-                renderDpi: PAGE_DPI,
-                ...recognitionOptions,
-                supersessionPolicy: 'replace-all',
-                replaceAllAcknowledged: true,
-            },
-        },
-    };
-
-    return new Promise((resolve, reject) => {
-        let completeResult;
-        let cleanupComplete = false;
-        let settled = false;
-        const finish = () => {
-            if (!settled && completeResult && cleanupComplete) {
-                settled = true;
-                resolve(completeResult);
-            }
-        };
-        worker.on('message', message => {
-            if (message.type === 'resource-acquire') {
-                worker.postMessage({
-                    type: 'resource-acquired',
-                    jobId: message.jobId,
-                    requestId: message.requestId,
-                    token: `ocr-quality-resource-${message.requestId}`,
-                    effectiveDpi: message.requestedDpi,
-                });
-                return;
-            }
-            if (message.type === 'resource-release') return;
-            if (message.type === 'native-child-intent'
-                || message.type === 'native-child-register'
-                || message.type === 'native-child-exit') {
-                const ackType = `${message.type}-ack`;
-                worker.postMessage({
-                    type: ackType,
-                    jobId: message.jobId,
-                    childId: message.childId,
-                    accepted: true,
-                });
-                return;
-            }
-            if (message.type === 'complete') {
-                completeResult = message.result;
-                finish();
-                return;
-            }
-            if (message.type === 'cleanup-complete') {
-                cleanupComplete = true;
-                finish();
-            }
-        });
-        worker.on('error', error => {
-            if (!settled) {
-                settled = true;
-                reject(error);
-            }
-        });
-        worker.on('exit', code => {
-            if (!settled && code !== 0) {
-                settled = true;
-                reject(new Error(`Production OCR worker exited with code ${code}`));
-            }
-        });
-        worker.postMessage(startMessage);
+        signal: new AbortController().signal,
+        publish: () => undefined,
+        log: () => undefined,
     });
 }
 
@@ -1008,12 +957,12 @@ async function runCleanLanguageBenchmark({
     if (sourceText.stdout.replace(/\f/gu, '').trim() !== '') {
         throw new Error('MLOCR-02 source PDF contains extractable text');
     }
-    const workerBundlePath = await loadProductionWorker();
+    const pipeline = await loadProductionPipeline();
     const cleanPages = fixture.manifest.pages.filter(page => page.kind === 'language');
     // Keep every page on the frozen fixture. Reusing each result as the next
     // input makes later language jobs render an accumulating PDF.
     const workerResult = await runProductionOcrQualityDocument({
-        workerBundlePath,
+        pipeline,
         sourcePdfPath,
         pages: cleanPages,
         tempDirectory: workerTempDirectory,
@@ -1029,7 +978,7 @@ async function runCleanLanguageBenchmark({
     const languages = scoreCleanLanguageSamples(fixture.manifest, rawPages, pdfjsPages, popplerPages);
     const report = {
         status: 'complete',
-        pdfStage: 'production-worker-native-ocr-text-layer',
+        pdfStage: 'production-pipeline-native-ocr-text-layer',
         pdfWriter: {
             binary: pdfPageOpsBinary,
             sha256: createHash('sha256').update(await readFile(pdfPageOpsBinary)).digest('hex'),
@@ -1290,7 +1239,7 @@ try {
                     reportIncomplete(['required OCR quality coverage did not exercise successful clean preprocessing']);
                 } else {
                     process.stdout.write(
-                        `Production coverage: runOcrFileBased profile/TSV parser/native ocr-text-layer searchable PDF; preprocessing=${[...preprocessingCoverage].join(',')} (legacy image-only diagnostic; Poppler rasterization is covered by OCR worker integration tests)\n`,
+                        `Production coverage: runOcrFileBased profile/TSV parser/native ocr-text-layer searchable PDF; preprocessing=${[...preprocessingCoverage].join(',')} (legacy image-only diagnostic; Poppler rasterization is covered by OCR pipeline integration tests)\n`,
                     );
                     process.stdout.write(`Legacy image-only diagnostic passed (${corpus.length} degraded multilingual cases)\n`);
                 }

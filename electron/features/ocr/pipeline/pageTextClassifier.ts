@@ -1,4 +1,4 @@
-import {runOcrCommand} from '@electron/features/ocr/worker/runOcrCommand';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import type {
@@ -266,7 +266,7 @@ async function inspectPdfPageTextVisibilityWithQpdf(
     if (requestedPageNumbers.size === 0) {
         return new Map();
     }
-    const pageMapResult = await runOcrCommand(qpdfBinary, [
+    const pageMapResult = await runNativeToolCommand(qpdfBinary, [
         '--show-pages',
         '--',
         pdfPath,
@@ -297,7 +297,7 @@ async function inspectPdfPageTextVisibilityWithQpdf(
             if (byteLimit <= 0) {
                 throw new RangeError(`OCR text-visibility page ${pageNumber} exceeds the ${OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES}-byte decoded budget`);
             }
-            const streamResult = await runOcrCommand(qpdfBinary, [
+            const streamResult = await runNativeToolCommand(qpdfBinary, [
                 '--filtered-stream-data',
                 `--show-object=${objectReference}`,
                 '--',
