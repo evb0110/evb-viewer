@@ -3,11 +3,7 @@
         ref="viewerHost"
         class="relative min-h-full w-full"
         data-pdf-viewer-host
-        :class="{
-            'pdf-viewer-container--dark': props.invertColors === true,
-            'pdf-viewer-container--opening-surface-deferred': shouldHidePdfOpeningSurface,
-        }"
-        :data-opening-surface-deferred="shouldHidePdfOpeningSurface"
+        :class="{'pdf-viewer-container--dark': props.invertColors === true}"
     >
         <template v-if="props.mountPresentation !== false">
             <PdfViewerViewport
@@ -48,21 +44,8 @@
                 @cancel-placed-image="clearPendingImagePlacement"
             />
             <PdfInitialSurfacePlaceholder
-                v-if="showInitialSurfacePlaceholder && !shouldUseGenericInitialSurfaceLoading"
+                v-if="showInitialSurfacePlaceholder"
                 :page-style="initialSurfacePlaceholderPageStyle"
-            />
-            <AppLoaderOverlay
-                v-else-if="showInitialSurfacePlaceholder && shouldUseGenericInitialSurfaceLoading"
-                :label="t('status.preparingDocument')"
-                background="muted"
-                size="md"
-            />
-            <AppLoaderOverlay
-                v-else-if="shouldShowPdfFallbackOpeningLoader"
-                :label="t('status.preparingDocument')"
-                background="muted"
-                size="md"
-                data-testid="document-opening-pdfjs-geometry-loading"
             />
             <PdfRegionSnipOverlay
                 :active="regionSnip.isActive.value"
@@ -100,7 +83,6 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import PdfViewerPortalLayers from '@app/modules/pdf-viewer/components/PdfViewerPortalLayers.vue';
 import PdfViewerViewport from '@app/modules/pdf-viewer/components/PdfViewerViewport.vue';
-import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
 import PdfRegionSnipOverlay from '@app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue';
 import PdfCropOverlay from '@app/modules/pdf-viewer/components/PdfCropOverlay.vue';
 import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
@@ -122,7 +104,6 @@ import {
     createDocumentViewerRuntime,
     injectDocumentViewerRuntime, createDocumentOpenGenerationErrorLatch,
 } from '@app/modules/document-viewer/public';
-import { shouldDeferNativePdfOpeningSkeleton } from '@app/modules/pdf-viewer/public';
 import { shouldShowPdfViewportPageSkeleton } from '@app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton';
 
 import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
@@ -161,7 +142,6 @@ const {
     viewerContainer,
     viewerClass,
     containerStyle,
-    hasCompletePageGeometry,
     scaledMargin,
     openingVirtualExtentMinimumScrollHeight,
     virtualPageSegments,
@@ -205,19 +185,6 @@ const showInitialSurfacePlaceholder = computed(() => (
     && isViewerLoadingOverlayVisible.value
     && props.isActive !== false
 ));
-const shouldUseGenericInitialSurfaceLoading = computed(() => (
-    injectedChassisAuthority === null
-    && shouldDeferNativePdfOpeningSkeleton({
-        documentId: null,
-        geometry: null,
-        isOpening: true,
-        nativeOpeningPreviewState: 'inactive',
-        rendererKind: 'pdfjs',
-        source: props.src,
-        sourceKind: 'pdf',
-    })
-));
-
 const initialSurfacePlaceholderPageStyle = computed(() => buildPdfInitialSurfacePlaceholderStyle({
     pageStyle: getPagePlaceholderStyle(requirePageNumber(1)),
     scaledMargin: scaledMargin.value,
@@ -261,19 +228,6 @@ const showCommittedInitialPageShell = computed(() => (
     && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page'
 ));
 function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
-    if (
-        shouldShowPdfOpeningSkeleton.value
-        && pageNumber === committedInitialPageNumber.value
-    ) {
-        return true;
-    }
-    if (
-        shouldDeferLargePdfOpeningSurface.value
-        || shouldHoldPdfOpeningSurfaceUntilGeometry.value
-        || shouldShowPdfFallbackOpeningLoader.value
-    ) {
-        return false;
-    }
     const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
     const visual = viewportSession?.visual;
     return shouldShowPdfViewportPageSkeleton({
@@ -299,80 +253,6 @@ const hasProjectedOpeningPageFrame = computed(() => (
     shouldApplyOpeningPageFrame.value
     && projectedOpeningPageStyle.value !== null
 ));
-const shouldDeferLargePdfOpeningSurface = computed(() => {
-    if (injectedChassisAuthority === null) {
-        return false;
-    }
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    return shouldDeferNativePdfOpeningSkeleton({
-        declaredSize: snapshot.declaredSourceSize,
-        documentId: snapshot.identity?.documentId,
-        geometry: snapshot.openingPageGeometry,
-        isOpening: isCommittedInitialPageTransition.value,
-        nativeOpeningPreviewState: snapshot.nativeOpeningPreviewState ?? 'inactive',
-        ...(snapshot.nativeOpeningPreviewStaged === undefined
-            ? {}
-            : {nativeOpeningPreviewStaged: snapshot.nativeOpeningPreviewStaged}),
-        rendererKind: 'pdfjs',
-        source: props.src,
-        sourceKind: 'pdf',
-    });
-});
-// Releasing the native lane does not mean PDF.js has a document-wide scale.
-// On the low-CPU path there is no native preview owner, so keep both opening
-// shells behind the generic loader until PDF.js has measured every page. This
-// prevents its page-1 metric from becoming a visible provisional width.
-const shouldHoldPdfOpeningSurfaceUntilGeometry = computed(() => {
-    if (injectedChassisAuthority === null) {
-        return false;
-    }
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    if (snapshot.openingPageFrame !== null) {
-        return false;
-    }
-    return shouldDeferNativePdfOpeningSkeleton({
-        declaredSize: snapshot.declaredSourceSize,
-        documentId: snapshot.identity?.documentId,
-        geometry: snapshot.openingPageGeometry,
-        isOpening: isCommittedInitialPageTransition.value,
-        nativeOpeningPreviewState: snapshot.nativeOpeningPreviewState ?? 'inactive',
-        rendererKind: 'pdfjs',
-        source: props.src,
-        sourceKind: 'pdf',
-    });
-});
-const shouldKeepPdfFallbackShellHidden = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    return snapshot.committedRender === null
-        && snapshot.nativeOpeningPreviewStaged === true
-        && snapshot.nativeOpeningPreviewState === 'failed'
-        && (
-            snapshot.openingPageFrame === null
-            || !hasCompletePageGeometry.value
-            || canonicalOpeningPageStyle.value === null
-        );
-});
-const shouldHidePdfOpeningSurface = computed(() => (
-    shouldDeferLargePdfOpeningSurface.value
-    || shouldHoldPdfOpeningSurfaceUntilGeometry.value
-    || shouldKeepPdfFallbackShellHidden.value
-));
-const hasStagedNativeOpeningPreview = computed(() => {
-    return chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewStaged === true;
-});
-const shouldShowPdfFallbackOpeningLoader = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    return snapshot.committedRender === null
-        && shouldKeepPdfFallbackShellHidden.value;
-});
-const shouldShowPdfOpeningSkeleton = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    return hasStagedNativeOpeningPreview.value
-        && snapshot.nativeOpeningPreviewState === 'failed'
-        && snapshot.committedRender === null
-        && hasCompletePageGeometry.value
-        && canonicalOpeningPageStyle.value !== null;
-});
 
 watchEffect(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
@@ -399,14 +279,7 @@ watchEffect(() => {
         }
         return;
     }
-    if (
-        !isOpeningTransition
-        || (
-            shouldHoldPdfOpeningSurfaceUntilGeometry.value
-            && !hasCompletePageGeometry.value
-        )
-        || openingPageFrameRecord.value !== null
-    ) {
+    if (!isOpeningTransition || openingPageFrameRecord.value !== null) {
         return;
     }
     const style = canonicalOpeningPageStyle.value;

@@ -57,7 +57,6 @@ function createHarness(overrides: {
     const sidebarPresentationEnabled = ref(overrides.sidebarPresentationEnabled ?? true);
     const isOpeningDocumentForToolbar = ref(overrides.isOpeningDocumentForToolbar ?? false);
     const initialDocumentVisualReady = ref(overrides.initialDocumentVisualReady ?? true);
-    const openingPreviewReady = ref(false);
     const hasDocumentOpenError = ref(false);
     const surfacePhase = ref<TSurfacePhase>(overrides.surfacePhase ?? 'ready');
     const surfaceGeneration = ref(1);
@@ -71,14 +70,12 @@ function createHarness(overrides: {
             surfacePhase.value,
             surfaceGeneration.value,
         )),
-        openingPreviewReady,
     }))!;
 
     return {
         hasDocumentOpenError,
         initialDocumentVisualReady,
         isOpeningDocumentForToolbar,
-        openingPreviewReady,
         session,
         sidebarPresentationEnabled,
         surfaceGeneration,
@@ -185,48 +182,6 @@ describe('useWorkspaceSidebarOpenGeneration', () => {
         harness.initialDocumentVisualReady.value = false;
         harness.surfacePhase.value = 'pending';
 
-        expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(false);
-    });
-
-    it('releases the sidebar when the claiming generation paints its native preview', () => {
-        const harness = createHarness();
-
-        harness.isOpeningDocumentForToolbar.value = true;
-        harness.initialDocumentVisualReady.value = false;
-        harness.surfacePhase.value = 'pending';
-        expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(false);
-
-        harness.openingPreviewReady.value = true;
-        expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(true);
-    });
-
-    it('does not re-suspend the sidebar during the same native-to-PDF.js handoff', () => {
-        const harness = createHarness();
-
-        harness.isOpeningDocumentForToolbar.value = true;
-        harness.initialDocumentVisualReady.value = false;
-        harness.surfacePhase.value = 'pending';
-        expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(false);
-
-        harness.openingPreviewReady.value = true;
-        expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(true);
-
-        // PDF.js retires the native source before the outer open transaction
-        // finishes validation. Losing the preview in the same surface
-        // generation must not close a sidebar that this generation released.
-        harness.openingPreviewReady.value = false;
-        harness.surfacePhase.value = 'viewport-committed';
-        expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(true);
-
-        // Source commitment can briefly drop and restore the outer opening
-        // flag while validation still belongs to this same generation.
-        harness.isOpeningDocumentForToolbar.value = false;
-        harness.isOpeningDocumentForToolbar.value = true;
-        expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(true);
-
-        // A later open generation still suspends the old document sidebar.
-        harness.surfaceGeneration.value += 1;
-        harness.surfacePhase.value = 'pending';
         expect(harness.session.toolbarShowSidebarForDisplay.value).toBe(false);
     });
 

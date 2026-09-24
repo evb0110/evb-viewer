@@ -32,11 +32,6 @@ import {
     type IElectronE2EDeadlineOptions,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
-export {
-    installNativePdfOpeningSampler,
-    stopNativePdfOpeningSampler,
-} from '@tests/e2e/electron/helpers/viewerNativePdfState';
-
 const TOOLBAR_ACTION_ICON_HINTS: Record<string, string[]> = {
     'Toggle Sidebar': [
         '.i-ph-sidebar-simple',

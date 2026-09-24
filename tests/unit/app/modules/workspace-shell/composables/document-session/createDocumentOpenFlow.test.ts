@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule2 from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
-
 import {
     afterEach,
     beforeEach,
@@ -9,10 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type {
-    IPdfOpeningGeometry,
-    TOpenFileResult,
-} from '@contracts/electronApiDocuments';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireEpochMs } from '@contracts/timestamps';
@@ -32,11 +27,6 @@ import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables
 import {BrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/browserFilePickerAdapter';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import {
-    invalidateTrustedPdfOpenGeometry,
-    readPrevalidatedTrustedPdfOpenGeometry,
-    rememberValidatedTrustedPdfOpenGeometry,
-} from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import {clearPdfValidationRevisionCacheForTests} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -65,7 +55,6 @@ const mocks = vi.hoisted(() => ({
         lowMemory: false,
         maxCachedPdfPages: 48,
     },
-    nativePreview: {createSource: vi.fn()},
 }));
 
 const platformApi = createElectronPlatformApiFixture({
@@ -80,10 +69,6 @@ vi.mock('@app/utils/performanceProfile', () => ({
     getPerformanceProfile: () => mocks.performanceProfile,
     resolvePerformanceProfile: () => mocks.performanceProfile,
 }));
-vi.mock('@app/platform/browser-api/createNativePdfPreviewSourceFromPath', async (importOriginal_1) => ({
-    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
-    createNativePdfPreviewSourceFromPath: mocks.nativePreview.createSource,
-}));
 
 const PDF_BYTES = Uint8Array.from([
     37,
@@ -91,13 +76,6 @@ const PDF_BYTES = Uint8Array.from([
     68,
     70,
 ]);
-
-function createNativePageSizes(pageCount: number) {
-    return Array.from({length: pageCount}, () => ({
-        width: 612,
-        height: 792,
-    }));
-}
 
 interface IResetHistoryTestOptions {
     reuseSnapshot?: boolean;
@@ -122,13 +100,6 @@ function createOpenFlowHarness(options: {
         incrementSessionVersion: vi.fn(),
         loadEpoch: createEpochGuard(),
         ...(options.openSurface === undefined ? {} : {openSurface: options.openSurface}),
-        readOpeningPageFramePolicy: () => ({
-            fitMode: 'width' as const,
-            viewMode: 'single' as const,
-            zoom: 1,
-            zoomMode: 'fit-width' as const,
-            continuousScroll: true,
-        }),
         openEpoch: createEpochGuard(),
         pushHistorySnapshot: vi.fn(async () => true),
         ...(options.reportOpenFailure === undefined ? {} : {reportOpenFailure: options.reportOpenFailure}),
@@ -198,669 +169,25 @@ describe('createDocumentOpenFlow', () => {
         vi.restoreAllMocks();
     });
 
-    it('recovers navigation that arrives during the initial native preview render', async () => {
-        const originalPath = requireDocumentRef('/documents/dictionary.pdf');
-        const workingPath = requireDocumentRef('/tmp/dictionary-working.pdf');
-        const size = 170_496_793;
-        const modifiedAt = requireEpochMs(1_724_000_000_000);
-        const openingGeometry = {
-            pageNumber: requirePageNumber(1),
-            pageCount: 1_859,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size,
-            modifiedAt,
-            linearized: false,
-        };
-        const openSurface = createDocumentOpenSurfaceSession();
-        const generation = openSurface.beginPrepared({
-            documentId: originalPath,
-            documentRevision: 'open-intent:111',
-        }, {
-            documentId: originalPath,
-            ownerId: 'test-chassis',
-            pageNumber: requirePageNumber(1),
-            intentKey: 'fit-width:1',
-            layoutKey: '1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
-            style: {
-                width: '900px',
-                height: '1165px',
-            },
-            geometry: {
-                documentId: originalPath,
-                ...openingGeometry,
-            },
-        });
-        expect(generation).not.toBeNull();
-        const validationGate = Promise.withResolvers<{
-            isValid: true;
-            tool: 'qpdf';
-            errors: never[];
-            warnings: never[];
-        }>();
-        mocks.documentPdf.validatePdfPath.mockReturnValue(validationGate.promise);
-        mocks.documentFiles.statFile.mockImplementation(async (path: string) => path === originalPath
-            ? {
-                size,
-                modifiedAt,
-            }
-            : {size});
-        const geometryGate = Promise.withResolvers<typeof openingGeometry>();
-        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometryGate.promise);
-        const terminate = vi.fn();
-        const initialRasterGate = Promise.withResolvers<{
-            objectUrl: string;
-            renderedPx: number;
-            onInvalidated: () => () => void;
-            promotePriority: () => void;
-        }>();
-        const renderPageObjectUrl = vi.fn(async (pageNumber: number) => pageNumber === 1
-            ? initialRasterGate.promise
-            : {
-                objectUrl: `blob:native-opening-page-${String(pageNumber)}`,
-                renderedPx: 1_800,
-                onInvalidated: vi.fn(() => vi.fn()),
-                promotePriority: vi.fn(),
-            });
-        const cancelPagePreview = vi.fn();
-        const revokeObjectURL = vi.fn();
-        mocks.nativePreview.createSource.mockReturnValue({
-            cancelPagePreview,
-            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
-            renderPageObjectUrl,
-            revokeObjectURL,
-            terminate,
-        });
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness({openSurface});
-
-        const opening = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath,
-        });
-
-        await vi.waitFor(() => {
-            expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(workingPath, {purpose: 'opening'});
-        });
-        expect(renderPageObjectUrl).not.toHaveBeenCalled();
-        geometryGate.resolve(openingGeometry);
-        await vi.waitFor(() => {
-            expect(renderPageObjectUrl).toHaveBeenCalledOnce();
-        });
-        expect(renderPageObjectUrl).toHaveBeenCalledWith(1, expect.objectContaining({targetWidthPx: 901}));
-        expect(terminate).not.toHaveBeenCalled();
-        expect(state.pdfOpeningSrc.value).toEqual({
-            kind: 'path',
-            path: workingPath,
-            size,
-        });
-        expect(state.pdfSrc.value).toBeNull();
-
-        expect(openSurface.requestNavigation(2)).toBe(2);
-        await vi.waitFor(() => {
-            expect(openSurface.snapshot.value.openingPageFrame?.preview).toMatchObject({
-                objectUrl: 'blob:native-opening-page-2',
-                pageNumber: 2,
-            });
-        });
-        expect(renderPageObjectUrl).toHaveBeenCalledTimes(2);
-        expect(cancelPagePreview).toHaveBeenCalledWith(
-            1,
-            expect.stringContaining('pdf-opening'),
-        );
-
-        initialRasterGate.resolve({
-            objectUrl: 'blob:native-opening-page-one-stale',
-            renderedPx: 1_800,
-            onInvalidated: vi.fn(() => vi.fn()),
-            promotePriority: vi.fn(),
-        });
-        await vi.waitFor(() => {
-            expect(revokeObjectURL).toHaveBeenCalledWith('blob:native-opening-page-one-stale');
-        });
-        expect(openSurface.snapshot.value.openingPageFrame?.preview).toMatchObject({
-            objectUrl: 'blob:native-opening-page-2',
-            pageNumber: 2,
-        });
-
-        validationGate.resolve({
-            isValid: true,
-            tool: 'qpdf',
-            errors: [],
-            warnings: [],
-        });
-        await expect(opening).resolves.toMatchObject({status: 'opened'});
-        expect(terminate).not.toHaveBeenCalled();
-        expect(state.pdfOpeningSrc.value).toBeNull();
-
-        openSurface.reset();
-        expect(terminate).toHaveBeenCalledOnce();
-    });
-
-    it('waits for the host to claim an idle opening surface and commit its late page frame', async () => {
-        const originalPath = requireDocumentRef('/documents/late-frame-dictionary.pdf');
-        const workingPath = requireDocumentRef('/tmp/late-frame-dictionary-working.pdf');
-        const size = 722_049_367;
-        const modifiedAt = requireEpochMs(1_776_000_000_000);
-        const openingGeometry = {
-            pageNumber: requirePageNumber(1),
-            pageCount: 882,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size,
-            modifiedAt,
-            linearized: false,
-        };
-        const openSurface = createDocumentOpenSurfaceSession();
-        const validationGate = Promise.withResolvers<{
-            isValid: true;
-            tool: 'qpdf';
-            errors: never[];
-            warnings: never[];
-        }>();
-        const geometryGate = Promise.withResolvers<typeof openingGeometry>();
-        mocks.documentPdf.validatePdfPath.mockReturnValue(validationGate.promise);
-        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometryGate.promise);
-        mocks.documentFiles.statFile.mockImplementation(async path => path === originalPath
-            ? {
-                size,
-                modifiedAt,
-            }
-            : {size});
-        const renderPageObjectUrl = vi.fn(async () => ({
-            objectUrl: 'blob:native-opening-late-frame',
-            renderedPx: 1_800,
-        }));
-        mocks.nativePreview.createSource.mockReturnValue({
-            cancelPagePreview: vi.fn(),
-            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
-            renderPageObjectUrl,
-            revokeObjectURL: vi.fn(),
-            terminate: vi.fn(),
-        });
-        const {openFlow} = createOpenFlowHarness({openSurface});
-
-        const opening = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath,
-        });
-
-        await vi.waitFor(() => {
-            expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledWith(workingPath, {purpose: 'opening'});
-        });
-        geometryGate.resolve(openingGeometry);
-        await vi.waitFor(() => {
-            expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledWith(workingPath);
-        });
-        expect(openSurface.snapshot.value.phase).toBe('idle');
-        expect(renderPageObjectUrl).not.toHaveBeenCalled();
-
-        const generation = openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'open-intent:late-frame',
-        });
-        expect(generation).not.toBeNull();
-        await vi.waitFor(() => {
-            expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
-                documentId: originalPath,
-                pageCount: 882,
-            });
-        });
-        if (generation === null) {
-            throw new Error('Expected the host opening surface to accept the transaction');
-        }
-        expect(openSurface.snapshot.value.identity).toEqual({
-            documentId: originalPath,
-            documentRevision: 'open-intent:late-frame',
-        });
-        expect(renderPageObjectUrl).not.toHaveBeenCalled();
-
-        expect(openSurface.commitOpeningPageFrame(generation, {
-            generation,
-            ownerId: 'late-test-chassis',
-            pageNumber: requirePageNumber(1),
-            intentKey: 'fit-width:1',
-            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
-            style: {
-                width: '900px',
-                height: '1165px',
-            },
-        })).toBe(true);
-        await vi.waitFor(() => {
-            expect(openSurface.snapshot.value.openingPageFrame?.preview).toMatchObject({
-                objectUrl: 'blob:native-opening-late-frame',
-                pageNumber: 1,
-            });
-        });
-        expect(renderPageObjectUrl).toHaveBeenCalledOnce();
-
-        validationGate.resolve({
-            isValid: true,
-            tool: 'qpdf',
-            errors: [],
-            warnings: [],
-        });
-        await expect(opening).resolves.toMatchObject({status: 'opened'});
-    });
-
-    it('cancels an in-flight native opening raster when validation rejects the PDF', async () => {
-        const originalPath = requireDocumentRef('/documents/corrupt-dictionary.pdf');
-        const size = 170_496_793;
-        const modifiedAt = requireEpochMs(1_724_000_000_000);
-        const openingGeometry = {
-            pageNumber: requirePageNumber(1),
-            pageCount: 1_859,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size,
-            modifiedAt,
-            linearized: false,
-        };
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.beginPrepared({
-            documentId: originalPath,
-            documentRevision: 'open-intent:invalid',
-        }, {
-            documentId: originalPath,
-            ownerId: 'test-chassis',
-            pageNumber: requirePageNumber(1),
-            intentKey: 'fit-width:1',
-            layoutKey: '1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
-            style: {
-                width: '900px',
-                height: '1165px',
-            },
-            geometry: {
-                documentId: originalPath,
-                ...openingGeometry,
-            },
-        });
-        const rasterGate = Promise.withResolvers<{
-            objectUrl: string;
-            renderedPx: number;
-        }>();
-        const terminate = vi.fn();
-        const renderPageObjectUrl = vi.fn(() => rasterGate.promise);
-        mocks.nativePreview.createSource.mockReturnValue({
-            cancelPagePreview: vi.fn(),
-            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
-            renderPageObjectUrl,
-            revokeObjectURL: vi.fn(),
-            terminate,
-        });
-        mocks.documentFiles.statFile.mockResolvedValue({size});
-        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(openingGeometry);
-        const validationGate = Promise.withResolvers<{
-            isValid: false;
-            tool: 'qpdf';
-            errors: string[];
-            warnings: never[];
-        }>();
-        mocks.documentPdf.validatePdfPath.mockReturnValue(validationGate.promise);
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness({openSurface});
-
-        const opening = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath: requireDocumentRef('/tmp/corrupt-dictionary-working.pdf'),
-            openingGeometry,
-        });
-        await vi.waitFor(() => {
-            expect(renderPageObjectUrl).toHaveBeenCalledOnce();
-        });
-        validationGate.resolve({
-            isValid: false,
-            tool: 'qpdf',
-            errors: ['damaged xref table'],
-            warnings: [],
-        });
-        await expect(opening).resolves.toMatchObject({status: 'failed'});
-
-        expect(terminate).toHaveBeenCalledOnce();
-        expect(openSurface.snapshot.value.openingPageFrame?.preview).toBeUndefined();
-        expect(state.pdfOpeningSrc.value).toBeNull();
-    });
-
-    it('does not publish a native page source after cancellation during page-size loading', async () => {
-        const originalPath = requireDocumentRef('/documents/corrupt-page-sizes.pdf');
-        const workingPath = requireDocumentRef('/tmp/corrupt-page-sizes-working.pdf');
-        const size = 170_496_793;
-        const modifiedAt = requireEpochMs(1_724_000_000_000);
-        const openingGeometry = {
-            pageNumber: requirePageNumber(1),
-            pageCount: 1_859,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size,
-            modifiedAt,
-            linearized: false,
-        };
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.beginPrepared({
-            documentId: originalPath,
-            documentRevision: 'open-intent:page-sizes',
-        }, {
-            documentId: originalPath,
-            ownerId: 'test-chassis',
-            pageNumber: requirePageNumber(1),
-            intentKey: 'fit-width:1',
-            layoutKey: '1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
-            style: {
-                width: '900px',
-                height: '1165px',
-            },
-            geometry: {
-                documentId: originalPath,
-                ...openingGeometry,
-            },
-        });
-        const pageSizesGate = Promise.withResolvers<Array<{
-            width: number;
-            height: number;
-        }>>();
-        const getPageSizes = vi.fn(() => pageSizesGate.promise);
-        const renderPageObjectUrl = vi.fn();
-        const terminate = vi.fn();
-        mocks.nativePreview.createSource.mockReturnValue({
-            cancelPagePreview: vi.fn(),
-            getPageSizes,
-            renderPageObjectUrl,
-            revokeObjectURL: vi.fn(),
-            terminate,
-        });
-        mocks.documentFiles.statFile.mockResolvedValue({
-            size,
-            modifiedAt,
-        });
-        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(openingGeometry);
-        const validationGate = Promise.withResolvers<{
-            isValid: false;
-            tool: 'qpdf';
-            errors: string[];
-            warnings: never[];
-        }>();
-        mocks.documentPdf.validatePdfPath.mockReturnValue(validationGate.promise);
-        const {openFlow} = createOpenFlowHarness({openSurface});
-
-        const opening = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath,
-            openingGeometry,
-        });
-        await vi.waitFor(() => {
-            expect(getPageSizes).toHaveBeenCalledOnce();
-        });
-
-        validationGate.resolve({
-            isValid: false,
-            tool: 'qpdf',
-            errors: ['damaged xref table'],
-            warnings: [],
-        });
-        await expect(opening).resolves.toMatchObject({status: 'failed'});
-        expect(terminate).toHaveBeenCalledOnce();
-
-        pageSizesGate.resolve(Array.from(
-            {length: openingGeometry.pageCount},
-            () => ({
-                width: 612,
-                height: 792,
-            }),
-        ));
-        await pageSizesGate.promise;
-        await Promise.resolve();
-        expect(renderPageObjectUrl).not.toHaveBeenCalled();
-        expect(openSurface.openingPageSource.value).toBeNull();
-        expect(terminate).toHaveBeenCalledOnce();
-    });
-
-    it('releases the native opening owner when page-size metadata is incomplete', async () => {
-        const originalPath = requireDocumentRef('/documents/incomplete-page-sizes.pdf');
-        const workingPath = requireDocumentRef('/tmp/incomplete-page-sizes-working.pdf');
-        const size = 170_496_793;
-        const modifiedAt = requireEpochMs(1_724_000_000_000);
-        const openingGeometry = {
-            pageNumber: requirePageNumber(1),
-            pageCount: 1_859,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size,
-            modifiedAt,
-            linearized: false,
-        };
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.beginPrepared({
-            documentId: originalPath,
-            documentRevision: 'open-intent:incomplete-page-sizes',
-        }, {
-            documentId: originalPath,
-            ownerId: 'test-chassis',
-            pageNumber: requirePageNumber(1),
-            intentKey: 'fit-width:1',
-            layoutKey: '1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
-            style: {
-                width: '900px',
-                height: '1165px',
-            },
-            geometry: {
-                documentId: originalPath,
-                ...openingGeometry,
-            },
-        });
-        const validationGate = Promise.withResolvers<{
-            isValid: true;
-            tool: 'qpdf';
-            errors: never[];
-            warnings: never[];
-        }>();
-        const terminate = vi.fn();
-        const renderPageObjectUrl = vi.fn();
-        const getPageSizes = vi.fn(() => ({
-            pageCount: openingGeometry.pageCount,
-            defaultPageSize: {
-                width: openingGeometry.width,
-                height: openingGeometry.height,
-            },
-            overrides: [],
-        }));
-        mocks.nativePreview.createSource.mockReturnValue({
-            cancelPagePreview: vi.fn(),
-            getPageSizes,
-            renderPageObjectUrl,
-            revokeObjectURL: vi.fn(),
-            terminate,
-        });
-        mocks.documentFiles.statFile.mockResolvedValue({
-            size,
-            modifiedAt,
-        });
-        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(openingGeometry);
-        mocks.documentPdf.validatePdfPath.mockReturnValue(validationGate.promise);
-        const {openFlow} = createOpenFlowHarness({openSurface});
-
-        const opening = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath,
-            openingGeometry,
-        });
-        await vi.waitFor(() => {
-            expect(getPageSizes).toHaveBeenCalledOnce();
-            expect(terminate).toHaveBeenCalledOnce();
-        });
-
-        expect(renderPageObjectUrl).not.toHaveBeenCalled();
-        expect(openSurface.openingPageSource.value).toBeNull();
-        expect(openSurface.snapshot.value.nativeOpeningPreviewState).toBe('failed');
-
-        validationGate.resolve({
-            isValid: true,
-            tool: 'qpdf',
-            errors: [],
-            warnings: [],
-        });
-        await expect(opening).resolves.toMatchObject({status: 'opened'});
-    });
-
-    it('retires native resources when a second open supersedes validation', async () => {
-        const originalPath = requireDocumentRef('/documents/first-dictionary.pdf');
-        const workingPath = requireDocumentRef('/tmp/first-dictionary-working.pdf');
-        const size = 170_496_793;
-        const modifiedAt = requireEpochMs(1_724_000_000_000);
-        const openingGeometry = {
-            pageNumber: requirePageNumber(1),
-            pageCount: 1_859,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            size,
-            modifiedAt,
-            linearized: false,
-        };
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.beginPrepared({
-            documentId: originalPath,
-            documentRevision: 'open-intent:first',
-        }, {
-            documentId: originalPath,
-            ownerId: 'test-chassis',
-            pageNumber: requirePageNumber(1),
-            intentKey: 'fit-width:1',
-            layoutKey: '1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
-            style: {
-                width: '900px',
-                height: '1165px',
-            },
-            geometry: {
-                documentId: originalPath,
-                ...openingGeometry,
-            },
-        });
-        const firstValidation = Promise.withResolvers<{
-            isValid: true;
-            tool: 'qpdf';
-            errors: never[];
-            warnings: never[];
-        }>();
-        mocks.documentPdf.validatePdfPath.mockImplementation((path: string) => path === workingPath
-            ? firstValidation.promise
-            : Promise.resolve({
-                isValid: true as const,
-                tool: 'qpdf' as const,
-                errors: [],
-                warnings: [],
-            }));
-        mocks.documentFiles.statFile.mockImplementation(async (path: string) => path === originalPath
-            ? {
-                size,
-                modifiedAt,
-            }
-            : {size});
-        mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue(openingGeometry);
-        const terminate = vi.fn();
-        mocks.nativePreview.createSource.mockReturnValue({
-            cancelPagePreview: vi.fn(),
-            getPageSizes: vi.fn(() => createNativePageSizes(openingGeometry.pageCount)),
-            renderPageObjectUrl: vi.fn(async () => ({
-                objectUrl: 'blob:first-native-opening',
-                renderedPx: 1_800,
-            })),
-            revokeObjectURL: vi.fn(),
-            terminate,
-        });
-        const {
-            openFlow,
-            state,
-        } = createOpenFlowHarness({openSurface});
-
-        const firstOpen = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath,
-        });
-        await vi.waitFor(() => {
-            expect(openSurface.snapshot.value.openingPageFrame?.preview?.objectUrl)
-                .toBe('blob:first-native-opening');
-        });
-
-        await expect(openFlow.openFile({
-            kind: 'pdf',
-            originalPath: requireDocumentRef('/documents/replacement.pdf'),
-            workingPath: requireDocumentRef('/tmp/replacement-working.pdf'),
-            openingGeometry: {
-                pageNumber: requirePageNumber(1),
-                pageCount: 1,
-                width: 612,
-                height: 792,
-                rotation: 0,
-                size: PDF_BYTES.byteLength,
-                modifiedAt: requireEpochMs(2),
-                linearized: true,
-            },
-        })).resolves.toMatchObject({status: 'opened'});
-
-        expect(terminate).toHaveBeenCalledOnce();
-        expect(openSurface.snapshot.value.openingPageFrame?.preview).toBeUndefined();
-        expect(state.pdfOpeningSrc.value).toBeNull();
-        firstValidation.resolve({
-            isValid: true,
-            tool: 'qpdf',
-            errors: [],
-            warnings: [],
-        });
-        await expect(firstOpen).resolves.toMatchObject({status: 'stale'});
-        expect(terminate).toHaveBeenCalledOnce();
-    });
-
     it('reuses successful validation only for the same immutable source revision', async () => {
         const {openFlow} = createOpenFlowHarness();
         const result = {
             kind: 'pdf' as const,
             originalPath: requireDocumentRef('/documents/reopened.pdf'),
             workingPath: requireDocumentRef('/tmp/reopened-working.pdf'),
-            openingGeometry: {
-                pageNumber: requirePageNumber(1),
-                pageCount: 10,
-                width: 612,
-                height: 792,
-                rotation: 0 as const,
-                size: PDF_BYTES.byteLength,
-                modifiedAt: requireEpochMs(100),
-            },
         };
+        let sourceModifiedAt = 100;
+        mocks.documentFiles.statFile.mockImplementation(async (path: string) => path === result.originalPath
+            ? {
+                size: PDF_BYTES.byteLength,
+                modifiedAt: requireEpochMs(sourceModifiedAt),
+            }
+            : {size: PDF_BYTES.byteLength});
 
         await expect(openFlow.openFile(result)).resolves.toMatchObject({status: 'opened'});
         await expect(openFlow.openFile(result)).resolves.toMatchObject({status: 'opened'});
-        await expect(openFlow.openFile({
-            ...result,
-            openingGeometry: {
-                ...result.openingGeometry,
-                modifiedAt: requireEpochMs(101),
-            },
-        })).resolves.toMatchObject({status: 'opened'});
+        sourceModifiedAt = 101;
+        await expect(openFlow.openFile(result)).resolves.toMatchObject({status: 'opened'});
 
         expect(mocks.documentPdf.validatePdfPath).toHaveBeenCalledTimes(2);
     });
@@ -1519,228 +846,40 @@ describe('createDocumentOpenFlow', () => {
         expect(deps.cleanupPreviousWorkingCopy).toHaveBeenCalledWith('/tmp/first-working.pdf', '/tmp/second-working.pdf');
     });
 
-    it('caches concurrent geometry without replacing an already-committed canvas', async () => {
-        const originalPath = requireDocumentRef('/documents/concurrent.pdf');
-        const workingPath = requireDocumentRef('/tmp/concurrent-working.pdf');
+    it('sizes the opening skeleton from native geometry on a constrained profile', async () => {
+        mocks.performanceProfile.lowCpu = true;
+        const originalPath = requireDocumentRef('/documents/constrained.pdf');
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: originalPath,
             documentRevision: 'open-intent:1',
         });
-        const geometryGate = Promise.withResolvers<IPdfOpeningGeometry>();
-        const statGate = Promise.withResolvers<{size: number}>();
-        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometryGate.promise);
-        mocks.documentFiles.statFile.mockImplementation((path: string) => path === originalPath
-            ? Promise.resolve({
-                size: 4_096,
-                modifiedAt: 2_000,
-            })
-            : statGate.promise);
+        const geometry = Promise.withResolvers<unknown>();
+        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometry.promise);
         const { openFlow } = createOpenFlowHarness({openSurface});
-        const result = {
-            kind: 'pdf' as const,
+
+        const opening = openFlow.openFile({
+            kind: 'pdf',
             originalPath,
-            workingPath,
-        };
-
-        const open = openFlow.openFile(result);
-        await vi.waitFor(() => {
-            expect(mocks.documentFiles.getPdfOpeningGeometry).toHaveBeenCalledWith(workingPath);
-            expect(mocks.documentFiles.statFile).toHaveBeenCalledWith(workingPath);
+            workingPath: requireDocumentRef('/tmp/constrained-working.pdf'),
         });
-
-        statGate.resolve({size: PDF_BYTES.byteLength});
-        await expect(open).resolves.toMatchObject({status: 'opened'});
-
-        const generation = openSurface.snapshot.value.generation;
-        expect(openSurface.commitOpeningPageGeometry(generation, {
-            documentId: originalPath,
-            pageNumber: requirePageNumber(1),
-            pageCount: 8,
-            width: 612,
-            height: 792,
-            rotation: 0,
-        })).toBe(true);
-        expect(openSurface.commitGeometry(generation, {
-            width: 612,
-            height: 792,
-            margin: 16,
-        })).toBe(true);
-        const renderFence = openSurface.createRenderFence({
-            generation,
-            documentRevision: 'open-intent:1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: requirePageNumber(1),
-        });
-        expect(renderFence).not.toBeNull();
-        if (!renderFence) {
-            throw new Error('Expected a render fence for the committed opening canvas');
-        }
-        expect(openSurface.commitCanvas(renderFence)).toBe(true);
-        const committedRender = openSurface.snapshot.value.committedRender;
-
-        geometryGate.resolve({
-            pageNumber: requirePageNumber(1),
-            pageCount: 8,
-            width: 640,
-            height: 900,
-            rotation: 0,
-            size: PDF_BYTES.byteLength,
-            modifiedAt: requireEpochMs(9_000),
-        });
-        await vi.waitFor(() => {
-            expect(readPrevalidatedTrustedPdfOpenGeometry(originalPath, requirePageNumber(1))).toMatchObject({
-                size: 4_096,
-                modifiedAt: 2_000,
-                width: 640,
-                height: 900,
-            });
-        });
-        expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
-            documentId: originalPath,
-            pageCount: 8,
-            width: 612,
-            height: 792,
-        });
-        expect(openSurface.snapshot.value.committedRender).toBe(committedRender);
-        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
-    });
-
-    it('commits validated cached geometry before source loading settles', async () => {
-        const originalPath = requireDocumentRef('/documents/cached.pdf');
-        const workingPath = requireDocumentRef('/tmp/cached-working.pdf');
-        const cachedGeometry = {
-            documentId: originalPath,
+        geometry.resolve({
             pageNumber: requirePageNumber(1),
             pageCount: 12,
             width: 612,
             height: 792,
             rotation: 0,
-            size: 1_000,
-            modifiedAt: 2_000,
-            savedAt: 3_000,
-        };
-        rememberValidatedTrustedPdfOpenGeometry(cachedGeometry);
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
+            widestPageWidth: 792,
+            size: PDF_BYTES.byteLength,
+            modifiedAt: requireEpochMs(1),
+        });
+
+        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
             documentId: originalPath,
-            documentRevision: 'open-intent:1',
-        });
-        const statGate = Promise.withResolvers<{size: number}>();
-        mocks.documentFiles.statFile.mockReturnValue(statGate.promise);
-        const { openFlow } = createOpenFlowHarness({openSurface});
-
-        const open = openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath,
-        });
-
-        expect(openSurface.snapshot.value.openingPageGeometry).toEqual(cachedGeometry);
-        statGate.resolve({size: PDF_BYTES.byteLength});
-        await expect(open).resolves.toMatchObject({status: 'opened'});
-        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
+            pageCount: 12,
+            widestPageWidth: 792,
+        }));
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
     });
 
-    it('makes a constrained cold open without geometry IPC', async () => {
-        mocks.performanceProfile.lowCpu = true;
-        const originalPath = requireDocumentRef('/documents/constrained.pdf');
-        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'open-intent:1',
-        });
-        const { openFlow } = createOpenFlowHarness({openSurface});
-
-        await expect(openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath: requireDocumentRef('/tmp/constrained-working.pdf'),
-        })).resolves.toMatchObject({status: 'opened'});
-
-        expect(mocks.documentFiles.getPdfOpeningGeometry).not.toHaveBeenCalled();
-        expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
-    });
-
-    it('keeps validated cache-only geometry available on constrained opens', async () => {
-        mocks.performanceProfile.lowMemory = true;
-        const originalPath = requireDocumentRef('/documents/constrained-cached.pdf');
-        const cachedGeometry = {
-            documentId: originalPath,
-            pageNumber: requirePageNumber(1),
-            pageCount: 42,
-            width: 612,
-            height: 792,
-            rotation: 0,
-            size: 4_096,
-            modifiedAt: 2_000,
-            savedAt: 3_000,
-        };
-        rememberValidatedTrustedPdfOpenGeometry(cachedGeometry);
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'open-intent:1',
-        });
-        const { openFlow } = createOpenFlowHarness({openSurface});
-
-        await expect(openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath: requireDocumentRef('/tmp/constrained-cached-working.pdf'),
-        })).resolves.toMatchObject({status: 'opened'});
-
-        expect(mocks.documentFiles.getPdfOpeningGeometry).not.toHaveBeenCalled();
-        expect(openSurface.snapshot.value.openingPageGeometry).toEqual(cachedGeometry);
-        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
-    });
-
-    it('caches geometry that resolves after its open surface was superseded', async () => {
-        const originalPath = requireDocumentRef('/documents/late.pdf');
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'open-intent:1',
-        });
-        const geometryGate = Promise.withResolvers<IPdfOpeningGeometry>();
-        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometryGate.promise);
-        mocks.documentFiles.statFile.mockImplementation(async (path: string) => path === originalPath
-            ? {
-                size: 5_000,
-                modifiedAt: 6_000,
-            }
-            : {size: PDF_BYTES.byteLength});
-        const { openFlow } = createOpenFlowHarness({openSurface});
-
-        await expect(openFlow.openFile({
-            kind: 'pdf',
-            originalPath,
-            workingPath: requireDocumentRef('/tmp/late-working.pdf'),
-        })).resolves.toMatchObject({status: 'opened'});
-        const supersededGeneration = openSurface.begin({
-            documentId: originalPath,
-            documentRevision: 'late-replacement',
-        });
-        expect(supersededGeneration).toBeGreaterThan(0);
-
-        geometryGate.resolve({
-            pageNumber: requirePageNumber(1),
-            pageCount: 5,
-            width: 620,
-            height: 880,
-            rotation: 0,
-            size: 5_000,
-            modifiedAt: requireEpochMs(6_000),
-        });
-        await vi.waitFor(() => {
-            expect(readPrevalidatedTrustedPdfOpenGeometry(originalPath, requirePageNumber(1))).toMatchObject({
-                width: 620,
-                height: 880,
-            });
-        });
-        expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
-        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
-    });
 });

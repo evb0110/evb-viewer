@@ -53,7 +53,7 @@ Product scope fixed with the decision: prompt for a user password on open;
 save unencrypted with a one-time notice; images from file picker and
 clipboard are the only stamps; replies on foreign notes are shown and
 preserved, not authored; undo covers annotations only; forms stay
-display-only; the poppler opening preview is untouched. Cutover is a single
+display-only. Cutover is a single
 replacement on `main` without a feature flag; the app is in alpha and
 breakage during the effort is accepted.
 

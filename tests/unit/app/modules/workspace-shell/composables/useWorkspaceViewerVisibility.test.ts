@@ -87,7 +87,6 @@ function createVisibility(driver: IWorkspaceDocumentDriver) {
         isHistoryBusy: ref(false),
         isOcrRunning: ref(false),
         isRestoringSplitPayload: ref(false),
-        openingPreviewReady: ref(false),
         pendingDocumentOpen: ref(false),
         showSidebar: ref(true),
     });

@@ -330,8 +330,8 @@ async function validatePdfFileWithPageCount(
 }
 
 // Opening authorization is layered. qpdf proves that the page tree is readable,
-// then PDF.js must pass its render and viewport fences before the native preview
-// retires. This same structural check is the save boundary after the mutation
+// then PDF.js must pass its render and viewport fences before the document is
+// presented. This same structural check is the save boundary after the mutation
 // owner has already performed the expensive full validation.
 export function validatePdfFileForOpening(
     filePath: string,

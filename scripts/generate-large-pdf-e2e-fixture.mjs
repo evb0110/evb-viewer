@@ -53,7 +53,7 @@ export async function generateLargePdfE2eFixture({
             x: 54,
             y: 720,
         });
-        page.drawText('This fixture is sparse-padded so CI can exercise the native-preview threshold without storing a binary.', {
+        page.drawText('This fixture is sparse-padded so CI can exercise a half-gibibyte file without storing a binary.', {
             font,
             size: 9,
             x: 54,

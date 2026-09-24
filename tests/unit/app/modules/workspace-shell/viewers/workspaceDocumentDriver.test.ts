@@ -19,7 +19,6 @@ import {
 } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
     createDocumentSessionState,
     createWorkspaceDocumentDriverForAdapter,
@@ -97,8 +96,6 @@ function createBindingHarness() {
     const onPageSourceUpdate = vi.fn();
     const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
-    const pdfOpeningSrc = ref<TPdfSource | null>(null);
-    const pdfOpeningRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const fallbacks = new Map<PropertyKey, unknown>();
     const options = new Proxy({
@@ -118,8 +115,6 @@ function createBindingHarness() {
             path: requireDocumentRef('/tmp/source.pdf'),
             size: 1,
         }),
-        pdfOpeningSrc,
-        pdfOpeningRevisionToken,
         documentRevisionToken,
         pdfViewerRef,
         workingCopyPath: sources.workingCopyPath,
@@ -147,8 +142,6 @@ function createBindingHarness() {
         onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
         pdfViewerRef,
-        pdfOpeningSrc,
-        pdfOpeningRevisionToken,
     };
 }
 
@@ -165,28 +158,6 @@ describe('WorkspaceDocumentDriver', () => {
         );
 
         expect(state.fileName.value).toBe('Haspelmath_Sims (2010) - Understanding Morphology.pdf');
-    });
-
-    it('keeps oversized pending PDFs on the PDF.js driver', () => {
-        const oversized = selectPendingDocument(
-            '/managed/document.pdf',
-            PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
-        ).activeDocumentDriver.value;
-        expect(oversized).toMatchObject({
-            id: 'pdfjs',
-            capabilities: {
-                save: true,
-                sidebar: true,
-            },
-        });
-        expect(selectPendingDocument(
-            '/managed/document.pdf',
-            PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES - 1,
-        ).activeDocumentDriver.value?.id).toBe('pdfjs');
-        expect(selectPendingDocument(
-            '/managed/document.pdf',
-            null,
-        ).activeDocumentDriver.value?.id).toBe('pdfjs');
     });
 
     it('selects DjVu source behavior and returns typed unavailable commands for PDF.js', async () => {
@@ -449,23 +420,6 @@ describe('WorkspaceDocumentDriver', () => {
         });
     });
 
-    it('feeds an unvalidated opening source only to PDF.js with its fenced revision and path', () => {
-        const harness = createBindingHarness();
-        const revision = 'working-copy:opening' as TDocumentRevisionToken;
-        harness.pdfOpeningRevisionToken.value = revision;
-        harness.pdfOpeningSrc.value = {
-            kind: 'path',
-            path: requireDocumentRef('/tmp/staged-dictionary.pdf'),
-            size: 170_496_793,
-        };
-
-        expect(harness.binding.activeViewerProps.value).toMatchObject({
-            src: harness.pdfOpeningSrc.value,
-            documentRevisionToken: revision,
-            workingCopyPath: '/tmp/staged-dictionary.pdf',
-        });
-        expect(harness.activeDocumentDriver.value.id).toBe('pdfjs');
-    });
     it('routes annotation inventory completeness only from the pdf.js driver', () => {
         const harness = createBindingHarness();
         expect(harness.binding.activeViewerListeners.value.annotationInventory)

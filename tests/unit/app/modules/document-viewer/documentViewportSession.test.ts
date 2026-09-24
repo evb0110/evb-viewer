@@ -74,17 +74,19 @@ class SessionHarness {
         return result;
     }
 
-    openPrepared(pageNumber = 1, pageCount = 10) {
-        return this.dispatch({
+    openWithMetadata(pageNumber = 1, pageCount = 10) {
+        const result = this.dispatch({
             type: 'open-requested',
             identity,
             viewportIntentId: 'open-intent',
-            preparedPage: {
-                pageNumber,
-                pageCount,
-                frameKey: `frame-${pageNumber}`,
-            },
+            initialPage: pageNumber,
         });
+        this.dispatch({
+            type: 'metadata-ready',
+            generation: this.state.generation,
+            pageCount,
+        });
+        return result;
     }
 
     settleCurrentPage() {
@@ -122,7 +124,6 @@ describe('DocumentViewportSession', () => {
                 generation: 0,
                 pageNumber: 1,
                 presentation: 'cold-shell',
-                frameKey: null,
                 error: null,
             },
         });
@@ -153,21 +154,6 @@ describe('DocumentViewportSession', () => {
         });
         expect(result.effects).toEqual([]);
         expect(assertDocumentViewportSessionInvariants(harness.state)).toBe(harness.state);
-    });
-
-    it('starts a prepared open without a second placeholder and requests its known page', () => {
-        const harness = new SessionHarness();
-        const result = harness.openPrepared(3, 12);
-
-        expect(harness.state.visual).toEqual({
-            kind: 'page',
-            generation: 1,
-            pageNumber: 3,
-            presentation: 'prepared-shell',
-            frameKey: 'frame-3',
-            error: null,
-        });
-        expect(result.effects).toEqual([]);
     });
 
     it('accepts rapid pre-metadata navigation, keeps only latest intent, and clamps on metadata', () => {
@@ -238,7 +224,7 @@ describe('DocumentViewportSession', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1_000);
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         harness.settleCurrentPage();
         harness.dispatch({
             type: 'navigation-requested',
@@ -291,7 +277,7 @@ describe('DocumentViewportSession', () => {
 
     it('keeps the target not-ready until both canvas and viewport commit', () => {
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         harness.settleCurrentPage();
         harness.dispatch({
             type: 'navigation-requested',
@@ -332,7 +318,7 @@ describe('DocumentViewportSession', () => {
 
     it('commits same-page ready refinements without leaving an unmatched staged fence', () => {
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         harness.settleCurrentPage();
         const previousRender = harness.state.committedRenderFence;
         const refinementRender = renderFence(harness.state, {
@@ -366,7 +352,7 @@ describe('DocumentViewportSession', () => {
 
     it('separates settled page observation from commands and lets user scroll supersede navigation', () => {
         const harness = new SessionHarness();
-        harness.openPrepared(1, 20);
+        harness.openWithMetadata(1, 20);
         harness.settleCurrentPage();
 
         expect(harness.dispatch({
@@ -434,9 +420,9 @@ describe('DocumentViewportSession', () => {
         });
     });
 
-    it('replaces the committed document with the replacement exact shell immediately', () => {
+    it('replaces the committed document with the replacement shell immediately', () => {
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         harness.settleCurrentPage();
 
         harness.dispatch({
@@ -446,16 +432,12 @@ describe('DocumentViewportSession', () => {
                 revision: 'replacement-revision',
             },
             viewportIntentId: 'replacement-intent',
-            preparedPage: {
-                pageNumber: 3,
-                pageCount: 7,
-                frameKey: 'replacement-frame',
-            },
+            initialPage: 3,
         });
 
         expect(harness.state.visual).toMatchObject({
             kind: 'page',
-            presentation: 'prepared-shell',
+            presentation: 'cold-shell',
             pageNumber: 3,
         });
         expect(harness.state.lifecycle).toBe('opening');
@@ -465,7 +447,7 @@ describe('DocumentViewportSession', () => {
         vi.useFakeTimers();
         vi.setSystemTime(2_000);
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         harness.settleCurrentPage();
         harness.dispatch({
             type: 'navigation-requested',
@@ -535,7 +517,7 @@ describe('DocumentViewportSession', () => {
 
     it('rejects stale generation, render, revision, page, and viewport-intent commits', () => {
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         const activeRender = renderFence(harness.state);
         harness.dispatch({
             type: 'render-started',
@@ -581,7 +563,7 @@ describe('DocumentViewportSession', () => {
 
     it('supersedes old generation commits when another document opens', () => {
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         const staleRender = renderFence(harness.state);
         harness.dispatch({
             type: 'render-started',
@@ -594,11 +576,6 @@ describe('DocumentViewportSession', () => {
                 revision: 'revision-b',
             },
             viewportIntentId: 'replacement-open',
-            preparedPage: {
-                pageNumber: 1,
-                pageCount: 3,
-                frameKey: 'replacement-frame',
-            },
         });
 
         expect(replacement.effects).toEqual([]);
@@ -612,7 +589,7 @@ describe('DocumentViewportSession', () => {
 
     it('closes to an atomically empty, recent-open-ready session and fences late work', () => {
         const harness = new SessionHarness();
-        harness.openPrepared();
+        harness.openWithMetadata();
         harness.settleCurrentPage();
         expect(harness.dispatch({
             type: 'page-observed',

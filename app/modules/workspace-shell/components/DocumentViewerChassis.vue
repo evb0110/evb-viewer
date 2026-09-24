@@ -7,8 +7,6 @@
         :data-open-surface-document-revision="chassisAuthority.openSurface.snapshot.value.identity?.documentRevision ?? ''"
         :data-open-surface-has-opening-geometry="chassisAuthority.openSurface.snapshot.value.openingPageGeometry !== null"
         :data-open-surface-has-opening-frame="chassisAuthority.openSurface.snapshot.value.openingPageFrame !== null"
-        :data-native-opening-preview-state="chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewState ?? 'inactive'"
-        :data-native-opening-preview-staged="chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewStaged === true"
         :data-open-surface-opening-frame-page="chassisAuthority.openSurface.snapshot.value.openingPageFrame?.pageNumber ?? ''"
         :data-open-surface-opening-frame-owner="chassisAuthority.openSurface.snapshot.value.openingPageFrame?.ownerId ?? ''"
         :data-open-surface-has-geometry="chassisAuthority.openSurface.snapshot.value.geometry !== null"
@@ -51,21 +49,7 @@
             @selectstart="chassisAuthority.dispatchViewportEvent('selectstart', $event)"
         >
             <div
-                v-if="shouldShowChassisNativePreviewLoadingOverlay"
-                class="document-viewer-chassis__opening-layer document-viewer-chassis__opening-layer--loading"
-                data-testid="document-opening-native-preview-loading"
-            >
-                <AppLoaderOverlay
-                    :label="t('status.preparingDocument')"
-                    background="muted"
-                    size="md"
-                />
-            </div>
-            <div
-                v-if="chassisOpeningPageShell
-                    && shouldRenderChassisOpeningPageShell
-                    && (chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview
-                        || shouldShowChassisOpeningPageSkeleton)"
+                v-if="chassisOpeningPageShell && shouldShowChassisOpeningPageSkeleton"
                 class="document-viewer-chassis__opening-layer"
             >
                 <section
@@ -81,18 +65,7 @@
                     :data-page-source-visual="chassisAuthority.openingPageVisual.value"
                     data-testid="document-page-source-page"
                 >
-                    <img
-                        v-if="chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview"
-                        class="document-viewer-chassis__opening-preview"
-                        :src="chassisAuthority.openSurface.snapshot.value.openingPageFrame.preview.objectUrl"
-                        alt=""
-                        aria-hidden="true"
-                        data-testid="document-opening-native-preview"
-                    >
-                    <DocumentPageSkeleton
-                        v-else-if="shouldShowChassisOpeningPageSkeleton"
-                        :content-height="chassisOpeningPageShell.height"
-                    />
+                    <DocumentPageSkeleton :content-height="chassisOpeningPageShell.height" />
                 </section>
             </div>
             <component
@@ -114,7 +87,6 @@ import type {
     Component,
     ComponentPublicInstance,
 } from 'vue';
-import { requirePageNumber } from '@contracts/pageNumbers';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 import {
@@ -136,18 +108,10 @@ import type {
     IDocumentViewportResizeAnchor,
     IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
-import type { TPdfSource } from '@app/types/pdfUi';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
-import AppLoaderOverlay from '@app/components/AppLoaderOverlay.vue';
 import DocumentViewerFlingBackdrop from '@app/modules/workspace-shell/components/DocumentViewerFlingBackdrop.vue';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
-import {
-    createPdfPageNavigationRequest,
-    readPrevalidatedTrustedPdfOpenGeometry,
-    shouldDeferNativePdfOpeningSkeleton,
-} from '@app/modules/pdf-viewer/public';
+import { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
@@ -170,7 +134,6 @@ const emit = defineEmits<{
 }>();
 const sourceKind = toRef(props, 'sourceKind');
 const attrs = useAttrs();
-const { t } = useTypedI18n();
 
 const PdfFeaturePack = defineAsyncComponent(
     () => workspaceViewerFeatureChunkLoaders.pdfjs()
@@ -376,6 +339,7 @@ const openingPageFrameAuthority = createDocumentOpeningPageFrame({
             'fit-width',
             'fit-height',
         ] as const, 'fit-width'),
+        continuousScroll: attrs.continuousScroll !== false,
     }),
     readViewportSize: readOpeningViewportSize,
 });
@@ -466,9 +430,7 @@ const chassisOpeningPageShell = computed(() => {
         return null;
     }
     const currentPage = chassisAuthority.currentPage.value;
-    const hasStaleNonPreviewFrame = frame !== null
-        && frame.pageNumber !== currentPage
-        && frame.preview === undefined;
+    const hasStaleFrame = frame !== null && frame.pageNumber !== currentPage;
     const viewport = readOpeningViewportSize();
     const provisionalWidth = viewport.width > 40 ? viewport.width - 40 : 612;
     const provisionalStyle = {
@@ -494,7 +456,7 @@ const chassisOpeningPageShell = computed(() => {
     // viewport is still opening. Keep one host-owned skeleton in that gap,
     // but do not reuse page 1's dimensions for the requested page.
     const style = liveFrame?.style ?? (
-        hasStaleNonPreviewFrame ? provisionalStyle : frame?.style ?? provisionalStyle
+        hasStaleFrame ? provisionalStyle : frame?.style ?? provisionalStyle
     );
     const liveWidth = Number.parseFloat(style.width);
     const liveHeight = Number.parseFloat(style.height);
@@ -512,8 +474,8 @@ const chassisOpeningPageShell = computed(() => {
         height: liveHeight,
         id: resolveDocumentOpeningPageShellId(chassisAuthority.instanceId, snapshot.generation),
         isPdf,
-        ownerId: frame?.preview ? frame.ownerId : frame?.ownerId ?? 'chassis-provisional',
-        pageNumber: frame?.preview ? frame.pageNumber : currentPage,
+        ownerId: frame?.ownerId ?? 'chassis-provisional',
+        pageNumber: currentPage,
         provisional: frame === null,
         style: {
             ...style,
@@ -522,92 +484,7 @@ const chassisOpeningPageShell = computed(() => {
         },
     };
 });
-// A large path-backed PDF is opened through the native preview lane. Its
-// document-wide Fit Width is not knowable from page 1, so keep PDF.js's
-// page-local provisional shell hidden while that lane loads its page table.
-// Keep the page-local shell hidden while that lane is waiting for its complete
-// page table. Once the native table is settled, the same frame authority has
-// the document-wide Fit Width and the page-shaped skeleton can reappear until
-// the preview image commits.
-const shouldDeferLargePdfOpeningSkeleton = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    const isOpening = snapshot.phase === 'pending'
-        || snapshot.phase === 'geometry-committed'
-        || snapshot.phase === 'canvas-committed'
-        || snapshot.phase === 'viewport-committed';
-    return shouldDeferNativePdfOpeningSkeleton({
-        declaredSize: snapshot.declaredSourceSize,
-        documentId: snapshot.identity?.documentId,
-        geometry: snapshot.openingPageGeometry,
-        isOpening,
-        nativeOpeningPreviewState: snapshot.nativeOpeningPreviewState ?? 'inactive',
-        ...(snapshot.nativeOpeningPreviewStaged === undefined
-            ? {}
-            : {nativeOpeningPreviewStaged: snapshot.nativeOpeningPreviewStaged}),
-        rendererKind: rendererKind.value,
-        source: attrs.src as TPdfSource | null | undefined,
-        sourceKind: sourceKind.value,
-    });
-});
-// The native lane can intentionally release ownership on BGK's low-CPU path
-// without having supplied a document-wide page table. Until PDF.js reports
-// complete geometry, keep its provisional page-1 shell behind the loader.
-const shouldHoldLargePdfOpeningShellUntilGeometry = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    if (snapshot.openingPageFrame !== null) {
-        return false;
-    }
-    const isOpening = snapshot.phase === 'pending'
-        || snapshot.phase === 'geometry-committed'
-        || snapshot.phase === 'canvas-committed'
-        || snapshot.phase === 'viewport-committed';
-    return shouldDeferNativePdfOpeningSkeleton({
-        declaredSize: snapshot.declaredSourceSize,
-        documentId: snapshot.identity?.documentId,
-        geometry: snapshot.openingPageGeometry,
-        isOpening,
-        nativeOpeningPreviewState: snapshot.nativeOpeningPreviewState ?? 'inactive',
-        rendererKind: rendererKind.value,
-        source: attrs.src as TPdfSource | null | undefined,
-        sourceKind: sourceKind.value,
-    });
-});
-const snapshotNativeOpeningPreviewState = computed(() => (
-    chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewState ?? 'inactive'
-));
-const shouldShowChassisNativePreviewLoadingOverlay = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    const nativePreviewTablePending = snapshot.nativeOpeningPreviewState === undefined
-        || snapshot.nativeOpeningPreviewState === 'inactive'
-        || snapshot.nativeOpeningPreviewState === 'loading';
-    return (shouldDeferLargePdfOpeningSkeleton.value || shouldHoldLargePdfOpeningShellUntilGeometry.value)
-        && nativePreviewTablePending
-        && snapshot.openingPageFrame?.preview === undefined;
-});
-const shouldShowChassisOpeningPageSkeleton = computed(() => {
-    const viewportSession = chassisAuthority.openSurface.viewportSession.value;
-    const navigationTicket = chassisAuthority.navigationTicket.value;
-    // The observed page adopts the target before its canvas commits, so a
-    // pending non-opening ticket also marks the target as queued. Otherwise the
-    // deferred large-PDF lane hides the only owner and the viewport is blank.
-    const hasQueuedNavigationTarget = viewportSession.requestedPage
-        !== chassisAuthority.currentPage.value
-        || navigationTicket !== null && navigationTicket.request.source !== 'restore';
-    return (
-        snapshotNativeOpeningPreviewState.value !== 'failed'
-        && (
-            snapshotNativeOpeningPreviewState.value === 'settled'
-            || !shouldDeferLargePdfOpeningSkeleton.value
-            || hasQueuedNavigationTarget
-        )
-        && (
-            !shouldHoldLargePdfOpeningShellUntilGeometry.value
-            || hasQueuedNavigationTarget
-        )
-        && chassisAuthority.openingPageVisual.value !== 'fresh'
-    );
-});
-const shouldRenderChassisOpeningPageShell = computed(() => chassisOpeningPageShell.value !== null);
+const shouldShowChassisOpeningPageSkeleton = computed(() => chassisAuthority.openingPageVisual.value !== 'fresh');
 
 watch(
     [
@@ -615,17 +492,15 @@ watch(
         () => chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? '',
         () => chassisAuthority.openSurface.snapshot.value.phase,
         () => chassisAuthority.openSurface.snapshot.value.openingPageGeometry,
-        () => chassisAuthority.openSurface.snapshot.value.openingPageFrame?.preview?.pageNumber ?? null,
-        () => chassisAuthority.openSurface.snapshot.value.nativeOpeningPreviewState ?? 'inactive',
         () => attrs.fitMode,
         () => attrs.viewMode,
         () => attrs.zoom,
         () => attrs.zoomMode,
+        () => attrs.continuousScroll,
         () => rendererKind.value,
         // Frame preparation needs a measurable viewport. When geometry is already
-        // known before this chassis lays out — a preflighted native-preview open
-        // resolves it during setup — the first attempt has nothing to measure, so
-        // the layout revision is the retry signal that lands the frame.
+        // known before this chassis lays out, the first attempt has nothing to
+        // measure, so the layout revision is the retry signal that lands the frame.
         () => openingFrameLayoutRevision.value,
     ],
     ([
@@ -633,7 +508,6 @@ watch(
         documentId,
         phase,
     ]) => {
-        const snapshot = chassisAuthority.openSurface.snapshot.value;
         if (
             ![
                 'pending',
@@ -644,45 +518,6 @@ watch(
             || !documentId
         ) {
             return;
-        }
-        // A cached page-1 metric is not a document-wide Fit Width for a large
-        // continuous PDF. Do not turn that cache hit into a visible chassis
-        // frame on the ordinary low-CPU path. The native preview stage may
-        // still ask for a provisional hidden frame after it claims `loading`;
-        // its complete page table reconciles that frame before it is shown.
-        const nativePreviewState = snapshot.nativeOpeningPreviewState ?? 'inactive';
-        // Once the native lane has reconciled the complete page table, its
-        // frame is already document-wide Fit Width. A later layout-revision
-        // notification must not replace it with the page-1 draft.
-        if (
-            nativePreviewState === 'settled'
-            && snapshot.nativeOpeningPreviewStaged === true
-        ) {
-            return;
-        }
-        if (
-            shouldHoldLargePdfOpeningShellUntilGeometry.value
-            && nativePreviewState !== 'loading'
-        ) {
-            return;
-        }
-        if (snapshot.openingPageGeometry === null) {
-            if (phase !== 'pending') {
-                return;
-            }
-            const geometry = rendererKind.value === 'page-source'
-                ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value, null)
-                : readPrevalidatedTrustedPdfOpenGeometry(
-                    documentId,
-                    requirePageNumber(chassisAuthority.currentPage.value),
-                );
-            if (
-                !geometry
-                || geometry.pageNumber !== chassisAuthority.currentPage.value
-                || !chassisAuthority.openSurface.commitOpeningPageGeometry(generation, geometry)
-            ) {
-                return;
-            }
         }
         if (
             chassisAuthority.openSurface.snapshot.value.openingPageGeometry?.pageNumber
@@ -877,13 +712,6 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     box-shadow: var(--app-document-page-shadow);
 }
 
-.document-viewer-chassis__opening-preview {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-}
-
 /* The opening shell is the sole visible page-frame owner until commit. The
    renderer still mounts underneath so it can prepare pixels, but its matching
    shadow must not composite through the opening shell's translucent shadow. */
@@ -901,13 +729,6 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
     height: 0;
     overflow: visible;
     pointer-events: none;
-}
-
-.document-viewer-chassis__opening-layer--loading {
-    position: absolute;
-    inset: 0;
-    height: 100%;
-    background: var(--app-document-viewer-bg);
 }
 
 </style>

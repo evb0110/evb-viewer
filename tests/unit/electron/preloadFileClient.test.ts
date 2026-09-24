@@ -41,7 +41,6 @@ import {waitForCondition} from '@tests/unit/electron/waitForCondition';
 const invalidDocumentRef = 'relative.pdf' as TDocumentRef;
 const invalidPageNumber = 0 as TPageNumber;
 const invalidEmptyRequestId = '' as TRequestId;
-const invalidWhitespaceRequestId = '   ' as TRequestId;
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -599,25 +598,35 @@ describe('createDocumentsPreloadFileClient', () => {
         );
     });
 
-    it('invokes native PDF preview metadata, cancel, and render channels with validated inputs', async () => {
+    it('invokes native PDF metadata channels with validated inputs', async () => {
         const openingGeometry = {
             pageNumber: 1 as const,
             pageCount: 431,
             width: 612,
             height: 792,
             rotation: 0 as const,
+            widestPageWidth: 792,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         };
-        const pageSizes = [{
-            width: 612,
-            height: 792,
-        }];
-        const cancelResult = { canceled: true };
-        const preview = {
-            bytes: new Uint8Array([1]),
-            width: 900,
-            height: 1200,
+        const exactOptions = {
+            mode: 'exact' as const,
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:huge'),
+        };
+        const pageSizes = {
+            kind: 'exact' as const,
+            documentRef: '/tmp/huge.pdf',
+            documentRevisionToken: 'drt1:huge',
+            pageCount: 1,
+            pages: [{
+                pageNumber: 1,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0 as const,
+                userUnit: 1,
+            }],
         };
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string) => {
@@ -627,12 +636,6 @@ describe('createDocumentsPreloadFileClient', () => {
                 if (channel === DOCUMENTS_CHANNELS.pdfNativePageSizes) {
                     return pageSizes;
                 }
-                if (channel === DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel) {
-                    return cancelResult;
-                }
-                if (channel === DOCUMENTS_CHANNELS.pdfNativePagePreview) {
-                    return preview;
-                }
                 throw new Error(`Unexpected invoke: ${channel}`);
             }),
             send: vi.fn(),
@@ -641,16 +644,8 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.getPdfOpeningGeometry?.(requireDocumentRef('/tmp/huge.pdf'))).resolves.toStrictEqual(openingGeometry);
-        await expect(client.getPdfNativePageSizes?.(requireDocumentRef('/tmp/huge.pdf'))).resolves.toStrictEqual(pageSizes);
-        await expect(client.cancelPdfNativePagePreview?.(requireRequestId(' preview-1 '))).resolves.toEqual(cancelResult);
-        await expect(client.renderPdfNativePagePreview?.(
-            requireDocumentRef('/tmp/huge.pdf'),
-            requirePageNumber(3),
-            {
-                targetWidthPx: 900.8,
-                previewRequestId: requireRequestId(' preview-2 '),
-            },
-        )).resolves.toStrictEqual(preview);
+        await expect(client.getPdfNativePageSizes?.(requireDocumentRef('/tmp/huge.pdf'), exactOptions))
+            .resolves.toStrictEqual(pageSizes);
 
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfOpeningGeometry,
@@ -660,25 +655,12 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfNativePageSizes,
             '/tmp/huge.pdf',
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
-        );
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.pdfNativePagePreviewCancel,
-            'preview-1',
-        );
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.pdfNativePagePreview,
-            '/tmp/huge.pdf',
-            3,
-            {
-                targetWidthPx: 900,
-                previewRequestId: 'preview-2',
-            },
+            exactOptions,
             {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
         );
     });
 
-    it('rejects invalid native PDF preview requests before invoking IPC', () => {
+    it('rejects invalid native PDF metadata requests before invoking IPC', () => {
         const ipcRenderer = {
             invoke: vi.fn(),
             send: vi.fn(),
@@ -688,22 +670,11 @@ describe('createDocumentsPreloadFileClient', () => {
 
         expect(() => client.getPdfOpeningGeometry?.(invalidDocumentRef))
             .toThrow('getPdfOpeningGeometry.path must be an absolute path');
-        expect(() => client.getPdfNativePageSizes?.(invalidDocumentRef))
+        expect(() => client.getPdfNativePageSizes?.(invalidDocumentRef, {
+            mode: 'exact',
+            expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:huge'),
+        }))
             .toThrow('getPdfNativePageSizes.path must be an absolute path');
-        expect(() => client.renderPdfNativePagePreview?.(requireDocumentRef('/tmp/huge.pdf'), invalidPageNumber))
-            .toThrow('renderPdfNativePagePreview.pageNumber must be a positive integer');
-        expect(() => client.renderPdfNativePagePreview?.(
-            requireDocumentRef('/tmp/huge.pdf'),
-            requirePageNumber(1),
-            { targetWidthPx: Number.POSITIVE_INFINITY },
-        )).toThrow('renderPdfNativePagePreview.options.targetWidthPx must be a positive finite number');
-        expect(() => client.renderPdfNativePagePreview?.(
-            requireDocumentRef('/tmp/huge.pdf'),
-            requirePageNumber(1),
-            { previewRequestId: invalidWhitespaceRequestId },
-        )).toThrow('renderPdfNativePagePreview.options.previewRequestId must be a non-empty string');
-        expect(() => client.cancelPdfNativePagePreview?.(invalidEmptyRequestId))
-            .toThrow('cancelPdfNativePagePreview.requestId must not be empty');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });

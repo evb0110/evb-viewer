@@ -1762,7 +1762,6 @@ export default {
             'description': 'The app hit an unexpected error and may not work correctly until it reloads.',
             'startupTitle': 'App startup failed',
             'startupDescription': 'The app could not finish starting. Reload to try again.',
-            'recentGeometryWarmupTitle': 'Recent file preview unavailable',
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Reload App',
             'copy': 'Copy details',

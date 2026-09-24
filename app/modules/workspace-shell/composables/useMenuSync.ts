@@ -41,9 +41,6 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         const context = deps.menuContext?.value;
         const hasDocument = shellState.hasDocument.value;
         const documentInteractive = shellState.activeWorkspaceInteractive.value;
-        const openingPreviewInteractive = toolbar?.openingPreviewReady === true
-            && toolbar.totalPages > 0;
-        const viewInteractive = documentInteractive || openingPreviewInteractive;
         const isAnySaving = toolbar?.isAnySaving === true;
         const isHistoryBusy = toolbar?.isHistoryBusy === true;
         const isDocumentBusy = !documentInteractive || isAnySaving || isHistoryBusy;
@@ -55,7 +52,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             && Math.abs(toolbar.effectiveZoom - 1) < 0.0001;
         const state: IApplicationMenuDocumentState = {
             hasDocument,
-            interactive: viewInteractive,
+            interactive: documentInteractive,
             canSave: shellState.activeWorkspaceCanSave.value && !isDocumentBusy,
             supportsSaveAs: capabilities?.saveAs === true,
             canSaveAs: shellState.activeWorkspaceCanSaveAs.value && !isDocumentBusy,
@@ -88,12 +85,12 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             canMutatePages,
             selectedPageCount: toolbar?.selectedPageCount ?? 0,
             totalPages: toolbar?.totalPages ?? 0,
-            supportsContinuousScroll: capabilities?.continuousScroll === true && !openingPreviewInteractive,
+            supportsContinuousScroll: capabilities?.continuousScroll === true,
             canContinuousScroll: documentInteractive && capabilities?.continuousScroll === true,
             continuousScroll: toolbar?.continuousScroll ?? false,
-            supportsViewMode: capabilities?.viewMode === true && !openingPreviewInteractive,
+            supportsViewMode: capabilities?.viewMode === true,
             viewMode: toolbar?.viewMode ?? 'single',
-            supportsViewRotation: capabilities?.viewRotation === true && !openingPreviewInteractive,
+            supportsViewRotation: capabilities?.viewRotation === true,
             viewRotation: toolbar?.viewRotation ?? 0,
             isActualSizeActive,
             isFitWidthActive: toolbar?.isFitWidthActive ?? false,

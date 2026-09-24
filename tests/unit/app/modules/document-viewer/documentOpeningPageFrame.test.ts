@@ -38,6 +38,7 @@ function createAuthority(
             viewMode: 'single',
             zoom: 1,
             zoomMode: 'fit-width',
+            continuousScroll: true,
         }),
         readViewportSize: () => viewport,
     });
@@ -83,38 +84,21 @@ describe('documentOpeningPageFrame', () => {
         expect(surface.snapshot.value.openingPageFrame?.ownerId).toMatch(/^document-viewer-runtime:/u);
     });
 
-    it('content-addresses frames by effective layout and policy instead of observer event order', () => {
+    it('sizes a continuous Fit Width shell by the widest page of the document', () => {
         const surface = createDocumentOpenSurfaceSession();
-        const viewport = {
-            width: 1_000,
-            height: 800,
-        };
-        const authority = createAuthority(surface, viewport);
-        const prepared = authority.draftOpeningPageFrame(pdfGeometry);
-
-        expect(prepared).toMatchObject({
+        const generation = surface.begin({
             documentId: pdfGeometry.documentId,
-            layoutKey: '1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: '28000000:42',
-            style: {
-                width: '960px',
-                height: '1280px',
-            },
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            widestPageWidth: 800,
         });
-        expect(authority.isPreparedOpeningPageFrameCurrent(prepared!)).toBe(true);
-        expect(surface.snapshot.value.phase).toBe('idle');
 
-        let layoutRevision = 1;
-        const revisionAuthority = createAuthority(surface, viewport, () => layoutRevision);
-        const revisionPrepared = revisionAuthority.draftOpeningPageFrame(pdfGeometry)!;
-        expect(revisionAuthority.isPreparedOpeningPageFrameCurrent(revisionPrepared)).toBe(true);
-        layoutRevision += 1;
-        expect(revisionAuthority.isPreparedOpeningPageFrameCurrent(revisionPrepared)).toBe(true);
-
-        viewport.width = 900;
-        expect(authority.isPreparedOpeningPageFrameCurrent(prepared!)).toBe(false);
-        expect(revisionAuthority.isPreparedOpeningPageFrameCurrent(revisionPrepared)).toBe(false);
+        expect(createAuthority(surface).prepareOpeningPageFrame(generation)).toBe(true);
+        expect(surface.snapshot.value.openingPageFrame?.style).toEqual({
+            width: '720px',
+            height: '960px',
+        });
     });
 
     it('does not need source or working-copy completion to present the shell', async () => {

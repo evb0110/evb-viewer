@@ -29,9 +29,9 @@ import {
     type IDocumentTransition,
     type IDocumentViewerRuntime,
 } from '@app/modules/document-viewer/public';
-import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
+import { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
-import { usePdfTrustedOpenGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfTrustedOpenGeometryLifecycle';
+import { usePdfOpeningGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfOpeningGeometryLifecycle';
 import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
 import { createPdfPageSource } from '@app/modules/document-viewer/public';
 import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
@@ -201,19 +201,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     const basePageHeight = ref<number | null>(null);
     const pageMetrics = shallowRef<IPdfPageMetric[]>([]);
     const pageMetricsVersion = ref(0);
-    const hasCompletePageGeometry = computed(() => {
-        const totalPages = numPages.value;
-        const metrics = pageMetrics.value;
-        if (totalPages < 1 || metrics.length !== totalPages) {
-            return false;
-        }
-        for (let index = 0; index < totalPages; index += 1) {
-            if (!isValidPageMetric(metrics[index])) {
-                return false;
-            }
-        }
-        return true;
-    });
     const loadError = computed(() => loadState.value.status === 'failed'
         ? loadState.value.error
         : null);
@@ -1441,7 +1428,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     if (options.originalDocumentId && options.currentPage && options.src) {
-        usePdfTrustedOpenGeometryLifecycle({
+        usePdfOpeningGeometryLifecycle({
             acceptedSource,
             chassisAuthority: options.chassisAuthority ?? null,
             currentPage: options.currentPage,
@@ -1700,7 +1687,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         basePageHeight,
         pageMetrics,
         pageMetricsVersion,
-        hasCompletePageGeometry,
         hasExactPageGeometry,
         loadError,
         error: loadError,

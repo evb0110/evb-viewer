@@ -1001,10 +1001,8 @@ export async function installCommittedSurfaceSampler(
                 const visibleNeutral = Array.from(host?.querySelectorAll<HTMLElement>(
                     '[data-document-open-surface="neutral"], .workspace-host-document-open-fallback',
                 ) ?? []).find(ownsVisibleCenter) ?? null;
-                // The chassis native-preview overlay is pointer-transparent, so
-                // `elementFromPoint` alone would report it as a blank frame.
                 const visibleLoader = Array.from(host?.querySelectorAll<HTMLElement>(
-                    '.workspace-host__loading, .document-loading, .pdf-loading, .pdf-loading-overlay, [data-testid="document-opening-native-preview-loading"]',
+                    '.workspace-host__loading, .document-loading, .pdf-loading, .pdf-loading-overlay',
                 ) ?? []).find(ownsVisibleCenter) ?? null;
                 const visibleToolSurface = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.scan-cleanup-surface',
@@ -1163,7 +1161,6 @@ export async function installCommittedSurfaceSampler(
                         '.document-loading',
                         '.pdf-loading',
                         '.pdf-loading-overlay',
-                        '[data-testid="document-opening-native-preview-loading"]',
                     ].find(selector => visibleLoader.matches(selector)) ?? null
                     : null;
 

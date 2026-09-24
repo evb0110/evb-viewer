@@ -44,8 +44,6 @@ export const DOCUMENTS_CHANNELS = {
     fileReleaseManagedHandle: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releaseManagedTempFileHandle,
     pdfOpeningGeometry: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry,
     pdfNativePageSizes: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
-    pdfNativePagePreviewCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfNativePagePreview,
-    pdfNativePagePreview: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.renderPdfNativePagePreview,
     pdfAnnotationIndexBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfAnnotationIndex,
     pdfAnnotationIndexReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationIndexChunk,
     pdfAnnotationIndexRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationIndex,

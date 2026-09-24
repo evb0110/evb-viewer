@@ -50,8 +50,6 @@ import {
     optimizeInteractionArgs,
     optimizeProgress,
     optimizeResult,
-    pagePreviewArgs,
-    pagePreviewResult,
     pageSizesArgs,
     pageSizesResult,
     pathArgs,
@@ -410,25 +408,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ipc: {
                 args: pageSizesArgs,
                 result: pageSizesResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        cancelPdfNativePagePreview: {
-            ...defineIpcMethod(
-                'cancelPdfNativePagePreview', 'pdf:nativePagePreview:cancel', cancelRequestArgs,
-                cancellationResult, 'cancelPdfNativePagePreview', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        renderPdfNativePagePreview: {
-            ...defineIpcMethod(
-                'renderPdfNativePagePreview', 'pdf:nativePagePreview', pagePreviewArgs,
-                pagePreviewResult, 'renderPdfNativePagePreview', 'sender',
-            ),
-            ipc: {
-                args: pagePreviewArgs,
-                result: pagePreviewResult,
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,

@@ -10,7 +10,6 @@ import {
 } from '@app/modules/document-viewer/zoomPolicy';
 import type {
     IDocumentOpenSurfacePageGeometry,
-    IDocumentOpenSurfacePreparedPageFrame,
     IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
@@ -21,13 +20,10 @@ export interface IDocumentOpeningPageFramePolicy {
     readonly viewMode: TDocumentViewMode;
     readonly zoom: number;
     readonly zoomMode: TZoomMode;
+    readonly continuousScroll: boolean;
 }
 
-export interface IDocumentOpeningPageFrame {
-    draftOpeningPageFrame(geometry: IDocumentOpenSurfacePageGeometry): IDocumentOpenSurfacePreparedPageFrame | null;
-    isPreparedOpeningPageFrameCurrent(frame: IDocumentOpenSurfacePreparedPageFrame): boolean;
-    prepareOpeningPageFrame(generation: number): boolean;
-}
+export interface IDocumentOpeningPageFrame {prepareOpeningPageFrame(generation: number): boolean;}
 
 interface ICreateDocumentOpeningPageFrameOptions {
     readonly openSurface: IDocumentOpenSurfaceSession;
@@ -74,9 +70,14 @@ function resolvePdfOpeningPageFrameStyle(
         return null;
     }
     const columns = getViewColumnCount(policy.viewMode, geometry.pageCount);
+    // Continuous Fit Width uses one scale for the whole document, set by its
+    // widest page (ADR 0006), so the skeleton matches PDF.js's first layout.
+    const fitWidthBase = policy.continuousScroll
+        ? Math.max(geometry.width, geometry.widestPageWidth ?? geometry.width)
+        : geometry.width;
     const fitScale = policy.zoomMode === 'fit-height'
         ? (viewport.height - pageMargin * 2) / geometry.height
-        : (viewport.width - pageMargin * (columns + 1)) / (geometry.width * columns);
+        : (viewport.width - pageMargin * (columns + 1)) / (fitWidthBase * columns);
     const scale = policy.zoomMode === 'custom'
         ? clampDocumentManualZoom(policy.zoom)
         : clampDocumentFitScale(fitScale);
@@ -111,111 +112,35 @@ function resolveOpeningPageFrameStyle(
     })?.style ?? null;
 }
 
-function resolveSourceRevisionKey(geometry: IDocumentOpenSurfacePageGeometry) {
-    const revision = geometry as IDocumentOpenSurfacePageGeometry & {
-        readonly modifiedAt?: unknown;
-        readonly size?: unknown;
-    };
-    return Number.isSafeInteger(revision.size)
-        && Number.isSafeInteger(revision.modifiedAt)
-        ? `${String(revision.size)}:${String(revision.modifiedAt)}`
-        : null;
-}
-
 export function createDocumentOpeningPageFrame(
     options: ICreateDocumentOpeningPageFrameOptions,
 ): IDocumentOpeningPageFrame {
     const ownerId = `document-viewer-runtime:${String(++nextOpeningPageFrameId)}`;
 
-    function readPreparationInputs(geometry: IDocumentOpenSurfacePageGeometry) {
-        // Read the revision only as a reactive invalidation signal. Frame
-        // identity is content-addressed by the dimensions that actually
-        // affect geometry; same-size ResizeObserver churn must not stale an
-        // otherwise exact prepared frame.
-        options.readLayoutRevision?.();
-        const policy = options.readPolicy();
-        const viewport = options.readViewportSize();
-        const style = resolveOpeningPageFrameStyle(geometry, viewport, policy);
-        if (style === null) {
-            return null;
-        }
-        return {
-            layoutKey: `${String(viewport.width)}x${String(viewport.height)}`,
-            policy,
-            policyKey: [
-                policy.fitMode,
-                policy.viewMode,
-                policy.zoomMode,
-                policy.zoom,
-            ].join(':'),
-            style,
-        } as const;
-    }
-
-    function draftOpeningPageFrame(
-        geometry: IDocumentOpenSurfacePageGeometry,
-    ): IDocumentOpenSurfacePreparedPageFrame | null {
-        const preparation = readPreparationInputs(geometry);
-        if (preparation === null) {
-            return null;
-        }
-        return Object.freeze({
-            documentId: geometry.documentId,
-            ownerId,
-            pageNumber: geometry.pageNumber,
-            intentKey: `${preparation.policy.zoomMode}:${String(preparation.policy.zoom)}`,
-            layoutKey: preparation.layoutKey,
-            policyKey: preparation.policyKey,
-            sourceRevisionKey: resolveSourceRevisionKey(geometry),
-            style: Object.freeze({...preparation.style}),
-            geometry: Object.freeze({...geometry}),
-        });
-    }
-
-    return Object.freeze({
-        draftOpeningPageFrame,
-        isPreparedOpeningPageFrameCurrent(frame: IDocumentOpenSurfacePreparedPageFrame) {
-            const current = draftOpeningPageFrame(frame.geometry);
-            return current !== null
-                && current.ownerId === frame.ownerId
-                && current.documentId === frame.documentId
-                && current.pageNumber === frame.pageNumber
-                && current.layoutKey === frame.layoutKey
-                && current.policyKey === frame.policyKey
-                && current.sourceRevisionKey === frame.sourceRevisionKey
-                && Object.entries(current.style).every(([
-                    key,
-                    value,
-                ]) => frame.style[key] === value)
-                && Object.keys(current.style).length === Object.keys(frame.style).length;
-        },
-        prepareOpeningPageFrame(generation: number) {
-            const snapshot = options.openSurface.snapshot.value;
-            const geometry = snapshot.openingPageGeometry;
-            if (
-                snapshot.generation !== generation
+    return Object.freeze({prepareOpeningPageFrame(generation: number) {
+        const snapshot = options.openSurface.snapshot.value;
+        const geometry = snapshot.openingPageGeometry;
+        if (
+            snapshot.generation !== generation
                 || geometry === null
                 || snapshot.openingPageFrame !== null
                     && snapshot.openingPageFrame.ownerId !== ownerId
-                || snapshot.openingPageFrame?.preview !== undefined
-                    && snapshot.openingPageFrame.preview.pageNumber !== geometry.pageNumber
-            ) {
-                return false;
-            }
-            const preparedFrame = draftOpeningPageFrame(geometry);
-            if (preparedFrame === null) {
-                return false;
-            }
-            return options.openSurface.commitOpeningPageFrame(generation, {
-                generation,
-                ownerId,
-                pageNumber: geometry.pageNumber,
-                intentKey: preparedFrame.intentKey,
-                ...(preparedFrame.sourceRevisionKey === null
-                    ? {}
-                    : {sourceRevisionKey: preparedFrame.sourceRevisionKey}),
-                style: preparedFrame.style,
-            });
-        },
-    });
+        ) {
+            return false;
+        }
+        // Read the revision only as a reactive invalidation signal.
+        options.readLayoutRevision?.();
+        const policy = options.readPolicy();
+        const style = resolveOpeningPageFrameStyle(geometry, options.readViewportSize(), policy);
+        if (style === null) {
+            return false;
+        }
+        return options.openSurface.commitOpeningPageFrame(generation, {
+            generation,
+            ownerId,
+            pageNumber: geometry.pageNumber,
+            intentKey: `${policy.zoomMode}:${String(policy.zoom)}`,
+            style: Object.freeze({...style}),
+        });
+    }});
 }

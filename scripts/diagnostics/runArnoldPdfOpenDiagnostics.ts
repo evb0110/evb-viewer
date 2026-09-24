@@ -206,7 +206,6 @@ interface IArnoldSnapshot {
     initialPlaceholderPageRect: unknown;
     ownedPageFrameRect: unknown;
     ownedPageFrameHasSkeleton: boolean;
-    openingPreview: unknown;
     pages: unknown[];
 }
 
@@ -574,9 +573,6 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             legacyInitialPageFrame,
             firstPage?.querySelector<HTMLElement>('.page_canvas.canvasWrapper') ?? null,
         ].find((candidate): candidate is HTMLElement => Boolean(candidate && isVisibleElement(candidate))) ?? null;
-        const openingPreview = document.querySelector<HTMLImageElement>(
-            '[data-testid="document-opening-native-preview"]',
-        );
 
         return {
             label: snapshotLabel,
@@ -602,9 +598,6 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                 visibleOpeningFallbacks: Array.from(document.querySelectorAll<HTMLElement>(
                     '.workspace-host-document-open-fallback',
                 )).filter(intersectsViewport).length,
-                visibleOpeningNativePreviews: Array.from(document.querySelectorAll<HTMLElement>(
-                    '[data-testid="document-opening-native-preview"]',
-                )).filter(intersectsViewport).length,
             },
             workspace: {
                 loadingText: document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent.trim() ?? null,
@@ -628,12 +621,6 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
             initialPlaceholderPageRect: rectSnapshot(legacyInitialPageFrame),
             ownedPageFrameRect: rectSnapshot(ownedPageFrame),
             ownedPageFrameHasSkeleton: Boolean(ownedPageFrame?.querySelector('.document-page-skeleton')),
-            openingPreview: {
-                complete: openingPreview?.complete ?? false,
-                intersectsViewport: openingPreview ? intersectsViewport(openingPreview) : false,
-                rect: rectSnapshot(openingPreview),
-                pixels: sampleVisual(openingPreview),
-            },
             pages: pagesToSample.map((pageContainer) => {
                 const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
                 const skeleton = pageContainer.querySelector<HTMLElement>('.document-page-skeleton');
@@ -718,35 +705,9 @@ function readSnapshotCanvasLuminanceRange(snapshot: IArnoldSnapshot) {
     return maximum;
 }
 
-function readSnapshotOpeningPreviewPixels(snapshot: IArnoldSnapshot) {
-    if (!isRecord(snapshot.openingPreview)) {
-        return null;
-    }
-    const preview = snapshot.openingPreview;
-    const pixels = preview.pixels;
-    if (
-        preview.complete !== true
-        || preview.intersectsViewport !== true
-        || !isRecord(pixels)
-    ) {
-        return null;
-    }
-    return {
-        nonWhitePixelCount: readFiniteNumber(pixels.nonWhitePixelCount) ?? 0,
-        luminanceRange: readFiniteNumber(pixels.luminanceRange) ?? 0,
-    };
-}
-
 function hasMeaningfulPagePixels(snapshot: IArnoldSnapshot) {
-    const preview = readSnapshotOpeningPreviewPixels(snapshot);
-    return Boolean(
-        preview
-        && preview.nonWhitePixelCount > 0
-        && preview.luminanceRange > 8,
-    ) || (
-        readSnapshotCanvasNonWhitePixels(snapshot) > 0
-        && readSnapshotCanvasLuminanceRange(snapshot) > 8
-    );
+    return readSnapshotCanvasNonWhitePixels(snapshot) > 0
+        && readSnapshotCanvasLuminanceRange(snapshot) > 8;
 }
 
 function readSnapshotPageRect(snapshot: IArnoldSnapshot) {
@@ -835,7 +796,6 @@ function assertArnoldAcceptance(input: {
             ownedPageFrameHasSkeleton: snapshot.ownedPageFrameHasSkeleton,
             nonWhitePixels: readSnapshotCanvasNonWhitePixels(snapshot),
             luminanceRange: readSnapshotCanvasLuminanceRange(snapshot),
-            openingPreview: snapshot.openingPreview,
         })),
     });
 

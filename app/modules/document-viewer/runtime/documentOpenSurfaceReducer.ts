@@ -44,8 +44,7 @@ export type TDocumentViewportVisualOwner =
         readonly kind: 'page';
         readonly generation: number;
         readonly pageNumber: number;
-        readonly presentation: 'cold-shell' | 'prepared-shell' | 'skeleton' | 'canvas' | 'error';
-        readonly frameKey: string | null;
+        readonly presentation: 'cold-shell' | 'skeleton' | 'canvas' | 'error';
         readonly error: string | null;
     }
     | {
@@ -79,19 +78,12 @@ export interface IDocumentViewportSessionState {
     readonly failure: string | null;
 }
 
-export interface IDocumentViewportPreparedPage {
-    readonly pageNumber: number;
-    readonly pageCount: number;
-    readonly frameKey: string;
-}
-
 export type TDocumentViewportSessionEvent =
     | {
         readonly type: 'open-requested';
         readonly identity: IDocumentViewportIdentity;
         readonly viewportIntentId: string;
         readonly initialPage?: number;
-        readonly preparedPage?: IDocumentViewportPreparedPage;
         readonly skeletonDelay?: {
             readonly token: string;
             readonly deadline: number
@@ -401,7 +393,6 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
             generation: state.generation,
             pageNumber: render.pageNumber,
             presentation: 'canvas' as const,
-            frameKey: null,
             error: null,
         },
         skeletonDelay: null,
@@ -424,23 +415,13 @@ function openRequested(
     ) {
         return reject(state);
     }
-    const prepared = event.preparedPage;
-    if (prepared && (
-        !isPositivePage(prepared.pageNumber)
-        || !isPositivePage(prepared.pageCount)
-        || prepared.pageNumber > prepared.pageCount
-        || prepared.frameKey.length === 0
-    )) {
-        return reject(state);
-    }
-    const initialPage = prepared?.pageNumber ?? event.initialPage ?? 1;
+    const initialPage = event.initialPage ?? 1;
     if (!isPositivePage(initialPage)) {
         return reject(state);
     }
 
     const generation = state.generation + 1;
-    const pageCount = prepared?.pageCount ?? null;
-    const requestedPage = clampPage(initialPage, pageCount);
+    const requestedPage = initialPage;
     const next: IDocumentViewportSessionState = {
         generation,
         identity: {...event.identity},
@@ -448,13 +429,12 @@ function openRequested(
         requestedPage,
         committedPage: null,
         observedPage: null,
-        pageCount,
+        pageCount: null,
         visual: {
             kind: 'page',
             generation,
             pageNumber: requestedPage,
-            presentation: prepared ? 'prepared-shell' : 'cold-shell',
-            frameKey: prepared?.frameKey ?? null,
+            presentation: 'cold-shell',
             error: null,
         },
         viewportIntent: {
@@ -521,7 +501,6 @@ function metadataReady(
             generation: state.generation,
             pageNumber: requestedPage,
             presentation: 'skeleton',
-            frameKey: null,
             error: null,
         };
     }
@@ -598,7 +577,6 @@ function navigationRequested(
         generation: state.generation,
         pageNumber,
         presentation: skeletonDelay ? 'cold-shell' : 'skeleton',
-        frameKey: null,
         error: null,
     };
     const next: IDocumentViewportSessionState = {
@@ -696,7 +674,6 @@ function revisionSwapped(
             generation: state.generation,
             pageNumber: event.pageNumber,
             presentation: 'canvas',
-            frameKey: state.visual.kind === 'page' ? state.visual.frameKey : null,
             error: null,
         },
         viewportIntent: {
@@ -807,7 +784,6 @@ export function reduceDocumentViewportSession(
                     generation: state.generation,
                     pageNumber,
                     presentation: 'skeleton',
-                    frameKey: null,
                     error: null,
                 },
                 skeletonDelay: state.skeletonDelay && {
@@ -827,7 +803,6 @@ export function reduceDocumentViewportSession(
                     generation: state.generation,
                     pageNumber: event.pageNumber,
                     presentation: 'skeleton',
-                    frameKey: null,
                     error: null,
                 },
                 renderFence: null,
@@ -876,7 +851,6 @@ export function reduceDocumentViewportSession(
                     generation: state.generation,
                     pageNumber: committedPage,
                     presentation: 'canvas',
-                    frameKey: null,
                     error: null,
                 },
                 viewportIntent: {
@@ -935,7 +909,6 @@ export function reduceDocumentViewportSession(
                     generation: state.generation,
                     pageNumber: state.requestedPage,
                     presentation: 'skeleton',
-                    frameKey: null,
                     error: null,
                 },
                 skeletonDelay: null,
@@ -953,7 +926,6 @@ export function reduceDocumentViewportSession(
                     generation: state.generation,
                     pageNumber: event.fence.pageNumber,
                     presentation: 'error',
-                    frameKey: null,
                     error: event.error,
                 },
                 skeletonDelay: null,
@@ -981,7 +953,6 @@ export function reduceDocumentViewportSession(
                     generation: state.generation,
                     pageNumber: event.pageNumber,
                     presentation: 'error',
-                    frameKey: null,
                     error: event.error,
                 },
                 renderFence: null,

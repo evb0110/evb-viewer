@@ -54,7 +54,6 @@
                 :open-batch-progress="null"
                 :open-in-progress="isOpenUiBusy"
                 :is-recent-open-ready="isRecentFileOpenReady"
-                :is-recent-open-exact-frame-ready="isRecentFileExactFrameReady"
                 :start-section="startSection"
                 can-combine-files
                 :open-combine-result="handleOpenCombineResultFromPlaceholder"
@@ -105,7 +104,6 @@ import {
     shouldKeepWorkspacePendingDocumentHint,
     shouldShowWorkspacePlaceholder,
 } from '@app/modules/workspace-shell/host/shouldShowWorkspacePlaceholder';
-import {readRecentOpenExactGeometry} from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import {
     createWorkspaceRestoreAttemptState,
     finishWorkspaceRestoreAttempt,
@@ -286,17 +284,6 @@ function isRecentFileOpenReady(file: IRecentFile) {
         documentRef: file.originalPath,
     });
 }
-function isRecentFileExactFrameReady(file: IRecentFile) {
-    const geometry = readRecentOpenExactGeometry(file.originalPath, {
-        modifiedAt: file.modifiedAt,
-        size: file.fileSize,
-    });
-    const preparedFrame = geometry
-        ? openingPageFrameAuthority.value?.draftOpeningPageFrame(geometry) ?? null
-        : null;
-    return preparedFrame !== null
-        && preparedFrame.sourceRevisionKey !== null;
-}
 
 watch(
     () => activeDocumentSession.value.snapshot.value,
@@ -442,28 +429,9 @@ const hasPdf = computed(() => {
 function readWorkspaceToolbarSnapshot() {
     const baseSnapshot = mountedWorkspace.value?.getToolbarSnapshot() ?? currentToolbarSnapshot.value;
     const isOpeningDocument = isDocumentOpenInFlight.value || hasPendingDocumentHint.value;
-    const openingSurface = documentOpenSurface.snapshot.value;
-    const openingGeometry = openingSurface.openingPageGeometry;
-    const openingPreview = openingSurface.openingPageFrame?.preview;
-    const openingPreviewReady = isOpeningDocument
-        && openingPreview !== undefined;
-    const openingPageCount = openingPreviewReady
-        ? openingGeometry?.pageCount ?? 0
-        : 0;
-    const openingPage = isOpeningDocument && openingPreview
-        ? Math.min(
-            Math.max(1, openingPreview.pageNumber),
-            Math.max(1, openingPageCount),
-        )
-        : baseSnapshot.currentPage;
     return {
         ...baseSnapshot,
-        hasPdf: baseSnapshot.hasPdf || openingPreviewReady,
         isOpeningDocument: baseSnapshot.isOpeningDocument || isOpeningDocument,
-        openingPreviewReady: (baseSnapshot.isOpeningDocument || isOpeningDocument)
-            && (baseSnapshot.openingPreviewReady || openingPreviewReady),
-        currentPage: openingPage,
-        totalPages: openingPreviewReady ? openingPageCount : baseSnapshot.totalPages,
     };
 }
 
@@ -731,8 +699,6 @@ onErrorCaptured((error, instance, info) => {
 
 const detachOpenTransactionHost = activeDocumentSession.value.attachOpenTransactionHost({
     documentOpenSurface,
-    openingPageFrameAuthority,
-    ensureWorkspaceLoaded,
     getActiveTransactionId: () => activeDocumentSession.value.snapshot.value.activeTransaction?.id ?? null,
     getInitialViewState: () => initialViewState,
     getSeedToolbarSnapshot: () => currentToolbarSnapshot.value,
@@ -740,7 +706,6 @@ const detachOpenTransactionHost = activeDocumentSession.value.attachOpenTransact
     hasOpenedDocument: workspaceHasOpenedDocument,
     hasSessionOpenedDocument: () => getWorkspaceSessionHasOpenedDocument(activeDocumentSession.value.snapshot.value),
     isHostUnmounted: () => isHostUnmounted,
-    isViewerOwnerMounted: () => isViewerOwnerMounted.value,
     publishDocumentRecord: handleDocumentRecordUpdate,
     requestWorkspaceMount,
 });
@@ -817,17 +782,9 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         hasMountedWorkspace: hasMountedWorkspace.value,
     });
 
-    let sourceStat: {
-        fileSize?: number;
-        modifiedAt?: number;
-    } | null = null;
     if (isBrowserDocumentRef(file.originalPath)) {
         try {
-            const stat = await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
-            sourceStat = {
-                fileSize: stat.size,
-                ...(stat.modifiedAt === undefined ? {} : {modifiedAt: stat.modifiedAt}),
-            };
+            await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
         } catch (error) {
             recentFilesError.value = getErrorMessage(error);
             BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Recent item is unavailable before opening', {
@@ -839,21 +796,8 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
         }
     }
 
-    const statMatches = sourceStat !== null
-        && sourceStat.fileSize === file.fileSize
-        && sourceStat.modifiedAt === file.modifiedAt;
-    // A native Recent row is not statted before the claim; its recorded size
-    // is the best pre-claim hint until the loaded source reports its own.
-    const declaredSourceSize = sourceStat?.fileSize ?? file.fileSize;
     const result = await openDocument({
         action: 'openRecentFromPlaceholder',
-        ...(declaredSourceSize === undefined ? {} : {declaredSourceSize}),
-        ...(statMatches
-            ? {
-                preparedSourceModifiedAt: file.modifiedAt,
-                preparedSourceSize: file.fileSize,
-            }
-            : {}),
         target: buildPendingTabDocumentHint(file),
     }, async (signal) => {
         const preloadedWorkspace = mountedWorkspace.value
@@ -914,7 +858,6 @@ async function handleOpenFileFromUi() {
 
     return openDocument({
         action: 'handleOpenFileWithResultFromUi',
-        preparedOpeningGeometry: result.kind === 'pdf' ? result.openingGeometry : undefined,
         target: buildPendingTabDocumentHint(result),
     }, async signal => withWorkspace(
         'handleOpenFileWithResultFromUi',

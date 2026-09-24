@@ -1080,7 +1080,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         ? watch(
             [
                 () => chassisOpenSurface.snapshot.value.generation,
-                () => chassisOpenSurface.readyAuthorizationRevision.value,
                 () => chassisOpenSurface.viewportSession.value.requestedPage,
                 renderedPageStateVersion,
                 options.viewerContainer,

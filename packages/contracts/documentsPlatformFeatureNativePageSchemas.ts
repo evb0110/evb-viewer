@@ -1,13 +1,8 @@
 import type {
     IPdfNativePageGeometry,
     IPdfNativePageGeometryPage,
-    IPdfNativePagePreview,
-    IPdfNativePageSize,
-    IPdfNativePageSizes,
-    IPdfNativePageSizesOptions,
-    TPdfNativePageSizes,
+    IPdfNativePageSizesExactOptions,
 } from '@contracts/electronApiDocuments';
-import {PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT} from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import { requirePageNumber } from '@contracts/pageNumbers';
@@ -58,11 +53,12 @@ function decodeOpeningGeometry(value: unknown) {
         || !isFiniteNumber(value.height)
         || value.height <= 0
         || !isPdfRotation(value.rotation)
+        || !isFiniteNumber(value.widestPageWidth)
+        || value.widestPageWidth < value.width
         || typeof value.size !== 'number'
         || !Number.isSafeInteger(value.size)
         || value.size < 0
         || parseEpochMs(value.modifiedAt) === null
-        || value.linearized !== undefined && typeof value.linearized !== 'boolean'
     ) {
         fail('invalid PDF opening geometry result');
     }
@@ -72,44 +68,23 @@ function decodeOpeningGeometry(value: unknown) {
         width: value.width,
         height: value.height,
         rotation: value.rotation,
+        widestPageWidth: value.widestPageWidth,
         size: value.size,
         modifiedAt: parseEpochMs(value.modifiedAt) ?? fail('invalid PDF modification time'),
-        ...(value.linearized === undefined ? {} : {linearized: value.linearized}),
     };
 }
 
-function decodePageSize(value: unknown, fieldName: string): IPdfNativePageSize {
-    if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height)) {
-        fail(`invalid ${fieldName}`);
+function decodeNativePageSizesOptions(value: unknown): IPdfNativePageSizesExactOptions {
+    if (!isRecord(value) || value.mode !== 'exact') {
+        fail('native page sizes options.mode must be exact');
     }
-    return {
-        width: value.width,
-        height: value.height,
-    };
-}
-
-function decodeNativePageSizesOptions(value: unknown): IPdfNativePageSizesOptions | undefined {
-    if (value === undefined || value === null) {
-        return undefined;
-    }
-    if (!isRecord(value)) {
-        fail('invalid native page sizes options');
-    }
-    if (value.mode !== undefined && value.mode !== 'preview' && value.mode !== 'exact') {
-        fail('native page sizes options.mode must be preview or exact');
-    }
-    const expectedDocumentRevisionToken = value.expectedDocumentRevisionToken === undefined
-        ? undefined
-        : parseDocumentRevisionToken(value.expectedDocumentRevisionToken);
+    const expectedDocumentRevisionToken = parseDocumentRevisionToken(value.expectedDocumentRevisionToken);
     if (expectedDocumentRevisionToken === null) {
-        fail('native page sizes options.expectedDocumentRevisionToken is invalid');
-    }
-    if (value.mode === 'exact' && expectedDocumentRevisionToken === undefined) {
         fail('exact native page sizes require expectedDocumentRevisionToken');
     }
     return {
-        ...(value.mode === undefined ? {} : {mode: value.mode}),
-        ...(expectedDocumentRevisionToken === undefined ? {} : {expectedDocumentRevisionToken}),
+        mode: 'exact',
+        expectedDocumentRevisionToken,
     };
 }
 
@@ -181,68 +156,10 @@ function decodeNativePageGeometry(value: unknown): IPdfNativePageGeometry {
     };
 }
 
-function decodePageSizesResult(value: unknown): TPdfNativePageSizes | IPdfNativePageGeometry {
-    if (isRecord(value) && value.kind === 'exact') {
-        return decodeNativePageGeometry(value);
-    }
-    if (Array.isArray(value)) {
-        return value.map((item, index) => decodePageSize(item, `native page size ${String(index)}`));
-    }
-    if (!isRecord(value)) {
-        fail('invalid native page sizes result');
-    }
-    const pageCount = decodeSafeIntegerValue(value.pageCount, 'native page sizes pageCount', 1);
-    const defaultPageSize = decodePageSize(value.defaultPageSize, 'native default page size');
-    if (
-        !Array.isArray(value.overrides)
-        || value.overrides.length > PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT
-    ) {
-        fail('native page sizes overrides must be an array');
-    }
-    const overrides = value.overrides.map((item, index) => {
-        if (!isRecord(item)) {
-            fail(`invalid native page size override ${String(index)}`);
-        }
-        const pageNumber = decodeSafeIntegerValue(
-            item.pageNumber,
-            `native page size override ${String(index)}.pageNumber`,
-            1,
-        );
-        if (pageNumber > pageCount) {
-            fail(`native page size override ${String(index)}.pageNumber exceeds pageCount`);
-        }
-        return {
-            pageNumber: requirePageNumber(pageNumber, pageCount),
-            ...decodePageSize(item, `native page size override ${String(index)}`),
-        };
-    });
-    return {
-        pageCount,
-        defaultPageSize,
-        overrides,
-    } satisfies IPdfNativePageSizes;
-}
-
-function decodePagePreviewResult(value: unknown): IPdfNativePagePreview {
-    if (!isRecord(value) || !isFiniteNumber(value.width) || !isFiniteNumber(value.height)) {
-        fail('invalid native page preview result');
-    }
-    const rasterWidthCeilingPx = value.rasterWidthCeilingPx === undefined
-        ? undefined
-        : decodeSafeIntegerValue(value.rasterWidthCeilingPx, 'rasterWidthCeilingPx', 1);
-    return {
-        bytes: decodeUint8ArrayValue(value.bytes, 'bytes'),
-        width: value.width,
-        height: value.height,
-        ...(rasterWidthCeilingPx === undefined ? {} : {rasterWidthCeilingPx}),
-    };
-}
-
 export {
     decodeOpeningGeometry,
     decodeNativePageSizesOptions,
-    decodePagePreviewResult,
-    decodePageSizesResult,
+    decodeNativePageGeometry,
     decodeSafeIntegerValue,
     decodeUint8ArrayValue,
     fail,

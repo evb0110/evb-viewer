@@ -3,7 +3,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import { statSync } from 'node:fs';
 import { delay } from 'es-toolkit/promise';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -11,7 +10,6 @@ import {
     createCorruptPdfFixture,
     createMixedSize66FixturePdf,
     createMultiPageTextFixturePdf,
-    createNativeMixedWidthFixturePdf,
     createRotated90FixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -19,9 +17,7 @@ import {
     clickVisibleToolbarButton,
     ensureSidebarOpen,
     goToPageViaToolbar,
-    installNativePdfOpeningSampler,
     openPdfInApp,
-    stopNativePdfOpeningSampler,
     triggerOpenPathInApp,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
@@ -49,7 +45,6 @@ import {
     waitForAnimationFrames,
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
-import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 const OPEN_TIMEOUT_MS = 60_000;
@@ -57,7 +52,7 @@ const SETTLE_TIMEOUT_MS = 30_000;
 // The reported fixture is 1,859 pages. A generated text PDF of the same order
 // of magnitude keeps the virtualized page track, the deep-page navigation, and
 // the non-linearized cross-reference table of the report while staying
-// byte-deterministic and far below the native-preview routing threshold.
+// byte-deterministic.
 const DEEP_PDF_PAGE_COUNT = 1_200;
 const PRIOR_PDF_PAGE_COUNT = 24;
 const DEEP_PAGE = 500;
@@ -73,7 +68,6 @@ const DEEP_PAGE = 500;
 const FIRST_USEFUL_PIXEL_BUDGET_MS = 10_000;
 const FIRST_PAGE_SHELL_BUDGET_MS = 5_500;
 const READY_AFTER_CANVAS_BUDGET_MS = 1_500;
-const OPENING_WIDTH_TOLERANCE_PX = 0.5;
 // A full-page raster of a deep page at a user-chosen zoom is the slowest thing
 // this suite waits for, and it competes with an Xvfb renderer that animates at
 // about 1fps. Convergence itself is still asserted exactly; only the patience
@@ -84,74 +78,6 @@ const RENDER_SETTLE_TIMEOUT_MS = 45_000;
 // 1,927-1,929ms when Fit Height mounted every row between the stale and the
 // re-anchored scroll position.
 const FIT_CHANGE_FREEZE_BUDGET_MS = 750;
-
-function assertNativeOpeningFitWidthIsSettled(
-    frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>>,
-    reconciledPreviewWidth: number | null,
-) {
-    const visibleShellFrames = frames.filter(frame => (
-        frame.transitionSurfaceVisible
-        && frame.transitionShellRect !== null
-    ));
-    const previewFrames = frames.filter(frame => (
-        frame.openingPreviewVisible
-        && frame.openingPreviewPage === 1
-        && frame.transitionShellRect !== null
-    ));
-    const firstPreview = previewFrames[0];
-    const firstPdfjs = frames.find(frame => (
-        frame.pdfjsCanvasVisible
-        && frame.pdfjsCanvasRects.some(rect => rect.page === 1)
-    ));
-    const skeletonFrames = frames.filter(frame => (
-        frame.transitionSkeletonCount > 0
-        && frame.transitionSkeletonRects.length > 0
-        && frame.transitionSurfaceVisible
-    ));
-    const evidence = JSON.stringify({
-        firstPreview,
-        firstPdfjs,
-        skeletonFrames,
-        visibleShellFrames,
-        previewFrames,
-        frameCount: frames.length,
-    });
-    expect(visibleShellFrames, evidence).not.toHaveLength(0);
-    expect(skeletonFrames, evidence).not.toHaveLength(0);
-    const firstSkeleton = skeletonFrames[0];
-    if (firstSkeleton === undefined) {
-        throw new Error(evidence);
-    }
-    expect(firstSkeleton.capturedAtMs, evidence).toBeLessThan(firstPreview?.capturedAtMs ?? Number.POSITIVE_INFINITY);
-    const skeletonWidths = skeletonFrames.flatMap(frame => frame.transitionSkeletonRects.map(rect => rect.width));
-    expect(Math.max(...skeletonWidths) - Math.min(...skeletonWidths), evidence)
-        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
-    const visibleShellWidths = visibleShellFrames.map(frame => frame.transitionShellRect?.width ?? 0);
-    expect(Math.max(...visibleShellWidths) - Math.min(...visibleShellWidths), evidence)
-        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
-    expect(firstPdfjs, evidence).toBeDefined();
-    const settledRect = firstPdfjs?.pdfjsCanvasRects.find(rect => rect.page === 1) ?? null;
-    const settledCanvasWidth = settledRect === null ? 0 : settledRect.right - settledRect.left;
-    // The opening surface never changes width on its way to the first page.
-    expect(Math.abs((visibleShellWidths[0] ?? 0) - settledCanvasWidth), evidence)
-        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
-    // The preview is a head start, not a guaranteed frame: on a loaded machine
-    // PDF.js can paint page one before the preview is ever shown. When the
-    // preview geometry was reconciled, it must already be the settled width.
-    if (reconciledPreviewWidth !== null) {
-        expect(Math.abs(reconciledPreviewWidth - settledCanvasWidth), evidence)
-            .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
-    }
-    if (firstPreview === undefined) {
-        return;
-    }
-    const openingWidth = firstPreview.transitionShellRect?.width ?? 0;
-    expect(Math.abs(openingWidth - settledCanvasWidth), evidence)
-        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
-    const previewWidths = previewFrames.map(frame => frame.transitionShellRect?.width ?? 0);
-    expect(Math.max(...previewWidths) - Math.min(...previewWidths), evidence)
-        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
-}
 
 interface IVisibleSidebarSample {
     ownerTabId: string | null;
@@ -1109,7 +1035,6 @@ describe('standard PDF.js fit-mode continuity', () => {
             `standard-pdf-fit-deep-${Date.now()}.pdf`,
             DEEP_PDF_PAGE_COUNT,
         );
-        expect(statSync(deepPdfPath).size).toBeLessThan(PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES);
 
         // The trace has to be armed before the open is claimed: the phases that
         // decide the first-useful-pixel time all run before the first canvas.
@@ -1702,48 +1627,6 @@ describe('standard PDF.js fit-mode continuity', () => {
             toolbarPage: DEEP_PAGE + 1,
         });
     }, 300_000);
-
-    it('keeps the native opening preview on the settled document-wide Fit Width', async () => {
-        const session = sessionFixture.getSession();
-        const mixedWidthPdfPath = await createNativeMixedWidthFixturePdf(
-            `standard-pdf-native-fit-width-${Date.now()}.pdf`,
-        );
-        await enablePdfRenderTrace(session);
-        await installNativePdfOpeningSampler(session.page);
-        let frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>> = [];
-        try {
-            await openPdfInApp(session.page, mixedWidthPdfPath, OPEN_TIMEOUT_MS);
-            await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
-            await waitForAnimationFrames(session.page, 5);
-        } finally {
-            frames = await stopNativePdfOpeningSampler(session.page);
-        }
-        const trace = await evaluateInPage(session.page, () => {
-            const traceWindow = window as Window & IPdfRenderTraceWindow;
-            return (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [])
-                .filter(entry => entry.event.startsWith('pdf-open-native-preview'));
-        });
-        const documentWideReconciliation = trace.find(entry => (
-            entry.event === 'pdf-open-native-preview-fit-width-reconciled'
-            && entry.payload.previousWidth !== entry.payload.nextWidth
-        ));
-        // A slow host can finish the PDF.js open before the native page table
-        // resolves. The preview is then never staged and has nothing to
-        // reconcile; the opening surface must still keep one width.
-        const previewResolvedAfterReady = trace.some(entry => (
-            entry.event === 'pdf-open-native-preview-resolution-end'
-            && entry.payload.phase === 'ready'
-        ));
-        if (!previewResolvedAfterReady) {
-            expect(documentWideReconciliation, JSON.stringify(trace)).toBeDefined();
-        }
-        assertNativeOpeningFitWidthIsSettled(
-            frames,
-            documentWideReconciliation
-                ? Number.parseFloat(String(documentWideReconciliation.payload.nextWidth))
-                : null,
-        );
-    }, 180_000);
 
     it('keeps mixed-size jumps and continuous Fit Width geometry user-visible', async () => {
         const session = sessionFixture.getSession();

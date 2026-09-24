@@ -66,7 +66,7 @@ vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args)}));
 vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({registerMainOperation: (...args: unknown[]) => mocks.registerMainOperation(...args)}));
-vi.mock('@electron/features/documents/main/nativePdfPreview', () => ({registerNativePdfSenderCleanup: (...args: unknown[]) => mocks.registerNativePdfSenderCleanup(...args)}));
+vi.mock('@electron/features/documents/main/nativePdfMetadata', () => ({registerNativePdfSenderCleanup: (...args: unknown[]) => mocks.registerNativePdfSenderCleanup(...args)}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: (...args: unknown[]) => mocks.getAppTempDir(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: (...args: unknown[]) => mocks.createLogger(...args)}));
 vi.mock('@electron/utils/abort', async (importOriginal_1) => ({

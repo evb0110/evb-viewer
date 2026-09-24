@@ -39,7 +39,7 @@ vi.mock('@electron/image/pdfConversion', () => ({ isSupportedOpenPath: () => tru
 vi.mock('@electron/image/pdfCombineShared', () => ({PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS: ['.png']}));
 vi.mock('@electron/recentFiles', () => ({ getRecentFiles: mocks.getRecentFiles }));
 vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({ openInputPaths: mocks.openInputPaths }));
-vi.mock('@electron/features/documents/main/nativePdfPreview', () => ({handlePdfOpeningGeometry: mocks.handlePdfOpeningGeometry}));
+vi.mock('@electron/features/documents/main/nativePdfMetadata', () => ({handlePdfOpeningGeometry: mocks.handlePdfOpeningGeometry}));
 vi.mock('@electron/features/documents/main/documentDialogCommon', () => ({
     errorWithDetails: (fallbackMessage: string, details: unknown) => (
         details instanceof Error

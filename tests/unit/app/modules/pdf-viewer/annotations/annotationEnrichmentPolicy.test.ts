@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
     MAX_EAGER_ANNOTATION_ENRICHMENT_PAGE_COUNT,
     MAX_INTERACTIVE_ANNOTATION_ENRICHMENT_PAGE_COUNT,

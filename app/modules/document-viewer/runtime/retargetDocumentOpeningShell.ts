@@ -1,7 +1,6 @@
 export type TDocumentOpenSurfacePresentation = 'idle' | 'page-shell'
     | 'committed' | 'failed';
 export type TDocumentOpenSurfaceVisualPresentation = Exclude<TDocumentOpenSurfacePresentation, 'failed'>;
-export type TDocumentNativeOpeningPreviewState = 'inactive' | 'loading' | 'settled' | 'failed';
 
 export interface IDocumentOpenSurfaceGeometry {
     readonly width: number;
@@ -14,18 +13,7 @@ export interface IDocumentOpenSurfacePageFrame {
     readonly ownerId: string;
     readonly pageNumber: number;
     readonly intentKey: string;
-    readonly sourceRevisionKey?: string;
     readonly style: Readonly<Record<string, string>>;
-    readonly preview?: IDocumentOpenSurfacePagePreview;
-}
-
-export interface IDocumentOpenSurfacePagePreview {
-    readonly documentId: string;
-    readonly documentRevision: string;
-    readonly pageNumber: number;
-    readonly sourceRevisionKey: string;
-    readonly objectUrl: string;
-    readonly renderedWidth: number;
 }
 
 export interface IDocumentOpenSurfacePageGeometry {
@@ -35,6 +23,8 @@ export interface IDocumentOpenSurfacePageGeometry {
     readonly width: number;
     readonly height: number;
     readonly rotation: number;
+    /** Widest displayed page width, when the source reports its document-wide Fit Width. */
+    readonly widestPageWidth?: number;
     readonly size?: number;
     readonly modifiedAt?: number;
 }
@@ -44,11 +34,6 @@ export interface IDocumentOpenSurfaceVisualState {
     geometry: IDocumentOpenSurfaceGeometry | null;
     openingPageGeometry: IDocumentOpenSurfacePageGeometry | null;
     openingPageFrame: IDocumentOpenSurfacePageFrame | null;
-    nativeOpeningPreviewState?: TDocumentNativeOpeningPreviewState;
-    /** Whether the native opening-preview lane has claimed this generation. */
-    nativeOpeningPreviewStaged?: boolean;
-    /** Source file size known when the open was claimed, before its source loads. */
-    declaredSourceSize?: number;
     committedViewportPosition: {
         readonly viewportIntentId: string;
         readonly left: number;
@@ -71,15 +56,10 @@ export function retargetDocumentOpeningShell<TVisual extends IDocumentOpenSurfac
             }),
         openingPageFrame: visual.openingPageFrame === null
             ? null
-            : visual.openingPageFrame.preview
-                // Retain both the old page number and its pixels until the
-                // replacement preview commits them together. Relabeling the
-                // retained frame would make stale pixels claim the new page.
-                ? visual.openingPageFrame
-                : Object.freeze({
-                    ...visual.openingPageFrame,
-                    pageNumber,
-                }),
+            : Object.freeze({
+                ...visual.openingPageFrame,
+                pageNumber,
+            }),
         committedViewportPosition: null,
     };
 }

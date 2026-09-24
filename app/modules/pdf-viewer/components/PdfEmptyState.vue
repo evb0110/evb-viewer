@@ -195,7 +195,6 @@
                                 role="row"
                                 :class="{ 'is-disabled': isRecentRowDisabled(file) }"
                                 :data-recent-open-actionable="isRecentOpenReady(file) ? 'true' : 'false'"
-                                :data-recent-open-exact-frame-ready="isRecentOpenExactFrameReady(file) ? 'true' : 'false'"
                                 :data-recent-open-ready="isRecentOpenReady(file) ? 'true' : 'false'"
                                 :data-recent-source="String(file.originalPath)"
                                 @click="openRecentFromRow(file)"
@@ -373,7 +372,6 @@ const {
     openBatchProgress = null,
     openInProgress = false,
     isRecentOpenReady = () => true,
-    isRecentOpenExactFrameReady = () => false,
     canCombineFiles = false,
     startSection = 'recent',
     openCombineResult = undefined,
@@ -385,7 +383,6 @@ const {
     openBatchProgress?: IPdfOpenBatchProgress | null | undefined;
     openInProgress?: boolean | undefined;
     isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
-    isRecentOpenExactFrameReady?: ((file: IRecentFile) => boolean) | undefined;
     canCombineFiles?: boolean | undefined;
     startSection?: TStartSection | undefined;
     openCombineResult?: (result: TOpenFileResult) => Promise<boolean>;
@@ -538,8 +535,7 @@ function openRecentFromRow(file: IRecentFile) {
 function isRecentRowDisabled(file: IRecentFile) {
     // `openInProgress` drives the picker CTA, not Recent command eligibility.
     // The host's row-specific predicate owns transaction conflicts; owner
-    // readiness and prewarmed geometry are open-path concerns, never a
-    // disabled-command gate.
+    // readiness is an open-path concern, never a disabled-command gate.
     return !isRecentOpenReady(file);
 }
 

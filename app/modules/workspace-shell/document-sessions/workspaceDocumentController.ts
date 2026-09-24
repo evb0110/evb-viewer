@@ -140,8 +140,8 @@ interface IWorkspaceWaiter {
     resolve: (workspace: IWorkspaceExpose | null) => void;
     timer: ReturnType<typeof setTimeout>;
 }
-// A native opening preview keeps a large PDF usable while the page-tree check,
-// source setup, and PDF.js first render finish. Leave enough time for slow file
+// A large PDF shows its opening skeleton while the page-tree check, source
+// setup, and PDF.js first render finish. Leave enough time for slow file
 // transports so the controller does not abort a visible open into a second tab.
 const DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS = 120_000;
 let nextSessionIndex = 0;

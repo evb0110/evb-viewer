@@ -94,7 +94,6 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         hasPdf: ref(false),
         isOpeningDocument: ref(false),
         initialVisualReady: ref(false),
-        openingPreviewReady: ref(false),
         hasOpenError: ref(false),
         openFailure: ref(null),
         isPreparingPrint: ref(false),

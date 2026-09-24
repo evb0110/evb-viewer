@@ -8,7 +8,6 @@ export { createBrowserDocumentsCapability } from '@app/platform/browser-api/crea
 export { isBrowserFilePickerSetupDeniedError } from '@app/platform/browser-api/browserFilePickerAdapter';
 export { createBrowserSearchCapability } from '@app/platform/browser-api/createBrowserSearchCapability';
 export { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
-export { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
 export {
     ASSISTANT_IMAGE_RESOURCE_LIMITS,
     createStaticBrowserImagePreview,

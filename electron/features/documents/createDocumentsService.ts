@@ -28,12 +28,10 @@ import {
     handleFileStat,
 } from '@electron/features/documents/main/documentFileReadHandlers';
 import {
-    handleCancelPdfNativePagePreview,
     handlePdfOpeningGeometry,
     handlePdfPageLabelRanges,
-    handlePdfNativePagePreview,
     handlePdfNativePageSizes,
-} from '@electron/features/documents/main/nativePdfPreview';
+} from '@electron/features/documents/main/nativePdfMetadata';
 import {
     beginPdfAnnotationIndex,
     readPdfAnnotationIndexChunk,
@@ -255,10 +253,6 @@ export function createDocumentsService(): IDocumentsService {
         getPdfOpeningGeometry: (...args: TDocumentsServiceArgs<'getPdfOpeningGeometry'>) =>
             handlePdfOpeningGeometry(...args),
         getPdfNativePageSizes: handlePdfNativePageSizes,
-        cancelPdfNativePagePreview: (...args: TDocumentsServiceArgs<'cancelPdfNativePagePreview'>) =>
-            handleCancelPdfNativePagePreview(...args),
-        renderPdfNativePagePreview: (...args: TDocumentsServiceArgs<'renderPdfNativePagePreview'>) =>
-            handlePdfNativePagePreview(...args),
         beginPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'beginPdfAnnotationIndex'>) =>
             beginPdfAnnotationIndex(...args),
         readPdfAnnotationIndexChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationIndexChunk'>) =>

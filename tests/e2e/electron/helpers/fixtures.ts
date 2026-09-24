@@ -18,9 +18,7 @@ import {
     join,
     resolve,
 } from 'node:path';
-import {
-    open, readFile,
-} from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import {
     PDFArray,
     PDFDict,
@@ -49,7 +47,6 @@ import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
-import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import {applyCombinedPdfPageLabels} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
@@ -66,12 +63,12 @@ const PROJECT_ROOT_FIXTURE_DIR = resolve(process.cwd(), '.devkit');
 const LARGE_PDF_FIXTURE_ENV_VAR = 'EVB_E2E_LARGE_PDF_FIXTURE';
 const LARGE_PDF_REQUIRE_ENV_VAR = 'EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE';
 const DEFAULT_LARGE_PDF_FIXTURE = 'large-pdf-fixtures/turkish-english-lexicon-letter-bookmarks.pdf';
-// Above the preview threshold so the fixture exercises native first paint and
-// the handoff to PDF.js.
-const NATIVE_LARGE_PDF_FIXTURE_BYTES = PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES + (1024 * 1024);
+// A sparse document above half a gibibyte, so the working copy, geometry and
+// PDF.js paths run on a file larger than the renderer may hold in memory.
+const NATIVE_LARGE_PDF_FIXTURE_BYTES = 513 * 1024 * 1024;
 // Above the shape-scan cap, so the annotation-save lane covers saving a document
-// whose embedded shape layer is too large to scan, and far below the
-// opening-preview threshold so this fixture does not pay the native render cost.
+// whose embedded shape layer is too large to scan, and far below the oversized
+// fixture so it stays quick to generate.
 const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES * 2;
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
@@ -533,10 +530,8 @@ function provisionLargePdfFixture(
     }
 }
 
-// The two large-PDF lanes sit on opposite sides of the same threshold: the
-// The opening-preview lane needs an oversized sparse fixture to exercise the
-// native-raster-to-PDF.js handoff. The annotation-save lane uses a smaller,
-// content-rich fixture so it can verify existing and newly added notes.
+// The annotation-save lane uses a content-rich fixture so it can verify
+// existing and newly added notes; the oversized sparse fixture covers file size.
 export function resolveLargePdfFixtureAvailability(): IFixtureAvailability {
     const fixturePath = resolveLargePdfFixturePath();
     const required = isEnvFlagEnabled(LARGE_PDF_REQUIRE_ENV_VAR);
@@ -563,63 +558,7 @@ export function resolveLargePdfFixtureAvailability(): IFixtureAvailability {
 }
 
 export function resolveNativeLargePdfFixtureAvailability(pageCount?: number): IFixtureAvailability {
-    return provisionLargePdfFixture('native-preview', NATIVE_LARGE_PDF_FIXTURE_BYTES, pageCount);
-}
-
-/**
- * Resolve the caller-supplied exact fixture used by the native-preview lane.
- * Exact runs must opt in with a manifest profile and may not silently fall
- * back to the generated native-preview document.
- */
-export function resolveExactNativeLargePdfFixtureAvailability(
-    env: NodeJS.ProcessEnv = process.env,
-): IFixtureAvailability {
-    const profile = env.EVB_EXACT_FIXTURE_PROFILE?.trim();
-    if (!profile) {
-        return {
-            path: null,
-            reason: 'Exact native-preview fixture is not enabled',
-            required: false,
-        };
-    }
-
-    const configuredPath = env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
-    if (!configuredPath) {
-        return {
-            path: null,
-            reason: `${LARGE_PDF_FIXTURE_ENV_VAR} is required for exact native-preview acceptance`,
-            required: true,
-        };
-    }
-    if (/^(?:https?|file):\/\//u.test(configuredPath)) {
-        return {
-            path: null,
-            reason: `Exact native-preview fixture must be a local path: ${configuredPath}`,
-            required: true,
-        };
-    }
-
-    const absolutePath = resolve(configuredPath);
-    if (!existsSync(absolutePath)) {
-        return {
-            path: null,
-            reason: `Exact native-preview fixture does not exist: ${absolutePath}`,
-            required: true,
-        };
-    }
-    if (!statSync(absolutePath).isFile()) {
-        return {
-            path: null,
-            reason: `Exact native-preview fixture must point to a file: ${absolutePath}`,
-            required: true,
-        };
-    }
-
-    return {
-        path: absolutePath,
-        reason: `Using exact native-preview fixture: ${absolutePath}`,
-        required: true,
-    };
+    return provisionLargePdfFixture('oversized', NATIVE_LARGE_PDF_FIXTURE_BYTES, pageCount);
 }
 
 export function copyLargePdfFixture(targetFilename?: string) {
@@ -830,69 +769,6 @@ export async function createMixedSize66FixturePdf(filename: string) {
     }
 
     writeFileSync(filePath, await doc.save());
-    return filePath;
-}
-
-/**
- * Creates a production-shaped native-preview fixture that exposes the
- * document-wide fit-width handoff: an 882-page portrait document with the
- * same wider landscape page at page 135 as the user-reported fixture.
- * Sparse padding crosses the production preview threshold without making the
- * test source binary large.
- */
-export async function createNativeMixedWidthFixturePdf(filename: string) {
-    ensureFixtureDir();
-    const filePath = join(getFixtureDir(), filename);
-    const targetBytes = NATIVE_LARGE_PDF_FIXTURE_BYTES;
-    const pageCount = 882;
-    const landscapePageNumber = 135;
-    const document = await PDFDocument.create({updateMetadata: false});
-    const font = await document.embedFont(StandardFonts.Helvetica);
-    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const [
-            width,
-            height,
-        ] = pageNumber === landscapePageNumber
-            ? [
-                765,
-                482,
-            ]
-            : [
-                482,
-                765,
-            ];
-        const page = document.addPage([
-            width,
-            height,
-        ]);
-        page.drawText(`Native mixed-width fit fixture page ${pageNumber}`, {
-            font,
-            size: 18,
-            x: 36,
-            y: height - 54,
-        });
-    }
-    const basePdf = await document.save({
-        addDefaultPage: false,
-        useObjectStreams: false,
-    });
-    const baseText = Buffer.from(basePdf).toString('latin1');
-    const startXref = [...baseText.matchAll(/startxref\s+(\d+)\s+%%EOF/gu)].at(-1)?.[1];
-    if (startXref === undefined) {
-        throw new Error('Native mixed-width fixture is missing its startxref trailer');
-    }
-    const finalTrailer = Buffer.from(`\nstartxref\n${startXref}\n%%EOF\n`, 'ascii');
-    if (targetBytes < basePdf.byteLength + finalTrailer.byteLength) {
-        throw new Error('Native mixed-width fixture target is smaller than its PDF payload');
-    }
-    writeFileSync(filePath, basePdf);
-    const handle = await open(filePath, 'r+');
-    try {
-        await handle.truncate(targetBytes);
-        await handle.write(finalTrailer, 0, finalTrailer.byteLength, targetBytes - finalTrailer.byteLength);
-    } finally {
-        await handle.close();
-    }
     return filePath;
 }
 

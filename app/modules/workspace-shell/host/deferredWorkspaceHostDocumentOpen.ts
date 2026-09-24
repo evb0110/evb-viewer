@@ -1,7 +1,6 @@
 import { delay } from 'es-toolkit/promise';
 import type { ShallowRef } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import type { TTabUpdate } from '@app/types/tabs';
 import type {
     IWorkspaceExpose,
@@ -13,21 +12,16 @@ import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import { isRestoreDocumentOpenAction } from '@app/modules/workspace-shell/document-sessions/isRestoreDocumentOpenAction';
 import { DEFERRED_WORKSPACE_HOST_POLICY } from '@app/modules/workspace-shell/host/deferredWorkspaceHostPolicy';
 import { toolbarSnapshotHasAcceptedDocument } from '@app/modules/workspace-shell/host/toolbarSnapshotHasAcceptedDocument';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import type {
-    IDocumentOpenSurfaceSession, IDocumentOpeningPageFrame,  
-} from '@app/modules/document-viewer/public';
+import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 
 export interface IWorkspaceDocumentOpenHost {
     documentOpenSurface: IDocumentOpenSurfaceSession;
-    openingPageFrameAuthority: ShallowRef<IDocumentOpeningPageFrame | null>;
-    ensureWorkspaceLoaded: (reason: string, signal: AbortSignal) => Promise<IWorkspaceExpose | null>;
     getActiveTransactionId: () => string | null;
     getInitialViewState: () => {currentPage?: number | undefined} | null | undefined;
     getSeedToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
@@ -35,7 +29,6 @@ export interface IWorkspaceDocumentOpenHost {
     hasOpenedDocument: () => boolean;
     hasSessionOpenedDocument: () => boolean;
     isHostUnmounted: () => boolean;
-    isViewerOwnerMounted: () => boolean;
     publishDocumentRecord: (record: IWorkspaceDocumentRecord) => void;
     requestWorkspaceMount: (reason: string) => void;
 }
@@ -56,25 +49,6 @@ function shouldSeedPendingTabHint(target: TTabUpdate | null | undefined, hasWork
 
 export function resolveOpenSurfaceDocumentId(target: TTabUpdate | null, transactionDocumentRef: TDocumentRef | null, fallbackId: string) {
     return String(target?.originalPath ?? transactionDocumentRef ?? fallbackId);
-}
-
-export function resolvePreparedPdfOpeningGeometry(documentId: string, geometry: IPdfOpeningGeometry | null | undefined) {
-    return !geometry || documentId.length === 0
-        ? null
-        : Object.freeze({
-            documentId,
-            ...geometry,
-        });
-}
-
-export function shouldWaitForPreparedOpeningOwner(hasPreparedOpeningGeometry: boolean, ownerMounted: boolean) {
-    return hasPreparedOpeningGeometry && !ownerMounted;
-}
-
-export function canBeginDocumentOpenSynchronously(action: string, hasPreparedOpeningGeometry: boolean, ownerMounted: boolean) {
-    return action === 'openRecentFromPlaceholder'
-        && hasPreparedOpeningGeometry
-        && ownerMounted;
 }
 
 export function resolveDocumentOpenRunResult<T>(result: T | false, reachedTerminalState: boolean) {
@@ -156,30 +130,14 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             currentDocumentId: currentSurface.identity?.documentId ?? null,
             currentGeneration: currentSurface.generation,
             currentPhase: currentSurface.phase,
-            hasPreparedOpeningGeometry: intent.preparedOpeningGeometry !== undefined,
             targetDocumentId: target?.originalPath ?? transactionDocumentRef ?? null,
             transactionId,
         });
-        const canUsePreparedRecentFrame = intent.action === 'openRecentFromPlaceholder'
-            && surfaceAcceptsOpeningTransaction;
-        const cachedRecentGeometry = canUsePreparedRecentFrame && target?.originalPath
-            ? readRecentOpenExactGeometry(target.originalPath, {
-                modifiedAt: intent.preparedSourceModifiedAt,
-                size: intent.preparedSourceSize,
-            })
-            : null;
         const documentId = resolveOpenSurfaceDocumentId(
             target,
             transactionDocumentRef,
             options.tabId,
         );
-        const preparedOpeningGeometry = resolvePreparedPdfOpeningGeometry(
-            documentId,
-            intent.preparedOpeningGeometry,
-        ) ?? cachedRecentGeometry;
-        const exactOpeningGeometry = surfaceAcceptsOpeningTransaction
-            ? preparedOpeningGeometry ?? readRecentOpenExactGeometry(documentId)
-            : preparedOpeningGeometry;
         const transaction: IDocumentOpenTransactionRun = {
             transactionId,
             action: intent.action,
@@ -203,34 +161,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             const restoredInitialPage = isRestoreDocumentOpenAction(intent.action)
                 ? Math.max(1, Math.trunc(initialViewState?.currentPage ?? 1))
                 : null;
-            const ownedOpeningGeometry = restoredInitialPage === null
-                || exactOpeningGeometry?.pageNumber === restoredInitialPage
-                ? exactOpeningGeometry
-                : null;
-            const preparedOpeningFrame = ownedOpeningGeometry
-                ? openHost.openingPageFrameAuthority.value?.draftOpeningPageFrame(ownedOpeningGeometry) ?? null
-                : null;
-            const generation = preparedOpeningFrame
-                ? openHost.documentOpenSurface.beginPrepared(identity, preparedOpeningFrame)
-                : openHost.documentOpenSurface.begin(
-                    identity,
-                    ownedOpeningGeometry,
-                    restoredInitialPage ?? ownedOpeningGeometry?.pageNumber ?? 1,
-                );
-            if (generation === null) {
-                BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Document open transaction rejected because the prepared page frame could not be committed atomically', {
-                    tabId: options.tabId,
-                    action: intent.action,
-                    target,
-                });
-                return null;
-            }
-            if (intent.declaredSourceSize !== undefined) {
-                openHost.documentOpenSurface.declareSourceSize(generation, intent.declaredSourceSize);
-            }
-            if (!preparedOpeningFrame) {
-                openHost.openingPageFrameAuthority.value?.prepareOpeningPageFrame(generation);
-            }
+            openHost.documentOpenSurface.begin(identity, null, restoredInitialPage ?? 1);
             if (pendingPreOwnerGoToPage !== null) {
                 if (pendingPreOwnerGoToPage[1] === documentOpenAttemptCounter) {
                     openHost.documentOpenSurface.requestNavigation(pendingPreOwnerGoToPage[0]);
@@ -252,10 +183,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         if (transaction.seededTabHint && target) {
             openHost.publishDocumentRecord(createPendingWorkspaceDocumentRecord(
                 target,
-                {
-                    openingPageCount: exactOpeningGeometry?.pageCount,
-                    previousToolbarSnapshot: openHost.getSeedToolbarSnapshot(),
-                },
+                {previousToolbarSnapshot: openHost.getSeedToolbarSnapshot()},
             ));
         }
 
@@ -403,44 +331,6 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         });
     }
 
-    function hasPreparedOpeningGeometry(intent: IDocumentOpenIntent) {
-        return intent.preparedOpeningGeometry !== undefined
-            || Boolean(intent.target?.originalPath && readRecentOpenExactGeometry(intent.target.originalPath));
-    }
-
-    async function ensurePreparedOpeningOwnerReady(openHost: IWorkspaceDocumentOpenHost, intent: IDocumentOpenIntent,
-        preparedOpeningGeometryAvailable: boolean, signal: AbortSignal) {
-        if (!shouldWaitForPreparedOpeningOwner(
-            preparedOpeningGeometryAvailable,
-            openHost.isViewerOwnerMounted(),
-        )) {
-            return true;
-        }
-        openHost.requestWorkspaceMount(`prepared-opening-owner:${intent.action}`);
-        const workspace = await waitForDocumentOpenTask(
-            openHost.ensureWorkspaceLoaded(`prepared-opening-owner:${intent.action}`, signal),
-            signal,
-        );
-        if (signal.aborted || workspace === DOCUMENT_OPEN_ABORTED || !workspace) {
-            return false;
-        }
-        const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_TIMEOUT_MS;
-        while (!openHost.isHostUnmounted() && !signal.aborted.valueOf() && Date.now() < deadline) {
-            if (openHost.isViewerOwnerMounted()) {
-                return true;
-            }
-            await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
-            if (signal.aborted.valueOf()) {
-                return false;
-            }
-        }
-        BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Prepared document open timed out before the canonical viewer owner mounted', {
-            tabId: options.tabId,
-            action: intent.action,
-        }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-        return false;
-    }
-
     async function run<T>(intent: IDocumentOpenIntent, transactionId: string,
         transactionDocumentRef: TDocumentRef | null, sourceOpen: (signal: AbortSignal) => Promise<T>,
         signal: AbortSignal): Promise<T | false> {
@@ -463,7 +353,6 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             return false;
         }
         // Keep the mounted path in the click call stack so rapid page commands cannot overtake the open transaction.
-        const preparedOpeningGeometryAvailable = hasPreparedOpeningGeometry(intent);
         documentOpenAttemptCounter += 1;
         const transaction = beginDocumentOpenTransaction(openHost, intent, transactionId, transactionDocumentRef);
         if (!transaction) {
@@ -472,30 +361,6 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         }
         let opened = false;
         try {
-            // Claim the session and opening surface before waiting for the async workspace owner.
-            if (
-                !canBeginDocumentOpenSynchronously(
-                    intent.action,
-                    preparedOpeningGeometryAvailable,
-                    openHost.isViewerOwnerMounted(),
-                )
-                && !await ensurePreparedOpeningOwnerReady(
-                    openHost,
-                    intent,
-                    preparedOpeningGeometryAvailable,
-                    signal,
-                )
-            ) {
-                pendingPreOwnerGoToPage = null;
-                return false;
-            }
-            // Flush synchronous `beginPrepared()` ownership before source loading.
-            if (openHost.documentOpenSurface.snapshot.value.presentation === 'page-shell') {
-                await nextTick();
-                if (signal.aborted.valueOf() || openHost.getActiveTransactionId() !== transaction.transactionId) {
-                    return false;
-                }
-            }
             if (signal.aborted.valueOf() || openHost.getActiveTransactionId() !== transaction.transactionId) {
                 return false;
             }

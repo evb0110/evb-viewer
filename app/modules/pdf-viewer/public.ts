@@ -67,12 +67,7 @@ export type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotati
 export { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
 export { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
 export { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
-export { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public/openGeometry';
-export {
-    isPathPdfSource,
-    PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
-    shouldDeferNativePdfOpeningSkeleton,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
+export { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
 export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 export type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 

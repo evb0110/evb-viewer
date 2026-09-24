@@ -7,7 +7,6 @@ import {
 import { createDocumentConformance } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { createDocumentHistory } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
-import type { IPdfOpeningPreviewLayoutPolicy } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import {
     createDocumentSessionState,
@@ -18,7 +17,6 @@ import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/comp
 
 export interface IUsePdfFileOptions {
     openSurface?: IDocumentOpenSurfaceSession | undefined;
-    readOpeningPageFramePolicy?: () => IPdfOpeningPreviewLayoutPolicy;
     failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
@@ -42,8 +40,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         pdfConformanceProfile,
         pdfData,
         pdfRasterDisplayProfile,
-        pdfOpeningSrc,
-        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfSrc,
         pendingDjvu,
@@ -110,9 +106,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         incrementSessionVersion,
         loadEpoch,
         openSurface: options.openSurface,
-        ...(options.readOpeningPageFramePolicy === undefined
-            ? {}
-            : {readOpeningPageFramePolicy: options.readOpeningPageFramePolicy}),
         ...(options.failureSurface?.reportOpenFailure
             ? {reportOpenFailure: options.failureSurface.reportOpenFailure}
             : {}),
@@ -196,8 +189,6 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
 
     return {
         pdfSrc,
-        pdfOpeningSrc,
-        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfData,
         pdfRasterDisplayProfile,

@@ -74,14 +74,14 @@ type (link, widget, unknown subtype) or an editable type it cannot represent.
 The renderer displays it read-only and the writer preserves it untouched.
 _Avoid_: imported annotation, external annotation, legacy annotation
 
-**Opening preview**:
-The fast first paint of a document produced outside the renderer while the
-renderer is still loading.
-_Avoid_: native preview, skeleton
+**Opening skeleton**:
+The page-shaped placeholder shown while a document opens, sized from the page
+geometry known at open, until the renderer paints the first page.
+_Avoid_: opening preview, native preview
 
 **Document viewer runtime**:
 The module that owns one opened document's page source, viewport presentation,
-opening preview, render leases, and release ordering. It coordinates renderers
+opening skeleton, render leases, and release ordering. It coordinates renderers
 but never writes PDF bytes or owns annotation state.
 _Avoid_: chassis, viewer chassis, authority, viewer core
 

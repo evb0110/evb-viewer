@@ -23,7 +23,7 @@ import {
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
-import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
+import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
 
 export interface IPdfLoadedState {
     pdfData: Uint8Array | null;

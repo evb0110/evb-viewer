@@ -10,10 +10,6 @@ import { requireDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import {
-    invalidateTrustedPdfOpenGeometry,
-    rememberValidatedTrustedPdfOpenGeometry,
-} from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 
 const mocks = vi.hoisted(() => ({
     hasElectronApi: vi.fn(() => true),
@@ -198,8 +194,19 @@ describe('usePdfFile façade', () => {
             documentId: result.originalPath,
             documentRevision: 'open-intent:1',
         });
-        rememberValidatedTrustedPdfOpenGeometry({
-            documentId: result.originalPath,
+        const geometry = Promise.withResolvers<{
+            pageNumber: ReturnType<typeof requirePageNumber>;
+            pageCount: number;
+            width: number;
+            height: number;
+            rotation: 0;
+            size: number;
+            modifiedAt: number;
+        }>();
+        mocks.getOpeningGeometry.mockReturnValue(geometry.promise);
+        const file = createFacade({openSurface});
+        const opening = file.openFile(result);
+        geometry.resolve({
             pageNumber: requirePageNumber(1),
             pageCount: 7,
             width: 640,
@@ -207,20 +214,15 @@ describe('usePdfFile façade', () => {
             rotation: 0,
             size: PDF_BYTES.byteLength,
             modifiedAt: 1,
-            savedAt: 2,
         });
-        mocks.getOpeningGeometry.mockReturnValue(new Promise(() => undefined));
-        const file = createFacade({openSurface});
 
-        await expect(file.openFile(result)).resolves.toMatchObject({status: 'opened'});
-
-        expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
+        await vi.waitFor(() => expect(openSurface.snapshot.value.openingPageGeometry).toMatchObject({
             documentId: result.originalPath,
             pageCount: 7,
             width: 640,
             height: 900,
-        });
-        invalidateTrustedPdfOpenGeometry(result.originalPath, requirePageNumber(1));
+        }));
+        await expect(opening).resolves.toMatchObject({status: 'opened'});
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {

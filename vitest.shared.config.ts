@@ -99,7 +99,6 @@ export const electronE2ELanes = {
 const electronE2ELargePdfTestFiles = [
     'largePdfAnnotationSave',
     'largePdfNativeAnnotationMatrix',
-    'largePdfNativePreview',
     'nativePdfSplitPaneLifecycle',
     'xlargeDocumentAcceptance',
 ].map(electronE2EFile);

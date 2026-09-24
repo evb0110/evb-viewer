@@ -172,14 +172,10 @@
 import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
-import {
-    captureFailureForPresentation,
-    setRendererDiagnosticsPreference,
-} from '@app/utils/failureReporter';
+import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
 import {getFailureErrorId} from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
@@ -189,18 +185,7 @@ import {
     isElectronUserAgent,
     waitForPreferredDesktopPlatformBridge,
 } from '@app/utils/platform';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import {runPostReadyRecentGeometryPrewarm} from '@app/modules/workspace-shell/host/runPostReadyRecentGeometryPrewarm';
-import {
-    resolveStartupWorkProfile,
-    type IStartupWorkProfile,
-} from '@app/utils/startupWorkProfile';
-import {
-    scheduleIdleWork,
-    type TCancelIdleWork,
-} from '@app/utils/scheduleIdleWork';
 
 // Nuxt UI stacks toasts upward from the bottom-right corner and keeps at most
 // this many on screen. The shell pins both numbers instead of inheriting the
@@ -240,10 +225,6 @@ const {
 const hostEnvironmentUnsubscribers: Array<() => void> = [];
 const toast = useToast();
 let themeRepaintRevision = 0;
-const {
-    loadRecentFiles,
-    recentFiles,
-} = useRecentFiles();
 const {isDesktopRuntime} = useRuntimeEnvironment();
 const {
     locale,
@@ -258,7 +239,6 @@ const {
 } = useFatalRuntimeError();
 const {
     reports: runtimeErrorReports,
-    reportRuntimeError,
     dismissRuntimeErrorReport,
     clearRuntimeErrorReports,
     discardPendingDiagnostics,
@@ -290,7 +270,6 @@ const {
     copy: copyFatalDetailToClipboard,
     isSupported: isFatalDetailClipboardSupported,
 } = useClipboard({ copiedDuring: 1500 });
-let cancelPostReadyRecentGeometryWarmup: TCancelIdleWork | null = null;
 let appReadyDispatched = false;
 const {
     copied: recentlyCopiedReports,
@@ -396,28 +375,6 @@ function denyDiagnosticsConsent(report: IRuntimeErrorReport) {
     });
 }
 
-function reportStartupWarmupFailure(title: string, error: unknown) {
-    const presentation = captureFailureForPresentation({
-        code: 'RENDERER_STARTUP_WARMUP_FAILED',
-        local: {
-            source: 'loader',
-            message: title,
-            cause: error,
-        },
-    });
-    BrowserLogger.error('loader', title, error, presentation.failure);
-    reportRuntimeError({
-        ...presentation,
-        failure: presentation.failure,
-        title,
-        description: getErrorMessage(error),
-    });
-}
-
-function guardStartupWarmup(promise: Promise<unknown>, title: string) {
-    void promise.catch(error => reportStartupWarmupFailure(title, error));
-}
-
 watch(() => colorMode.value, async () => {
     if (!import.meta.client) {
         return;
@@ -442,8 +399,6 @@ onBeforeUnmount(() => {
     }
     clearRuntimeErrorReports();
     themeRepaintRevision += 1;
-    cancelPostReadyRecentGeometryWarmup?.();
-    cancelPostReadyRecentGeometryWarmup = null;
     while (hostEnvironmentUnsubscribers.length > 0) {
         const unsubscribe = hostEnvironmentUnsubscribers.pop();
         try {
@@ -481,47 +436,6 @@ useHead(() => ({
     meta: localeHead.value.meta,
     link: localeHead.value.link,
 }));
-
-function schedulePostReadyRecentGeometryWarmup(
-    profile: IStartupWorkProfile,
-): void {
-    traceRendererStartup('post-ready recent geometry warmup scheduled');
-    cancelPostReadyRecentGeometryWarmup = scheduleIdleWork(() => {
-        const warmup = (async () => {
-            try {
-                await loadRecentFiles();
-                const documentFiles = getDocumentFilesCapability();
-                const djvu = getDjvuCapability();
-                const readPdfOpeningGeometry = documentFiles.getPdfOpeningGeometry;
-                await runPostReadyRecentGeometryPrewarm({
-                    files: recentFiles.value,
-                    ports: {
-                        ...(readPdfOpeningGeometry
-                            ? {readPdfOpeningGeometry}
-                            : {}),
-                        readDjvuSourceInfo: path => djvu.getPageSourceInfo(path, 1),
-                    },
-                    profile,
-                    onError: (kind, path, error) => BrowserLogger.debug(
-                        'recent-open',
-                        `Application-level Recent ${kind.toUpperCase()} geometry warmup unavailable`,
-                        {
-                            path,
-                            error: getErrorMessage(error),
-                        },
-                    ),
-                });
-                markStartupMetricOnce('evb:recent-pdf-geometry-prewarmed');
-                traceRendererStartup('post-ready recent geometry warmup settled');
-            } catch (error) {
-                traceRendererStartup('post-ready recent geometry warmup failed');
-                throw error;
-            }
-        })();
-        guardStartupWarmup(warmup, t('errors.runtime.recentGeometryWarmupTitle'));
-        return warmup;
-    });
-}
 
 function dispatchAppReady() {
     if (typeof window === 'undefined' || appReadyDispatched) {
@@ -650,7 +564,6 @@ onMounted(async () => {
         await waitForVisualFrames();
         markStartupMetricOnce('evb:shell-interactive');
         dispatchAppReady();
-        schedulePostReadyRecentGeometryWarmup(resolveStartupWorkProfile());
     } catch (error) {
         const presentation = getOrCaptureRendererBootstrapFailure({
             error,

@@ -45,7 +45,6 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleExportMultiPageTiff: vi.fn(async () => {}),
         hasPdf: ref(false),
         isOpeningDocument: ref(false),
-        openingPreviewReady: ref(false),
         initialVisualReady: ref(false),
         hasOpenError: ref(false),
         openFailure: ref(null),
@@ -546,30 +545,6 @@ describe('createWorkspaceExpose', () => {
             zoom: 2.38,
             effectiveZoom: 2.38,
         });
-    });
-
-    it('publishes native preview pagination while PDF.js is still opening', () => {
-        const deps = createDeps({
-            hasPdf: ref(true),
-            isOpeningDocument: ref(true),
-            openingPreviewReady: ref(true),
-            currentPage: ref(4),
-            totalPages: ref(7),
-            toolbarCurrentPage: ref(42),
-            toolbarTotalPages: ref(564),
-            selectedThumbnailPages: ref([4]),
-        });
-        const exposed = createWorkspaceExpose(deps);
-
-        expect(exposed.getToolbarSnapshot()).toMatchObject({
-            isOpeningDocument: true,
-            openingPreviewReady: true,
-            currentPage: 42,
-            totalPages: 564,
-        });
-
-        exposed.handleDeletePages();
-        expect(deps.pageOpsDelete).toHaveBeenCalledWith([4], 7);
     });
 
     it('keeps opening pagination empty when no authoritative count exists', () => {

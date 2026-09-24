@@ -22,7 +22,7 @@ import {
     PDF_THUMBNAIL_CONCURRENCY_WORKSTATION,
     resolvePerformanceProfile,
 } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const MEBIBYTE = 1024 * 1024;
@@ -357,7 +357,6 @@ describe('resolveOpenPathSecondaryPerformancePolicy', () => {
                 interactiveAnnotationNameReadMaxBytes: 64 * MEBIBYTE,
                 maxInMemoryPdfBytes: 16 * MEBIBYTE,
                 maxDjvuJsDesktopSourceBytes: 96 * MEBIBYTE,
-                geometryPreflightMode: 'concurrent',
                 deferMediumHistoryBaseline: false,
                 inactiveDjvuLeasePolicy: 'warm-grace',
             },
@@ -372,7 +371,6 @@ describe('resolveOpenPathSecondaryPerformancePolicy', () => {
                 interactiveAnnotationNameReadMaxBytes: 16 * MEBIBYTE,
                 maxInMemoryPdfBytes: 4 * MEBIBYTE,
                 maxDjvuJsDesktopSourceBytes: 24 * MEBIBYTE,
-                geometryPreflightMode: 'cache-only',
                 deferMediumHistoryBaseline: true,
                 inactiveDjvuLeasePolicy: 'release-immediately',
             },
@@ -387,7 +385,6 @@ describe('resolveOpenPathSecondaryPerformancePolicy', () => {
                 interactiveAnnotationNameReadMaxBytes: 16 * MEBIBYTE,
                 maxInMemoryPdfBytes: 16 * MEBIBYTE,
                 maxDjvuJsDesktopSourceBytes: 96 * MEBIBYTE,
-                geometryPreflightMode: 'cache-only',
                 deferMediumHistoryBaseline: false,
                 inactiveDjvuLeasePolicy: 'warm-grace',
             },

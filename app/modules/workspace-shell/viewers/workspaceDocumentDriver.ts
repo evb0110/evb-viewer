@@ -136,8 +136,6 @@ export interface IDocumentSessionState {
     pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
     pdfData: ShallowRef<Uint8Array | null>;
     pdfRasterDisplayProfile: Ref<TPdfRasterDisplayProfile | null>;
-    pdfOpeningSrc: Ref<TPdfSource | null>;
-    pdfOpeningRevisionToken: Ref<TDocumentRevisionToken | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pendingDjvu: Ref<TDocumentRef | null>;
@@ -157,8 +155,6 @@ export function createDocumentSessionState(
     deps: {isDesktopRuntime: Ref<boolean> | ComputedRef<boolean>},
 ): IDocumentSessionState {
     const pdfSrc = shallowRef<TPdfSource | null>(null);
-    const pdfOpeningSrc = shallowRef<TPdfSource | null>(null);
-    const pdfOpeningRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const pdfReloadSrc = shallowRef<TPdfSource | null>(null);
     const pdfData = shallowRef<Uint8Array | null>(null);
     const pdfRasterDisplayProfile = ref<TPdfRasterDisplayProfile | null>(null);
@@ -184,8 +180,6 @@ export function createDocumentSessionState(
 
     function resetForClose() {
         pdfSrc.value = null;
-        pdfOpeningSrc.value = null;
-        pdfOpeningRevisionToken.value = null;
         pdfReloadSrc.value = null;
         pdfData.value = null;
         pdfRasterDisplayProfile.value = null;
@@ -219,8 +213,6 @@ export function createDocumentSessionState(
         pdfConformanceProfile,
         pdfData,
         pdfRasterDisplayProfile,
-        pdfOpeningSrc,
-        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfSrc,
         pendingDjvu,
@@ -610,8 +602,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     isWorkspaceLayoutResizing: TReadableRef<boolean>;
     pageMatches: TReadableRef<unknown>;
     pdfRasterDisplayProfile: TReadableRef<TPdfRasterDisplayProfile | null>;
-    pdfOpeningSrc: Ref<TPdfSource | null>;
-    pdfOpeningRevisionToken: Ref<TDocumentRevisionToken | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pendingDocumentPath?: TReadableRef<TDocumentRef | null>;
@@ -688,7 +678,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             return {
                 sourceKind: 'pdf',
                 rendererKind: 'pdfjs',
-                src: options.pdfOpeningSrc.value ?? options.pdfSrc.value,
+                src: options.pdfSrc.value,
                 reloadSrc: options.pdfReloadSrc.value,
                 rasterDisplayProfile: options.pdfRasterDisplayProfile.value,
                 sourcePdfData: options.sourcePdfData.value,
@@ -714,13 +704,9 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 searchPageMatches: options.pageMatches.value,
                 currentSearchMatch: options.currentSearchMatch.value,
                 currentSearchMatchNavigationId: options.currentResultNavigationId.value,
-                workingCopyPath: isPathPdfSource(options.pdfOpeningSrc.value)
-                    ? options.pdfOpeningSrc.value.path
-                    : options.workingCopyPath.value,
+                workingCopyPath: options.workingCopyPath.value,
                 originalPath: options.originalPath.value ?? options.pendingDocumentPath?.value ?? null,
-                documentRevisionToken: options.pdfOpeningSrc.value
-                    ? options.pdfOpeningRevisionToken.value
-                    : options.documentRevisionToken.value,
+                documentRevisionToken: options.documentRevisionToken.value,
                 authorName: options.authorName.value,
                 // Temporary direct command seam. #193 removes the legacy
                 // workspace stamp persistence route after writer ownership is

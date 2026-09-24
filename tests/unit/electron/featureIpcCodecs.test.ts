@@ -480,22 +480,24 @@ describe('feature IPC codec maps', () => {
             width: 612,
             height: 792,
             rotation: 90,
+            widestPageWidth: 792,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
-            linearized: false,
         };
         expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult(validGeometry))
             .toEqual(validGeometry);
+        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
+            ...validGeometry,
+            widestPageWidth: 500,
+        })).toThrow('invalid PDF opening geometry result');
         expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
             kind: 'pdf',
             workingPath: '/managed/scan.pdf',
             originalPath: '/documents/scan.pdf',
-            openingGeometry: validGeometry,
         })).toEqual({
             kind: 'pdf',
             workingPath: '/managed/scan.pdf',
             originalPath: '/documents/scan.pdf',
-            openingGeometry: validGeometry,
         });
         expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
             kind: 'pdf-needs-password',
@@ -543,26 +545,6 @@ describe('feature IPC codec maps', () => {
         expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
             ...validGeometry,
             rotation: 45,
-        })).toThrow('invalid PDF opening geometry result');
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
-            ...validGeometry,
-            linearized: 'no',
-        })).toThrow('invalid PDF opening geometry result');
-        const {
-            linearized: _linearized,
-            ...geometryWithoutLinearization
-        } = validGeometry;
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry]
-            .decodeResult(geometryWithoutLinearization))
-            .toEqual(geometryWithoutLinearization);
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
-            kind: 'pdf',
-            workingPath: '/managed/scan.pdf',
-            originalPath: '/documents/scan.pdf',
-            openingGeometry: {
-                ...validGeometry,
-                rotation: 45,
-            },
         })).toThrow('invalid PDF opening geometry result');
     });
 

@@ -11,22 +11,16 @@ import type {
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
     IPdfDataPrintOptions,
-    IPdfNativePageGeometry,
     IPdfNativePageSizesExactOptions,
-    IPdfNativePageSizesOptions,
     IWorkingCopyBackingStatus,
-    IPdfNativePagePreviewOptions,
     IPdfNativeStagedCommitOptions,
     IPdfOptimizeOptions,
     IPdfPathPrintOptions,
     IPdfSaveAsOptions,
     IPdfSerializedCommitCallbacks,
-    TPdfNativePageSizes,
-    TPdfNativePageSizesResult,
 } from '@contracts/electronApiDocuments';
 import {decodeNativePageSizesOptions} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     requireLeaseId,
     requireRequestId,
@@ -123,7 +117,6 @@ const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.openDocumentDirectBatch]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfOpeningGeometry]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: LONG_NATIVE_IPC_TIMEOUT_MS,
-    [DOCUMENTS_CHANNELS.pdfNativePagePreview]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfAnnotationIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.parsePdfAnnotations]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfEmbeddedShapeIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
@@ -170,13 +163,6 @@ class PdfPersistenceError extends Error {
         this.expected = payload.expected;
         this.seq = payload.seq;
     }
-}
-
-function assertPositiveInteger(value: unknown, label: string): number {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-        throw new TypeError(`${label} must be a positive integer`);
-    }
-    return value;
 }
 
 function assertPdfSaveAsOptions(value: unknown, label: string): IPdfSaveAsOptions | undefined {
@@ -260,47 +246,6 @@ function assertPdfOptimizeOptions(value: unknown, label: string): IPdfOptimizeOp
     }
 
     return { preset: value.preset };
-}
-
-function assertPdfNativePagePreviewOptions(
-    value: unknown,
-    label: string,
-): IPdfNativePagePreviewOptions | undefined {
-    if (value === undefined || value === null) {
-        return undefined;
-    }
-    if (!isRecord(value)) {
-        throw new TypeError(`${label} must be an object`);
-    }
-    if (
-        value.targetWidthPx !== undefined
-        && (
-            typeof value.targetWidthPx !== 'number'
-            || !Number.isFinite(value.targetWidthPx)
-            || value.targetWidthPx < 1
-        )
-    ) {
-        throw new TypeError(`${label}.targetWidthPx must be a positive finite number`);
-    }
-    if (
-        value.previewRequestId !== undefined
-        && (
-            typeof value.previewRequestId !== 'string'
-            || value.previewRequestId.trim().length === 0
-        )
-    ) {
-        throw new TypeError(`${label}.previewRequestId must be a non-empty string`);
-    }
-
-    const previewRequestId = typeof value.previewRequestId === 'string'
-        ? value.previewRequestId.trim()
-        : undefined;
-    const normalized = {
-        ...(value.targetWidthPx === undefined ? {} : {targetWidthPx: Math.trunc(value.targetWidthPx)}),
-        ...(previewRequestId === undefined ? {} : {previewRequestId: requireRequestId(previewRequestId)}),
-    } satisfies IPdfNativePagePreviewOptions;
-
-    return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function assertPersistenceData(value: unknown, fieldName: string) {
@@ -670,31 +615,11 @@ export function createDocumentsPreloadFileClient(
         DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs,
         {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL},
     );
-    function getPdfNativePageSizes(path: TDocumentRef): Promise<TPdfNativePageSizes>;
-    function getPdfNativePageSizes(
-        path: TDocumentRef,
-        options: IPdfNativePageSizesExactOptions,
-    ): Promise<IPdfNativePageGeometry>;
-    function getPdfNativePageSizes(
-        path: TDocumentRef,
-        options?: IPdfNativePageSizesOptions,
-    ): Promise<TPdfNativePageSizesResult>;
-    function getPdfNativePageSizes(
-        path: TDocumentRef,
-        options?: IPdfNativePageSizesOptions,
-    ): Promise<TPdfNativePageSizesResult> {
-        const checkedPath = assertAbsolutePath(path, 'getPdfNativePageSizes.path');
-        const checkedOptions = decodeNativePageSizesOptions(options);
-        if (checkedOptions === undefined) {
-            return invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
-                checkedPath,
-            );
-        }
+    function getPdfNativePageSizes(path: TDocumentRef, options: IPdfNativePageSizesExactOptions) {
         return invokeFiles(
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
-            checkedPath,
-            checkedOptions,
+            assertAbsolutePath(path, 'getPdfNativePageSizes.path'),
+            decodeNativePageSizesOptions(options),
         );
     }
     const invokePdf = createCodecIpcInvoker<IDocumentPdfInvokeMap>(
@@ -806,18 +731,6 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'getPdfOpeningGeometry.path'),
             ),
         getPdfNativePageSizes,
-        cancelPdfNativePagePreview: (requestId) =>
-            invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfNativePagePreview,
-                requireRequestId(assertNonEmptyString(requestId, 'cancelPdfNativePagePreview.requestId')),
-            ),
-        renderPdfNativePagePreview: (path, pageNumber, options) =>
-            invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.renderPdfNativePagePreview,
-                assertAbsolutePath(path, 'renderPdfNativePagePreview.path'),
-                requirePageNumber(assertPositiveInteger(pageNumber, 'renderPdfNativePagePreview.pageNumber')),
-                assertPdfNativePagePreviewOptions(options, 'renderPdfNativePagePreview.options'),
-            ),
         beginPdfAnnotationIndex: (path, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfAnnotationIndex,

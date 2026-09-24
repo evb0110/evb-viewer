@@ -34,7 +34,6 @@ interface ICreateWorkspaceDocumentRecordOptions {
 }
 
 interface ICreatePendingWorkspaceDocumentRecordOptions {
-    openingPageCount?: number | null | undefined;
     previousToolbarSnapshot?: IWorkspaceToolbarSnapshot | undefined;
     previousViewState?: ITabViewSessionState | undefined;
 }
@@ -101,17 +100,16 @@ export function createPendingWorkspaceDocumentRecord(
 ): IWorkspaceDocumentRecord {
     const previousToolbarSnapshot = options.previousToolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot();
     const previousViewState = options.previousViewState ?? createTabViewSessionState(previousToolbarSnapshot);
-    const openingPageCount = options.openingPageCount ?? 0;
     const tabState = normalizeTabState(tab);
     const toolbarSnapshot = normalizeWorkspaceToolbarSnapshot({
         ...previousToolbarSnapshot,
         hasPdf: Boolean(tabState.fileName) || Boolean(tabState.originalPath) || tabState.isDjvu,
         isOpeningDocument: true,
         isDjvuMode: tabState.isDjvu,
-        // The prepared count belongs to the incoming document. Page position
-        // still starts at one so the replaced document cannot leak into it.
+        // Page position starts at one so the replaced document cannot leak
+        // into the incoming one.
         currentPage: 1,
-        totalPages: openingPageCount,
+        totalPages: 0,
         viewerCapabilities: getWorkspaceViewerCapabilitiesForDocumentType(tabState.isDjvu ? 'djvu' : 'pdf'),
     });
     return createWorkspaceDocumentRecord({
@@ -174,7 +172,6 @@ const areToolbarSnapshotPrimitivesEqual = createShallowKeyEquality<Omit<IWorkspa
     hasOpenError: true,
     hasPdf: true,
     initialVisualReady: true,
-    openingPreviewReady: true,
     isAnySaving: true,
     isCapturingRegion: true,
     isCropSelecting: true,

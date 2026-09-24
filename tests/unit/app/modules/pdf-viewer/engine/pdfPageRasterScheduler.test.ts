@@ -262,7 +262,7 @@ describe('PdfPageRasterScheduler', () => {
         }]));
         budget.reserve({
             scopeId: 'external',
-            category: 'native-preview',
+            category: 'djvu-preview',
             bytes: 400,
             priority: 400,
             evict: externalEvict,

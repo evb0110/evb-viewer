@@ -5,7 +5,7 @@ import type {
 } from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
-import { isPathPdfSource } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
+import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
 import type { ILazyHistoryBaseline } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 
 interface IResolvedPathBaseline {

@@ -1,9 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IPagePreviewSource,
-    IPreviewPageSize,
-    TPreviewPageSizes,
-} from '@app/modules/document-viewer/pagePreviewSource';
+import type {IPagePreviewSource} from '@app/modules/document-viewer/pagePreviewSource';
 import {
     assertDocumentPageNumber,
     type IDocumentPageSource,
@@ -19,10 +15,6 @@ interface IDjvuPointPageSize {
     width: number;
     height: number;
     dpi?: number | undefined;
-}
-
-function isPreviewPageSizeList(value: TPreviewPageSizes): value is readonly IPreviewPageSize[] {
-    return Array.isArray(value);
 }
 
 export interface IDjvuSurfaceBudget {
@@ -82,9 +74,6 @@ export async function createDjvuPageSource(
         pageSizes.set(sourceInfo.pageNumber, sourceInfo.pageSize);
     } else {
         const compatibilityPageSizes = await previewSource.getPageSizes();
-        if (!isPreviewPageSizeList(compatibilityPageSizes)) {
-            throw new Error('DjVu page-size preview returned compact PDF metadata');
-        }
         pageCount = compatibilityPageSizes.length;
         compatibilityPageSizes.forEach((size, index) => pageSizes.set(index + 1, size));
     }
@@ -100,9 +89,6 @@ export async function createDjvuPageSource(
             return size;
         }
         const compatibilityPageSizes = await previewSource.getPageSizes();
-        if (!isPreviewPageSizeList(compatibilityPageSizes)) {
-            throw new Error('DjVu page-size preview returned compact PDF metadata');
-        }
         compatibilityPageSizes.forEach((size, index) => pageSizes.set(index + 1, size));
         const size = pageSizes.get(pageNumber);
         if (!size) {

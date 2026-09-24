@@ -17,7 +17,6 @@ describe('PDF viewport-session visual projection', () => {
             viewMode: 'single',
             visual: {
                 error: null,
-                frameKey: 'opening-page-1',
                 generation: 1,
                 kind: 'page',
                 pageNumber: 1,
@@ -36,7 +35,6 @@ describe('PDF viewport-session visual projection', () => {
             viewMode: 'single',
             visual: {
                 error: null,
-                frameKey: 'opening-page-6',
                 generation: 1,
                 kind: 'page',
                 pageNumber: 6,
@@ -55,7 +53,6 @@ describe('PDF viewport-session visual projection', () => {
             viewMode: 'single',
             visual: {
                 error: null,
-                frameKey: 'navigation-page-2',
                 generation: 1,
                 kind: 'page',
                 pageNumber: 2,
@@ -74,7 +71,6 @@ describe('PDF viewport-session visual projection', () => {
             viewMode: 'single',
             visual: {
                 error: null,
-                frameKey: 'navigation-page-7',
                 generation: 2,
                 kind: 'page',
                 pageNumber: 7,
@@ -93,7 +89,6 @@ describe('PDF viewport-session visual projection', () => {
             viewMode: 'facing',
             visual: {
                 error: null,
-                frameKey: 'navigation-page-9',
                 generation: 2,
                 kind: 'page',
                 pageNumber: 9,
@@ -112,7 +107,6 @@ describe('PDF viewport-session visual projection', () => {
             viewMode: 'single',
             visual: {
                 error: null,
-                frameKey: null,
                 generation: 2,
                 kind: 'page',
                 pageNumber: 1,
@@ -131,7 +125,6 @@ describe('PDF viewport-session visual projection', () => {
             viewMode: 'single',
             visual: {
                 error: null,
-                frameKey: 'previous-document-page-383',
                 generation: 1,
                 kind: 'page',
                 pageNumber: 383,

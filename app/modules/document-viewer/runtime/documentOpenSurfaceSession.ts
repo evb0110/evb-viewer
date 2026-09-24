@@ -5,10 +5,8 @@ import {
     type TDocumentNavigationOutcome,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
 import type {
     IDocumentOpenSurfaceIdentity,
-    IDocumentOpenSurfacePreparedPageFrame,
     IDocumentOpenSurfaceRenderFence,
     IDocumentOpenSurfaceRenderOwner,
     IDocumentOpenSurfaceSession,
@@ -30,13 +28,9 @@ import {
     type IDocumentOpenSurfaceVisualState,
     type TDocumentOpenSurfacePresentation,
     type TDocumentOpenSurfaceVisualPresentation,
-    type TDocumentNativeOpeningPreviewState,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
-import {createDocumentOpeningPreviewGate} from '@app/modules/document-viewer/runtime/createDocumentOpeningPreviewGate';
 export type {
     IDocumentOpenSurfaceIdentity,
-    IDocumentOpenSurfacePageGeometrySeed,
-    IDocumentOpenSurfacePreparedPageFrame,
     IDocumentOpenSurfaceRenderFence,
     IDocumentOpenSurfaceRenderOwner,
     IDocumentOpenSurfaceSession,
@@ -48,7 +42,6 @@ export type {
     IDocumentViewportCommitFence,
     IDocumentViewportIdentity,
     IDocumentViewportIntent,
-    IDocumentViewportPreparedPage,
     IDocumentViewportRenderFence,
     IDocumentViewportSessionState,
     IDocumentViewportSessionTransition,
@@ -69,9 +62,7 @@ export {
 export type {
     IDocumentOpenSurfaceGeometry,
     IDocumentOpenSurfacePageFrame,
-    IDocumentOpenSurfacePagePreview,
     IDocumentOpenSurfacePageGeometry,
-    TDocumentNativeOpeningPreviewState,
     TDocumentOpenSurfacePresentation,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 export type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
@@ -83,9 +74,7 @@ export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpen
         || snapshot.phase === 'canvas-committed'
         || snapshot.phase === 'viewport-committed';
     return {
-        overflow: isTransitioning && snapshot.openingPageFrame?.preview === undefined
-            ? 'hidden'
-            : 'auto',
+        overflow: isTransitioning ? 'hidden' : 'auto',
         scrollbarGutter: 'stable',
         committedMargin: snapshot.geometry?.margin ?? null,
     } as const;
@@ -96,7 +85,6 @@ const idleVisualState = (): IDocumentOpenSurfaceVisualState => ({
     geometry: null,
     openingPageGeometry: null,
     openingPageFrame: null,
-    nativeOpeningPreviewState: 'inactive',
     committedViewportPosition: null,
 });
 
@@ -251,13 +239,6 @@ function projectDocumentOpenSurfaceSnapshot(
         geometry: visual.geometry,
         openingPageGeometry: visual.openingPageGeometry,
         openingPageFrame: visual.openingPageFrame,
-        nativeOpeningPreviewState: visual.nativeOpeningPreviewState ?? 'inactive',
-        ...(visual.nativeOpeningPreviewStaged === undefined
-            ? {}
-            : {nativeOpeningPreviewStaged: visual.nativeOpeningPreviewStaged}),
-        ...(visual.declaredSourceSize === undefined
-            ? {}
-            : {declaredSourceSize: visual.declaredSourceSize}),
         committedRender,
         committedViewport,
         failure: viewport.failure,
@@ -323,12 +304,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         sessionState.value.viewport,
         revisionSwap.value !== null,
     ));
-    const openingPageSourceBinding = shallowRef<{
-        generation: number;
-        onRetire: (() => void) | null;
-        source: IDocumentPageSource;
-    } | null>(null);
-    const openingPageSource = computed(() => openingPageSourceBinding.value?.source ?? null);
     const skeletonTimers = new Map<string, ReturnType<typeof setTimeout>>();
     let nextViewportIntent = 0;
     let nextRenderOwnerVersion = 0;
@@ -448,20 +423,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         };
     }
 
-    const openingPreviewGate = createDocumentOpeningPreviewGate({
-        readSnapshot: () => snapshot.value,
-        replaceFrame: frame => commitVisual(visual => ({
-            ...visual,
-            openingPageFrame: frame,
-        })),
-    });
-
-    function retireOpeningPageSource() {
-        const binding = openingPageSourceBinding.value;
-        openingPageSourceBinding.value = null;
-        binding?.onRetire?.();
-    }
-
     function createViewportIntentId(prefix: string) {
         nextViewportIntent += 1;
         return `${prefix}:${String(nextViewportIntent)}`;
@@ -470,16 +431,13 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     function beginViewportSession(
         identity: IDocumentOpenSurfaceIdentity,
         openingPageGeometry: IDocumentOpenSurfacePageGeometry | null,
-        preparedFrame?: IDocumentOpenSurfacePreparedPageFrame,
         updateVisual?: (
             current: IDocumentOpenSurfaceVisualState,
             viewport: IDocumentViewportSessionState,
         ) => IDocumentOpenSurfaceVisualState,
-        initialPage = openingPageGeometry?.pageNumber ?? preparedFrame?.pageNumber ?? 1,
+        initialPage = openingPageGeometry?.pageNumber ?? 1,
     ) {
         revisionSwap.value = null;
-        retireOpeningPageSource();
-        openingPreviewGate.reset();
         const id = createViewportIntentId('open');
         const ticket = makeTicket(createPageNavigationRequest(initialPage, 'restore'),
             sessionState.value.viewport.generation + 1, identity.documentRevision, id);
@@ -496,11 +454,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 token: createViewportIntentId('skeleton'),
                 deadline: Date.now() + openingSkeletonDelayMs,
             },
-            ...(preparedFrame ? {preparedPage: {
-                pageNumber: preparedFrame.pageNumber,
-                pageCount: preparedFrame.geometry.pageCount,
-                frameKey: preparedFrame.sourceRevisionKey ?? preparedFrame.intentKey,
-            }} : {}),
         }, updateVisual, ticket);
         logPdfRenderTrace('viewport-session-open-requested', {
             documentId: identity.documentId,
@@ -622,10 +575,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         }
         const committed = snapshot.value.committedRender;
         const viewport = snapshot.value.committedViewport;
-        if (openingPreviewGate.isReadyHeld(fence.generation)) {
-            diagnostics.reportRejected('mark-ready', 'validation-authorization-pending', {fence});
-            return false;
-        }
         if (
             ![
                 'opening',
@@ -659,7 +608,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             openingPageFrame: null,
             presentation: 'committed',
         }));
-        if (markedReady) retireOpeningPageSource();
         return markedReady;
     }
 
@@ -730,8 +678,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         snapshot: readonly(snapshot),
         viewportSession,
-        readyAuthorizationRevision: openingPreviewGate.readyAuthorizationRevision,
-        openingPageSource: readonly(openingPageSource),
         getDiagnosticHistory: diagnostics.getHistory,
         begin(identity, openingPageGeometry = null, initialPage) {
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
@@ -746,7 +692,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             )
                 ? identityOwnedOpeningPageGeometry
                 : null;
-            beginViewportSession(identity, ownedOpeningPageGeometry, undefined, () => ({
+            beginViewportSession(identity, ownedOpeningPageGeometry, () => ({
                 // The transaction phase transfers center-surface ownership away
                 // from the empty placeholder immediately. Presentation remains
                 // idle until real page geometry can establish the page shell.
@@ -757,41 +703,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 committedViewportPosition: null,
             }), normalizedInitialPage);
             return sessionState.value.viewport.generation;
-        },
-        beginPrepared(identity, preparedFrame) {
-            const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(preparedFrame.geometry);
-            if (
-                identity.documentId.length === 0
-                || identity.documentRevision.length === 0
-                || preparedFrame.documentId !== identity.documentId
-                || normalizedOpeningPageGeometry?.documentId !== identity.documentId
-                || preparedFrame.pageNumber !== normalizedOpeningPageGeometry.pageNumber
-                || preparedFrame.ownerId.length === 0
-                || preparedFrame.intentKey.length === 0
-                || preparedFrame.layoutKey.length === 0
-                || preparedFrame.policyKey.length === 0
-                || preparedFrame.sourceRevisionKey === null
-                || preparedFrame.sourceRevisionKey.length === 0
-                || Object.keys(preparedFrame.style).length === 0
-            ) {
-                return null;
-            }
-            const generation = sessionState.value.viewport.generation + 1;
-            const opened = beginViewportSession(identity, normalizedOpeningPageGeometry, preparedFrame, () => ({
-                presentation: 'page-shell',
-                geometry: null,
-                openingPageGeometry: normalizedOpeningPageGeometry,
-                openingPageFrame: Object.freeze({
-                    generation,
-                    ownerId: preparedFrame.ownerId,
-                    pageNumber: preparedFrame.pageNumber,
-                    intentKey: preparedFrame.intentKey,
-                    sourceRevisionKey: preparedFrame.sourceRevisionKey ?? '',
-                    style: Object.freeze({...preparedFrame.style}),
-                }),
-                committedViewportPosition: null,
-            }));
-            return opened ? generation : null;
         },
         commitOpeningPageGeometry(generation, geometry) {
             const current = snapshot.value;
@@ -946,15 +857,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                             documentId: identity.documentId,
                             revision: identity.documentRevision,
                         },
-                    }, visual => visual.openingPageFrame
-                        ? {
-                            ...visual,
-                            openingPageFrame: openingPreviewGate.refineFrameRevision(
-                                visual.openingPageFrame,
-                                identity.documentRevision,
-                            ),
-                        }
-                        : visual, ticket ? Object.freeze({
+                    }, visual => visual, ticket ? Object.freeze({
                         ...ticket,
                         documentRevision: identity.documentRevision,
                     }) : null);
@@ -984,11 +887,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 ...sessionState.value.visual,
                 openingPageFrame: Object.freeze({
                     ...frame,
-                    ...(current.openingPageFrame?.pageNumber === frame.pageNumber
-                        && current.openingPageFrame.preview
-                        && current.openingPageFrame.sourceRevisionKey === frame.sourceRevisionKey
-                        ? {preview: current.openingPageFrame.preview}
-                        : {}),
                     style: Object.freeze({...frame.style}),
                 }),
             };
@@ -1000,90 +898,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 }),
             }));
             return true;
-        },
-        commitOpeningPagePreview(generation, preview) {
-            return openingPreviewGate.commit(generation, preview);
-        },
-        declareSourceSize(generation, size) {
-            if (
-                snapshot.value.generation !== generation
-                || !isTransitionPhase(snapshot.value.phase)
-                || !Number.isSafeInteger(size)
-                || size < 0
-            ) {
-                return false;
-            }
-            commitVisual(visual => ({
-                ...visual,
-                declaredSourceSize: size,
-            }));
-            return true;
-        },
-        setNativeOpeningPreviewState(generation, state: TDocumentNativeOpeningPreviewState) {
-            const current = snapshot.value;
-            if (
-                current.generation !== generation
-                || state !== 'inactive' && !isTransitionPhase(current.phase)
-            ) {
-                return false;
-            }
-            commitVisual(visual => ({
-                ...visual,
-                nativeOpeningPreviewState: state,
-                nativeOpeningPreviewStaged: state === 'inactive' ? false : true,
-            }));
-            return true;
-        },
-        clearOpeningPagePreview(generation, objectUrl) {
-            return openingPreviewGate.clear(generation, objectUrl);
-        },
-        publishOpeningPageSource(generation, source, onRetire) {
-            const current = snapshot.value;
-            if (
-                current.generation !== generation
-                || !isTransitionPhase(current.phase)
-                || current.identity?.documentId !== source.documentRef
-                || source.pageCount < 1
-            ) {
-                return false;
-            }
-            if (
-                openingPageSourceBinding.value !== null
-                && openingPageSourceBinding.value.source !== source
-            ) {
-                retireOpeningPageSource();
-            }
-            openingPageSourceBinding.value = {
-                generation,
-                onRetire: onRetire ?? null,
-                source,
-            };
-            return true;
-        },
-        clearOpeningPageSource(generation, source) {
-            const binding = openingPageSourceBinding.value;
-            if (binding?.generation !== generation || binding.source !== source) {
-                return false;
-            }
-            openingPageSourceBinding.value = null;
-            return true;
-        },
-        holdReadyForValidation(generation, sourceRevisionKey) {
-            return openingPreviewGate.hold(generation, sourceRevisionKey);
-        },
-        releaseReadyAfterValidation(generation, sourceRevisionKey) {
-            const authorized = openingPreviewGate.authorize(generation, sourceRevisionKey);
-            if (!authorized) {
-                return {
-                    authorized: false,
-                    ready: false,
-                };
-            }
-            const committedRender = snapshot.value.committedRender;
-            return {
-                authorized: true,
-                ready: committedRender !== null && markReady(committedRender),
-            };
         },
         clearOpeningPageFrame(generation, ownerId) {
             const current = snapshot.value;
@@ -1297,7 +1111,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 current.generation !== generation
                 || current.phase === 'idle'
                 || current.committedRender !== null
-                && !openingPreviewGate.isReadyHeld(generation)
             ) {
                 return false;
             }
@@ -1311,15 +1124,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             }));
             if (failed) {
                 revisionSwap.value = null;
-                openingPreviewGate.retire(generation);
-                retireOpeningPageSource();
             }
             return failed;
         },
         reset() {
             revisionSwap.value = null;
-            retireOpeningPageSource();
-            openingPreviewGate.reset();
             const closingGeneration = sessionState.value.viewport.generation;
             if (!transitionViewport([
                 {type: 'close-requested'},

@@ -5,14 +5,11 @@ import {
 } from 'vitest';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
-    PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT,
-    parsePdfInfoPageSizes,
     parsePdfOpeningGeometryMetadata,
     parseNativePdfPageLabelRanges,
-    readJpegDimensions,
-} from '@electron/features/documents/main/nativePdfPreview';
+} from '@electron/features/documents/main/nativePdfMetadata';
 
-describe('native PDF preview metadata parsing', () => {
+describe('native PDF metadata parsing', () => {
     it('converts bounded native catalog page-label ranges to renderer ranges', () => {
         expect(parseNativePdfPageLabelRanges({pageLabels: [
             {
@@ -40,248 +37,9 @@ describe('native PDF preview metadata parsing', () => {
         ]);
     });
 
-    it('reads dimensions from the final JPEG raster', () => {
-        const bytes = Uint8Array.of(
-            0xff, 0xd8,
-            0xff, 0xe0, 0x00, 0x04, 0x00, 0x00,
-            0xff, 0xc2, 0x00, 0x0b, 0x08, 0x04, 0x38, 0x07, 0x80, 0x01, 0x01, 0x11, 0x00,
-            0xff, 0xd9,
-        );
-
-        expect(readJpegDimensions(bytes)).toEqual({
-            width: 1_920,
-            height: 1_080,
-        });
-    });
-
-    it('rejects a malformed native preview JPEG', () => {
-        expect(() => readJpegDimensions(Uint8Array.of(0xff, 0xd8, 0xff, 0xd9)))
-            .toThrow('invalid JPEG');
-    });
-
-    it('parses per-page sizes from pdfinfo -box output', () => {
-        expect(parsePdfInfoPageSizes(`
-Pages:           3
-Page    1 size:  595.32 x 838.68 pts
-Page    2 size:  595.32 x 838.68 pts
-Page    3 size:  595.32 x 820.32 pts
-`, 3, null)).toEqual([
-            {
-                width: 595.32,
-                height: 838.68,
-            },
-            {
-                width: 595.32,
-                height: 838.68,
-            },
-            {
-                width: 595.32,
-                height: 820.32,
-            },
-        ]);
-    });
-
-    it('normalizes per-page sizes to displayed dimensions when Poppler reports rotation', () => {
-        expect(parsePdfInfoPageSizes(`
-Pages:           2
-Page    1 size:  612 x 792 pts
-Page    1 rot:   90
-Page    2 size:  400 x 500 pts
-Page    2 rot:   -90
-`, 2, null)).toEqual([
-            {
-                width: 792,
-                height: 612,
-            },
-            {
-                width: 500,
-                height: 400,
-            },
-        ]);
-    });
-
-    it('applies each page rotation to dense fallback dimensions', () => {
-        expect(parsePdfInfoPageSizes(`
-Pages:           3
-Page size:       612 x 792 pts (letter)
-Page    2 rot:   90
-`, 3, {
-            width: 612,
-            height: 792,
-        })).toEqual([
-            {
-                width: 612,
-                height: 792,
-            },
-            {
-                width: 792,
-                height: 612,
-            },
-            {
-                width: 612,
-                height: 792,
-            },
-        ]);
-    });
-
-    it('fills missing page sizes with the default size', () => {
-        expect(parsePdfInfoPageSizes(`
-Pages:           3
-Page size:       612 x 792 pts (letter)
-Page    2 size:  400 x 500 pts
-`, 3, {
-            width: 612,
-            height: 792,
-        })).toEqual([
-            {
-                width: 612,
-                height: 792,
-            },
-            {
-                width: 400,
-                height: 500,
-            },
-            {
-                width: 612,
-                height: 792,
-            },
-        ]);
-    });
-
-    it('keeps large page-size metadata compact instead of allocating one entry per page', () => {
-        const result = parsePdfInfoPageSizes(`
-Pages:           100001
-Page size:       612 x 792 pts (letter)
-Page    100000 size:  400 x 500 pts
-`, 100_001, {
-            width: 612,
-            height: 792,
-        });
-
-        expect(Array.isArray(result)).toBe(false);
-        expect(result).toEqual({
-            pageCount: 100_001,
-            defaultPageSize: {
-                width: 612,
-                height: 792,
-            },
-            overrides: [{
-                pageNumber: 100_000,
-                width: 400,
-                height: 500,
-            }],
-        });
-    });
-
-    it('keeps rotated fallback pages as compact overrides', () => {
-        expect(parsePdfInfoPageSizes(`
-Pages:           100001
-Page size:       612 x 792 pts (letter)
-Page    100000 rot:   -90
-`, 100_001, {
-            width: 612,
-            height: 792,
-        })).toEqual({
-            pageCount: 100_001,
-            defaultPageSize: {
-                width: 612,
-                height: 792,
-            },
-            overrides: [{
-                pageNumber: 100_000,
-                width: 792,
-                height: 612,
-            }],
-        });
-    });
-
-    it('keeps a rotated first page as an override over the unrotated compact default', () => {
-        expect(parsePdfInfoPageSizes(`
-Pages:           100001
-Page size:       612 x 792 pts (letter)
-Page    1 rot:   90
-`, 100_001, {
-            width: 612,
-            height: 792,
-        })).toEqual({
-            pageCount: 100_001,
-            defaultPageSize: {
-                width: 612,
-                height: 792,
-            },
-            overrides: [{
-                pageNumber: 1,
-                width: 792,
-                height: 612,
-            }],
-        });
-    });
-
-    it('rejects compact metadata when the override table would be truncated', () => {
-        const pageRotations = [
-            'Page    1 rot: 0',
-            ...Array.from({length: 129}, (_, index) => (
-                `Page ${String(index + 2).padStart(4, ' ')} rot: 90`
-            )),
-        ].join('\n');
-        expect(() => parsePdfInfoPageSizes(`
-Pages:           100001
-Page size:       612 x 792 pts (letter)
-${pageRotations}
-`, 100_001, {
-            width: 612,
-            height: 792,
-        })).toThrow('complete override limit');
-    });
-
-    it('gates the dense compatibility array at the documented page-count limit', () => {
-        const dense = parsePdfInfoPageSizes(
-            `Pages: ${String(PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT)}\nPage size: 612 x 792 pts (letter)`,
-            PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT,
-            {
-                width: 612,
-                height: 792,
-            },
-        );
-        const compact = parsePdfInfoPageSizes(
-            `Pages: ${String(PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT + 1)}\nPage size: 612 x 792 pts (letter)`,
-            PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT + 1,
-            {
-                width: 612,
-                height: 792,
-            },
-        );
-
-        expect(dense).toHaveLength(PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT);
-        expect(Array.isArray(compact)).toBe(false);
-    });
-
-    it('accepts a very large safe-integer page count without materializing page sizes', () => {
-        const pageCount = Number.MAX_SAFE_INTEGER;
-
-        const result = parsePdfInfoPageSizes(`
-Pages:           ${String(pageCount)}
-Page size:       612 x 792 pts (letter)
-`, pageCount, {
-            width: 612,
-            height: 792,
-        });
-
-        expect(Array.isArray(result)).toBe(false);
-        expect(result).toEqual({
-            pageCount,
-            defaultPageSize: {
-                width: 612,
-                height: 792,
-            },
-            overrides: [],
-        });
-    });
-
-    it('parses normalized first-page geometry without allocating all page sizes', () => {
+    it('parses normalized first-page geometry', () => {
         expect(parsePdfOpeningGeometryMetadata(`
 Pages:           431
-Optimized:       no
 Page    1 size:  612 x 792 pts (letter)
 Page    1 rot:   -90
 `, {
@@ -293,9 +51,28 @@ Page    1 rot:   -90
             width: 792,
             height: 612,
             rotation: 270,
+            widestPageWidth: 792,
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
-            linearized: false,
+        });
+    });
+
+    it('reports the widest displayed page so the opening skeleton uses the document-wide Fit Width', () => {
+        expect(parsePdfOpeningGeometryMetadata(`
+Pages:           882
+Page    1 size:  481.92 x 765.36 pts
+Page    1 rot:   0
+Page    2 size:  481.92 x 765.36 pts
+Page    2 rot:   90
+Page  135 size:  765.36 x 481.92 pts
+Page  135 rot:   0
+`, {
+            size: 722_720_719,
+            modifiedAt: requireEpochMs(1_720_000_000_000),
+        })).toMatchObject({
+            width: 481.92,
+            height: 765.36,
+            widestPageWidth: 765.36,
         });
     });
 

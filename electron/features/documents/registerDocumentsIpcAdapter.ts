@@ -410,10 +410,6 @@ export function registerDocumentsIpcAdapter(
             service.getPdfOpeningGeometry(context, filePath),
         getPdfNativePageSizes: (context, filePath, options) =>
             service.getPdfNativePageSizes(context, filePath, options),
-        cancelPdfNativePagePreview: (context, requestId) =>
-            service.cancelPdfNativePagePreview(context, requestId),
-        renderPdfNativePagePreview: (context, filePath, pageNumber, previewOptions) =>
-            service.renderPdfNativePagePreview(context, filePath, pageNumber, previewOptions),
         beginPdfAnnotationIndex: (context, filePath, options) =>
             service.beginPdfAnnotationIndex(context, filePath, options),
         readPdfAnnotationIndexChunk: (context, sessionId, offset, options) =>

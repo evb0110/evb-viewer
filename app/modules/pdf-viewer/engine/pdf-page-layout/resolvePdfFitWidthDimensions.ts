@@ -40,8 +40,6 @@ function resolveFitWidthAvailableSize(
 
 /**
  * Return the largest base width for each row shape in a continuous document.
- * The row map is shared by the settled PDF.js scale and the native opening
- * preview so the handoff cannot choose a different fit-width authority.
  */
 export function resolvePdfFitWidthRowWidths(options: {
     readonly metrics: IPdfPageMetric[];

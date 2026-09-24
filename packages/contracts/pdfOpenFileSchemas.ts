@@ -1,9 +1,6 @@
 import type {TOpenFileResult} from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
-import {
-    decodeOpeningGeometry,
-    fail,
-} from '@contracts/documentsPlatformFeatureNativePageSchemas';
+import {fail} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import {runtimeSchema as s} from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
 
@@ -51,9 +48,6 @@ export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
     ) {
         fail('invalid PDF open-file result');
     }
-    const openingGeometry = value.openingGeometry === undefined
-        ? undefined
-        : decodeOpeningGeometry(value.openingGeometry);
     return {
         kind: 'pdf',
         workingPath,
@@ -61,7 +55,6 @@ export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
         ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
         ...(value.recoveryDirtyBaseline === undefined ? {} : {recoveryDirtyBaseline: value.recoveryDirtyBaseline}),
         ...(value.wasEncrypted === true ? {wasEncrypted: true as const} : {}),
-        ...(openingGeometry === undefined ? {} : {openingGeometry}),
     };
 }
 

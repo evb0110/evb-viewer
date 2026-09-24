@@ -49,7 +49,7 @@ import {
 import { createPageSourcePagedWheelNavigation } from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
 import { createDocumentPageMetricPublication } from '@app/modules/workspace-shell/viewers/createDocumentPageMetricPublication';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
     createDocumentPageSourceLifecycle,
     type IDocumentPageSourceTransition,

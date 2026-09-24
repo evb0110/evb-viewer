@@ -32,6 +32,7 @@ import type {
 import {
     createDocumentProjectionSession,
     ensurePdfProjection,
+    resolveDjvuPageSizeInPoints,
     type IDocumentOpenSurfaceSession,
     type IDocumentPageSource,
     type IDocumentProjectionSession,
@@ -54,7 +55,6 @@ import {
     isBrowserDocumentRef,
 } from '@app/utils/documentRef';
 import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import { cacheTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache';
 import {
     getDocumentFilesCapability,
     getDocumentWorkingCopyCapability,
@@ -551,22 +551,26 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
 
             const sourceInfo = result.pageSourceInfo;
             const surfaceSnapshot = config.openSurface?.snapshot.value;
-            const sourceRevision = sourceInfo?.sourceSize !== undefined
-                && sourceInfo.sourceModifiedAt !== undefined
-                ? {
-                    size: sourceInfo.sourceSize,
-                    modifiedAt: sourceInfo.sourceModifiedAt,
-                }
-                : null;
-            const openingGeometry = sourceInfo && sourceRevision
-                ? cacheTrustedDjvuOpenGeometry(String(djvuPath), sourceRevision, sourceInfo)
-                : null;
             if (
-                openingGeometry
+                sourceInfo?.sourceSize !== undefined
+                && sourceInfo.sourceModifiedAt !== undefined
                 && surfaceSnapshot
                 && surfaceSnapshot.identity?.documentId === String(djvuPath)
             ) {
-                config.openSurface?.commitOpeningPageGeometry(surfaceSnapshot.generation, openingGeometry);
+                const {
+                    widthPoints,
+                    heightPoints,
+                } = resolveDjvuPageSizeInPoints(sourceInfo.pageSize);
+                config.openSurface?.commitOpeningPageGeometry(surfaceSnapshot.generation, {
+                    documentId: String(djvuPath),
+                    pageNumber: sourceInfo.pageNumber,
+                    pageCount: sourceInfo.pageCount,
+                    width: widthPoints,
+                    height: heightPoints,
+                    rotation: 0,
+                    size: sourceInfo.sourceSize,
+                    modifiedAt: sourceInfo.sourceModifiedAt,
+                });
             }
 
             BrowserLogger.info('djvu', 'Native DjVu viewing ready', { pageCount: result.pageCount ?? 0 });

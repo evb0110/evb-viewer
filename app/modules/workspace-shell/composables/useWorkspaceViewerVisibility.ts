@@ -16,7 +16,6 @@ interface IWorkspaceViewerVisibilityOptions {
     isOcrRunning: Ref<boolean>;
     isRestoringSplitPayload: Ref<boolean>;
     pendingDocumentOpen: ComputedRef<boolean> | Ref<boolean>;
-    openingPreviewReady: ComputedRef<boolean> | Ref<boolean>;
     showSidebar: Ref<boolean>;
     conversionState: Ref<{isConverting: boolean;}>;
 }
@@ -62,10 +61,7 @@ export const useWorkspaceViewerVisibility = (options: IWorkspaceViewerVisibility
     const canToggleSidebar = computed(() => (
         toolbarHasPdf.value
         && activeDriverCapabilities.value?.sidebar === true
-        && (
-            !toolbarDocumentBusy.value
-            || options.openingPreviewReady.value
-        )
+        && !toolbarDocumentBusy.value
     ));
     const canRepairSave = computed(() => (
         options.hasPdf.value

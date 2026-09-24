@@ -58,26 +58,4 @@ describe('workspace document record opening view state', () => {
         });
     });
 
-    it('publishes authoritative opening pagination without waiting for the viewer', () => {
-        const previous = createWorkspaceDocumentRecord({toolbarSnapshot: {
-            hasPdf: true,
-            currentPage: 73,
-            totalPages: 700,
-        }});
-        const pending = createPendingWorkspaceDocumentRecord({
-            fileName: 'large.pdf',
-            originalPath: requireDocumentRef('/docs/large.pdf'),
-        }, {
-            openingPageCount: 1_859,
-            previousToolbarSnapshot: previous.toolbarSnapshot,
-            previousViewState: previous.viewState,
-        });
-
-        expect(pending.toolbarSnapshot).toMatchObject({
-            hasPdf: true,
-            isOpeningDocument: true,
-            currentPage: 1,
-            totalPages: 1_859,
-        });
-    });
 });

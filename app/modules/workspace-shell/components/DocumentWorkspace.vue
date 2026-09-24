@@ -16,9 +16,8 @@
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
                 :document-busy="toolbarDocumentBusyForDisplay"
-                :viewing-ready="openingPreviewReady"
                 :controls-disabled="toolbarControlsDisabled"
-                :page-dropdown-total-pages="documentMetadataReady ? toolbarTotalPages : 0"
+                :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"
                 :page-labels="toolbarPageLabels"
                 :navigation-ticket="documentOpenSurface.navigationTicket.value"
                 :physical-page="physicalToolbarPage"
@@ -79,7 +78,7 @@
                 @quick-note="handleToolbarQuickNote"
                 @toggle-fullscreen="workspaceCommandBindings.handleToggleFullscreen"
                 @set-view-mode="handleOverflowSetViewMode"
-                @go-to-page="handlePreviewAwareGoToPage"
+                @go-to-page="handleGoToPage"
                 @ocr-complete="handleOcrComplete"
             />
         </WorkspaceToolbarHost>
@@ -107,7 +106,7 @@
         >
             <template #sidebar>
                 <PdfSidebar
-                    v-if="surfaceMode === 'reader' && driverShowsPdfSidebar && !openingPageSource"
+                    v-if="surfaceMode === 'reader' && driverShowsPdfSidebar"
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
                     :submitted-search-query="submittedSearchQuery"
@@ -188,7 +187,7 @@
                     v-model:active-tab="sidebarTab"
                     :is-active="isDocumentSidebarActive"
                     :source="documentSourceSidebar.source.value"
-                    :current-page="toolbarCurrentPage"
+                    :current-page="currentPage"
                     :is-resizing="isSourceSidebarResizing"
                     :search-session="documentSourceSidebar.searchSession"
                     :search-focus-request="searchFocusRequest"
@@ -440,12 +439,8 @@ import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/a
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import { DjvuConversionOverlay } from '@app/modules/djvu-viewer/public';
-import type {
-    IPdfThumbnailPageGeometry,
-    IScrollToPageOptions,
-} from '@app/modules/pdf-viewer/public';
+import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
 import {
-    createPageNavigationRequest,
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/public';
@@ -471,20 +466,6 @@ const physicalToolbarPage = computed(() => (
     documentOpenSurface.viewportSession.value.observedPage
     ?? documentOpenSurface.viewportSession.value.committedPage
     ?? 1
-));
-const openingPreviewReady = computed(() => {
-    const snapshot = documentOpenSurface.snapshot.value;
-    return [
-        'pending',
-        'geometry-committed',
-        'canvas-committed',
-        'viewport-committed',
-    ].includes(snapshot.phase) && snapshot.openingPageFrame?.preview !== undefined;
-});
-const openingPreviewPageCount = computed(() => (
-    openingPreviewReady.value
-        ? documentOpenSurface.snapshot.value.openingPageGeometry?.pageCount ?? 0
-        : 0
 ));
 const {
     fullscreenSupported,
@@ -715,18 +696,6 @@ const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
         metrics: toRaw(viewer.pageMetrics),
         version: viewer.pageMetricsVersion ?? 0,
     };
-});
-const toolbarTotalPages = computed(() => (
-    openingPreviewReady.value ? openingPreviewPageCount.value : totalPages.value
-));
-const toolbarCurrentPage = computed(() => {
-    if (!openingPreviewReady.value) {
-        return currentPage.value;
-    }
-    return Math.min(
-        Math.max(1, documentOpenSurface.viewportSession.value.requestedPage),
-        Math.max(1, openingPreviewPageCount.value),
-    );
 });
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
 const isActiveViewerLayoutResizing = computed(() => (
@@ -964,7 +933,6 @@ const {
     isOcrRunning,
     isRestoringSplitPayload,
     pendingDocumentOpen,
-    openingPreviewReady,
     showSidebar,
 });
 useDocumentWorkspacePageSessionRestore({
@@ -1008,7 +976,6 @@ const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
     initialDocumentVisualReady,
     hasDocumentOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
     openSurfaceSnapshot: documentOpenSurface.snapshot,
-    openingPreviewReady,
 });
 const handleDocumentInitialVisualPending = handlePdfInitialVisualPending;
 const handleDocumentInitialVisualReady = handlePdfInitialVisualReady;
@@ -1041,39 +1008,13 @@ const documentSourceSidebar = useDocumentSourceSidebarSession({
  * navigation as scroll options.
  */
 function handleSourceSidebarGoToPage(pageNumber: number, _event?: MouseEvent) {
-    handlePreviewAwareGoToPage(pageNumber);
-}
-function handlePreviewAwareGoToPage(pageNumber: number, options?: IScrollToPageOptions) {
-    if (!openingPreviewReady.value) {
-        handleGoToPage(pageNumber, options);
-        return;
-    }
-    const boundedPage = Math.min(
-        Math.max(1, Math.trunc(pageNumber)),
-        Math.max(1, openingPreviewPageCount.value),
-    );
-    if (options) {
-        handleGoToPage(boundedPage, options);
-        return;
-    }
-    documentOpenSurface.navigate(createPageNavigationRequest(
-        boundedPage,
-        'toolbar',
-    ));
+    handleGoToPage(pageNumber);
 }
 const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
-const openingPageSource = documentOpenSurface.openingPageSource;
-function publishEffectiveDocumentSource() {
-    documentSourceSidebar.publishSource(openingPageSource.value ?? documentPageSource.value);
-}
 function handlePageSourceUpdate(source: IDocumentPageSource | null) {
     documentPageSource.value = source;
-    publishEffectiveDocumentSource();
+    documentSourceSidebar.publishSource(source);
 }
-watch(openingPageSource, publishEffectiveDocumentSource, {
-    flush: 'sync',
-    immediate: true,
-});
 const {
     activeViewerComponent,
     activeViewerProps,
@@ -1105,7 +1046,6 @@ const {
     toolbarHasPdf,
     isLoading,
     initialDocumentVisualReady,
-    openingPreviewReady,
     pdfError,
     djvuError,
     isOpeningDocumentForToolbar,
@@ -1113,7 +1053,7 @@ const {
     canRepairSave,
     canOptimizePdf,
     statusZoomLabel,
-    totalPages: toolbarTotalPages,
+    totalPages,
     pageLabels,
     pageLabelModel,
     pageLabelsResolved,
@@ -1432,14 +1372,11 @@ const workspaceExpose = createWorkspaceExposeFromOwners({
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,
     handleExportDocx,
-    handleGoToPage: handlePreviewAwareGoToPage,
+    handleGoToPage,
     handleCrop: () => { void handleToolbarCrop(); },
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
     initialVisualReady: initialDocumentVisualReady,
-    openingPreviewReady,
-    toolbarCurrentPage,
-    toolbarTotalPages,
     isOpeningDocument: isOpeningDocumentForToolbarDisplay,
     canRepairSave: canRepairSaveForDisplay,
     canOptimizePdf: canOptimizePdfForDisplay,

@@ -1762,7 +1762,6 @@ export default {
             'description': 'La aplicación encontró un error inesperado y puede que no funcione correctamente hasta que se recargue.',
             'startupTitle': 'Error al iniciar la aplicación',
             'startupDescription': 'La aplicación no pudo terminar de iniciarse. Recárgala e inténtalo de nuevo.',
-            'recentGeometryWarmupTitle': 'La vista previa de archivos recientes no está disponible',
             'electronPlatformContract': 'El puente de escritorio está obsoleto o no es compatible. Reinicia la aplicación para cargar el contrato de preload actual.',
             'reload': 'Recargar aplicación',
             'copy': 'Copiar detalles',

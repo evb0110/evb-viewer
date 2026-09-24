@@ -1,11 +1,9 @@
 import { resolveWorkspaceMemoryBudget } from '@app/modules/workspace-shell/memory/workspaceMemoryBudget';
-import { registerWorkspaceSurfaceBudgetPort } from '@app/utils/workspaceSurfaceBudgetPort';
 
 export type TWorkspaceSurfaceCategory =
     | 'pdf-page-canvas'
     | 'pdf-annotation-canvas'
     | 'pdf-thumbnail-canvas'
-    | 'native-preview'
     | 'djvu-preview';
 
 export type TWorkspaceResourcePressureLevel =
@@ -61,7 +59,6 @@ const SURFACE_CATEGORIES: readonly TWorkspaceSurfaceCategory[] = [
     'pdf-page-canvas',
     'pdf-annotation-canvas',
     'pdf-thumbnail-canvas',
-    'native-preview',
     'djvu-preview',
 ];
 
@@ -280,4 +277,3 @@ export function createWorkspaceSurfaceBudgetController(
 }
 
 export const workspaceSurfaceBudgetController = createWorkspaceSurfaceBudgetController();
-registerWorkspaceSurfaceBudgetPort(workspaceSurfaceBudgetController);

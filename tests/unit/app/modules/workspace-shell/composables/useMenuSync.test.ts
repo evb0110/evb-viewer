@@ -299,53 +299,6 @@ describe('useMenuSync', () => {
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({interactive: true}));
     });
 
-    it('enables only viewing commands when a native opening preview is ready', async () => {
-        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
-            hasPdf: true,
-            isOpeningDocument: true,
-            openingPreviewReady: true,
-            totalPages: 882,
-            canSave: true,
-            canUndo: true,
-            canExportDocx: true,
-            viewerCapabilities: {
-                ...createDefaultWorkspaceViewerCapabilities(),
-                continuousScroll: true,
-                pdfDocument: true,
-                pdfMutationActions: true,
-                save: true,
-                saveAs: true,
-                viewMode: true,
-            },
-        }}));
-
-        useMenuSync({
-            activeDocumentRecord,
-            activeTabId: ref<string | null>('tab-1'),
-            tabs: ref<ITab[]>([{
-                id: 'tab-1',
-                fileName: 'dictionary.pdf',
-                originalPath: requireDocumentRef('/documents/dictionary.pdf'),
-                isDirty: false,
-                isDjvu: false,
-            }]),
-        });
-        await nextTick();
-
-        expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({
-            hasDocument: true,
-            interactive: true,
-            canSave: false,
-            canSaveAs: false,
-            canUndo: false,
-            canExportDocx: false,
-            canMutatePages: false,
-            supportsContinuousScroll: false,
-            supportsViewMode: false,
-            totalPages: 882,
-        }));
-    });
-
     it('keeps the DOCX menu command available as a cancellation action while exporting', async () => {
         const activeDocumentRecord = ref(createWorkspaceDocumentRecord({
             tab: {

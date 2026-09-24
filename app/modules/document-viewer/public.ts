@@ -23,12 +23,11 @@ export {
     clampKeyboardSelection, createKeyboardSelection, updateKeyboardSelection,
 } from '@app/modules/document-viewer/region-geometry/keyboardSelection';
 export {
-    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfacePageGeometrySeed, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentNativeOpeningPreviewState, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
+    createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey, hasCommittedDocumentOpeningLayout, injectDocumentOpenSurfaceSession, isDocumentOpenEmptySurfaceTransition, resolveDocumentOpenSurfaceViewportPolicy, shouldPresentDocumentOpenEmptyPlaceholder, shouldProjectDocumentViewportScroll, type IDocumentOpenSurfaceRenderFence, type IDocumentOpenSurfaceRenderOwner, type IDocumentOpenSurfaceSession, type IDocumentOpenSurfaceSnapshot, type TDocumentOpenSurfacePhase, type TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 export {
     createAnchorPageWindow, createLazyIndexedCollection, isLazyIndexedCollection, type ILazyIndexedCollection,
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
-export { createBoundedLruCache } from '@app/modules/document-viewer/thumbnails/documentThumbnailMetricsCache';
 export { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
 export { createDocumentOpenGenerationErrorLatch } from '@app/modules/document-viewer/runtime/createDocumentOpenGenerationErrorLatch';
 export {
@@ -65,7 +64,6 @@ export {
 export {
     createDocumentPageSlotRegistry, type IDocumentPageSlotOwner, type IDocumentPageSlotRegistry,
 } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
-export { createPagePreviewDocumentSource } from '@app/modules/document-viewer/source/createPagePreviewDocumentSource';
 export { createPdfPageSource } from '@app/modules/document-viewer/source/createPdfPageSource';
 export { createWheelFlipGate } from '@app/modules/document-viewer/single-page-wheel/createWheelFlipGate';
 export {
@@ -83,7 +81,7 @@ export {
     getDocumentBookmarkVisibleRows, isDocumentBookmarkExpanded, resolveDocumentBookmarkRevealRowIndex, type IDocumentBookmarkTreeItem, type TDocumentBookmarkDisplayMode, type TDocumentBookmarkPersistenceRefusal, type TDocumentBookmarkStatus,
 } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 export {
-    getPagePreviewSizesWithDeadline, type IDocumentPreviewPageState, type IPagePreviewOutlineItem, type IPagePreviewRenderedObjectUrl, type IPagePreviewSource,
+    type IDocumentPreviewPageState, type IPagePreviewOutlineItem, type IPagePreviewRenderedObjectUrl, type IPagePreviewSource,
 } from '@app/modules/document-viewer/pagePreviewSource';
 export { getRectHeight } from '@app/modules/document-viewer/region-geometry/getRectHeight';
 export { getRectWidth } from '@app/modules/document-viewer/region-geometry/getRectWidth';
@@ -135,7 +133,6 @@ export { resolveVirtualRowRevealScrollTop } from '@app/modules/document-viewer/v
 export {
     runDocumentViewerActivationPresentation, waitForDocumentViewerVisibleLayout,
 } from '@app/modules/document-viewer/lifecycle/documentViewerActivationPresentation';
-export {settleOpeningPreviewGeometry} from '@app/modules/document-viewer/lifecycle/settleOpeningPreviewGeometry';
 export { toClientRect } from '@app/modules/document-viewer/region-geometry/toClientRect';
 export { toLocalRect } from '@app/modules/document-viewer/region-geometry/toLocalRect';
 export { type TPageSnapAnchor } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';

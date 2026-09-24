@@ -1,6 +1,5 @@
 import type { IPerformanceProfile } from '@app/utils/performanceProfile';
 
-export type TPdfGeometryPreflightMode = 'concurrent' | 'cache-only';
 export type TInactiveDjvuLeasePolicy = 'warm-grace' | 'release-immediately';
 
 export interface IOpenPathSecondaryPerformancePolicy {
@@ -8,7 +7,6 @@ export interface IOpenPathSecondaryPerformancePolicy {
     interactiveAnnotationNameReadMaxBytes: number;
     maxInMemoryPdfBytes: number;
     maxDjvuJsDesktopSourceBytes: number;
-    geometryPreflightMode: TPdfGeometryPreflightMode;
     deferMediumHistoryBaseline: boolean;
     inactiveDjvuLeasePolicy: TInactiveDjvuLeasePolicy;
 }
@@ -20,7 +18,6 @@ const NORMAL_OPEN_PATH_SECONDARY_PERFORMANCE_POLICY = {
     interactiveAnnotationNameReadMaxBytes: 64 * MEBIBYTE,
     maxInMemoryPdfBytes: 16 * MEBIBYTE,
     maxDjvuJsDesktopSourceBytes: 96 * MEBIBYTE,
-    geometryPreflightMode: 'concurrent',
     deferMediumHistoryBaseline: false,
     inactiveDjvuLeasePolicy: 'warm-grace',
 } as const satisfies IOpenPathSecondaryPerformancePolicy;
@@ -41,9 +38,6 @@ export function resolveOpenPathSecondaryPerformancePolicy(
         maxDjvuJsDesktopSourceBytes: profile.lowMemory
             ? 24 * MEBIBYTE
             : NORMAL_OPEN_PATH_SECONDARY_PERFORMANCE_POLICY.maxDjvuJsDesktopSourceBytes,
-        geometryPreflightMode: profile.lowCpu || profile.lowMemory
-            ? 'cache-only'
-            : NORMAL_OPEN_PATH_SECONDARY_PERFORMANCE_POLICY.geometryPreflightMode,
         deferMediumHistoryBaseline: profile.lowMemory,
         inactiveDjvuLeasePolicy: profile.lowMemory
             ? 'release-immediately'

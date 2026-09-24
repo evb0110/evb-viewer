@@ -21,7 +21,6 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { readRecentOpenExactGeometry } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 import type { TWindowTabsAction } from '@contracts/windowTabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 
@@ -502,10 +501,8 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         // owns the direct capability call and can present its skeleton while
         // the main process admits the file and stages its working copy.
         const routeStartedAt = performance.now();
-        const warmGeometry = readRecentOpenExactGeometry(path) !== null;
         logPdfRenderTrace('pdf-open-route-start', {
             path,
-            warmGeometry,
             immediateWorkspaceClaim: true,
         });
         try {
@@ -515,7 +512,6 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 elapsedMs: performance.now() - routeStartedAt,
                 failed: !opened,
                 resultKind: null,
-                warmGeometry,
                 immediateWorkspaceClaim: true,
             });
             return opened;
@@ -525,7 +521,6 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
                 elapsedMs: performance.now() - routeStartedAt,
                 failed: true,
                 resultKind: null,
-                warmGeometry,
                 immediateWorkspaceClaim: true,
             });
             throw error;

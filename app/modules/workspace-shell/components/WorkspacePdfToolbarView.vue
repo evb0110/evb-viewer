@@ -27,7 +27,6 @@
         :is-crop-selecting="snapshot.isCropSelecting"
         :is-placing-page-note="snapshot.isPlacingPageNote"
         :document-busy="toolbarDocumentBusy"
-        :viewing-ready="viewingReady"
         :has-ocr-action="canUseOcr"
         :has-scan-cleanup-action="toolbarHasPdf && canUseOcr && isDesktopRuntime"
         :surface="surface"
@@ -138,7 +137,7 @@
                 :effective-zoom="effectiveZoom"
                 :open="zoomDropdownOpen"
                 :disabled="toolbarControlsDisabled"
-                :can-use-view-modes="snapshot.viewerCapabilities.viewMode && !snapshot.openingPreviewReady"
+                :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
                 :compact-level="compactLevel"
                 @update:effective-zoom="handleEffectiveZoomUpdate"
                 @update:open="handleZoomDropdownOpenUpdate"
@@ -183,7 +182,7 @@
                 :assistant-open="assistantPanelOpen"
                 :assistant-label="t('assistant.toggle')"
                 :can-toggle-continuous-scroll="snapshot.viewerCapabilities.continuousScroll"
-                :can-use-view-modes="snapshot.viewerCapabilities.viewMode && !snapshot.openingPreviewReady"
+                :can-use-view-modes="snapshot.viewerCapabilities.viewMode"
                 :show-sidebar="snapshot.showSidebar"
                 :drag-mode="snapshot.dragMode"
                 :continuous-scroll="snapshot.continuousScroll"
@@ -195,7 +194,6 @@
                 :is-crop-selecting="snapshot.isCropSelecting"
                 :is-placing-page-note="snapshot.isPlacingPageNote"
                 :document-busy="toolbarDocumentBusy"
-                :viewing-ready="viewingReady"
                 :surface="surface"
                 :show-document-section="isDesktopRuntime"
                 can-combine-files
@@ -322,7 +320,6 @@ const {
     canUseOcr,
     controlsDisabled = undefined,
     documentBusy = undefined,
-    viewingReady = false,
     fullscreenSupported,
     hasPdf = undefined,
     isDesktopRuntime,
@@ -356,7 +353,6 @@ const {
     isFullscreen: boolean;
     fullscreenSupported: boolean;
     documentBusy?: boolean | undefined;
-    viewingReady?: boolean | undefined;
     controlsDisabled?: boolean | undefined;
     pageDropdownTotalPages?: number | undefined;
     pageLabels?: TDocumentPageLabelLookup | undefined;

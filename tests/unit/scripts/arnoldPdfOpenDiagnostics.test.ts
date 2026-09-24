@@ -98,16 +98,11 @@ describe('Arnold PDF-open diagnostic acceptance helpers', () => {
         expect(isArnoldOwnedFrameWithinBudget(501)).toBe(false);
     });
 
-    it('records the staged visual, validation cache, PDF.js milestones, and requested bytes', () => {
+    it('records the validation cache, PDF.js milestones, and requested bytes', () => {
         const trace = [
             [
                 'viewport-session-open-requested',
                 100,
-                {},
-            ],
-            [
-                'pdf-open-native-preview-submit',
-                180,
                 {},
             ],
             [
@@ -118,11 +113,6 @@ describe('Arnold PDF-open diagnostic acceptance helpers', () => {
             [
                 'pdf-document-get-document-submit',
                 220,
-                {},
-            ],
-            [
-                'pdf-open-native-preview-committed',
-                410,
                 {},
             ],
             [
@@ -155,11 +145,6 @@ describe('Arnold PDF-open diagnostic acceptance helpers', () => {
                 1_400,
                 {},
             ],
-            [
-                'pdf-open-native-preview-retired',
-                1_450,
-                {reason: 'pdfjs-handoff'},
-            ],
         ].map(([
             event,
             traceAtMs,
@@ -173,19 +158,15 @@ describe('Arnold PDF-open diagnostic acceptance helpers', () => {
         }));
 
         expect(summarizeArnoldOpenTrace(trace)).toEqual({
-            selectedVisualPath: 'native-staged-then-pdfjs',
             validationCacheResult: 'miss',
             pdfjsRequestedByteTotal: 1_049_088,
             milestonesMs: {
                 openingClaim: 0,
-                nativeRenderSubmit: 80,
-                nativeRenderCommit: 310,
                 validationStart: 90,
                 validationEnd: 900,
                 pdfjsSubmit: 120,
                 pdfjsResolve: 1_200,
                 firstPdfjsCanvas: 1_300,
-                finalHandoff: 1_350,
             },
         });
     });

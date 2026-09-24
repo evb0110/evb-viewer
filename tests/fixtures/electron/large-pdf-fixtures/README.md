@@ -5,9 +5,8 @@ directory are intentionally not committed because they are too large for the
 repository and are only needed for opt-in regression coverage. The fixture-policy
 unit suite enforces that only this README (`*.md`) ever lands here.
 
-Two Electron e2e lanes cover large PDFs. Only the annotation-save lane reads a
-fixture from here; its native-preview sibling generates its own oversized file
-because the two lanes need opposite sides of the same size threshold.
+Only the annotation-save lane reads a fixture from here. The split-pane lane
+generates its own oversized file.
 
 ## Annotation-save lane
 
@@ -33,9 +32,8 @@ The resolver also supports these alternatives:
 - Set `EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1` to make a missing fixture fail the
   lane instead of skipping it. `pnpm run test:e2e:electron:large` sets it.
 
-The checked-in fixture stays below the 512 MiB opening-preview threshold because
-this lane tests annotation content, not the native first-paint bridge. Oversized
-path-backed PDFs still finish in PDF.js and can use the same annotation surface.
+The fixture tests annotation content, not file size. Oversized path-backed PDFs
+open in PDF.js like any other and use the same annotation surface.
 
 Known local provenance is limited to the fixture filename and the audit note that
 identifies this as a local-only large PDF fixture, about 172 MB, for the
@@ -44,22 +42,15 @@ recorded in this checkout. A replacement fixture should be a large PDF that open
 in the Electron viewer and preserves an existing FreeText note while allowing the
 suite to add, save, reopen, and verify another FreeText popup note.
 
-## Native opening-preview handoff lane
+## Oversized split-pane lane
 
-`tests/e2e/electron/largePdfNativePreview.e2e.test.ts` proves that the exact
-production dictionary paints a native raster first and hands the same viewport
-to PDF.js. It runs only when `EVB_EXACT_FIXTURE_PROFILE` stages that fixture.
-The padded synthetic PDF below crosses the byte threshold but validates in
-milliseconds, so PDF.js can legitimately paint before the native preview. A
-handoff assertion against it measures that race, not the product contract.
-
-The split-pane lifecycle lane still needs a PDF above the threshold, and only
-the byte count decides that, so it needs *size*, not document content.
+The split-pane lifecycle lane needs a PDF above half a gibibyte, and only the
+byte count matters, so it needs *size*, not document content.
 
 That lane provisions its own fixture with
 `scripts/generate-large-pdf-e2e-fixture.mjs`, which writes a small pdf-lib
-document and sparse-pads it to `PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES + 1 MiB`. It runs
-in well under a second, costs a few hundred KiB of real disk, and is cached under
+document and sparse-pads it to 513 MiB. It runs in well under a second, costs a
+few hundred KiB of real disk, and is cached under
 `.devkit/tmp/e2e-fixture-cache/`. The lane therefore cannot be handed an
 undersized PDF, and it needs no local binary and no CI download step:
 
@@ -70,5 +61,5 @@ pnpm run test:e2e:electron:large
 Generate one by hand only when inspecting the fixture:
 
 ```sh
-node scripts/generate-large-pdf-e2e-fixture.mjs --output=/tmp/native-preview.pdf
+node scripts/generate-large-pdf-e2e-fixture.mjs --output=/tmp/oversized.pdf
 ```

@@ -9,10 +9,7 @@ import {
     getFailureReceipt,
     type ExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
-import type {
-    IDocumentRevisionInfo,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
@@ -34,7 +31,7 @@ import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getErrorMessage } from '@app/utils/error';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
     getDocumentFilesCapability,
     getDocumentOpenCapability,
@@ -43,15 +40,6 @@ import {
 } from '@app/utils/platformDocuments';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import {validatePdfRevision} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
-import {
-    stagePdfOpeningPreview,
-    type IPdfOpeningGeometryResolution,
-    type IPdfOpeningPreviewLayoutPolicy,
-} from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
-import {
-    PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES,
-    shouldStageNativePdfOpeningPreview,
-} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import {
     isDjvuOpenResult,
@@ -86,7 +74,6 @@ interface ICreateDocumentOpenFlowDeps {
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     loadEpoch: TEpochGuard;
     openSurface?: IDocumentOpenSurfaceSession | undefined;
-    readOpeningPageFramePolicy?: () => IPdfOpeningPreviewLayoutPolicy;
     openEpoch: TEpochGuard;
     pushHistorySnapshot: (
         snapshot: Uint8Array,
@@ -124,11 +111,9 @@ export function createDocumentOpenFlow(
     state: IDocumentSessionState,
     deps: ICreateDocumentOpenFlowDeps,
 ) {
-    let cancelActiveSpeculativeOpen: ((reason: string) => void) | null = null;
     const performancePolicy = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
     const {
         deferMediumHistoryBaseline,
-        geometryPreflightMode,
         maxInMemoryPdfBytes,
     } = performancePolicy;
     const {
@@ -211,8 +196,6 @@ export function createDocumentOpenFlow(
 
     function beginOpenRequest() {
         cancelPasswordPrompt();
-        cancelActiveSpeculativeOpen?.('open-superseded');
-        cancelActiveSpeculativeOpen = null;
         deps.loadEpoch.invalidate();
         return deps.openEpoch.begin();
     }
@@ -365,16 +348,6 @@ export function createDocumentOpenFlow(
             ?? registeredRasterDisplayProfile;
         const documentFiles = getDocumentFilesCapability();
         const readOpeningGeometry = documentFiles.getPdfOpeningGeometry;
-        const workingFileStat = geometryPreflightMode === 'cache-only'
-            ? await documentFiles.statFile(result.workingPath).catch(() => null)
-            : null;
-        // Cache-only keeps ordinary low-resource opens off the native probe,
-        // but a large path PDF cannot stage its opening preview without the
-        // same first-page geometry. The stat is cheap and already required by
-        // the load path, so use it to preserve that preview's first-paint
-        // contract without re-enabling geometry probing for every PDF.
-        const shouldPreflightOpeningGeometry = geometryPreflightMode === 'concurrent'
-            || (workingFileStat?.size ?? 0) >= PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES;
         const readOpeningGeometryForOpen = readOpeningGeometry
             ? async () => {
                 try {
@@ -398,7 +371,6 @@ export function createDocumentOpenFlow(
             }
             : undefined;
         const openingGeometry = resolvePdfOpeningGeometry({
-            concurrent: shouldPreflightOpeningGeometry,
             isCurrent: () => isCurrentOpenRequest(openRequestId),
             openSurface: deps.openSurface,
             ...(readOpeningGeometryForOpen === undefined
@@ -420,7 +392,6 @@ export function createDocumentOpenFlow(
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
                 recoveryDirtyBaseline: result.recoveryDirtyBaseline === true,
                 openRequestId,
-                openingGeometryResolution: openingGeometry.resolution,
                 validationRevision: openingGeometry.validationRevision,
                 resetSourceBeforeCommit: true,
             });
@@ -726,7 +697,6 @@ export function createDocumentOpenFlow(
             recoveryDirtyBaseline?: boolean;
             preserveHistory?: boolean;
             previousPath?: TDocumentRef | null;
-            preparedDocumentRevision?: IDocumentRevisionInfo | null;
             isCurrent?: (() => boolean) | undefined;
         },
     ) {
@@ -734,9 +704,7 @@ export function createDocumentOpenFlow(
             return false;
         }
 
-        const didRefreshRevision = options && 'preparedDocumentRevision' in options
-            ? applyPreparedDocumentRevision(options.preparedDocumentRevision ?? null, options.isCurrent)
-            : await refreshDocumentRevisionToken(path, options?.isCurrent);
+        const didRefreshRevision = await refreshDocumentRevisionToken(path, options?.isCurrent);
         if (!didRefreshRevision) {
             return false;
         }
@@ -806,13 +774,6 @@ export function createDocumentOpenFlow(
         }
 
         const revision = await resolveDocumentRevision(path, isCurrent);
-        return applyPreparedDocumentRevision(revision, isCurrent);
-    }
-
-    function applyPreparedDocumentRevision(
-        revision: IDocumentRevisionInfo | null,
-        isCurrent?: (() => boolean) | undefined,
-    ) {
         if (isCurrent?.() === false) {
             return false;
         }
@@ -907,7 +868,6 @@ export function createDocumentOpenFlow(
         markDirty?: boolean;
         recoveryDirtyBaseline?: boolean;
         openRequestId?: number;
-        openingGeometryResolution?: Promise<IPdfOpeningGeometryResolution>;
         resetSourceBeforeCommit?: boolean;
         validationRevision?: ReturnType<typeof resolvePdfOpeningGeometry>['validationRevision'];
     }) {
@@ -959,38 +919,6 @@ export function createDocumentOpenFlow(
             return;
         }
 
-        const stagedPreview = nextState.pdfSrc
-            && typeof nextState.pdfSrc === 'object'
-            && 'kind' in nextState.pdfSrc
-            && nextState.pdfSrc.kind === 'path'
-            && opts?.openingGeometryResolution
-            && deps.openSurface
-            ? stagePdfOpeningPreview({
-                documentFiles: getDocumentFilesCapability(),
-                geometryResolution: opts.openingGeometryResolution,
-                isCurrent,
-                openSurface: deps.openSurface,
-                ...(deps.readOpeningPageFramePolicy === undefined
-                    ? {}
-                    : {readOpeningPageFramePolicy: deps.readOpeningPageFramePolicy}),
-                source: nextState.pdfSrc,
-                traceContext,
-            })
-            : null;
-        let allowSpeculativePdfjs = true;
-        const clearSpeculativeSource = () => {
-            if (state.pdfOpeningSrc.value !== nextState.pdfSrc) {
-                return;
-            }
-            state.pdfOpeningSrc.value = null;
-            state.pdfOpeningRevisionToken.value = null;
-        };
-        cancelActiveSpeculativeOpen = (reason) => {
-            allowSpeculativePdfjs = false;
-            stagedPreview?.cancel(reason);
-            clearSpeculativeSource();
-        };
-
         // The open capability only stages a working copy. Keep the currently
         // displayed document intact until a real PDF parser accepts that copy.
         // This is intentionally before the transient source reset and before
@@ -1002,87 +930,15 @@ export function createDocumentOpenFlow(
             path,
             ...traceContext,
         });
-        const validationTask = (opts?.validationRevision ?? Promise.resolve(null))
+        const {
+            validation,
+            cacheResult,
+        } = await (opts?.validationRevision ?? Promise.resolve(null))
             .then(revision => validatePdfRevision(
                 revision,
                 () => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'opening'}),
                 'opening',
             ));
-        const pdfjsPreparation: {
-            preparedDocumentRevision: IDocumentRevisionInfo | null | undefined;
-            readyHold: {
-                generation: number;
-                sourceRevisionKey: string;
-            } | null;
-        } = {
-            preparedDocumentRevision: undefined,
-            readyHold: null,
-        };
-        const speculativePathSource = nextState.pdfSrc
-            && typeof nextState.pdfSrc === 'object'
-            && 'kind' in nextState.pdfSrc
-            && nextState.pdfSrc.kind === 'path'
-            ? nextState.pdfSrc
-            : null;
-        const openSurface = deps.openSurface;
-        const preparePdfjsConcurrently = opts?.openingGeometryResolution
-            && speculativePathSource
-            && openSurface
-            ? opts.openingGeometryResolution.then(async (resolution) => {
-                if (
-                    !allowSpeculativePdfjs
-                    || !isCurrent()
-                    || resolution.openingGeometry === null
-                    || resolution.sourceRevision === null
-                    || !shouldStageNativePdfOpeningPreview(speculativePathSource, resolution.openingGeometry)
-                ) {
-                    return;
-                }
-                const revision = await resolveDocumentRevision(path, isCurrent);
-                const snapshot = openSurface.snapshot.value;
-                const sourceRevisionKey = `${String(resolution.sourceRevision.size)}:${String(resolution.sourceRevision.modifiedAt)}`;
-                if (
-                    !allowSpeculativePdfjs
-                    || !isCurrent()
-                    || !openSurface.holdReadyForValidation(snapshot.generation, sourceRevisionKey)
-                ) {
-                    return;
-                }
-                pdfjsPreparation.preparedDocumentRevision = revision;
-                pdfjsPreparation.readyHold = {
-                    generation: snapshot.generation,
-                    sourceRevisionKey,
-                };
-                state.pdfOpeningRevisionToken.value = revision?.token ?? null;
-                state.pdfOpeningSrc.value = speculativePathSource;
-                logPdfRenderTrace('pdf-open-pdfjs-speculative-source-committed', {
-                    path,
-                    ...traceContext,
-                    generation: snapshot.generation,
-                    sourceRevisionKey,
-                });
-            })
-            : Promise.resolve();
-        void preparePdfjsConcurrently.catch((error: unknown) => {
-            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Speculative PDF.js preparation unavailable', {
-                path,
-                error: getErrorMessage(error),
-            });
-        });
-        let validationResult;
-        try {
-            validationResult = await validationTask;
-            allowSpeculativePdfjs = false;
-        } catch (error) {
-            allowSpeculativePdfjs = false;
-            stagedPreview?.cancel('validation-error');
-            clearSpeculativeSource();
-            throw error;
-        }
-        const {
-            validation,
-            cacheResult,
-        } = validationResult;
         logPdfRenderTrace('pdf-open-validate-end', {
             path,
             ...traceContext,
@@ -1091,13 +947,9 @@ export function createDocumentOpenFlow(
             elapsedMs: performance.now() - validateStartedAt,
         });
         if (!isCurrent()) {
-            stagedPreview?.cancel('stale-after-validation');
-            clearSpeculativeSource();
             return;
         }
         if (!validation.isValid) {
-            stagedPreview?.cancel('validation-failed');
-            clearSpeculativeSource();
             BrowserLogger.warn('pdf-file', 'Rejected invalid staged PDF', {
                 path,
                 requestId,
@@ -1111,8 +963,6 @@ export function createDocumentOpenFlow(
             state.pdfReloadSrc.value = null;
             await nextTick();
             if (!isCurrent()) {
-                stagedPreview?.cancel('stale-after-source-reset');
-                clearSpeculativeSource();
                 return;
             }
         }
@@ -1130,9 +980,6 @@ export function createDocumentOpenFlow(
             markDirty: !!opts?.markDirty,
             recoveryDirtyBaseline: opts?.recoveryDirtyBaseline === true,
             previousPath: state.workingCopyPath.value,
-            ...(pdfjsPreparation.preparedDocumentRevision === undefined
-                ? {}
-                : {preparedDocumentRevision: pdfjsPreparation.preparedDocumentRevision}),
         });
         logPdfRenderTrace('pdf-open-state-commit-end', {
             path,
@@ -1140,28 +987,6 @@ export function createDocumentOpenFlow(
             didCommit,
             elapsedMs: performance.now() - commitStartedAt,
         });
-        if (!didCommit) {
-            stagedPreview?.cancel('state-commit-rejected');
-            clearSpeculativeSource();
-        } else {
-            clearSpeculativeSource();
-            const validationHold = pdfjsPreparation.readyHold;
-            if (validationHold) {
-                const readyRelease = deps.openSurface?.releaseReadyAfterValidation(
-                    validationHold.generation,
-                    validationHold.sourceRevisionKey,
-                );
-                logPdfRenderTrace('pdf-open-pdfjs-validation-authorized', {
-                    path,
-                    ...traceContext,
-                    authorized: readyRelease?.authorized ?? false,
-                    generation: validationHold.generation,
-                    ready: readyRelease?.ready ?? false,
-                    sourceRevisionKey: validationHold.sourceRevisionKey,
-                });
-            }
-            cancelActiveSpeculativeOpen = null;
-        }
     }
 
     async function applySnapshot(

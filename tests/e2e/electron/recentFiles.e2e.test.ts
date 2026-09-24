@@ -91,7 +91,6 @@ interface IRecentOpenTransitionResult {
     emptyTabCreatedAtMs: number | null;
     framesAfterClick: number;
     preSurfaceFrames: number;
-    prewarmAtMs: number | null;
     shellInteractiveAtMs: number | null;
     recentRowVisibleAtShell: boolean;
     sawVisibleDisabledTargetRow: boolean;
@@ -345,8 +344,6 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
         const currentTabCloseButton = document.querySelector<HTMLButtonElement>(
             '.tab-list .tab.is-active .tab-close',
         );
-        let prewarmAtMs: number | null = null;
-        const prewarmDeadlineAtMs = performance.now() + shellBudgetMs;
         const shellInteractiveAtMs = performance
             .getEntriesByName('evb:shell-interactive', 'mark')
             .at(-1)?.startTime ?? null;
@@ -439,7 +436,6 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                 emptyTabCreatedAtMs,
                 framesAfterClick,
                 preSurfaceFrames,
-                prewarmAtMs,
                 shellInteractiveAtMs,
                 recentRowVisibleAtShell: isVisible(getRecentRow()),
                 sawVisibleDisabledTargetRow,
@@ -492,23 +488,9 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             window.requestAnimationFrame(sample);
         };
 
-        const startWhenPrewarmed = () => {
-            prewarmAtMs = performance
-                .getEntriesByName('evb:recent-pdf-geometry-prewarmed', 'mark')
-                .at(-1)?.startTime ?? null;
-            if (prewarmAtMs === null) {
-                if (performance.now() > prewarmDeadlineAtMs) {
-                    finish(null);
-                    return;
-                }
-                window.requestAnimationFrame(startWhenPrewarmed);
-                return;
-            }
-            currentTabCloseButton?.click();
-            emptyTabCreatedAtMs = performance.now();
-            window.requestAnimationFrame(sample);
-        };
-        startWhenPrewarmed();
+        currentTabCloseButton?.click();
+        emptyTabCreatedAtMs = performance.now();
+        window.requestAnimationFrame(sample);
     }), sourcePath, RECENT_OPEN_TIMEOUT_MS);
 }
 
@@ -724,7 +706,6 @@ describe('Electron E2E - Recent Files', () => {
         // Opening a Recent file consumes the current empty tab; it must not create
         // another tab or replace the current tab identity.
         expect(immediateOpen.activeTabChanged, JSON.stringify(immediateOpen)).toBe(false);
-        expect(immediateOpen.prewarmAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expect(immediateOpen.shellInteractiveAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expect(immediateOpen.clickAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
         expectWithinTimingBudget(
@@ -734,14 +715,6 @@ describe('Electron E2E - Recent Files', () => {
         );
         expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
         expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
-        expect(
-            immediateOpen.prewarmAtMs! >= immediateOpen.shellInteractiveAtMs!,
-            JSON.stringify(immediateOpen),
-        ).toBe(true);
-        expect(
-            immediateOpen.prewarmAtMs! <= immediateOpen.clickAtMs!,
-            JSON.stringify(immediateOpen),
-        ).toBe(true);
         expect(immediateOpen.recentRowVisibleAtShell, JSON.stringify(immediateOpen)).toBe(false);
         expect(immediateOpen.firstOpenSurfaceFrame, JSON.stringify(immediateOpen)).toMatchObject({
             activeTabTitle: basename(fixturePath),
@@ -752,7 +725,6 @@ describe('Electron E2E - Recent Files', () => {
         expect(
             [
                 'cold-shell',
-                'prepared-shell',
                 'skeleton',
                 'canvas',
             ],
@@ -889,7 +861,6 @@ describe('Electron E2E - Recent Files', () => {
                     outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
                     topElementPath: frame.topElementPath,
                 })),
-            prewarmLeadMs: immediateOpen.clickAtMs! - immediateOpen.prewarmAtMs!,
             shellElapsedMs: immediateOpen.shellElapsedMs,
             timing: summarizeCommittedSurfaceTiming(openSurfaceTrace),
             visiblePageShellFrameDelta,

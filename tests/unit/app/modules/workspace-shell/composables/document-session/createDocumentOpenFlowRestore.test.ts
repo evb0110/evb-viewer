@@ -1,5 +1,3 @@
-import type * as TViMockOriginalModule2 from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
-
 import {
     beforeEach,
     describe,
@@ -42,7 +40,6 @@ const mocks = vi.hoisted(() => ({
         lowMemory: false,
         maxCachedPdfPages: 48,
     },
-    nativePreview: {createSource: vi.fn()},
 }));
 
 const platformApi = createElectronPlatformApiFixture({
@@ -56,10 +53,6 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/performanceProfile', () => ({
     getPerformanceProfile: () => mocks.performanceProfile,
     resolvePerformanceProfile: () => mocks.performanceProfile,
-}));
-vi.mock('@app/platform/browser-api/createNativePdfPreviewSourceFromPath', async (importOriginal_1) => ({
-    ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
-    createNativePdfPreviewSourceFromPath: mocks.nativePreview.createSource,
 }));
 
 interface IResetHistoryTestOptions {isCurrent?: (() => boolean) | undefined;}

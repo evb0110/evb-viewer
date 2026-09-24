@@ -30,7 +30,7 @@ import {
 } from '@electron/features/page-ops/public/nativePageOpsPath';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {registerNativePdfSenderCleanup} from '@electron/features/documents/main/nativePdfPreview';
+import {registerNativePdfSenderCleanup} from '@electron/features/documents/main/nativePdfMetadata';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {abortErrorFromSignal} from '@electron/utils/abort';

@@ -8,17 +8,11 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
-import { requirePageNumber } from '@contracts/pageNumbers';
 import {
-    canBeginDocumentOpenSynchronously,
     createWorkspaceDocumentOpenTransactions,
     resolveDocumentOpenRunResult,
     resolveOpenSurfaceDocumentId,
-    resolvePreparedPdfOpeningGeometry,
-    shouldWaitForPreparedOpeningOwner,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createDeferredWorkspaceLoadGateway } from '@app/modules/workspace-shell/host/createDeferredWorkspaceLoadGateway';
@@ -31,16 +25,6 @@ import {
 } from '@app/types/workspaceExpose';
 import { workspaceSessionHasOpenedDocument } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
-
-const PDF_GEOMETRY: IPdfOpeningGeometry = {
-    pageNumber: requirePageNumber(1),
-    pageCount: 431,
-    width: 612,
-    height: 792,
-    rotation: 0 as const,
-    size: 538_000_000,
-    modifiedAt: requireEpochMs(1_720_000_000_000),
-};
 
 describe('deferredWorkspaceHostDocumentOpen', () => {
     it('commits document opens only after a terminal state is reached', () => {
@@ -58,39 +42,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         expect(resolveOpenSurfaceDocumentId(null, requireDocumentRef('/managed/working-copy.pdf'), 'tab-1'))
             .toBe('/managed/working-copy.pdf');
         expect(resolveOpenSurfaceDocumentId(null, null, 'tab-1')).toBe('tab-1');
-    });
-
-    it('binds authoritative main-process PDF geometry to the host document identity', () => {
-        const geometry = resolvePreparedPdfOpeningGeometry(requireDocumentRef('/documents/scan.pdf'), PDF_GEOMETRY);
-
-        expect(geometry).toEqual({
-            documentId: '/documents/scan.pdf',
-            pageNumber: 1,
-            pageCount: 431,
-            width: 612,
-            height: 792,
-            rotation: 0,
-            size: 538_000_000,
-            modifiedAt: 1_720_000_000_000,
-        });
-        expect(Object.isFrozen(geometry)).toBe(true);
-        expect(resolvePreparedPdfOpeningGeometry('', geometry)).toBeNull();
-        expect(resolvePreparedPdfOpeningGeometry(requireDocumentRef('/documents/scan.pdf'), null)).toBeNull();
-    });
-
-    it('waits only when a prepared frame still lacks its canonical viewer owner', () => {
-        expect(shouldWaitForPreparedOpeningOwner(true, false)).toBe(true);
-        expect(shouldWaitForPreparedOpeningOwner(true, true)).toBe(false);
-        expect(shouldWaitForPreparedOpeningOwner(false, false)).toBe(false);
-        expect(shouldWaitForPreparedOpeningOwner(false, true)).toBe(false);
-    });
-
-    it('permits synchronous ownership only for an exact premounted Recent frame', () => {
-        expect(canBeginDocumentOpenSynchronously('openRecentFromPlaceholder', true, true)).toBe(true);
-        expect(canBeginDocumentOpenSynchronously('openRecentFromPlaceholder', false, true)).toBe(false);
-        expect(canBeginDocumentOpenSynchronously('openRecentFromPlaceholder', true, false)).toBe(false);
-        expect(canBeginDocumentOpenSynchronously('handleOpenFileWithResultFromUi', true, true)).toBe(false);
-        expect(canBeginDocumentOpenSynchronously('restoreColdDocument', true, true)).toBe(false);
     });
 
     it('publishes open identity before source loading and resolves after the document is accepted', async () => {
@@ -117,8 +68,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         controller.attachWorkspace(workspace);
         controller.attachOpenTransactionHost({
             documentOpenSurface: createDocumentOpenSurfaceSession(),
-            openingPageFrameAuthority: shallowRef(null),
-            ensureWorkspaceLoaded: async () => workspace,
             getActiveTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
             getInitialViewState: () => null,
             getSeedToolbarSnapshot: () => toolbarSnapshot,
@@ -127,7 +76,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             hasOpenedDocument: () => toolbarSnapshot.viewerCapabilities.pdfDocument,
             hasSessionOpenedDocument: () => workspaceSessionHasOpenedDocument(controller.snapshot.value),
             isHostUnmounted: () => false,
-            isViewerOwnerMounted: () => true,
             publishDocumentRecord: record => controller.applyWorkspaceRecord(record, 'host'),
             requestWorkspaceMount: vi.fn(),
         });
@@ -184,8 +132,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         controller.attachWorkspace(workspace);
         controller.attachOpenTransactionHost({
             documentOpenSurface: createDocumentOpenSurfaceSession(),
-            openingPageFrameAuthority: shallowRef(null),
-            ensureWorkspaceLoaded: async () => workspace,
             getActiveTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
             getInitialViewState: () => null,
             getSeedToolbarSnapshot: () => toolbarSnapshot,
@@ -193,7 +139,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             hasOpenedDocument: () => true,
             hasSessionOpenedDocument: () => workspaceSessionHasOpenedDocument(controller.snapshot.value),
             isHostUnmounted: () => false,
-            isViewerOwnerMounted: () => true,
             publishDocumentRecord: record => controller.applyWorkspaceRecord(record, 'host'),
             requestWorkspaceMount: vi.fn(),
         });
@@ -228,8 +173,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         });
         transactions.attachHost({
             documentOpenSurface,
-            openingPageFrameAuthority: shallowRef(null),
-            ensureWorkspaceLoaded: async () => workspace,
             getActiveTransactionId: () => activeTransactionId,
             getInitialViewState: () => null,
             getSeedToolbarSnapshot: () => toolbarSnapshot,
@@ -237,7 +180,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             hasOpenedDocument: () => false,
             hasSessionOpenedDocument: () => false,
             isHostUnmounted: () => false,
-            isViewerOwnerMounted: () => true,
             publishDocumentRecord,
             requestWorkspaceMount: vi.fn(),
         });
@@ -266,53 +208,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         expect(publishDocumentRecord).toHaveBeenCalledWith(expect.objectContaining(
             {tab: expect.objectContaining({originalPath: '/documents/a.pdf'})},
         ));
-    });
-
-    it('claims an early startup Recent command before queueing for its viewer owner', async () => {
-        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
-        const documentOpenSurface = createDocumentOpenSurfaceSession();
-        const ownerGate = Promise.withResolvers<undefined>();
-        const publishDocumentRecord = vi.fn(record => controller.applyWorkspaceRecord(record, 'host'));
-        controller.attachOpenTransactionHost({
-            documentOpenSurface,
-            openingPageFrameAuthority: shallowRef(null),
-            ensureWorkspaceLoaded: async () => {
-                await ownerGate.promise;
-                return null;
-            },
-            getActiveTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
-            getInitialViewState: () => null,
-            getSeedToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot,
-            hasDocumentOrOpenError: () => false,
-            hasOpenedDocument: () => false,
-            hasSessionOpenedDocument: () => false,
-            isHostUnmounted: () => false,
-            isViewerOwnerMounted: () => false,
-            publishDocumentRecord,
-            requestWorkspaceMount: vi.fn(),
-        });
-        const run = vi.fn(async () => true);
-        const opening = controller.open({
-            action: 'openRecentFromPlaceholder',
-            preparedOpeningGeometry: PDF_GEOMETRY,
-            target: {originalPath: requireDocumentRef('/documents/scan.pdf')},
-        }, run);
-        controller.requestDocumentPage(2);
-
-        expect(documentOpenSurface.snapshot.value.identity?.documentId).toBe('/documents/scan.pdf');
-        expect(documentOpenSurface.viewportSession.value.requestedPage).toBe(2);
-        expect(publishDocumentRecord).toHaveBeenCalledWith(expect.objectContaining(
-            {toolbarSnapshot: expect.objectContaining({
-                currentPage: 1,
-                totalPages: 431,
-                isOpeningDocument: true,
-            })},
-        ));
-        expect(controller.snapshot.value.toolbarSnapshot.totalPages).toBe(431);
-        expect(run).not.toHaveBeenCalled();
-        ownerGate.resolve(undefined);
-        await expect(opening).resolves.toBe(false);
-        expect(run).not.toHaveBeenCalled();
     });
 
     it('does not dispatch a deferred source open after close aborts its mount wait', async () => {
@@ -358,8 +253,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const detach = controller.attachOpenTransactionHost({
             documentOpenSurface: createDocumentOpenSurfaceSession(),
-            openingPageFrameAuthority: shallowRef(null),
-            ensureWorkspaceLoaded: async () => null,
             getActiveTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
             getInitialViewState: () => null,
             getSeedToolbarSnapshot: createDefaultWorkspaceToolbarSnapshot,
@@ -367,7 +260,6 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             hasOpenedDocument: () => false,
             hasSessionOpenedDocument: () => false,
             isHostUnmounted: () => true,
-            isViewerOwnerMounted: () => false,
             publishDocumentRecord: vi.fn(),
             requestWorkspaceMount: vi.fn(),
         });

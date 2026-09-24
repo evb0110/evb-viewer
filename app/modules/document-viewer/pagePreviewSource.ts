@@ -3,7 +3,6 @@ import type {
     IPdfSearchResponse,
     IResolvedSearchMatchOptions,
 } from '@contracts/search';
-import type {IPdfNativePageSizes} from '@contracts/electronApiDocuments';
 
 export interface IDocumentPreviewPageState {
     failedRenderPx: number;
@@ -18,8 +17,6 @@ export interface IPreviewPageSize {
     height: number;
     dpi?: number | undefined;
 }
-
-export type TPreviewPageSizes = readonly IPreviewPageSize[] | IPdfNativePageSizes;
 
 export interface IPagePreviewSourceInfo {
     pageCount: number;
@@ -48,7 +45,7 @@ export interface IPagePreviewOutlineItem {
 export interface IPagePreviewSource {
     readonly fullResolutionDecodeBeforeScale?: boolean;
     cancelPagePreview?(pageNumber: number, requestId?: string): void;
-    getPageSizes(): Promise<TPreviewPageSizes>;
+    getPageSizes(): Promise<readonly IPreviewPageSize[]>;
     getPageSize?(pageNumber: number): Promise<IPreviewPageSize>;
     getPageSourceInfo?(pageNumber: number): Promise<IPagePreviewSourceInfo>;
     getPageText?(pageNumber: number): Promise<string>;
@@ -67,38 +64,4 @@ export interface IPagePreviewSource {
     ): Promise<IPagePreviewRenderedObjectUrl>;
     revokeObjectURL(url: string): void;
     terminate(): void;
-}
-
-export class PagePreviewSourceDeadlineError extends Error {
-    readonly retryable = true;
-
-    constructor(message: string) {
-        super(message);
-        this.name = 'PagePreviewSourceDeadlineError';
-    }
-}
-
-export async function getPagePreviewSizesWithDeadline(
-    source: Pick<IPagePreviewSource, 'getPageSizes'>,
-    deadlineMs: number,
-) {
-    const deadlineState: { timer: ReturnType<typeof setTimeout> | null } = {timer: null};
-    const deadline = new Promise<never>((_resolve, reject) => {
-        deadlineState.timer = setTimeout(() => {
-            reject(new PagePreviewSourceDeadlineError(
-                'Timed out while reading PDF page sizes. Retry opening the document.',
-            ));
-        }, deadlineMs);
-    });
-    try {
-        return await Promise.race([
-            source.getPageSizes(),
-            deadline,
-        ]);
-    } finally {
-        const deadlineTimer = deadlineState.timer;
-        if (deadlineTimer !== null) {
-            clearTimeout(deadlineTimer);
-        }
-    }
 }

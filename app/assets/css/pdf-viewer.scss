@@ -8,15 +8,6 @@
 
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
-/* Keep the PDF.js track mounted for lifecycle/measurement without exposing a
-   provisional page-local shell while the opening owner resolves geometry. The
-   loader remains a sibling of this track and therefore stays visible. */
-.pdf-viewer-container--opening-surface-deferred {
-    .pdf-viewer-page-track {
-        visibility: hidden;
-    }
-}
-
 .page_container {
     position: relative;
     margin: 0 auto;

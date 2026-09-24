@@ -5,7 +5,6 @@ import {
     isPdfOptimizePreset,
     type IApplicationMenuDocumentState,
     type IDocumentsFileCapability,
-    type IPdfNativePagePreviewOptions,
     type IPdfNativeSaveResult,
     type IPdfOptimizeOptions,
     type IPdfOptimizeResult,
@@ -37,8 +36,7 @@ import {
 import {
     decodeOpeningGeometry,
     decodeNativePageSizesOptions,
-    decodePagePreviewResult,
-    decodePageSizesResult,
+    decodeNativePageGeometry,
     decodeSafeIntegerValue,
     decodeUint8ArrayValue,
     fail,
@@ -122,16 +120,12 @@ function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
     if (workingPath === null || originalPath === null) {
         fail('invalid PDF open-file paths');
     }
-    const openingGeometry = value.openingGeometry === undefined
-        ? undefined
-        : decodeOpeningGeometry(value.openingGeometry);
     return {
         kind: 'pdf',
         workingPath,
         originalPath,
         ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
         ...(value.recoveryDirtyBaseline === undefined ? {} : {recoveryDirtyBaseline: value.recoveryDirtyBaseline}),
-        ...(openingGeometry === undefined ? {} : {openingGeometry}),
     };
 }
 function decodeRecentFile(value: unknown): IRecentFile {
@@ -335,23 +329,6 @@ function decodeOptimizeOptions(value: unknown): IPdfOptimizeOptions {
         fail('invalid PDF optimize preset');
     }
     return {preset: decoded.preset};
-}
-function decodePreviewOptions(value: unknown): IPdfNativePagePreviewOptions | undefined {
-    const decoded = decodeOptionalObject(value, 'options');
-    if (decoded === undefined) {
-        return undefined;
-    }
-    const previewRequestId = decoded.previewRequestId === undefined
-        ? undefined
-        : decodeRequestIdValue(decoded.previewRequestId, 'previewRequestId');
-    const targetWidthPx = decoded.targetWidthPx;
-    if (targetWidthPx !== undefined && (typeof targetWidthPx !== 'number' || !Number.isSafeInteger(targetWidthPx) || targetWidthPx < 1)) {
-        fail('invalid native page preview options');
-    }
-    return {
-        ...(previewRequestId === undefined ? {} : {previewRequestId}),
-        ...(targetWidthPx === undefined ? {} : {targetWidthPx}),
-    };
 }
 function decodePrintResult(value: unknown) {
     if (
@@ -787,28 +764,23 @@ const openingGeometryArgs = documentArgs<'getPdfOpeningGeometry'>(
 );
 const pageSizesArgs = documentArgs<'getPdfNativePageSizes'>(
     value => {
-        const args = decodeArgumentArray(value, 1, 2);
-        return appendOptional([decodeDocumentRefValue(args[0], 'path')], decodeNativePageSizesOptions(args[1])) as
-            TDocumentMethodArgs<'getPdfNativePageSizes'>;
-    },
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const cancelRequestArgs = documentArgs<'cancelPdfNativePagePreview'>(
-    value => decodeSingleRequestIdArgs(value, 'requestId'),
-    () => [decodeRequestIdValue('preview-1', 'requestId')],
-);
-const pagePreviewArgs = documentArgs<'renderPdfNativePagePreview'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2, 3);
-        return appendOptional([
+        const args = decodeArgumentArray(value, 2, 2);
+        return [
             decodeDocumentRefValue(args[0], 'path'),
-            requirePageNumber(decodeSafeIntegerValue(args[1], 'pageNumber', 1)),
-        ], decodePreviewOptions(args[2])) as TDocumentMethodArgs<'renderPdfNativePagePreview'>;
+            decodeNativePageSizesOptions(args[1]),
+        ] as TDocumentMethodArgs<'getPdfNativePageSizes'>;
     },
     () => [
         decodeDocumentRefValue('/tmp/document.pdf', 'path'),
-        requirePageNumber(1),
+        {
+            mode: 'exact',
+            expectedDocumentRevisionToken: fixtureRevisionToken,
+        },
     ],
+);
+const cancelRequestArgs = documentArgs<'cancelPdfPrint'>(
+    value => decodeSingleRequestIdArgs(value, 'requestId'),
+    () => [decodeRequestIdValue('print-1', 'requestId')],
 );
 const readTextFileArgs = documentArgs<'readTextFile'>(
     value => decodeSingleDocumentRefArgs(value, 'path'),
@@ -1136,33 +1108,37 @@ const openingGeometryResult = documentResult<'getPdfOpeningGeometry'>(
         width: 612,
         height: 792,
         rotation: 0,
+        widestPageWidth: 612,
         size: 1,
         modifiedAt: requireEpochMs(0),
     }),
 );
 const pageSizesResult = documentResult<'getPdfNativePageSizes'>(
-    decodePageSizesResult,
-    () => [{
-        width: 612,
-        height: 792,
-    }],
+    decodeNativePageGeometry,
+    () => ({
+        kind: 'exact',
+        documentRef: decodeDocumentRefValue('/tmp/document.pdf', 'documentRef'),
+        documentRevisionToken: fixtureRevisionToken,
+        pageCount: 1,
+        pages: [{
+            pageNumber: requirePageNumber(1),
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+            userUnit: 1,
+        }],
+    }),
 );
-const cancellationResult = documentResult<'cancelPdfNativePagePreview'>(
+const cancellationResult = documentResult<'cancelPdfPrint'>(
     (value) => {
         if (!isRecord(value) || typeof value.canceled !== 'boolean') {
-            fail('invalid preview cancellation result');
+            fail('invalid cancellation result');
         }
         return {canceled: value.canceled};
     },
     () => ({canceled: false}),
-);
-const pagePreviewResult = documentResult<'renderPdfNativePagePreview'>(
-    decodePagePreviewResult,
-    () => ({
-        bytes: Uint8Array.of(1),
-        width: 1,
-        height: 1,
-    }),
 );
 const revisionResult = documentResult<'getDocumentRevision'>(
     value => isDocumentRevisionInfo(value) ? value : fail('invalid document revision'),
@@ -1255,8 +1231,6 @@ export {
     optimizeInteractionArgs,
     optimizeProgress,
     optimizeResult,
-    pagePreviewArgs,
-    pagePreviewResult,
     pageSizesArgs,
     pageSizesResult,
     pdfPageLabelRangesResult,

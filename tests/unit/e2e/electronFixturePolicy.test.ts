@@ -22,7 +22,6 @@ import {
 } from 'pdf-lib';
 import { join } from 'node:path';
 import { statSync } from 'node:fs';
-import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { getE2ESharedRendererSessionName } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
@@ -55,7 +54,6 @@ import {
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
     type IFixtureDescribeSelector,
-    resolveExactNativeLargePdfFixtureAvailability,
     resolveScannedFixturePageMarkerRgb,
     resolveDjvuFixturePath,
     resolveLargePdfFixtureAvailability,
@@ -106,17 +104,6 @@ describe('Electron E2E fixture policy', () => {
             .toThrow('OCR result was not applied to the active working copy');
         expect(() => assertOcrResultApplied({token: 'revision-after'}, 'revision-before'))
             .not.toThrow();
-    });
-
-    it('opens an actionable Recent row from a sole empty tab without a close control', async () => {
-        const source = await readFile(
-            join(process.cwd(), 'tests/e2e/electron/recentFiles.e2e.test.ts'),
-            'utf8',
-        );
-
-        expect(source).toContain('const startWhenPrewarmed = () =>');
-        expect(source).not.toContain('if (prewarmAtMs === null) {\n            finish(null)');
-        expect(source).not.toContain('if (!currentTabCloseButton || prewarmAtMs === null)');
     });
 
     it('keeps the inactive-DjVu pressure override ahead of the live sampler', async () => {
@@ -498,8 +485,8 @@ describe('Electron E2E fixture policy', () => {
         expect(offenders).toEqual([]);
     });
 
-    it('provisions its own oversized native-preview fixture instead of borrowing the annotation-save one', async () => {
-        const undersizedPath = await createMultiPageTextFixturePdf('unit-native-preview-undersized.pdf', 1);
+    it('provisions its own oversized fixture instead of borrowing the annotation-save one', async () => {
+        const undersizedPath = await createMultiPageTextFixturePdf('unit-oversized-undersized.pdf', 1);
         const previousFixture = process.env.EVB_E2E_LARGE_PDF_FIXTURE;
         process.env.EVB_E2E_LARGE_PDF_FIXTURE = undersizedPath;
 
@@ -508,7 +495,7 @@ describe('Electron E2E fixture policy', () => {
 
             expect(fixture.path).not.toBeNull();
             expect(fixture.path).not.toBe(undersizedPath);
-            expect(statSync(fixture.path!).size).toBeGreaterThanOrEqual(PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES);
+            expect(statSync(fixture.path!).size).toBeGreaterThanOrEqual(512 * 1024 * 1024);
             const describeLike = createDescribeSelectorDouble();
             expect(selectFixtureDescribe(describeLike, fixture)).toBe(describeLike);
         } finally {
@@ -550,30 +537,6 @@ describe('Electron E2E fixture policy', () => {
             restoreEnvVar('EVB_E2E_LARGE_PDF_FIXTURE', previousFixture);
             restoreEnvVar('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE', previousRequire);
         }
-    });
-
-    it('routes exact native-preview acceptance to the configured large fixture', () => {
-        const fixture = resolveExactNativeLargePdfFixtureAvailability({
-            EVB_EXACT_FIXTURE_PROFILE: 'localZaliznyak882',
-            EVB_E2E_LARGE_PDF_FIXTURE: 'tests/fixtures/electron/freetext-lifecycle-test.pdf',
-        });
-
-        expect(fixture).toEqual({
-            path: join(process.cwd(), 'tests/fixtures/electron/freetext-lifecycle-test.pdf'),
-            reason: `Using exact native-preview fixture: ${join(
-                process.cwd(),
-                'tests/fixtures/electron/freetext-lifecycle-test.pdf',
-            )}`,
-            required: true,
-        });
-    });
-
-    it('fails closed when an exact native-preview fixture is not configured', () => {
-        const fixture = resolveExactNativeLargePdfFixtureAvailability({EVB_EXACT_FIXTURE_PROFILE: 'localZaliznyak882'});
-
-        expect(fixture.path).toBeNull();
-        expect(fixture.required).toBe(true);
-        expect(fixture.reason).toContain('EVB_E2E_LARGE_PDF_FIXTURE');
     });
 
 });

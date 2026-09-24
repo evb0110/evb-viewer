@@ -12,7 +12,7 @@ import {
     shouldRetainInactiveDocumentPageSourceLease,
 } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
+import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 
 describe('workspace surface budget controller', () => {
     it.each([
@@ -73,7 +73,6 @@ describe('workspace surface budget controller', () => {
             'pdf-page-canvas',
             'pdf-annotation-canvas',
             'pdf-thumbnail-canvas',
-            'native-preview',
             'djvu-preview',
         ] as const;
         for (const category of categories) {
@@ -85,8 +84,8 @@ describe('workspace surface budget controller', () => {
         }
 
         expect(controller.getSnapshot()).toMatchObject({
-            reservedBytes: 500,
-            leaseCount: 5,
+            reservedBytes: 400,
+            leaseCount: 4,
             reservedBytesByCategory: Object.fromEntries(categories.map(category => [
                 category,
                 100,
@@ -270,14 +269,14 @@ describe('workspace surface budget controller', () => {
         const evicted: string[] = [];
         const promoted = controller.reserve({
             scopeId: 'promoted',
-            category: 'native-preview',
+            category: 'djvu-preview',
             bytes: 300,
             priority: 10,
             evict: () => evicted.push('promoted'),
         });
         controller.reserve({
             scopeId: 'nearby',
-            category: 'native-preview',
+            category: 'djvu-preview',
             bytes: 300,
             priority: 50,
             evict: () => evicted.push('nearby'),
@@ -328,7 +327,6 @@ describe('workspace surface budget controller', () => {
             'pdf-page-canvas',
             'pdf-annotation-canvas',
             'pdf-thumbnail-canvas',
-            'native-preview',
             'djvu-preview',
         ] as const;
         let allowEviction = false;
@@ -337,7 +335,7 @@ describe('workspace surface budget controller', () => {
             controller.reserve({
                 scopeId: category,
                 category,
-                bytes: 120,
+                bytes: 150,
                 canEvict: () => allowEviction,
                 evict: () => evicted.push(category),
             });
@@ -347,6 +345,6 @@ describe('workspace surface budget controller', () => {
         allowEviction = true;
         expect(controller.enforceBudget()).toBe(true);
         expect(evicted).toEqual(['pdf-page-canvas']);
-        expect(controller.getSnapshot().reservedBytes).toBe(480);
+        expect(controller.getSnapshot().reservedBytes).toBe(450);
     });
 });

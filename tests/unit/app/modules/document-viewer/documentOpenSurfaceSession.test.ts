@@ -12,8 +12,6 @@ import {
     shouldPresentDocumentOpenEmptyPlaceholder,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type { IDocumentOpenSurfaceRenderFence } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
-import {requireDocumentRef} from '@contracts/documentRef';
 
 const DEFAULT_LAYOUT_GEOMETRY = {
     width: 612,
@@ -132,51 +130,7 @@ function createViewportCommit(fence: IDocumentOpenSurfaceRenderFence) {
     };
 }
 
-function createPageSource(documentRef: string): IDocumentPageSource {
-    return {
-        kind: 'pdf',
-        documentRef: requireDocumentRef(documentRef),
-        pageCount: 1,
-        getPageMetrics: vi.fn(async () => ({
-            widthPoints: 612,
-            heightPoints: 792,
-            rotation: 0 as const,
-        })),
-        renderPage: vi.fn(),
-        dispose: vi.fn(),
-    };
-}
-
 describe('document open surface session', () => {
-    it('publishes native preview ownership without leaving the opening surface blank', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'large.pdf', 'revision-large');
-
-        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('inactive');
-        expect(session.setNativeOpeningPreviewState(generation, 'loading')).toBe(true);
-        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('loading');
-        expect(session.setNativeOpeningPreviewState(generation, 'settled')).toBe(true);
-        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('settled');
-        expect(session.setNativeOpeningPreviewState(generation, 'failed')).toBe(true);
-        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('failed');
-
-        session.reset();
-        expect(session.snapshot.value.nativeOpeningPreviewState).toBe('inactive');
-    });
-
-    it('keeps a declared source size for its opening generation only', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'sized.pdf', 'revision-sized');
-
-        expect(session.declareSourceSize(generation + 1, 1_024)).toBe(false);
-        expect(session.declareSourceSize(generation, -1)).toBe(false);
-        expect(session.declareSourceSize(generation, 1_024)).toBe(true);
-        expect(session.snapshot.value.declaredSourceSize).toBe(1_024);
-
-        beginSurface(session, 'next.pdf', 'revision-next');
-        expect(session.snapshot.value.declaredSourceSize).toBeUndefined();
-    });
-
     it('rejects navigation until an opening session owns the document', () => {
         const session = createDocumentOpenSurfaceSession();
 
@@ -780,31 +734,25 @@ describe('document open surface session', () => {
 
     it('retargets empty-surface ownership without resizing its measured opening shell', () => {
         const session = createDocumentOpenSurfaceSession();
-        const generation = session.beginPrepared({
+        const generation = session.begin({
             documentId: 'scan.pdf',
             documentRevision: 'open-intent:1',
             provisional: true,
         }, {
             documentId: 'scan.pdf',
-            ownerId: 'opening-frame-owner',
             pageNumber: 1,
-            intentKey: 'fit-width:1',
-            layoutKey: '900x700',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: 'scan.pdf:28',
+            pageCount: 20,
+            width: 612,
+            height: 792,
+            rotation: 0,
+        });
+        expect(session.commitOpeningPageFrame(generation, openingFrame(generation, {
+            ownerId: 'opening-frame-owner',
             style: {
                 width: '612px',
                 height: '792px',
             },
-            geometry: {
-                documentId: 'scan.pdf',
-                pageNumber: 1,
-                pageCount: 20,
-                width: 612,
-                height: 792,
-                rotation: 0,
-            },
-        });
+        }))).toBe(true);
         expect(generation).toBe(1);
 
         expect(session.requestNavigation(7)).toBe(7);
@@ -1536,140 +1484,6 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.geometry).toBeNull();
     });
 
-    it('atomically begins a prepared empty-surface open without exposing pending idle', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const snapshots: Array<{
-            phase: string;
-            presentation: string;
-        }> = [];
-        watch(session.snapshot, value => snapshots.push({
-            phase: value.phase,
-            presentation: value.presentation,
-        }), {flush: 'sync'});
-
-        const generation = session.beginPrepared({
-            documentId: 'scan.pdf',
-            documentRevision: 'open-intent:prepared',
-            provisional: true,
-        }, {
-            documentId: 'scan.pdf',
-            ownerId: 'document-viewer-runtime:1',
-            pageNumber: 1,
-            intentKey: 'fit-width:1',
-            layoutKey: '0:1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: '28000000:42',
-            style: {
-                width: '960px',
-                height: '1280px',
-            },
-            geometry: {
-                documentId: 'scan.pdf',
-                pageNumber: 1,
-                pageCount: 431,
-                width: 600,
-                height: 800,
-                rotation: 0,
-            },
-        });
-
-        expect(generation).toBe(1);
-        expect(snapshots).toEqual([{
-            phase: 'pending',
-            presentation: 'page-shell',
-        }]);
-        expect(session.snapshot.value).toMatchObject({
-            phase: 'pending',
-            presentation: 'page-shell',
-            openingPageGeometry: {documentId: 'scan.pdf'},
-            openingPageFrame: {
-                generation: 1,
-                ownerId: 'document-viewer-runtime:1',
-            },
-        });
-    });
-
-    it('keeps one page-shell owner while the PDF loader promotes its revision', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const presentations: string[] = [];
-        watch(session.snapshot, value => presentations.push(value.presentation), {flush: 'sync'});
-        const generation = session.beginPrepared({
-            documentId: 'scan.pdf',
-            documentRevision: 'open-intent:prepared',
-            provisional: true,
-        }, {
-            documentId: 'scan.pdf',
-            ownerId: 'document-viewer-runtime:1',
-            pageNumber: 1,
-            intentKey: 'fit-width:1',
-            layoutKey: '0:1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: '28000000:42',
-            style: {
-                width: '960px',
-                height: '1280px',
-            },
-            geometry: {
-                documentId: 'scan.pdf',
-                pageNumber: 1,
-                pageCount: 431,
-                width: 600,
-                height: 800,
-                rotation: 0,
-            },
-        })!;
-
-        expect(session.acquireSource({
-            documentId: 'scan.pdf',
-            documentRevision: 'pdf-source:42',
-        }, session.snapshot.value.generation)).toBe(generation);
-        expect(session.snapshot.value).toMatchObject({
-            generation,
-            presentation: 'page-shell',
-            identity: {documentRevision: 'pdf-source:42'},
-            openingPageFrame: {
-                generation,
-                ownerId: 'document-viewer-runtime:1',
-            },
-        });
-        expect(session.clearOpeningPageFrame(generation, 'document-viewer-runtime:1')).toBe(false);
-        expect(presentations).toEqual([
-            'page-shell',
-            'page-shell',
-        ]);
-    });
-
-    it('rejects a mismatched prepared frame without changing the empty surface', () => {
-        const session = createDocumentOpenSurfaceSession();
-        expect(session.beginPrepared({
-            documentId: 'scan.pdf',
-            documentRevision: 'open-intent:prepared',
-            provisional: true,
-        }, {
-            documentId: 'other.pdf',
-            ownerId: 'document-viewer-runtime:1',
-            pageNumber: 1,
-            intentKey: 'fit-width:1',
-            layoutKey: '0:1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: '28000000:42',
-            style: {width: '960px'},
-            geometry: {
-                documentId: 'other.pdf',
-                pageNumber: 1,
-                pageCount: 1,
-                width: 600,
-                height: 800,
-                rotation: 0,
-            },
-        })).toBeNull();
-        expect(session.snapshot.value).toMatchObject({
-            phase: 'idle',
-            presentation: 'idle',
-            identity: null,
-        });
-    });
-
     it('does not present an opening frame for a different page', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = session.begin({
@@ -1789,26 +1603,6 @@ describe('document open surface session', () => {
         expect(session.snapshot.value.openingPageFrame?.ownerId).toBe('page-source:1');
     });
 
-    it('retires the previous opening page source before publishing its replacement', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, '/tmp/dictionary.pdf', 'open-intent:source');
-        const firstSource = createPageSource('/tmp/dictionary.pdf');
-        const secondSource = createPageSource('/tmp/dictionary.pdf');
-        const retireFirst = vi.fn();
-        const retireSecond = vi.fn();
-
-        expect(session.publishOpeningPageSource(generation, firstSource, retireFirst)).toBe(true);
-        expect(session.openingPageSource.value?.dispose).toBe(firstSource.dispose);
-
-        expect(session.publishOpeningPageSource(generation, secondSource, retireSecond)).toBe(true);
-        expect(retireFirst).toHaveBeenCalledOnce();
-        expect(session.openingPageSource.value?.dispose).toBe(secondSource.dispose);
-
-        session.reset();
-        expect(retireSecond).toHaveBeenCalledOnce();
-        expect(session.openingPageSource.value).toBeNull();
-    });
-
     it('atomically retires the opening frame when the committed surface becomes ready', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.djvu', 'open-intent:ready');
@@ -1920,129 +1714,6 @@ describe('document open surface session', () => {
             phase: 'pending',
             presentation: 'idle',
         });
-    });
-
-    it('keeps a committed PDF.js canvas behind the staged frame until validation authorizes it', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const generation = session.beginPrepared({
-            documentId: 'dictionary.pdf',
-            documentRevision: 'open-intent:held',
-        }, {
-            documentId: 'dictionary.pdf',
-            ownerId: 'test-chassis',
-            pageNumber: 1,
-            intentKey: 'fit-width:1',
-            layoutKey: '1000x800',
-            policyKey: 'width:single:fit-width:1',
-            sourceRevisionKey: '170496793:1724000000000',
-            style: {
-                width: '900px',
-                height: '1165px',
-            },
-            geometry: {
-                documentId: 'dictionary.pdf',
-                pageNumber: 1,
-                pageCount: 1_859,
-                width: 612,
-                height: 792,
-                rotation: 0,
-                size: 170_496_793,
-                modifiedAt: 1_724_000_000_000,
-            },
-        });
-        expect(generation).not.toBeNull();
-        if (generation === null) throw new Error('Expected prepared opening generation');
-        expect(session.holdReadyForValidation(generation, '170496793:1724000000000')).toBe(true);
-        expect(session.commitGeometry(generation, {
-            height: 1_165,
-            margin: 16,
-            width: 900,
-        })).toBe(true);
-        const fence = createRenderFence(session, generation, 'open-intent:held');
-        expect(session.commitCanvas(fence)).toBe(true);
-        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
-
-        expect(session.markReady(fence)).toBe(false);
-        expect(session.snapshot.value.openingPageFrame).not.toBeNull();
-        expect(session.releaseReadyAfterValidation(
-            generation,
-            '170496793:1724000000000',
-        )).toEqual({
-            authorized: true,
-            ready: true,
-        });
-        expect(session.snapshot.value).toMatchObject({
-            openingPageFrame: null,
-            phase: 'ready',
-            presentation: 'committed',
-        });
-    });
-
-    it('fails closed when validation rejects an already-rendered speculative canvas', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'dictionary.pdf', 'open-intent:invalid');
-        expect(session.commitOpeningPageFrame(generation, {
-            ...openingFrame(generation),
-            sourceRevisionKey: '170496793:1724000000000',
-        })).toBe(true);
-        expect(session.holdReadyForValidation(generation, '170496793:1724000000000')).toBe(true);
-        commitDefaultGeometry(session, generation);
-        const fence = createRenderFence(session, generation, 'open-intent:invalid');
-        expect(session.commitCanvas(fence)).toBe(true);
-        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
-
-        expect(session.fail(generation, 'parser validation failed')).toBe(true);
-        expect(session.snapshot.value).toMatchObject({
-            committedRender: fence,
-            failure: 'parser validation failed',
-            openingPageFrame: null,
-            phase: 'failed',
-        });
-        expect(session.markReady(fence)).toBe(false);
-    });
-
-    it('fences a staged opening raster by generation, document revision, and page', () => {
-        const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'dictionary.pdf', 'open-intent:111');
-        expect(session.commitOpeningPageFrame(generation, {
-            ...openingFrame(generation),
-            sourceRevisionKey: '170496793:1724000000000',
-        })).toBe(true);
-        const preview = {
-            documentId: 'dictionary.pdf',
-            documentRevision: 'open-intent:111',
-            objectUrl: 'blob:native-page-one',
-            pageNumber: 1,
-            renderedWidth: 1_200,
-            sourceRevisionKey: '170496793:1724000000000',
-        };
-
-        expect(session.commitOpeningPagePreview(generation, {
-            ...preview,
-            documentRevision: 'open-intent:stale',
-        })).toBe(false);
-        expect(session.commitOpeningPagePreview(generation, {
-            ...preview,
-            pageNumber: 2,
-        })).toBe(false);
-        expect(session.commitOpeningPagePreview(generation, {
-            ...preview,
-            documentId: 'other.pdf',
-        })).toBe(false);
-        expect(session.commitOpeningPagePreview(generation, {
-            ...preview,
-            sourceRevisionKey: '170496793:1724000000001',
-        })).toBe(false);
-        expect(session.commitOpeningPagePreview(generation, preview)).toBe(true);
-        expect(session.snapshot.value.openingPageFrame?.preview).toEqual(preview);
-
-        const replacementGeneration = session.begin({
-            documentId: 'replacement.pdf',
-            documentRevision: 'open-intent:replacement',
-        });
-        expect(replacementGeneration).toBeGreaterThan(generation);
-        expect(session.commitOpeningPagePreview(generation, preview)).toBe(false);
-        expect(session.snapshot.value.openingPageFrame).toBeNull();
     });
 
     it('presents the canonical shell when its owned frame arrives after geometry', () => {

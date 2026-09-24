@@ -1773,7 +1773,6 @@ export default {
             'description': 'A aplicação encontrou um erro inesperado e pode não funcionar corretamente até ser recarregada.',
             'startupTitle': 'Falha ao iniciar a aplicação',
             'startupDescription': 'A aplicação não conseguiu concluir a inicialização. Recarregue-a e tente novamente.',
-            'recentGeometryWarmupTitle': 'Pré-visualização dos ficheiros recentes indisponível',
             'electronPlatformContract': 'A ponte da aplicação de ambiente de trabalho está desatualizada ou é incompatível. Reinicie a aplicação para carregar o contrato preload atual.',
             'reload': 'Recarregar aplicação',
             'copy': 'Copiar detalhes',

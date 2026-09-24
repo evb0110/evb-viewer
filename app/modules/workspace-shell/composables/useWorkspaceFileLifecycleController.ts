@@ -17,7 +17,6 @@ import type {
 } from '@app/modules/document-viewer/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
-import type { IPdfOpeningPreviewLayoutPolicy } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
 import type { TWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
@@ -26,7 +25,6 @@ interface IUseWorkspaceFileLifecycleControllerOptions {
         context: IWorkspaceViewerLifecycleContext,
     ) => IWorkspaceViewerLifecycleHooks[];
     openSurface?: IDocumentOpenSurfaceSession | undefined;
-    readOpeningPageFramePolicy?: () => IPdfOpeningPreviewLayoutPolicy;
     failureSurface?: TWorkspaceFailureSurface | undefined;
 }
 
@@ -109,8 +107,6 @@ export const useWorkspaceFileLifecycleController = (
 ) => {
     const {
         pdfSrc,
-        pdfOpeningSrc,
-        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfData,
         workingCopyPath,
@@ -160,9 +156,6 @@ export const useWorkspaceFileLifecycleController = (
         redo,
     } = usePdfFile({
         openSurface: options.openSurface,
-        ...(options.readOpeningPageFramePolicy === undefined
-            ? {}
-            : {readOpeningPageFramePolicy: options.readOpeningPageFramePolicy}),
         failureSurface: options.failureSurface,
     });
 
@@ -363,8 +356,6 @@ export const useWorkspaceFileLifecycleController = (
 
     return {
         pdfSrc,
-        pdfOpeningSrc,
-        pdfOpeningRevisionToken,
         pdfReloadSrc,
         pdfData,
         workingCopyPath,

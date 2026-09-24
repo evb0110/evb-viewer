@@ -375,12 +375,6 @@ export interface IOpenPdfResult {
     /** True when recovery reopened unsaved bytes from a prior checkpoint. */
     readonly recoveryDirtyBaseline?: boolean;
     readonly wasEncrypted?: true;
-    /**
-     * Authoritative first-page metadata discovered by the main process from
-     * the admitted working copy. The workspace host can therefore publish
-     * the exact opening frame in the same transaction that claims the file.
-     */
-    readonly openingGeometry?: IPdfOpeningGeometry;
 }
 export interface IOpenDjvuResult {
     readonly kind: 'djvu';
@@ -546,29 +540,7 @@ export interface IPdfNativePageSize {
     readonly height: number;
 }
 
-export interface IPdfNativePageSizeOverride extends IPdfNativePageSize {readonly pageNumber: TPageNumber;}
-
-/** Compact native page metadata carries only bounded early/late overrides. */
-export const PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT = 256;
-
-/**
- * Compact native page-size metadata for documents whose page count cannot be
- * represented by a materialized JavaScript array.
- */
-export interface IPdfNativePageSizes {
-    readonly pageCount: number;
-    readonly defaultPageSize: IPdfNativePageSize;
-    readonly overrides: readonly IPdfNativePageSizeOverride[];
-}
-
-export type TPdfNativePageSizes = readonly IPdfNativePageSize[] | IPdfNativePageSizes;
-
-export interface IPdfNativePageSizesOptions {
-    readonly mode?: 'preview' | 'exact';
-    readonly expectedDocumentRevisionToken?: TDocumentRevisionToken;
-}
-
-export interface IPdfNativePageSizesExactOptions extends IPdfNativePageSizesOptions {
+export interface IPdfNativePageSizesExactOptions {
     readonly mode: 'exact';
     readonly expectedDocumentRevisionToken: TDocumentRevisionToken;
 }
@@ -591,13 +563,10 @@ export interface IPdfNativePageGeometry {
     readonly pages: readonly IPdfNativePageGeometryPage[];
 }
 
-export type TPdfNativePageSizesResult = TPdfNativePageSizes | IPdfNativePageGeometry;
-
-export interface IPdfNativePageSizesCapability {
-    (path: TDocumentRef): Promise<TPdfNativePageSizes>;
-    (path: TDocumentRef, options: IPdfNativePageSizesExactOptions): Promise<IPdfNativePageGeometry>;
-    (path: TDocumentRef, options?: IPdfNativePageSizesOptions): Promise<TPdfNativePageSizesResult>;
-}
+export type IPdfNativePageSizesCapability = (
+    path: TDocumentRef,
+    options: IPdfNativePageSizesExactOptions,
+) => Promise<IPdfNativePageGeometry>;
 
 export interface IPdfOpeningGeometry {
     readonly pageNumber: TPageNumber;
@@ -605,23 +574,10 @@ export interface IPdfOpeningGeometry {
     readonly width: number;
     readonly height: number;
     readonly rotation: 0 | 90 | 180 | 270;
+    /** Displayed width of the widest page, which sets the document-wide Fit Width. */
+    readonly widestPageWidth: number;
     readonly size: number;
     readonly modifiedAt: TEpochMs;
-    readonly linearized?: boolean;
-}
-
-export interface IPdfNativePagePreviewOptions {
-    previewRequestId?: TRequestId;
-    targetWidthPx?: number;
-}
-
-export const PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX = 4_096;
-
-export interface IPdfNativePagePreview {
-    readonly bytes: Uint8Array;
-    readonly width: number;
-    readonly height: number;
-    readonly rasterWidthCeilingPx?: number;
 }
 
 export interface IPdfNoteTextUpdate {
@@ -1004,12 +960,6 @@ export interface IDocumentsFileCapability {
     parsePdfAnnotations: PdfAnnotationParse.TPdfAnnotationParse;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: IPdfNativePageSizesCapability;
-    cancelPdfNativePagePreview?: (requestId: TRequestId) => Promise<{ canceled: boolean }>;
-    renderPdfNativePagePreview?: (
-        path: TDocumentRef,
-        pageNumber: TPageNumber,
-        options?: IPdfNativePagePreviewOptions,
-    ) => Promise<IPdfNativePagePreview>;
     beginPdfAnnotationIndex?: (
         path: TDocumentRef,
         options: IPdfAnnotationIndexOptions,
@@ -1193,8 +1143,6 @@ export interface IDocumentsReadCapability extends Pick<
     | 'releaseManagedTempFileHandle'
     | 'getPdfOpeningGeometry'
     | 'getPdfNativePageSizes'
-    | 'cancelPdfNativePagePreview'
-    | 'renderPdfNativePagePreview'
     | 'beginPdfAnnotationIndex'
     | 'readPdfAnnotationIndexChunk'
     | 'releasePdfAnnotationIndex'
