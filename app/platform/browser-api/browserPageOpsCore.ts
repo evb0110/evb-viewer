@@ -1,6 +1,8 @@
 import type {
     ICropMargins,
     IPageGeometry,
+    TPdfViewMode,
+    TPrintOrientation,
 } from '@contracts/shared';
 import { normalizeCropMargins } from '@contracts/shared';
 import type {
@@ -167,5 +169,23 @@ export function mergePdfPages(
 ): Promise<IPageMutationWorkerResult> {
     return requireBrowserPageOpsWasmResult('PDF merge', () =>
         tryRunBrowserPageOpsWithWasm('mergePages', {documents}),
+    );
+}
+
+export function layoutPdfForPrint(
+    data: Uint8Array,
+    options: {
+        pageNumbers?: number[] | undefined;
+        viewMode: TPdfViewMode;
+        orientation: TPrintOrientation;
+    },
+): Promise<IPageMutationWorkerResult> {
+    return requireBrowserPageOpsWasmResult('print layout', () =>
+        tryRunBrowserPageOpsWithWasm('printLayout', {
+            data,
+            pageNumbers: options.pageNumbers ?? [],
+            viewMode: options.viewMode,
+            orientation: options.orientation,
+        }),
     );
 }

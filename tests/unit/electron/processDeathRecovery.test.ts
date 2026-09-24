@@ -9,7 +9,6 @@ import {
     createProcessDeathRecovery,
     DOCUMENT_FINGERPRINT_SERVICE_NAME,
     DOCUMENT_SAVE_SERVICE_NAME,
-    PDF_PRINT_LAYOUT_SERVICE_NAME,
     PROCESS_SAFE_MODE_ARGUMENT,
 } from '@electron/processDeathRecovery';
 import {
@@ -228,22 +227,6 @@ describe('processDeathRecovery', () => {
         expect(fixture.logger.error).not.toHaveBeenCalled();
         expect(fixture.logger.warn).toHaveBeenCalledWith(
             '[process-death] Utility process gone (EVB document save, reason=killed, exitCode=15)',
-        );
-    });
-
-    it('keeps normal PDF print layout utility teardown out of the error channel', () => {
-        const fixture = createFixture();
-
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason: 'killed',
-            exitCode: 15,
-            serviceName: PDF_PRINT_LAYOUT_SERVICE_NAME,
-        }).action).toBe('logged');
-
-        expect(fixture.logger.error).not.toHaveBeenCalled();
-        expect(fixture.logger.warn).toHaveBeenCalledWith(
-            '[process-death] Utility process gone (EVB PDF print layout, reason=killed, exitCode=15)',
         );
     });
 

@@ -13,7 +13,11 @@ import type {
     IPdfNativeMutationSet,
 } from '@contracts/electronApiDocuments';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
-import type { ICropMargins } from '@contracts/shared';
+import type {
+    ICropMargins,
+    TPdfViewMode,
+    TPrintOrientation,
+} from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { loadWasmWithDeadline } from '@app/platform/browser-api/loadWasmWithDeadline';
 import {
@@ -53,9 +57,17 @@ interface IBrowserPageOpsWasmSaveMutationsRequest {
     modifiedAt: string;
 }
 
+interface IBrowserPageOpsWasmPrintLayoutRequest {
+    data: Uint8Array;
+    pageNumbers: number[];
+    viewMode: TPdfViewMode;
+    orientation: TPrintOrientation;
+}
+
 interface IBrowserPageOpsWasmRequestMap extends IBrowserPageOpsWorkerRequestMap {
     decrypt: IBrowserPageOpsWasmDecryptRequest;
     saveMutations: IBrowserPageOpsWasmSaveMutationsRequest;
+    printLayout: IBrowserPageOpsWasmPrintLayoutRequest;
 }
 
 interface IBrowserPageOpsWasmDecryptResult {
@@ -73,6 +85,7 @@ interface IBrowserPageOpsWasmSaveMutationsResult {
 interface IBrowserPageOpsWasmResultMap extends IBrowserPageOpsWorkerResultMap {
     decrypt: IBrowserPageOpsWasmDecryptResult;
     saveMutations: IBrowserPageOpsWasmSaveMutationsResult;
+    printLayout: IBrowserPageOpsWorkerResultMap['mergePages'];
 }
 
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
@@ -109,6 +122,7 @@ const OP_SAVE_MUTATIONS = 11;
 const OP_READ_CATALOG = 12;
 const OP_CONFORMANCE = 13;
 const OP_MERGE_PAGES = 14;
+const OP_PRINT_LAYOUT = 15;
 
 const RESPONSE_MUTATION = 1;
 const RESPONSE_GEOMETRY = 2;
@@ -283,6 +297,8 @@ function getOperationCode(type: TBrowserPageOpsWasmRequestType) {
             return OP_CONFORMANCE;
         case 'mergePages':
             return OP_MERGE_PAGES;
+        case 'printLayout':
+            return OP_PRINT_LAYOUT;
     }
 }
 
@@ -296,6 +312,8 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
             return request.payload.pages;
         case 'reorderPages':
             return request.payload.newOrder;
+        case 'printLayout':
+            return request.payload.pageNumbers;
         case 'insertPages':
         case 'getPageGeometry':
         case 'decrypt':
@@ -324,6 +342,7 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'readCatalog':
         case 'conformance':
         case 'saveMutations':
+        case 'printLayout':
             return request.payload.data;
         case 'mergePages':
             return new Uint8Array();
@@ -339,6 +358,9 @@ function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
             mutations: request.payload.mutations,
             modifiedAt: request.payload.modifiedAt,
         }));
+    }
+    if (request.type === 'printLayout') {
+        return new TextEncoder().encode(`${request.payload.viewMode} ${request.payload.orientation}`);
     }
     return new Uint8Array();
 }
@@ -398,6 +420,7 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'decrypt':
         case 'parseAnnotations':
         case 'saveMutations':
+        case 'printLayout':
             return null;
     }
 }

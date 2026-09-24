@@ -20,7 +20,6 @@
         "electron/image/pdfCombineWorker.ts",
         "electron/features/documents/main/pdfConformanceWorker.ts",
         "electron/features/documents/main/documentSaveUtilityProcess.ts",
-        "electron/features/documents/main/pdfPrintLayoutUtilityProcess.ts",
         "electron/features/djvu/main/pdfWorker.ts",
         "electron/features/*/public.ts",
         "electron/features/image-export/main/tiffCombineWorker.ts",

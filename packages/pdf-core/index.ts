@@ -204,14 +204,6 @@ export {
 } from '@pdf-core/tiffEncoding';
 export type { ITiffImageDescriptor } from '@pdf-core/tiffEncoding';
 export {
-    buildPrintSpreadGroups,
-    buildPrintablePdfData,
-    canPrintSourcePdfDirectly,
     normalizePrintPageNumbers,
     shouldPrintPageMetricsDirectly,
-    shouldPrintSourcePdfDirectly,
-} from '@pdf-core/pdfPrintLayout';
-export type {
-    IBuildPrintablePdfDataOptions,
-    IPrintablePageMetric,
-} from '@pdf-core/pdfPrintLayout';
+} from '@pdf-core/printPageSelection';

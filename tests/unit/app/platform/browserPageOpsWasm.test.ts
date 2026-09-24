@@ -665,6 +665,48 @@ describe('browser page-ops WASM fast path', () => {
         );
     });
 
+    it('lays out the selected pages on A4 print sheets through WASM operation 15', async () => {
+        const basePdf = await createPdf({
+            pageWidths: [
+                200,
+                300,
+                400,
+            ],
+            rotateSecondPage: true,
+        });
+        const core = await loadCoreWithWasm();
+
+        const single = await core.layoutPdfForPrint(basePdf, {
+            pageNumbers: [
+                3,
+                2,
+            ],
+            viewMode: 'single',
+            orientation: 'auto',
+        });
+        // Sheets follow page order: page 2 (300x120 turned a quarter) prints
+        // portrait and page 3 (400x140) landscape.
+        expect((await summarizePdf(single.data)).map(page => [
+            Math.round(page.mediaBox.width),
+            Math.round(page.mediaBox.height),
+        ])).toEqual([
+            [
+                595,
+                842,
+            ],
+            [
+                842,
+                595,
+            ],
+        ]);
+
+        const facing = await core.layoutPdfForPrint(basePdf, {
+            viewMode: 'facing-first-single',
+            orientation: 'auto',
+        });
+        expect(facing.pageCount).toBe(2);
+    });
+
     it('rejects delete-all through native page-ops WASM before saving a zero-page PDF', async () => {
         const basePdf = await createPdf({pageWidths: [200]});
         const core = await loadCoreWithWasm();

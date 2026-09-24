@@ -46,6 +46,24 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             );
         }
+        Operation::PrintLayout {
+            pages_file,
+            view_mode,
+            orientation,
+        } => {
+            let pages = pages_file
+                .as_deref()
+                .map(read_pages_file)
+                .transpose()
+                .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
+            return write_print_layout_path(
+                &config.input_path,
+                output_path,
+                pages.as_deref(),
+                *view_mode,
+                *orientation,
+            );
+        }
         Operation::RemoveCrop { pages_file } => {
             let pages = read_pages_file(pages_file)
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;

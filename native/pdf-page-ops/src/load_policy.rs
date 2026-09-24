@@ -75,6 +75,23 @@ pub(crate) fn load_pdf_path(path: &Path) -> Result<Document> {
     load_pdf_path_with_password(path, None)
 }
 
+/// Print layout keeps only the objects the selected pages reach, so a source
+/// above the full-rewrite budget still fits one eager load.
+const PRINT_LAYOUT_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
+    max_encoded_bytes: 768 * 1024 * 1024,
+    ..PDF_PATH_LOAD_POLICY
+};
+
+pub(crate) fn load_print_layout_pdf_path(path: &Path) -> Result<Document> {
+    let bytes = read_file_bounded(
+        path,
+        PRINT_LAYOUT_LOAD_POLICY.max_encoded_bytes,
+        "PDF input",
+    )
+    .map_err(|error| Box::new(error) as Box<dyn Error>)?;
+    load_pdf_bytes_with_policy(&bytes, PRINT_LAYOUT_LOAD_POLICY)
+}
+
 pub(crate) fn load_pdf_path_with_password(path: &Path, password: Option<&str>) -> Result<Document> {
     let bytes = read_file_bounded(path, PDF_PATH_LOAD_POLICY.max_encoded_bytes, "PDF input")
         .map_err(|error| Box::new(error) as Box<dyn Error>)?;

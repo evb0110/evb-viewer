@@ -6,9 +6,10 @@ use std::{cell::RefCell, slice};
 
 use crate::pdf_conformance_facts;
 use crate::{
-    add_implicit_default_page_label_range, build_browser_page_subset_pdf, read_pdf_combine_catalog,
-    save_document_to_bytes, set_bookmarks, set_page_labels, BookmarkEntry, BookmarksMutation,
-    PageCloneSource, PageLabelRange, PageLabelsMutation,
+    add_implicit_default_page_label_range, build_browser_page_subset_pdf, build_print_layout,
+    read_pdf_combine_catalog, save_document_to_bytes, set_bookmarks, set_page_labels,
+    BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange, PageLabelsMutation,
+    PrintOrientation, PrintViewMode,
 };
 use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
@@ -40,6 +41,9 @@ const OP_SAVE_MUTATIONS: u32 = 11;
 const OP_READ_CATALOG: u32 = 12;
 const OP_CONFORMANCE: u32 = 13;
 const OP_MERGE_PAGES: u32 = 14;
+// Print layout carries its selected pages in the page list and
+// "<view mode> <orientation>" as UTF-8 in the insertion data.
+const OP_PRINT_LAYOUT: u32 = 15;
 const REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
 
 const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
@@ -215,6 +219,24 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
                 PAGE_OP_WASM_MAX_OUTPUT_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
             )?;
             encode_annotation_parse(bytes)
+        }
+        OP_PRINT_LAYOUT => {
+            let options = std::str::from_utf8(parsed.insertion_data)
+                .map_err(|_| "Print layout options must be UTF-8 text")?;
+            let (view_mode, orientation) = options
+                .split_once(' ')
+                .ok_or("Print layout options need a view mode and an orientation")?;
+            let mut document = load_browser_pdf(parsed.data)?;
+            build_print_layout(
+                &mut document,
+                Some(&parsed.pages),
+                PrintViewMode::parse(view_mode)?,
+                PrintOrientation::parse(orientation)?,
+            )?;
+            encode_mutation(PageMutationBytes {
+                page_count: crate::page_count(&document),
+                data: save_document_to_bytes(&mut document)?,
+            })
         }
         OP_SAVE_MUTATIONS => {
             let (mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;

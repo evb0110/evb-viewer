@@ -16,13 +16,7 @@ import {
     type IBrowserPrintRoot,
     type IBrowserPrintStyleElement,
 } from '@app/utils/pdfPrintShared';
-export {
-    buildPrintSpreadGroups,
-    buildPrintablePdfData,
-    canPrintSourcePdfDirectly,
-    shouldPrintPageMetricsDirectly,
-    shouldPrintSourcePdfDirectly,
-} from '@pdf-core';
+export { shouldPrintPageMetricsDirectly } from '@pdf-core';
 
 interface IRenderPdfPagesForBrowserPrintOptions {signal?: AbortSignal;}
 

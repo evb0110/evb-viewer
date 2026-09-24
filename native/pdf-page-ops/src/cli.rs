@@ -28,6 +28,8 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut append = false;
     let mut append_in_place = false;
     let mut metadata_only = false;
+    let mut view_mode = None;
+    let mut orientation = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -123,6 +125,16 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             "--metadata-only" => {
                 metadata_only = true;
             }
+            "--view-mode" => {
+                view_mode = Some(PrintViewMode::parse(
+                    &args.next().ok_or("Missing --view-mode value")?,
+                )?)
+            }
+            "--orientation" => {
+                orientation = Some(PrintOrientation::parse(
+                    &args.next().ok_or("Missing --orientation value")?,
+                )?)
+            }
             _ => return Err(format!("Unknown argument: {arg}").into()),
         }
     }
@@ -205,6 +217,11 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
         "read-catalog" => Operation::ReadCatalog,
+        "print-layout" => Operation::PrintLayout {
+            pages_file,
+            view_mode: view_mode.ok_or("Missing --view-mode value")?,
+            orientation: orientation.ok_or("Missing --orientation value")?,
+        },
         _ => return Err(format!("Unknown command: {command}").into()),
     };
 

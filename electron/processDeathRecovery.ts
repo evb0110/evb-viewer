@@ -34,12 +34,10 @@ interface IProcessDeathRecoveryOptions {
  */
 export const DOCUMENT_FINGERPRINT_SERVICE_NAME = 'EVB document fingerprint';
 export const DOCUMENT_SAVE_SERVICE_NAME = 'EVB document save';
-export const PDF_PRINT_LAYOUT_SERVICE_NAME = 'EVB PDF print layout';
 
 const APP_TERMINATED_UTILITY_IDENTITIES: ReadonlySet<string> = new Set([
     DOCUMENT_FINGERPRINT_SERVICE_NAME,
     DOCUMENT_SAVE_SERVICE_NAME,
-    PDF_PRINT_LAYOUT_SERVICE_NAME,
 ]);
 
 /**

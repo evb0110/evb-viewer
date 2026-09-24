@@ -56,7 +56,7 @@ const PRINT_PREPARING_TOAST_DELAY_MS = 600;
 const BROWSER_PRINT_FRAME_MIN_WIDTH_PX = 1280;
 const BROWSER_PRINT_FRAME_MIN_HEIGHT_PX = 1600;
 const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
-const PDF_LIB_PRINT_PAGE_COUNT_LIMIT = 5_000;
+const PRINT_LAYOUT_PAGE_COUNT_LIMIT = 5_000;
 const PRINT_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 const HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY = 'print.highPageCountAdvancedLayout' as const;
 function createNativePrintRequestId() {
@@ -199,7 +199,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
     const supportsAdvancedPrintOptions = computed(() => {
         const sourcePdf = deps.sourcePdf.value;
-        return deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+        return deps.totalPages.value <= PRINT_LAYOUT_PAGE_COUNT_LIMIT
             && (
                 !isPathPdfSource(sourcePdf)
                 || sourcePdf.size <= PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES
@@ -209,7 +209,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
     function requiresNativePrintForHighPageCountLayout(payload: IPrintDialogSubmitPayload) {
         if (
-            deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+            deps.totalPages.value <= PRINT_LAYOUT_PAGE_COUNT_LIMIT
             || Boolean(payload.pageNumbers?.length)
         ) {
             return false;
@@ -1167,7 +1167,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
 
             if (
-                deps.totalPages.value > PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+                deps.totalPages.value > PRINT_LAYOUT_PAGE_COUNT_LIMIT
                 && payload.viewMode === 'single'
                 && payload.orientation === 'auto'
                 && (!payload.pageNumbers || payload.pageNumbers.length === 0)
@@ -1182,15 +1182,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 return;
             }
 
-            const { buildPrintablePdfData } = await import('@app/utils/pdfPrint');
-            const printablePdfData = await buildPrintablePdfData(sourceData, payload);
+            const { layoutPdfForBrowserPrint } = await import('@app/platform/browser-api/public');
+            const printablePdf = await layoutPdfForBrowserPrint(sourceData, payload);
             assertPrintRunCurrent(printOwner);
-            if (!printablePdfData) {
-                throw new Error('Failed to prepare printable PDF data');
-            }
 
             await printPdfDataWithNativeHandoff(
-                printablePdfData,
+                printablePdf.data,
                 browserPrintTitle,
                 signal,
                 printRunId,

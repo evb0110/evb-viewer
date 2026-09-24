@@ -1,3 +1,4 @@
+import type { layoutPdfForPrint } from '@app/platform/browser-api/browserPageOpsCore';
 export { browserAgentCapability } from '@app/platform/browser-api/browserAgentCapability';
 export { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapability';
 export { browserHostCapability } from '@app/platform/browser-api/browserHostCapability';
@@ -17,3 +18,8 @@ export {
 } from '@app/platform/browser-api/browserImageResourcePolicy';
 export type { IProbedBrowserImage } from '@app/platform/browser-api/browserImageResourcePolicy';
 export { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
+
+export async function layoutPdfForBrowserPrint(...args: Parameters<typeof layoutPdfForPrint>) {
+    const core = await import('@app/platform/browser-api/browserPageOpsCore');
+    return core.layoutPdfForPrint(...args);
+}

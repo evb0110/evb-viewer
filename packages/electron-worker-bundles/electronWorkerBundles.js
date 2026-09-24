@@ -1,5 +1,5 @@
 /**
- * @typedef {'pdf-combine' | 'pdf-conformance' | 'pdf-print-layout' | 'document-save-utility' | 'scan-cleanup' | 'search' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
+ * @typedef {'pdf-combine' | 'pdf-conformance' | 'document-save-utility' | 'scan-cleanup' | 'search' | 'page-ops-crop' | 'image-export-tiff' | 'djvu-pdf'} TWorkerBundleId
  */
 
 /**
@@ -25,13 +25,6 @@ export const WORKER_BUNDLES = [
         id: 'pdf-conformance',
         entryPoint: 'electron/features/documents/main/pdfConformanceWorker.ts',
         fileName: 'pdfConformanceWorker.js',
-        format: 'esm',
-        unpacked: true,
-    },
-    {
-        id: 'pdf-print-layout',
-        entryPoint: 'electron/features/documents/main/pdfPrintLayoutUtilityProcess.ts',
-        fileName: 'pdf-print-layout-utility.js',
         format: 'esm',
         unpacked: true,
     },

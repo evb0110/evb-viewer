@@ -751,6 +751,11 @@ pub(crate) enum Operation {
         metadata_only: bool,
     },
     ReadCatalog,
+    PrintLayout {
+        pages_file: Option<PathBuf>,
+        view_mode: PrintViewMode,
+        orientation: PrintOrientation,
+    },
 }
 
 #[derive(Deserialize)]
