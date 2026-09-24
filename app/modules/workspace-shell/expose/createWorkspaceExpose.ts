@@ -27,10 +27,7 @@ import type {
     TZoomMode,
 } from '@contracts/shared';
 import type {
-    IWorkspaceAgentPort,
-    IWorkspaceExportPort,
     IWorkspaceExpose,
-    IWorkspaceFilePort,
     IWorkspaceAutomationStateSnapshot,
     IWorkspaceOpenFailure,
     IWorkspaceToolbarSnapshot,
@@ -52,9 +49,14 @@ import type { TWorkspaceOrchestration } from '@app/modules/workspace-shell/useWo
 import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
 
 export interface ICreateWorkspaceExposeDeps extends
-    Omit<IWorkspaceFilePort, 'handleSelectAll'>,
-    IWorkspaceExportPort,
-    IWorkspaceAgentPort {
+    Pick<IWorkspaceExpose,
+        | 'handleSave' | 'handleRepairSave' | 'handleOptimizePdfForInteraction' | 'handleSaveAs'
+        | 'handlePrint' | 'handlePrintCurrentPage' | 'handleUndo' | 'handleRedo'
+        | 'handleOpenFileFromUi' | 'handleOpenFolderFromUi' | 'handleCombineImages'
+        | 'handleOpenFileDirectWithPersist' | 'handleOpenFileDirectBatchWithPersist'
+        | 'handleOpenFileWithResult' | 'handleCloseFileFromUi'
+        | 'handleExportDocx' | 'handleExportImages' | 'handleExportMultiPageTiff'
+        | 'runAgentAction' | 'readAgentResource'> {
     hasPdf: Ref<boolean>;
     isOpeningDocument: Ref<boolean>;
     initialVisualReady: Ref<boolean>;
@@ -460,6 +462,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         handleUndo: deps.handleUndo,
         handleRedo: deps.handleRedo,
         handleOpenFileFromUi: deps.handleOpenFileFromUi,
+        handleOpenFolderFromUi: deps.handleOpenFolderFromUi,
         handleCombineImages: deps.handleCombineImages,
         handleOpenFileDirectWithPersist: deps.handleOpenFileDirectWithPersist,
         handleOpenFileDirectBatchWithPersist: deps.handleOpenFileDirectBatchWithPersist,

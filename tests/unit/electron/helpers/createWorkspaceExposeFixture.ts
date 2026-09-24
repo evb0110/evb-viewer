@@ -35,6 +35,7 @@ const defaultWorkspaceExpose = {
     handleOpenFileDirectBatchWithPersist: unimplementedWorkspaceExposeMethod,
     handleOpenFileDirectWithPersist: unimplementedWorkspaceExposeMethod,
     handleOpenFileFromUi: unimplementedWorkspaceExposeMethod,
+    handleOpenFolderFromUi: unimplementedWorkspaceExposeMethod,
     handleOpenFileWithResult: unimplementedWorkspaceExposeMethod,
     handleActualSize: unimplementedWorkspaceExposeMethod,
     handleCaptureRegion: unimplementedWorkspaceExposeMethod,

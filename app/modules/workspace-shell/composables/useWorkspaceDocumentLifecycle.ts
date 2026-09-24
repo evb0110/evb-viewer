@@ -4,7 +4,6 @@ import type {
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { IStartOpenFailure } from '@app/types/startSection';
 import type {
     IWorkspaceOpenFailure,
     IWorkspaceToolbarSnapshot,
@@ -192,13 +191,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         return presented;
     }
 
-    const startOpenFailure = computed<IStartOpenFailure | null>(() => {
-        const current = snapshot.value;
-        return current.phase === 'failed' && !identityHasDocument(current.identity)
-            ? current.failure
-            : null;
-    });
-
     // A tab that owns a document it has not loaded here (a restored session,
     // a cold tab, a transferred tab) opens it when shown.
     watch(
@@ -261,6 +253,5 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         captureViewState,
         goToPage,
         runOpen,
-        startOpenFailure,
     };
 };

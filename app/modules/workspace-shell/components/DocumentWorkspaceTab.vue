@@ -14,11 +14,9 @@
             :is-tab-transition-busy="isTabTransitionBusy"
             :document-session="documentSession"
             :split-cache-session="splitCacheSession"
-            :start-section="startSection"
             :is-fullscreen="isFullscreen"
             :fullscreen-supported="fullscreenSupported"
             :is-workspace-layout-resizing="isWorkspaceLayoutResizing"
-            @update:start-section="emit('update:start-section', $event)"
             @open-in-new-tab="emit('open-in-new-tab', $event)"
             @request-close-tab="emit('request-close-tab')"
             @open-settings="emit('open-settings')"
@@ -32,18 +30,55 @@
             @close="emit('request-close-tab')"
             @retry="retry"
         />
+        <!-- The tab's only Start page. It is not part of the workspace chunk,
+        so it paints while the workspace loads; every action on it goes through
+        the tab's controller to the mounted workspace. -->
+        <div v-if="isStartMounted" v-show="isStartVisible" class="workspace-host__start">
+            <PdfEmptyState
+                :recent-files="recentFiles"
+                :recent-files-resolved="recentFilesResolved"
+                :recent-files-error="recentFilesError"
+                :open-failure="startOpenFailure"
+                :open-batch-progress="null"
+                :open-in-progress="isOpening"
+                :is-recent-open-ready="isRecentOpenReady"
+                :start-section="startSection"
+                can-combine-files
+                :open-combine-result="result => withWorkspace(workspace => workspace.handleOpenFileWithResult(result))"
+                @update:start-section="emit('update:start-section', $event)"
+                @open-file="withWorkspace(workspace => workspace.handleOpenFileFromUi())"
+                @open-folder="withWorkspace(workspace => workspace.handleOpenFolderFromUi())"
+                @open-recent="openRecentFile"
+                @remove-recent="removeRecentFile"
+                @reveal-recent="revealRecentFile"
+                @clear-recent="clearRecentFiles"
+                @retry-recent="retryRecentFiles"
+                @dismiss-open-failure="documentSession.dismissFailure()"
+            />
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { IRecentFile } from '@contracts/shared';
 import type { TStartSection } from '@app/types/startSection';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
+import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import DocumentWorkspaceFailurePanel from '@app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue';
 import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    identityHasDocument,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
+import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
+import { useRecentFiles } from '@app/composables/useRecentFiles';
+import * as platformDocuments from '@app/utils/platformDocuments';
+import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 
 const DocumentWorkspace = defineAsyncComponent(() => import('@app/modules/workspace-shell/components/DocumentWorkspace.vue'));
@@ -72,8 +107,89 @@ const emit = defineEmits<{
 }>();
 const { t } = useTypedI18n();
 const splitCacheSession = computed(() => createWorkspaceSplitCacheSessionState(documentSession));
+const workspaceSplitCache = useWorkspaceSplitCache();
+const workspaceRestoreTracker = useWorkspaceRestoreTracker();
+const {
+    recentFiles,
+    isResolved: recentFilesResolved,
+    error: recentFilesError,
+    loadRecentFiles,
+    retryRecentFiles,
+    removeRecentFile,
+    clearRecentFiles,
+} = useRecentFiles();
 const crashFailure = shallowRef<FailurePresentation | null>(null);
 const renderKey = ref(0);
+
+const snapshot = computed(() => documentSession.snapshot.value);
+const isOpening = computed(() => snapshot.value.phase === 'opening');
+// Start belongs to a tab without a document on screen, including one whose
+// open just failed. A tab that owns a document, is opening or closing one, or
+// is about to receive a split's document does not show it.
+const isStartVisible = computed(() => {
+    const phase = snapshot.value.phase;
+    const toolbar = documentSession.toolbarSnapshot.value;
+    const session = splitCacheSession.value;
+    return (phase === 'empty' || phase === 'failed')
+        && !toolbar.hasPdf
+        && !toolbar.isDjvuMode
+        && !(session ? workspaceSplitCache.has(tabId, {session}) : workspaceSplitCache.has(tabId))
+        && !workspaceRestoreTracker.has(tabId);
+});
+// An open started from Start keeps Start mounted but hidden until the open
+// settles, so a failed open returns to the same Combine queue, error and Retry.
+const isStartMounted = ref(false);
+watch([
+    isStartVisible,
+    isOpening,
+], ([
+    visible,
+    opening,
+]) => {
+    isStartMounted.value = visible || (opening && isStartMounted.value);
+}, {
+    immediate: true,
+    flush: 'sync',
+});
+const startOpenFailure = computed(() => (
+    snapshot.value.phase === 'failed' && !identityHasDocument(snapshot.value.identity)
+        ? snapshot.value.failure
+        : null
+));
+
+function isRecentOpenReady(file: IRecentFile) {
+    return snapshot.value.activeTransaction?.target?.originalPath !== file.originalPath;
+}
+
+// A mounted workspace runs the command in the click's own call, so page
+// commands that follow it queue behind the open; otherwise the command waits
+// for the workspace to mount.
+function withWorkspace(run: (workspace: IWorkspaceExpose) => Promise<boolean>) {
+    const workspace = documentSession.mountedWorkspace.value;
+    return workspace
+        ? run(workspace)
+        : documentSession.whenMounted().then(mounted => (mounted ? run(mounted) : false));
+}
+
+async function openRecentFile(file: IRecentFile) {
+    if (isBrowserDocumentRef(file.originalPath)) {
+        try {
+            await platformDocuments.getDocumentFilesCapability().statFile(file.originalPath);
+        } catch (error) {
+            recentFilesError.value = getErrorMessage(error);
+            return false;
+        }
+    }
+    return withWorkspace(workspace => workspace.handleOpenFileDirectWithPersist(file.originalPath));
+}
+
+async function revealRecentFile(file: IRecentFile) {
+    try {
+        await platformDocuments.getDocumentWindowCapability().showItemInFolder(file.originalPath);
+    } catch {
+        // Best-effort; the file may have moved.
+    }
+}
 
 // A crash inside one tab's workspace is isolated to that tab: it shows why and
 // offers a retry or close, and the other tabs keep working.
@@ -95,6 +211,10 @@ function retry() {
     crashFailure.value = null;
     renderKey.value += 1;
 }
+
+onMounted(() => {
+    void loadRecentFiles();
+});
 </script>
 
 <style scoped>
@@ -106,6 +226,16 @@ function retry() {
     height: 100%;
     min-width: 0;
     min-height: 0;
+}
+
+.workspace-host__start {
+    position: absolute;
+    inset: 0;
+    z-index: var(--app-workspace-transition-overlay-z-index);
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    background: var(--app-window-bg);
 }
 
 .workspace-host__loading {

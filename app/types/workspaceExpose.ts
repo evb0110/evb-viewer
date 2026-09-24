@@ -155,92 +155,10 @@ export interface ICloseFileFromUiOptions {
     onCloseCommit?: () => void;
 }
 
-export interface IWorkspaceFilePort {
-    handleSave: () => Promise<boolean>;
-    handleRepairSave: () => Promise<boolean>;
-    handleOptimizePdfForInteraction: () => Promise<boolean>;
-    handleSaveAs: () => Promise<boolean>;
-    handlePrint: () => void | Promise<void>;
-    handlePrintCurrentPage: () => void | Promise<void>;
-    handleUndo: () => void;
-    handleRedo: () => void;
-    handleSelectAll: () => void;
-    handleOpenFileFromUi: () => Promise<boolean>;
-    handleCombineImages: () => Promise<boolean>;
-    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;
-    handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
-    handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
-    handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<boolean>;
-}
-
-export interface IWorkspaceExportPort {
-    handleExportDocx: () => Promise<void>;
-    handleExportImages: () => Promise<void>;
-    handleExportMultiPageTiff: () => Promise<void>;
-}
-
-export interface IWorkspaceViewPort {
-    handleZoomIn: () => void;
-    handleZoomOut: () => void;
-    handleFitWidth: () => void;
-    handleFitHeight: () => void;
-    handleActualSize: () => void;
-    setCustomZoomFromDisplay: (displayZoom: number) => void;
-    handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
-    handleToggleSidebar: () => void;
-    handleToggleContinuousScroll: () => void;
-    handleEnableDragMode: () => void;
-    handleDisableDragMode: () => void;
-    handleCaptureRegion: () => void;
-    handleCrop: () => void;
-    handleQuickNote: () => void;
-    handleInsertImageFromFile: () => Promise<void>;
-    handlePasteImageFromClipboard: () => Promise<void>;
-    handleViewModeSingle: () => void;
-    handleViewModeFacing: () => void;
-    handleViewModeFacingFirstSingle: () => void;
-    handleViewRotationCw: () => void;
-    handleViewRotationCcw: () => void;
-    setViewRotation: (rotation: TPdfViewRotation) => void;
-}
-
-export interface IWorkspacePageOpsPort {
-    handleDeletePages: () => void;
-    handleExtractPages: () => void;
-    handleRotateCw: (pages?: number[]) => Promise<boolean>;
-    handleRotateCcw: (pages?: number[]) => Promise<boolean>;
-    handleInsertPages: () => void;
-    handlePageDelete: (pages: number[]) => void;
-    handlePageReorder: (order: number[]) => void;
-    handlePageMove: (move: TPageMoveOperation) => void;
-    pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
-    handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
-    pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
-    pageOpsReorder: (order: number[]) => Promise<boolean>;
-    pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
-    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
-    handleConvertToPdf: () => void;
-}
-
-export interface IWorkspaceSplitTransferPort {
-    captureSplitPayload: () => Promise<TSplitPayload>;
-    restoreSplitPayload: (payload: TSplitPayload) => Promise<TDocumentOpenOutcome>;
-}
-
 /** Why the last open failed, while the workspace still holds that failure. */
 export interface IWorkspaceOpenFailure {
     message: string;
     failure: FailureReceipt | null;
-}
-
-export interface IWorkspaceUiPort {
-    closeAllDropdowns: () => void;
-    getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
-    getOpenFailure: () => IWorkspaceOpenFailure | null;
-    waitForDocumentOpenSettled: (options?: {
-        acceptDocumentWithoutVisual?: boolean;
-        signal?: AbortSignal;
-    }) => Promise<void>;
 }
 
 export interface IWorkspaceAgentCommandContext {
@@ -250,21 +168,6 @@ export interface IWorkspaceAgentCommandContext {
     commandTarget?: TWorkspaceCommandTarget;
     assertCurrentDocument: (options?: {allowRevisionChange?: boolean}) => void;
 }
-
-export interface IWorkspaceAgentPort {
-    runAgentAction: (
-        actionId: string,
-        input?: Record<string, unknown>,
-        options?: {dryRun?: boolean},
-        context?: IWorkspaceAgentCommandContext,
-    ) => Promise<Record<string, unknown>>;
-    readAgentResource: (
-        uri: string,
-        context?: IWorkspaceAgentCommandContext,
-    ) => Promise<Record<string, unknown>>;
-}
-
-interface IWorkspaceStatePort {hasPdf: {value: boolean;} | boolean;}
 
 export interface IWorkspaceAutomationStateSnapshot {
     /** Revision identity for the bytes currently opened by the workspace. */
@@ -318,7 +221,84 @@ export interface IWorkspaceAutomationStateSnapshot {
     workingCopyPath: TDocumentRef | null;
 }
 
-export interface IWorkspaceAutomationPort {
+/** The command and state surface a mounted DocumentWorkspace publishes to its tab controller. */
+export interface IWorkspaceExpose {
+    hasPdf: {value: boolean;} | boolean;
+    handleSave: () => Promise<boolean>;
+    handleRepairSave: () => Promise<boolean>;
+    handleOptimizePdfForInteraction: () => Promise<boolean>;
+    handleSaveAs: () => Promise<boolean>;
+    handlePrint: () => void | Promise<void>;
+    handlePrintCurrentPage: () => void | Promise<void>;
+    handleUndo: () => void;
+    handleRedo: () => void;
+    handleSelectAll: () => void;
+    handleOpenFileFromUi: () => Promise<boolean>;
+    handleOpenFolderFromUi: () => Promise<boolean>;
+    handleCombineImages: () => Promise<boolean>;
+    handleOpenFileDirectWithPersist: (path: TDocumentRef) => Promise<boolean>;
+    handleOpenFileDirectBatchWithPersist: (paths: TDocumentRef[]) => Promise<boolean>;
+    handleOpenFileWithResult: (result: TOpenFileResult) => Promise<boolean>;
+    handleCloseFileFromUi: (options?: ICloseFileFromUiOptions) => Promise<boolean>;
+    handleExportDocx: () => Promise<void>;
+    handleExportImages: () => Promise<void>;
+    handleExportMultiPageTiff: () => Promise<void>;
+    handleZoomIn: () => void;
+    handleZoomOut: () => void;
+    handleFitWidth: () => void;
+    handleFitHeight: () => void;
+    handleActualSize: () => void;
+    setCustomZoomFromDisplay: (displayZoom: number) => void;
+    handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
+    handleToggleSidebar: () => void;
+    handleToggleContinuousScroll: () => void;
+    handleEnableDragMode: () => void;
+    handleDisableDragMode: () => void;
+    handleCaptureRegion: () => void;
+    handleCrop: () => void;
+    handleQuickNote: () => void;
+    handleInsertImageFromFile: () => Promise<void>;
+    handlePasteImageFromClipboard: () => Promise<void>;
+    handleViewModeSingle: () => void;
+    handleViewModeFacing: () => void;
+    handleViewModeFacingFirstSingle: () => void;
+    handleViewRotationCw: () => void;
+    handleViewRotationCcw: () => void;
+    setViewRotation: (rotation: TPdfViewRotation) => void;
+    handleDeletePages: () => void;
+    handleExtractPages: () => void;
+    handleRotateCw: (pages?: number[]) => Promise<boolean>;
+    handleRotateCcw: (pages?: number[]) => Promise<boolean>;
+    handleInsertPages: () => void;
+    handlePageDelete: (pages: number[]) => void;
+    handlePageReorder: (order: number[]) => void;
+    handlePageMove: (move: TPageMoveOperation) => void;
+    pageOpsDelete: (pages: number[], totalPages: number) => Promise<boolean>;
+    handlePageRotate: (pages: number[], angle: 90 | 270) => Promise<boolean>;
+    pageOpsInsert: (totalPages: number, afterPage: number) => Promise<boolean>;
+    pageOpsReorder: (order: number[]) => Promise<boolean>;
+    pageOpsMove: (move: TPageMoveOperation) => Promise<boolean>;
+    handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
+    handleConvertToPdf: () => void;
+    captureSplitPayload: () => Promise<TSplitPayload>;
+    restoreSplitPayload: (payload: TSplitPayload) => Promise<TDocumentOpenOutcome>;
+    closeAllDropdowns: () => void;
+    getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
+    getOpenFailure: () => IWorkspaceOpenFailure | null;
+    waitForDocumentOpenSettled: (options?: {
+        acceptDocumentWithoutVisual?: boolean;
+        signal?: AbortSignal;
+    }) => Promise<void>;
+    runAgentAction: (
+        actionId: string,
+        input?: Record<string, unknown>,
+        options?: {dryRun?: boolean},
+        context?: IWorkspaceAgentCommandContext,
+    ) => Promise<Record<string, unknown>>;
+    readAgentResource: (
+        uri: string,
+        context?: IWorkspaceAgentCommandContext,
+    ) => Promise<Record<string, unknown>>;
     createRecoverySnapshotBytes: () => Promise<Uint8Array | null>;
     commentAtPoint?: (
         pageNumber: number,
@@ -336,14 +316,3 @@ export interface IWorkspaceAutomationPort {
     highlightSelection?: () => Promise<boolean>;
     scrollToPage?: (page: number) => void;
 }
-
-export interface IWorkspaceExpose extends
-    IWorkspaceFilePort,
-    IWorkspaceExportPort,
-    IWorkspaceViewPort,
-    IWorkspacePageOpsPort,
-    IWorkspaceSplitTransferPort,
-    IWorkspaceUiPort,
-    IWorkspaceAgentPort,
-    IWorkspaceAutomationPort,
-    IWorkspaceStatePort {}

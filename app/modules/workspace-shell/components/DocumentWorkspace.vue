@@ -43,7 +43,7 @@
                 @update:view-mode="viewMode = $event"
                 @update:ocr-running="isOcrRunning = $event"
                 @open-file="documentControls.handleOpenFileFromUi"
-                @open-settings="workspaceCommandBindings.handleOpenSettings"
+                @open-settings="emit('open-settings')"
                 @open-scan-cleanup="openScanCleanup"
                 @save="handleToolbarSave"
                 @repair-save="handleToolbarRepairSave"
@@ -51,7 +51,7 @@
                 @save-as="handleToolbarSaveAs"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
-                @combine-files="workspaceCommandBindings.handleOpenCombine"
+                @combine-files="emit('open-combine')"
                 @export-docx="handleToolbarExportDocx"
                 @ocr-export-docx="handleExportDocx"
                 @ocr-cancel-docx-export="cancelDocxExportDirect"
@@ -76,7 +76,7 @@
                 @capture-region="handleToolbarCaptureRegion"
                 @crop="handleToolbarCrop"
                 @quick-note="handleToolbarQuickNote"
-                @toggle-fullscreen="workspaceCommandBindings.handleToggleFullscreen"
+                @toggle-fullscreen="emit('toggle-fullscreen')"
                 @set-view-mode="handleOverflowSetViewMode"
                 @go-to-page="handleGoToPage"
                 @ocr-complete="handleOcrComplete"
@@ -195,43 +195,17 @@
                     @update:available-tabs="setAvailableSidebarTabs"
                 />
             </template>
-            <WorkspaceViewerHost
-                :has-document="showWorkspaceViewerDocument"
-                :suppress-empty-state="suppressEmptyStateForRestore || isDocumentOpenPlaceholderVisible"
-            >
-                <template #document>
-                    <component
-                        :is="activeViewerComponent"
-                        v-if="mountedDocumentDriver"
-                        :ref="bindActiveViewerRef"
-                        v-bind="activeViewerProps"
-                        v-on="activeViewerListeners"
-                    />
-                </template>
-                <template #empty>
-                    <PdfEmptyState
-                        :recent-files="recentFiles"
-                        :recent-files-resolved="recentFilesResolved"
-                        :recent-files-error="recentFilesError"
-                        :open-failure="startOpenFailure"
-                        :open-batch-progress="openBatchProgress"
-                        :open-in-progress="isOpeningDocument"
-                        :is-recent-open-ready="isRecentFileOpenReady"
-                        :start-section="startSection"
-                        can-combine-files
-                        :open-combine-result="documentControls.handleOpenFileWithResult"
-                        @update:start-section="workspaceCommandBindings.handleStartSectionUpdate"
-                        @open-file="documentControls.handleOpenFileFromUi"
-                        @open-folder="documentControls.handleOpenFolderFromUi"
-                        @open-recent="documentControls.openRecentFile"
-                        @remove-recent="removeRecentFile"
-                        @reveal-recent="revealRecentFile"
-                        @clear-recent="clearRecentFiles"
-                        @retry-recent="retryRecentFiles"
-                        @dismiss-open-failure="documentSession.dismissFailure()"
-                    />
-                </template>
-            </WorkspaceViewerHost>
+            <!-- The document chassis stays laid out while Start covers it, so an
+            open presents its first frame at the final geometry. -->
+            <div class="workspace-viewer-host" :aria-hidden="!showWorkspaceViewerDocument ? 'true' : undefined">
+                <component
+                    :is="activeViewerComponent"
+                    v-if="mountedDocumentDriver"
+                    :ref="bindActiveViewerRef"
+                    v-bind="activeViewerProps"
+                    v-on="activeViewerListeners"
+                />
+            </div>
         </WorkspaceSidebarHost>
         <div
             v-if="surfaceMode === 'scan-cleanup'"
@@ -392,7 +366,6 @@ import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
-import { PdfEmptyState } from '@app/modules/pdf-viewer/public/component-exports/pdfEmptyState';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
 import { createWorkspaceExposeFromOwners } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
@@ -407,7 +380,6 @@ import WorkspaceShell from '@app/modules/workspace-shell/components/layout/Works
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 import ScanCleanupWorkspaceLoading from '@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
-import WorkspaceViewerHost from '@app/modules/workspace-shell/components/layout/WorkspaceViewerHost.vue';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
@@ -432,13 +404,11 @@ import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-she
 import { useDocumentSourceSidebarSession } from '@app/modules/workspace-shell/composables/useDocumentSourceSidebarSession';
 import { createWorkspacePdfSearchResultNavigation } from '@app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { formatEtaDuration } from '@app/utils/progressFormatting';
 import {
     DESKTOP_EDITOR_READER_COMMAND_SURFACE,
     EMPTY_STATE_READER_COMMAND_SURFACE,
 } from '@app/utils/readerCommandSurface';
-import type { IRecentFile } from '@contracts/shared';
 import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
@@ -451,12 +421,11 @@ import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
 } from '@app/modules/document-viewer/public';
-import {
-    createDocumentWorkspaceCommandBindings,
-    type IDocumentWorkspaceEmits,
-    type IDocumentWorkspaceProps,
-    useDocumentWorkspaceLifecycle,
-} from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
 const ScanCleanupWorkspace = defineAsyncComponent({
     loader: () => import('@app/modules/scan-cleanup/public/workspace')
         .then(module => module.ScanCleanupWorkspace),
@@ -479,9 +448,18 @@ const {
     isTabTransitionBusy,
     documentSession,
     splitCacheSession = null,
-    startSection = 'recent',
     tabId,
-} = defineProps<IDocumentWorkspaceProps>();
+} = defineProps<{
+    tabId: string;
+    isActive: boolean;
+    isRenderActive?: boolean | undefined;
+    isTabTransitionBusy: boolean;
+    isFullscreen: boolean;
+    fullscreenSupported: boolean;
+    isWorkspaceLayoutResizing?: boolean | undefined;
+    documentSession: IWorkspaceDocumentController;
+    splitCacheSession?: IWorkspaceSplitCacheSessionState | null | undefined;
+}>();
 // The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
 // comes back where it was.
 const initialViewState = documentSession.viewState.value;
@@ -526,15 +504,15 @@ watch(surfaceMode, mode => {
         scanCleanupWorkspaceMounted.value = false;
     }
 });
-const emit = defineEmits<IDocumentWorkspaceEmits>();
-const workspaceCommandBindings = createDocumentWorkspaceCommandBindings(emit);
+const emit = defineEmits<{
+    'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
+    'request-close-tab': [];
+    'open-settings': [];
+    'open-combine': [];
+    'toggle-fullscreen': [];
+}>();
 const { t } = useTypedI18n();
 const toast = useToast();
-const {
-    isResolved: recentFilesResolved,
-    error: recentFilesError,
-    retryRecentFiles,
-} = useRecentFiles();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const isRestoringSplitPayload = ref(false);
@@ -626,9 +604,6 @@ const {
     ensureDjvuPdfProjection,
     handleDjvuCancel,
     openBatchProgress,
-    recentFiles,
-    removeRecentFile,
-    clearRecentFiles,
     hasPdf,
     initFromStorage,
 } = fileLifecycle;
@@ -885,7 +860,6 @@ const {
 const {
     hasQueuedSplitRestore,
     isExternallyRestoring,
-    suppressEmptyState: suppressEmptyStateForRestore,
 } = useDocumentWorkspaceSplitRestore({
     tabId: tabId,
     pendingDocumentOpen: isOpeningDocument,
@@ -918,7 +892,6 @@ const {
     driverShowsPdfSidebar,
     driverShowsDjvuSource,
     driverStartupVisualSource,
-    isDocumentOpenPlaceholderVisible,
     isOpeningDocumentForToolbar,
     toolbarDocumentBusy,
     toolbarHasPdf,
@@ -1104,9 +1077,6 @@ const {
         });
     },
 });
-const revealRecentFile = (file: IRecentFile) => getDocumentWindowCapability()
-    .showItemInFolder(file.originalPath)
-    .catch(() => undefined);
 
 const {
     ensureEditProjection,
@@ -1247,9 +1217,6 @@ const documentOpenIdle = computed(() => (
 /** Resolves once no open is in flight and any document shows its first page. */
 async function waitForDocumentOpenSettled() {
     await until(documentOpenIdle).toBe(true);
-}
-function isRecentFileOpenReady(file: IRecentFile) {
-    return pendingDocumentPath.value !== file.originalPath;
 }
 const searchDocumentReady = computed(() => Boolean(
     workingCopyPath.value
@@ -1415,28 +1382,36 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     goToPage: handleGoToPage,
     formatBatchLabel: values => t('tabs.preparingBatch', values),
 });
-const startOpenFailure = documentLifecycle.startOpenFailure;
 watch(() => isActive || isRenderActive, (shown, wasShown) => {
     if (wasShown && !shown) {
         documentLifecycle.captureViewState();
     }
 }, {flush: 'sync'});
-useDocumentWorkspaceLifecycle({
-    surfaceMode,
-    discardScanCleanupState,
-    handleOptimizeProgress,
-    attach: () => documentSession.attachWorkspace(workspaceExpose),
-    detach: () => {
-        // A cold tab can unmount in the same render that hides it; capture
-        // while the workspace is still live.
-        documentLifecycle.captureViewState();
-        documentSession.detachWorkspace(workspaceExpose);
-    },
+let unsubscribeOptimizeProgress: (() => void) | null = null;
+onMounted(() => {
+    unsubscribeOptimizeProgress = getDocumentMenuCapability().onPdfOptimizeProgress(handleOptimizeProgress);
+    documentSession.attachWorkspace(workspaceExpose);
+});
+onBeforeUnmount(() => {
+    if (surfaceMode.value === 'scan-cleanup') {
+        discardScanCleanupState();
+    }
+    unsubscribeOptimizeProgress?.();
+    // A cold tab can unmount in the same render that hides it; capture
+    // while the workspace is still live.
+    documentLifecycle.captureViewState();
+    documentSession.detachWorkspace(workspaceExpose);
 });
 defineExpose(workspaceExpose);
 </script>
 
 <style scoped>
+.workspace-viewer-host {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
 .scan-cleanup-workspace-boundary {
     position: absolute;
     z-index: var(--app-z-local-overlay);

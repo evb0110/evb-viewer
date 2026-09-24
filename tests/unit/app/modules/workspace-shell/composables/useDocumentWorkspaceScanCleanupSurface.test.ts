@@ -7,8 +7,10 @@ import {
     vi,
 } from 'vitest';
 import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
-import type {IDocumentWorkspaceProps} from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
-import type {IWorkspaceDocumentIdentity} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {
+    IWorkspaceDocumentController,
+    IWorkspaceDocumentIdentity,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireEpochMs } from '@contracts/timestamps';
@@ -18,7 +20,7 @@ import {
     scanCleanupDetectionSessionCache,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupDetectionSessionCache';
 
-type TDocumentSession = NonNullable<IDocumentWorkspaceProps['documentSession']>;
+type TDocumentSession = IWorkspaceDocumentController;
 
 function identity(overrides: Partial<IWorkspaceDocumentIdentity> = {}): IWorkspaceDocumentIdentity {
     return {
