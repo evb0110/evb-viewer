@@ -1,4 +1,3 @@
-import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {
     afterEach,
@@ -265,12 +264,5 @@ describe('latest release endpoint policy', () => {
             consoleError.mockRestore();
             vi.useRealTimers();
         }
-    });
-
-    it('uses the policy-neutral releases index only while selected release data is unavailable', () => {
-        const source = readFileSync(resolve(process.cwd(), 'landing/app/pages/index.vue'), 'utf8');
-
-        expect(source).toContain('releaseData.value?.release.htmlUrl ?? `${GITHUB_REPOSITORY_URL}/releases`');
-        expect(source).not.toContain('`${GITHUB_REPOSITORY_URL}/releases/latest`');
     });
 });

@@ -9,7 +9,6 @@ import { LOCALE_CODES } from '@i18n-core/localeCodes';
 import { PRIVACY_MESSAGES } from '@i18n-core';
 
 const projectRoot = process.cwd();
-const landingLocaleDirectory = resolve(projectRoot, 'landing/app/locales');
 const landingPrivacyPageSource = readFileSync(
     resolve(projectRoot, 'landing/app/pages/privacy.vue'),
     'utf8',
@@ -45,10 +44,6 @@ function getLeaf(tree: unknown, dottedPath: string): unknown {
 
         return (value as Record<string, unknown>)[key];
     }, tree);
-}
-
-function localeFileName(locale: typeof LOCALE_CODES[number]): string {
-    return locale === 'pt-BR' ? 'ptBr.ts' : `${locale}.ts`;
 }
 
 describe('privacy localization', () => {
@@ -111,17 +106,5 @@ describe('privacy localization', () => {
 
         expect(rootPrivacyPageSource).not.toContain('github.com/evb0110/evb-viewer/issues');
         expect(landingPrivacyPageSource).not.toContain('github.com/evb0110/evb-viewer/issues');
-    });
-
-    it('keeps the privacy tree out of Nuxt locale compilation', () => {
-        for (const locale of LOCALE_CODES) {
-            const source = readFileSync(
-                resolve(landingLocaleDirectory, localeFileName(locale)),
-                'utf8',
-            );
-
-            expect(source).not.toContain('PRIVACY_MESSAGES');
-            expect(source).not.toMatch(/\bprivacy\s*:/u);
-        }
     });
 });

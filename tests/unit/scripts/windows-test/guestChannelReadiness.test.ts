@@ -22,7 +22,10 @@ it.each([
     const directory = await mkdtemp(path.join(tmpdir(), 'evb-qga-ready-'));
     try {
         const runner = { run: vi.fn(() => { throw new Error('Unexpected guest execution'); }) };
-        const client = createUtmctlClient({ runner });
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: 'utmctl',
+        });
         const pull = vi.fn(async (_vmId: string, guestPath: string, hostPath: string) => {
             expect(guestPath).toBe(windowsTestGuestLayout.markerFile);
             if (transferFails) {

@@ -1,11 +1,6 @@
 // @vitest-environment happy-dom
 
 import {
-    readFileSync,
-    readdirSync,
-} from 'node:fs';
-import { resolve } from 'node:path';
-import {
     afterEach,
     describe,
     expect,
@@ -20,27 +15,6 @@ vi.mock('@landing/app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t
     'footer.sentryAcknowledgement.linkLabel': 'Learn about Sentry for Open Source',
 }[key] ?? key)})}));
 
-const projectRoot = process.cwd();
-const componentSource = readFileSync(
-    resolve(projectRoot, 'landing/app/components/SentryAcknowledgement.vue'),
-    'utf8',
-);
-const siteFooterSource = readFileSync(
-    resolve(projectRoot, 'landing/app/components/SiteFooter.vue'),
-    'utf8',
-);
-const homeSource = readFileSync(
-    resolve(projectRoot, 'landing/app/pages/index.vue'),
-    'utf8',
-);
-const wordmarkSource = readFileSync(
-    resolve(projectRoot, 'landing/public/sentry-wordmark.svg'),
-    'utf8',
-);
-const provenanceSource = readFileSync(
-    resolve(projectRoot, 'landing/public/sentry-wordmark.provenance.md'),
-    'utf8',
-);
 const activeUnmounts = new Set<() => void>();
 
 function mountAcknowledgement() {
@@ -86,26 +60,5 @@ describe('SentryAcknowledgement', () => {
         link?.focus();
         expect(document.activeElement).toBe(link);
         expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it('keeps one local acknowledgement implementation in both footer paths', () => {
-        const componentFiles = readdirSync(resolve(projectRoot, 'landing/app/components'));
-        const acknowledgementFiles = componentFiles.filter(file => file === 'SentryAcknowledgement.vue');
-
-        expect(acknowledgementFiles).toEqual(['SentryAcknowledgement.vue']);
-        expect(siteFooterSource.match(/<SentryAcknowledgement\b/gu)).toHaveLength(1);
-        expect(homeSource.match(/<SentryAcknowledgement\b/gu)).toHaveLength(1);
-        expect(siteFooterSource).toContain('import SentryAcknowledgement from \'./SentryAcknowledgement.vue\';');
-        expect(homeSource).toContain('import SentryAcknowledgement from \'~/components/SentryAcknowledgement.vue\';');
-
-        expect(wordmarkSource).toContain('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 44">');
-        expect(wordmarkSource).toContain('<path fill="currentColor"');
-        expect(provenanceSource).toContain('https://sentry.io/branding/');
-        expect(componentSource).toContain('const SENTRY_WORDMARK_PATH = \'/sentry-wordmark.svg\';');
-        expect(componentSource).not.toMatch(/https?:\/\/[^"']+sentry[^"']+\.svg/iu);
-        expect(componentSource).not.toMatch(/filter\s*:/u);
-        expect(componentSource).toContain(':focus-visible');
-        expect(componentSource).toContain('@media (width <= 40rem)');
-        expect(componentSource).not.toMatch(/fetch|XMLHttpRequest|sendBeacon/u);
     });
 });

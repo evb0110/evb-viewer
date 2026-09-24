@@ -232,7 +232,8 @@ describe('destructive VM identity guard', () => {
         });
     });
 
-    it('uses verified push and readback when the real no-media guest channel declines batching', async () => {
+    // Reads the clone identity with macOS plutil, which only exists on macOS.
+    it.skipIf(process.platform !== 'darwin')('uses verified push and readback when the real no-media guest channel declines batching', async () => {
         const source = path.join(imageRoot, 'bootstrap.cmd');
         const destination = 'C:\\EVBViewerTests\\worker\\bootstrap.cmd';
         const contents = 'bootstrap bytes';
@@ -273,7 +274,8 @@ describe('destructive VM identity guard', () => {
             .toBe(createHash('sha256').update(contents).digest('hex'));
     });
 
-    it('chunks large no-media pushes and verifies each chunk and the reassembled file', async () => {
+    // Reads the clone identity with macOS plutil, which only exists on macOS.
+    it.skipIf(process.platform !== 'darwin')('chunks large no-media pushes and verifies each chunk and the reassembled file', async () => {
         const source = path.join(imageRoot, 'large-bootstrap.cmd');
         const destination = 'C:\\EVBViewerTests\\worker\\large-bootstrap.cmd';
         const contents = Buffer.alloc(2 * 1024 * 1024 + 17, 0x5a);

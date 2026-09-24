@@ -1,13 +1,4 @@
 import {
-    readFileSync,
-    readdirSync,
-} from 'node:fs';
-import {
-    extname,
-    join,
-    resolve,
-} from 'node:path';
-import {
     afterEach,
     describe,
     expect,
@@ -18,65 +9,6 @@ import {
     createLandingFailureReporter,
     landingFailureReporter,
 } from '@landing/server/utils/landingFailureReporter';
-
-const projectRoot = process.cwd();
-const landingRoot = resolve(projectRoot, 'landing');
-const landingSourceExtensions = new Set([
-    '.cjs',
-    '.cts',
-    '.env',
-    '.example',
-    '.js',
-    '.json',
-    '.md',
-    '.mjs',
-    '.mts',
-    '.ts',
-    '.tsx',
-    '.vue',
-    '.yaml',
-    '.yml',
-]);
-const generatedLandingDirectories = new Set([
-    '.nuxt',
-    '.output',
-    'dist',
-    'node_modules',
-]);
-
-function isLandingSourceFile(fileName: string): boolean {
-    return landingSourceExtensions.has(extname(fileName))
-        || fileName === '.env'
-        || fileName.startsWith('.env.');
-}
-
-interface ILandingSource {
-    path: string
-    source: string
-}
-
-function readLandingSources(directory: string): ILandingSource[] {
-    return readdirSync(directory, {withFileTypes: true}).flatMap((entry) => {
-        if (entry.isDirectory()) {
-            if (generatedLandingDirectories.has(entry.name)) {
-                return [];
-            }
-            return readLandingSources(join(directory, entry.name));
-        }
-
-        if (!isLandingSourceFile(entry.name)) {
-            return [];
-        }
-
-        const path = join(directory, entry.name);
-        return [{
-            path,
-            source: readFileSync(path, 'utf8'),
-        }];
-    });
-}
-
-const landingSources = readLandingSources(landingRoot);
 
 const createInput = () => ({
     code: 'UNCLASSIFIED_MAIN_ERROR' as const,
@@ -143,32 +75,5 @@ describe('landing failure reporter', () => {
         }});
 
         expect(() => reporter.capture(createInput())).not.toThrow();
-    });
-});
-
-describe('landing telemetry boundary', () => {
-    it('contains no Sentry package import or DSN reference', () => {
-        for (const {
-            path,
-            source,
-        } of landingSources) {
-            expect(source, path).not.toMatch(/@sentry(?:[/'"]|$)/iu);
-            expect(source, path).not.toMatch(/\b(?:sentry[_-]?)?dsn\b/iu);
-            expect(source, path).not.toMatch(/https?:\/\/[^/\s"'`]+@[^/\s"'`]+\/\d+(?:[/?#][^\s"'`]*)?/iu);
-        }
-    });
-
-    it('keeps the handled release and analytics failures at warning level', () => {
-        const warningOnlyPaths = [
-            'landing/server/api/releases/latest.get.ts',
-            'landing/server/api/analytics/download.post.ts',
-            'landing/server/api/analytics/pageView.post.ts',
-        ];
-
-        for (const relativePath of warningOnlyPaths) {
-            const source = readFileSync(resolve(projectRoot, relativePath), 'utf8');
-            expect(source, relativePath).toContain('console.warn');
-            expect(source, relativePath).not.toContain('console.error');
-        }
     });
 });

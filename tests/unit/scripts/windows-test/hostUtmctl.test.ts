@@ -175,7 +175,10 @@ describe('utmctl transport failure classification', () => {
             exitCode: 1,
             stderr: 'utmctl: Failed to connect. Are you running over SSH? OSStatus -1743',
         })]);
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         const error = await client.list().catch((thrown: unknown) => thrown);
 
@@ -217,7 +220,10 @@ describe('utmctl client commands', () => {
             calls,
             runner,
         } = fakeRunner([]);
-        const client = createUtmctlClient({ runner });
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
         const vmId = 'abcdef01-abcd-4abc-8abc-abcdef012345';
 
         await client.status(vmId);
@@ -290,7 +296,10 @@ describe('utmctl client commands', () => {
             exitCode: 0,
             stdout: 'ok',
         }});
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         const outcome = await client.exec(TEST_VM_ID, [
             'powershell.exe',
@@ -326,7 +335,10 @@ describe('utmctl client commands', () => {
             timedOut: true,
             signal: 'SIGKILL',
         })]);
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         expect(await client.exec(TEST_VM_ID, ['powershell.exe'], {timeoutMs: 10})).toMatchObject({
             timedOut: true,
@@ -359,6 +371,7 @@ describe('utmctl client commands', () => {
         ]});
         const client = createUtmctlClient({
             runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
             guestExecPollIntervalMs: 0,
             sleep: () => Promise.resolve(),
         });
@@ -433,7 +446,10 @@ describe('utmctl client commands', () => {
             exitCode: 37,
             stdout: 'Ж',
         }});
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         await expect(client.exec(TEST_VM_ID, [
             'powershell.exe',
@@ -467,7 +483,10 @@ describe('utmctl client commands', () => {
             exitCode: 37,
             stdout: 'EVB:Ж\n',
         }});
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         await expect(client.exec(TEST_VM_ID, [
             'powershell.exe',
@@ -517,7 +536,10 @@ describe('utmctl client commands', () => {
             stdout: '',
             stderr: 'The guest process did not start.',
         })]});
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         await expect(client.exec(TEST_VM_ID, ['missing-command.exe'])).resolves.toMatchObject({
             exitCode: null,
@@ -536,7 +558,10 @@ describe('utmctl client commands', () => {
             stdout: '',
             stderr: 'guest command timed out',
         })]});
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         await expect(client.exec(TEST_VM_ID, ['slow-command.exe'])).resolves.toMatchObject({
             exitCode: null,
@@ -551,7 +576,10 @@ describe('utmctl client commands', () => {
             calls,
             runner,
         } = fakeRunner([]);
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         await client.pushFile(TEST_VM_ID, 'C:\\EVBViewerTests\\inbox\\job.json', '{}');
         await client.pullFile(TEST_VM_ID, 'C:\\EVBViewerTests\\outbox\\result.json', '/tmp/result.json');
@@ -568,7 +596,10 @@ describe('utmctl client commands', () => {
 
     it('rejects a zero-exit file pull that carries an Error event on stderr', async () => {
         const {runner} = fakeRunner([result({stderr: 'Error: guest file was not found'})]);
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         const error = await client.pullFile(
             TEST_VM_ID,
@@ -583,7 +614,10 @@ describe('utmctl client commands', () => {
 
     it('rejects a zero-exit file pull when UTM reports a guest file lock on stderr', async () => {
         const {runner} = fakeRunner([result({stderr: 'Error from event: failed to open file: process cannot access the file because it is being used by another process.'})]);
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         await expect(client.pullFile(
             TEST_VM_ID,
@@ -604,7 +638,10 @@ describe('utmctl client commands', () => {
             calls,
             runner,
         } = fakeRunner([]);
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
         const guest = createUtmctlGuestChannel({
             client,
             temporaryFilePath: () => '/tmp/unused-guest-read',
@@ -625,7 +662,10 @@ describe('utmctl client commands', () => {
     });
 
     it('stages the shared guest hash verifier once for concurrent checks', async () => {
-        const client = createUtmctlClient({runner: fakeRunner([]).runner});
+        const client = createUtmctlClient({
+            runner: fakeRunner([]).runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
         let releasePush!: () => void;
         const pushFile = vi.fn(() => new Promise<void>(resolve => {
             releasePush = resolve;
@@ -683,7 +723,10 @@ describe('utmctl client commands', () => {
                 exitCode: 0,
                 stdout: 'C:\\EVBViewerTests\\staging\\run-01\\fixtures\\large-input.bin',
             }});
-            const client = createUtmctlClient({runner});
+            const client = createUtmctlClient({
+                runner,
+                utmctlPath: DEFAULT_UTMCTL_PATH,
+            });
             const guest = createUtmctlGuestChannel({
                 client,
                 temporaryFilePath: () => path.join(root, 'unused-guest-read'),
@@ -764,7 +807,10 @@ describe('utmctl client commands', () => {
                 ]),
             }});
             const guest = createUtmctlGuestChannel({
-                client: createUtmctlClient({runner}),
+                client: createUtmctlClient({
+                    runner,
+                    utmctlPath: DEFAULT_UTMCTL_PATH,
+                }),
                 temporaryFilePath: () => path.join(root, 'unused-guest-read'),
                 inputMedia: {
                     isoPath: path.join(root, 'input.iso'),
@@ -853,7 +899,10 @@ describe('utmctl client commands', () => {
                 stderr: 'Input media marker hash does not match expected value.',
             }});
             const guest = createUtmctlGuestChannel({
-                client: createUtmctlClient({runner}),
+                client: createUtmctlClient({
+                    runner,
+                    utmctlPath: DEFAULT_UTMCTL_PATH,
+                }),
                 temporaryFilePath: () => path.join(root, 'unused-guest-read'),
                 inputMedia: {
                     isoPath: path.join(root, 'input.iso'),
@@ -898,7 +947,10 @@ describe('utmctl client commands', () => {
                 exitCode: 1,
                 stderr: `Expected exactly one CDRom volume named EVB_INPUTS, found ${foundVolumes}.`,
             }});
-            const client = createUtmctlClient({runner});
+            const client = createUtmctlClient({
+                runner,
+                utmctlPath: DEFAULT_UTMCTL_PATH,
+            });
             const guest = createUtmctlGuestChannel({
                 client,
                 temporaryFilePath: () => path.join(root, 'unused-guest-read'),

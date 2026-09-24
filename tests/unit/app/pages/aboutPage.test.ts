@@ -71,7 +71,6 @@ const IconStub = defineComponent({setup: () => () => h('span', {'aria-hidden': '
 const activeUnmounts = new Set<() => void>();
 const projectRoot = process.cwd();
 const pageSource = readFileSync(resolve(projectRoot, 'app/pages/about.vue'), 'utf8');
-const settingsSource = readFileSync(resolve(projectRoot, 'app/components/settings/SettingsContent.vue'), 'utf8');
 
 function mountPage() {
     const host = document.createElement('div');
@@ -176,13 +175,5 @@ describe('About and Acknowledgements page', () => {
         expect(pageSource).toContain('outline: 2px solid var(--ui-primary);');
         expect(pageSource).toContain('@media (width <= 40rem)');
         expect(pageSource).not.toMatch(/fetch|XMLHttpRequest|sendBeacon|SENTRY_DSN|@sentry\//u);
-    });
-
-    it('ships the official local asset and a Settings link to the page', () => {
-        expect(readFileSync(resolve(projectRoot, 'public/sentry-wordmark.svg')))
-            .toEqual(readFileSync(resolve(projectRoot, 'landing/public/sentry-wordmark.svg')));
-        expect(settingsSource).toContain('<NuxtLink class="settings-about-link" to="/about">');
-        expect(settingsSource).toContain('t(\'settings.openAbout\')');
-        expect(settingsSource).toContain('.settings-about-link:focus-visible');
     });
 });

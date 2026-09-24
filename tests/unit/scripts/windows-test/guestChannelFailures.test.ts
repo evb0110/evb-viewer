@@ -7,9 +7,12 @@ import { createUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
 import type { IUtmctlExecOutcome } from '@scripts/windows-test/host/utmctlClient';
 
 function channel(outcome: IUtmctlExecOutcome) {
-    const client = createUtmctlClient({runner: {run: () => {
-        throw new Error('Unexpected real transport call');
-    }}});
+    const client = createUtmctlClient({
+        runner: {run: () => {
+            throw new Error('Unexpected real transport call');
+        }},
+        utmctlPath: 'utmctl',
+    });
     client.exec = () => Promise.resolve(outcome);
     client.pushFile = () => Promise.resolve();
     return createUtmctlGuestChannel({

@@ -59,7 +59,6 @@ const unitToolingTestFiles = [
 export const staticArchitectureTestFiles = [
     'tests/unit/architecture/**/*.test.ts',
     'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts',
-    'tests/unit/app/platform/browserDocumentRecordOwnership.test.ts',
 ];
 
 const electronE2ESmokeTestFiles = [
