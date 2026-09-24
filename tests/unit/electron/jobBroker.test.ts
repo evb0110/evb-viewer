@@ -7,7 +7,6 @@ import {
 import {
     JobBroker,
     type IJobBrokerRequest,
-    JOB_LEASE_MAX_HOLD_MS,
     MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
     MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
     MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
@@ -515,31 +514,33 @@ describe('JobBroker', () => {
         expect(active.release()).toBe(true);
     });
 
-    it('reclaims expired active leases before dispatching queued work', async () => {
+    it('keeps a long-held lease accounted until its holder releases it', async () => {
+        const HOUR_MS = 60 * 60 * 1_000;
         let now = 0;
         const broker = new JobBroker({
             ...CAPACITY,
             cpuTokens: 1,
         }, {now: () => now});
-        const stale = await broker.acquire(createRequest({ownerId: 'stale-owner'}));
+        const longRun = await broker.acquire(createRequest({ownerId: 'long-run'}));
         let queuedGranted = false;
         const queued = broker.acquire(createRequest({ownerId: 'next-owner'})).then((lease) => {
             queuedGranted = true;
             return lease;
         });
 
-        await Promise.resolve();
-        expect(queuedGranted).toBe(false);
-        now = JOB_LEASE_MAX_HOLD_MS;
+        now = 2 * HOUR_MS;
         const dispatchTrigger = broker.acquire(createRequest({ownerId: 'dispatch-trigger'}));
-        const next = await queued;
+        await Promise.resolve();
 
+        expect(queuedGranted).toBe(false);
         expect(broker.getSnapshot()).toMatchObject({
             active: 1,
-            queued: 1,
-            used: next.resources,
+            queued: 2,
+            used: longRun.resources,
         });
-        expect(stale.release()).toBe(false);
+
+        expect(longRun.release()).toBe(true);
+        const next = await queued;
         expect(next.release()).toBe(true);
         const triggerLease = await dispatchTrigger;
         expect(triggerLease.release()).toBe(true);

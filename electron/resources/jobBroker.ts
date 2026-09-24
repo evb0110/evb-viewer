@@ -1,19 +1,11 @@
 import { clamp } from 'es-toolkit/math';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import { createLogger } from '@electron/utils/createLogger';
 
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 const DEFAULT_AGING_INTERVAL_MS = 5_000;
-/**
- * A lease that outlives this is treated as abandoned rather than merely slow: a
- * holder that has not released by now has almost certainly lost its release path,
- * and its resources would otherwise be unreachable for the life of the process.
- */
-export const JOB_LEASE_MAX_HOLD_MS = 30 * 60 * 1_000;
 const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS = 256;
 const DEFAULT_JOB_BROKER_MAX_QUEUED_JOBS_PER_OWNER = 64;
-const logger = createLogger('job-broker');
 
 export const MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES: Readonly<IJobResourceVector> = {
     cpuTokens: 2,
@@ -77,10 +69,7 @@ export function createStableJobBrokerOwnerId(
     return `${feature}:${senderId}:${logicalOwnerId}`;
 }
 
-interface IActiveJob extends IJobBrokerRequest {
-    token: string;
-    grantedAt: number;
-}
+interface IActiveJob extends IJobBrokerRequest {token: string;}
 
 interface IQueuedJob {
     id: number;
@@ -310,7 +299,6 @@ export class JobBroker {
     }
 
     private dispatch() {
-        this.sweepExpiredLeases();
         while (this.queue.length > 0) {
             const grantableIndex = this.findNextGrantableIndex();
             if (grantableIndex < 0) {
@@ -325,7 +313,6 @@ export class JobBroker {
             const active = {
                 ...next.request,
                 token,
-                grantedAt: this.now(),
             };
             this.active.set(token, active);
             this.accountLease(active, addResources);
@@ -341,25 +328,6 @@ export class JobBroker {
                     return this.release(token);
                 },
             });
-        }
-    }
-
-    private sweepExpiredLeases() {
-        const now = this.now();
-        for (const [
-            token,
-            active,
-        ] of this.active) {
-            const heldMs = now - active.grantedAt;
-            if (heldMs < JOB_LEASE_MAX_HOLD_MS) {
-                continue;
-            }
-            this.active.delete(token);
-            this.accountLease(active, subtractResources);
-            logger.warn(
-                `Reclaimed expired job broker lease token=${token} owner=${active.ownerId} `
-                + `kind=${active.kind} heldMs=${heldMs}`,
-            );
         }
     }
 
