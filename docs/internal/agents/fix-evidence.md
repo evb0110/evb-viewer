@@ -103,11 +103,12 @@ reproduction but not edit it.
 
 ## Red `main`
 
-Wait for the required verdict: `ci-wait -w CI <sha>` as a background task. A
-failure your commit introduced is yours: repair it promptly or revert your
-commit. Do not widen a tolerance, skip a test, or mark a step allowed to fail to
-get green. `node scripts/ci/ci-health.mjs` reports failure trends across recent
-runs.
+Wait for the required verdict: `ci-wait -w CI <sha>` as a background task,
+about 15 minutes. The nightly run reports separately and does not block your
+push. A failure your commit introduced is yours: repair it promptly or revert
+your commit. Do not widen a tolerance, skip a test, or mark a step allowed to
+fail to get green. `node scripts/ci/ci-health.mjs` reports failure trends across
+recent runs.
 
 ## Viewer-core integration
 

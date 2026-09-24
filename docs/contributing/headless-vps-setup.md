@@ -56,14 +56,14 @@ pnpm run dev:headless
 For Electron E2E smoke on a VPS:
 
 ```bash
-pnpm run test:e2e:electron:headless
+pnpm run test:e2e e2e-smoke
 ```
 
 The existing CDP/Puppeteer session commands remain the preferred way to click,
 type, inspect console output, and capture screenshots on headless hosts.
 
 `xvfb-run -a` is still fine for single foreground commands that own their whole
-lifetime, such as `pnpm run test:e2e:electron:headless`. Do not use plain
+lifetime, such as `pnpm run test:e2e e2e-smoke`. Do not use plain
 `xvfb-run -a pnpm electron:run startd`; the Xvfb process exits as soon as
 `startd` returns.
 

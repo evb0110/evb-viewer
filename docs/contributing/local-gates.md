@@ -62,48 +62,32 @@ or a changed `timeout-minutes` needs the user's words too. See
 
 ## Routine CI
 
-Push CI has three tiers, described in [the CI guide](./ci.md). Place a check by
-defect relevance first, diagnostic value second, and runtime third.
+Push CI has one required verdict, `ci.yml`'s `gates_ok`, described in
+[the CI guide](./ci.md): lint, typecheck, unit tests, the Rust, build, native,
+browser, scan-cleanup and landing jobs its changed areas select, and the
+Electron E2E lanes as a Linux matrix, in about fifteen minutes. The release
+cutter reads only this verdict. [ci-nightly.yml](../../.github/workflows/ci-nightly.yml)
+reports the slow, large-fixture, second-platform and timing-budget checks and
+never gates.
 
-- **Required** ([ci.yml](../../.github/workflows/ci.yml)): publication policy,
-  lint, typecheck, unit tests, and one Electron journey. A red job here means
-  the commit that triggered it is broken. `gates_ok` aggregates them and the
-  release cutter reads only this tier. About twelve minutes.
-- **Extended** ([ci-extended.yml](../../.github/workflows/ci-extended.yml)):
-  browser integration, native and packaging lanes, the packaged Linux proof,
-  landing, whole-tree lint, and the macOS Electron suites. A red job means the
-  tip of `main` is broken somewhere; no commit is blocked. A newer push cancels
-  an older in-progress run.
-- **Nightly** ([ci-nightly.yml](../../.github/workflows/ci-nightly.yml)): the
-  canonical scan-cleanup identity gate, ARM64 Rust, fuzz canaries, and the
-  manual large-PDF, quarantine, and visible-window lanes.
+Routine CI runs the unit suite without coverage instrumentation. Coverage is an
+optional diagnostic without percentage thresholds.
 
-Routine CI runs the unit suite without coverage instrumentation. Keeping the
-full unit suite on main avoids missing filesystem and auto-import dependencies.
-Coverage is an optional diagnostic without percentage thresholds.
+Every push to main runs `ci.yml` to completion; a newer push does not cancel
+it. The changed-area classifier diffs from the last push whose run succeeded,
+so lanes that an unfinished or failed run has not verified are selected again
+by the next run.
 
-Every push to main runs the required tier to completion; a newer push does not
-cancel it. The changed-area classifier diffs from the last push whose run in
-that tier finished, so lanes that an unfinished or hand-cancelled run has not
-verified are selected again by the next run. A cancelled run is not a verdict:
-the release waiter accepts a cancelled parent through a newer green run that
-contains it, or re-run it with `gh run rerun <id>` when the exact commit needs
-its own verdict.
+### A red verdict
 
-The required tier lints only what the push changed, so it can never fail on a
-pre-existing error in a file the push did not touch. `extended_tree_lint`
-covers the rest of the tree on every main push.
-
-### A red required set
-
-A red required set has one owner: the commit that turned it red. Before
+A red `gates_ok` has one owner: the commit that turned it red. Before
 diagnosing anything, run:
 
 ```
 node scripts/ci/ci-health.mjs --sha <sha>
 ```
 
-It prints each required and extended job as `NEW` or `INHERITED` and names the
+It prints each job as `NEW` or `INHERITED` and names the
 first bad SHA per failing job. When superseded runs hide where a job broke, it
 lists the pushes the break could be in instead of one SHA. An `INHERITED` failure is another commit's
 defect; do not re-diagnose it and do not treat it as a reason to stop pushing.

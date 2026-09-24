@@ -153,8 +153,8 @@ pnpm run test:electron-bundle-static-integrity:no-build
 # Fast release/local policy loop
 pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts
 
-# Manual Electron E2E diagnostics
-pnpm run test:e2e:electron
+# One Electron E2E lane (see the lane table in docs/contributing/ci.md)
+pnpm run test:e2e e2e-smoke
 
 # Changed/related local loop
 pnpm run validate:iteration
@@ -216,21 +216,17 @@ removed after the native scan-cleanup pipeline superseded it and remains
 recoverable from git history. CI selects the relevant Electron behavior lanes by changed area. Broader
 PDF tab diagnostics remain available through their dedicated workflow.
 
-The Electron E2E regression suite currently covers:
-
-- Startup hydration, recent files, core viewer smoke, inactive PDF/DjVu tabs,
-  annotation lifecycle, and squiggly markup on desktop
-
-Opt-in Electron E2E subsets are selected by named Vitest projects through
-package scripts: `pnpm run test:e2e:electron:draw-shapes`,
-`pnpm run test:e2e:electron:large`, and
-`pnpm run test:e2e:electron:rapid-navigation`.
-The high-zoom PDF search-match regression runs with
-`pnpm run test:e2e:electron:search-match-scroll`.
+Electron E2E lanes are named Vitest projects in `vitest.shared.config.ts`;
+[the CI guide](./ci.md#electron-e2e-lanes) lists them. Run one with
+`pnpm run test:e2e <lane>`, or reuse an existing build with
+`bash scripts/test-electron-e2e-headless.sh --no-build <lane>`. The nightly
+lanes run the same way: `e2e-large-pdf` (set `EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1`)
+and `e2e-search-match-scroll` (run `pnpm run build:pdf-search` first and set
+`EVB_PDF_SEARCH_ENABLE=1`).
 To replay a captured PDF, set `EVB_SEARCH_SCROLL_PDF` and override its query,
 result count, target group, target viewer page, or target match with the
 corresponding `EVB_SEARCH_SCROLL_*` variables before running the named project.
-The manually dispatched macOS `pnpm run test:e2e:electron:visible-window` lane deliberately
+The manually dispatched macOS `pnpm run test:e2e:visible-window` lane deliberately
 uses the real show/maximize/focus lifecycle. Unlike the default hidden lanes,
 running it locally can bring the development app to the foreground.
 
