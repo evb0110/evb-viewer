@@ -76,23 +76,6 @@
                     <div
                         class="section"
                     >
-                        <div
-                            v-if="needsReOcr"
-                            class="catalog-recovery"
-                            role="alert"
-                            aria-live="polite"
-                        >
-                            <UIcon name="i-ph-warning-circle" class="size-4" />
-                            <span class="catalog-recovery-text">{{ t('ocr.catalogCorrupt') }}</span>
-                            <UButton
-                                color="primary"
-                                size="sm"
-                                icon="i-ph-arrow-counter-clockwise"
-                                :label="t('ocr.rebuild')"
-                                :disabled="!canRunOcr"
-                                @click="handleRebuildOcr"
-                            />
-                        </div>
                         <URadioGroup
                             v-model="settings.pageRange"
                             name="pageRange"
@@ -592,7 +575,6 @@ const {
     viewState,
     effectiveError,
     canRunOcr,
-    needsReOcr,
     showCustomRange,
     isCopyingLogs,
     copyLogsTooltip,
@@ -615,7 +597,6 @@ const {
     pageSegmentationModeSelectValue,
     handleCopyLogs,
     handleRunOcr,
-    handleRebuildOcr,
     handleCancel,
     handleExportDocx,
     handleCancelDocxExport,
@@ -833,23 +814,6 @@ defineExpose<IOcrPopupAgentExpose>({
 
 .custom-input {
     width: 100%;
-}
-
-.catalog-recovery {
-    display: flex;
-    align-items: center;
-    gap: var(--app-space-3xl);
-    margin-bottom: var(--app-space-3xl);
-    padding: var(--app-space-lg);
-    border: 1px solid var(--ui-warning);
-    border-radius: var(--app-radius-md);
-    color: var(--ui-warning);
-}
-
-.catalog-recovery-text {
-    flex: 1;
-    color: var(--ui-text);
-    font-size: var(--app-text-size-kicker);
 }
 
 .supersession-acknowledgement {

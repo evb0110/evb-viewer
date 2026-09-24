@@ -25,7 +25,6 @@ import { useTypedI18n } from '@app/composables/useTypedI18n';
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import { getOcrCapability } from '@app/utils/getOcrCapability';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
 import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 import {
@@ -335,7 +334,6 @@ export const useOcrPopupPresenter = ({
     const showSuccessState = ref(false);
     const activeOcrSourcePath = ref<TDocumentRef | null>(null);
     const activeOcrSourcePage = ref<number | null>(null);
-    const needsReOcr = ref(false);
     const pendingAppliedOcrRequestId = ref<string | null>(null);
     const pendingAppliedOcrSourceDocumentRevision = ref<TDocumentRevisionToken | null>(null);
     const languageSearchQuery = ref('');
@@ -465,27 +463,6 @@ export const useOcrPopupPresenter = ({
         ),
     );
 
-    async function loadOcrCatalogStatus() {
-        const sourcePath = workingCopyPath.value;
-        const revision = documentRevision.value;
-        if (!sourcePath || !revision) {
-            needsReOcr.value = false;
-            return;
-        }
-        const capability = getOcrCapability();
-        if (typeof capability.resolveDocumentOcrAvailability !== 'function') {
-            needsReOcr.value = false;
-            return;
-        }
-        try {
-            const availability = await capability.resolveDocumentOcrAvailability(sourcePath, revision);
-            if (sourcePath === workingCopyPath.value && revision === documentRevision.value) {
-                needsReOcr.value = availability.needsReOcr === true;
-            }
-        } catch (error) {
-            BrowserLogger.warn('ocr', 'Failed to resolve OCR catalog recovery status', error);
-        }
-    }
     const showCustomRange = computed(() => settings.value.pageRange === 'custom');
     const progressStatusText = computed(() => {
         if (progress.value.phase === 'processing') {
@@ -588,7 +565,6 @@ export const useOcrPopupPresenter = ({
             error: effectiveError.value,
             outcome: lastRunOutcome.value,
             hasResults: hasResults.value,
-            needsReOcr: needsReOcr.value,
         };
     }
 
@@ -682,16 +658,6 @@ export const useOcrPopupPresenter = ({
         activeOcrSourcePage.value = currentPage.value;
         activeRunNeedsModelDownload.value = computeActiveRunNeedsModelDownload();
         void runOcr(currentPage.value, totalPages.value, workingCopyPath.value);
-    }
-
-    function handleRebuildOcr() {
-        settings.value = {
-            ...settings.value,
-            pageRange: 'all',
-            customRange: '',
-        };
-        needsReOcr.value = false;
-        handleRunOcr();
     }
 
     async function runOcrForAgent(options: IAgentOcrRunOptions = {}) {
@@ -820,7 +786,6 @@ export const useOcrPopupPresenter = ({
     watch(isOpen, (value) => {
         if (value) {
             void loadLanguages();
-            void loadOcrCatalogStatus();
             return;
         }
         if (progress.value.isRunning) {
@@ -872,15 +837,7 @@ export const useOcrPopupPresenter = ({
         if (progress.value.isRunning) {
             void cancelOcr();
         }
-        needsReOcr.value = false;
         resetCompletedOcrState();
-    });
-
-    watch(documentRevision, () => {
-        needsReOcr.value = false;
-        if (isOpen.value) {
-            void loadOcrCatalogStatus();
-        }
     });
 
     watch([
@@ -948,7 +905,6 @@ export const useOcrPopupPresenter = ({
         viewState,
         effectiveError,
         canRunOcr,
-        needsReOcr,
         showCustomRange,
         isCopyingLogs,
         copyLogsState,
@@ -972,7 +928,6 @@ export const useOcrPopupPresenter = ({
         pageSegmentationModeSelectValue,
         handleCopyLogs,
         handleRunOcr,
-        handleRebuildOcr,
         runOcrForAgent,
         handleCancel,
         cancelOcrForAgent,

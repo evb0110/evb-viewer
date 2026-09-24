@@ -57,8 +57,6 @@ export interface IDocumentOcrPageRange {
 export interface IDocumentOcrAvailability {
     readonly documentRevision: TDocumentRevisionToken;
     readonly pageCount: number;
-    /** True when the previous catalog was quarantined and OCR should be run again. */
-    readonly needsReOcr?: boolean;
     /** Number of mapped pages, independent of how many ranges are returned. */
     readonly mappedPageCount?: number;
     /** Sorted, disjoint mapped-page ranges. */
@@ -253,7 +251,6 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
         || typeof value.pageCount !== 'number'
         || !Number.isSafeInteger(value.pageCount)
         || value.pageCount < 0
-        || (value.needsReOcr !== undefined && typeof value.needsReOcr !== 'boolean')
     ) {
         return null;
     }
@@ -329,7 +326,6 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
         mappedPageCount: value.mappedPageCount,
         pageRanges,
         rangesComplete,
-        ...(value.needsReOcr === true ? {needsReOcr: true} : {}),
     };
 }
 

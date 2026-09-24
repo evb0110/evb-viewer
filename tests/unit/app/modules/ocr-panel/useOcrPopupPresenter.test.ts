@@ -35,7 +35,6 @@ const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());
 const getDebugLogsMock = vi.hoisted(() => vi.fn());
 const browserLoggerWarnMock = vi.hoisted(() => vi.fn());
-const resolveDocumentOcrAvailabilityMock = vi.hoisted(() => vi.fn());
 const timeoutStartMock = vi.hoisted(() => vi.fn());
 const timeoutStopMock = vi.hoisted(() => vi.fn());
 const translateMock = vi.hoisted(() => (key: string, params?: Record<string, unknown>) => {
@@ -60,10 +59,7 @@ vi.mock('@vueuse/core', () => ({
         stop: timeoutStopMock,
     }),
 }));
-const platformApi = createElectronPlatformApiFixture({
-    settings: {getDebugLogs: getDebugLogsMock},
-    ocr: {resolveDocumentOcrAvailability: resolveDocumentOcrAvailabilityMock},
-});
+const platformApi = createElectronPlatformApiFixture({settings: {getDebugLogs: getDebugLogsMock}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: browserLoggerWarnMock}}));
 
@@ -263,7 +259,6 @@ describe('useOcrPopupPresenter', () => {
             message: 'trace line',
             timestamp: '2026-06-28T00:00:00.000Z',
         }]);
-        resolveDocumentOcrAvailabilityMock.mockResolvedValue({needsReOcr: false});
     });
 
     afterEach(() => {
@@ -467,25 +462,6 @@ describe('useOcrPopupPresenter', () => {
         try {
             harness.presenter.handleCancelDocxExport();
             expect(harness.events.onCancelDocxExport).toHaveBeenCalledOnce();
-        } finally {
-            stopHarness(harness.scope);
-        }
-    });
-
-    it('offers a full OCR rebuild when the catalog was quarantined', async () => {
-        const resolveDocumentOcrAvailability = vi.fn().mockResolvedValue({needsReOcr: true});
-        resolveDocumentOcrAvailabilityMock.mockImplementation(resolveDocumentOcrAvailability);
-        const harness = createPresenterHarness();
-
-        try {
-            harness.isOpen.value = true;
-            await vi.waitFor(() => expect(harness.presenter.needsReOcr.value).toBe(true));
-
-            harness.presenter.handleRebuildOcr();
-
-            expect(harness.presenter.needsReOcr.value).toBe(false);
-            expect(harness.ocr.settings.value.pageRange).toBe('all');
-            expect(harness.ocr.runOcr).toHaveBeenCalledWith(3, 12, '/tmp/source.pdf');
         } finally {
             stopHarness(harness.scope);
         }
