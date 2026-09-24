@@ -99,22 +99,28 @@ required for the fork notices and bundled third-party inventory.
 ## Writer role, status 2026-09-24
 
 The editor and save-route parts of this decision are done: annotation saves go
-only through `pdf-page-ops`. The writer role is not yet single. These still
-produce PDF bytes:
+only through `pdf-page-ops`. The writer role is one writer per kind of
+operation:
 
-- the qpdf CLI, for desktop page restructuring (delete, extract, reorder, move,
-  insert, one rotation path), merges and optimization
-  (`electron/features/page-ops/main/qpdf.ts` and callers);
-- pdf-lib, in print layout (`packages/pdf-core/pdfPrintLayout.ts`);
-- the serializer in `native/pdf-image-combine/src/pdf.rs`, including outlines
-  and page labels.
+- Whole-file restructuring on desktop (delete, extract, reorder, move, insert,
+  merge, optimize) is the qpdf CLI (`electron/features/page-ops/main/qpdf.ts`
+  and callers). It streams and handles multi-GB files.
+- Append-only incremental edits (annotations, notes, rotation, crop, bookmarks,
+  page labels, metadata, the OCR text layer) are `pdf-page-ops`. Rotation has
+  one path, an appended revision; a working copy that shares its inode with the
+  original gets the append in a copy that replaces it.
+- New documents from images (combine, scan cleanup output, DjVu MRC) are
+  `pdf-image-combine`, which writes pages only. Bookmarks and page labels are
+  added afterwards by the `pdf-page-ops` catalog writer (`save-mutations`).
+- Print sheets are `pdf-page-ops print-layout`: each selected page, with its
+  printable annotation appearances drawn in, becomes a Form XObject on an A4
+  sheet, one per sheet or two per spread.
 
-`pdf-page-ops` also shells out to `qpdf --json` to load large files. The
-approved target is one writer per operation class: qpdf for whole-file
-restructuring or `pdf-page-ops` for everything, `pdf-page-ops` for append-only
-incremental edits, and no pdf-lib writer. The OCR text layer is already there:
-`pdf-page-ops ocr-text-layer` writes every recognized page in one incremental
-revision. Until the rest lands, this list is the truth.
+pdf-lib writes no PDF bytes; it remains a PDF object parser in the renderer.
+The browser build runs the same two crates as WASM, including their page
+operations and print layout; its streaming DjVu export
+(`app/platform/browser-api/streamingImagePdfWriter.ts`) is the one browser-only
+writer. `pdf-page-ops` still shells out to `qpdf --json` to load large files.
 
 ## Revisit when
 

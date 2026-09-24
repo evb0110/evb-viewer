@@ -48,7 +48,7 @@ docs/       Project-specific implementation and release notes
 - Nuxt 4 + Vue 3 + TypeScript 6 (TypeScript 7 native compiler for plain-TypeScript checks)
 - Nuxt UI 4 + Tailwind CSS 4
 - The pinned EVB PDF.js fork for rendering
-- `pdf-lib` for document rewriting and page operations
+- `pdf-lib` as a PDF object parser in the renderer
 - Tesseract + Poppler + qpdf + DjVuLibre for desktop-native workflows
 - Vitest, Playwright, and Puppeteer-based Electron E2E coverage
 

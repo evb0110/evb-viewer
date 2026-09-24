@@ -33,8 +33,10 @@ heavy document work. This page is the map. The decisions behind it are in
 
 [ADR 0002](docs/architecture/adr/0002-pdfjs-renders-rust-writes-evb-edits.md) is
 the decision that shapes everything else. PDF.js is a read-only renderer and
-never produces PDF bytes. The Rust `pdf-page-ops` crate is the intended only
-writer; ADR 0002 lists the components that still write PDF bytes today. The
+never produces PDF bytes. Each kind of write has one writer: qpdf restructures
+whole files on desktop, the Rust `pdf-page-ops` crate appends incremental edits
+(annotations, rotation, crop, bookmarks, page labels, the OCR text layer) and
+lays out print sheets, and `pdf-image-combine` writes pages from images. The
 app owns the canonical annotation state, and every other view of an annotation,
 on the page, in the sidebar, in the written file, derives from it.
 
@@ -55,8 +57,8 @@ without a desktop install.
 | Crate | Owns | Scale |
 | --- | --- | --- |
 | `scan-cleanup` | The cleanup engine and its CLI: analysis, routing, binarization, dewarp, mixed raster content, manifest protocol | ~78k lines |
-| `pdf-page-ops` | The PDF writer: page operations, annotation read and write, decryption, geometry, text shaping | ~49k lines |
-| `pdf-image-combine` | Images to PDF, across bilevel, JBIG2, JPEG, JPEG 2000, and TIFF paths | ~12k lines |
+| `pdf-page-ops` | Incremental edits, catalogs, and print layout; annotation read and write, decryption, geometry, text shaping | ~49k lines |
+| `pdf-image-combine` | Image pages to PDF, across bilevel, JBIG2, JPEG, JPEG 2000, and TIFF paths | ~10k lines |
 | `jbig2-codec` | Lossless JBIG2 generic-region encode and decode, in the layout PDF readers expect | ~4.6k lines |
 | `scan-primitives` | Deterministic image and geometry types shared by the imaging crates | ~4.5k lines |
 | `pdf-search` | A persistent search sidecar over a streamed index file, with Unicode casefolding | ~3.4k lines |
