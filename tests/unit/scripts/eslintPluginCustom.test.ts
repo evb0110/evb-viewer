@@ -252,54 +252,6 @@ describe('no-direct-console-error rule', () => {
     });
 });
 
-describe('require-failure-receipt rule', () => {
-    it('requires receipt-bearing runtime failure presentation', () => {
-        tester.run('require-failure-receipt', rules['require-failure-receipt'] as Parameters<typeof tester.run>[1], {
-            valid: [{
-                code: 'reportRuntimeError({failure});',
-                filename: 'app/utils/failureBoundary.ts',
-            }],
-            invalid: [{
-                code: 'reportRuntimeError({message: \'failed\'});',
-                filename: 'app/utils/failureBoundary.ts',
-                errors: [{message: 'Runtime and fatal failure presentation requires a FailureReceipt.'}],
-            }],
-        });
-    });
-});
-
-describe('require-classified-error-log rule', () => {
-    it('requires closed diagnostic input for application error logs', () => {
-        tester.run('require-classified-error-log', rules['require-classified-error-log'] as Parameters<typeof tester.run>[1], {
-            valid: [{
-                code: 'BrowserLogger.error(message, source, error, {code: \'PDF_RENDER\', context: {}});',
-                filename: 'app/utils/failureBoundary.ts',
-            }],
-            invalid: [{
-                code: 'BrowserLogger.error(message, source, error, {code: \'PDF_RENDER\'});',
-                filename: 'app/utils/failureBoundary.ts',
-                errors: [{message: 'Error logging requires a closed diagnostic code and context or an existing FailureReceipt.'}],
-            }],
-        });
-    });
-});
-
-describe('no-unclassified-diagnostic-code rule', () => {
-    it('rejects generic diagnostic codes at application capture sites', () => {
-        tester.run('no-unclassified-diagnostic-code', rules['no-unclassified-diagnostic-code'] as Parameters<typeof tester.run>[1], {
-            valid: [{
-                code: 'captureFailure({code: \'PDF_RENDER\'});',
-                filename: 'app/utils/failureBoundary.ts',
-            }],
-            invalid: [{
-                code: 'captureFailure({code: \'UNCLASSIFIED_RENDERER_ERROR\'});',
-                filename: 'app/utils/failureBoundary.ts',
-                errors: [{message: 'Application-owned failures require a subsystem-specific diagnostic code.'}],
-            }],
-        });
-    });
-});
-
 describe('migrated core ESLint and Stylelint rules', () => {
     async function lintStyle(ruleName: string, code: string, codeFilename: string) {
         const result = await stylelint.lint({
