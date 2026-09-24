@@ -9,8 +9,6 @@ import type {
 } from '@app/types/annotations';
 import type {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {isSelectionMarkupTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
-import {markupSubtypeByAnnotationTool} from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
 
 interface ICreatePdfAnnotationEditorCompatibilityOptions {
     annotationApplication: ShallowRef<AnnotationApplication>;
@@ -51,22 +49,9 @@ export function createPdfAnnotationEditorCompatibility(
     options: ICreatePdfAnnotationEditorCompatibilityOptions,
 ) {
     const markupSubtype = {
-        toolToMarkupSubtype: markupSubtypeByAnnotationTool,
-        isSelectionMarkupTool,
         getSelectedTextMarkupAnnotationProperties: () => selectedTextMarkupProperties(
             options.annotationApplication,
         ),
-        rememberMarkupSubtypeColorOverride: () => {},
-        updateSelectedTextMarkupAnnotationColor: (color: string) => {
-            const selectedEntity = selectedTextMarkupEntity(options.annotationApplication);
-            if (!selectedEntity) {
-                return false;
-            }
-            return Boolean(options.annotationApplication.value.store.updateTextMarkup(
-                selectedEntity.identity.id,
-                {color},
-            ));
-        },
         updateSelectedTextMarkupAnnotationProperties: (
             updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>,
             selected: ITextMarkupAnnotationProperties,
@@ -93,34 +78,11 @@ export function createPdfAnnotationEditorCompatibility(
                 },
             ));
         },
-        updateTextMarkupAnnotationColor: (
-            _editor: object,
-            _pageIndex: number,
-            _subtype: TMarkupSubtype,
-            _color: string,
-        ) => false,
-        getMarkupSubtypeOverrides: () => new Map(options.canonicalMarkupSubtypeHints),
-        getMarkupSubtypeHints: () => [],
     };
-    const toolManager = {
-        setAnnotationTool: () => {},
-        applyAnnotationSettings: (_settings: IAnnotationSettings | null | undefined) => {},
-        updateModeWithRetry: () => Promise.resolve(null),
-        maybeAutoResetAnnotationTool: () => {},
-    };
-    const freeTextResize = {ensureFreeTextEditorCanResize: (_editor: object) => {}};
     const editor = {
         markupSubtype,
-        toolManager,
-        freeTextResize,
-        setAnnotationTool: toolManager.setAnnotationTool,
-        applyAnnotationSettings: toolManager.applyAnnotationSettings,
-        updateModeWithRetry: toolManager.updateModeWithRetry,
-        getMarkupSubtypeOverrides: markupSubtype.getMarkupSubtypeOverrides,
-        getMarkupSubtypeHints: markupSubtype.getMarkupSubtypeHints,
-        ensureFreeTextEditorCanResize: freeTextResize.ensureFreeTextEditorCanResize,
-        initAnnotationEditor: () => {},
-        destroyAnnotationEditor: () => {},
+        getMarkupSubtypeOverrides: () => new Map(options.canonicalMarkupSubtypeHints),
+        getMarkupSubtypeHints: () => [],
         commitPendingFreeTextDraftsForSave: () => {
             options.commitPendingFreeTextDraftsForSave?.();
         },

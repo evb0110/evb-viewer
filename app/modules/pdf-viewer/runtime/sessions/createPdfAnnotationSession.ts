@@ -1137,7 +1137,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
         if (transition.phase === 'restore') {
             scheduleSetAnnotationTool(options.annotationTool.value, 'restore annotation tool after tab activation');
-            annotations.editor.applyAnnotationSettings(options.annotationSettings.value);
             return;
         }
         if (transition.phase === 'settled') {

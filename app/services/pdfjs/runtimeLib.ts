@@ -405,9 +405,6 @@ export async function preparePdfjsBrowserRuntime(runtime: IPdfjsBrowserRuntime =
 }
 
 export const AnnotationLayer = getRuntimeExport('AnnotationLayer');
-export const AnnotationEditorLayer = getRuntimeExport('AnnotationEditorLayer');
-export const AnnotationEditorUIManager = getRuntimeExport('AnnotationEditorUIManager');
 export const AnnotationMode = getMergedRuntimeExport('AnnotationMode', DEFAULT_ANNOTATION_MODE);
-export const DrawLayer = getRuntimeExport('DrawLayer');
 export const ImageKind = getMergedRuntimeExport('ImageKind', DEFAULT_IMAGE_KIND);
 export const TextLayer = getRuntimeExport('TextLayer');
