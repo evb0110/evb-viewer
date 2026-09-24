@@ -2,6 +2,29 @@ use super::*;
 
 pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
     match &config.operation {
+        Operation::PdfConformance => {
+            return write_pdf_conformance(
+                &config.input_path,
+                config.qpdf_path.as_deref(),
+                &mut std::io::stdout().lock(),
+            )
+        }
+        Operation::PageGeometry { page_number } => {
+            return write_page_geometry(
+                &config.input_path,
+                *page_number,
+                config.qpdf_path.as_deref(),
+                &mut std::io::stdout().lock(),
+            )
+        }
+        _ => {}
+    }
+    let output_path = config
+        .output_path
+        .as_deref()
+        .ok_or("Missing --output value")?;
+
+    match &config.operation {
         Operation::Crop {
             pages_file,
             margins,
@@ -10,7 +33,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_crop_pages_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 &pages,
                 *margins,
                 config.qpdf_path.as_deref(),
@@ -21,7 +44,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_remove_crop_pages_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 &pages,
                 config.qpdf_path.as_deref(),
             );
@@ -35,7 +58,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_split_pages_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 &instructions,
                 config.qpdf_path.as_deref(),
             );
@@ -49,7 +72,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
             return write_overlay_text_layers_path(
                 &config.input_path,
                 source_path,
-                &config.output_path,
+                output_path,
                 &instructions,
                 config.qpdf_path.as_deref(),
             );
@@ -59,7 +82,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 .map_err(|error| reclassify_domain_error(error, NativeErrorCode::InvalidRequest))?;
             return write_ocr_text_layer_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 &instructions,
                 config.qpdf_path.as_deref(),
             );
@@ -71,21 +94,21 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         Operation::AnnotationNameIndex => {
             return write_annotation_name_index_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 config.qpdf_path.as_deref(),
             )
         }
         Operation::EmbeddedShapeIndex => {
             return write_embedded_shape_index_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 config.qpdf_path.as_deref(),
             )
         }
         Operation::ParseAnnotations { modified_at } => {
             return write_annotation_parse_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 modified_at,
                 config.qpdf_path.as_deref(),
             )
@@ -93,37 +116,22 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         Operation::PageSizes { metadata_only } => {
             return write_page_sizes_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 config.qpdf_path.as_deref(),
                 *metadata_only,
-            )
-        }
-        Operation::PdfConformance => {
-            return write_pdf_conformance_path(
-                &config.input_path,
-                &config.output_path,
-                config.qpdf_path.as_deref(),
             )
         }
         Operation::Decrypt { password_file } => {
             return write_decrypted_pdf_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 password_file.as_deref(),
             );
-        }
-        Operation::PageGeometry { page_number } => {
-            return write_page_geometry_path(
-                &config.input_path,
-                &config.output_path,
-                *page_number,
-                config.qpdf_path.as_deref(),
-            )
         }
         Operation::ReadCatalog => {
             return write_pdf_combine_catalog_path(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 config.qpdf_path.as_deref(),
             )
         }
@@ -155,7 +163,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         if append_in_place {
             return append_native_mutations_in_place_with_qpdf(
                 &config.input_path,
-                &config.output_path,
+                output_path,
                 &mutations,
                 modified_at,
                 config.qpdf_path.as_deref(),
@@ -164,7 +172,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         }
         return append_native_mutations_with_qpdf(
             &config.input_path,
-            &config.output_path,
+            output_path,
             &mutations,
             modified_at,
             config.qpdf_path.as_deref(),
@@ -184,7 +192,7 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
         };
         return write_native_mutations_path(
             &config.input_path,
-            &config.output_path,
+            output_path,
             &mutations,
             modified_at,
             config.qpdf_path.as_deref(),

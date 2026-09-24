@@ -566,7 +566,7 @@ mod tests {
         let error = mutate_pdf(Config {
             operation: Operation::AnnotationNameIndex,
             input_path: input.clone(),
-            output_path: output.clone(),
+            output_path: Some(output.clone()),
             qpdf_path: None,
         })
         .unwrap_err();

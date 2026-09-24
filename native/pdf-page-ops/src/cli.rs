@@ -208,10 +208,21 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         _ => return Err(format!("Unknown command: {command}").into()),
     };
 
+    let prints_result = matches!(
+        operation,
+        Operation::PageGeometry { .. } | Operation::PdfConformance
+    );
+    if prints_result && output_path.is_some() {
+        return Err(format!("{command} prints its result on stdout and takes no --output").into());
+    }
+    if !prints_result && output_path.is_none() {
+        return Err("Missing --output value".into());
+    }
+
     Ok(Config {
         operation,
         input_path: input_path.ok_or("Missing --input value")?,
-        output_path: output_path.ok_or("Missing --output value")?,
+        output_path,
         qpdf_path,
     })
 }
@@ -244,7 +255,7 @@ mod tests {
             }
         ));
         assert_eq!(config.input_path, PathBuf::from("encrypted.pdf"));
-        assert_eq!(config.output_path, PathBuf::from("decrypted.pdf"));
+        assert_eq!(config.output_path, Some(PathBuf::from("decrypted.pdf")));
     }
 
     #[test]
@@ -276,8 +287,6 @@ mod tests {
                 "page-geometry",
                 "--input",
                 "input.pdf",
-                "--output",
-                "geometry.json",
                 "--page",
                 "7",
                 "--qpdf",
@@ -293,7 +302,7 @@ mod tests {
             Operation::PageGeometry { page_number: 7 }
         ));
         assert_eq!(config.input_path, PathBuf::from("input.pdf"));
-        assert_eq!(config.output_path, PathBuf::from("geometry.json"));
+        assert_eq!(config.output_path, None);
         assert_eq!(config.qpdf_path, Some(PathBuf::from("qpdf")));
     }
 

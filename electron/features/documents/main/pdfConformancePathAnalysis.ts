@@ -3,7 +3,6 @@ import {
     stat,
 } from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
-import {join} from 'node:path';
 import {
     buildPdfSaveRestrictions,
     detectPdfaLevelFromPdfText,
@@ -15,7 +14,6 @@ import {isRecord} from '@contracts/runtimeGuards';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
-import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {
     abortErrorFromSignal,
     isAbortError,
@@ -33,7 +31,6 @@ const PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS = 10 * 60 * 1000;
 
 const PDF_CONFORMANCE_NATIVE_COMMAND_LABEL = 'evb-pdf-page-ops(pdf-conformance)';
 const PDF_CONFORMANCE_FACTS_MAX_BYTES = 64 * 1024;
-const PDF_CONFORMANCE_FACTS_FILE_NAME = 'facts.json';
 
 interface IPdfMarkerEvidence {
     isSigned: boolean;
@@ -243,73 +240,6 @@ function parseStructuralFacts(value: unknown): IQpdfStructuralFacts {
     };
 }
 
-async function readPdfConformanceFactsFromPath(
-    filePath: string,
-    signal?: AbortSignal,
-): Promise<IQpdfStructuralFacts> {
-    throwIfAborted(signal);
-    let handle: FileHandle | undefined;
-    try {
-        try {
-            handle = await open(filePath, 'r');
-        } catch (error) {
-            if (isAbortError(error)) {
-                throw error;
-            }
-            throw capabilityError(
-                'native-unavailable',
-                `Unable to open native PDF conformance facts: ${getErrorMessage(error)}`,
-                error,
-            );
-        }
-        const buffer = Buffer.alloc(PDF_CONFORMANCE_FACTS_MAX_BYTES + 1);
-        let bytesRead: number;
-        try {
-            ({bytesRead} = await handle.read(
-                buffer,
-                0,
-                buffer.length,
-                0,
-            ));
-        } catch (error) {
-            if (isAbortError(error)) {
-                throw error;
-            }
-            throw capabilityError(
-                'native-failure',
-                `Unable to read native PDF conformance facts: ${getErrorMessage(error)}`,
-                error,
-            );
-        }
-        if (bytesRead <= 0) {
-            throw capabilityError(
-                'native-failure',
-                'Native PDF conformance facts are empty',
-            );
-        }
-        if (bytesRead > PDF_CONFORMANCE_FACTS_MAX_BYTES) {
-            throw capabilityError(
-                'structural-output-too-large',
-                `Native PDF conformance facts exceed ${PDF_CONFORMANCE_FACTS_MAX_BYTES} bytes`,
-            );
-        }
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(buffer.subarray(0, bytesRead).toString('utf8'));
-        } catch (error) {
-            throw capabilityError(
-                'native-failure',
-                `Native PDF conformance facts are not valid JSON: ${getErrorMessage(error)}`,
-                error,
-            );
-        }
-        throwIfAborted(signal);
-        return parseStructuralFacts(parsed);
-    } finally {
-        await handle?.close().catch(() => undefined);
-    }
-}
-
 async function readPdfStructuralFactsFromPath(
     filePath: string,
     options: IPdfConformancePathAnalysisOptions = {},
@@ -333,43 +263,50 @@ async function readPdfStructuralFactsFromPath(
             'The bundled qpdf structural reader is unavailable',
         );
     }
-    return usingManagedScratchScope('pdf-page-ops-', async (scratchPath) => {
-        const factsPath = join(scratchPath, PDF_CONFORMANCE_FACTS_FILE_NAME);
-        try {
-            await runNativeToolCommand(nativePath, [
-                'pdf-conformance',
-                '--input',
-                filePath,
-                '--output',
-                factsPath,
-                '--qpdf',
-                qpdfPath,
-            ], {
-                timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
-                maxStdoutBytes: 64 * 1024,
-                maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
-                rejectOnStdoutTruncation: true,
-                allowedExitCodes: [0],
-                commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
-                ...(options.signal ? {signal: options.signal} : {}),
-                ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
-            });
-        } catch (error) {
-            if (isAbortError(error)) {
-                throw error;
-            }
-            const message = getErrorMessage(error);
-            const code = /stdout exceeded|truncated|timed out|too.large|resource.limit/iu.test(message)
-                ? 'structural-output-too-large'
-                : 'native-failure';
-            throw capabilityError(
-                code,
-                `Native PDF conformance structure was unavailable for "${filePath}": ${message}`,
-                error,
-            );
+    let stdout: string;
+    try {
+        ({stdout} = await runNativeToolCommand(nativePath, [
+            'pdf-conformance',
+            '--input',
+            filePath,
+            '--qpdf',
+            qpdfPath,
+        ], {
+            timeoutMs: options.timeoutMs ?? PDF_CONFORMANCE_STRUCTURAL_TIMEOUT_MS,
+            maxStdoutBytes: PDF_CONFORMANCE_FACTS_MAX_BYTES,
+            maxStderrBytes: PDF_CONFORMANCE_STRUCTURAL_DIAGNOSTIC_MAX_BYTES,
+            rejectOnStdoutTruncation: true,
+            allowedExitCodes: [0],
+            commandLabel: PDF_CONFORMANCE_NATIVE_COMMAND_LABEL,
+            ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        }));
+    } catch (error) {
+        if (isAbortError(error)) {
+            throw error;
         }
-        return readPdfConformanceFactsFromPath(factsPath, options.signal);
-    });
+        const message = getErrorMessage(error);
+        const code = /stdout exceeded|truncated|timed out|too.large|resource.limit/iu.test(message)
+            ? 'structural-output-too-large'
+            : 'native-failure';
+        throw capabilityError(
+            code,
+            `Native PDF conformance structure was unavailable for "${filePath}": ${message}`,
+            error,
+        );
+    }
+    throwIfAborted(options.signal);
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(stdout);
+    } catch (error) {
+        throw capabilityError(
+            'native-failure',
+            `Native PDF conformance facts are not valid JSON: ${getErrorMessage(error)}`,
+            error,
+        );
+    }
+    return parseStructuralFacts(parsed);
 }
 
 export async function analyzePdfConformancePath(

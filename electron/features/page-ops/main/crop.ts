@@ -1,12 +1,5 @@
 import { existsSync } from 'fs';
-import {
-    readFile,
-    stat,
-} from 'fs/promises';
-import {
-    dirname,
-    join,
-} from 'path';
+import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import type {
     ICropMargins,
@@ -35,7 +28,6 @@ import type { TCropWorkerInput } from '@electron/features/page-ops/main/cropWork
 import { materializePageOperationWorkingCopy } from '@electron/features/page-ops/main/qpdf';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {
     PdfPageOpsCapabilityError,
@@ -145,57 +137,46 @@ async function tryGetPageGeometryWithNativePageOps(
         return null;
     }
 
-    return usingManagedScratchScope('pdf-page-ops-', async (scratchPath) => {
-        const outputPath = join(scratchPath, 'page-geometry.json');
-        try {
-            const args = [
-                'page-geometry',
-                '--input',
-                workingCopyPath,
-                '--output',
-                outputPath,
-                '--page',
-                String(pageNumber),
-            ];
-            const qpdfPath = getPdfNativeToolPaths().qpdf;
-            if (qpdfPath) {
-                args.push('--qpdf', qpdfPath);
-            }
-            await runNativeToolCommand(binaryPath, args, {
-                timeoutMs: PAGE_GEOMETRY_NATIVE_TIMEOUT_MS,
-                maxStdoutBytes: PAGE_GEOMETRY_MAX_OUTPUT_BYTES,
-                maxStderrBytes: PAGE_GEOMETRY_MAX_OUTPUT_BYTES,
-                rejectOnStdoutTruncation: true,
-                commandLabel: 'evb-pdf-page-ops(page-geometry)',
-                ...(signal ? { signal } : {}),
-            });
-            throwIfAborted(signal);
-            const outputStat = await stat(outputPath);
-            if (outputStat.size > PAGE_GEOMETRY_MAX_OUTPUT_BYTES) {
-                throw new Error('Native page geometry produced an oversized result');
-            }
-            const resultJson = await readFile(outputPath, 'utf8');
-            throwIfAborted(signal);
-            const result = decodePageGeometry(JSON.parse(resultJson));
-            if (!result) {
-                throw new Error('Native page geometry returned an invalid result');
-            }
-            return result;
-        } catch (error) {
-            if (isAbortError(error) || signal?.aborted) {
-                throw error;
-            }
-            await assertPageOpsLocalFallbackAllowed(
-                workingCopyPath,
-                'get-page-geometry',
-                signal,
-                nativePageGeometryFailureCode(error),
-                error,
-            );
-            log.debug(createNativePageGeometryFailure(error).message);
-            return null;
+    try {
+        const args = [
+            'page-geometry',
+            '--input',
+            workingCopyPath,
+            '--page',
+            String(pageNumber),
+        ];
+        const qpdfPath = getPdfNativeToolPaths().qpdf;
+        if (qpdfPath) {
+            args.push('--qpdf', qpdfPath);
         }
-    });
+        const {stdout} = await runNativeToolCommand(binaryPath, args, {
+            timeoutMs: PAGE_GEOMETRY_NATIVE_TIMEOUT_MS,
+            maxStdoutBytes: PAGE_GEOMETRY_MAX_OUTPUT_BYTES,
+            maxStderrBytes: PAGE_GEOMETRY_MAX_OUTPUT_BYTES,
+            rejectOnStdoutTruncation: true,
+            commandLabel: 'evb-pdf-page-ops(page-geometry)',
+            ...(signal ? { signal } : {}),
+        });
+        throwIfAborted(signal);
+        const result = decodePageGeometry(JSON.parse(stdout));
+        if (!result) {
+            throw new Error('Native page geometry returned an invalid result');
+        }
+        return result;
+    } catch (error) {
+        if (isAbortError(error) || signal?.aborted) {
+            throw error;
+        }
+        await assertPageOpsLocalFallbackAllowed(
+            workingCopyPath,
+            'get-page-geometry',
+            signal,
+            nativePageGeometryFailureCode(error),
+            error,
+        );
+        log.debug(createNativePageGeometryFailure(error).message);
+        return null;
+    }
 }
 
 export async function cropPages(

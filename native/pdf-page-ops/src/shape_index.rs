@@ -1681,7 +1681,7 @@ mod tests {
         mutate_pdf(Config {
             operation: Operation::EmbeddedShapeIndex,
             input_path: input.clone(),
-            output_path: output.clone(),
+            output_path: Some(output.clone()),
             qpdf_path: None,
         })
         .unwrap();
@@ -1704,7 +1704,7 @@ mod tests {
         let error = mutate_pdf(Config {
             operation: Operation::EmbeddedShapeIndex,
             input_path: input.clone(),
-            output_path: output.clone(),
+            output_path: Some(output.clone()),
             qpdf_path: None,
         })
         .unwrap_err();
@@ -1724,7 +1724,7 @@ mod tests {
         let error = mutate_pdf(Config {
             operation: Operation::EmbeddedShapeIndex,
             input_path: input.clone(),
-            output_path: input.clone(),
+            output_path: Some(input.clone()),
             qpdf_path: None,
         })
         .unwrap_err();

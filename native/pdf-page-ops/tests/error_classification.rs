@@ -56,13 +56,11 @@ fn run_page_sizes(input: &Path, output: &Path) -> Output {
     )
 }
 
-fn run_page_geometry(input: &Path, output: &Path, page_number: u32) -> Output {
+fn run_page_geometry(input: &Path, page_number: u32) -> Output {
     run_command(
         Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["page-geometry", "--input"])
             .arg(input)
-            .arg("--output")
-            .arg(output)
             .arg("--page")
             .arg(page_number.to_string()),
     )
@@ -108,13 +106,11 @@ fn run_crop(input: &Path, output: &Path, pages: &Path) -> Output {
 }
 
 #[cfg(unix)]
-fn run_pdf_conformance(input: &Path, output: &Path, qpdf: &Path) -> Output {
+fn run_pdf_conformance(input: &Path, qpdf: &Path) -> Output {
     run_command(
         Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["pdf-conformance", "--input"])
             .arg(input)
-            .arg("--output")
-            .arg(output)
             .arg("--qpdf")
             .arg(qpdf),
     )
@@ -155,46 +151,31 @@ fn pdf_conformance_accepts_only_valid_qpdf_warning_output() {
     document.save(&input).unwrap();
 
     let warning_qpdf = path("qpdf-warning", "sh");
-    let warning_output = path("qpdf-warning-output", "json");
     write_fake_qpdf(&warning_qpdf, 3, VALID_STRUCTURE);
-    let warning_result = run_pdf_conformance(&input, &warning_output, &warning_qpdf);
+    let warning_result = run_pdf_conformance(&input, &warning_qpdf);
     assert!(
         warning_result.status.success(),
         "valid warning-only qpdf output failed: {}",
         String::from_utf8_lossy(&warning_result.stderr)
     );
-    let facts: Value = serde_json::from_slice(&read(&warning_output).unwrap()).unwrap();
+    let facts: Value = serde_json::from_slice(&warning_result.stdout).unwrap();
     assert_eq!(facts["isSigned"], false);
 
     let truncated_qpdf = path("qpdf-truncated-warning", "sh");
-    let truncated_output = path("qpdf-truncated-output", "json");
     write_fake_qpdf(&truncated_qpdf, 3, TRUNCATED_STRUCTURE);
     assert_eq!(
-        error_code(&run_pdf_conformance(
-            &input,
-            &truncated_output,
-            &truncated_qpdf,
-        )),
+        error_code(&run_pdf_conformance(&input, &truncated_qpdf)),
         "native-failure"
     );
 
     let error_qpdf = path("qpdf-error", "sh");
-    let error_output = path("qpdf-error-output", "json");
     write_fake_qpdf(&error_qpdf, 2, VALID_STRUCTURE);
     assert_eq!(
-        error_code(&run_pdf_conformance(&input, &error_output, &error_qpdf)),
+        error_code(&run_pdf_conformance(&input, &error_qpdf)),
         "corrupt-xref"
     );
 
-    for candidate in [
-        input,
-        warning_qpdf,
-        warning_output,
-        truncated_qpdf,
-        truncated_output,
-        error_qpdf,
-        error_output,
-    ] {
+    for candidate in [input, warning_qpdf, truncated_qpdf, error_qpdf] {
         let _ = remove_file(candidate);
     }
 }
@@ -208,7 +189,6 @@ fn pdf_conformance_accepts_legacy_qpdf_json_and_rejects_invalid_trailer_sizes() 
     const NON_INTEGER_SIZE: &str = r#"{"version":1,"objects":{"trailer":{"/Size":"/three","/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"}}}"#;
     const UNDERSIZED: &str = r#"{"version":1,"objects":{"trailer":{"/Size":2,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"},"2 0 R":null}}"#;
     let input = path("qpdf-legacy-input", "pdf");
-    let output = path("qpdf-legacy-output", "json");
     let qpdf = path("qpdf-legacy", "sh");
     let mut document = Document::with_version("1.4");
     let catalog_id = document.add_object(dictionary! { "Type" => "Catalog" });
@@ -216,74 +196,26 @@ fn pdf_conformance_accepts_legacy_qpdf_json_and_rejects_invalid_trailer_sizes() 
     document.save(&input).unwrap();
 
     write_fake_qpdf(&qpdf, 0, VALID_STRUCTURE);
-    let result = run_pdf_conformance(&input, &output, &qpdf);
+    let result = run_pdf_conformance(&input, &qpdf);
     assert!(
         result.status.success(),
         "legacy qpdf JSON was rejected: {}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let facts: Value = serde_json::from_slice(&read(&output).unwrap()).unwrap();
+    let facts: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(facts["isSigned"], false);
 
     for structure in [MISSING_SIZE, NON_INTEGER_SIZE, UNDERSIZED] {
         write_fake_qpdf(&qpdf, 0, structure);
         assert_eq!(
-            error_code(&run_pdf_conformance(&input, &output, &qpdf)),
+            error_code(&run_pdf_conformance(&input, &qpdf)),
             "native-failure"
         );
     }
 
-    for candidate in [input, output, qpdf] {
+    for candidate in [input, qpdf] {
         let _ = remove_file(candidate);
     }
-}
-
-#[cfg(unix)]
-#[test]
-fn pdf_conformance_output_is_safe_for_same_path_and_hardlink_output() {
-    const VALID_STRUCTURE: &str = r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#;
-    let qpdf = path("qpdf-alias", "sh");
-    write_fake_qpdf(&qpdf, 0, VALID_STRUCTURE);
-
-    for hardlink_output in [false, true] {
-        let label = if hardlink_output {
-            "conformance-alias-hardlink"
-        } else {
-            "conformance-alias-same-path"
-        };
-        let input = path(label, "pdf");
-        let output = path(&format!("{label}-output"), "json");
-        let mut document = Document::with_version("1.4");
-        let catalog_id = document.add_object(dictionary! { "Type" => "Catalog" });
-        document.trailer.set("Root", catalog_id);
-        document.save(&input).unwrap();
-        let original_input = read(&input).unwrap();
-        let destination = if hardlink_output {
-            std::fs::hard_link(&input, &output).unwrap();
-            output.clone()
-        } else {
-            input.clone()
-        };
-
-        let result = run_pdf_conformance(&input, &destination, &qpdf);
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        let facts: Value = serde_json::from_slice(&read(&destination).unwrap()).unwrap();
-        assert_eq!(facts["isSigned"], false);
-        if hardlink_output {
-            assert_eq!(read(&input).unwrap(), original_input);
-            assert!(Document::load(&input).is_ok());
-        }
-
-        for file in [input, output] {
-            let _ = remove_file(file);
-        }
-    }
-
-    let _ = remove_file(qpdf);
 }
 
 #[test]
@@ -388,7 +320,6 @@ fn corrupt_pdf_is_corrupt_xref_for_direct_and_append_paths() {
 #[test]
 fn page_geometry_reports_inherited_boxes_and_rotation() {
     let input = path("geometry-input", "pdf");
-    let output = path("geometry-output", "json");
     let mut document = Document::with_version("1.4");
     let pages_id = document.new_object_id();
     let page_id = document.add_object(dictionary! {
@@ -413,13 +344,13 @@ fn page_geometry_reports_inherited_boxes_and_rotation() {
     document.trailer.set("Root", catalog_id);
     document.save(&input).unwrap();
 
-    let result = run_page_geometry(&input, &output, 1);
+    let result = run_page_geometry(&input, 1);
     assert!(
         result.status.success(),
         "native page geometry failed: {}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let geometry: Value = serde_json::from_slice(&std::fs::read(&output).unwrap()).unwrap();
+    let geometry: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(
         geometry,
         serde_json::json!({
@@ -430,7 +361,6 @@ fn page_geometry_reports_inherited_boxes_and_rotation() {
     );
 
     let _ = remove_file(input);
-    let _ = remove_file(output);
 }
 
 #[test]
@@ -445,7 +375,6 @@ fn page_geometry_loads_a_path_pdf_above_the_byte_input_page_ceiling() {
     }
 
     let input = RemoveOnDrop(path("large-page-count-input", "pdf"));
-    let output = RemoveOnDrop(path("large-page-count-output", "json"));
     let mut document = Document::with_version("1.7");
     let pages_id = document.new_object_id();
     let page_id = document.add_object(dictionary! {
@@ -468,13 +397,13 @@ fn page_geometry_loads_a_path_pdf_above_the_byte_input_page_ceiling() {
     document.trailer.set("Root", catalog_id);
     document.save(&input.0).unwrap();
 
-    let result = run_page_geometry(&input.0, &output.0, PAGE_COUNT as u32);
+    let result = run_page_geometry(&input.0, PAGE_COUNT as u32);
     assert!(
         result.status.success(),
         "large path-backed page geometry failed: {}",
         String::from_utf8_lossy(&result.stderr)
     );
-    let geometry: Value = serde_json::from_slice(&read(&output.0).unwrap()).unwrap();
+    let geometry: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(
         geometry,
         serde_json::json!({

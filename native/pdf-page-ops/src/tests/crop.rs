@@ -42,7 +42,7 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
             },
         },
         input_path: pdf.clone(),
-        output_path: pdf.clone(),
+        output_path: Some(pdf.clone()),
         qpdf_path: None,
     })
     .expect("path crop should append a revision");
@@ -57,7 +57,7 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
             pages_file: pages_file.clone(),
         },
         input_path: pdf.clone(),
-        output_path: pdf.clone(),
+        output_path: Some(pdf.clone()),
         qpdf_path: None,
     })
     .expect("path crop removal should append a revision");
@@ -72,31 +72,15 @@ fn path_crop_and_remove_crop_append_page_dictionary_revisions() {
 }
 
 #[test]
-fn page_geometry_json_rejects_input_output_alias() {
-    let pdf = temp_pdf_path("page-geometry-alias");
-    let (mut document, _page_id) = create_test_document();
-    document.save(&pdf).unwrap();
-    let original = read(&pdf).unwrap();
-
-    let error = write_page_geometry_path(&pdf, &pdf, 1, None)
-        .expect_err("page geometry must reject an aliased output");
-
-    assert!(error.to_string().contains("Output aliases an input file"));
-    assert_eq!(read(&pdf).unwrap(), original);
-    remove_file(pdf).unwrap();
-}
-
-#[test]
-fn page_geometry_json_publishes_atomically() {
+fn page_geometry_writes_json() {
     let pdf = temp_pdf_path("page-geometry-input");
-    let output = temp_pdf_path("page-geometry-output");
     let (mut document, _page_id) = create_test_document();
     document.save(&pdf).unwrap();
-    write(&output, b"old geometry").unwrap();
 
-    write_page_geometry_path(&pdf, &output, 1, None).unwrap();
+    let mut output = Vec::new();
+    write_page_geometry(&pdf, 1, None, &mut output).unwrap();
 
-    let geometry: serde_json::Value = serde_json::from_slice(&read(&output).unwrap()).unwrap();
+    let geometry: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(geometry["mediaBox"]["x"], 0.0);
     assert_eq!(geometry["mediaBox"]["y"], 0.0);
     assert_eq!(geometry["mediaBox"]["width"], 200.0);
@@ -105,7 +89,6 @@ fn page_geometry_json_publishes_atomically() {
     assert_eq!(geometry["rotation"], 0);
 
     remove_file(pdf).unwrap();
-    remove_file(output).unwrap();
 }
 
 #[test]
@@ -287,7 +270,7 @@ fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
             },
         },
         input_path: pdf.clone(),
-        output_path: pdf.clone(),
+        output_path: Some(pdf.clone()),
         qpdf_path: Some(qpdf.clone()),
     })
     .expect("large path crop should use structural qpdf loading");
@@ -308,7 +291,7 @@ fn large_path_crop_and_remove_crop_use_qpdf_without_reading_the_source() {
             pages_file: pages_file.clone(),
         },
         input_path: pdf.clone(),
-        output_path: pdf.clone(),
+        output_path: Some(pdf.clone()),
         qpdf_path: Some(qpdf.clone()),
     })
     .expect("large path crop removal should use structural qpdf loading");

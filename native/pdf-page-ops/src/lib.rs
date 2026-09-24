@@ -7,7 +7,7 @@ use evb_native_support::{
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 use lopdf::dictionary;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat};
-use page_geometry::write_page_geometry_path;
+use page_geometry::write_page_geometry;
 use page_sizes::write_page_sizes_path;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;

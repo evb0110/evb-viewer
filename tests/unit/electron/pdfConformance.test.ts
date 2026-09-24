@@ -62,15 +62,9 @@ const mocks = vi.hoisted(() => {
         length: number,
         position: number | bigint | null,
     ) => readBytes(rangeBytes, buffer, bufferOffset, length, position, true));
-    const factsRead = vi.fn(async (
-        buffer: Buffer,
-        bufferOffset: number,
-        length: number,
-        position: number | bigint | null,
-    ) => readBytes(factsBytes, buffer, bufferOffset, length, position));
     const close = vi.fn(async () => undefined);
-    const open = vi.fn(async (filePath: string) => ({
-        read: filePath.endsWith('/facts.json') ? factsRead : rangeRead,
+    const open = vi.fn(async (_filePath: string) => ({
+        read: rangeRead,
         close,
     }));
     const mkdtemp = vi.fn(async () => '/tmp/pdf-page-ops-facts');
@@ -90,8 +84,8 @@ const mocks = vi.hoisted(() => {
         rangeBytes,
         setRangeBytes,
         setFactsBytes,
+        readFacts: () => factsBytes.toString('utf8'),
         rangeRead,
-        factsRead,
         close,
         open,
         mkdtemp,
@@ -231,7 +225,15 @@ vi.mock('pdf-lib', () => {
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/tmp') } }));
 
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: async (...args: unknown[]) => {
+    const result = await mocks.runNativeToolCommand(...args) as {stdout: string} | undefined;
+    return (args[1] as string[])[0] === 'pdf-conformance'
+        ? {
+            ...result,
+            stdout: mocks.readFacts(),
+        }
+        : result;
+}}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
@@ -382,7 +384,6 @@ describe('analyzePdfConformanceFileDirect', () => {
             canIncrementalSave: false,
         });
         expect(mocks.open).toHaveBeenCalledWith('/tmp/partial.pdf', 'r');
-        expect(mocks.open).toHaveBeenCalledWith('/tmp/pdf-page-ops-facts/facts.json', 'r');
         expect(mocks.rangeRead).toHaveBeenCalledWith(
             expect.any(Buffer),
             0,
@@ -390,7 +391,7 @@ describe('analyzePdfConformanceFileDirect', () => {
             0n,
         );
         expect(mocks.rangeRead.mock.calls[0]?.[2]).toBeLessThanOrEqual(4 * 1024 * 1024);
-        expect(mocks.close).toHaveBeenCalledTimes(2);
+        expect(mocks.close).toHaveBeenCalledTimes(1);
     });
 
     it('scans conformance markers across bounded windows without decoding the whole PDF', async () => {
@@ -458,7 +459,7 @@ describe('analyzePdfConformanceFileDirect', () => {
         const result = await analyzePdfConformanceFileDirect('/tmp/sparse-2gib.pdf');
 
         expect(result.canIncrementalSave).toBe(true);
-        expect(mocks.open).toHaveBeenCalledTimes(2);
+        expect(mocks.open).toHaveBeenCalledTimes(1);
         expect(mocks.rangeRead.mock.calls.length).toBeGreaterThan(500);
         expect(mocks.rangeRead.mock.calls.every(call =>
             call[2] <= 4 * 1024 * 1024,
@@ -469,8 +470,6 @@ describe('analyzePdfConformanceFileDirect', () => {
                 'pdf-conformance',
                 '--input',
                 '/tmp/sparse-2gib.pdf',
-                '--output',
-                '/tmp/pdf-page-ops-facts/facts.json',
                 '--qpdf',
                 '/mock/qpdf',
             ],
@@ -571,8 +570,6 @@ describe('validatePdfFile', () => {
                 'pdf-conformance',
                 '--input',
                 '/tmp/slow.pdf',
-                '--output',
-                '/tmp/pdf-page-ops-facts/facts.json',
                 '--qpdf',
                 '/mock/qpdf',
             ],
@@ -615,7 +612,6 @@ describe('validatePdfFile', () => {
             errors: [],
             warnings: ['qpdf validation timed out after 155000ms; fallback PDF structure validation succeeded.'],
         });
-        expect(mocks.open).toHaveBeenCalledWith('/tmp/pdf-page-ops-facts/facts.json', 'r');
         expect(mocks.rangeRead).not.toHaveBeenCalled();
         expect(mocks.runNativeToolCommand).toHaveBeenCalledTimes(2);
     });

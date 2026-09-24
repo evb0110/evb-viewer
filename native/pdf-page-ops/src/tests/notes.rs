@@ -2776,7 +2776,7 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
             identity_bindings_file: None,
         },
         input_path: pdf_path.clone(),
-        output_path: pdf_path.clone(),
+        output_path: Some(pdf_path.clone()),
         qpdf_path: None,
     })
     .unwrap_err();

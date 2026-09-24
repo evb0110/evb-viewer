@@ -1,5 +1,4 @@
 use super::*;
-use evb_native_support::output::write_bytes_atomically;
 use serde::Serialize;
 
 const PDF_REFERENCE_LIMIT: usize = 128;
@@ -94,10 +93,10 @@ pub(crate) fn pdf_conformance_facts(document: &Document) -> Result<PdfConformanc
     })
 }
 
-pub(crate) fn write_pdf_conformance_path(
+pub(crate) fn write_pdf_conformance(
     input_path: &Path,
-    output_path: &Path,
     qpdf_path: Option<&Path>,
+    output: &mut impl Write,
 ) -> Result<()> {
     let qpdf_path = qpdf_path.ok_or_else(|| {
         domain_error(
@@ -108,7 +107,7 @@ pub(crate) fn write_pdf_conformance_path(
     let incremental = load_qpdf_structural_incremental_pdf(input_path, qpdf_path)?;
     let document = incremental.get_prev_documents();
     let facts = pdf_conformance_facts(document)?;
-    write_bytes_atomically(output_path, &serde_json::to_vec(&facts)?)?;
+    serde_json::to_writer(output, &facts)?;
     Ok(())
 }
 

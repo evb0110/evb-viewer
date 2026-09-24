@@ -859,7 +859,8 @@ pub(crate) struct SplitCropRect {
 pub(crate) struct Config {
     pub(crate) operation: Operation,
     pub(crate) input_path: PathBuf,
-    pub(crate) output_path: PathBuf,
+    /// Absent for the queries that print their JSON result on stdout.
+    pub(crate) output_path: Option<PathBuf>,
     pub(crate) qpdf_path: Option<PathBuf>,
 }
 

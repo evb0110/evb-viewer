@@ -109,25 +109,24 @@ describe('page crop operations', () => {
         mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             expect(args.slice(0, 1)).toEqual(['page-geometry']);
-            await writeFile(args[args.indexOf('--output') + 1]!, JSON.stringify({
-                mediaBox: {
-                    x: 0,
-                    y: 0,
-                    width: 200,
-                    height: 100,
-                },
-                cropBox: {
-                    x: 20,
-                    y: 10,
-                    width: 160,
-                    height: 80,
-                },
-                rotation: 0,
-            }));
             return {
                 exitCode: 0,
-                stdout: '',
                 stderr: '',
+                stdout: JSON.stringify({
+                    mediaBox: {
+                        x: 0,
+                        y: 0,
+                        width: 200,
+                        height: 100,
+                    },
+                    cropBox: {
+                        x: 20,
+                        y: 10,
+                        width: 160,
+                        height: 80,
+                    },
+                    rotation: 0,
+                }),
             };
         });
         const loadSpy = vi.spyOn(PDFDocument, 'load');

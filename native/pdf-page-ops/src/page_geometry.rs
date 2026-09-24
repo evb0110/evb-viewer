@@ -1,5 +1,4 @@
 use super::*;
-use evb_native_support::output::{AtomicOutput, ValidatedInputFiles};
 use serde::Serialize;
 
 #[derive(Clone, Copy)]
@@ -62,13 +61,12 @@ pub(crate) fn get_page_geometry(
     })
 }
 
-pub(crate) fn write_page_geometry_path(
+pub(crate) fn write_page_geometry(
     input_path: &Path,
-    output_path: &Path,
     page_number: u32,
     qpdf_path: Option<&Path>,
+    output: &mut impl Write,
 ) -> Result<()> {
-    let _validated_input = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
     let incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
@@ -77,9 +75,7 @@ pub(crate) fn write_page_geometry_path(
     )?;
 
     let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
-    let mut output = AtomicOutput::create(output_path)?;
-    serde_json::to_writer(output.file_mut()?, &page_geometry_output(geometry))?;
-    output.publish()?;
+    serde_json::to_writer(output, &page_geometry_output(geometry))?;
     Ok(())
 }
 
