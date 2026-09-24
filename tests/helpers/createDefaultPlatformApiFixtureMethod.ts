@@ -116,13 +116,6 @@ function createAsyncDefault(path: string) {
     if (path.endsWith('.readFile') || path.endsWith('.readFileRange')) {
         return vi.fn(async () => new Uint8Array());
     }
-    if (path.endsWith('.readFileChunks')) {
-        return vi.fn(async () => ({
-            bytesRead: 0,
-            chunks: 0,
-            size: 0,
-        }));
-    }
     if (path.endsWith('.readTextFile')) {
         return vi.fn(async () => '');
     }

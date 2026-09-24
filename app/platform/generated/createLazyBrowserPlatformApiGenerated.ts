@@ -66,7 +66,6 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentFilesReadPdfPageLabelRangesMethod = lazyAsync(pathDescriptors.documentFiles.readPdfPageLabelRanges.path);
     const documentFilesStatFileMethod = lazyAsync(pathDescriptors.documentFiles.statFile.path);
     const documentFilesReadFileRangeMethod = lazyAsync(pathDescriptors.documentFiles.readFileRange.path);
-    const documentFilesReadFileChunksMethod = lazyAsync(pathDescriptors.documentFiles.readFileChunks.path);
     const documentFilesReadTextFileMethod = lazyAsync(pathDescriptors.documentFiles.readTextFile.path);
     const documentFilesFileExistsMethod = lazyAsync(pathDescriptors.documentFiles.fileExists.path);
     const documentFilesGetDocumentRevisionMethod = lazyAsync(pathDescriptors.documentFiles.getDocumentRevision.path);
@@ -310,7 +309,6 @@ export function createLazyBrowserPlatformApiGenerated({
         readPdfPageLabelRanges: documentFilesReadPdfPageLabelRangesMethod,
         statFile: documentFilesStatFileMethod,
         readFileRange: documentFilesReadFileRangeMethod,
-        readFileChunks: documentFilesReadFileChunksMethod,
         readTextFile: documentFilesReadTextFileMethod,
         fileExists: documentFilesFileExistsMethod,
         getDocumentRevision: documentFilesGetDocumentRevisionMethod,

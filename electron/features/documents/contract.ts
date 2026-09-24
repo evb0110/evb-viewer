@@ -52,7 +52,6 @@ export const DOCUMENTS_CHANNELS = {
     pdfEmbeddedShapeIndexBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfEmbeddedShapeIndex,
     pdfEmbeddedShapeIndexReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfEmbeddedShapeIndexChunk,
     pdfEmbeddedShapeIndexRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfEmbeddedShapeIndex,
-    pdfEmbeddedShapeIndexCancel: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfEmbeddedShapeIndex,
     fileReadText: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readTextFile,
     fileExists: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.fileExists,
     documentRevisionGet: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getDocumentRevision,

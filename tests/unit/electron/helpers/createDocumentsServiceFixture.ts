@@ -11,7 +11,6 @@ const defaultDocumentsService = {
     beginPdfEmbeddedShapeIndex: unimplementedDocumentsServiceMethod,
     beginSavePdfData: unimplementedDocumentsServiceMethod,
     cancelOpenDocumentDirectBatch: unimplementedDocumentsServiceMethod,
-    cancelPdfEmbeddedShapeIndex: unimplementedDocumentsServiceMethod,
     cancelPdfNativePagePreview: unimplementedDocumentsServiceMethod,
     cancelPdfPrint: unimplementedDocumentsServiceMethod,
     cancelStagedSerializedPdf: unimplementedDocumentsServiceMethod,

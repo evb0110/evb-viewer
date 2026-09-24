@@ -191,10 +191,6 @@ export interface IDocumentsService {
         context: IDocumentsSenderIdContext,
         sessionId: string,
     ) => Promise<boolean>;
-    cancelPdfEmbeddedShapeIndex: (
-        context: IDocumentsSenderIdContext,
-        sessionId: string,
-    ) => Promise<{canceled: boolean}>;
     readTextFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<string>;
     fileExists: (context: IDocumentsSenderIdContext, filePath: string) => boolean;
     getDocumentRevision: (context: IDocumentsSenderIdContext, filePath: string) => Promise<IDocumentRevisionInfo>;

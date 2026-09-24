@@ -60,7 +60,6 @@ export const browserPlatformPathDescriptorsGenerated = {
         readPdfPageLabelRanges: {kind: 'async', path: ["documentFiles","readPdfPageLabelRanges"]},
         statFile: {kind: 'async', path: ["documentFiles","statFile"]},
         readFileRange: {kind: 'async', path: ["documentFiles","readFileRange"]},
-        readFileChunks: {kind: 'async', path: ["documentFiles","readFileChunks"]},
         readTextFile: {kind: 'async', path: ["documentFiles","readTextFile"]},
         fileExists: {kind: 'async', path: ["documentFiles","fileExists"]},
         getDocumentRevision: {kind: 'async', path: ["documentFiles","getDocumentRevision"]},

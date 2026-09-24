@@ -529,9 +529,6 @@ export function createElectronApi(
         ...(baseDocuments.releasePdfEmbeddedShapeIndex
             ? {releasePdfEmbeddedShapeIndex: baseDocuments.releasePdfEmbeddedShapeIndex}
             : {}),
-        ...(baseDocuments.cancelPdfEmbeddedShapeIndex
-            ? {cancelPdfEmbeddedShapeIndex: baseDocuments.cancelPdfEmbeddedShapeIndex}
-            : {}),
         ...(baseDocuments.getWorkingCopyBackingStatus
             ? {getWorkingCopyBackingStatus: baseDocuments.getWorkingCopyBackingStatus}
             : {}),
@@ -544,7 +541,6 @@ export function createElectronApi(
         readPdfPageLabelRanges: baseDocuments.readPdfPageLabelRanges,
         statFile: baseDocuments.statFile,
         readFileRange: baseDocuments.readFileRange,
-        readFileChunks: baseDocuments.readFileChunks,
         readTextFile: baseDocuments.readTextFile,
         fileExists: baseDocuments.fileExists,
         getDocumentRevision: baseDocuments.getDocumentRevision,

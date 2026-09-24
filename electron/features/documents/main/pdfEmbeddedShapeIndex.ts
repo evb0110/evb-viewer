@@ -503,22 +503,6 @@ export async function releasePdfEmbeddedShapeIndex(
     return true;
 }
 
-export function cancelPdfEmbeddedShapeIndex(
-    context: IDocumentsSenderIdContext,
-    sessionId: string,
-) {
-    const session = sessions.get(sessionId);
-    if (!session) {
-        return Promise.resolve({canceled: false});
-    }
-    assertSessionOwner(session, context);
-    if (session.canceled || session.released) {
-        return Promise.resolve({canceled: false});
-    }
-    cancelPdfSidecarSession(session, 'Embedded shape index canceled');
-    cleanupWhenOperationSettles(session);
-    return Promise.resolve({canceled: true});
-}
 
 export async function sweepStalePdfEmbeddedShapeIndexArtifacts(
     maxAgeMs = SHAPE_INDEX_DEFAULT_TTL_MS,

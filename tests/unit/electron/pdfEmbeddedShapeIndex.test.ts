@@ -22,7 +22,6 @@ import {requireDocumentRef} from '@contracts/documentRef';
 
 import {
     beginPdfEmbeddedShapeIndex,
-    cancelPdfEmbeddedShapeIndex,
     readPdfEmbeddedShapeIndexChunk,
     releasePdfEmbeddedShapeIndex,
 } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
@@ -292,7 +291,7 @@ describe('PDF embedded shape index main session', () => {
         expect(existsSync(sidecarPath)).toBe(false);
     });
 
-    it('rejects access from a different sender and cancels a ready session', async () => {
+    it('rejects access from a different sender', async () => {
         const session = await beginPdfEmbeddedShapeIndex(
             context,
             requireDocumentRef('/tmp/document.pdf'),
@@ -301,10 +300,5 @@ describe('PDF embedded shape index main session', () => {
 
         await expect(readPdfEmbeddedShapeIndexChunk({senderId: 8}, session.sessionId, 0))
             .rejects.toThrow('belongs to another sender');
-        await expect(cancelPdfEmbeddedShapeIndex(context, session.sessionId))
-            .resolves.toEqual({canceled: true});
-        await vi.waitFor(() => expect(existsSync(sidecarPath)).toBe(false));
-        await expect(readPdfEmbeddedShapeIndexChunk(context, session.sessionId, 0))
-            .rejects.toThrow(/session is (?:canceled|not available)/iu);
     });
 });

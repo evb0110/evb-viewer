@@ -35,10 +35,7 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isOneOf} from '@contracts/runtimeGuards';
 import {
     parseSessionId,
     type TSessionId,
@@ -157,13 +154,6 @@ const readPdfEmbeddedShapeIndexChunkArgs = documentArgs<'readPdfEmbeddedShapeInd
     ],
 );
 const releasePdfEmbeddedShapeIndexArgs = documentArgs<'releasePdfEmbeddedShapeIndex'>(
-    value => {
-        const args = decodeArgumentArray(value, 1);
-        return [decodeSessionId(args[0], 'sessionId')];
-    },
-    () => [decodeSessionId('embedded-shape-index-1', 'sessionId')],
-);
-const cancelPdfEmbeddedShapeIndexArgs = documentArgs<'cancelPdfEmbeddedShapeIndex'>(
     value => {
         const args = decodeArgumentArray(value, 1);
         return [decodeSessionId(args[0], 'sessionId')];
@@ -310,20 +300,9 @@ const pdfEmbeddedShapeIndexChunkResult = documentResult<'readPdfEmbeddedShapeInd
         entries: [],
     }),
 );
-const pdfEmbeddedShapeIndexCancelResult = documentResult<'cancelPdfEmbeddedShapeIndex'>(
-    value => {
-        if (!isRecord(value) || typeof value.canceled !== 'boolean') {
-            fail('invalid embedded shape index cancellation result');
-        }
-        return {canceled: value.canceled};
-    },
-    () => ({canceled: false}),
-);
 
 export {
     beginPdfEmbeddedShapeIndexArgs,
-    cancelPdfEmbeddedShapeIndexArgs,
-    pdfEmbeddedShapeIndexCancelResult,
     pdfEmbeddedShapeIndexChunkResult,
     pdfEmbeddedShapeIndexSessionResult,
     readPdfEmbeddedShapeIndexChunkArgs,

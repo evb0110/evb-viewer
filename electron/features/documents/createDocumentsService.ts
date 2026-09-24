@@ -41,7 +41,6 @@ import {
 } from '@electron/features/documents/main/pdfAnnotationIndex';
 import {
     beginPdfEmbeddedShapeIndex,
-    cancelPdfEmbeddedShapeIndex,
     readPdfEmbeddedShapeIndexChunk,
     releasePdfEmbeddedShapeIndex,
 } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
@@ -272,8 +271,6 @@ export function createDocumentsService(): IDocumentsService {
             readPdfEmbeddedShapeIndexChunk(...args),
         releasePdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'releasePdfEmbeddedShapeIndex'>) =>
             releasePdfEmbeddedShapeIndex(...args),
-        cancelPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'cancelPdfEmbeddedShapeIndex'>) =>
-            cancelPdfEmbeddedShapeIndex(...args),
         readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),
         fileExists: (...args: TDocumentsServiceArgs<'fileExists'>) => handleFileExists(...args),
         getDocumentRevision: (...args: TDocumentsServiceArgs<'getDocumentRevision'>) => {

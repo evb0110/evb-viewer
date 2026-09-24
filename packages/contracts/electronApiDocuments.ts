@@ -75,16 +75,8 @@ import type {
     IPdfDecryptResult,
 } from '@contracts/pdfDecryptSchemas';
 import type {TPdfOpenFileFailureResult} from '@contracts/pdfOpenFileResults';
+
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
-export interface IDocumentChunkReadOptions {
-    chunkBytes?: number;
-    signal?: AbortSignal;
-}
-export interface IDocumentChunkReadResult {
-    readonly size: number;
-    readonly bytesRead: number;
-    readonly chunks: number;
-}
 export interface IPdfPathPrintOptions {
     pageNumbers?: TPageNumber[];
     requestId?: TRequestId;
@@ -1038,13 +1030,7 @@ export interface IDocumentsFileCapability {
         options?: IPdfEmbeddedShapeIndexChunkOptions,
     ) => Promise<IPdfEmbeddedShapeIndexChunk>;
     releasePdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<boolean>;
-    cancelPdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
     decryptPdfWorkingCopy?: (path: TDocumentRef, request?: IPdfDecryptRequest) => Promise<IPdfDecryptResult>;
-    readFileChunks: (
-        path: TDocumentRef,
-        options: IDocumentChunkReadOptions,
-        onChunk: (chunk: Uint8Array, offset: number) => void | Promise<void>,
-    ) => Promise<IDocumentChunkReadResult>;
     readTextFile: (path: TDocumentRef) => Promise<string>;
     fileExists: (path: TDocumentRef) => Promise<boolean>;
     getDocumentRevision: (path: TDocumentRef) => Promise<IDocumentRevisionInfo>;
@@ -1215,9 +1201,7 @@ export interface IDocumentsReadCapability extends Pick<
     | 'beginPdfEmbeddedShapeIndex'
     | 'readPdfEmbeddedShapeIndexChunk'
     | 'releasePdfEmbeddedShapeIndex'
-    | 'cancelPdfEmbeddedShapeIndex'
     | 'decryptPdfWorkingCopy'
-    | 'readFileChunks'
     | 'readTextFile'
     | 'fileExists'
     | 'getDocumentRevision'

@@ -10,7 +10,6 @@ import type {
     IDocumentsPickerCapability,
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
-    IDocumentChunkReadOptions,
     IPdfDataPrintOptions,
     IPdfNativePageGeometry,
     IPdfNativePageSizesExactOptions,
@@ -339,21 +338,7 @@ function createDocxExportFileCapability(
 }
 
 
-function getChunkReadSize(options: IDocumentChunkReadOptions | undefined) {
-    const chunkBytes = options?.chunkBytes ?? PDF_PERSISTENCE_CHUNK_BYTES;
-    if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > PDF_PERSISTENCE_CHUNK_BYTES) {
-        throw new Error(`readFileChunks.options.chunkBytes must be an integer between 1 and ${PDF_PERSISTENCE_CHUNK_BYTES}`);
-    }
-    return chunkBytes;
-}
 
-function throwIfAborted(signal: AbortSignal | undefined) {
-    if (signal?.aborted) {
-        throw signal.reason instanceof Error
-            ? signal.reason
-            : new DOMException('The operation was aborted.', 'AbortError');
-    }
-}
 
 function getTightTransferChunk(chunk: Uint8Array, fieldName: string) {
     const checkedChunk = assertPersistenceData(chunk, fieldName);
@@ -869,42 +854,6 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfEmbeddedShapeIndex,
                 requireSessionId(assertNonEmptyString(sessionId, 'releasePdfEmbeddedShapeIndex.sessionId')),
             ),
-        cancelPdfEmbeddedShapeIndex: (sessionId) =>
-            invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfEmbeddedShapeIndex,
-                requireSessionId(assertNonEmptyString(sessionId, 'cancelPdfEmbeddedShapeIndex.sessionId')),
-            ),
-        readFileChunks: async (path, options, onChunk) => {
-            const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
-            const chunkBytes = getChunkReadSize(options);
-            const { size } = await invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile, checkedPath);
-            let bytesRead = 0;
-            let chunks = 0;
-            while (bytesRead < size) {
-                throwIfAborted(options?.signal);
-                const length = Math.min(chunkBytes, size - bytesRead);
-                const chunk = await invokeFiles(
-                    DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange,
-                    checkedPath,
-                    bytesRead,
-                    length,
-                );
-                if (chunk.byteLength === 0) {
-                    throw new Error(`Unexpected end of file after ${bytesRead} of ${size} bytes`);
-                }
-                if (chunk.byteLength > length) {
-                    throw new Error(`Invalid file range response: received ${chunk.byteLength} bytes for a ${length}-byte request`);
-                }
-                await onChunk(chunk, bytesRead);
-                bytesRead += chunk.byteLength;
-                chunks += 1;
-            }
-            return {
-                size,
-                bytesRead,
-                chunks,
-            };
-        },
         readTextFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readTextFile, path),
         fileExists: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.fileExists, path),
         getDocumentRevision: (path) =>

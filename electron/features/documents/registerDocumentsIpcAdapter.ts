@@ -426,8 +426,6 @@ export function registerDocumentsIpcAdapter(
             service.readPdfEmbeddedShapeIndexChunk(context, sessionId, offset, options),
         releasePdfEmbeddedShapeIndex: (context, sessionId) =>
             service.releasePdfEmbeddedShapeIndex(context, sessionId),
-        cancelPdfEmbeddedShapeIndex: (context, sessionId) =>
-            service.cancelPdfEmbeddedShapeIndex(context, sessionId),
         readTextFile: (context, filePath) =>
             service.readTextFile(context, filePath),
         fileExists: (context, filePath) =>

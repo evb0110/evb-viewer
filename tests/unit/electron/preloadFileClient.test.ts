@@ -456,65 +456,6 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
-    it('reads files through range chunks without hydrating the full file', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async (channel: string, ...args: unknown[]) => {
-                if (channel === DOCUMENTS_CHANNELS.fileStat) {
-                    return {size: 5};
-                }
-                if (channel === DOCUMENTS_CHANNELS.fileReadRange) {
-                    const offset = args[1] as number;
-                    const length = args[2] as number;
-                    return new Uint8Array(Array.from({length}, (_, index) => offset + index + 1));
-                }
-                throw new Error(`Unexpected invoke: ${channel}`);
-            }),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const chunks: Array<{
-            offset: number;
-            bytes: number[];
-        }> = [];
-
-        await expect(client.readFileChunks(requireDocumentRef('/tmp/working.pdf'), {chunkBytes: 2}, (chunk, offset) => {
-            chunks.push({
-                offset,
-                bytes: [...chunk],
-            });
-        })).resolves.toEqual({
-            size: 5,
-            bytesRead: 5,
-            chunks: 3,
-        });
-
-        expect(chunks).toEqual([
-            {
-                offset: 0,
-                bytes: [
-                    1,
-                    2,
-                ],
-            },
-            {
-                offset: 2,
-                bytes: [
-                    3,
-                    4,
-                ],
-            },
-            {
-                offset: 4,
-                bytes: [5],
-            },
-        ]);
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileStat, '/tmp/working.pdf');
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 0, 2);
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 2, 2);
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.fileReadRange, '/tmp/working.pdf', 4, 1);
-    });
-
     it('rejects malformed stat results while preserving safe large-file metadata', async () => {
         let result: unknown = {size: -1};
         const ipcRenderer = {

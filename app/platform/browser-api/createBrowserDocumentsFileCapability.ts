@@ -655,32 +655,6 @@ export function createBrowserDocumentsFileCapability(
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
         },
-        async readFileChunks(path, options, onChunk) {
-            const chunkBytes = options.chunkBytes ?? 8 * 1024 * 1024;
-            if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1) {
-                throw new Error('readFileChunks.options.chunkBytes must be a positive integer');
-            }
-            const { size } = await browserDocumentStore.stat(path);
-            let bytesRead = 0;
-            let chunks = 0;
-            while (bytesRead < size) {
-                if (options.signal?.aborted) {
-                    throw options.signal.reason instanceof Error
-                        ? options.signal.reason
-                        : new Error('The operation was aborted.');
-                }
-                const length = Math.min(chunkBytes, size - bytesRead);
-                const chunk = await browserDocumentStore.readRange(path, bytesRead, length);
-                await onChunk(chunk, bytesRead);
-                bytesRead += chunk.byteLength;
-                chunks += 1;
-            }
-            return {
-                size,
-                bytesRead,
-                chunks,
-            };
-        },
         async readTextFile(path) {
             return browserDocumentStore.readText(path);
         },

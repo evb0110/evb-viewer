@@ -72,7 +72,6 @@ describe('PDF embedded shape index IPC contracts', () => {
         ]);
         expect(codecs[channels.readPdfEmbeddedShapeIndexChunk]!.decodeResult(chunk)).toEqual(chunk);
         expect(codecs[channels.releasePdfEmbeddedShapeIndex]!.decodeArgs(['embedded-shape-index-session'])).toEqual(['embedded-shape-index-session']);
-        expect(codecs[channels.cancelPdfEmbeddedShapeIndex]!.decodeResult({canceled: true})).toEqual({canceled: true});
     });
 
     it('rejects missing revisions, unsafe shape fields, and oversized chunks', () => {

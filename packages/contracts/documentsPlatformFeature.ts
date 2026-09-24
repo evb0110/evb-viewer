@@ -1,6 +1,5 @@
 import type {
     ICreateCombinedPdfFromFilesOptions,
-    IDocumentChunkReadResult,
     IWorkingCopyBackingStatus,
 } from '@contracts/electronApiDocuments';
 import {decodeWorkingCopyBackingStatus} from '@contracts/electronApiDocuments';
@@ -92,8 +91,6 @@ import {
 } from '@contracts/pdfAnnotationParseSchemas';
 import {
     beginPdfEmbeddedShapeIndexArgs,
-    cancelPdfEmbeddedShapeIndexArgs,
-    pdfEmbeddedShapeIndexCancelResult,
     pdfEmbeddedShapeIndexChunkResult,
     pdfEmbeddedShapeIndexSessionResult,
     readPdfEmbeddedShapeIndexChunkArgs,
@@ -370,16 +367,6 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
     events: {},
 });
 
-const readFileChunksArgs = s.trustedDirect<TDocumentMethodArgs<'readFileChunks'>>(() => [
-    parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference'),
-    {},
-    () => undefined,
-]);
-const readFileChunksResult = s.trustedDirect<IDocumentChunkReadResult>(() => ({
-    size: 1,
-    bytesRead: 1,
-    chunks: 1,
-}));
 const savePdfDataLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfData'>>(() => [
     parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
     Uint8Array.of(1),
@@ -498,16 +485,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ),
             ...electronImplementedOptional,
         },
-        cancelPdfEmbeddedShapeIndex: {
-            ...defineIpcMethod(
-                'cancelPdfEmbeddedShapeIndex', 'pdf:embeddedShapeIndex:cancel', cancelPdfEmbeddedShapeIndexArgs,
-                pdfEmbeddedShapeIndexCancelResult, 'cancelPdfEmbeddedShapeIndex', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        readFileChunks: defineLocalMethod(
-            'readFileChunks', 'async', readFileChunksArgs, readFileChunksResult,
-        ),
         readTextFile: defineIpcMethod(
             'readTextFile', 'file:readText', readTextFileArgs, s.string(), 'readTextFile', 'sender',
         ),
@@ -896,10 +873,7 @@ export const DOCUMENT_PLATFORM_FEATURES = [
  * callback, AbortSignal, AsyncIterable, or MessagePort transfer semantics
  * cannot be represented by invoke/event specs without changing the protocol.
  */
-export const DOCUMENTS_DIRECT_BINDING_METHODS = [
-    'documentFiles.readFileChunks',
-    'documentFiles.savePdfData',
-] as const;
+export const DOCUMENTS_DIRECT_BINDING_METHODS = ['documentFiles.savePdfData'] as const;
 
 export type IDocumentPickerPlatformCapability =
     TFeatureCapability<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;

@@ -66,11 +66,6 @@ const documentsClientMock = vi.hoisted(() => ({
         height: 0,
         width: 0,
     })),
-    readFileChunks: vi.fn(async () => ({
-        size: 0,
-        bytesRead: 0,
-        chunks: 0,
-    })),
     readTextFile: vi.fn(async () => ''),
     fileExists: vi.fn(async () => false),
     getDocumentRevision: vi.fn(async () => ({
