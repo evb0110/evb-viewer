@@ -104,6 +104,7 @@ import {
 } from '@electron/windowTabTransfer';
 import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
 import {
+    configureLogDirectory,
     createLogger,
     flushPendingLogWrites,
     type ILogger,
@@ -186,6 +187,7 @@ if (automationUserDataDir) {
 } else {
     app.setPath('userData', join(app.getPath('appData'), app.name));
 }
+configureLogDirectory(app.getPath('logs'));
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
 const diagnosticsPreference = readDiagnosticsPreferenceSync();

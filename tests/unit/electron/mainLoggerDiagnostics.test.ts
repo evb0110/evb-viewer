@@ -67,12 +67,14 @@ describe('main logger diagnostic receipt ownership', () => {
         }];
         process.env.ELECTRON_FILE_LOG_LEVEL = 'DEBUG';
         process.env.ELECTRON_RENDER_LOG_LEVEL = 'WARN';
+        process.env.EVB_FILE_LOG_DIR = '/logs';
     });
 
     afterEach(() => {
         vi.useRealTimers();
         delete process.env.ELECTRON_FILE_LOG_LEVEL;
         delete process.env.ELECTRON_RENDER_LOG_LEVEL;
+        delete process.env.EVB_FILE_LOG_DIR;
     });
 
     it('uses a classified code and fresh call-site stack while preserving redacted local logging', async () => {

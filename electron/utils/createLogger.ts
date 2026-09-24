@@ -2,13 +2,10 @@ import {
     isMainThread,
     threadId,
 } from 'worker_threads';
-import { tmpdir } from 'os';
-import {
-    mkdirSync,
-    statSync,
-} from 'fs';
+import { statSync } from 'fs';
 import {
     appendFile,
+    mkdir,
     readdir,
     rename,
     rm,
@@ -95,14 +92,6 @@ interface IFileLogState {
     flushTimer: NodeJS.Timeout | null;
 }
 
-function readIntegerEnv(name: string, fallback: number, minimum: number, maximum: number) {
-    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
-    if (!Number.isFinite(parsed) || parsed < minimum) {
-        return fallback;
-    }
-    return Math.min(parsed, maximum);
-}
-
 const IS_PACKAGED_RUNTIME = !process.execPath.toLowerCase().includes('node_modules');
 const FILE_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL)
     ?? (IS_PACKAGED_RUNTIME ? 'info' : 'debug');
@@ -114,21 +103,36 @@ const RENDER_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_RENDER_LO
  */
 const STDOUT_LOG_ENABLED = process.env.EVB_LOG_STDOUT === 'ndjson';
 const STDOUT_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.EVB_LOG_STDOUT_LEVEL) ?? 'info';
-const LOG_FILE_MAX_BYTES = readIntegerEnv('EVB_FILE_LOG_MAX_BYTES', 16 * 1024 * 1024, 256 * 1024, 256 * 1024 * 1024);
-const LOG_FILE_MAX_BACKUPS = readIntegerEnv('EVB_FILE_LOG_MAX_BACKUPS', 3, 0, 16);
-const LOG_DIR_MAX_BYTES = readIntegerEnv('EVB_FILE_LOG_DIR_MAX_BYTES', 96 * 1024 * 1024, 1024 * 1024, 2 * 1024 * 1024 * 1024);
-const LOG_WRITE_QUEUE_MAX_PENDING = readIntegerEnv('EVB_FILE_LOG_QUEUE_MAX_PENDING', 4_000, 64, 100_000);
+const LOG_FILE_MAX_BYTES = 16 * 1024 * 1024;
+const LOG_FILE_MAX_BACKUPS = 3;
+const LOG_DIR_MAX_BYTES = 96 * 1024 * 1024;
+const LOG_WRITE_QUEUE_MAX_PENDING = 4_000;
 const LOG_WRITE_FLUSH_INTERVAL_MS = 100;
 const LOG_WRITE_FLUSH_BYTES = 16 * 1024;
-const LOG_DIR_PRUNE_INTERVAL_MS = readIntegerEnv('EVB_FILE_LOG_DIR_PRUNE_INTERVAL_MS', 60 * 1_000, 5_000, Number.MAX_SAFE_INTEGER);
+const LOG_DIR_PRUNE_INTERVAL_MS = 60 * 1_000;
 
-const LOG_DIR = process.env.EVB_FILE_LOG_DIR ?? join(tmpdir(), 'electron-logs');
+/**
+ * `EVB_FILE_LOG_DIR` names the log directory. Automation sets it per session;
+ * otherwise the main process sets it to `app.getPath('logs')` through
+ * `configureLogDirectory`, and worker threads and utility processes inherit it.
+ * Until then, records stay buffered.
+ */
+function getLogDirectory() {
+    const logDirectory = process.env.EVB_FILE_LOG_DIR?.trim();
+    if (!logDirectory) {
+        return null;
+    }
+    return logDirectory;
+}
+
 /**
  * Every source, thread and the renderer bridge append to this one timeline.
  * Only the main thread rotates it; workers append to whatever file currently
  * owns the path.
  */
-const APP_LOG_FILE = join(LOG_DIR, APP_LOG_FILE_NAME);
+function getAppLogFile(logDirectory: string) {
+    return join(logDirectory, APP_LOG_FILE_NAME);
+}
 const fileLogState: IFileLogState = {
     queue: Promise.resolve(),
     initialized: false,
@@ -148,12 +152,6 @@ let logDirPrunePromise: Promise<void> | null = null;
 let stdoutMirrorBroken = false;
 let sessionStartWritten = false;
 
-try {
-    mkdirSync(LOG_DIR, { recursive: true });
-} catch {
-    // Ignore if already exists
-}
-
 async function broadcastToRenderers(data: ILogMessage) {
     if (!isMainThread) {
         return;
@@ -172,20 +170,21 @@ async function broadcastToRenderers(data: ILogMessage) {
     }
 }
 
-async function initializeState(state: IFileLogState) {
+async function initializeState(state: IFileLogState, appLogFile: string, logDirectory: string) {
     if (state.initialized) {
         return;
     }
     state.initialized = true;
 
     try {
-        await appendFile(APP_LOG_FILE, '', 'utf8');
+        await mkdir(logDirectory, { recursive: true });
+        await appendFile(appLogFile, '', 'utf8');
     } catch {
         // Ignore initialization failures, writes will keep retrying.
     }
 
     try {
-        state.approximateBytes = statSync(APP_LOG_FILE).size;
+        state.approximateBytes = statSync(appLogFile).size;
     } catch {
         state.approximateBytes = 0;
     }
@@ -222,6 +221,11 @@ async function rotateFile(logFile: string) {
 }
 
 async function pruneLogDirectory(force = false) {
+    const logDirectory = getLogDirectory();
+    if (logDirectory === null) {
+        return;
+    }
+    const appLogFile = getAppLogFile(logDirectory);
     const now = Date.now();
     if (!force && now - logDirPruneLastAt < LOG_DIR_PRUNE_INTERVAL_MS) {
         return;
@@ -241,15 +245,15 @@ async function pruneLogDirectory(force = false) {
 
         let entries: string[] = [];
         try {
-            entries = await readdir(LOG_DIR);
+            entries = await readdir(logDirectory);
         } catch {
             return;
         }
 
         const files: IFileEntry[] = [];
         for (const entry of entries) {
-            const filePath = join(LOG_DIR, entry);
-            if (filePath === APP_LOG_FILE) {
+            const filePath = join(logDirectory, entry);
+            if (filePath === appLogFile) {
                 continue;
             }
             try {
@@ -315,6 +319,11 @@ function flushState(state: IFileLogState) {
     if (state.buffer.length === 0 && state.droppedWrites === 0) {
         return state.queue;
     }
+    const logDirectory = getLogDirectory();
+    if (logDirectory === null) {
+        return state.queue;
+    }
+    const appLogFile = getAppLogFile(logDirectory);
 
     const bufferedLines = state.buffer;
     state.buffer = [];
@@ -322,7 +331,7 @@ function flushState(state: IFileLogState) {
 
     state.queue = state.queue
         .then(async () => {
-            await initializeState(state);
+            await initializeState(state, appLogFile, logDirectory);
 
             const linesToWrite: string[] = [];
             if (state.droppedWrites > 0) {
@@ -337,17 +346,17 @@ function flushState(state: IFileLogState) {
                 // Workers append to the same file, so re-read the real size
                 // before deciding to rotate.
                 try {
-                    state.approximateBytes = statSync(APP_LOG_FILE).size;
+                    state.approximateBytes = statSync(appLogFile).size;
                 } catch {
                     state.approximateBytes = 0;
                 }
                 if (state.approximateBytes + payloadBytes > LOG_FILE_MAX_BYTES) {
-                    await rotateFile(APP_LOG_FILE);
+                    await rotateFile(appLogFile);
                     state.approximateBytes = 0;
                 }
             }
 
-            await appendFile(APP_LOG_FILE, payload, 'utf8');
+            await appendFile(appLogFile, payload, 'utf8');
             state.approximateBytes += payloadBytes;
         })
         .catch(() => {
@@ -408,6 +417,19 @@ if (STDOUT_LOG_ENABLED) {
     process.stdout.on?.('error', () => {
         stdoutMirrorBroken = true;
     });
+}
+
+/**
+ * Called once by the main process after it settles its user data path. An
+ * explicit `EVB_FILE_LOG_DIR` wins. Publishing the result in the environment
+ * gives worker threads and utility processes the same directory.
+ */
+export function configureLogDirectory(defaultDirectory: string) {
+    if (getLogDirectory() === null) {
+        process.env.EVB_FILE_LOG_DIR = defaultDirectory;
+    }
+    void pruneLogDirectory(true).catch(() => undefined);
+    void flushState(fileLogState);
 }
 
 /**
@@ -499,7 +521,6 @@ function ensureSessionStartRecord() {
         return;
     }
     sessionStartWritten = true;
-    void pruneLogDirectory(true).catch(() => {});
     const line = JSON.stringify({
         ts: new Date().toISOString(),
         level: 'info',

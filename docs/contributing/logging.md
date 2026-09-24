@@ -62,7 +62,9 @@ native process that is still running after 5 s logs a warning.
 | Renderer DevTools console | BrowserLogger output and main-process warnings and errors | renderer level |
 
 In a dev session the log directory is `.devkit/sessions/<name>/electron-logs/`.
-A packaged app uses `$TMPDIR/electron-logs/` unless `EVB_FILE_LOG_DIR` is set.
+Otherwise the app writes to Electron's `app.getPath('logs')`: `~/Library/Logs/EVB Viewer/`
+on macOS and `<userData>/logs/` on Windows and Linux. `EVB_FILE_LOG_DIR` overrides it,
+and worker threads and utility processes inherit the directory the main process chose.
 `app.ndjson` rotates at 16 MiB and keeps three backups. Each process start
 writes a `Log session started` record, so runs remain separable.
 

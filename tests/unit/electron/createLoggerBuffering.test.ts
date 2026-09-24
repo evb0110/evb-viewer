@@ -70,12 +70,14 @@ describe('file logger write buffering', () => {
         mocks.readdir.mockResolvedValue([]);
         process.env.ELECTRON_FILE_LOG_LEVEL = 'DEBUG';
         process.env.ELECTRON_RENDER_LOG_LEVEL = 'INFO';
+        process.env.EVB_FILE_LOG_DIR = '/logs';
     });
 
     afterEach(() => {
         vi.useRealTimers();
         delete process.env.ELECTRON_FILE_LOG_LEVEL;
         delete process.env.ELECTRON_RENDER_LOG_LEVEL;
+        delete process.env.EVB_FILE_LOG_DIR;
     });
 
     it('coalesces a burst of lines into a single append', async () => {
