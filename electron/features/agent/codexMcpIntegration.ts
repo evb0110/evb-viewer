@@ -7,7 +7,9 @@ import type {
     MessageBoxOptions,
 } from 'electron';
 import {
-    open, readFile, rename, writeFile,
+    readFile,
+    rename,
+    writeFile,
 } from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {
@@ -38,6 +40,7 @@ import {
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { fsyncDirectory as syncDirectory } from '@electron/utils/fsyncPath';
 import {createIsoTimestamp} from '@contracts/timestamps';
 
 const logger = createLogger('agent-codex-mcp');
@@ -159,14 +162,6 @@ function getCodexConfigPath() {
     return join(codexHome ?? join(homedir(), '.codex'), 'config.toml');
 }
 
-async function syncDirectory(path: string) {
-    const directory = await open(path, 'r');
-    try {
-        await directory.sync();
-    } finally {
-        await directory.close();
-    }
-}
 
 /**
  * `codex mcp add` writes the token straight into argv, where any other user on

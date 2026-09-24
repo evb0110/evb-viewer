@@ -153,7 +153,7 @@ afterEach(async () => {
 
 describe('OCR catalog v4 path confinement', () => {
     it('accepts normalized relative paths and rejects reinterpretation', () => {
-        expect(resolveCatalogPath('/tmp/catalog', 'nested/page.json')).toBe('/tmp/catalog/nested/page.json');
+        expect(resolveCatalogPath('/tmp/catalog', 'nested/page.json')).toBe(join('/tmp/catalog', 'nested', 'page.json'));
         for (const path of [
             '',
             '../page.json',

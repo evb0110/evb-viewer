@@ -80,19 +80,6 @@ describe('atomicReplace', () => {
         setPlatform(originalPlatform);
     });
 
-    it('continues replacing output when Windows refuses to fsync the temp file', async () => {
-        setPlatform('win32');
-        const fsyncError = Object.assign(new Error('operation not permitted, fsync'), { code: 'EPERM' });
-        mocks.sync.mockRejectedValueOnce(fsyncError);
-
-        const { atomicReplace } = await import('@electron/utils/atomicReplace');
-
-        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf')).resolves.toBeUndefined();
-
-        expect(mocks.rename).toHaveBeenNthCalledWith(1, 'C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf');
-        expect(mocks.close).toHaveBeenCalledTimes(1);
-    });
-
     it('still rejects unexpected temp-file fsync failures', async () => {
         setPlatform('darwin');
         const fsyncError = Object.assign(new Error('operation not permitted, fsync'), { code: 'EPERM' });

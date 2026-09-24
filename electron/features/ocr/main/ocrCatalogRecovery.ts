@@ -1,5 +1,4 @@
 import {
-    open,
     readFile,
     rename,
     rm,
@@ -14,6 +13,9 @@ import {
 import {createIsoTimestamp} from '@contracts/timestamps';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
+import {
+    fsyncDirectory as syncDirectory, fsyncFile, 
+} from '@electron/utils/fsyncPath';
 
 const OCR_CATALOG_RECOVERY_RECEIPT_VERSION = 1 as const;
 const OCR_CATALOG_RECOVERY_RECEIPT_SUFFIX = '.recovery.json' as const;
@@ -26,14 +28,6 @@ export interface IOcrCatalogRecoveryReceipt {
     readonly quarantinedPath: string | null;
 }
 
-async function syncDirectory(path: string) {
-    const directory = await open(path, 'r');
-    try {
-        await directory.sync();
-    } finally {
-        await directory.close();
-    }
-}
 
 export function getOcrCatalogRecoveryReceiptPath(catalogRoot: string): string {
     return `${catalogRoot}${OCR_CATALOG_RECOVERY_RECEIPT_SUFFIX}`;
@@ -101,12 +95,7 @@ async function writeReceiptAtomically(
     const temporaryPath = `${receiptPath}.${process.pid}.${randomUUID()}.tmp`;
     try {
         await writeFile(temporaryPath, JSON.stringify(receipt), 'utf8');
-        const file = await open(temporaryPath, 'r');
-        try {
-            await file.sync();
-        } finally {
-            await file.close();
-        }
+        await fsyncFile(temporaryPath);
         await rename(temporaryPath, receiptPath);
         await syncDirectory(dirname(receiptPath));
     } catch (error) {

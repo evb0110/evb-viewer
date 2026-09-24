@@ -29,6 +29,7 @@ import {
     capturePathSaveWitness,
     type IOriginalPathSaveJournalSnapshot,
 } from '@electron/file-access/originalPathSaveWitness';
+import { fsyncFile as fsyncPath } from '@electron/utils/fsyncPath';
 
 const logger = createLogger('atomicReplace');
 const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -86,16 +87,6 @@ function randomSuffix() {
     return randomBytes(8).toString('hex');
 }
 
-async function fsyncPath(filePath: string) {
-    const handle = await open(filePath, 'r');
-    try {
-        await syncFileHandleForDurability(handle, {onSkipped: error => logger.debug(
-            `Skipping temp-file fsync for "${filePath}": ${getErrorMessage(error)}`,
-        )});
-    } finally {
-        await handle.close();
-    }
-}
 
 export async function fsyncParentDirectory(filePath: string) {
     if (process.platform === 'win32') {

@@ -45,6 +45,9 @@ import type {
     TOcrPageArtifact,
 } from '@contracts/ocrIndex';
 import {
+    fsyncDirectory as syncDirectory, fsyncFile as syncFile, 
+} from '@electron/utils/fsyncPath';
+import {
     OCR_CATALOG_PREPARED_DESCRIPTOR_VERSION,
     OCR_CATALOG_ROOT_MAX_BYTES,
     OCR_CATALOG_VERSION,
@@ -388,22 +391,6 @@ async function writeExactly(file: FileHandle, buffer: Buffer, position: number) 
             throw new OcrCatalogCorruptError('unable to write shard index');
         }
         offset += result.bytesWritten;
-    }
-}
-async function syncFile(filePath: string) {
-    const file = await open(filePath, 'r');
-    try {
-        await file.sync();
-    } finally {
-        await file.close();
-    }
-}
-async function syncDirectory(directoryPath: string) {
-    const directory = await open(directoryPath, 'r');
-    try {
-        await directory.sync();
-    } finally {
-        await directory.close();
     }
 }
 
