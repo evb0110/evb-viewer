@@ -40,11 +40,8 @@ export function hasDeveloperIdSigningCredentials(env = process.env) {
     return Boolean(env.CSC_LINK && env.CSC_KEY_PASSWORD);
 }
 
-// Keep the native-save dependency graph in one place. The CI workflow mirrors
-// these paths in its push trigger because GitHub evaluates that trigger before
-// JavaScript can run; the policy tests require the two lists to stay aligned.
+// Keep the native-save dependency graph in one place.
 export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
-    '.github/workflows/ci-extended.yml',
     '.github/workflows/ci.yml',
     'app/composables/useAnalytics.ts',
     'app/modules/pdf-viewer/annotations/**',
@@ -122,7 +119,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
     ci: {changedAreas: {
         browserIntegration: {
             output: 'browser_integration',
-            owner: 'pr_browser_integration',
+            owner: 'browser_integration',
             paths: [
                 'app/**',
                 'drizzle/**',
@@ -151,7 +148,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
         },
         scanCleanupExport: {
             output: 'scan_cleanup_export',
-            owner: 'pr_scan_cleanup_oracles',
+            owner: 'scan_cleanup_oracles',
             paths: [
                 '.github/actions/setup-ci-env/**',
                 '.github/workflows/**',
@@ -197,7 +194,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
         },
         electronSmoke: {
             output: 'electron_smoke',
-            owner: 'pr_electron_blocking_smoke',
+            owner: 'electron_e2e',
             paths: [
                 'app/**',
                 'drizzle/**',
@@ -226,53 +223,12 @@ const GATE_POLICY_MANIFEST = Object.freeze({
         },
         nativePdfSave: {
             output: 'electron_save_reopen',
-            owner: 'pr_electron_native_save_reopen',
+            owner: 'windows_atomic_pdf_replacement',
             paths: [...NATIVE_PDF_SAVE_DEPENDENCY_PATHS],
-        },
-        // The packaged core-PDF journey used to run only inside release
-        // builds, so a change to the verifier or to packaging was first
-        // executed during a release cut (v0.1.447 and v0.1.448 both failed
-        // on all four platforms from verifier-only mistakes). This lane
-        // runs the same build-target.yml Linux job on push CI whenever the
-        // proof itself or the packaging pipeline changes.
-        packagedSmoke: {
-            output: 'packaged_smoke',
-            owner: 'pr_packaged_linux',
-            paths: [
-                '.github/actions/setup-release-env/**',
-                '.github/workflows/build.yml',
-                '.github/workflows/build-target.yml',
-                '.github/workflows/ci-extended.yml',
-                '.github/workflows/ci.yml',
-                'electron-builder.yml',
-                'electron/features/ocr/**',
-                'native/pdf-page-ops/**',
-                'package.json',
-                'pnpm-lock.yaml',
-                'scripts/afterPack.cjs',
-                'scripts/afterSign.cjs',
-                'scripts/bundle-tools-linux.sh',
-                'scripts/ci/classify-changed-areas.mjs',
-                'scripts/electron-run/electronRunProcessTree.ts',
-                'scripts/release/policy.mjs',
-                'scripts/release/assert-build-artifacts.mjs',
-                'scripts/release/assert-linux-glibc-baseline.mjs',
-                'scripts/release/assert-packaged-app-contents.mjs',
-                'scripts/release/assertNoPackagedRendererFailures.ts',
-                'scripts/release/verifyPackagedCorePdfSmoke.ts',
-                'scripts/build-wasm-artifacts.mjs',
-                'scripts/ensure-wasm-artifacts.mjs',
-                'scripts/stage-wasm-artifacts.mjs',
-                'scripts/wasm-artifacts.mjs',
-                'scripts/wasm-fingerprint.mjs',
-                'scripts/release/waitForPackagedCdpEndpoint.ts',
-                'scripts/verify-packaged-native-tools.sh',
-                'tests/e2e/electron/helpers/**',
-            ],
         },
         landing: {
             output: 'landing',
-            owner: 'pr_landing_quality',
+            owner: 'landing',
             paths: [
                 '.github/actions/setup-ci-env/**',
                 'landing/**',
@@ -290,7 +246,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
         },
         nativeOrBuild: {
             output: 'native_or_build',
-            owner: 'pr_native_build_safety',
+            owner: 'rust',
             paths: [
                 '.github/actions/**',
                 '.github/workflows/**',

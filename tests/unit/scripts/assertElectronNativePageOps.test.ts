@@ -39,14 +39,14 @@ function writeFakeHelper(path: string, handshake: string) {
 describe('Electron native page-ops admission', () => {
     it('requires the launcher flag for native suites', () => {
         expect(() => assertElectronNativePageOps({
-            project: 'e2e-regression',
+            project: 'e2e-smoke',
             env: {},
         })).toThrow('EVB_PDF_PAGE_OPS_ENABLE=1');
     });
 
     it('keeps explicit native-disabled negative runs admissible', () => {
         expect(assertElectronNativePageOps({
-            project: 'e2e-regression',
+            project: 'e2e-smoke',
             env: {EVB_PDF_PAGE_OPS_DISABLE: '1'},
         })).toMatchObject({
             required: true,
@@ -55,16 +55,6 @@ describe('Electron native page-ops admission', () => {
         });
     });
 
-    it('does not require page ops for non-native suites', () => {
-        expect(assertElectronNativePageOps({
-            project: 'e2e-rapid-navigation',
-            env: {},
-        })).toMatchObject({
-            required: false,
-            disabled: false,
-            toolPath: null,
-        });
-    });
 
     it('admits a runnable native binary that speaks the current protocol', () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-native-page-ops-admission-'));
@@ -77,7 +67,7 @@ describe('Electron native page-ops admission', () => {
             }
             const output = execFileSync(process.execPath, [
                 scriptPath,
-                'e2e-regression',
+                'e2e-smoke',
             ], {
                 // An empty project root keeps this machine's staged helpers out of the check.
                 cwd: directory,
@@ -89,7 +79,7 @@ describe('Electron native page-ops admission', () => {
                 },
                 encoding: 'utf8',
             });
-            expect(output).toContain('[native-page-ops] admitted e2e-regression:');
+            expect(output).toContain('[native-page-ops] admitted e2e-smoke:');
         } finally {
             rmSync(directory, {
                 recursive: true,
@@ -107,7 +97,7 @@ describe('Electron native page-ops admission', () => {
         try {
             writeFakeHelper(binaryPath, '1');
             expect(() => assertElectronNativePageOps({
-                project: 'e2e-regression',
+                project: 'e2e-smoke',
                 projectRoot: directory,
                 env: {
                     EVB_PDF_PAGE_OPS_ENABLE: '1',

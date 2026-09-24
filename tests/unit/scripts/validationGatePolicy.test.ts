@@ -32,6 +32,21 @@ import {
 } from 'vitest';
 import { ESLint } from 'eslint';
 
+const REGRESSION_LANE_ARGS = [
+    'e2e-smoke',
+    ...[
+        'e2e-viewer',
+        'e2e-annotations',
+        'e2e-save-pipeline',
+        'e2e-documents',
+        'e2e-draw-shapes',
+        'e2e-core',
+    ].flatMap(lane => [
+        '--project',
+        lane,
+    ]),
+];
+
 interface IValidationChanges {
     files: string[];
     known: boolean;
@@ -310,7 +325,7 @@ describe('validation gate policy', () => {
         expect(smoke?.args).toEqual([
             'scripts/test-electron-e2e-headless.sh',
             '--no-build',
-            'e2e-blocking-smoke',
+            'e2e-smoke',
         ]);
         expect(smoke?.env).toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(stageIds).not.toContain('test.coverage');
@@ -627,7 +642,8 @@ describe('validation gate policy', () => {
         expect(plan.find(stage => stage.id === 'electron.regression')?.args)
             .toEqual([
                 'run',
-                'test:e2e:electron:headless',
+                'test:e2e',
+                ...REGRESSION_LANE_ARGS,
             ]);
     });
 
@@ -649,7 +665,7 @@ describe('validation gate policy', () => {
         expect(regression?.args).toEqual([
             'scripts/test-electron-e2e-headless.sh',
             '--no-build',
-            'e2e-regression',
+            ...REGRESSION_LANE_ARGS,
         ]);
         expect(regression?.dependsOn).toEqual(['build.strict']);
     });
@@ -672,7 +688,7 @@ describe('validation gate policy', () => {
         expect(smoke?.args).toEqual([
             'scripts/test-electron-e2e-headless.sh',
             '--no-build',
-            'e2e-blocking-smoke',
+            'e2e-smoke',
         ]);
         expect(smoke?.env).toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(smoke?.dependsOn).toEqual(['build.strict']);
@@ -693,7 +709,7 @@ describe('validation gate policy', () => {
         expect(regression?.args).toEqual([
             'scripts/test-electron-e2e-headless.sh',
             '--no-build',
-            'e2e-regression',
+            ...REGRESSION_LANE_ARGS,
         ]);
         expect(regression?.dependsOn).toEqual(['build.strict']);
     });

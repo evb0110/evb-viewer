@@ -576,6 +576,23 @@ function stage(id, command, args, options = {}) {
         id,
     };
 }
+// The Electron E2E lanes of the required CI verdict (.github/workflows/ci.yml).
+// Locally they run in one Vitest invocation, one lane after another.
+const ELECTRON_E2E_CI_LANES = [
+    'e2e-smoke',
+    'e2e-viewer',
+    'e2e-annotations',
+    'e2e-save-pipeline',
+    'e2e-documents',
+    'e2e-draw-shapes',
+    'e2e-core',
+];
+const ELECTRON_E2E_REGRESSION_ARGS = ELECTRON_E2E_CI_LANES.flatMap((lane, index) => (
+    index === 0 ? [lane] : [
+        '--project',
+        lane,
+    ]
+));
 /** @param {string} id @param {string} scriptName @param {IValidationStageOptions} options @returns {IValidationStage} */
 function pnpmRunStage(id, scriptName, options = {}) {
     return stage(id, 'pnpm', [
@@ -746,29 +763,29 @@ function affectedPlan(tier, files, classification) {
                 ? stage('electron.regression', 'bash', [
                     'scripts/test-electron-e2e-headless.sh',
                     '--no-build',
-                    'e2e-regression',
+                    ...ELECTRON_E2E_REGRESSION_ARGS,
                 ], {
                     dependsOn: ['build.strict'],
                     heavyWeight: 2,
                     inputScope: 'build',
                     weight: 2,
                 })
-                : pnpmRunStage(
-                    'electron.regression',
-                    'test:e2e:electron:headless',
-                    {
-                        heavyWeight: 2,
-                        inputScope: 'build',
-                        weight: 2,
-                    },
-                ));
+                : stage('electron.regression', 'pnpm', [
+                    'run',
+                    'test:e2e',
+                    ...ELECTRON_E2E_REGRESSION_ARGS,
+                ], {
+                    heavyWeight: 2,
+                    inputScope: 'build',
+                    weight: 2,
+                }));
         } else {
             const hasStrictBuild = stages.some(item => item.id === 'build.strict');
             stages.push(hasStrictBuild
                 ? stage('electron.blocking-smoke', 'bash', [
                     'scripts/test-electron-e2e-headless.sh',
                     '--no-build',
-                    'e2e-blocking-smoke',
+                    'e2e-smoke',
                 ], {
                     dependsOn: ['build.strict'],
                     env: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
@@ -776,15 +793,15 @@ function affectedPlan(tier, files, classification) {
                     inputScope: 'build',
                     weight: 3,
                 })
-                : pnpmRunStage(
-                    'electron.blocking-smoke',
-                    'test:e2e:electron:blocking-smoke:headless',
-                    {
-                        heavyWeight: 3,
-                        inputScope: 'build',
-                        weight: 3,
-                    },
-                ));
+                : stage('electron.blocking-smoke', 'pnpm', [
+                    'run',
+                    'test:e2e',
+                    'e2e-smoke',
+                ], {
+                    heavyWeight: 3,
+                    inputScope: 'build',
+                    weight: 3,
+                }));
         }
     }
     return stages;
@@ -872,7 +889,7 @@ export function getValidationPlan({
             fullStages.push(stage('electron.blocking-smoke', 'bash', [
                 'scripts/test-electron-e2e-headless.sh',
                 '--no-build',
-                'e2e-blocking-smoke',
+                'e2e-smoke',
             ], {
                 dependsOn: [
                     'build.strict',
@@ -897,7 +914,7 @@ export function getValidationPlan({
             fullStages.push(stage('electron.regression', 'bash', [
                 'scripts/test-electron-e2e-headless.sh',
                 '--no-build',
-                'e2e-regression',
+                ...ELECTRON_E2E_REGRESSION_ARGS,
             ], {
                 dependsOn: ['build.strict'],
                 heavyWeight: 2,
@@ -939,7 +956,7 @@ export function getValidationPlan({
         }),
         pnpmRunStage(
             'electron.quarantine',
-            'test:e2e:electron:quarantine:headless',
+            'test:e2e:quarantine',
             {
                 heavyWeight: 3,
                 inputScope: 'build',

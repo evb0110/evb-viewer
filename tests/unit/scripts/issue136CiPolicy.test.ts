@@ -331,7 +331,7 @@ describe('issue 136 CI coverage contracts', () => {
             expiresOn: '2026-09-30',
             issue: 'https://github.com/evb0110/evb-viewer/issues/136',
             path: 'tests/e2e/electron/quarantine/example.e2e.test.ts',
-            targetProject: 'e2e-regression',
+            targetProject: 'e2e-core',
         }]};
         const report = {
             numFailedTests: 0,

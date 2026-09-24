@@ -34,16 +34,16 @@ const vitestProjectNames = {
     browserIntegration: 'browser-integration',
     nativeIntegration: 'native-integration',
     electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
-    electronE2ERegression: 'e2e-regression',
-    electronE2EBlockingSmoke: 'e2e-blocking-smoke',
+    electronE2ESmoke: 'e2e-smoke',
+    electronE2EViewer: 'e2e-viewer',
+    electronE2EAnnotations: 'e2e-annotations',
+    electronE2ESavePipeline: 'e2e-save-pipeline',
+    electronE2EDocuments: 'e2e-documents',
     electronE2EDrawShapes: 'e2e-draw-shapes',
+    electronE2ECore: 'e2e-core',
     electronE2ELargePdf: 'e2e-large-pdf',
-    electronE2ERapidNavigation: 'e2e-rapid-navigation',
     electronE2EVisibleWindow: 'e2e-visible-window',
     electronE2EQuarantine: 'e2e-quarantine',
-    electronE2ESavePipeline: 'e2e-save-pipeline',
-    electronE2ENativeSaveReopen: 'e2e-native-save-reopen',
-    electronE2EXlargePdf: 'e2e-xlarge-pdf',
     electronE2ESearchMatchScroll: 'e2e-search-match-scroll',
     electronE2ECalibration: 'e2e-calibration',
 } as const;
@@ -58,75 +58,68 @@ export const staticArchitectureTestFiles = [
     'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts',
 ];
 
-const electronE2ESmokeTestFiles = [
-    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
-    'tests/e2e/electron/performanceProfileVisuals.e2e.test.ts',
-    'tests/e2e/electron/startupHydration.e2e.test.ts',
-    'tests/e2e/electron/recentFiles.e2e.test.ts',
-    'tests/e2e/electron/viewerSmoke.e2e.test.ts',
-    'tests/e2e/electron/zoomMenuLayout.e2e.test.ts',
-    'tests/e2e/electron/dialogLayoutStability.e2e.test.ts',
-    'tests/e2e/electron/djvuPrintHandoff.e2e.test.ts',
-    'tests/e2e/electron/inactivePdfTabs.e2e.test.ts',
-    'tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts',
-    'tests/e2e/electron/annotationLifecycle.e2e.test.ts',
-    'tests/e2e/electron/annotationControls.e2e.test.ts',
-    'tests/e2e/electron/legacyNote350.e2e.test.ts',
-    'tests/e2e/electron/interopVpsAcceptance.e2e.test.ts',
-    'tests/e2e/electron/stampPicker.e2e.test.ts',
-    'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
-    'tests/e2e/electron/viewerInvariantJourney.e2e.test.ts',
-];
+// Electron E2E lanes. Every lane but the manual ones runs as one shard of
+// the required CI verdict (.github/workflows/ci.yml), so a file belongs to
+// exactly one lane and lanes are sized to finish in about ten minutes on a
+// hosted Linux runner. e2e-core takes every Electron E2E file no other lane
+// names, so a new test file runs in CI without a config edit.
+const electronE2EFile = (name: string) => `tests/e2e/electron/${name}.e2e.test.ts`;
+export const electronE2ELanes = {
+    [vitestProjectNames.electronE2ESmoke]: [
+        'annotationTextInteraction',
+        'annotationControls',
+        'blockingPdfSaveSmoke',
+        'scanCleanupToolbarContract',
+    ].map(electronE2EFile),
+    [vitestProjectNames.electronE2EViewer]: ['viewerSmoke'].map(electronE2EFile),
+    [vitestProjectNames.electronE2EAnnotations]: [
+        'annotationLifecycle',
+        'squigglyMarkup',
+        'stampPicker',
+        'legacyNote350',
+        'interopVpsAcceptance',
+    ].map(electronE2EFile),
+    [vitestProjectNames.electronE2ESavePipeline]: [
+        'project8RecoveryCloseAcceptance',
+        'savePipeline',
+        'savePipelineBenchmark',
+        'issue124LifecycleAcceptance',
+        'compactPageLabelsStructuralOperations',
+    ].map(electronE2EFile),
+    [vitestProjectNames.electronE2EDocuments]: [
+        'nativeSaveReopen',
+        'prBlockingSmoke',
+        'recentFiles',
+    ].map(electronE2EFile),
+    [vitestProjectNames.electronE2EDrawShapes]: [
+        'drawShapeLifecycle',
+        'annotationStrokeParity',
+    ].map(electronE2EFile),
+} as const;
 
-// project8RecoveryCloseAcceptance is deliberately absent. It belongs to the
-// save pipeline, which the electronE2ESavePipeline project already runs as a
-// blocking push job, so listing it here made one save regression redden two
-// blocking lanes and read as two independent failures.
-const electronE2EBlockingSmokeTestFiles = [
-    'tests/e2e/electron/annotationTextInteraction.e2e.test.ts',
-    'tests/e2e/electron/annotationControls.e2e.test.ts',
-    'tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts',
-    'tests/e2e/electron/prBlockingSmoke.e2e.test.ts',
-    'tests/e2e/electron/scanCleanupToolbarContract.e2e.test.ts',
-];
-const electronE2ENativeSaveReopenTestFiles = [
-    'tests/e2e/electron/nativeSaveReopen.e2e.test.ts',
-    'tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts',
-];
-const electronE2EDrawShapeTestFiles = [
-    'tests/e2e/electron/annotationStrokeParity.e2e.test.ts',
-    'tests/e2e/electron/drawShapeLifecycle.e2e.test.ts',
-];
+// Manual and nightly lanes: large local fixtures, a visible window, the
+// quarantine, the native search build, and calibration runs driven by hand
+// on a reverted revision and on the current one.
 const electronE2ELargePdfTestFiles = [
-    'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
-    'tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts',
-    'tests/e2e/electron/largePdfNativePreview.e2e.test.ts',
-    'tests/e2e/electron/nativePdfSplitPaneLifecycle.e2e.test.ts',
-    'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
-];
-const electronE2ERapidNavigationTestFiles = [
-    'tests/e2e/electron/flingNavigationHandoff.e2e.test.ts',
-    'tests/e2e/electron/rapidPdfNavigation.e2e.test.ts',
-    'tests/e2e/electron/standardPdfFitModeContinuity.e2e.test.ts',
-];
+    'largePdfAnnotationSave',
+    'largePdfNativeAnnotationMatrix',
+    'largePdfNativePreview',
+    'nativePdfSplitPaneLifecycle',
+    'xlargeDocumentAcceptance',
+].map(electronE2EFile);
 const electronE2EVisibleWindowTestFiles = [
-    'tests/e2e/electron/visibleWindowLifecycle.e2e.test.ts',
-    'tests/e2e/electron/macOsPrintAcceptance.e2e.test.ts',
-];
+    'visibleWindowLifecycle',
+    'macOsPrintAcceptance',
+].map(electronE2EFile);
 const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
-const electronE2ESavePipelineTestFiles = [
-    'tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts',
-    'tests/e2e/electron/savePipeline.e2e.test.ts',
-    'tests/e2e/electron/savePipelineBenchmark.e2e.test.ts',
-    'tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts',
-];
-const electronE2EXlargePdfTestFiles = ['tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts'];
-const electronE2ESearchMatchScrollTestFiles = ['tests/e2e/electron/searchMatchScrolling.e2e.test.ts'];
-
-// Calibration runs, driven by hand on a reverted revision and on the current
-// one, to see whether the observation path reports the symptom a historical fix
-// repaired. They are not part of any CI lane.
+const electronE2ESearchMatchScrollTestFiles = [electronE2EFile('searchMatchScrolling')];
 const electronE2ECalibrationTestFiles = ['tests/e2e/electron/calibration/*Calibration.e2e.test.ts'];
+const electronE2ECoreExclude = [
+    ...Object.values(electronE2ELanes).flat(),
+    ...electronE2ELargePdfTestFiles,
+    ...electronE2EVisibleWindowTestFiles,
+    ...electronE2ESearchMatchScrollTestFiles,
+];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
@@ -203,12 +196,6 @@ function createElectronE2ETestProject(
             name,
             include,
             ...(exclude.length > 0 ? {exclude} : {}),
-            ...(name === vitestProjectNames.electronE2EBlockingSmoke
-                ? {env: {EVB_PR_SMOKE_SCOPE: 'blocking'}}
-                : {}),
-            ...(name === vitestProjectNames.electronE2ERegression
-                ? {env: {EVB_PR_SMOKE_SCOPE: 'pressure'}}
-                : {}),
             globalSetup: ['tests/e2e/electron/globalSetup.ts'],
             globals: false,
             fileParallelism: false,
@@ -309,19 +296,18 @@ export const vitestProjects = [
         staticArchitectureTestFiles,
     ),
     createBundleIntegrityTestProject(),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ERegression, electronE2ESmokeTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2EBlockingSmoke, electronE2EBlockingSmokeTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2EDrawShapes, electronE2EDrawShapeTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ELargePdf, electronE2ELargePdfTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ERapidNavigation, electronE2ERapidNavigationTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2EVisibleWindow, electronE2EVisibleWindowTestFiles),
+    ...Object.entries(electronE2ELanes).map(([
+        name,
+        files,
+    ]) => createElectronE2ETestProject(name, [...files])),
     createElectronE2ETestProject(
-        vitestProjectNames.electronE2EQuarantine,
-        electronE2EQuarantineTestFiles,
+        vitestProjectNames.electronE2ECore,
+        ['tests/e2e/electron/*.e2e.test.ts'],
+        {exclude: electronE2ECoreExclude},
     ),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ESavePipeline, electronE2ESavePipelineTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ENativeSaveReopen, electronE2ENativeSaveReopenTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2EXlargePdf, electronE2EXlargePdfTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2ELargePdf, electronE2ELargePdfTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2EVisibleWindow, electronE2EVisibleWindowTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2EQuarantine, electronE2EQuarantineTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ESearchMatchScroll, electronE2ESearchMatchScrollTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ECalibration, electronE2ECalibrationTestFiles),
 ] satisfies TestProjectConfiguration[];

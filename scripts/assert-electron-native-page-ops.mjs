@@ -15,16 +15,6 @@ import {
     arch,
 } from 'node:process';
 
-const NATIVE_PAGE_OPS_PROJECTS = new Set([
-    'e2e-blocking-smoke',
-    'e2e-draw-shapes',
-    'e2e-large-pdf',
-    'e2e-native-save-reopen',
-    'e2e-regression',
-    'e2e-save-pipeline',
-    'e2e-xlarge-pdf',
-]);
-
 function platformArch() {
     const platformName = platform === 'win32' ? 'win32' : platform;
     return `${platformName}-${arch}`;
@@ -146,14 +136,6 @@ export function assertElectronNativePageOps({
     env = process.env,
     protocols = [],
 } = {}) {
-    if (!NATIVE_PAGE_OPS_PROJECTS.has(project)) {
-        return {
-            required: false,
-            disabled: false,
-            toolPath: null,
-        };
-    }
-
     if (env.EVB_PDF_PAGE_OPS_DISABLE === '1') {
         return {
             required: true,

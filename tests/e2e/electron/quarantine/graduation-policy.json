@@ -14,28 +14,28 @@
       "expiresOn": "2026-09-30",
       "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts",
-      "targetProject": "e2e-regression"
+      "targetProject": "e2e-core"
     },
     {
       "assertionReport": "tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts",
       "expiresOn": "2026-09-30",
       "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts",
-      "targetProject": "e2e-regression"
+      "targetProject": "e2e-core"
     },
     {
       "assertionReport": "tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts",
       "expiresOn": "2026-09-30",
       "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts",
-      "targetProject": "e2e-regression"
+      "targetProject": "e2e-core"
     },
     {
       "assertionReport": "tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts",
       "expiresOn": "2026-09-30",
       "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts",
-      "targetProject": "e2e-regression"
+      "targetProject": "e2e-core"
     }
   ]
 }

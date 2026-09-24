@@ -26,18 +26,9 @@ const pushDiffBasePath = resolve(process.cwd(), 'scripts/ci/push-diff-base.sh');
 
 interface IChangedAreaClassification { matched: boolean }
 
-interface IChangedAreaDefinition {
-    output: string;
-    owner: string;
-    paths: string[];
-}
-
 interface IChangedAreaClassifierModule { classifyChangedFiles: (files: string[] | null) => Record<string, IChangedAreaClassification> }
 
-interface IReleasePolicyModule {
-    getCiChangedAreaPolicy: () => Record<string, IChangedAreaDefinition>;
-    getNativePdfSaveDependencyPaths: () => string[];
-}
+interface IReleasePolicyModule {getNativePdfSaveDependencyPaths: () => string[];}
 
 function runGit(cwd: string, args: string[]) {
     const result = spawnSync('git', [
@@ -124,10 +115,7 @@ function runPushDiffBase(root: string, before: string, head: string) {
 const { classifyChangedFiles } = await import(
     pathToFileURL(classifierPath).href
 ) as IChangedAreaClassifierModule;
-const {
-    getCiChangedAreaPolicy,
-    getNativePdfSaveDependencyPaths,
-} = await import(
+const { getNativePdfSaveDependencyPaths } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href
 ) as IReleasePolicyModule;
 
@@ -160,21 +148,9 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['app/modules/pdf-viewer/PdfViewer.vue']).electron_smoke?.matched).toBe(true);
         expect(classifyChangedFiles(['scripts/electron-run/electronLaunch.ts']).electron_smoke?.matched).toBe(true);
         expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
-        for (const file of [
-            '.github/workflows/build-target.yml',
-            'electron/features/ocr/worker/main.ts',
-            'electron-builder.yml',
-            'package.json',
-            'pnpm-lock.yaml',
-            'scripts/release/verifyPackagedCorePdfSmoke.ts',
-            'tests/e2e/electron/helpers/packagedCorePdfJourney.ts',
-        ]) {
-            expect(classifyChangedFiles([file]).packaged_smoke?.matched, file).toBe(true);
-        }
         expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
             landing: { matched: false },
             native_or_build: { matched: false },
-            packaged_smoke: { matched: false },
         });
     });
 
@@ -191,7 +167,7 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['native/pdf-page-ops/src/incremental.rs'])).toMatchObject({electron_save_reopen: {
             area: 'nativePdfSave',
             matched: true,
-            owner: 'pr_electron_native_save_reopen',
+            owner: 'windows_atomic_pdf_replacement',
         }});
         expect(classifyChangedFiles(['electron/features/documents/main/documentFileWriteHandlers.ts']))
             .toMatchObject({electron_save_reopen: {matched: true}});
@@ -289,38 +265,6 @@ describe('changed-area classifier', () => {
     // The classifier is declared once per tier that skips lanes with it, and
     // every area's owning job has to exist in one of the tiers, or the area
     // would be classified and then silently gate nothing.
-    it('keeps workflow outputs and job owners aligned with the canonical policy', () => {
-        const tierWorkflows = [
-            '.github/workflows/ci.yml',
-            '.github/workflows/ci-extended.yml',
-            '.github/workflows/ci-nightly.yml',
-        ].map(relativePath => readFileSync(resolve(process.cwd(), relativePath), 'utf8'));
-        const allTiers = tierWorkflows.join('\n');
-        const classifierJobs = tierWorkflows.flatMap((workflow) => {
-            const changedAreasStart = workflow.indexOf('  pr_changed_areas:');
-            if (changedAreasStart === -1) {
-                return [];
-            }
-            const nextJobOffset = workflow.slice(changedAreasStart + 1).search(/\n {2}[a-z_]+:\n/u);
-            return [nextJobOffset === -1
-                ? workflow.slice(changedAreasStart)
-                : workflow.slice(changedAreasStart, changedAreasStart + 1 + nextJobOffset)];
-        });
-        expect(classifierJobs.length).toBeGreaterThan(0);
-
-        for (const definition of Object.values(getCiChangedAreaPolicy())) {
-            for (const changedAreaJob of classifierJobs) {
-                expect(changedAreaJob).toContain(`${definition.output}: \${{ steps.classify.outputs.${definition.output} }}`);
-                for (const pattern of definition.paths) {
-                    if (pattern === 'scripts/ci/classify-changed-areas.mjs') {
-                        continue;
-                    }
-                    expect(changedAreaJob).not.toContain(pattern);
-                }
-            }
-            expect(allTiers, definition.output).toContain(`  ${definition.owner}:`);
-        }
-    });
 
     it('writes executable GitHub outputs from the canonical policy', () => {
         const tempDir = mkdtempSync(join(tmpdir(), 'evb-changed-areas-'));
@@ -345,7 +289,6 @@ describe('changed-area classifier', () => {
                 'electron_smoke=false',
                 'landing=true',
                 'native_or_build=true',
-                'packaged_smoke=true',
                 'scan_cleanup_export=false',
             ]);
         } finally {

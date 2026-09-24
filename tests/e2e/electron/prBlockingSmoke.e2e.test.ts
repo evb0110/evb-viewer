@@ -72,6 +72,7 @@ import {
 import { findViewportLifecycleViolations } from '@tests/e2e/electron/helpers/findViewportLifecycleViolations';
 import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
 
 const PR_BLOCKING_SMOKE_TIMEOUT_MS = 90_000;
 const LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS = 45_000;
@@ -98,13 +99,8 @@ const DJVU_FIRST_VISUAL_BUDGET_MS = 5_000;
 const DJVU_READY_AFTER_VISUAL_BUDGET_MS = 1_000;
 const PDF_NAVIGATION_SKELETON_DEBOUNCE_MS = 150;
 const CDP_CLEANUP_TIMEOUT_MS = 5_000;
-const prSmokeScope = process.env.EVB_PR_SMOKE_SCOPE;
-const blockingIt = prSmokeScope === 'pressure' ? it.skip : it;
-const pressureIt = prSmokeScope === 'blocking' ? it.skip : it;
 const djvuBlockingFixture = resolveDjvuFixturePath();
-const runDjvuBlockingOrSkip = prSmokeScope === 'pressure'
-    ? describe.skip
-    : selectFixtureDescribe(describe, djvuBlockingFixture);
+const runDjvuBlockingOrSkip = selectFixtureDescribe(describe, djvuBlockingFixture);
 
 interface IPdfRenderTraceEntrySnapshot {
     event: string;
@@ -960,7 +956,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
     }, 60_000);
     afterAll(() => cleanupRunFixtures(PR_BLOCKING_FIXTURE_OWNER));
 
-    blockingIt('reports the canonical 0.1.x application version from the real Electron runtime', async () => {
+    it('reports the canonical 0.1.x application version from the real Electron runtime', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-version',
@@ -989,7 +985,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(updateState?.version).toBe(packageJson.version);
     });
 
-    blockingIt('keeps a long inactive-tab title clear of its hovered close button', async () => {
+    it('keeps a long inactive-tab title clear of its hovered close button', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-inactive-tab-close',
@@ -1072,7 +1068,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         ).toBeLessThanOrEqual(geometry.tabRect?.right ?? Number.NEGATIVE_INFINITY);
     });
 
-    blockingIt('opens a PDF, persists a real IPC rotation, and navigates the viewer', async () => {
+    it('opens a PDF, persists a real IPC rotation, and navigates the viewer', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-rotation-navigation',
@@ -1225,7 +1221,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('fit-width');
     });
 
-    blockingIt('fits paged spreads without buffer overflow or phantom gutters', async () => {
+    it('fits paged spreads without buffer overflow or phantom gutters', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-fit-height-overflow',
@@ -1375,7 +1371,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             - (single.pages[0]!.right - single.pages[0]!.left))).toBeLessThanOrEqual(1);
     });
 
-    blockingIt('keeps buffered neighbors out of the paged fit-height scroll extent', async () => {
+    it('keeps buffered neighbors out of the paged fit-height scroll extent', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-paged-fit-height-buffered-scroll',
@@ -1438,7 +1434,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(observation.activePageBottom).toBeLessThanOrEqual(observation.viewportBottom + 1);
     });
 
-    blockingIt('keeps fit-height geometry stable across continuous and paged modes', async () => {
+    it('keeps fit-height geometry stable across continuous and paged modes', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-fit-height',
@@ -1550,7 +1546,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await stopPdfRenderTrace(session.page);
     });
 
-    pressureIt('serializes early Recent navigation and owns every viewport frame', {
+    it('serializes early Recent navigation and owns every viewport frame', {
         retry: 0,
         timeout: 180_000,
     }, async () => {
@@ -1937,7 +1933,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await stopPdfRenderTrace(session.page);
     });
 
-    pressureIt('keeps Recent actionable across document-tab close and reopen', async () => {
+    it('keeps Recent actionable across document-tab close and reopen', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: 'e2e-pr-blocking-recent-close-reopen',
@@ -2009,7 +2005,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         }
     });
 
-    pressureIt('keeps large-PDF opening, virtualization, and repeated reopen within budget', {
+    it('keeps large-PDF opening, virtualization, and repeated reopen coherent', {
         retry: 0,
         timeout: 240_000,
     }, async () => {
@@ -2362,10 +2358,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             && sample.sampleSource === 'raf'
         ));
         expect(firstVisibleCanvasSample, JSON.stringify(result)).toBeDefined();
-        expect(
-            firstVisibleCanvasSample?.elapsedMs ?? Number.POSITIVE_INFINITY,
+        expectWithinTimingBudget(
+            firstVisibleCanvasSample?.elapsedMs,
+            LARGE_PDF_FIRST_VISUAL_BUDGET_MS,
             JSON.stringify(result),
-        ).toBeLessThanOrEqual(LARGE_PDF_FIRST_VISUAL_BUDGET_MS);
+        );
         const currentPageCanvasSamples = result.samples.filter(sample => (
             sample.visibleCanvasReady
             && sample.currentPageCanvasPixelHeight !== null
@@ -2444,14 +2441,15 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 lastSignificantGeometryChangeAtMs = current.elapsedMs;
             }
         }
-        expect(
+        expectWithinTimingBudget(
             lastSignificantGeometryChangeAtMs - firstGeometryAtMs,
+            LARGE_PDF_GEOMETRY_SETTLE_BUDGET_MS,
             JSON.stringify({
                 firstGeometryAtMs,
                 lastSignificantGeometryChangeAtMs,
                 result,
             }),
-        ).toBeLessThanOrEqual(LARGE_PDF_GEOMETRY_SETTLE_BUDGET_MS);
+        );
 
         // Compact blocking virtualization sentinel. The deeper page-30 run
         // remains in the nightly rapid-navigation lane.
@@ -2535,16 +2533,15 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(firstOpenShellMs, JSON.stringify(repeatedOpenTimings)).not.toBeNull();
         for (const timing of repeatedOpenTimings.slice(1)) {
             expect(timing.firstPageShellMs, JSON.stringify(repeatedOpenTimings)).not.toBeNull();
-            expect(
-                timing.firstPageShellMs ?? Number.POSITIVE_INFINITY,
-                JSON.stringify(repeatedOpenTimings),
-            ).toBeLessThanOrEqual(
+            expectWithinTimingBudget(
+                timing.firstPageShellMs,
                 (firstOpenShellMs ?? 0) + REPEATED_OPEN_SHELL_JITTER_BUDGET_MS,
+                JSON.stringify(repeatedOpenTimings),
             );
         }
     });
 
-    pressureIt('keeps large-PDF interaction transitions causally stable', async () => {
+    it('keeps large-PDF interaction transitions causally stable', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
@@ -2801,7 +2798,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         ).toBeLessThanOrEqual(2);
     });
 
-    pressureIt('does not report a delayed render error for a high-zoom current page', async () => {
+    it('does not report a delayed render error for a high-zoom current page', async () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,

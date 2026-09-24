@@ -69,8 +69,8 @@
           },
           "targetProject": {
             "enum": [
-              "e2e-regression",
-              "e2e-blocking-smoke"
+              "e2e-core",
+              "e2e-smoke"
             ]
           }
         }

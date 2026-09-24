@@ -30,18 +30,10 @@ else
   exit 1
 fi
 
-if [ "${EVB_E2E_SHARED_BUILD_REQUIRED:-0}" = "1" ]; then
-  bash scripts/ci/prepare-electron-e2e-build.sh "$target_project"
+if [ "${EVB_PDF_PAGE_OPS_DISABLE:-0}" != "1" ]; then
+  export EVB_PDF_PAGE_OPS_ENABLE=1
 fi
-
-case "$target_project" in
-  e2e-blocking-smoke|e2e-calibration|e2e-draw-shapes|e2e-large-pdf|e2e-native-save-reopen|e2e-regression|e2e-save-pipeline|e2e-xlarge-pdf)
-    if [ "${EVB_PDF_PAGE_OPS_DISABLE:-0}" != "1" ]; then
-      export EVB_PDF_PAGE_OPS_ENABLE=1
-    fi
-    PATH="$PATH" node scripts/assert-electron-native-page-ops.mjs "$target_project"
-    ;;
-esac
+PATH="$PATH" node scripts/assert-electron-native-page-ops.mjs "$target_project"
 
 export EVB_AUTOMATION_DISABLE_SANDBOX=1
 export EVB_AUTOMATION_NO_FOCUS="$no_focus"

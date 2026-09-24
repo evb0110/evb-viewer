@@ -960,7 +960,7 @@ describe('release policy', () => {
 
         expect(changedAreas.nativeOrBuild).toMatchObject({
             output: 'native_or_build',
-            owner: 'pr_native_build_safety',
+            owner: 'rust',
         });
         expect(changedAreas.nativeOrBuild.paths).toEqual(expect.arrayContaining([
             '.github/workflows/**',
@@ -982,7 +982,7 @@ describe('release policy', () => {
         ]));
         expect(changedAreas.landing).toMatchObject({
             output: 'landing',
-            owner: 'pr_landing_quality',
+            owner: 'landing',
         });
         expect(changedAreas.landing.paths).toEqual(expect.arrayContaining([
             '.github/actions/setup-ci-env/**',

@@ -25,11 +25,13 @@ on:
     # previous one is unfinished or was cancelled by hand covers both.
   workflow_dispatch:
 
-# This workflow is the required tier: the checks whose failure means the pushed
-# commit itself is broken, sized so a verdict lands in about twelve minutes.
-# Everything that widens coverage without changing that verdict runs in
-# ci-extended.yml, and everything slow that needs no per-push signal runs in
-# ci-nightly.yml. See docs/contributing/ci.md for how a check is placed.
+# The one required CI verdict: gates_ok. A release is cut from a commit whose
+# push run has a green gates_ok, and nothing else gates a release. Jobs run
+# in parallel and are sized so the verdict lands in about fifteen minutes;
+# the Electron E2E suite is split into lanes (vitest.shared.config.ts) that
+# run as a matrix. Slow, heavy or large-fixture checks, timing budgets and
+# the macOS E2E run live in ci-nightly.yml, which reports and never gates.
+# A dispatched run skips the changed-area classifier and runs every job.
 
 permissions:
   actions: read
@@ -73,121 +75,8 @@ jobs:
             node scripts/check-publication-policy.mjs --pushed-range "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
           fi
 
-  pr_quality:
-    name: Quality Gates
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Restore validation caches
-        uses: actions/cache@v5
-        with:
-          path: |
-            .devkit/cache/lint
-            .devkit/cache/typecheck
-          key: quality-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
-
-      # The interop fixture validates and renders real PDFs with these tools.
-      - name: Install PDF test tools
-        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
-
-      - name: Install unit-test image dependency
-        id: setup
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
-
-      # Provisioning ends here so every gate below can report on its own:
-      # a failing gate must not hide the ones after it, while a broken
-      # dependency install still skips them all rather than blaming the code.
-
-      - name: Generate committed build artifacts and reject drift
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: |
-          pnpm run generate:build-artifacts
-          pnpm run copy:pdfjs
-          git diff --exit-code -- \
-            app/assets/css/vendor/pdfjs-viewer-sanitized.css \
-            app/platform/generated \
-            native/evb-native-support/src/generated_native_tool_protocols.rs \
-            public/pdfjs/images \
-            scripts/release/generated-release-targets.cjs
-          test -z "$(git ls-files --others --exclude-standard -- \
-            app/assets/css/vendor/pdfjs-viewer-sanitized.css \
-            app/platform/generated \
-            native/evb-native-support/src/generated_native_tool_protocols.rs \
-            public/pdfjs/images \
-            scripts/release/generated-release-targets.cjs)"
-
-      # Lint's base is the pushed range itself, not the last green base the
-      # changed-area classifier uses. A skipped lane claims a proven base
-      # already covered it, so that base has to be green; lint skips nothing,
-      # so a green base only widens its file list to code the push never
-      # touched and fails the wrong commit for an error that already existed.
-      # An absent or unreachable base still falls back to the whole tree, and
-      # ci-extended.yml lints the whole tree on every main push so drift in
-      # untouched files is still reported, just not as this commit's verdict.
-      - name: Lint changed sources
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            base_sha="$PR_BASE_SHA"
-          else
-            base_sha="$PUSH_BEFORE_SHA"
-          fi
-          if [ -n "$base_sha" ] \
-            && [ "$base_sha" != "0000000000000000000000000000000000000000" ] \
-            && git rev-parse --verify "${base_sha}^{commit}" >/dev/null 2>&1; then
-            pnpm run lint --changed --base="$base_sha"
-          else
-            pnpm run lint
-          fi
-
-      - name: Typecheck
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run typecheck
-
-      - name: Unit tests
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run test:unit
-
-      # The dependency audit is deliberately absent here. It fails on advisory
-      # publication time, not on anything in the commit, so on the required
-      # lane it blocked release cuts twice in one afternoon. It runs daily in
-      # dependency-audit.yml and files an issue instead.
-      # These three are the release workflow's own fallback checks
-      # (`release:verify:checks`). They cost seconds, so the release path can
-      # keep trusting a green gates_ok instead of repeating them.
-      - name: Drizzle schema configuration
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:drizzle-schema
-
-      - name: Electron-builder ASAR unpack configuration
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:electron-builder:asar-unpack
-
-      - name: Web deploy source policy
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:static:assets
-
-  pr_changed_areas:
+  changed_areas:
     name: Changed Area Detection
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -196,7 +85,6 @@ jobs:
       electron_save_reopen: ${{ steps.classify.outputs.electron_save_reopen }}
       landing: ${{ steps.classify.outputs.landing }}
       native_or_build: ${{ steps.classify.outputs.native_or_build }}
-      packaged_smoke: ${{ steps.classify.outputs.packaged_smoke }}
       scan_cleanup_export: ${{ steps.classify.outputs.scan_cleanup_export }}
 
     steps:
@@ -220,24 +108,349 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_HEAD_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
+        # An unresolvable base makes the classifier fail open, so a
+        # dispatched run selects every job.
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base_sha="$PR_BASE_SHA"
             head_sha="$PR_HEAD_SHA"
-          else
+          elif [ "$EVENT_NAME" = "push" ]; then
             base_sha="$(bash scripts/ci/push-diff-base.sh "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA" ci.yml)"
+            head_sha="$PUSH_HEAD_SHA"
+          else
+            base_sha='unavailable-push-base'
             head_sha="$PUSH_HEAD_SHA"
           fi
           node scripts/ci/classify-changed-areas.mjs --base="$base_sha" --head="$head_sha"
 
-  # The one real Electron journey in the required tier. Every other Electron
-  # suite runs in ci-extended.yml, where a newer push supersedes it.
-  pr_electron_blocking_smoke:
-    name: Electron Blocking Smoke
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_smoke == 'true' }}
-    needs: pr_changed_areas
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        id: setup
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore lint cache
+        uses: actions/cache@v5
+        with:
+          path: .devkit/cache/lint
+          key: lint-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs') }}
+
+      # Every step below reports on its own: a failing check must not hide the
+      # ones after it, while a broken setup still skips them all.
+      - name: Generate committed build artifacts and reject drift
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: |
+          pnpm run generate:build-artifacts
+          pnpm run copy:pdfjs
+          git diff --exit-code -- \
+            app/assets/css/vendor/pdfjs-viewer-sanitized.css \
+            app/platform/generated \
+            native/evb-native-support/src/generated_native_tool_protocols.rs \
+            public/pdfjs/images \
+            scripts/release/generated-release-targets.cjs
+          test -z "$(git ls-files --others --exclude-standard -- \
+            app/assets/css/vendor/pdfjs-viewer-sanitized.css \
+            app/platform/generated \
+            native/evb-native-support/src/generated_native_tool_protocols.rs \
+            public/pdfjs/images \
+            scripts/release/generated-release-targets.cjs)"
+
+      - name: Lint the whole tree
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run lint
+
+      # The dependency audit is deliberately absent. It fails on advisory
+      # publication time, not on anything in the commit, so it runs daily in
+      # dependency-audit.yml and files an issue instead.
+      - name: Drizzle schema configuration
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:drizzle-schema
+
+      - name: Electron-builder ASAR unpack configuration
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:electron-builder:asar-unpack
+
+      - name: Web deploy source policy
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:static:assets
+
+  unit:
+    name: Typecheck And Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore typecheck cache
+        uses: actions/cache@v5
+        with:
+          path: .devkit/cache/typecheck
+          key: typecheck-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
+
+      # The interop fixture validates and renders real PDFs with these tools.
+      - name: Install PDF test tools
+        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
+
+      - name: Install unit-test image dependency
+        id: setup
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run typecheck
+
+      - name: Unit tests
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run test:unit
+
+  rust:
+    name: Rust
+    if: ${{ needs.changed_areas.outputs.native_or_build == 'true' }}
+    needs: changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install PDF test tools
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh poppler-utils qpdf
+
+      - name: Install Rust lint components
+        run: rustup component add rustfmt clippy
+
+      - name: Restore Rust build caches
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/target
+          key: rust-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: rust-native-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Rust formatting and clippy
+        run: pnpm run lint:rust
+
+      - name: Rust dependency policy
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: native/Cargo.toml
+
+      - name: Rust tests
+        run: pnpm run test:rust
+
+      - name: Scan-cleanup catastrophe baseline
+        run: scripts/ci/scan-cleanup-oracles.sh native "$RUNNER_TEMP/scan-cleanup-oracles"
+
+  strict_build:
+    name: Strict Build
+    if: ${{ needs.changed_areas.outputs.native_or_build == 'true' }}
+    needs: changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Rust WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build source-verified browser WASM artifacts
+        run: node scripts/build-wasm-artifacts.mjs --output-dir=.tmp/wasm-artifacts
+
+      - name: Stage source-verified browser WASM artifacts
+        run: node scripts/stage-wasm-artifacts.mjs .tmp/wasm-artifacts
+
+      - name: Strict build
+        env:
+          EVB_WASM_ARTIFACT_DIR: .tmp/wasm-artifacts
+        run: pnpm run build:strict
+
+      - name: Electron bundle static integrity
+        run: pnpm run test:electron-bundle-static-integrity:no-build
+
+  native_pdf_integration:
+    name: Native PDF Save Integration
+    if: ${{ needs.changed_areas.outputs.native_or_build == 'true' }}
+    needs: changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install PDF test tools
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh qpdf
+
+      - name: Build native PDF page operations
+        run: pnpm run build:pdf-page-ops
+
+      - name: Run native PDF integration gate
+        run: pnpm exec vitest run --project native-integration
+
+  windows_atomic_pdf_replacement:
+    name: Windows Atomic PDF Replacement
+    if: ${{ needs.changed_areas.outputs.electron_save_reopen == 'true' }}
+    needs: changed_areas
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run real Windows filesystem acceptance
+        run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts
+
+  browser_integration:
+    name: Browser Integration
+    if: ${{ needs.changed_areas.outputs.browser_integration == 'true' }}
+    needs: changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser integration tests
+        run: pnpm run test:integration:browser
+
+  scan_cleanup_oracles:
+    name: Scan Cleanup Export Oracles
+    if: ${{ needs.changed_areas.outputs.scan_cleanup_export == 'true' }}
+    needs: changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install PDF audit tools
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh img2pdf poppler-utils python3-numpy python3-opencv python3-pil qpdf
+
+      - name: Preview, export, and word-loss gates
+        run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
+
+  landing:
+    name: Landing
+    if: ${{ needs.changed_areas.outputs.landing == 'true' }}
+    needs: changed_areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Landing lint
+        run: pnpm --dir landing run lint
+
+      - name: Landing typecheck
+        run: pnpm --dir landing run typecheck
+
+      - name: Landing build
+        run: pnpm --dir landing run build
+
+  electron_e2e:
+    name: Electron E2E (${{ matrix.lane }})
+    if: ${{ needs.changed_areas.outputs.electron_smoke == 'true' }}
+    needs: changed_areas
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The lanes of vitest.shared.config.ts that run per push; keep the two
+        # lists and scripts/validation-gates.mjs in step.
+        lane:
+          - e2e-smoke
+          - e2e-viewer
+          - e2e-annotations
+          - e2e-save-pipeline
+          - e2e-documents
+          - e2e-draw-shapes
+          - e2e-core
 
     steps:
       - name: Checkout
@@ -251,6 +464,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
 
+      - name: Install PDF test tools
+        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
+
       - name: Restore staged Electron native binaries
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
@@ -262,42 +478,62 @@ jobs:
           restore-keys: |
             electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Electron blocking core-PDF smoke
-        run: pnpm run test:e2e:electron:blocking-smoke:headless
+      - name: Electron E2E ${{ matrix.lane }}
+        run: pnpm run test:e2e "${{ matrix.lane }}" --reporter verbose
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
         uses: ./.github/actions/upload-electron-e2e-artifacts
         with:
-          artifact-name: electron-blocking-smoke-${{ github.run_attempt }}
+          artifact-name: electron-${{ matrix.lane }}-${{ github.run_attempt }}
 
   gates_ok:
     name: gates_ok
-    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    if: ${{ always() }}
     needs:
       - publication_policy
-      - pr_quality
-      - pr_changed_areas
-      - pr_electron_blocking_smoke
+      - changed_areas
+      - lint
+      - unit
+      - rust
+      - strict_build
+      - native_pdf_integration
+      - windows_atomic_pdf_replacement
+      - browser_integration
+      - scan_cleanup_oracles
+      - landing
+      - electron_e2e
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
-      - name: Require every applicable PR and push gate
+      - name: Require every applicable gate
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          ELECTRON_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_smoke }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
+          const areas = needs.changed_areas.outputs ?? {};
+          // A job may be skipped only when the classifier said its area did
+          // not change; the publication policy has no range to scan on a
+          // dispatched run.
           const legitimatelySkippable = new Map([
-            ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
+            ['publication_policy', process.env.EVENT_NAME === 'workflow_dispatch'],
+            ['rust', areas.native_or_build === 'false'],
+            ['strict_build', areas.native_or_build === 'false'],
+            ['native_pdf_integration', areas.native_or_build === 'false'],
+            ['windows_atomic_pdf_replacement', areas.electron_save_reopen === 'false'],
+            ['browser_integration', areas.browser_integration === 'false'],
+            ['scan_cleanup_oracles', areas.scan_cleanup_export === 'false'],
+            ['landing', areas.landing === 'false'],
+            ['electron_e2e', areas.electron_smoke === 'false'],
           ]);
           const rejected = [];
 
           for (const [job, state] of Object.entries(needs)) {
             if (state.result === 'success') continue;
-            if (state.result === 'skipped' && legitimatelySkippable.get(job) === 'false') continue;
+            if (state.result === 'skipped' && legitimatelySkippable.get(job) === true) continue;
             rejected.push(`${job}: ${state.result}`);
           }
 
@@ -305,5 +541,5 @@ jobs:
             console.error(`Required CI gates did not pass:\n${rejected.join('\n')}`);
             process.exit(1);
           }
-          console.log('Every applicable PR and push gate passed.');
+          console.log('Every applicable gate passed.');
           NODE
