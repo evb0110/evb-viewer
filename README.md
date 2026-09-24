@@ -109,8 +109,7 @@ boundaries around it.
   the Claude Agent SDK. Every request is bound to one window, tab, document,
   and revision, over a random port behind a bearer token.
 - **Release engineering**: signed and notarized installers, an auto-update
-  canary, build provenance, and a Windows acceptance lane that drives the
-  packaged app inside a UTM virtual machine.
+  canary, and build provenance.
 - **Opt-in diagnostics.** Crash reporting is consent-gated and off until you
   turn it on.
 

@@ -70,9 +70,6 @@
         "@landing/app",
         // Nuxt resolves this virtual server alias for the root landing tests.
         "@landing/server",
-        // The guest worker bundles tests/windows/native-ui/selectors.json through
-        // the @tests tsconfig path alias; fallow reads aliased JSON as a package.
-        "@tests/windows",
         "@vue/compiler-core",
         "@vue/compiler-ssr",
         "@vue/devtools-api",

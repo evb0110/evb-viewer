@@ -10,7 +10,6 @@ on:
         type: choice
         options:
           - cli
-          - host-protocol
           - project8-fixture
 
 permissions:
@@ -69,30 +68,6 @@ jobs:
           pnpm exec vitest run --project unit-scripts
           tests/unit/scripts/electronRunProcessIdentity.test.ts
           -t "Windows controller|Windows process ancestry"
-
-  host-protocol:
-    name: Windows host protocol acceptance (macOS)
-    if: ${{ inputs.acceptance == 'host-protocol' }}
-    runs-on: macos-14
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Run focused Windows host protocol acceptance
-        run: >-
-          pnpm exec vitest run --project unit-tooling
-          tests/unit/scripts/windows-test/hostLock.test.ts
-          tests/unit/scripts/windows-test/hostLease.test.ts
-          tests/unit/scripts/windows-test/hostCoordinator.test.ts
-          tests/unit/scripts/windows-test/hostStopRun.test.ts
 
   project8-fixture:
     name: Project 8 process proof (${{ matrix.os }})

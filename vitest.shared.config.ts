@@ -52,10 +52,7 @@ const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleInteg
 const browserIntegrationTestFiles = ['tests/integration/browser/**/*.test.ts'];
 const landingUnitTestFiles = ['tests/unit/landing/**/*.test.ts'];
 const unitPolicyTestFiles = ['tests/unit/scripts/*Policy.test.ts'];
-const unitToolingTestFiles = [
-    'tests/unit/scripts/windows-test/**/*.test.ts',
-    'tests/unit/scripts/stress/**/*.test.ts',
-];
+const unitToolingTestFiles = ['tests/unit/scripts/stress/**/*.test.ts'];
 export const staticArchitectureTestFiles = [
     'tests/unit/architecture/**/*.test.ts',
     'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts',

@@ -24,7 +24,7 @@ import {
 } from 'vitest';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 
-const holdFileHandleScript = resolve('scripts/windows-test/guest/powershell/hold-file-handle.ps1');
+const holdFileHandleScript = resolve('tests/integration/native/hold-file-handle.ps1');
 const publicationHarness = resolve('tests/integration/native/windowsAtomicPdfPublicationHarness.cjs');
 
 async function makePdf(text: string) {

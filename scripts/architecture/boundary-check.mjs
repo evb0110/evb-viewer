@@ -902,7 +902,6 @@ const PDFJS_IMPORT_ALLOWED_ROOTS = [
     'app/modules/document-viewer/source',
     'app/platform/browser-api/browserPdfjsDocumentInit.ts',
     'electron/features/search',
-    'scripts/windows-test/oracles/pdfjsNodeRuntime.ts',
     'tests/e2e/electron/helpers/fixtures.ts',
     'tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts',
     'tests/helpers/renderPdfCanvasFidelityMetrics.ts',
