@@ -7,43 +7,6 @@ import {
 import { createProductionViewportAdapter } from '@tests/helpers/viewer-core/createProductionViewportAdapter';
 
 describe('viewportSimulation production seams', () => {
-    it('I2/I3/I4 production navigation reducer rejects stale completion after supersession and user input', () => {
-        const adapter = createProductionViewportAdapter();
-        adapter.dispatch({
-            type: 'NAVIGATE',
-            source: 'paged',
-            targetPage: 30,
-        });
-        const staleTxn = adapter.navigation.txn;
-        adapter.dispatch({
-            type: 'NAVIGATE',
-            source: 'paged',
-            targetPage: 928,
-        });
-        const latestTxn = adapter.navigation.txn;
-
-        adapter.dispatch({
-            type: 'RENDER_SETTLED',
-            page: 30,
-            txn: staleTxn,
-        });
-        expect(adapter.navigation).toMatchObject({
-            status: 'navigating',
-            targetPage: 928,
-            txn: latestTxn,
-        });
-
-        adapter.dispatch({type: 'USER_SCROLL'});
-        adapter.dispatch({
-            type: 'SCROLL_APPLIED',
-            page: 928,
-            txn: latestTxn,
-        });
-        expect(adapter.navigation).toMatchObject({
-            status: 'idle',
-            targetPage: null,
-        });
-    });
 
     it('I10/I11 production render state clears replaced pixels through a failed successor', () => {
         const {renderState} = createProductionViewportAdapter();

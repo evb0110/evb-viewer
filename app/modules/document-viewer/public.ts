@@ -55,7 +55,7 @@ export type {
 } from '@app/modules/document-viewer/runtime/documentViewportFlingBackdrop';
 export {
     createDocumentViewportNavigationMachineState, type IDocumentViewportNavigationState,
-} from '@app/modules/document-viewer/viewport/documentViewportNavigationMachine';
+} from '@app/modules/document-viewer/viewport/createDocumentViewportNavigationMachineState';
 export {
     clearDocumentViewportPaneRelocationScrollFence, consumeDocumentViewportPaneRelocationScrollFence, createDocumentViewportWritePort, fenceDocumentViewportPaneRelocationScroll, observeDocumentViewportWheelInteraction, type IDocumentViewportWrite, type IDocumentViewportWritePort,
 } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
