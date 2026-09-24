@@ -19,7 +19,6 @@ const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'build:pdf-page-ops',
     'build:pdf-search',
     'build:scan-cleanup',
-    'check:wasm:strict',
 ]);
 
 /** @typedef {{command: string, args: string[]}} IReleaseCheckCommand */

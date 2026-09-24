@@ -181,7 +181,6 @@ const validationEnvironmentKeys = new Set([
     'EVB_ELECTRON_SOURCEMAP',
     'EVB_NATIVE_TARGET_ARCH',
     'EVB_NATIVE_TARGET_PLATFORM',
-    'EVB_STRICT_BUILD_SKIP_WASM_CHECK',
     'NODE_ENV',
     'RUSTFLAGS',
     'TARGET_ARCH',

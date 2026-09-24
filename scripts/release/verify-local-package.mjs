@@ -25,7 +25,7 @@ import {
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
 import { notarizeMacDmgArtifacts } from './notarize-macos-dmgs.mjs';
-import { getStrictBuildScriptName } from '../run-build-strict.mjs';
+import { STRICT_BUILD_SCRIPT_NAME } from '../run-build-strict.mjs';
 import { isValidationBuildFresh } from '../validation-gates.mjs';
 
 const RELEASE_DIR = 'release';
@@ -198,7 +198,7 @@ function main() {
             reason: 'not-requested',
             valid: false,
         };
-    const buildScriptName = getStrictBuildScriptName([], releaseCiEnv);
+    const buildScriptName = STRICT_BUILD_SCRIPT_NAME;
     const freshBuildMarker = releaseCiEnv.EVB_GATE_NO_CACHE === '1'
         ? false
         : isValidationBuildFresh({buildScriptName});

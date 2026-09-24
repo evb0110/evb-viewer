@@ -103,6 +103,9 @@ function createProjectFixture() {
     writeFileSync(path.join(projectRoot, 'landing', 'app', 'index.ts'), 'export const landing = true;\n');
     writeFileSync(path.join(projectRoot, 'landing', 'package.json'), '{"name":"landing"}\n');
     writeFileSync(path.join(projectRoot, 'native', 'binary'), 'local-only\n');
+    mkdirSync(path.join(projectRoot, 'public', 'wasm'), {recursive: true});
+    writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-image-combine.wasm'), 'wasm\n');
+    writeFileSync(path.join(projectRoot, 'public', 'wasm', 'evb-pdf-page-ops.wasm'), 'wasm\n');
     writeFileSync(
         path.join(projectRoot, 'packages', 'contracts', 'index.ts'),
         'export const contract = true;\n',

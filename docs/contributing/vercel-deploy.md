@@ -21,7 +21,7 @@
 - Electron-only routes such as `/electron` are not part of the intended Vercel product surface.
 - Keep `/` prerendered for production Vercel builds. Browser settings, recent files, and install-hint visibility are seeded from client-readable cookies/local runtime storage after the static shell loads; do not reintroduce request-time SSR for that personalization path.
 - `nuxt.config.ts` writes Nitro output to `.vercel/output` for Vercel-hosted builds and local `vercel build`, which lets Vercel consume the Build Output API artifact while Electron and release flows keep using `nuxt-output/`.
-- Browser Rust/WASM artifacts are checked in under `public/wasm/`; `pnpm build` verifies they are present in `.vercel/output/static/wasm/` during Vercel builds.
+- Browser Rust/WASM builds are not committed. `pnpm deploy:web` uploads the local `public/wasm/` files (run `pnpm build` or `node scripts/ensure-wasm-artifacts.mjs` first), and `pnpm build` verifies they are present in `.vercel/output/static/wasm/` during Vercel builds.
 - Desktop release artifacts are intentionally written to `release/`, not `dist/`, so they cannot be mistaken for web output during Vercel deploys.
 - Local Vercel link metadata lives in `.vercel/` and is gitignored.
 - Vercel needs the root workspace package and the shared packages under `packages/`. The landing app is in the same workspace but remains excluded from this browser-app deploy source.

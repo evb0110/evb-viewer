@@ -33,6 +33,7 @@ import {
     isExcludedWebDeploySourceDirectoryName,
     isExcludedWebDeploySourceFileName,
 } from './check-web-deploy-source.mjs';
+import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
 export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -161,6 +162,19 @@ function configureLandingBuild(sourceRoot) {
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
 }
 
+// public/wasm is built locally, not tracked, and the remote build has no Rust
+// toolchain, so a viewer upload carries the files `pnpm run build` produced.
+function copyBrowserWasm(projectRoot, sourceRoot) {
+    for (const artifact of WASM_ARTIFACTS) {
+        const sourcePath = path.join(projectRoot, artifact.publicRelativePath);
+        if (!existsSync(sourcePath)) {
+            throw new Error(`Missing ${artifact.publicRelativePath}; run node scripts/ensure-wasm-artifacts.mjs before deploying.`);
+        }
+        mkdirSync(path.dirname(path.join(sourceRoot, artifact.publicRelativePath)), {recursive: true});
+        cpSync(sourcePath, path.join(sourceRoot, artifact.publicRelativePath));
+    }
+}
+
 function copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget) {
     const vendorDependencies = getWebDeployVendorDependencies(projectRoot);
     for (const relativePath of getTrackedWebDeploySourcePaths(projectRoot)) {
@@ -210,6 +224,9 @@ export function preparePrivateDeploySource({
 
     mkdirSync(sourceRoot, {recursive: true});
     copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget);
+    if (deployTarget === 'viewer' && !prebuilt) {
+        copyBrowserWasm(projectRoot, sourceRoot);
+    }
     mkdirSync(path.join(sourceRoot, '.vercel'), {recursive: true});
     cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
     if (prebuilt) {
@@ -298,6 +315,11 @@ function runViewerPrebuiltBuild({
     const buildEnvironment = getViewerBuildEnvironment(env, isProduction);
     const packageManagerCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
     for (const step of [
+        {
+            args: ['scripts/ensure-wasm-artifacts.mjs'],
+            command: process.execPath,
+            label: 'browser WASM build',
+        },
         {
             args: [
                 'run',

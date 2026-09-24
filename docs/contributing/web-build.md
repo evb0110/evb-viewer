@@ -23,7 +23,7 @@
 - Vercel builds emit Nitro output into `.vercel/output`; local desktop flows keep using `nuxt-output/`.
 - `pnpm lint && pnpm typecheck && pnpm build` is the current browser-app verification batch. The landing app shares the root pnpm workspace and lockfile but keeps its own lint, typecheck, and build commands. `lint` owns ESLint, stylelint, and the fast static checks; slower static report/assets checks are split into `pnpm run check:static:reports` and `pnpm run check:static:assets`.
 - After a desktop build has produced `dist-electron/`, `pnpm run test:electron-bundle-static-integrity:no-build` runs static bundle assertions without forcing another build. Use `pnpm run test:electron-bundle-static-integrity` when you want the script-managed build, prune, and hygiene wrapper.
-- Browser Rust/WASM artifacts are prebuilt under `public/wasm/`; web deploys verify and serve those artifacts but do not rebuild them remotely.
+- Browser Rust/WASM builds live in `public/wasm/` but are not committed. `pnpm dev`, `pnpm dev:web`, `pnpm build`, `pnpm test:unit` and `pnpm test:integration:browser` run `scripts/ensure-wasm-artifacts.mjs`, which rebuilds a file when it is missing or its crates changed (it needs the `wasm32-unknown-unknown` Rust target). Web deploys upload the local files; the remote build does not rebuild them.
 
 ## Current Scope
 

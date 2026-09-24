@@ -13,14 +13,12 @@ interface IPnpmInvocation {
 
 interface IBuildStrictModule {
     getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => IPnpmInvocation;
-    getStrictBuildScriptName: (argv?: string[], env?: NodeJS.ProcessEnv) => string;
     getStrictBuildEnv: (env?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
     shouldWriteErrorOutputToBuildLog: (error: unknown) => boolean;
 }
 
 const {
     getPnpmInvocation,
-    getStrictBuildScriptName,
     getStrictBuildEnv,
     shouldWriteErrorOutputToBuildLog,
 } = await import(
@@ -59,19 +57,6 @@ describe('run-build-strict', () => {
             args,
             command: 'pnpm',
         });
-    });
-
-    it('uses the wasm-checking desktop build by default', () => {
-        expect(getStrictBuildScriptName([], {})).toBe('build:desktop');
-        expect(getStrictBuildScriptName([], { EVB_STRICT_BUILD_SKIP_WASM_CHECK: '0' }))
-            .toBe('build:desktop');
-    });
-
-    it('uses the no-wasm-check desktop build when requested', () => {
-        expect(getStrictBuildScriptName(['--skip-wasm-check'], {}))
-            .toBe('build:desktop:no-wasm-check');
-        expect(getStrictBuildScriptName([], { EVB_STRICT_BUILD_SKIP_WASM_CHECK: '1' }))
-            .toBe('build:desktop:no-wasm-check');
     });
 
     it('adds a heap floor for strict build child processes', () => {

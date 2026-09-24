@@ -233,7 +233,7 @@ describe('changed-area classifier', () => {
             'native/pdf-image-combine/src/lib.rs',
             'native/scan-cleanup/src/mrc.rs',
             'packages/contracts/scan-cleanup/domain.ts',
-            'public/wasm/evb-pdf-image-combine.wasm',
+            'scripts/ensure-wasm-artifacts.mjs',
             'packages/scan-cleanup/adapters/createScanCleanupRenderers.ts',
             'packages/scan-cleanup/core/detection.ts',
             'scripts/ci-install-dependencies.mjs',

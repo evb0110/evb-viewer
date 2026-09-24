@@ -194,6 +194,7 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+          wasm: 'true'
 
       - name: Restore typecheck cache
         uses: actions/cache@v5
@@ -283,19 +284,9 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install Rust WASM target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: Build source-verified browser WASM artifacts
-        run: node scripts/build-wasm-artifacts.mjs --output-dir=.tmp/wasm-artifacts
-
-      - name: Stage source-verified browser WASM artifacts
-        run: node scripts/stage-wasm-artifacts.mjs .tmp/wasm-artifacts
+          wasm: 'true'
 
       - name: Strict build
-        env:
-          EVB_WASM_ARTIFACT_DIR: .tmp/wasm-artifacts
         run: pnpm run build:strict
 
       - name: Electron bundle static integrity
@@ -367,6 +358,7 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+          wasm: 'true'
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
@@ -391,6 +383,7 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
+          wasm: 'true'
 
       - name: Install PDF audit tools
         timeout-minutes: 15
@@ -457,6 +450,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
+          # annotationStrokeParity renders the web build, which parses annotations in WASM.
+          wasm: ${{ matrix.lane == 'e2e-draw-shapes' && 'true' || 'false' }}
 
       - name: Install PDF test tools
         run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf

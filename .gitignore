@@ -9,6 +9,8 @@ dist-electron/
 dist/
 coverage/
 /release/
+# Browser WASM builds; scripts/ensure-wasm-artifacts.mjs builds them from native/.
+/public/wasm/
 
 # Third-party runtime archives are fetched into these roots during install or
 # packaging. Keep only the small checked-in resource assets and notices.

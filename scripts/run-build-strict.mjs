@@ -63,12 +63,7 @@ export function getStrictBuildEnv(env = process.env) {
     };
 }
 
-/** @param {string[]} [argv] @param {NodeJS.ProcessEnv} [env] @returns {string} */
-export function getStrictBuildScriptName(argv = process.argv.slice(2), env = process.env) {
-    return argv.includes('--skip-wasm-check') || env.EVB_STRICT_BUILD_SKIP_WASM_CHECK === '1'
-        ? 'build:desktop:no-wasm-check'
-        : 'build:desktop';
-}
+export const STRICT_BUILD_SCRIPT_NAME = 'build:desktop';
 
 const COLLAPSED_WARNING_PATTERNS = [/\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u];
 
@@ -217,7 +212,7 @@ async function main() {
     mkdirSync(path.dirname(buildLogPath), { recursive: true });
     const buildInvocation = getPnpmInvocation([
         'run',
-        getStrictBuildScriptName(),
+        STRICT_BUILD_SCRIPT_NAME,
     ]);
     const output = await run(buildInvocation.command, buildInvocation.args, { env: getStrictBuildEnv() });
     writeFileSync(buildLogPath, output);
@@ -225,7 +220,7 @@ async function main() {
         'scripts/check-build-warnings.mjs',
         '.tmp/build.log',
     ], { preserveExistingBuildLog: true });
-    const markerPath = await writeValidationBuildMarker({buildScriptName: getStrictBuildScriptName()});
+    const markerPath = await writeValidationBuildMarker({buildScriptName: STRICT_BUILD_SCRIPT_NAME});
     if (markerPath) {
         process.stdout.write(`Recorded fresh strict-build marker at ${markerPath}.\n`);
     }
