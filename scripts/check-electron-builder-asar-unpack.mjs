@@ -8,7 +8,6 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const builderConfigPath = path.join(projectRoot, 'electron-builder.yml');
 const requiredNonWorkerUnpackEntries = [
     'dist-electron/package.json',
-    'dist-electron/pdf.worker.mjs',
     'dist-electron/runtime/@napi-rs/canvas/*.node',
 ];
 

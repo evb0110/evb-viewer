@@ -18,7 +18,6 @@ asarUnpack:
   - dist-electron/document-save-utility.js
   - dist-electron/image-export-tiff-worker.js
   - dist-electron/page-ops-cropWorker.js
-  - dist-electron/pdf.worker.mjs
   - dist-electron/runtime/@napi-rs/canvas/*.node
   - dist-electron/pdfCombineWorker.js
   - dist-electron/pdfConformanceWorker.js

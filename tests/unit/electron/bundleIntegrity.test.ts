@@ -335,12 +335,6 @@ describe('Electron bundle static integrity', () => {
         mainBundleFixture = await loadMainBundleFixture();
     }, 180_000);
 
-    it('copies the installed PDF.js legacy worker byte-for-byte', async () => {
-        const copiedWorker = await readFile(join(DIST_DIR, 'pdf.worker.mjs'));
-        const installedWorker = await readFile(join(REPO_ROOT, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'));
-        expect(copiedWorker.equals(installedWorker)).toBe(true);
-    });
-
     for (const check of BUNDLE_CHECKS) {
         describe(check.file, () => {
             const bundlePath = join(DIST_DIR, check.file);

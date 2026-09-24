@@ -1,6 +1,5 @@
 import {
     mkdir,
-    copyFile,
     cp,
     rm,
     writeFile,
@@ -141,8 +140,6 @@ await Promise.all(builds.map(async ({
         await writeFile(metafileOutput, `${JSON.stringify(result.metafile)}\n`);
     }
 }));
-
-await copyFile('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs', 'dist-electron/pdf.worker.mjs');
 
 const require = createRequire(import.meta.url);
 const canvasPackageRoot = realpathSync(dirname(require.resolve('@napi-rs/canvas/package.json')));

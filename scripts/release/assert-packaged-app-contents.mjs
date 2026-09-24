@@ -27,7 +27,6 @@ export const REQUIRED_ASAR_ENTRIES = [
     '/dist-electron/main.js',
     '/dist-electron/preload.cjs',
     '/dist-electron/package.json',
-    '/dist-electron/pdf.worker.mjs',
     ...WORKER_BUNDLES.map(bundle => `/dist-electron/${bundle.fileName}`),
     '/nuxt-output/public/electron/index.html',
     '/nuxt-output/public/index.html',
@@ -54,7 +53,6 @@ export const FORBIDDEN_PREFIXES = [
 export const EXPECTED_UNPACKED_DIST_ELECTRON = [
     ...WORKER_BUNDLES.map(bundle => bundle.fileName),
     'package.json',
-    'pdf.worker.mjs',
     'runtime',
 ].sort();
 
