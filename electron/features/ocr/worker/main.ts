@@ -45,7 +45,6 @@ import type {
     IOcrWorkerLogMessage,
     TOcrWorkerOutboundMessage,
     IOcrPageWithWords,
-    IOcrPageGeometry,
     IOcrPageProcessingResult,
     IOcrPageTerminationUnproven,
     IOcrPdfPageRequest,
@@ -60,10 +59,9 @@ import {
 } from '@electron/features/ocr/worker/tesseractRunner';
 import { tryPreprocessOcrImage } from '@electron/features/ocr/worker/tryPreprocessOcrImage';
 import {
-    assembleSearchablePdf,
-    getPageCount,
-} from '@electron/features/ocr/worker/pdfAssembler';
-import type {TOcrPageEntryValue} from '@electron/features/ocr/worker/pdfAssembler';
+    readPdfPageCount,
+    writeSearchablePdf,
+} from '@electron/features/ocr/worker/writeSearchablePdf';
 import {
     parseInvalidOcrWorkerStartMessage,
     parseOcrWorkerInboundMessage,
@@ -106,7 +104,7 @@ import {
     getLastOcrSelectionPage,
     getOcrSelectionLanguages,
     iterateCheckpointPageData,
-    iterateCheckpointPdfEntries,
+    iterateCheckpointPageResults,
     normalizeOcrPageSelection,
 } from '@electron/features/ocr/worker/ocrPageSelectionStream';
 import {writeOcrIndexes} from '@electron/features/ocr/worker/writeOcrIndexes';
@@ -388,7 +386,7 @@ interface IOcrPageProcessingContext {
     tesseractThreads: number;
     pageSizeByNumber: Map<number, IOcrPageSizeInches>;
     pageSourceDpiByNumber: Map<number, number>;
-    preprocessInverseByPageNumber?: Map<number, IOcrPageGeometry['preprocessInverseTransform']>;
+    preprocessInverseByPageNumber?: Map<number, number[][]>;
     options: IOcrSearchablePdfOptions;
     checkpointDir: string;
     checkpointPage: (pageNumber: number) => Promise<void>;
@@ -413,13 +411,13 @@ async function processOcrPage(
             pageData?: IOcrPageWithWords;
             effectiveDpi?: number;
             diagnostics?: IOcrDiagnostic[];
-            pageGeometry?: IOcrPageGeometry;
+            preprocessInverse?: number[][];
             pdfSize?: number;
             pdfSha256?: string;
         };
         const checkpointPdfStat = await stat(checkpointPdfPath);
         if (
-            checkpoint.version === 3
+            checkpoint.version === 4
             && checkpointPdfStat.size > 0
             && checkpointPdfStat.size === checkpoint.pdfSize
             && await sha256OcrFile(checkpointPdfPath, context.signal) === checkpoint.pdfSha256
@@ -437,7 +435,6 @@ async function processOcrPage(
                 checkpointPdfPath,
                 effectiveDpi: checkpoint.effectiveDpi,
                 diagnostics: checkpoint.diagnostics ?? [],
-                ...(checkpoint.pageGeometry === undefined ? {} : {pageGeometry: checkpoint.pageGeometry}),
             };
         }
     } catch {
@@ -532,7 +529,9 @@ async function processOcrPage(
                 if (candidateDims.width === dims.width && candidateDims.height === dims.height) {
                     ocrImagePath = candidateOcrImage.path;
                     ocrDims = candidateDims;
-                    context.preprocessInverseByPageNumber?.set(page.pageNumber, candidateOcrImage.inverseTransform);
+                    if (candidateOcrImage.inverseTransform !== undefined) {
+                        context.preprocessInverseByPageNumber?.set(page.pageNumber, candidateOcrImage.inverseTransform.matrix);
+                    }
                 } else {
                     const rawSize = `${dims.width}x${dims.height}`;
                     const cleanSize = `${candidateDims.width}x${candidateDims.height}`;
@@ -599,30 +598,14 @@ async function processOcrPage(
             pageNumber: page.pageNumber,
             words: mapOcrWordsThroughInverseTransform(
                 ocrResult.pageData.words,
-                context.preprocessInverseByPageNumber?.get(page.pageNumber)?.matrix,
+                context.preprocessInverseByPageNumber?.get(page.pageNumber),
             ),
             text: ocrResult.pageData.text,
             imageWidth: ocrResult.pageData.imageWidth,
             imageHeight: ocrResult.pageData.imageHeight,
         };
 
-        const pageGeometry: IOcrPageGeometry | undefined = pageSize !== undefined
-            && typeof pageSize.xPoints === 'number'
-            && typeof pageSize.yPoints === 'number'
-            && typeof pageSize.widthPoints === 'number'
-            && typeof pageSize.heightPoints === 'number'
-            && (pageSize.rotation === 0 || pageSize.rotation === 90 || pageSize.rotation === 180 || pageSize.rotation === 270)
-            ? {
-                xPoints: pageSize.xPoints,
-                yPoints: pageSize.yPoints,
-                widthPoints: pageSize.widthPoints,
-                heightPoints: pageSize.heightPoints,
-                rotation: pageSize.rotation,
-                rasterWidthPx: ocrResult.pageData.imageWidth,
-                rasterHeightPx: ocrResult.pageData.imageHeight,
-                ...(context.preprocessInverseByPageNumber?.get(page.pageNumber) === undefined ? {} : {preprocessInverseTransform: context.preprocessInverseByPageNumber.get(page.pageNumber)!}),
-            }
-            : undefined;
+        const preprocessInverse = context.preprocessInverseByPageNumber?.get(page.pageNumber);
 
         if (!ocrResult.pdfPath) {
             return {
@@ -639,7 +622,7 @@ async function processOcrPage(
             checkpointPdfPath,
             checkpointData: {
                 pageData,
-                ...(pageGeometry === undefined ? {} : {pageGeometry}),
+                ...(preprocessInverse === undefined ? {} : {preprocessInverse}),
                 effectiveDpi,
                 diagnostics,
             },
@@ -652,7 +635,6 @@ async function processOcrPage(
         await context.checkpointPage(page.pageNumber);
         return {
             pageData,
-            ...(pageGeometry === undefined ? {} : {pageGeometry}),
             pdfPath: checkpointPdfPath,
             checkpointJsonPath,
             checkpointPdfPath,
@@ -739,7 +721,6 @@ export async function processOcrPages(
         pageNumber: number;
         pageDataPath: string;
         pdfPath: string;
-        pageGeometry?: IOcrPageGeometry;
         effectiveDpi?: number;
     }> = [];
     let effectiveRenderDpi = context.extractionDpi;
@@ -760,7 +741,6 @@ export async function processOcrPages(
                     pageNumber,
                     pageDataPath: result.checkpointJsonPath,
                     pdfPath: result.pdfPath,
-                    ...(result.pageGeometry === undefined ? {} : {pageGeometry: result.pageGeometry}),
                     ...(typeof result.effectiveDpi === 'number' ? {effectiveDpi: result.effectiveDpi} : {}),
                 });
             }
@@ -961,29 +941,30 @@ function sendNoPagesOcrResult(
     });
 }
 
-async function assembleMergedOcrPdf(
+async function writeMergedOcrPdf(
     jobId: TJobId,
     sourcePdfPath: string,
-    ocrPdfEntries: Map<number, TOcrPageEntryValue> | AsyncIterable<readonly [number, TOcrPageEntryValue]>,
-    pageCount: number,
+    selection: TOcrPdfPageSelection,
+    checkpointDir: string,
     sessionId: string,
     trackTempFile: (path: string) => string,
     errors: string[],
     signal: AbortSignal,
 ) {
     try {
-        return await assembleSearchablePdf(
-            paths.qpdfBinary,
+        if (!paths.pdfPageOpsBinary) {
+            throw new Error('evb-pdf-page-ops is unavailable');
+        }
+        return await writeSearchablePdf({
+            pdfPageOpsBinary: paths.pdfPageOpsBinary,
+            qpdfBinary: paths.qpdfBinary,
             sourcePdfPath,
-            ocrPdfEntries,
-            pageCount,
-            paths.tempDir,
+            pages: iterateCheckpointPageResults(selection, checkpointDir, signal),
+            tempDir: paths.tempDir,
             sessionId,
-            log,
             trackTempFile,
             signal,
-            paths.pdfPageOpsBinary,
-        );
+        });
     } catch (mergeErr) {
         if (isAbortError(mergeErr) || signal.aborted) {
             throw mergeErr;
@@ -1280,7 +1261,7 @@ async function processOcrJob(
             return;
         }
 
-        const pageCountResult = await getPageCount(
+        const pageCountResult = await readPdfPageCount(
             paths.qpdfBinary,
             sourcePdfPath,
             getLastOcrSelectionPage(requestedSelection),
@@ -1294,11 +1275,11 @@ async function processOcrJob(
         await durableManifest.markNode('assembled-document', 'running');
         const mergedPdfPath = await storageBudget.withReservation(
             (await stat(sourcePdfPath)).size,
-            () => assembleMergedOcrPdf(
+            () => writeMergedOcrPdf(
                 jobId,
                 sourcePdfPath,
-                iterateCheckpointPdfEntries(requestedSelection, checkpointDir, abortController.signal),
-                pageCount,
+                requestedSelection,
+                checkpointDir,
                 activeSessionId,
                 trackTempFile,
                 completionMessages,

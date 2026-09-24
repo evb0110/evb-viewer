@@ -36,7 +36,7 @@ export async function persistOcrPageCheckpoint(options: IPersistOcrPageCheckpoin
         }
         const checkpoint = {
             ...options.checkpointData,
-            version: 3,
+            version: 4,
             pdfSize: checkpointPdfStat.size,
             pdfSha256: await options.sha256File(checkpointTempPdf),
         };

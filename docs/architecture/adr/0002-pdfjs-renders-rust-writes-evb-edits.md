@@ -103,18 +103,18 @@ only through `pdf-page-ops`. The writer role is not yet single. These still
 produce PDF bytes:
 
 - the qpdf CLI, for desktop page restructuring (delete, extract, reorder, move,
-  insert, one rotation path), merges, optimization and OCR reassembly
+  insert, one rotation path), merges and optimization
   (`electron/features/page-ops/main/qpdf.ts` and callers);
-- pdf-lib, in OCR page assembly (`electron/features/ocr/worker/pdfAssembler.ts`)
-  and print layout (`packages/pdf-core/pdfPrintLayout.ts`);
+- pdf-lib, in print layout (`packages/pdf-core/pdfPrintLayout.ts`);
 - the serializer in `native/pdf-image-combine/src/pdf.rs`, including outlines
   and page labels.
 
 `pdf-page-ops` also shells out to `qpdf --json` to load large files. The
 approved target is one writer per operation class: qpdf for whole-file
 restructuring or `pdf-page-ops` for everything, `pdf-page-ops` for append-only
-incremental edits, the OCR text layer written by `pdf-page-ops` from word
-boxes, and no pdf-lib writer. Until that lands, this list is the truth.
+incremental edits, and no pdf-lib writer. The OCR text layer is already there:
+`pdf-page-ops ocr-text-layer` writes every recognized page in one incremental
+revision. Until the rest lands, this list is the truth.
 
 ## Revisit when
 

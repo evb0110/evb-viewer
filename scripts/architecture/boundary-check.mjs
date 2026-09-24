@@ -856,7 +856,6 @@ const PDFJS_IMPORT_ALLOWED_ROOTS = [
     'tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts',
     'tests/helpers/renderPdfCanvasFidelityMetrics.ts',
     'tests/unit/app/platform/pdfjsJbig2Consumer.test.ts',
-    'tests/unit/electron/ocrPdfAssembler.test.ts',
     'tests/unit/app/modules/pdf-viewer/engine/createPdfRangeRequestBridge.test.ts',
 ];
 

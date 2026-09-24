@@ -134,7 +134,6 @@ async function loadProductionRunner() {
         stdin: {
             contents: `
                 export {runProductionOcrQualityCase} from './electron/features/ocr/worker/runProductionOcrQualityCase.ts';
-                export {loadBoundedGeneratedPagePdf, repairOcrPageTextLayer} from './electron/features/ocr/worker/pdfAssembler.ts';
                 export {shouldNormalizeGreekMicroSign} from './electron/features/ocr/worker/tesseractRunner.ts';
                 export {DEFAULT_OCR_RECOGNITION_OPTIONS, POOR_SCAN_OCR_RECOGNITION_OPTIONS} from './packages/contracts/electronApiOcr.ts';
             `,
@@ -162,6 +161,30 @@ async function loadProductionWorker() {
         tsconfig: join(repositoryRoot, 'tsconfig.base.json'),
     });
     return bundlePath;
+}
+
+/**
+ * The production writer on Tesseract's own page: it removes the page's hidden
+ * text and writes the repaired searchable layer in its place.
+ */
+async function writeSinglePageTextLayer(pdfPageOpsBinary, tesseractPdfPath, directory, normalizeGreekMicroSign) {
+    const outputPath = join(directory, 'searchable.pdf');
+    const instructionsPath = join(directory, 'text-layer.json');
+    await writeFile(instructionsPath, JSON.stringify({pages: [{
+        pageNumber: 1,
+        sourcePath: tesseractPdfPath,
+        normalizeGreekMicroSign,
+    }]}));
+    await execFileAsync(pdfPageOpsBinary, [
+        'ocr-text-layer',
+        '--input',
+        tesseractPdfPath,
+        '--output',
+        outputPath,
+        '--instructions-file',
+        instructionsPath,
+    ], {timeout: 30_000});
+    return outputPath;
 }
 
 async function loadPdfjsTextExtractor() {
@@ -797,14 +820,11 @@ async function runMeasuredDegradedCase({
     }
     const runtimeMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
     const textLayerStartedAt = process.hrtime.bigint();
-    const repairedPdfPath = await productionRunner.repairOcrPageTextLayer(
+    const repairedPdfPath = await writeSinglePageTextLayer(
         pdfPageOpsBinary,
-        (await productionRunner.loadBoundedGeneratedPagePdf(result.pdfPath, 'Generated OCR PDF page')).getPage(0),
         result.pdfPath,
-        productionRunner.shouldNormalizeGreekMicroSign(selectedLanguage.split('+')),
         caseDirectory,
-        'quality',
-        path => path,
+        productionRunner.shouldNormalizeGreekMicroSign(selectedLanguage.split('+')),
     );
     const textLayerRuntimeMs = Number(process.hrtime.bigint() - textLayerStartedAt) / 1_000_000;
     const searchablePdfText = (await execFileAsync(pdftotext, [
@@ -926,7 +946,7 @@ async function runDegradedLanguageBenchmark({
     return {
         status: 'complete',
         benchmark: 'MLOCR-03',
-        pdfStage: 'native-overlay-text',
+        pdfStage: 'native-ocr-text-layer',
         pdfWriter: {
             binary: pdfPageOpsBinary,
             sha256: createHash('sha256').update(await readFile(pdfPageOpsBinary)).digest('hex'),
@@ -1009,7 +1029,7 @@ async function runCleanLanguageBenchmark({
     const languages = scoreCleanLanguageSamples(fixture.manifest, rawPages, pdfjsPages, popplerPages);
     const report = {
         status: 'complete',
-        pdfStage: 'production-worker-native-overlay-text-and-assembly',
+        pdfStage: 'production-worker-native-ocr-text-layer',
         pdfWriter: {
             binary: pdfPageOpsBinary,
             sha256: createHash('sha256').update(await readFile(pdfPageOpsBinary)).digest('hex'),
@@ -1210,14 +1230,11 @@ try {
                         ...(scanCleanupBinary ? {scanCleanupBinary} : {}),
                     });
                     preprocessingCoverage.add(result.preprocessing);
-                    const repairedPdfPath = await productionRunner.repairOcrPageTextLayer(
+                    const repairedPdfPath = await writeSinglePageTextLayer(
                         pdfPageOpsBinary,
-                        (await productionRunner.loadBoundedGeneratedPagePdf(result.pdfPath, 'Generated OCR PDF page')).getPage(0),
                         result.pdfPath,
-                        productionRunner.shouldNormalizeGreekMicroSign(testCase.language.split('+')),
                         caseDirectory,
-                        'quality',
-                        path => path,
+                        productionRunner.shouldNormalizeGreekMicroSign(testCase.language.split('+')),
                     );
                     const {stdout: searchablePdfText} = await execFileAsync(pdftotext, [
                         repairedPdfPath,
@@ -1273,7 +1290,7 @@ try {
                     reportIncomplete(['required OCR quality coverage did not exercise successful clean preprocessing']);
                 } else {
                     process.stdout.write(
-                        `Production coverage: runOcrFileBased profile/TSV parser/native overlay-text searchable PDF; preprocessing=${[...preprocessingCoverage].join(',')} (legacy image-only diagnostic; Poppler rasterization is covered by OCR worker integration tests)\n`,
+                        `Production coverage: runOcrFileBased profile/TSV parser/native ocr-text-layer searchable PDF; preprocessing=${[...preprocessingCoverage].join(',')} (legacy image-only diagnostic; Poppler rasterization is covered by OCR worker integration tests)\n`,
                     );
                     process.stdout.write(`Legacy image-only diagnostic passed (${corpus.length} degraded multilingual cases)\n`);
                 }

@@ -12,7 +12,6 @@ import type {
 import {iterateOcrPageRequestBatches} from '@electron/features/ocr/contracts';
 import type {
     IOcrPageWithWords,
-    IOcrPageGeometry,
     IOcrPdfPageRequest,
     TOcrPdfPageSelection,
 } from '@electron/features/ocr/worker/types';
@@ -24,7 +23,8 @@ export interface IOcrCheckpointPageResult {
     normalizeGreekMicroSign: boolean;
     effectiveDpi?: number;
     diagnostics: IOcrDiagnostic[];
-    pageGeometry?: IOcrPageGeometry;
+    /** Maps preprocessed raster pixels back to rendered raster pixels. */
+    preprocessInverse?: number[][];
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -87,7 +87,7 @@ export async function* iterateCheckpointPageResults(
                 normalizeGreekMicroSign: page.languages.some(isGreekOcrLanguage),
                 ...(effectiveDpi === undefined ? {} : {effectiveDpi}),
                 diagnostics,
-                ...(isOcrPageGeometry(checkpoint.pageGeometry) ? {pageGeometry: checkpoint.pageGeometry} : {}),
+                ...(isMatrix3(checkpoint.preprocessInverse) ? {preprocessInverse: checkpoint.preprocessInverse} : {}),
             };
         }
     }
@@ -103,39 +103,12 @@ export async function* iterateCheckpointPageData(
     }
 }
 
-export async function* iterateCheckpointPdfEntries(
-    selection: TOcrPdfPageSelection,
-    checkpointDir: string,
-    signal: AbortSignal,
-) {
-    for await (const result of iterateCheckpointPageResults(selection, checkpointDir, signal)) {
-        yield [
-            result.pageData.pageNumber,
-            {
-                path: result.pdfPath,
-                ...(result.pageGeometry === undefined ? {} : {pageGeometry: result.pageGeometry}),
-                normalizeGreekMicroSign: result.normalizeGreekMicroSign,
-            },
-        ] as const;
-    }
-}
-
-function isOcrPageGeometry(value: unknown): value is IOcrPageGeometry {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-    const geometry = value as Partial<IOcrPageGeometry>;
-    return typeof geometry.xPoints === 'number'
-        && Number.isFinite(geometry.xPoints)
-        && typeof geometry.yPoints === 'number'
-        && Number.isFinite(geometry.yPoints)
-        && typeof geometry.widthPoints === 'number'
-        && Number.isFinite(geometry.widthPoints)
-        && geometry.widthPoints > 0
-        && typeof geometry.heightPoints === 'number'
-        && Number.isFinite(geometry.heightPoints)
-        && geometry.heightPoints > 0
-        && (geometry.rotation === 0 || geometry.rotation === 90 || geometry.rotation === 180 || geometry.rotation === 270);
+function isMatrix3(value: unknown): value is number[][] {
+    return Array.isArray(value)
+        && value.length === 3
+        && value.every(row => Array.isArray(row)
+            && row.length === 3
+            && row.every(cell => typeof cell === 'number' && Number.isFinite(cell)));
 }
 
 export function getLastOcrSelectionPage(selection: TOcrPdfPageSelection) {

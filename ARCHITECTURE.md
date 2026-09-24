@@ -87,10 +87,12 @@ down in [what scans work](docs/user/what-scans-work.md).
 Poppler renders each page to a raster through the same renderer scan cleanup
 uses, with explicit pixel and dimension caps. An optional preprocessing pass
 handles poor scans. Tesseract then runs per page against `tessdata-best` models
-and emits a text-only PDF layer. Finally qpdf splits the original, each text
-layer is overlaid onto its original page, and the document is reassembled in
-batches with per-page checkpoints so a long job can resume. The recognized text
-also feeds the search index.
+and emits a text-only PDF layer, which is checkpointed per page so a long job
+can resume. Finally `pdf-page-ops ocr-text-layer` writes every recognized page
+into the original as one incremental revision: it removes previous OCR text
+from each page and maps the Tesseract page into the page view, including
+rotation and the preprocessing inverse. The recognized text also feeds the
+search index.
 
 English and Russian are bundled. The other 28 languages download from a pinned
 upstream revision and are verified by SHA-256 before use.
