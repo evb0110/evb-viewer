@@ -3013,6 +3013,69 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, {timeout: 15_000});
     });
 
+    it('runs regex and whole-word searches on a document over 200 pages', async () => {
+        let session = sessionFixture.getSession();
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-large-regex-search-${Date.now()}`,
+        });
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-large-regex-search-${Date.now()}.pdf`,
+            240,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+
+        const sidebar = '.editor-pane.is-active [data-testid="document-sidebar"]';
+        const readSearchState = () => session.page.evaluate((root: string) => ({
+            busy: Boolean(document.querySelector(`${root} .document-search-results-spinner`)),
+            summary: document.querySelector(`${root} .document-search-results-header-summary`)?.textContent?.trim() ?? '',
+            firstGroupPage: document.querySelector<HTMLElement>(`${root} .document-search-results-group-toggle`)?.dataset.pageNumber ?? null,
+            panelText: document.querySelector(`${root} .document-search-results`)?.textContent ?? '',
+        }), sidebar);
+        const search = async (query: string, toggles: string[]) => {
+            for (const label of toggles) {
+                const toggle = await session.page.$(`${sidebar} .document-search-bar button[aria-label="${label}"]`);
+                expect(toggle, `${label} toggle`).not.toBeNull();
+                await toggle!.click();
+            }
+            const input = await session.page.$(`${sidebar} .document-search-bar input`);
+            expect(input).not.toBeNull();
+            await input!.click({count: 3});
+            await session.page.keyboard.press('Backspace');
+            await input!.type(query);
+            await session.page.keyboard.press('Enter');
+            await waitForFunctionInPage(session.page, (root: string) => {
+                const panel = document.querySelector(`${root} .document-search-results`);
+                return Boolean(panel)
+                    && !panel!.querySelector('.document-search-results-spinner')
+                    && (Boolean(panel!.querySelector('.document-search-results-header-summary'))
+                        || /No results found|Search unavailable/u.test(panel!.textContent ?? ''));
+            }, {timeout: 60_000}, sidebar);
+            return readSearchState();
+        };
+
+        const regex = await search('Page 23\\d sample', ['Use regular expression']);
+        expect(regex.panelText).not.toContain('Search unavailable');
+        expect(regex.summary).toMatch(/\b10\b/u);
+        expect(regex.firstGroupPage).toBe('230');
+
+        const partialWord = await search('Fixtur', [
+            'Use regular expression',
+            'Whole word',
+        ]);
+        expect(partialWord.panelText).toContain('No results found');
+
+        const wholeWord = await search('Fixture', []);
+        expect(wholeWord.panelText).not.toContain('Search unavailable');
+        expect(wholeWord.summary).toMatch(/\b240\b/u);
+        expect(wholeWord.firstGroupPage).toBe('1');
+    });
+
     it('finds text set in a non-embedded CJK font on a later page', async () => {
         let session = sessionFixture.getSession();
 
