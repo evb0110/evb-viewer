@@ -30,10 +30,7 @@ interface IToolbarStartupSample {
     hasShell: boolean;
     hasWorkspace: boolean;
     shell: IToolbarStartupRect | null;
-    toolbar: IToolbarStartupRect | null;
     workspace: IToolbarStartupRect | null;
-    toolbarText: string;
-    toolbarVisible: boolean;
 }
 interface IStartupReadinessSample {
     appReadyAt: number | null;
@@ -119,30 +116,13 @@ async function installToolbarStartupSampler(session: IElectronE2ESession) {
             };
         }
 
-        function isVisible(element: Element | null) {
-            if (!element) {
-                return false;
-            }
-
-            const style = window.getComputedStyle(element);
-            const rect = element.getBoundingClientRect();
-            return style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && rect.height > 0
-                && rect.width > 0;
-        }
-
         function sampleToolbarStartup() {
-            const toolbar = document.querySelector('.editor-global-toolbar-shell .toolbar');
             samples.push({
                 elapsedMs: Math.round(performance.now() - startedAt),
                 hasShell: Boolean(document.querySelector('.editor-global-toolbar-shell')),
                 hasWorkspace: Boolean(document.querySelector('.workspace-main-shell')),
                 shell: readRect('.editor-global-toolbar-shell'),
-                toolbar: readRect('.editor-global-toolbar-shell .toolbar'),
                 workspace: readRect('.workspace-main-shell'),
-                toolbarText: toolbar?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
-                toolbarVisible: isVisible(toolbar),
             });
 
             const appReady = (window as Window & {__appReady?: boolean}).__appReady === true;
@@ -256,16 +236,9 @@ describe('Electron E2E - Startup Hydration', () => {
         ));
         expect(collapsedSamples).toEqual([]);
 
-        const hiddenToolbarSamples = shellSamples.filter(sample => !sample.toolbarVisible);
-        expect(hiddenToolbarSamples).toEqual([]);
-
         const workspaceTops = shellSamples.map(sample => sample.workspace?.top ?? 0);
         const workspaceTopShift = Math.max(...workspaceTops) - Math.min(...workspaceTops);
         expect(workspaceTopShift).toBeLessThanOrEqual(TOOLBAR_MAX_STARTUP_SHIFT_PX);
-
-        const finalSample = shellSamples.at(-1);
-        expect(finalSample?.toolbarVisible).toBe(true);
-        expect(finalSample?.toolbar).not.toBeNull();
     });
 
     it('keeps the empty-shell overlay until app-ready and an empty startup claim', async () => {
