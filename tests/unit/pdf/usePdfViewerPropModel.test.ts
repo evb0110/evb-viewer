@@ -31,7 +31,6 @@ describe('usePdfViewerPropModel', () => {
         expect(model.annotationSettings.value).toBeNull();
         expect(model.currentSearchMatch.value).toBeNull();
         expect(model.currentSearchMatchNavigationId.value).toBe(0);
-        expect(model.requestedCurrentPage.value).toBeUndefined();
         expect(model.workingCopyPath.value).toBeNull();
         expect(model.continuousScroll.value).toBe(true);
         expect(model.isActive.value).toBe(true);

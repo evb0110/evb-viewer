@@ -121,7 +121,6 @@ export interface ICreatePdfViewportSessionOptions {
     bufferPages: ComputedRef<number>;
     isActive: ComputedRef<boolean>;
     isResizing: ComputedRef<boolean>;
-    requestedCurrentPage: Ref<number | undefined>;
     outputScale: Ref<number>;
     selectionMarkupStyle: Parameters<typeof usePdfViewportViewModel>[0]['selectionMarkupStyle'];
     classState: Parameters<typeof usePdfViewportViewModel>[0]['classState'];

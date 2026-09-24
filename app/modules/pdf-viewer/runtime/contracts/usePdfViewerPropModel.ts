@@ -70,7 +70,6 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         searchPageMatches: computed(() => props.searchPageMatches ?? emptyAnnotationMatches),
         currentSearchMatch: computed(() => props.currentSearchMatch ?? null),
         currentSearchMatchNavigationId: computed(() => props.currentSearchMatchNavigationId ?? 0),
-        requestedCurrentPage: computed(() => props.currentPage),
         workingCopyPath: computed(() => parseDocumentRef(props.workingCopyPath)),
         documentRevisionToken: computed(() => props.documentRevisionToken ?? null),
         continuousScroll: computed(() => props.continuousScroll ?? true),

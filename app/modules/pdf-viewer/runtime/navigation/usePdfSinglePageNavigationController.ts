@@ -62,7 +62,6 @@ import {createPdfNavigationCommitRefiner} from '@app/modules/pdf-viewer/runtime/
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
     /** Retained for source compatibility; projected page changes are not commands. */
-    requestedCurrentPage?: Ref<number | undefined>;
     chassisAuthority?: IDocumentViewerRuntime | null | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     cancelPendingSearchScroll: () => void;

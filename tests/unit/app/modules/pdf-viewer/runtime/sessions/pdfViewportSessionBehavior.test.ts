@@ -185,7 +185,6 @@ function createViewportFixture(input: {
                 bufferPages: computed(() => input.bufferPages ?? 3),
                 isActive: computed(() => isActive.value),
                 isResizing: computed(() => input.isResizing?.value ?? false),
-                requestedCurrentPage: ref(undefined),
                 outputScale,
                 isPageFreshlyRenderedForNavigation:
                     input.isPageFreshlyRenderedForNavigation ?? (() => true),

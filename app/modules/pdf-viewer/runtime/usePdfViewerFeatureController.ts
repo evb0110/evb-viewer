@@ -80,7 +80,6 @@ export const usePdfViewerFeatureController = (
         searchPageMatches,
         currentSearchMatch,
         currentSearchMatchNavigationId,
-        requestedCurrentPage,
         workingCopyPath,
         documentRevisionToken,
         continuousScroll,
@@ -189,7 +188,6 @@ export const usePdfViewerFeatureController = (
         bufferPages,
         isActive,
         isResizing,
-        requestedCurrentPage,
         outputScale,
         isPageFreshlyRenderedForNavigation: pageNumber => (
             renderingSessionRef.value?.isPageVisualReady(pageNumber) ?? false

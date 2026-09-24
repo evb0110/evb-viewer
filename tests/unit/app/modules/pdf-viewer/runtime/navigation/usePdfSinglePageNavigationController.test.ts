@@ -126,7 +126,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: vi.fn(),
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => 1,
@@ -302,7 +301,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: vi.fn(),
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => 1,
@@ -411,7 +409,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: vi.fn(),
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => 1,
@@ -519,7 +516,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: vi.fn(),
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => 1,
@@ -611,7 +607,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: vi.fn(),
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => 1,
@@ -700,7 +695,6 @@ describe('usePdfSinglePageNavigationController', () => {
             throw new Error('Expected PDF layout metrics');
         }
         const currentPage = ref(1);
-        const requestedCurrentPage = ref<number | undefined>(1);
         const isResizeTransitionActive = ref(false);
         const viewportWrites = createTestPdfViewportWritePort();
 
@@ -728,7 +722,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: page => { currentPage.value = page; },
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage,
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => 1,
@@ -758,7 +751,6 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(livePageTwoAnchor?.page).toBe(2);
             controller.viewportAuthority.observeUserScroll(livePageTwoAnchor!);
             expect(controller.viewportAuthority.currentPage.value).toBe(2);
-            expect(requestedCurrentPage.value).toBe(1);
             const zoom = controller.submitViewportStateIntent('zoom', {zoom: 5.03});
             expect(controller.viewportAuthority.activeIntent.value?.anchor?.page).toBe(2);
             const zoomIntentId = controller.viewportAuthority.activeIntent.value?.id;
@@ -867,7 +859,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: vi.fn(),
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => 1,
@@ -1005,7 +996,6 @@ describe('usePdfSinglePageNavigationController', () => {
                 emitCurrentPage: vi.fn(),
                 viewportWritePort: viewportWrites.port,
                 getPageLayoutMetrics: () => layout,
-                requestedCurrentPage: ref(undefined),
                 cancelPendingSearchScroll: vi.fn(),
                 pageSlots,
                 getDocumentRevision: () => documentRevision.value,
