@@ -74,6 +74,7 @@ import {
     waitForAutomationEvent,
     waitForSaveFrontierReady,
     waitForWorkspaceToolbarIdle,
+    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 
@@ -872,10 +873,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.Text ?? 0).toBeGreaterThan(1);
 
         await requireWorkspaceCommand(session.page, 'handleGoToPage', [2]);
-        await session.page.waitForFunction(
-            () => window.__evbTestApi?.getActiveToolbarSnapshot()?.currentPage === 2,
-            {timeout: 20_000},
-        );
+        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 2}, {timeoutMs: 20_000});
         await waitForViewerInteractive(session.page, 20_000);
     }, E2E_TIMEOUT_MS);
 

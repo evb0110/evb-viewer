@@ -938,7 +938,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     sessionFixture.restart({
                         clean: true,
                         hard: true,
-                        keepNuxt: true,
                         sessionName: 'e2e-pr-blocking-timeout-recovery',
                     })
                 ), 45_000);
@@ -1156,9 +1155,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             () => requireWorkspaceCommand(session.page, 'handleActualSize'),
         );
         await runPdfDiagnosticStage(session.page, 'rotation:wait-actual-size', () => (
-            waitForFunctionInPage(session.page, () => (
-                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS})
+            waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'custom'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
         ));
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('custom');
 
@@ -1181,9 +1178,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 () => requireWorkspaceCommand(session.page, 'handleFitWidth'),
             );
             await runPdfDiagnosticStage(session.page, 'rotation:wait-fit-width', () => (
-                waitForFunctionInPage(session.page, () => (
-                    (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-                ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS})
+                waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
             ));
 
             await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-snapshot', () => (
@@ -1250,9 +1245,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 'facing',
                 'facing-first-single',
             ] as const;
-            await waitForFunctionInPage(session.page, (expectedMode: string) => (
-                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.viewMode === expectedMode
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, modes[index]!);
+            await waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {viewMode: modes[index]!},
+                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            );
         }
 
         async function readSpread() {
@@ -1461,9 +1458,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         ));
         await requireWorkspaceCommand(session.page, 'handleFitWidth');
         await runPdfDiagnosticStage(session.page, 'fit:wait-fit-width-mode', () => (
-            waitForFunctionInPage(session.page, () => (
-                (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS})
+            waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
         ));
         await runPdfDiagnosticStage(session.page, 'fit:wait-fit-width-page-2', () => (
             waitForVisuallyPresentedPdfPage(session.page, 2)
@@ -1547,7 +1542,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
-            keepNuxt: true,
             sessionName: 'e2e-pr-blocking-viewport-lifecycle',
         });
 
@@ -1787,9 +1781,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03])
             ));
             await runPdfDiagnosticStage(session.page, 'late:wait-custom-zoom-toolbar', () => (
-                waitForFunctionInPage(session.page, () => (
-                    (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
-                ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS})
+                waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'custom'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
             ));
             const zoomedPageSevenCanvas = await runPdfDiagnosticStage(
                 session.page,
@@ -2006,7 +1998,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
-            keepNuxt: true,
             sessionName: 'e2e-pr-blocking-large-scanned-pdf',
         });
 
@@ -2539,7 +2530,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
-            keepNuxt: true,
             sessionName: 'e2e-pr-blocking-large-scanned-pdf-interactions',
         });
         const fixturePath = await createLargeScannedFixturePdf(
@@ -2796,7 +2786,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const session = await sessionFixture.restart({
             clean: true,
             hard: true,
-            keepNuxt: true,
             sessionName: 'e2e-pr-blocking-current-page-render-watchdog',
         });
         const fixturePath = await createMultiPageTextFixturePdf(

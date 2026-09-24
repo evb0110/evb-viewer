@@ -54,10 +54,6 @@ import {
     type IClassifySessionControllerOwnershipOptions,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    shouldRequireNuxtWarmup,
-    shouldUseStrictE2EIsolation,
-} from '@scripts/electron-run/electronRunRunId';
 
 import { ELECTRON_SERVER_PATH } from '@scripts/electron-run/appRendererUrl';
 export { ELECTRON_SERVER_PATH } from '@scripts/electron-run/appRendererUrl';
@@ -1027,25 +1023,11 @@ function logElectronAppDependencyWarmupMiss(result: Awaited<ReturnType<typeof wa
     );
 }
 
-function createElectronAppDependencyWarmupError(result: Awaited<ReturnType<typeof warmupElectronAppDependencies>>) {
-    if (result.ok) {
-        return null;
-    }
-
-    return new Error(
-        `${result.reason}. Last status=${result.status ?? 'unknown'}, body="${result.bodySnippet}"`,
-    );
-}
-
 export async function warmupElectronAppDependenciesBestEffort(
     logTiming: (message: string) => void = () => {},
     options: Parameters<typeof warmupElectronAppDependencies>[1] = {},
 ) {
     const result = await warmupElectronAppDependencies(logTiming, options);
-    const error = createElectronAppDependencyWarmupError(result);
-    if (error && shouldRequireNuxtWarmup()) {
-        throw error;
-    }
     logElectronAppDependencyWarmupMiss(result);
     return result;
 }
@@ -1085,10 +1067,6 @@ async function maybeReuseUnrelatedNuxtServer(
     }
 
     const message = `Port ${getNuxtPort()} is already served by unrelated reusable Nuxt process(es): ${pidsOnPort.join(', ')}`;
-    if (shouldUseStrictE2EIsolation()) {
-        throw new Error(`[Nuxt] ${message}. Strict E2E isolation refuses to reuse it.`);
-    }
-
     logLauncher('info', 'nuxt', `${message}. Reusing existing server.`);
     if (isProcessAlive(nuxtPid)) {
         await killProcessTree(nuxtPid, 800);

@@ -16,7 +16,6 @@ import {
     buildElectronE2EAutomationEnv,
     buildVisibleWindowElectronE2EAutomationEnv,
 } from '@scripts/electron-run/electronRunLaunchConfig';
-import { DEFAULT_NUXT_PORT } from '@scripts/electron-run/electronRunPortConfig';
 import { assertE2ESessionName } from '@scripts/electron-run/electronRunE2ESessionPrune';
 import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 import { formatElectronStartupDiagnostics } from '@scripts/electron-run/electronRunStartupDiagnostics';
@@ -32,10 +31,9 @@ import {
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {
-    buildStrictE2ERunEnv,
+    buildE2ERunEnv,
     createE2ERunScopedSessionName,
 } from '@scripts/electron-run/electronRunRunId';
-import { readE2ESharedRendererConfig } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
 import {
     DEFAULT_SETTINGS,
@@ -57,7 +55,6 @@ import {
     ElectronE2EInfrastructureError,
     runElectronE2EInfrastructureStage,
     runElectronE2EProcessLaunchStage,
-    runElectronE2ETeardown,
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 
@@ -66,12 +63,6 @@ const RENDERER_READY_TIMEOUT_MS = 30_000;
 const SESSION_STOP_TIMEOUT_MS = 15_000;
 const PRESERVE_E2E_ARTIFACTS_ENV = 'EVB_E2E_PRESERVE_ARTIFACTS';
 const FAILURE_ARTIFACTS_BASE_DIR = join(projectRoot, '.devkit', 'test', 'electron-e2e-artifacts');
-const SHARED_RENDERER_CLIENT_IDLE_MS = 10_000;
-const SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS = 75_000;
-const SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS = 2;
-const SHARED_RENDERER_CLIENT_STABILIZE_TIMEOUT_MS = SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS
-    * (SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS * 3 - 2);
-let sharedRendererClientStabilized = false;
 
 export interface IElectronE2ESession {
     name: string;
@@ -90,7 +81,6 @@ export interface IElectronE2EFailureArtifacts {
 }
 
 export interface IElectronE2ESessionStopOptions {
-    keepNuxt?: boolean;
     preserveArtifacts?: boolean;
     crashElectronBeforeStop?: boolean;
 }
@@ -214,7 +204,7 @@ async function withSessionTimeout<T>(
     });
 }
 
-async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS) {
+export async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS) {
     await waitForFunctionInPage(page, () => {
         const nuxtRoot = document.querySelector('#__nuxt');
         const hasNuxt = Boolean(nuxtRoot && nuxtRoot.children.length > 0);
@@ -222,65 +212,6 @@ async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEO
         const hasElectronApi = typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI === 'object';
         return hasNuxt && hasOpenFile && hasElectronApi;
     }, { timeout: timeoutMs });
-}
-
-async function waitForSharedRendererClientQuiet(page: Page) {
-    const startedAt = Date.now();
-    let stableSince = startedAt;
-    let previousSignature = '';
-
-    while (Date.now() - startedAt < SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS) {
-        try {
-            const state = await page.evaluate(() => ({
-                bindingsReady: typeof (window as IE2EWindow & {__openFileDirect?: unknown}).__openFileDirect === 'function',
-                bodyText: document.body?.innerText ?? '',
-                navigationEpoch: performance.timeOrigin,
-                resourceCount: performance.getEntriesByType('resource').length,
-            }));
-            const signature = `${String(state.navigationEpoch)}:${String(state.resourceCount)}`;
-            if (signature !== previousSignature) {
-                previousSignature = signature;
-                stableSince = Date.now();
-            } else if (Date.now() - stableSince >= SHARED_RENDERER_CLIENT_IDLE_MS) {
-                return state;
-            }
-        } catch {
-            previousSignature = '';
-            stableSince = Date.now();
-        }
-        await delay(500);
-    }
-
-    throw new Error('Shared Electron renderer client resources did not settle');
-}
-
-export async function stabilizeSharedRendererClient(page: Page) {
-    if (!readE2ESharedRendererConfig(process.env)) {
-        return;
-    }
-    await installPageEvaluationShims(page);
-    await waitForRendererReady(page, SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS);
-    for (let attempt = 0; attempt < SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS; attempt += 1) {
-        const state = await waitForSharedRendererClientQuiet(page);
-        const initializationFailed = state.bodyText.includes('Internal Server Error')
-            || state.bodyText.includes('useHead() was called without provide context');
-        if (state.bindingsReady && !initializationFailed) {
-            sharedRendererClientStabilized = true;
-            return;
-        }
-        if (attempt + 1 >= SHARED_RENDERER_CLIENT_RECOVERY_ATTEMPTS) {
-            throw new Error(
-                'Shared Electron renderer client did not stabilize after Vite dependency discovery'
-                + ` (bindingsReady=${String(state.bindingsReady)}, body="${state.bodyText.replace(/\s+/g, ' ').slice(0, 180)}")`,
-            );
-        }
-        await page.reload({
-            waitUntil: 'domcontentloaded',
-            timeout: SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS,
-        });
-        await installPageEvaluationShims(page);
-        await waitForRendererReady(page, SHARED_RENDERER_CLIENT_SETTLE_TIMEOUT_MS);
-    }
 }
 
 async function waitForHealthReady(sessionName: string, timeoutMs: number, signal: AbortSignal) {
@@ -388,21 +319,9 @@ async function connectToSessionPage(sessionName: string, signal: AbortSignal) {
                 throw signal.reason;
             }
 
-            const nuxtPort = info.nuxtPort || DEFAULT_NUXT_PORT;
-            const pages = await browser.pages();
-            let page = pages.find(candidate => {
-                const url = candidate.url();
-                return url.startsWith('evb-viewer://app/')
-                    || url.includes(`localhost:${nuxtPort}`)
-                    || url.includes(`127.0.0.1:${nuxtPort}`);
-            }) ?? null;
-
+            const page = (await browser.pages()).find(candidate => candidate.url().startsWith('evb-viewer://app/'));
             if (!page) {
-                page = pages.find(candidate => !candidate.isClosed()) ?? null;
-                if (!page) {
-                    throw new Error('No Electron page found via CDP');
-                }
-                await page.goto(`http://127.0.0.1:${nuxtPort}/`, {waitUntil: 'domcontentloaded'});
+                throw new Error('No Electron app page found via CDP');
             }
 
             return {
@@ -460,7 +379,7 @@ async function startElectronE2ESessionWithAutomationEnv(
     const startOptions = {
         env: {
             ...buildAutomationEnv(requestedEnv),
-            ...buildStrictE2ERunEnv(process.env),
+            ...buildE2ERunEnv(process.env),
         },
         owner: 'e2e' as const,
         ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
@@ -516,22 +435,6 @@ async function startElectronE2ESessionWithAutomationEnv(
     );
     await installPageEvaluationShims(page);
     await waitForRendererReady(page);
-    if (readE2ESharedRendererConfig(process.env) && !sharedRendererClientStabilized) {
-        try {
-            await withSessionTimeout(
-                scopedSessionName,
-                `Stabilizing shared Electron renderer client '${scopedSessionName}'`,
-                SHARED_RENDERER_CLIENT_STABILIZE_TIMEOUT_MS,
-                () => stabilizeSharedRendererClient(page),
-                {cleanupOnTimeout: true},
-            );
-        } catch (error) {
-            await runElectronE2ETeardown(error, [{
-                label: `stop session '${scopedSessionName}'`,
-                run: () => stopSingleSession(scopedSessionName),
-            }]);
-        }
-    }
 
     const command = async <T = unknown>(
         nextCommand: TElectronRunCommand,
@@ -551,10 +454,7 @@ async function startElectronE2ESessionWithAutomationEnv(
                     scopedSessionName,
                     `Stopping Electron E2E session '${scopedSessionName}'`,
                     SESSION_STOP_TIMEOUT_MS,
-                    () => stopSingleSession(scopedSessionName, {
-                        keepNuxt: stopOptions.keepNuxt ?? false,
-                        crashElectronBeforeStop: stopOptions.crashElectronBeforeStop ?? false,
-                    }),
+                    () => stopSingleSession(scopedSessionName, {crashElectronBeforeStop: stopOptions.crashElectronBeforeStop ?? false}),
                 ),
             );
             if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {
@@ -605,10 +505,6 @@ async function startElectronE2ESessionWithAutomationEnv(
                     origin: rendererOrigin,
                     storageTypes: 'all',
                 });
-                // The shared Nuxt renderer runs with HTTP caching disabled.
-                // Clearing the browser-wide network cache here interrupts its
-                // Vite connection and can strand the following navigation
-                // before DOMContentLoaded.
             } finally {
                 await client.detach();
             }

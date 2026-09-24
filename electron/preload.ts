@@ -6,7 +6,6 @@ import {
 // Exposes the IPC bridge the renderer Sentry SDK uses. It only forwards to
 // main, which drops everything unless diagnostics consent is granted.
 import '@sentry/electron/preload';
-import { installViteOutdatedOptimizeDepRecovery } from '@electron/preload/installViteOutdatedOptimizeDepRecovery';
 import { createElectronApi } from '@electron/preload/createElectronApi';
 import { markPreloadInstalled } from '@electron/preload/markPreloadInstalled';
 import { installDebugLogListener } from '@electron/preload/installDebugLogListener';
@@ -14,7 +13,6 @@ import {
     createPreloadMainLogger,
     exposeStartupTraceFlag,
     tracePreload,
-    type TPreloadLogLevel,
 } from '@electron/preload/preloadLog';
 import { installStartupOverlayLifecycle } from '@electron/preload/installStartupOverlayLifecycle';
 import {
@@ -35,36 +33,6 @@ exposeStartupTraceFlag();
 installDebugLogListener(ipcRenderer);
 
 const forwardPreloadLogToMain = createPreloadMainLogger(ipcRenderer);
-const logDevRecovery = (level: TPreloadLogLevel, message: string, data?: Record<string, unknown>) => {
-    if (level === 'debug') {
-        if (data) {
-            console.debug(message, data);
-        } else {
-            console.debug(message);
-        }
-    } else if (level === 'info') {
-        if (data) {
-            console.info(message, data);
-        } else {
-            console.info(message);
-        }
-    } else if (level === 'warn') {
-        if (data) {
-            console.warn(message, data);
-        } else {
-            console.warn(message);
-        }
-    } else if (data) {
-        console.warn(message, data);
-    } else {
-        console.warn(message);
-    }
-
-    forwardPreloadLogToMain(level === 'error' ? 'warn' : level, 'devRecovery', message, data);
-};
-
-installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });
-tracePreload('dev recovery hooks installed');
 
 function isRendererAutomationFileOpenHelperEnabled() {
     return process.env.EVB_AUTOMATION_USER_DATA_DIR

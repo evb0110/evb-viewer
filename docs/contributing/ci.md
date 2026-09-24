@@ -30,6 +30,7 @@ parallel and the verdict lands in about fifteen minutes; see
 | `browser_integration`, Browser Integration | Browser integration suite in Chromium | `browser_integration` |
 | `scan_cleanup_oracles`, Scan Cleanup Export Oracles | Preview, export and word-loss oracles | `scan_cleanup_export` |
 | `landing`, Landing | Landing lint, typecheck and build | `landing` |
+| `electron_e2e_build`, Electron E2E Build | Production renderer, Electron bundle and native tools, shared with every lane | `electron_smoke` |
 | `electron_e2e`, Electron E2E (lane) | One Electron E2E lane per matrix job on Linux | `electron_smoke` |
 | `gates_ok` | Every job succeeded, or was skipped because its area did not change | Always |
 
@@ -38,21 +39,26 @@ the classifier selects every job.
 
 ### Electron E2E lanes
 
-The lanes are Vitest projects in `vitest.shared.config.ts`, sized to finish in
-about ten minutes each on a hosted Linux runner. A file belongs to exactly one
-lane; `e2e-core` takes every Electron E2E file that no other lane names, so a
-new test runs in CI without a config edit. Run one locally with
-`pnpm run test:e2e <lane>`.
+A lane is a directory of `tests/e2e/electron`: `smoke/` is the project
+`e2e-smoke`, and so on. Every directory except `helpers/` and `nightly/` is one
+matrix job of the required verdict (`scripts/electron-e2e-lanes.mjs` lists
+them), so a new test runs in CI by being saved in a lane directory, and a test
+file outside one fails the run. Lanes are sized to finish in about ten minutes
+on a hosted Linux runner; balance them by moving files. The tests run against
+the production renderer in `nuxt-output/public`, the one the packaged app
+loads, which the Electron E2E Build job builds once per run. Run a lane locally
+with `pnpm run test:e2e <lane>`, which builds first.
 
 | Lane | Files |
 | --- | --- |
-| `e2e-smoke` | Text-box interaction, annotation controls, blocking PDF save, scan-cleanup toolbar |
+| `e2e-smoke` | Blocking PDF save, OCR journey, startup, scan-cleanup toolbar, dialogs, DjVu print, performance profile |
 | `e2e-viewer` | `viewerSmoke` |
-| `e2e-annotations` | Annotation lifecycle, squiggly markup, stamp picker, legacy notes, interop acceptance |
-| `e2e-save-pipeline` | Save pipeline, recovery close, issue 124 lifecycle, compact page labels |
+| `e2e-annotations` | Annotation lifecycle, squiggly markup, stamp picker, interop acceptance |
+| `e2e-markup` | Text-box interaction, annotation controls |
+| `e2e-drawing` | Draw-shape lifecycle and stroke parity |
+| `e2e-save` | Save pipeline, recovery close, compact page labels |
 | `e2e-documents` | Native save and reopen, large-PDF open and virtualization, Recent files |
-| `e2e-draw-shapes` | Draw-shape lifecycle and stroke parity |
-| `e2e-core` | Everything else: navigation, fit modes, tabs, dialogs, startup |
+| `e2e-navigation` | Page navigation, fit modes, inactive tabs, fling handoff, viewer invariants, zoom menu |
 
 Wall-clock budgets in these tests report a miss as a `[timing-budget]` log line
 and fail only when `EVB_E2E_TIMING_BUDGETS=enforce`, which the nightly macOS run
@@ -121,14 +127,13 @@ gates a commit or a release.
 | Scan Cleanup Heavy Gates | Canonical scan-cleanup identity |
 | Rust Tests (Linux arm64) | The Rust workspace on the second architecture |
 | Native Parser Fuzz Canaries | Image, xref and JBIG2 fuzz targets |
-| Electron E2E macOS (lane) | The seven `ci.yml` lanes on macOS with timing budgets enforced |
+| Electron E2E macOS (lane) | The `ci.yml` lanes on macOS with timing budgets enforced |
 | Electron E2E Search Match Scroll | High-zoom native search over a generated large document |
 | Manual Electron E2E Large PDF | Large-PDF lane against the local exact fixture (dispatch only) |
-| Manual Electron E2E Quarantine | Quarantined scenarios (dispatch only) |
 | Manual Electron E2E Visible Window | Visible-window lifecycle (dispatch only) |
 
-`e2e-calibration` runs by hand only; see its comment in
-`vitest.shared.config.ts`.
+These run the lanes under `tests/e2e/electron/nightly/`: `e2e-search`,
+`e2e-large-pdf` and `e2e-visible-window`.
 
 ## Other workflows
 

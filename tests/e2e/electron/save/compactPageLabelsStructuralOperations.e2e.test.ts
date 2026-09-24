@@ -19,6 +19,7 @@ import {
 import {
     readWorkspaceStateValues,
     requireWorkspaceCommand,
+    waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     waitForPdfLoaded,
@@ -551,10 +552,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
             return;
         }
         await session.page.mouse.click(fitWidthPoint.x, fitWidthPoint.y);
-        await session.page.waitForFunction(() => (
-            (window as Window & {__evbTestApi?: IEvbTestApi})
-                .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-        ), {timeout: 60_000});
+        await waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: 60_000});
         await waitForAnimationFrames(session.page, 4);
         await session.page.waitForFunction(() => {
             const item = document.querySelector<HTMLElement>('[data-document-thumbnail-item][data-page="2"]');

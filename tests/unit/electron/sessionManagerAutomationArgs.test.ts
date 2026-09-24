@@ -43,14 +43,6 @@ import {
     shouldUseMacOSHiddenAppLauncher,
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import {
-    E2E_SHARED_RENDERER_ENABLED_ENV,
-    E2E_SHARED_RENDERER_PORT_ENV,
-    applyE2ESharedRendererPort,
-    buildE2ESharedRendererEnv,
-    getE2ESharedRendererSessionName,
-    readE2ESharedRendererConfig,
-} from '@scripts/electron-run/electronRunE2ESharedRenderer';
-import {
     checkNuxtHttpReadiness,
     hasOtherAliveSessionUsingNuxt,
     resolveNuxtForceCleanCachePaths,
@@ -62,17 +54,8 @@ import {
     warmupElectronAppDependenciesBestEffort,
 } from '@scripts/electron-run/electronRunNuxtServer';
 import {
-    DEFAULT_NUXT_PORT,
-    getNuxtPort,
-    setNuxtPort,
-} from '@scripts/electron-run/electronRunPortConfig';
-import {
     E2E_RUN_ID_ENV,
-    E2E_STRICT_ISOLATION_ENV,
-    NUXT_WARMUP_REQUIRED_ENV,
     createE2ERunScopedSessionName,
-    shouldRequireNuxtWarmup,
-    shouldUseStrictE2EIsolation,
 } from '@scripts/electron-run/electronRunRunId';
 import { isReusableNuxtResponse } from '@scripts/electron-run/isReusableNuxtResponse';
 import {
@@ -758,10 +741,6 @@ describe('sessionManager automation launch args', () => {
             newestPage,
             closedReplacement,
         ])).toBe(newestPage);
-
-        const source = await readFile('scripts/electron-run/rendererReadiness.ts', 'utf8');
-        expect(source).not.toContain('waitForSelector(\'body\', { timeout: 30000 })');
-        expect(source).not.toContain('waitForSelector(\'body\', { timeout: 15000 })');
     });
 
     it('classifies an initial body probe that never answers as unresponsive', async () => {
@@ -874,88 +853,10 @@ describe('sessionManager automation launch args', () => {
         expect(warnings.some(message => message.includes('Dependency warmup did not settle; continuing anyway'))).toBe(true);
     });
 
-    it('fails best-effort Electron route warmup when warmup is required', async () => {
-        const previous = process.env[NUXT_WARMUP_REQUIRED_ENV];
-        process.env[NUXT_WARMUP_REQUIRED_ENV] = '1';
-        const fetchImpl = (async () => new Response('Outdated Optimize Dep', {
-            status: 504,
-            headers: {'x-powered-by': 'Nuxt'},
-        })) as typeof fetch;
-        try {
-            await expect(warmupElectronAppDependenciesBestEffort(
-                () => {},
-                {
-                    fetchImpl,
-                    pollIntervalMs: 0,
-                    timeoutMs: 5,
-                },
-            )).rejects.toThrow(/Electron app dependencies did not warm/);
-        } finally {
-            if (previous === undefined) {
-                Reflect.deleteProperty(process.env, NUXT_WARMUP_REQUIRED_ENV);
-            } else {
-                process.env[NUXT_WARMUP_REQUIRED_ENV] = previous;
-            }
-        }
-    });
-
-    it('ignores shared renderer metadata unless the e2e signal is enabled', () => {
-        const env = { [E2E_SHARED_RENDERER_PORT_ENV]: '4123' };
-
-        expect(readE2ESharedRendererConfig(env)).toBeNull();
-    });
-
-    it('parses the shared e2e renderer port from explicit metadata', () => {
-        expect(readE2ESharedRendererConfig({
-            [E2E_SHARED_RENDERER_ENABLED_ENV]: '1',
-            [E2E_SHARED_RENDERER_PORT_ENV]: '4123',
-        })).toEqual({ port: 4123 });
-    });
-
-    it('rejects invalid shared e2e renderer ports', () => {
-        expect(() => readE2ESharedRendererConfig({
-            [E2E_SHARED_RENDERER_ENABLED_ENV]: '1',
-            [E2E_SHARED_RENDERER_PORT_ENV]: '70000',
-        })).toThrow(/requires a valid/);
-    });
-
-    it('applies the shared e2e renderer port for Electron launch metadata', () => {
-        try {
-            expect(applyE2ESharedRendererPort({
-                [E2E_SHARED_RENDERER_ENABLED_ENV]: 'true',
-                [E2E_SHARED_RENDERER_PORT_ENV]: '4234',
-            })).toEqual({ port: 4234 });
-            expect(getNuxtPort()).toBe(4234);
-        } finally {
-            setNuxtPort(DEFAULT_NUXT_PORT);
-        }
-    });
-
-    it('builds the shared e2e renderer environment for detached sessions', () => {
-        const previousRunId = process.env[E2E_RUN_ID_ENV];
-        process.env[E2E_RUN_ID_ENV] = 'test-run';
-        expect(buildE2ESharedRendererEnv(4345)).toEqual({
-            [E2E_RUN_ID_ENV]: 'test-run',
-            [E2E_STRICT_ISOLATION_ENV]: '1',
-            [E2E_SHARED_RENDERER_ENABLED_ENV]: '1',
-            [E2E_SHARED_RENDERER_PORT_ENV]: '4345',
-            [NUXT_WARMUP_REQUIRED_ENV]: '1',
-        });
-        if (previousRunId === undefined) {
-            Reflect.deleteProperty(process.env, E2E_RUN_ID_ENV);
-        } else {
-            process.env[E2E_RUN_ID_ENV] = previousRunId;
-        }
-    });
-
-    it('scopes e2e session names and strict env by run id', () => {
+    it('scopes e2e session names by run id', () => {
         const env = {[E2E_RUN_ID_ENV]: 'run/with spaces'};
         expect(createE2ERunScopedSessionName('e2e-viewer-smoke', env)).toBe('e2e-run-with-spaces-viewer-smoke');
         expect(createE2ERunScopedSessionName('e2e-run-with-spaces-viewer-smoke', env)).toBe('e2e-run-with-spaces-viewer-smoke');
-        expect(getE2ESharedRendererSessionName(env)).toBe('e2e-run-with-spaces-shared-renderer');
-        expect(shouldUseStrictE2EIsolation({CI: 'true'})).toBe(true);
-        expect(shouldUseStrictE2EIsolation({[E2E_STRICT_ISOLATION_ENV]: '1'})).toBe(true);
-        expect(shouldRequireNuxtWarmup({[NUXT_WARMUP_REQUIRED_ENV]: 'true'})).toBe(true);
     });
 
     it('uses isolated Nuxt and distinct automation ports for non-default sessions', async () => {

@@ -29,8 +29,13 @@ export function resolveNuxtTypecheckRun({
         }
     }
 
+    const cacheDir = path.resolve(workspaceDir, '.devkit', 'cache', 'typecheck');
+    // `nuxi typecheck` prepares Nitro, which empties Nitro's output directory.
+    // Keep that away from nuxt-output, the renderer build Electron E2E loads.
+    childEnv.EVB_NUXT_OUTPUT_DIR ??= path.join(cacheDir, 'nuxt-output');
+
     return {
-        cacheDir: path.resolve(workspaceDir, '.devkit', 'cache', 'typecheck'),
+        cacheDir,
         cold,
         env: childEnv,
         workspaceDir,

@@ -975,7 +975,6 @@ async function hardRestartAfterSave(
     const restarted = await sessionFixture.restart({
         clean: false,
         hard: true,
-        keepNuxt: true,
     });
     await waitForPdfLoaded(restarted.page, MATRIX_TIMEOUT_MS);
     await waitForViewerInteractive(restarted.page, MATRIX_TIMEOUT_MS);

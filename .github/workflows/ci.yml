@@ -28,9 +28,10 @@ on:
 # The one required CI verdict: gates_ok. A release is cut from a commit whose
 # push run has a green gates_ok, and nothing else gates a release. Jobs run
 # in parallel and are sized so the verdict lands in about fifteen minutes;
-# the Electron E2E suite is split into lanes (vitest.shared.config.ts) that
-# run as a matrix. Slow, heavy or large-fixture checks, timing budgets and
-# the macOS E2E run live in ci-nightly.yml, which reports and never gates.
+# the Electron E2E suite runs as a matrix of lanes, one per directory of
+# tests/e2e/electron, against one shared production build. Slow, heavy or
+# large-fixture checks, timing budgets and the macOS E2E run live in
+# ci-nightly.yml, which reports and never gates.
 # A dispatched run skips the changed-area classifier and runs every job.
 
 permissions:
@@ -419,25 +420,17 @@ jobs:
       - name: Landing build
         run: pnpm --dir landing run build
 
-  electron_e2e:
-    name: Electron E2E (${{ matrix.lane }})
+  # Builds what every Electron E2E lane runs: the production renderer the
+  # packaged app loads, the Electron bundle and the native tools. The lanes
+  # download it instead of building it seven times.
+  electron_e2e_build:
+    name: Electron E2E Build
     if: ${{ needs.changed_areas.outputs.electron_smoke == 'true' }}
     needs: changed_areas
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # The lanes of vitest.shared.config.ts that run per push; keep the two
-        # lists and scripts/validation-gates.mjs in step.
-        lane:
-          - e2e-smoke
-          - e2e-viewer
-          - e2e-annotations
-          - e2e-save-pipeline
-          - e2e-documents
-          - e2e-draw-shapes
-          - e2e-core
+    timeout-minutes: 20
+    outputs:
+      lanes: ${{ steps.lanes.outputs.lanes }}
 
     steps:
       - name: Checkout
@@ -449,12 +442,7 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-          # annotationStrokeParity renders the web build, which parses annotations in WASM.
-          wasm: ${{ matrix.lane == 'e2e-draw-shapes' && 'true' || 'false' }}
-
-      - name: Install PDF test tools
-        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
+          wasm: 'true'
 
       - name: Restore staged Electron native binaries
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
@@ -467,13 +455,68 @@ jobs:
           restore-keys: |
             electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Build renderer, Electron and native tools
+        run: pnpm run build && pnpm run build:electron && pnpm run build:native:e2e
+
+      - name: List lanes
+        id: lanes
+        run: node scripts/electron-e2e-lanes.mjs >> "$GITHUB_OUTPUT"
+
+      # A tarball keeps the native tools executable.
+      - name: Pack build
+        run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron .tmp/scan-cleanup .tmp/pdf-image-combine .tmp/pdf-page-ops
+
+      - name: Upload build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: electron-e2e-build
+          retention-days: 1
+          path: electron-e2e-build.tar
+
+  electron_e2e:
+    name: Electron E2E (${{ matrix.lane }})
+    if: ${{ needs.changed_areas.outputs.electron_smoke == 'true' }}
+    needs:
+      - changed_areas
+      - electron_e2e_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # One job per lane directory of tests/e2e/electron.
+        lane: ${{ fromJSON(needs.electron_e2e_build.outputs.lanes) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup CI environment
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          verify-electron: 'true'
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-build
+
+      - name: Unpack build
+        run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
+
+      - name: Install PDF test tools
+        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
+
       - name: Install Playwright Chromium
         # annotationStrokeParity compares Electron with standalone Chromium.
-        if: ${{ matrix.lane == 'e2e-draw-shapes' }}
+        if: ${{ matrix.lane == 'e2e-drawing' }}
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Electron E2E ${{ matrix.lane }}
-        run: pnpm run test:e2e "${{ matrix.lane }}" --reporter verbose
+        run: bash scripts/test-electron-e2e-headless.sh --no-build "${{ matrix.lane }}" --reporter verbose
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
@@ -496,6 +539,7 @@ jobs:
       - browser_integration
       - scan_cleanup_oracles
       - landing
+      - electron_e2e_build
       - electron_e2e
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -521,6 +565,7 @@ jobs:
             ['browser_integration', areas.browser_integration === 'false'],
             ['scan_cleanup_oracles', areas.scan_cleanup_export === 'false'],
             ['landing', areas.landing === 'false'],
+            ['electron_e2e_build', areas.electron_smoke === 'false'],
             ['electron_e2e', areas.electron_smoke === 'false'],
           ]);
           const rejected = [];

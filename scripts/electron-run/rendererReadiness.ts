@@ -5,14 +5,13 @@ import puppeteer, {
     type Page,
 } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
-import {
-    getElectronAppUrl,
-    waitForReusableNuxtServer,
-} from '@scripts/electron-run/electronRunNuxtServer';
+import { waitForReusableNuxtServer } from '@scripts/electron-run/electronRunNuxtServer';
 import { logLauncher } from '@scripts/electron-run/terminalLog';
 import {
+    getRendererAppUrl,
     isElectronAppPageUrl,
     isNuxtDevServerUrl,
+    usesBuiltRenderer,
 } from '@scripts/electron-run/appRendererUrl';
 import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
 export {
@@ -442,8 +441,10 @@ async function ensureAppPageLoaded(
     }
 
     try {
-        await waitForReusableNuxtServer(30_000);
-        await page.goto(getElectronAppUrl(), {
+        if (!usesBuiltRenderer()) {
+            await waitForReusableNuxtServer(30_000);
+        }
+        await page.goto(getRendererAppUrl(), {
             waitUntil: 'domcontentloaded',
             timeout: 30_000,
         });
@@ -579,7 +580,7 @@ async function reloadAndWaitForHydration(
 }> {
     let currentPage = page;
     try {
-        await currentPage.goto(getElectronAppUrl(), { waitUntil: 'networkidle2' });
+        await currentPage.goto(getRendererAppUrl(), { waitUntil: 'networkidle2' });
     } catch {
         await delay(2000);
         currentPage = await findAppPage(browser) ?? currentPage;

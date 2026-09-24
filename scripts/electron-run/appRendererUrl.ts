@@ -2,6 +2,17 @@ import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 
 export const ELECTRON_SERVER_PATH = '/electron';
 
+/** Set by Electron E2E: the app loads nuxt-output/public instead of a Nuxt dev server. */
+export function usesBuiltRenderer(env: NodeJS.ProcessEnv = process.env) {
+    return env.EVB_BUILT_RENDERER === '1';
+}
+
+export function getRendererAppUrl() {
+    return usesBuiltRenderer()
+        ? `evb-viewer://app${ELECTRON_SERVER_PATH}`
+        : `http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`;
+}
+
 function isElectronRendererPath(pathname: string) {
     return pathname === ELECTRON_SERVER_PATH
         || pathname.startsWith(`${ELECTRON_SERVER_PATH}/`);

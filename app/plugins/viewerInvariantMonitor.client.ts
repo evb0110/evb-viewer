@@ -1,17 +1,13 @@
 import type { TLocale } from '@i18n-app';
 import { isLocaleMessageSource } from '@i18n-core';
 import { createPluginTranslate } from '@app/utils/createPluginTranslate';
+import { isAutomationSession } from '@app/utils/isAutomationSession';
 
-// The monitor is a development aid. Nuxt replaces `import.meta.dev` with a
-// literal in a production build, so this ternary is what lets rollup drop the
-// dynamic import and leave the module out of the shipped renderer entirely.
-// The same pattern keeps the dev-only agent widget out of production.
-const loadViewerInvariantMonitor = import.meta.dev
-    ? () => import('@app/modules/viewer-invariants/public')
-    : null;
-
+// The monitor is a development aid that automation sessions also load, so
+// Electron E2E checks viewer invariants in the production renderer. Ordinary
+// packaged sessions never fetch its chunk.
 export default defineNuxtPlugin(async (nuxtApp) => {
-    if (!loadViewerInvariantMonitor || typeof window === 'undefined') {
+    if (!import.meta.dev && !isAutomationSession()) {
         return;
     }
 
@@ -25,7 +21,7 @@ export default defineNuxtPlugin(async (nuxtApp) => {
         () => localeCookie.value,
     );
 
-    const {installViewerInvariantMonitor} = await loadViewerInvariantMonitor();
+    const {installViewerInvariantMonitor} = await import('@app/modules/viewer-invariants/public');
     const monitor = installViewerInvariantMonitor({announceBugReport: (result) => {
         toast.add({
             color: result.written ? 'success' : 'warning',

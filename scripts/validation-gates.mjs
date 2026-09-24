@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { getCliErrorMessage } from './lib/cli-error.mjs';
+import { listRequiredElectronE2ELanes } from './electron-e2e-lanes.mjs';
 import {
     execFileSync,
     spawn,
@@ -525,11 +526,7 @@ function selectedUnitProjects(files, classification) {
         }
     }
     for (const file of files) {
-        if (file === 'tests/e2e/electron/quarantine/graduation-policy.json') {
-            projects.push('unit-policy');
-        } else if (file.startsWith('tests/e2e/electron/quarantine/')) {
-            projects.push('unit-static-architecture');
-        } else if (file.startsWith('tests/unit/app/')) {
+        if (file.startsWith('tests/unit/app/')) {
             projects.push('unit-app', 'unit-static-architecture');
         } else if (file.startsWith('tests/unit/architecture/')) {
             projects.push('unit-static-architecture');
@@ -574,15 +571,7 @@ function stage(id, command, args, options = {}) {
 }
 // The Electron E2E lanes of the required CI verdict (.github/workflows/ci.yml).
 // Locally they run in one Vitest invocation, one lane after another.
-const ELECTRON_E2E_CI_LANES = [
-    'e2e-smoke',
-    'e2e-viewer',
-    'e2e-annotations',
-    'e2e-save-pipeline',
-    'e2e-documents',
-    'e2e-draw-shapes',
-    'e2e-core',
-];
+const ELECTRON_E2E_CI_LANES = listRequiredElectronE2ELanes().map(lane => lane.name);
 const ELECTRON_E2E_REGRESSION_ARGS = ELECTRON_E2E_CI_LANES.flatMap((lane, index) => (
     index === 0 ? [lane] : [
         '--project',
@@ -948,15 +937,6 @@ export function getValidationPlan({
             env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
             inputScope: 'native',
         }),
-        pnpmRunStage(
-            'electron.quarantine',
-            'test:e2e:quarantine',
-            {
-                heavyWeight: 3,
-                inputScope: 'build',
-                weight: 3,
-            },
-        ),
     ];
 }
 

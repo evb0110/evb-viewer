@@ -5,13 +5,13 @@ import {
     serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
 import {
-    stabilizeSharedRendererClient,
     startElectronE2ESession,
+    waitForRendererReady,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
 // The emulation lives on the page's own session so it survives the reload
 // below; one set on a separate CDP session ends when that session detaches.
-async function setReducedMotionPreference(page: Parameters<typeof stabilizeSharedRendererClient>[0]) {
+async function setReducedMotionPreference(page: Parameters<typeof waitForRendererReady>[0]) {
     await page.emulateMediaFeatures([{
         name: 'prefers-reduced-motion',
         value: 'no-preference',
@@ -52,6 +52,6 @@ export async function startConfiguredElectronE2ESession(
     // on runners whose host preferences request reduced motion.
     await setReducedMotionPreference(session.page);
     await session.page.reload({waitUntil: 'domcontentloaded'});
-    await stabilizeSharedRendererClient(session.page);
+    await waitForRendererReady(session.page);
     return session;
 }

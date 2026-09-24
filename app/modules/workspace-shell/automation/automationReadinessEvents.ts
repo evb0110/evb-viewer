@@ -5,6 +5,7 @@ import type {
     TEvbAutomationEventType,
 } from '@app/types/evbAutomationEvents';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
+import { isAutomationSession } from '@app/utils/isAutomationSession';
 
 const DEFAULT_AUTOMATION_EVENT_TIMEOUT_MS = 30_000;
 const MAX_AUTOMATION_EVENTS = 200;
@@ -13,15 +14,10 @@ let nextEventId = 1;
 const automationEvents: IEvbAutomationEvent[] = [];
 const listeners = new Set<TEvbAutomationEventListener>();
 
-function isAutomationEventCollectionEnabled() {
-    return typeof window !== 'undefined'
-        && typeof window.__allowRendererFileOpenForAutomation === 'function';
-}
-
 export async function publishStagedPdfNativeMutationForAutomation(
     stagedArtifact: ITypedStagedArtifact,
 ) {
-    if (!isAutomationEventCollectionEnabled()) {
+    if (!isAutomationSession()) {
         return;
     }
     await window.__stagedPdfNativeMutationCommitBarrierForAutomation?.(stagedArtifact);
@@ -31,7 +27,7 @@ export function emitAutomationEvent<TDetail extends Record<string, unknown> = Re
     type: TEvbAutomationEventType,
     detail = {} as TDetail,
 ) {
-    if (!isAutomationEventCollectionEnabled()) {
+    if (!isAutomationSession()) {
         return null;
     }
 

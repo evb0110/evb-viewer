@@ -613,10 +613,7 @@ describe('Electron E2E - Recent Files', () => {
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
-        session = await sessionFixture.restart({
-            clean: false,
-            keepNuxt: true,
-        });
+        session = await sessionFixture.restart({clean: false});
 
         await waitForStartupOverlayRemoved(session);
         await installCommittedSurfaceSampler(session.page);
@@ -919,10 +916,7 @@ describe('Electron E2E - Recent Files', () => {
         // Restart into the Recent placeholder. The empty workspace must already
         // carry the configured next-document view before the synchronous host
         // drafts its prepared opening frame.
-        session = await sessionFixture.restart({
-            clean: false,
-            keepNuxt: true,
-        });
+        session = await sessionFixture.restart({clean: false});
 
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, fixturePath);
@@ -985,10 +979,7 @@ describe('Electron E2E - Recent Files', () => {
         const fixtureName = basename(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
-        session = await sessionFixture.restart({
-            clean: false,
-            keepNuxt: true,
-        });
+        session = await sessionFixture.restart({clean: false});
 
         await waitForStartupOverlayRemoved(session);
         await assertRecentListStaysStableBeforeOpen(session, fixturePath);
@@ -1099,10 +1090,7 @@ describe('Electron E2E - Recent Files', () => {
         expect(readFileSync(secondPath)).toEqual(secondBeforeSave);
         await openPdfInApp(session.page, secondPath);
         await waitForPdfLoaded(session.page);
-        session = await sessionFixture.restart({
-            clean: false,
-            keepNuxt: true,
-        });
+        session = await sessionFixture.restart({clean: false});
 
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, firstPath);
@@ -1122,10 +1110,7 @@ describe('Electron E2E - Recent Files', () => {
         await clickRecentFile(session, firstPath);
         await waitForRecentPdfOpen(session, firstPath);
         await waitForActiveDocumentSource(session.page, firstPath);
-        session = await sessionFixture.restart({
-            clean: false,
-            keepNuxt: true,
-        });
+        session = await sessionFixture.restart({clean: false});
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, secondPath);
         await clickRecentFile(session, secondPath);
@@ -1150,10 +1135,7 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
 
         await openDjvuInApp(session.page, djvuFixture.path, 90_000);
         await waitForDjvuLoaded(session.page, 90_000);
-        session = await sessionFixture.restart({
-            clean: false,
-            keepNuxt: true,
-        });
+        session = await sessionFixture.restart({clean: false});
 
         await assertRecentListStaysStableBeforeOpen(session, djvuFixture.path);
         await clickRecentFile(session, djvuFixture.path);

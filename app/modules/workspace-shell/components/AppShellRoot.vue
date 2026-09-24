@@ -194,6 +194,7 @@ import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { installAppShellE2EHooks } from '@app/modules/workspace-shell/automation/installAppShellE2EHooks';
+import { isAutomationSession } from '@app/utils/isAutomationSession';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
 import { useWorkspaceMemoryPressureMonitor } from '@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor';
@@ -535,7 +536,7 @@ onMounted(() => {
         },
     );
 
-    if (import.meta.dev) {
+    if (isAutomationSession()) {
         cleanupAppShellE2EHooks = installAppShellE2EHooks({
             copyActiveTab,
             setTabMemoryPolicy: (policy) => {

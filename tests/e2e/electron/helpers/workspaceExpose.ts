@@ -33,6 +33,7 @@ export interface IWorkspaceToolbarSnapshotRequirements {
     minEffectiveZoom?: number;
     minTotalPages?: number;
     showSidebar?: boolean;
+    viewMode?: IWorkspaceToolbarSnapshot['viewMode'];
     zoomMode?: IWorkspaceToolbarSnapshot['zoomMode'];
 }
 
@@ -215,6 +216,7 @@ export async function waitForWorkspaceToolbarSnapshot(
             && (typeof payload.requirements.minTotalPages !== 'number' || (snapshot.totalPages ?? 0) >= payload.requirements.minTotalPages)
             && (typeof payload.requirements.effectiveZoom !== 'number' || Math.abs((snapshot.effectiveZoom ?? Number.NaN) - payload.requirements.effectiveZoom) <= 0.001)
             && (typeof payload.requirements.minEffectiveZoom !== 'number' || (snapshot.effectiveZoom ?? 0) >= payload.requirements.minEffectiveZoom)
+            && (payload.requirements.viewMode === undefined || snapshot.viewMode === payload.requirements.viewMode)
             && (payload.requirements.zoomMode === undefined || snapshot.zoomMode === payload.requirements.zoomMode)
         );
     }, { timeout: timeoutMs }, {
@@ -237,6 +239,7 @@ export async function waitForWorkspaceToolbarSnapshot(
             && (typeof requirements.minTotalPages !== 'number' || snapshot.totalPages >= requirements.minTotalPages)
             && (typeof requirements.effectiveZoom !== 'number' || Math.abs(snapshot.effectiveZoom - requirements.effectiveZoom) <= 0.001)
             && (typeof requirements.minEffectiveZoom !== 'number' || snapshot.effectiveZoom >= requirements.minEffectiveZoom)
+            && (requirements.viewMode === undefined || snapshot.viewMode === requirements.viewMode)
             && (requirements.zoomMode === undefined || snapshot.zoomMode === requirements.zoomMode)
         ) {
             return snapshot;

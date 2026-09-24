@@ -14,6 +14,10 @@ export function resolveIsPackaged(electronApp: TElectronAppPackagingState = app)
 }
 
 const isPackaged = resolveIsPackaged();
+// An unpackaged run loads the Nuxt dev server unless it asks for the built
+// renderer in nuxt-output/public, which is what the packaged app serves and
+// what Electron E2E runs against.
+const usesBuiltRenderer = isPackaged || process.env.EVB_BUILT_RENDERER === '1';
 const DEFAULT_SERVER_HOST = normalizeServerHost(process.env.EVB_SERVER_HOST, '127.0.0.1');
 const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
 const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');
@@ -118,7 +122,7 @@ function isLoopbackHost(host: string) {
 }
 
 export const config = {
-    isDev: !isPackaged,
+    isDev: !usesBuiltRenderer,
     isMac: process.platform === 'darwin',
 
     server: {
@@ -150,12 +154,12 @@ export const config = {
     renderer: {
         protocolOrigin: APP_PROTOCOL_ORIGIN,
         get url() {
-            return isPackaged
+            return usesBuiltRenderer
                 ? `${APP_PROTOCOL_ORIGIN}/electron`
                 : config.server.url;
         },
         get trustedOrigin() {
-            return isPackaged
+            return usesBuiltRenderer
                 ? APP_PROTOCOL_ORIGIN
                 : new URL(config.server.url).origin;
         },

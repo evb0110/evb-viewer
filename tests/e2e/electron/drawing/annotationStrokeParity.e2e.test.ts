@@ -22,6 +22,7 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import { serveBuiltWebApp } from '@tests/e2e/electron/helpers/serveBuiltWebApp';
 
 const MATCHED_DISPLAY_ZOOM = 2;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'annotation-stroke-parity');
@@ -361,6 +362,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
         });
         console.info(`STROKE_PARITY_STEP electron-measure:complete ${JSON.stringify(electronMetrics)}`);
 
+        const webApp = await serveBuiltWebApp();
         const browser = await chromium.launch({
             headless: true,
             ...(CHROMIUM_EXECUTABLE_PATH ? {executablePath: CHROMIUM_EXECUTABLE_PATH} : {}),
@@ -375,9 +377,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
                 },
             });
             const webPage = await context.newPage();
-            const electronUrl = new URL(session.page.url());
-            const webUrl = `${electronUrl.origin}/`;
-            await webPage.goto(webUrl, { waitUntil: 'domcontentloaded' });
+            await webPage.goto(`${webApp.origin}/`, { waitUntil: 'domcontentloaded' });
             await webPage.evaluate(() => {
                 window.sessionStorage.setItem(
                     'evb-viewer:browser:open-picker-mode',
@@ -535,6 +535,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
             expect(wrongOpacityMismatchCount).toBeGreaterThan(interiorMismatchLimit);
         } finally {
             await browser.close();
+            await webApp.close();
         }
     }, 180_000);
 });

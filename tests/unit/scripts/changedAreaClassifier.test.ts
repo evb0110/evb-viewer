@@ -179,7 +179,7 @@ describe('changed-area classifier', () => {
             .toMatchObject({electron_save_reopen: {matched: true}});
         expect(classifyChangedFiles(['app/modules/pdf-viewer/runtime/save/pdfDocumentPersistence.ts']))
             .toMatchObject({electron_save_reopen: {matched: true}});
-        expect(classifyChangedFiles(['tests/e2e/electron/annotationLifecycle.e2e.test.ts']))
+        expect(classifyChangedFiles(['tests/e2e/electron/annotations/annotationLifecycle.e2e.test.ts']))
             .toMatchObject({electron_save_reopen: {matched: true}});
         for (const file of [
             'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',

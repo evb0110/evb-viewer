@@ -115,9 +115,6 @@ every run, and needs an `Adds-Checks:` trailer with the user's words.
   breaks other writers' tests without touching them. Modules whose load starts
   workers, writes files, logs, or touches Electron main-process APIs stay
   wholesale mocks.
-- An Electron E2E test with a named product or harness failure under
-  investigation moves to `tests/e2e/electron/quarantine/` with its reason and
-  expiry recorded in `graduation-policy.json`, and moves back when fixed.
 - Deep-equality on large buffers, real sleeps, and shared fixtures under
   parallel writers are the usual causes of slow and unstable tests. Compare
   bytes with `Buffer#equals`, wait on events or `expect.poll`, and give each

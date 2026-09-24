@@ -45,6 +45,7 @@ import {
     onAutomationEvent,
     waitForAutomationEvent,
 } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
+import { isAutomationSession } from '@app/utils/isAutomationSession';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previous-tab';
@@ -108,11 +109,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
     let installedTestApi: IEvbTestApi | null = null;
     let cleanupDirectOpenDelegate: (() => void) | null = null;
-
-    function isAutomationTestApiEnabled() {
-        return typeof window !== 'undefined'
-            && typeof window.__allowRendererFileOpenForAutomation === 'function';
-    }
 
     function readWorkspaceSnapshot(
         tabId: string | null | undefined,
@@ -262,7 +258,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     function installAutomationTestApi() {
-        if (!isAutomationTestApiEnabled()) {
+        if (!isAutomationSession()) {
             return;
         }
 

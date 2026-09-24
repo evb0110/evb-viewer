@@ -2973,7 +2973,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const restartedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
@@ -3122,7 +3121,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const restartedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
@@ -3224,7 +3222,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const restartedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
@@ -3445,7 +3442,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const freshSession = await sessionFixture.restart({
             clean: true,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(initialProcesses.pids);
         const freshProcesses = readSessionProcessSnapshot(freshSession.name);
@@ -3608,7 +3604,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const restartedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(firstProcesses.pids);
         const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
@@ -3765,7 +3760,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const twiceRestartedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(secondProcesses.pids);
         const twiceRestartedProcesses = readSessionProcessSnapshot(twiceRestartedSession.name);
@@ -3867,7 +3861,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const persistedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(preRestartProcesses.pids);
         session = persistedSession;
@@ -4070,7 +4063,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const reopenedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(transitionProcesses.pids);
         session = reopenedSession;
@@ -4207,7 +4199,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const restartedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         expect(restartedSession).not.toBeNull();
         const restartedPage = restartedSession!.page;
@@ -4344,7 +4335,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const freshSession = await sessionFixture.restart({
             clean: true,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(initialProcesses.pids);
         const freshProcesses = readSessionProcessSnapshot(freshSession.name);
@@ -4457,7 +4447,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const reopenedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(firstRestartProcesses.pids);
         const reopenedProcesses = readSessionProcessSnapshot(reopenedSession.name);
@@ -4613,7 +4602,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const finalSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await expectProcessesExited(secondRestartProcesses.pids);
         const finalProcesses = readSessionProcessSnapshot(finalSession.name);

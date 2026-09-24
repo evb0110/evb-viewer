@@ -3,6 +3,10 @@ import { fileURLToPath } from 'node:url';
 import AutoImport from 'unplugin-auto-import/vite';
 import Vue from '@vitejs/plugin-vue';
 import { vitestResolveAlias } from './scripts/vitestResolveAlias';
+import {
+    listNightlyElectronE2ELanes,
+    listRequiredElectronE2ELanes,
+} from './scripts/electron-e2e-lanes.mjs';
 
 const vitestResolveConfig = { alias: vitestResolveAlias };
 
@@ -32,18 +36,6 @@ const vitestProjectNames = {
     browserIntegration: 'browser-integration',
     nativeIntegration: 'native-integration',
     electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
-    electronE2ESmoke: 'e2e-smoke',
-    electronE2EViewer: 'e2e-viewer',
-    electronE2EAnnotations: 'e2e-annotations',
-    electronE2ESavePipeline: 'e2e-save-pipeline',
-    electronE2EDocuments: 'e2e-documents',
-    electronE2EDrawShapes: 'e2e-draw-shapes',
-    electronE2ECore: 'e2e-core',
-    electronE2ELargePdf: 'e2e-large-pdf',
-    electronE2EVisibleWindow: 'e2e-visible-window',
-    electronE2EQuarantine: 'e2e-quarantine',
-    electronE2ESearchMatchScroll: 'e2e-search-match-scroll',
-    electronE2ECalibration: 'e2e-calibration',
 } as const;
 
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
@@ -52,68 +44,6 @@ const unitPolicyTestFiles = ['tests/unit/scripts/*Policy.test.ts'];
 export const staticArchitectureTestFiles = [
     'tests/unit/architecture/**/*.test.ts',
     'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts',
-];
-
-// Electron E2E lanes. Every lane but the manual ones runs as one shard of
-// the required CI verdict (.github/workflows/ci.yml), so a file belongs to
-// exactly one lane and lanes are sized to finish in about ten minutes on a
-// hosted Linux runner. e2e-core takes every Electron E2E file no other lane
-// names, so a new test file runs in CI without a config edit.
-const electronE2EFile = (name: string) => `tests/e2e/electron/${name}.e2e.test.ts`;
-export const electronE2ELanes = {
-    [vitestProjectNames.electronE2ESmoke]: [
-        'annotationTextInteraction',
-        'annotationControls',
-        'blockingPdfSaveSmoke',
-        'scanCleanupToolbarContract',
-    ].map(electronE2EFile),
-    [vitestProjectNames.electronE2EViewer]: ['viewerSmoke'].map(electronE2EFile),
-    [vitestProjectNames.electronE2EAnnotations]: [
-        'annotationLifecycle',
-        'squigglyMarkup',
-        'stampPicker',
-        'legacyNote350',
-        'interopVpsAcceptance',
-    ].map(electronE2EFile),
-    [vitestProjectNames.electronE2ESavePipeline]: [
-        'project8RecoveryCloseAcceptance',
-        'savePipeline',
-        'savePipelineBenchmark',
-        'issue124LifecycleAcceptance',
-        'compactPageLabelsStructuralOperations',
-    ].map(electronE2EFile),
-    [vitestProjectNames.electronE2EDocuments]: [
-        'nativeSaveReopen',
-        'prBlockingSmoke',
-        'recentFiles',
-    ].map(electronE2EFile),
-    [vitestProjectNames.electronE2EDrawShapes]: [
-        'drawShapeLifecycle',
-        'annotationStrokeParity',
-    ].map(electronE2EFile),
-} as const;
-
-// Manual and nightly lanes: large local fixtures, a visible window, the
-// quarantine, the native search build, and calibration runs driven by hand
-// on a reverted revision and on the current one.
-const electronE2ELargePdfTestFiles = [
-    'largePdfAnnotationSave',
-    'largePdfNativeAnnotationMatrix',
-    'nativePdfSplitPaneLifecycle',
-    'xlargeDocumentAcceptance',
-].map(electronE2EFile);
-const electronE2EVisibleWindowTestFiles = [
-    'visibleWindowLifecycle',
-    'macOsPrintAcceptance',
-].map(electronE2EFile);
-const electronE2EQuarantineTestFiles = ['tests/e2e/electron/quarantine/**/*.e2e.test.ts'];
-const electronE2ESearchMatchScrollTestFiles = [electronE2EFile('searchMatchScrolling')];
-const electronE2ECalibrationTestFiles = ['tests/e2e/electron/calibration/*Calibration.e2e.test.ts'];
-const electronE2ECoreExclude = [
-    ...Object.values(electronE2ELanes).flat(),
-    ...electronE2ELargePdfTestFiles,
-    ...electronE2EVisibleWindowTestFiles,
-    ...electronE2ESearchMatchScrollTestFiles,
 ];
 
 function createUnitAutoImportPlugin() {
@@ -177,24 +107,24 @@ function createBundleIntegrityTestProject() {
     } satisfies TestProjectConfiguration;
 }
 
-function createElectronE2ETestProject(
-    name: string,
-    include: string[],
-    {exclude = []}: {exclude?: string[]} = {},
-) {
+function createElectronE2ETestProject({
+    name,
+    directory,
+}: {
+    name: string;
+    directory: string;
+}) {
     return {
         resolve: vitestResolveConfig,
         test: {
             name,
-            include,
-            ...(exclude.length > 0 ? {exclude} : {}),
+            include: [`${directory}/*.e2e.test.ts`],
             globalSetup: ['tests/e2e/electron/globalSetup.ts'],
             globals: false,
             fileParallelism: false,
             maxWorkers: 1,
-            // Retry only session/fixture infrastructure failures. Assertion
-            // and user-flow failures must remain visible to the quarantine
-            // lane and to its manual-run review history.
+            // Retry only session/fixture infrastructure failures, never an
+            // assertion or user-flow failure.
             retry: process.env.CI
                 ? {
                     condition: /\[INFRA\]/u,
@@ -273,18 +203,8 @@ export const vitestProjects = [
         staticArchitectureTestFiles,
     ),
     createBundleIntegrityTestProject(),
-    ...Object.entries(electronE2ELanes).map(([
-        name,
-        files,
-    ]) => createElectronE2ETestProject(name, [...files])),
-    createElectronE2ETestProject(
-        vitestProjectNames.electronE2ECore,
-        ['tests/e2e/electron/*.e2e.test.ts'],
-        {exclude: electronE2ECoreExclude},
-    ),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ELargePdf, electronE2ELargePdfTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2EVisibleWindow, electronE2EVisibleWindowTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2EQuarantine, electronE2EQuarantineTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ESearchMatchScroll, electronE2ESearchMatchScrollTestFiles),
-    createElectronE2ETestProject(vitestProjectNames.electronE2ECalibration, electronE2ECalibrationTestFiles),
+    ...[
+        ...listRequiredElectronE2ELanes(),
+        ...listNightlyElectronE2ELanes(),
+    ].map(createElectronE2ETestProject),
 ] satisfies TestProjectConfiguration[];

@@ -80,7 +80,6 @@ describe('stamp placement through the native picker', () => {
         const reopenedSession = await sessionFixture.restart({
             clean: false,
             hard: true,
-            keepNuxt: true,
         });
         await openPdfInApp(reopenedSession.page, fixturePath);
         await waitForPdfLoaded(reopenedSession.page);

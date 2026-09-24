@@ -1,5 +1,6 @@
+import { isAutomationSession } from '@app/utils/isAutomationSession';
+
 export function isLargeSerializedSaveAllowedForAutomation() {
-    return typeof window !== 'undefined'
-        && typeof window.__allowRendererFileOpenForAutomation === 'function'
+    return isAutomationSession()
         && window.__allowLargeSerializedSaveForAutomation === true;
 }

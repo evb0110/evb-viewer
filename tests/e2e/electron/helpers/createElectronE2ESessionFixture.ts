@@ -22,7 +22,6 @@ interface IElectronE2ESessionRestartOptions {
     sessionName?: TSessionNameFactory;
     clean?: boolean;
     hard?: boolean;
-    keepNuxt?: boolean;
     extraEnv?: Record<string, string>;
 }
 
@@ -97,17 +96,13 @@ function createElectronE2ESessionFixtureWithStarter(
                     await previousSession.resetForE2E();
                     return previousSession;
                 }
-                const keepNuxt = restartOptions.keepNuxt ?? false;
                 await runElectronE2EInfrastructureStage(
                     'transport',
                     `Disconnecting Electron E2E session '${previousSession.name}' browser transport`,
                     async () => previousSession.browser.disconnect(),
                 );
                 if (hard && clean) {
-                    await previousSession.stop({
-                        keepNuxt,
-                        preserveArtifacts: preserveFailureArtifacts,
-                    });
+                    await previousSession.stop({preserveArtifacts: preserveFailureArtifacts});
                 } else {
                     // A non-clean hard restart must retain Electron user data.
                     // Calling the session wrapper's stop method here removes
@@ -118,7 +113,6 @@ function createElectronE2ESessionFixtureWithStarter(
                         'session-runner',
                         `Stopping Electron E2E session '${previousSession.name}' for restart`,
                         async () => stopSingleSession(previousSession.name, {
-                            keepNuxt,
                             preserveWorkspaceCheckpoint: hard && !clean,
                             crashElectronBeforeStop: hard && !clean,
                         }),

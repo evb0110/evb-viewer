@@ -122,14 +122,14 @@ module. Verify with `pnpm exec nuxi build` and a grep of
   looking green. `requirePresent` names the annotations, note windows and page
   indicator the scenario created and has not deleted: the checker cannot judge
   that, because deleting is legitimate and it does not know the user's intent.
-- `tests/e2e/electron/viewerInvariantJourney.e2e.test.ts` drives one composed
+- `tests/e2e/electron/navigation/viewerInvariantJourney.e2e.test.ts` drives one composed
   reading session with trusted input.
 
 ## Discovery run on real documents
 
-`tests/e2e/electron/calibration/corpusDiscoveryCalibration.e2e.test.ts` is a
-discovery run, not a gate. It lives in the manual `e2e-calibration` project, so
-no CI lane runs it. For each document of a manifest it starts a fresh hidden
+`tests/e2e/electron/nightly/discovery/corpusDiscovery.e2e.test.ts` is a
+discovery run, not a gate. It is the manual `e2e-discovery` lane, so no CI job
+runs it. For each document of a manifest it starts a fresh hidden
 session, opens a working copy under a neutral name, and takes ordinary reader
 actions with real input: a real window resize, a sticky note, wheel bursts that
 never wait for the viewer, a zoom click while a burst is still scrolling, a
@@ -146,8 +146,7 @@ issue then carries public evidence, and nobody has to look at a private page.
 
 ```bash
 EVB_CORPUS_MANIFEST=/abs/path/manifest.json \
-  bash scripts/test-electron-e2e-headless.sh --no-build e2e-calibration \
-  tests/e2e/electron/calibration/corpusDiscoveryCalibration.e2e.test.ts
+  pnpm run test:e2e e2e-discovery
 ```
 
 The manifest is `{"entries": [{"id", "path", "sha256", "format": "pdf" | "djvu",

@@ -10,7 +10,7 @@ generates its own oversized file.
 
 ## Annotation-save lane
 
-`tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts` opens a large PDF,
+`tests/e2e/electron/nightly/large-pdf/largePdfAnnotationSave.e2e.test.ts` opens a large PDF,
 preserves an existing FreeText note, then adds, saves, reopens, and verifies
 another FreeText popup note. The default fixture it expects is:
 

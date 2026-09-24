@@ -367,7 +367,6 @@ export async function launchAutomationSessionWithRecovery(options: {
     initialOpenPaths: string[];
     nuxtProcess: ChildProcess | null;
     otherRunning: string[];
-    usesSharedRenderer: boolean;
     logTiming: (message: string) => void;
 }): Promise<IAutomationLaunchResult> {
     let cdpPort = options.cdpPort;
@@ -422,9 +421,6 @@ export async function launchAutomationSessionWithRecovery(options: {
             }
 
             if (attempt === 0 && isViteOptimizeDepError(error)) {
-                if (options.usesSharedRenderer) {
-                    throw new Error('Detected Vite optimize-dep failure from the shared Electron E2E renderer. Restart the Vitest run so globalSetup can recreate the renderer.');
-                }
                 if (options.otherRunning.length > 0) {
                     throw new Error(`Detected Vite optimize-dep failure, but other sessions are active (${options.otherRunning.join(', ')}). Stop them and run cleanstart.`);
                 }

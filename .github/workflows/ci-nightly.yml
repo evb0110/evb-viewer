@@ -11,8 +11,8 @@ name: CI Nightly
 # build.yml, build-target.yml, and release.yml's packaged proofs; the jobs here
 # are early warning, not release evidence.
 #
-# The manual lanes need a local fixture profile or run quarantined scenarios,
-# so they stay on workflow_dispatch: a scheduled red from a missing fixture
+# The manual lanes need a local fixture profile or a visible window, so they
+# stay on workflow_dispatch: a scheduled red from a missing fixture
 # would teach everyone to ignore this workflow.
 
 concurrency:
@@ -137,11 +137,29 @@ jobs:
             cargo +nightly fuzz run "$target" --fuzz-dir native/jbig2-codec/fuzz -- -max_total_time=15
           done
 
+  electron_e2e_lanes:
+    name: Electron E2E Lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      lanes: ${{ steps.lanes.outputs.lanes }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: List lanes
+        id: lanes
+        run: node scripts/electron-e2e-lanes.mjs >> "$GITHUB_OUTPUT"
+
   # The per-push Electron E2E lanes again on macOS, the owner's platform, with
   # wall-clock budgets enforced. ci.yml runs the same lanes on Linux and only
   # reports a missed budget.
   nightly_electron_e2e_macos:
     name: Electron E2E macOS (${{ matrix.lane }})
+    needs: electron_e2e_lanes
     runs-on: macos-14
     timeout-minutes: 60
     env:
@@ -149,14 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane:
-          - e2e-smoke
-          - e2e-viewer
-          - e2e-annotations
-          - e2e-save-pipeline
-          - e2e-documents
-          - e2e-draw-shapes
-          - e2e-core
+        lane: ${{ fromJSON(needs.electron_e2e_lanes.outputs.lanes) }}
 
     steps:
       - name: Checkout
@@ -169,6 +180,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
+          wasm: 'true'
 
       - name: Install PDF test tools
         run: brew install imagemagick poppler qpdf
@@ -205,12 +217,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
+          wasm: 'true'
 
       - name: Build native search
         run: pnpm run build:pdf-search
 
       - name: Electron E2E search match scroll
-        run: pnpm run test:e2e e2e-search-match-scroll --reporter verbose
+        run: pnpm run test:e2e e2e-search --reporter verbose
 
       - name: Upload Electron E2E artifacts
         if: ${{ always() }}
@@ -235,6 +248,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
+          wasm: 'true'
 
       - name: Electron E2E large PDF
         env:
@@ -249,33 +263,6 @@ jobs:
         uses: ./.github/actions/upload-electron-e2e-artifacts
         with:
           artifact-name: electron-large-pdf-${{ github.run_attempt }}
-
-  nightly_electron_e2e_quarantine:
-    name: Manual Electron E2E Quarantine
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: macos-14
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup CI environment
-        uses: ./.github/actions/setup-ci-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'true'
-
-      - name: Electron E2E quarantine
-        run: pnpm run test:e2e:quarantine
-
-      - name: Upload Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-quarantine-${{ github.run_attempt }}
 
   nightly_electron_e2e_visible_window:
     name: Manual Electron E2E Visible Window
@@ -294,6 +281,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
+          wasm: 'true'
 
       - name: Electron E2E visible-window lifecycle
         run: pnpm run test:e2e:visible-window

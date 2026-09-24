@@ -51,7 +51,7 @@
 - `pnpm run validate:integration` uses the affected plan with Electron regression
   for app or Electron changes. It reuses a strict build when the plan needs one.
 - `pnpm run validate:nightly` adds informational reports, type and test coverage,
-  duplicate analysis, Rust/resource matrices, and quarantine E2E. It is not a
+  duplicate analysis and Rust/resource matrices. It is not a
   per-worktree requirement.
 - Gate timings and input/cache evidence are written below the ignored
   `.devkit/analysis/gates/` directory. Heavy builds, full unit runs, Rust work,

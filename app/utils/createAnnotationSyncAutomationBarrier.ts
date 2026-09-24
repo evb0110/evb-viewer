@@ -1,4 +1,5 @@
 import type { IAnnotationSyncAutomationActivity } from '@app/types/annotations';
+import { isAutomationSession } from '@app/utils/isAutomationSession';
 
 /**
  * Automation-only ledger of annotation comment sync progress.
@@ -15,10 +16,7 @@ import type { IAnnotationSyncAutomationActivity } from '@app/types/annotations';
  * to it.
  */
 function readActivityLedger(): IAnnotationSyncAutomationActivity | null {
-    if (
-        typeof window === 'undefined'
-        || typeof window.__allowRendererFileOpenForAutomation !== 'function'
-    ) {
+    if (!isAutomationSession()) {
         return null;
     }
     window.__evbAnnotationSyncActivity ??= {

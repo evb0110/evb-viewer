@@ -31,21 +31,15 @@ import {
     vi,
 } from 'vitest';
 import { ESLint } from 'eslint';
+import { listRequiredElectronE2ELanes } from '@scripts/electron-e2e-lanes.mjs';
 
-const REGRESSION_LANE_ARGS = [
-    'e2e-smoke',
-    ...[
-        'e2e-viewer',
-        'e2e-annotations',
-        'e2e-save-pipeline',
-        'e2e-documents',
-        'e2e-draw-shapes',
-        'e2e-core',
-    ].flatMap(lane => [
+// The local regression stage runs every required CI lane in one invocation.
+const REGRESSION_LANE_ARGS = listRequiredElectronE2ELanes().flatMap((lane, index) => (
+    index === 0 ? [lane.name] : [
         '--project',
-        lane,
-    ]),
-];
+        lane.name,
+    ]
+));
 
 interface IValidationChanges {
     files: string[];
@@ -686,28 +680,8 @@ describe('validation gate policy', () => {
         expect(regression?.dependsOn).toEqual(['build.strict']);
     });
 
-    it('targets the policy lane when quarantine metadata changes', () => {
-        const plan = validationGates.getValidationPlan({
-            changes: {
-                files: ['tests/e2e/electron/quarantine/graduation-policy.json'],
-                known: true,
-                reason: 'explicit-files',
-            },
-            tier: 'acceptance',
-        });
-        const related = plan.find(stage => stage.id === 'test.unit.affected-projects');
-
-        expect(related?.args).toContain('unit-policy');
-        expect(related?.args).not.toContain('unit-static-architecture');
-        expect(related?.args).not.toContain('unit-app');
-        expect(related?.args).toContain('unit-electron');
-    });
-
     it('routes CI helper admission through script and policy tests', () => {
-        const files = [
-            'scripts/ci/stageExactPdfFixture.ts',
-            'scripts/ci/runElectronQuarantine.ts',
-        ];
+        const files = ['scripts/ci/stageExactPdfFixture.ts'];
         const classification = validationGates.classifyValidationImpacts(files);
         const plan = validationGates.getValidationPlan({
             changes: {
@@ -748,7 +722,6 @@ describe('validation gate policy', () => {
             'static.web-deploy-source',
             'test.coverage',
             'native.resource-matrix',
-            'electron.quarantine',
         ]));
         expect(stageIds).not.toContain('test.unit.full');
     });

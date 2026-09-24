@@ -173,10 +173,12 @@ pnpm run check:resources:matrix
 pnpm run release:verify
 ```
 
-Electron E2E Vitest setup starts one shared Nuxt renderer server for the run,
-passes its port to detached Electron sessions, and tears it down only when the
-setup process owns it. Individual sessions launch Electron against that shared
-renderer instead of starting their own Nuxt server. Session boot is a suite
+Electron E2E sessions set `EVB_BUILT_RENDERER=1`, so Electron serves
+`nuxt-output/public` through the `evb-viewer://app` protocol as the packaged
+app does, and no Nuxt server starts. The Vitest setup refuses to run when that
+build is missing or older than `app/`, `packages/` or `nuxt.config.ts`. An
+agent session can use the same renderer with
+`EVB_BUILT_RENDERER=1 pnpm electron:run start`. Session boot is a suite
 hook, so a filtered command such as `vitest ... -t 'specific journey'` does not
 need to include a synthetic infrastructure-test title.
 
@@ -188,8 +190,8 @@ the structured app log.
 Failed fixture-backed E2E tests retain their bounded session log, diagnostics,
 and an automatic renderer screenshot under `.devkit/sessions/e2e-*/`. Set
 `EVB_E2E_PRESERVE_ARTIFACTS=1` to retain the same diagnostics for successful
-local runs. CI enables retention and uploads session logs, screenshots, and
-shared-renderer logs with `if: always()`; Electron browser profile data is
+local runs. CI enables retention and uploads session logs and screenshots
+with `if: always()`; Electron browser profile data is
 intentionally excluded from the upload.
 
 Root app checks are intentionally scoped to the browser/Electron app and shared
@@ -200,7 +202,7 @@ install and build commands.
 produces one strict build and a source/toolchain/target-fingerprinted receipt;
 the package phase reuses those exact outputs only while both the inputs and
 artifact hashes still match. Standalone package verification builds normally.
-Select coverage reports, stress tests, and quarantine E2E only when they answer
+Select coverage reports and stress tests only when they answer
 a concrete question. Run native and
 platform checks when the changed behavior requires them. For local iteration, use affected or file-scoped loops
 such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
@@ -214,13 +216,15 @@ removed after the native scan-cleanup pipeline superseded it and remains
 recoverable from git history. CI selects the relevant Electron behavior lanes by changed area. Broader
 PDF tab diagnostics remain available through their dedicated workflow.
 
-Electron E2E lanes are named Vitest projects in `vitest.shared.config.ts`;
-[the CI guide](./ci.md#electron-e2e-lanes) lists them. Run one with
+Electron E2E lanes are the directories of `tests/e2e/electron`;
+[the CI guide](./ci.md#electron-e2e-lanes) lists them. They run against the
+production renderer build, not the Nuxt dev server. Run one with
 `pnpm run test:e2e <lane>`, or reuse an existing build with
-`bash scripts/test-electron-e2e-headless.sh --no-build <lane>`. The nightly
-lanes run the same way: `e2e-large-pdf` (set `EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1`)
-and `e2e-search-match-scroll` (run `pnpm run build:pdf-search` first and set
-`EVB_PDF_SEARCH_ENABLE=1`).
+`bash scripts/test-electron-e2e-headless.sh --no-build <lane>`; after editing
+`app/`, rebuild with `pnpm build` first, or the lane tests the old renderer.
+The nightly lanes run the same way: `e2e-large-pdf` (set
+`EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1`) and `e2e-search` (run
+`pnpm run build:pdf-search` first and set `EVB_PDF_SEARCH_ENABLE=1`).
 To replay a captured PDF, set `EVB_SEARCH_SCROLL_PDF` and override its query,
 result count, target group, target viewer page, or target match with the
 corresponding `EVB_SEARCH_SCROLL_*` variables before running the named project.

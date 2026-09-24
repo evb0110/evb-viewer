@@ -18,7 +18,6 @@ import { safeJsonParse } from '@contracts/safeJsonParse';
 import { createCommandHandler } from '@scripts/electron-run/createCommandHandler';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 import { attachPageDiagnostics } from '@scripts/electron-run/attachPageDiagnostics';
-import { applyE2ESharedRendererPort } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
 import {
     closeActiveDevServerOutputTee,
@@ -29,7 +28,6 @@ import {
     hasOtherAliveSessionUsingNuxt,
     readNuxtSessionShareMetadata,
     startNuxtServer,
-    waitForReusableNuxtServer,
 } from '@scripts/electron-run/electronRunNuxtServer';
 import {
     isProcessAlive,
@@ -38,6 +36,7 @@ import {
     waitForProcessExit,
 } from '@scripts/electron-run/electronRunProcessTree';
 import { createStartupLogger } from '@scripts/electron-run/createStartupLogger';
+import { usesBuiltRenderer } from '@scripts/electron-run/appRendererUrl';
 import {
     findSessionOwnedElectronPids,
     killVerifiedSessionProcess,
@@ -509,15 +508,13 @@ export async function startControlledSession(forceClean = false, options: IStart
 
     try {
         if (process.env.EVB_RECORD_SESSION === '1') { await assertRecordingTools(); }
-        const sharedRenderer = applyE2ESharedRendererPort(process.env);
-        const startupOptions = resolveForceCleanStart(sharedRenderer ? false : forceClean);
+        // A built-renderer session loads nuxt-output/public through the app
+        // protocol, so it has no Nuxt server to start.
+        const builtRenderer = usesBuiltRenderer(process.env);
+        const startupOptions = resolveForceCleanStart(builtRenderer ? false : forceClean);
         let nuxtProcess: ChildProcess | null = null;
-        if (sharedRenderer) {
-            logLauncher('info', 'nuxt', `Using shared Electron E2E renderer at http://127.0.0.1:${sharedRenderer.port}/electron`);
-            if (!await waitForReusableNuxtServer(30_000)) {
-                throw new Error(`Shared Electron E2E renderer on port ${sharedRenderer.port} did not become reusable`);
-            }
-            logTiming('Shared renderer reuse confirmed');
+        if (builtRenderer) {
+            logLauncher('info', 'renderer', 'Using the built renderer in nuxt-output/public');
         } else {
             nuxtProcess = await startNuxtServer(startupOptions.forceClean);
             logTiming('Nuxt startup phase complete');
@@ -526,7 +523,7 @@ export async function startControlledSession(forceClean = false, options: IStart
             return;
         }
 
-        if (!sharedRenderer && startupOptions.forceClean) {
+        if (!builtRenderer && startupOptions.forceClean) {
             clearElectronUserDataCache();
         }
 
@@ -550,7 +547,6 @@ export async function startControlledSession(forceClean = false, options: IStart
             initialOpenPaths,
             nuxtProcess,
             otherRunning: startupOptions.otherRunning,
-            usesSharedRenderer: sharedRenderer !== null,
             logTiming,
         });
         if (await stopIfStartupInterrupted()) {
