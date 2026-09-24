@@ -3078,7 +3078,7 @@ interface IPdfjsOutlineSummary {
 export async function readPdfCatalogWithPdfjs(filePath: string) {
     const task = pdfjs.getDocument({
         data: new Uint8Array(readFileSync(filePath)),
-        ...createPdfjsNodeDocumentOptions(pdfjs),
+        ...createPdfjsNodeDocumentOptions(),
     });
     const document = await task.promise;
     try {
