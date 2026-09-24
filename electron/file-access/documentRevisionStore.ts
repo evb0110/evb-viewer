@@ -51,8 +51,6 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import { getAppTempDir } from '@electron/utils/appTempDir';
-import { clearWorkingCopyOcrArtifacts } from '@electron/file-access/workingCopyMutationQueue';
-import {recoverPreparedOcrRevisionTransition} from '@electron/features/ocr/public/recovery';
 import {
     completeWorkingCopyContentTransition,
     prepareWorkingCopyContentTransition,
@@ -65,11 +63,6 @@ import {
     recoverTwoTargetDocumentTransition,
 } from '@electron/file-access/recoverTwoTargetDocumentTransition';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
-import {
-    getPageIdentitySidecarPath,
-    quarantinePageIdentitySidecar,
-    rebasePageIdentitySidecarRevision,
-} from '@electron/file-access/rebasePageIdentitySidecarRevision';
 
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
@@ -233,29 +226,6 @@ async function refreshOriginalExpectationAfterManagedLinkedDetach(
     // only after the source hard link was proven to detach preserves the save
     // fence for edits made outside this transition.
     await refreshWorkingCopyOriginalFileExpectation(fence.workingCopyPath, senderId);
-}
-
-async function rebasePageIdentityAfterContentCommit(
-    workingCopyPath: string,
-    previousRevision: IWorkingCopyRevisionSidecar | null,
-    nextRevision: IDocumentRevisionInfo,
-) {
-    const pageIdentityPath = getPageIdentitySidecarPath(workingCopyPath);
-    if (!previousRevision) {
-        const quarantinePath = await quarantinePageIdentitySidecar(workingCopyPath);
-        if (quarantinePath !== null) {
-            log.warn(`Quarantined unfenced page identity sidecar at ${quarantinePath}`);
-        }
-        return;
-    }
-    if (!existsSync(pageIdentityPath)) {
-        return;
-    }
-    await rebasePageIdentitySidecarRevision(
-        workingCopyPath,
-        toRevisionInfo(previousRevision),
-        nextRevision,
-    );
 }
 
 function isUnregisteredWorkingCopyPath(workingCopyPath: string) {
@@ -448,23 +418,11 @@ export async function ensureWorkingCopyRevision(
         await cleanupOrphanedTwoTargetDocumentTransitionBackups(originalPath, normalizedWorkingPath);
     }
     await recoverWorkingCopyContentTransition(normalizedWorkingPath);
-    await recoverPreparedOcrRevisionTransition(normalizedWorkingPath);
     hydrateWorkingCopySyncRequiredFromJournal(normalizedWorkingPath);
 
     const existing = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
     if (existing) {
         return toRevisionInfo(existing);
-    }
-
-    // A new revision cannot safely adopt a page ledger that has no current
-    // revision fence. Keep the old ledger as evidence and let the next open
-    // seed identities under the revision we publish here.
-    const pageIdentityPath = getPageIdentitySidecarPath(normalizedWorkingPath);
-    const quarantinePath = await quarantinePageIdentitySidecar(normalizedWorkingPath);
-    if (quarantinePath !== null) {
-        log.warn(`Quarantined unfenced page identity sidecar at ${quarantinePath}`);
-    } else if (existsSync(pageIdentityPath)) {
-        throw new Error('Page identity sidecar disappeared while its revision fence was being recovered');
     }
 
     const sidecar = createRevisionSidecar(normalizedWorkingPath, 1, senderId);
@@ -492,7 +450,6 @@ export async function markWorkingCopyRevisionChanged(
     const contentRevision = (previous?.contentRevision ?? 0) + 1;
     const sidecar = createRevisionSidecar(normalizedWorkingPath, contentRevision, senderId);
     stageWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar, reason);
-    await rebasePageIdentityAfterContentCommit(normalizedWorkingPath, previous, toRevisionInfo(sidecar));
     await writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
     try {
         clearWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar.token);
@@ -547,12 +504,6 @@ async function runWorkingCopyContentRevisionTransition(
     try {
         await measureRevisionTransitionPhase('revision-commit-files', onPhase, () =>
             commit(toRevisionInfo(sidecar)));
-        await measureRevisionTransitionPhase('revision-rebase-page-identity', onPhase, () =>
-            rebasePageIdentityAfterContentCommit(
-                normalizedWorkingPath,
-                previous,
-                toRevisionInfo(sidecar),
-            ));
         // The atomic, durable sidecar rename is the transaction commit point.
         // Unlike standalone revision bumps, this path already has a content
         // recovery journal, so a second pending-revision journal would make a
@@ -609,9 +560,7 @@ export async function markWorkingCopyContentChanged(
     reason: TDocumentRevisionChangeReason,
     senderId?: number,
 ): Promise<IDocumentRevisionChangedEvent> {
-    const event = await markWorkingCopyRevisionChanged(workingCopyPath, reason, senderId);
-    await clearWorkingCopyOcrArtifacts(workingCopyPath);
-    return event;
+    return markWorkingCopyRevisionChanged(workingCopyPath, reason, senderId);
 }
 
 export function isWorkingCopyRevisionCurrent(

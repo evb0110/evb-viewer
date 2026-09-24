@@ -29,6 +29,7 @@ describe('OCR page text classification and supersession', () => {
     it('distinguishes native, foreign hidden OCR, current EVB generation, and missing text', () => {
         const visible = inspectPdfTextVisibility(['BT /F1 12 Tf (Native) Tj ET']);
         const hidden = inspectPdfTextVisibility(['BT 3 Tr /F1 12 Tf (Foreign OCR) Tj ET']);
+        const evbLayer = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do\n% EVB_VIEWER_OCR_LAYER_END']);
 
         expect(classifyOcrPageText({
             extractedText: '',
@@ -44,12 +45,8 @@ describe('OCR page text classification and supersession', () => {
         }).classification).toBe('foreign-hidden-ocr');
         expect(classifyOcrPageText({
             extractedText: 'EVB OCR',
-            visibility: hidden,
-            evbGeneration: 'generation-2',
-        })).toMatchObject({
-            classification: 'evb-current-generation',
-            evbGeneration: 'generation-2',
-        });
+            visibility: evbLayer,
+        }).classification).toBe('evb-current-generation');
     });
 
     it('keeps native text under every policy and repairs hidden OCR with no visible text', () => {
@@ -94,12 +91,27 @@ describe('OCR page text classification and supersession', () => {
         expect(visibility).toMatchObject({
             hasHiddenTextOperators: true,
             hasVisibleTextOperators: false,
+            hasEvbOcrLayer: true,
         });
         expect(classifyOcrPageText({
-            extractedText: 'garbled hidden layer',
+            extractedText: 'readable hidden layer',
             visibility,
-        }).classification).toBe('foreign-hidden-ocr');
-        expect(shouldOcrClassifiedPage('foreign-hidden-ocr', 'missing-only')).toBe(true);
+        }).classification).toBe('evb-current-generation');
+        expect(shouldOcrClassifiedPage('evb-current-generation', 'missing-only')).toBe(false);
+    });
+
+    it('recognizes the inline EVB OCR layer that pdf-page-ops writes', () => {
+        const visibility = inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\nq\nBT\n3 Tr\n/EVBOcr_f_0_0_1 30 Tf\n<0054> Tj\nET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n']);
+
+        expect(visibility).toEqual({
+            hasHiddenTextOperators: true,
+            hasVisibleTextOperators: false,
+            hasEvbOcrLayer: true,
+        });
+        expect(classifyOcrPageText({
+            extractedText: 'The Roman republic expanded',
+            visibility,
+        }).classification).toBe('evb-current-generation');
     });
 
     it('does not treat unusable current-generation OCR as complete', () => {
@@ -107,13 +119,11 @@ describe('OCR page text classification and supersession', () => {
         const garbage = classifyOcrPageText({
             extractedText: 'и,\nАаоЗта НЫ)\nРГ. М\nА\nЧ\nК\nи\nУАТАИ,',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['rus'],
         });
         const latinGarbage = classifyOcrPageText({
             extractedText: 'sAtFL4w',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['rus'],
         });
 
@@ -132,7 +142,6 @@ describe('OCR page text classification and supersession', () => {
             expect(classifyOcrPageText({
                 extractedText: '这是中文文本 内容测试',
                 visibility,
-                evbGeneration: 'gen-00000001',
                 languages,
             }).classification).toBe('evb-current-generation');
         }
@@ -143,7 +152,6 @@ describe('OCR page text classification and supersession', () => {
         expect(classifyOcrPageText({
             extractedText: 'Žluťoučký kůň',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['ces'],
         }).classification).toBe('evb-current-generation');
     });
@@ -153,13 +161,11 @@ describe('OCR page text classification and supersession', () => {
         expect(classifyOcrPageText({
             extractedText: 'ГРАММАТИЧЕСКИЙ',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['rus'],
         }).classification).toBe('evb-current-generation');
         expect(classifyOcrPageText({
             extractedText: 'sAtFL4w',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['unknown-model'],
         }).classification).toBe('foreign-hidden-ocr');
     });
@@ -169,19 +175,16 @@ describe('OCR page text classification and supersession', () => {
         expect(classifyOcrPageText({
             extractedText: '2026',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['rus'],
         }).classification).toBe('evb-current-generation');
         expect(classifyOcrPageText({
             extractedText: '1',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['rus'],
         }).classification).toBe('evb-current-generation');
         expect(classifyOcrPageText({
             extractedText: 'Глава 1',
             visibility,
-            evbGeneration: 'gen-00000001',
             languages: ['rus'],
         }).classification).toBe('evb-current-generation');
     });
@@ -191,12 +194,15 @@ describe('OCR page text classification and supersession', () => {
             .toMatchObject({
                 hasHiddenTextOperators: false,
                 hasVisibleTextOperators: false,
+                hasEvbOcrLayer: false,
             });
         expect(inspectPdfTextVisibility(['% EVB_VIEWER_OCR_LAYER_BEGIN\n/EvbOcrLayer Do']))
             .toMatchObject({
                 hasHiddenTextOperators: false,
                 hasVisibleTextOperators: false,
+                hasEvbOcrLayer: false,
             });
+        expect(inspectPdfTextVisibility(['BT 3 Tr (text) Tj ET\n% EVB_VIEWER_OCR_LAYER_END']).hasEvbOcrLayer).toBe(false);
     });
 
     it('inspects a real mixed PDF corpus page by page', async () => {

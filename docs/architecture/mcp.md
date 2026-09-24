@@ -27,7 +27,7 @@ flowchart LR
     LocalServer --> WorkspaceBridge["workspaceBridge.ts"]
     WorkspaceBridge --> AppShell["useAgentWorkspaceSnapshot.ts"]
     AppShell --> WorkspaceExpose["Document workspace expose API"]
-    LocalServer --> SearchIndex["documentText.ts / search worker"]
+    LocalServer --> SearchIndex["documentText.ts / evb-pdf-search"]
 ```
 
 The embedded assistant uses the same MCP tool implementation, but through a separate random-port listener:
@@ -61,10 +61,10 @@ flowchart LR
   Main-to-renderer request bridge for workspace snapshots and UI navigation commands. Uses request ids, sender-window validation, and timeouts.
 
 - `electron/features/agent/documentText.ts`
-  Main-process document text operations backed by the existing PDF search worker and search indexes.
+  Main-process document text operations backed by the document search index and `evb-pdf-search`.
 
 - `electron/features/search/public.ts`
-  Public feature entrypoint used by the agent feature for search worker path resolution, allowed PDF path resolution, and `SearchWorkerService`.
+  Public feature entrypoint used by the agent feature for allowed PDF path resolution, the search index, and page text reads.
 
 - `app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.ts`
   Renderer-side snapshot builder and command handler. It sees panes, tabs, layout, workspace refs, toolbar snapshots, and navigation APIs.
@@ -204,7 +204,7 @@ Initialize instructions explicitly tell agents to use EVB Viewer MCP tools befor
 | `evb_inspect_document_text` | Warm/reuse the search index and report searchable text coverage plus OCR recommendations. | Read-only |
 | `evb_search_document` | Search text in a selected or active open PDF. | Read-only |
 | `evb_viewer_search_open_document` | Same search surface with stronger naming for discovery by agents. | Read-only |
-| `evb_read_document_pages` | Read extracted text for selected PDF pages from the search index. | Read-only |
+| `evb_read_document_pages` | Read extracted text for selected PDF pages from the PDF text layer. | Read-only |
 | `evb_activate_tab` | Activate an existing tab by id. | UI navigation |
 | `evb_go_to_page` | Activate a tab if needed and navigate to a one-based page number. | UI navigation |
 

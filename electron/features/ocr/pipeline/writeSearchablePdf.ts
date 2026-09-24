@@ -2,7 +2,6 @@ import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IOcrCheckpointPageResult} from '@electron/features/ocr/pipeline/ocrPageSelectionStream';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {getErrorMessage} from '@electron/utils/error';
 
 /**
  * One pdf-page-ops call writes the invisible text of every recognized page as
@@ -53,38 +52,4 @@ export async function writeSearchablePdf(input: {
         signal: input.signal,
     });
     return outputPath;
-}
-
-export async function readPdfPageCount(
-    qpdfBinary: string,
-    pdfPath: string,
-    fallback: number,
-    signal: AbortSignal,
-) {
-    try {
-        const result = await runNativeToolCommand(qpdfBinary, [
-            '--show-npages',
-            pdfPath,
-        ], {
-            commandLabel: 'qpdf(show-npages)',
-            signal,
-        });
-        const parsed = Number.parseInt(result.stdout.trim(), 10);
-        if (Number.isFinite(parsed) && parsed > 0) {
-            return {
-                pageCount: parsed,
-                warnings: [],
-            };
-        }
-        return {
-            pageCount: fallback,
-            warnings: [`qpdf page-count returned no usable page count; using OCR page fallback ${fallback}`],
-        };
-    } catch (error) {
-        if (signal.aborted) throw error;
-        return {
-            pageCount: fallback,
-            warnings: [`qpdf page-count failed; using OCR page fallback ${fallback}: ${getErrorMessage(error)}`],
-        };
-    }
 }

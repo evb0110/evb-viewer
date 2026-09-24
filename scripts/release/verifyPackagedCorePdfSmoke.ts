@@ -109,7 +109,6 @@ async function assertNoPageOperationResidue(workingCopyPath: string) {
         || name.startsWith(`.${fileName}.bak-`)
         || name.startsWith(`.${fileName}.`) && name.endsWith('.tmp')
         || name.startsWith(`${fileName}.evb-content-`) && name.endsWith('.bak')
-        || name.startsWith(`${fileName}.evb-sidecar-`) && name.endsWith('.bak')
         || name === `${fileName}.evb-content-transition.json`
     ));
     if (residue.length > 0) {

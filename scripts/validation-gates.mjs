@@ -121,7 +121,6 @@ const validationStageInputPaths = {
     native: [
         'native',
         'resources',
-        'scripts/checkSearchNativeParity.ts',
         'scripts/check-native-tools-source-matrix.sh',
         'native/Cargo.toml',
         'native/Cargo.lock',

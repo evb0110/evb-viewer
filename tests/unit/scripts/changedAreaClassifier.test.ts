@@ -129,7 +129,6 @@ describe('changed-area classifier', () => {
             'scripts/afterSign.cjs',
             'scripts/build-warning-allowlist.json',
             'scripts/cargo-artifacts.mjs',
-            'scripts/checkSearchNativeParity.ts',
             'scripts/ci/classify-changed-areas.mjs',
             'scripts/generate-djvu-fidelity-corpus.mjs',
             'scripts/nativeResourceManifest.ts',

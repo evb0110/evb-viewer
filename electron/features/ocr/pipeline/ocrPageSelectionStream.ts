@@ -3,7 +3,6 @@ import {
     stat,
 } from 'node:fs/promises';
 import {join} from 'node:path';
-import {uniq} from 'es-toolkit/array';
 import {isGreekOcrLanguage} from '@contracts/ocrLanguages';
 import type {
     IOcrDiagnostic,
@@ -93,16 +92,6 @@ export async function* iterateCheckpointPageResults(
     }
 }
 
-export async function* iterateCheckpointPageData(
-    selection: TOcrPdfPageSelection,
-    checkpointDir: string,
-    signal: AbortSignal,
-) {
-    for await (const result of iterateCheckpointPageResults(selection, checkpointDir, signal)) {
-        yield result.pageData;
-    }
-}
-
 function isMatrix3(value: unknown): value is number[][] {
     return Array.isArray(value)
         && value.length === 3
@@ -125,14 +114,6 @@ export function getLastOcrSelectionPage(selection: TOcrPdfPageSelection) {
         case 'pages':
             return selection.pages.at(-1)?.pageNumber ?? 0;
     }
-}
-
-export function getOcrSelectionLanguages(selection: TOcrPdfPageSelection) {
-    if (!Array.isArray(selection) && selection.kind !== 'pages') {
-        return uniq(selection.languages);
-    }
-    const pageRequests = Array.isArray(selection) ? selection : selection.pages;
-    return uniq(pageRequests.flatMap(page => page.languages));
 }
 
 function assertUniqueOcrPageNumbers(pages: readonly IOcrPdfPageRequest[]) {

@@ -43,13 +43,6 @@ export const WORKER_BUNDLES = [
         unpacked: true,
     },
     {
-        id: 'search',
-        entryPoint: 'electron/features/search/worker.ts',
-        fileName: 'search-worker.js',
-        format: 'esm',
-        unpacked: true,
-    },
-    {
         id: 'page-ops-crop',
         entryPoint: 'electron/features/page-ops/main/cropWorker.ts',
         fileName: 'page-ops-cropWorker.js',

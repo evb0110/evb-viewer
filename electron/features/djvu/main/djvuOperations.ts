@@ -43,9 +43,12 @@ import { getRecentFiles } from '@electron/recentFiles';
 import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
 import {
+    addDjvuMatchGeometry,
+    djvuSearchDocument,
     readDjvuPageText,
-    searchDjvuText,
 } from '@electron/features/djvu/main/textSearch';
+import { searchIndexedDocument } from '@electron/features/search/public';
+import { validateSearchQuery } from '@pdf-core';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { isAbortError } from '@electron/utils/abort';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
@@ -69,6 +72,7 @@ import {
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
+const DJVU_SEARCH_PROGRESS_PAGE_BATCH = 8;
 const logger = createLogger('djvu-operations');
 export interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
 
@@ -694,30 +698,37 @@ export async function handleDjvuSearchText(
     });
 
     try {
-        const response = await searchDjvuText(normalizedDjvuPath, {
-            requestId,
-            pageCount: options.pageCount,
+        const matchOptions = {
+            matchCase: Boolean(options.matchCase),
+            wholeWord: Boolean(options.wholeWord),
+            useRegex: Boolean(options.useRegex),
+        };
+        validateSearchQuery(query, matchOptions);
+        const indexed = await searchIndexedDocument(
+            await djvuSearchDocument(normalizedDjvuPath),
             query,
-            matchOptions: {
-                matchCase: Boolean(options.matchCase),
-                wholeWord: Boolean(options.wholeWord),
-                useRegex: Boolean(options.useRegex),
+            matchOptions,
+            {
+                signal: abortController.signal,
+                onIndexProgress(processed) {
+                    if (!isCurrentGeneration() || processed % DJVU_SEARCH_PROGRESS_PAGE_BATCH !== 0) {
+                        return;
+                    }
+                    lastProcessedPage = processed;
+                    sendDjvuTextSearchProgress(context, {
+                        requestId,
+                        processed,
+                        total: options.pageCount,
+                        status: 'running',
+                    });
+                },
             },
-            signal: abortController.signal,
-            onPageProcessed(processed) {
-                if (!isCurrentGeneration()) {
-                    return;
-                }
-                lastProcessedPage = Math.max(lastProcessedPage, processed);
-            },
-            onProgress(progress) {
-                if (!isCurrentGeneration()) {
-                    return;
-                }
-                lastProcessedPage = Math.max(lastProcessedPage, progress.processed);
-                sendDjvuTextSearchProgress(context, progress);
-            },
-        });
+        );
+        lastProcessedPage = indexed.pageCount;
+        const response = {
+            results: await addDjvuMatchGeometry(normalizedDjvuPath, indexed.results, abortController.signal),
+            truncated: indexed.truncated,
+        };
         if (!isCurrentGeneration()) {
             return canceledResponse();
         }

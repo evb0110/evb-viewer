@@ -67,10 +67,7 @@ import {
     allowOpenPath,
     removeAllowedOpenPath,
 } from '@electron/file-access/openPathCapabilities';
-import {
-    clearWorkingCopyOcrArtifacts,
-    enqueueWorkingCopyMutation,
-} from '@electron/file-access/workingCopyMutationQueue';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
@@ -610,7 +607,6 @@ async function commitSession(
                 },
                 session.senderId,
             );
-            await clearWorkingCopyOcrArtifacts(session.workingPath);
             targetWriteCommitted = true;
             workingCopyRefreshed = true;
         } else {

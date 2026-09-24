@@ -1,7 +1,10 @@
 import { spawn } from 'child_process';
 import type { ChildProcessByStdio } from 'child_process';
 import { StringDecoder } from 'string_decoder';
-import type { Readable } from 'stream';
+import {
+    Readable, type Writable, 
+} from 'stream';
+import { pipeline } from 'stream/promises';
 import {
     formatArgForLog,
     formatCommandFailureMessage,
@@ -48,6 +51,8 @@ export interface IRunCommandOptions {
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
     onSpawn?: (pid: number) => void;
+    /** Written to the child's stdin with backpressure, then closed. */
+    stdin?: AsyncIterable<string>;
     terminationGraceMs?: number;
 }
 
@@ -156,7 +161,7 @@ export function acquireNativeCommandAdmission(signal?: AbortSignal) {
     });
 }
 
-type TNativeProcess = ChildProcessByStdio<null, Readable, Readable>;
+type TNativeProcess = ChildProcessByStdio<Writable | null, Readable, Readable>;
 type TCancelGroupHandler = () => void;
 type TCancelGroupCompletion = () => Promise<boolean>;
 
@@ -251,23 +256,33 @@ function spawnNativeProcess(
     args: string[],
     context: ICommandRunContext,
     windowsHide: boolean,
-) {
-    const spawnOptions = createDetachedChildProcessSpawnOptions({
-        shell: false,
-        windowsHide,
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-    });
-    if (context.effectiveCwd !== undefined) {
-        spawnOptions.cwd = context.effectiveCwd;
-    }
-    if (context.effectiveEnv !== undefined) {
-        spawnOptions.env = context.effectiveEnv;
-    }
-    return spawn(command, args, spawnOptions);
+    pipeStdin: boolean,
+): TNativeProcess {
+    const location = {
+        ...(context.effectiveCwd === undefined ? {} : {cwd: context.effectiveCwd}),
+        ...(context.effectiveEnv === undefined ? {} : {env: context.effectiveEnv}),
+    };
+    return pipeStdin
+        ? spawn(command, args, createDetachedChildProcessSpawnOptions({
+            shell: false,
+            windowsHide,
+            stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ],
+            ...location,
+        }))
+        : spawn(command, args, createDetachedChildProcessSpawnOptions({
+            shell: false,
+            windowsHide,
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+            ...location,
+        }));
 }
 
 // Reports whether the process tree was proven dead, not whether the request was
@@ -311,6 +326,7 @@ export async function runNativeCommand(
         onStdout,
         onStderr,
         onSpawn,
+        stdin,
         terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
     } = options;
 
@@ -525,7 +541,7 @@ export async function runNativeCommand(
         }
 
         try {
-            proc = spawnNativeProcess(command, args, context, windowsHide);
+            proc = spawnNativeProcess(command, args, context, windowsHide, stdin !== undefined);
             processAdmitted = true;
             activeNativeProcessCount += 1;
             watchdogHandle = setTimeout(() => {
@@ -687,6 +703,18 @@ export async function runNativeCommand(
             });
         };
         proc.on('close', processCloseHandler);
+
+        if (stdin !== undefined && proc.stdin) {
+            // A child that exits early closes its stdin; its exit status is the
+            // failure to report. A failing input source ends the command.
+            proc.stdin.on('error', ignoreLateProcessError);
+            pipeline(Readable.from(stdin), proc.stdin).catch((error: unknown) => {
+                const code = (error as {code?: unknown}).code;
+                if (code !== 'EPIPE' && code !== 'ERR_STREAM_PREMATURE_CLOSE' && code !== 'ERR_STREAM_DESTROYED') {
+                    requestTermination(error instanceof Error ? error : new Error(getErrorMessage(error)));
+                }
+            });
+        }
     }).finally(releaseAdmission);
 }
 

@@ -5,7 +5,6 @@ import {
 } from 'vitest';
 import {
     getLastOcrSelectionPage,
-    getOcrSelectionLanguages,
     normalizeOcrPageSelection,
 } from '@electron/features/ocr/pipeline/ocrPageSelectionStream';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -60,48 +59,6 @@ describe('OCR page selection stream helpers', () => {
             ranges: [],
             languages: ['eng'],
         })).toBe(0);
-    });
-
-    it('deduplicates languages across scalar and explicit page selections', () => {
-        expect(getOcrSelectionLanguages({
-            kind: 'all',
-            pageCount: 3,
-            languages: [
-                'eng',
-                'rus',
-                'eng',
-            ],
-        })).toEqual([
-            'eng',
-            'rus',
-        ]);
-        expect(getOcrSelectionLanguages([
-            page(1, [
-                'eng',
-                'rus',
-            ]),
-            page(2, [
-                'rus',
-                'deu',
-            ]),
-        ])).toEqual([
-            'eng',
-            'rus',
-            'deu',
-        ]);
-        expect(getOcrSelectionLanguages({
-            kind: 'pages',
-            pages: [
-                page(1, ['eng']),
-                page(2, [
-                    'eng',
-                    'deu',
-                ]),
-            ],
-        })).toEqual([
-            'eng',
-            'deu',
-        ]);
     });
 
     it('sorts explicit pages while preserving scalar selections', () => {

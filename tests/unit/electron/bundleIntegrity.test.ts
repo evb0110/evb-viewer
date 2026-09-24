@@ -82,12 +82,6 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
         'tryCreatePdfWithNativeImageCombiner',
     ],
     'pdf-conformance': ['analyzePdfConformanceFileDirect'],
-    search: [
-        'indexCacheMaxEntries',
-        'tryRunNativeSearch',
-        'evb-pdf-search(search)',
-        'EVBSIDX2',
-    ],
 };
 
 const MAIN_BUNDLE_CHECK: IBundleCheck = {
@@ -120,7 +114,6 @@ const BASE_BUILD_OUTPUT_FILES = [
 ];
 const MAIN_FORBIDDEN_EAGER_INPUT_SUBSTRINGS = [
     '/node_modules/@anthropic-ai/claude-agent-sdk/',
-    '/node_modules/pdfjs-dist/legacy/',
     '/packages/i18n-app/messages/de.ts',
     '/packages/i18n-app/messages/es.ts',
     '/packages/i18n-app/messages/fr.ts',
@@ -144,7 +137,7 @@ let mainBundleFixture: IElectronBundleMetafileFixture;
 
 const WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES.map(bundle => bundle.fileName));
 const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
-    .filter(bundle => bundle.id === 'search' || bundle.id === 'djvu-pdf')
+    .filter(bundle => bundle.id === 'djvu-pdf')
     .map(bundle => bundle.fileName));
 const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
 const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;
@@ -435,7 +428,7 @@ describe('Electron bundle static integrity', () => {
             }
         }
 
-        expect([...justifications].sort()).toEqual(['core-js/whatwg globalThis polyfill']);
+        expect([...justifications].sort()).toEqual([]);
     });
 
     describe('split ESM main graph', () => {
@@ -499,7 +492,7 @@ describe('Electron bundle static integrity', () => {
             }
         });
 
-        it('defers assistant SDK, non-English locales, and legacy PDF.js', () => {
+        it('defers the assistant SDK and non-English locales', () => {
             const initialInputs = collectOutputInputs(
                 mainBundleFixture.outputs,
                 mainBundleFixture.initialMainOutputClosure,

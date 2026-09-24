@@ -1,57 +1,33 @@
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
+import { createHash } from 'node:crypto';
+import {
+    mkdir,
+    stat,
+} from 'node:fs/promises';
+import { join } from 'node:path';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import {
-    SEARCH_EXCERPT_CONTEXT_CHARS,
-    SEARCH_RESULT_LIMIT,
-    type IPdfSearchProgress,
-    type IPdfSearchResponse,
-} from '@contracts/search';
-import {
-    assembleSearchablePageText,
-    buildPdfSearchExcerpt,
-    iteratePdfSearchMatches,
-    PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
-    validateSearchQuery,
-    type IResolvedSearchMatchOptions,
-} from '@pdf-core';
-import type {
-    IOcrWord,
-    TRequestId,
-} from '@contracts/shared';
+import type { IPdfSearchResult } from '@contracts/search';
+import { assembleSearchablePageText } from '@pdf-core';
+import type { IOcrWord } from '@contracts/shared';
 import {
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
-const DJVU_TEXT_TIMEOUT_MS = parseBoundedIntegerEnv(
-    'EVB_DJVU_TEXT_TIMEOUT_MS',
-    10 * 60 * 1_000,
-    1_000,
-    60 * 60 * 1_000,
-);
-const DJVU_TEXT_MAX_PAGE_CHARS = parseBoundedIntegerEnv(
-    'EVB_DJVU_TEXT_MAX_PAGE_CHARS',
-    8 * 1024 * 1024,
-    1_024,
-    64 * 1024 * 1024,
-);
-const DJVU_TEXT_MAX_PAGE_ZONES = parseBoundedIntegerEnv(
-    'EVB_DJVU_TEXT_MAX_PAGE_ZONES',
-    200_000,
-    100,
-    1_000_000,
-);
-const DJVU_TEXT_MAX_TOKEN_CHARS = parseBoundedIntegerEnv(
-    'EVB_DJVU_TEXT_MAX_TOKEN_CHARS',
-    1 * 1024 * 1024,
-    1_024,
-    8 * 1024 * 1024,
-);
+import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    streamItems,
+    type IPageText,
+    type ISearchIndexedDocument,
+} from '@electron/features/search/public';
+const DJVU_TEXT_TIMEOUT_MS = 10 * 60 * 1_000;
+const DJVU_TEXT_MAX_PAGE_CHARS = 8 * 1024 * 1024;
+const DJVU_TEXT_MAX_PAGE_ZONES = 200_000;
+const DJVU_TEXT_MAX_TOKEN_CHARS = 1024 * 1024;
 const DJVU_TEXT_MAX_DEPTH = 64;
 const DJVU_TEXT_CAPTURED_STDOUT_BYTES = 32 * 1024;
 const DJVU_TEXT_CAPTURED_STDERR_BYTES = 256 * 1024;
 const DJVU_SEARCH_MAX_WORDS_PER_MATCH = 256;
-const DJVU_SEARCH_PROGRESS_PAGE_BATCH = 8;
 const INTERNAL_STOP_REASON = Symbol('djvu-text-internal-stop');
 
 interface IDjvuTextZone {
@@ -93,29 +69,9 @@ interface IDjvuTextParserOptions {onPage: (page: IDjvuParsedTextPage) => false |
 
 interface IDjvuTextStreamOptions {
     onPage: (page: IDjvuParsedTextPage) => false | undefined;
+    /** A djvused script; the default prints every page. */
+    script?: string;
     signal?: AbortSignal | undefined;
-}
-
-export interface ISearchDjvuTextOptions {
-    matchOptions: IResolvedSearchMatchOptions;
-    onPageProcessed?: ((processed: number) => void) | undefined;
-    onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
-    pageCount: number;
-    query: string;
-    requestId: TRequestId;
-    signal?: AbortSignal | undefined;
-}
-
-function parseBoundedIntegerEnv(
-    name: string,
-    fallback: number,
-    min: number,
-    max: number,
-) {
-    const parsed = Number.parseInt(process.env[name] ?? String(fallback), 10);
-    return Number.isSafeInteger(parsed) && parsed >= min
-        ? Math.min(parsed, max)
-        : fallback;
 }
 
 function decodeDjvuString(raw: string) {
@@ -452,7 +408,7 @@ async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOpt
         await runNativeCommand(djvused, [
             filePath,
             '-e',
-            'print-txt',
+            options.script ?? 'print-txt',
         ], {
             env: buildDjvuRuntimeEnv(),
             timeoutMs: DJVU_TEXT_TIMEOUT_MS,
@@ -530,84 +486,67 @@ function wordsForPageRange(page: IDjvuParsedTextPage, startOffset: number, endOf
     return words;
 }
 
-export async function searchDjvuText(
-    filePath: string,
-    options: ISearchDjvuTextOptions,
-): Promise<IPdfSearchResponse> {
-    validateSearchQuery(options.query, options.matchOptions);
-    const results: Array<IPdfSearchResponse['results'][number]> = [];
-    let processed = 0;
-    let truncated = false;
-    let pendingProgressResults: Array<IPdfSearchResponse['results'][number]> = [];
-    let progressResultsStartIndex = 0;
-
-    function emitProgress(force = false) {
-        if (
-            !options.onProgress
-            || (!force
-                && pendingProgressResults.length < PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT
-                && processed % DJVU_SEARCH_PROGRESS_PAGE_BATCH !== 0)
-        ) {
-            return;
-        }
-        options.onProgress({
-            requestId: options.requestId,
-            processed,
-            total: options.pageCount,
-            results: pendingProgressResults,
-            resultsStartIndex: progressResultsStartIndex,
-            truncated,
-            status: 'running',
-        });
-        pendingProgressResults = [];
-        progressResultsStartIndex = results.length;
-    }
-
-    await streamDjvuTextPages(filePath, {
-        signal: options.signal,
-        onPage(page) {
-            processed = page.pageNumber;
-            options.onPageProcessed?.(processed);
-            let pageMatchIndex = 0;
-            for (const match of iteratePdfSearchMatches(page.text, options.query, options.matchOptions)) {
-                if (results.length >= SEARCH_RESULT_LIMIT) {
-                    truncated = true;
-                    break;
-                }
-                const words = wordsForPageRange(page, match.startOffset, match.endOffset);
-                const result: IPdfSearchResponse['results'][number] = {
-                    pageNumber: page.pageNumber as IPdfSearchResponse['results'][number]['pageNumber'],
-                    pageMatchIndex,
-                    matchIndex: results.length,
-                    startOffset: match.startOffset,
-                    endOffset: match.endOffset,
-                    excerpt: buildPdfSearchExcerpt(
-                        page.text,
-                        match.startOffset,
-                        match.endOffset,
-                        SEARCH_EXCERPT_CONTEXT_CHARS,
-                    ),
-                    ...(words.length > 0 ? {
-                        words,
-                        pageWidth: page.width,
-                        pageHeight: page.height,
-                        rotation: 0 as const,
-                    } : {}),
-                };
-                results.push(result);
-                pendingProgressResults.push(result);
-                emitProgress();
-                pageMatchIndex += 1;
-            }
-            emitProgress(truncated);
-            return truncated ? false : undefined;
-        },
-    });
-    emitProgress(true);
+/**
+ * The DjVu text layer as a search document. DjVu files are read-only sources,
+ * so the index lives in app temp, keyed by path, and its revision is the file's
+ * size and modification time.
+ */
+export async function djvuSearchDocument(djvuPath: string): Promise<ISearchIndexedDocument> {
+    const source = await stat(djvuPath);
+    const directory = join(getAppTempDir(), 'djvu-search');
+    await mkdir(directory, {recursive: true});
     return {
-        results,
-        truncated,
+        indexPath: join(directory, `${createHash('sha256').update(djvuPath).digest('hex')}.evb-search-index`),
+        documentRevision: `djvu:${source.size}:${Math.trunc(source.mtimeMs)}`,
+        readPages: signal => streamItems<IPageText>((emit, commandSignal) => streamDjvuTextPages(djvuPath, {
+            signal: commandSignal,
+            onPage(page) {
+                emit({
+                    pageNumber: page.pageNumber,
+                    text: page.text,
+                });
+                return undefined;
+            },
+        }), signal),
     };
+}
+
+/** Adds the word boxes of each match from the DjVu text zones of its page. */
+export async function addDjvuMatchGeometry(
+    djvuPath: string,
+    results: readonly IPdfSearchResult[],
+    signal?: AbortSignal,
+): Promise<IPdfSearchResult[]> {
+    const pageNumbers = [...new Set(results.map(result => result.pageNumber))];
+    const pages = new Map<number, IDjvuParsedTextPage>();
+    if (pageNumbers.length > 0) {
+        let printed = 0;
+        await streamDjvuTextPages(djvuPath, {
+            script: pageNumbers.map(pageNumber => `select ${pageNumber}; print-txt`).join('; '),
+            signal,
+            onPage(page) {
+                const pageNumber = pageNumbers[printed];
+                printed += 1;
+                if (pageNumber !== undefined) {
+                    pages.set(pageNumber, page);
+                }
+                return undefined;
+            },
+        });
+    }
+    return results.map((result) => {
+        const page = pages.get(result.pageNumber);
+        const words = page ? wordsForPageRange(page, result.startOffset, result.endOffset) : [];
+        return page && words.length > 0
+            ? {
+                ...result,
+                words,
+                pageWidth: page.width,
+                pageHeight: page.height,
+                rotation: 0 as const,
+            }
+            : result;
+    });
 }
 
 export async function detectDjvuHasText(filePath: string, signal?: AbortSignal) {

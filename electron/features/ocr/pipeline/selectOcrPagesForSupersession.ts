@@ -2,7 +2,6 @@ import type {
     IOcrDiagnostic,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     IOcrPdfPageRequest,
     TWorkerLog,
@@ -20,55 +19,11 @@ import {
 } from '@electron/pdf/pdfTextPageBatching';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-import {openCatalog} from '@electron/features/ocr/main/ocrCatalogV4';
 import { requirePageNumber } from '@contracts/pageNumbers';
 
 const TEXT_PROBE_TIMEOUT_MS = 2 * 60 * 1000;
 const TEXT_PROBE_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
 const TEXT_PROBE_UNAVAILABLE = '[text-probe-unavailable]';
-
-async function readCurrentEvbGenerations(
-    sourcePdfPath: string,
-    documentRevisionToken: TDocumentRevisionToken,
-    requestedPageNumbers: readonly number[],
-) {
-    const generations = new Map<number, string>();
-    const catalog = await openCatalog(`${sourcePdfPath}.ocr`, {expectedDocumentRevision: documentRevisionToken}).catch(() => null);
-    if (!catalog) {
-        return generations;
-    }
-    try {
-        const orderedPages = Array.from(new Set(requestedPageNumbers))
-            .filter(pageNumber => Number.isSafeInteger(pageNumber) && pageNumber > 0)
-            .sort((left, right) => left - right);
-        for (let index = 0; index < orderedPages.length;) {
-            const start = orderedPages[index]!;
-            let count = 1;
-            while (
-                index + count < orderedPages.length
-                && count < 256
-                && orderedPages[index + count] === start + count
-            ) {
-                count += 1;
-            }
-            const mappings = await catalog.readWindowMappings(start, count).catch(() => []);
-            for (const entry of mappings) {
-                if (!entry.mapping) {
-                    continue;
-                }
-                if (entry.mapping.generation === 0) {
-                    generations.set(entry.pageNumber, 'legacy');
-                } else if (entry.mapping.generation > 0) {
-                    generations.set(entry.pageNumber, `gen-${String(entry.mapping.generation).padStart(8, '0')}`);
-                }
-            }
-            index += count;
-        }
-    } finally {
-        await catalog.close();
-    }
-    return generations;
-}
 
 async function extractPageTextForClassification(input: {
     sourcePdfPath: string;
@@ -137,7 +92,6 @@ async function extractPageTextForClassification(input: {
 
 export async function selectOcrPagesForSupersession(input: {
     sourcePdfPath: string;
-    documentRevisionToken: TDocumentRevisionToken;
     pages: readonly IOcrPdfPageRequest[];
     supersessionPolicy: TOcrTextSupersessionPolicy;
     pdftotextBinary?: string;
@@ -148,11 +102,6 @@ export async function selectOcrPagesForSupersession(input: {
     const pages: IOcrPdfPageRequest[] = [];
     const warnings: string[] = [];
     const diagnostics: IOcrDiagnostic[] = [];
-    const generations = await readCurrentEvbGenerations(
-        input.sourcePdfPath,
-        input.documentRevisionToken,
-        input.pages.map(page => page.pageNumber),
-    );
     const requestedPageNumbers = input.pages.map(page => page.pageNumber);
     const visibilityAnalysis = await inspectPdfPageTextVisibility(
         input.sourcePdfPath,
@@ -176,11 +125,10 @@ export async function selectOcrPagesForSupersession(input: {
 
     for (const page of input.pages) {
         const pageVisibility = visibility.get(page.pageNumber);
-        const evbGeneration = generations.get(page.pageNumber);
         const extractedText = textProbe.texts.get(page.pageNumber) ?? TEXT_PROBE_UNAVAILABLE;
         if (extractedText === TEXT_PROBE_UNAVAILABLE) {
             const canReplaceWithoutTextProbe = input.supersessionPolicy === 'replace-all'
-                || input.supersessionPolicy === 'replace-evb' && evbGeneration !== undefined;
+                || input.supersessionPolicy === 'replace-evb' && pageVisibility?.hasEvbOcrLayer === true;
             if (canReplaceWithoutTextProbe) {
                 const message = `Scheduled page ${page.pageNumber}: existing-text probe was unavailable under ${input.supersessionPolicy} policy`;
                 input.log('warn', message);
@@ -201,7 +149,6 @@ export async function selectOcrPagesForSupersession(input: {
         const evidence = classifyOcrPageText({
             extractedText,
             ...(pageVisibility === undefined ? {} : {visibility: pageVisibility}),
-            ...(evbGeneration === undefined ? {} : {evbGeneration}),
             languages: page.languages,
         });
         if (shouldOcrClassifiedPage(evidence.classification, input.supersessionPolicy)) {

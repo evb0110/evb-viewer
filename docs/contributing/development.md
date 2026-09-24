@@ -224,7 +224,7 @@ production renderer build, not the Nuxt dev server. Run one with
 `app/`, rebuild with `pnpm build` first, or the lane tests the old renderer.
 The nightly lanes run the same way: `e2e-large-pdf` (set
 `EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE=1`) and `e2e-search` (run
-`pnpm run build:pdf-search` first and set `EVB_PDF_SEARCH_ENABLE=1`).
+`pnpm run build:pdf-search` first).
 To replay a captured PDF, set `EVB_SEARCH_SCROLL_PDF` and override its query,
 result count, target group, target viewer page, or target match with the
 corresponding `EVB_SEARCH_SCROLL_*` variables before running the named project.

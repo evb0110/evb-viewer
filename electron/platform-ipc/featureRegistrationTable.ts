@@ -221,7 +221,7 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
         lifecycle: {
             create: 'prepareSearchMainBindings',
             ipcRegistration: 'registerPlatformFeatureHandlers',
-            shutdown: 'searchWorkerService.shutdown',
+            shutdown: 'searchService.shutdown',
         },
     },
     {

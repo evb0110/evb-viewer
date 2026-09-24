@@ -37,11 +37,6 @@ import {
     parseEpochMs,
     type TEpochMs,
 } from '@contracts/timestamps';
-import {
-    getPageIdentitySidecarPath,
-    quarantinePageIdentitySidecar,
-    rebasePageIdentitySidecarRevision,
-} from '@electron/file-access/rebasePageIdentitySidecarRevision';
 
 const log = createLogger('document-revision-sidecar');
 
@@ -463,28 +458,6 @@ async function readWorkingCopyRevisionSidecarFile(workingCopyPath: string) {
     return null;
 }
 
-async function rebasePageIdentityBeforeRevisionJournalReplay(
-    workingCopyPath: string,
-    previousRevision: IWorkingCopyRevisionSidecar | null,
-    nextRevision: IWorkingCopyRevisionSidecar,
-) {
-    const pageIdentityPath = getPageIdentitySidecarPath(workingCopyPath);
-    // A staged revision is created only after the first revision exists. If a
-    // recovery journal is found without a current sidecar, an existing page
-    // ledger has no safe identity fence to rebase against.
-    if (!previousRevision) {
-        const quarantinePath = await quarantinePageIdentitySidecar(workingCopyPath);
-        if (quarantinePath !== null) {
-            log.warn(`Quarantined unfenced page identity sidecar at ${quarantinePath}`);
-        }
-        return;
-    }
-    if (!existsSync(pageIdentityPath)) {
-        return;
-    }
-    await rebasePageIdentitySidecarRevision(workingCopyPath, previousRevision, nextRevision);
-}
-
 export async function reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath: string) {
     const pendingRevisions = readWorkingCopyRevisionJournalFile(workingCopyPath)
         .entries
@@ -500,11 +473,6 @@ export async function reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath
         return null;
     }
 
-    await rebasePageIdentityBeforeRevisionJournalReplay(
-        workingCopyPath,
-        current,
-        pendingRevision.sidecar,
-    );
     await writeWorkingCopyRevisionSidecar(workingCopyPath, pendingRevision.sidecar);
     tryClearWorkingCopyRevisionSidecarCommitsThrough(workingCopyPath, pendingRevision.sidecar.contentRevision);
     return pendingRevision.sidecar;

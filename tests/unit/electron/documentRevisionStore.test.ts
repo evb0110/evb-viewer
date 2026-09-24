@@ -10,13 +10,11 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
-    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
 } from 'fs';
 import {
-    basename,
     dirname,
     join,
 } from 'path';
@@ -86,34 +84,11 @@ describe('documentRevisionStore', () => {
         expect(revision.token).toMatch(/^drt1:1:1:/u);
         expect(persisted?.token).toBe(revision.token);
 
-        writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-            version: 2,
-            storage: 'ranges',
-            documentRevisionToken: revision.token,
-            pageCount: 3,
-            identitySeed: 'revision-transition-fixture',
-            pageIds: [
-                'page-a',
-                'page-b',
-                'page-c',
-            ],
-        }));
-
         const changed = await markWorkingCopyRevisionChanged(workingPath, 'write', 7);
 
         expect(changed.previousToken).toBe(revision.token);
         expect(changed.contentRevision).toBe(2);
         expect(changed.token).toMatch(/^drt1:1:2:/u);
-        const changedPageIdentity = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-            documentRevisionToken: string;
-            pageIds: string[];
-        };
-        expect(changedPageIdentity.documentRevisionToken).toBe(changed.token);
-        expect(changedPageIdentity.pageIds).toEqual([
-            'page-a',
-            'page-b',
-            'page-c',
-        ]);
         await expect(isWorkingCopyRevisionCurrent(workingPath, revision.token)).resolves.toBe(false);
         await expect(assertWorkingCopyRevisionCurrent(workingPath, revision.token))
             .rejects
@@ -154,154 +129,6 @@ describe('documentRevisionStore', () => {
 
         expect(existsSync(orphanedBackupPath)).toBe(false);
         expect(existsSync(unrelatedPath)).toBe(true);
-    });
-
-    it('recovers a page identity rebase when revision publication fails', async () => {
-        let failedRevisionWrite = false;
-        vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
-            const actual = await importOriginal<typeof DocumentRevisionSidecarModule>();
-            return {
-                ...actual,
-                writeWorkingCopyRevisionSidecar: vi.fn(async (
-                    workingCopyPath: string,
-                    sidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar,
-                    options?: {markMutationCommitStarted?: boolean},
-                ) => {
-                    if (sidecar.contentRevision === 2 && !failedRevisionWrite) {
-                        failedRevisionWrite = true;
-                        throw new Error('revision publication failed');
-                    }
-                    return actual.writeWorkingCopyRevisionSidecar(workingCopyPath, sidecar, options);
-                }),
-            };
-        });
-        try {
-            const originalPath = join(tempRoot, 'rebase-recovery-original.pdf');
-            const workingPath = join(tempRoot, 'pdf-work-rebase-recovery', 'rebase-recovery.pdf');
-            mkdirSync(dirname(workingPath), {recursive: true});
-            writeFileSync(originalPath, new Uint8Array([1]));
-            writeFileSync(workingPath, new Uint8Array([2]));
-
-            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-            const {
-                ensureWorkingCopyRevision,
-                markWorkingCopyRevisionChanged,
-            } = await import('@electron/file-access/documentRevisionStore');
-            const {readWorkingCopyRevisionJournalEntries} = await import('@electron/file-access/documentRevisionSidecar');
-            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-            const initial = await ensureWorkingCopyRevision(workingPath, 7);
-            writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-                version: 2,
-                storage: 'ranges',
-                documentRevisionToken: initial.token,
-                pageCount: 2,
-                identitySeed: 'rebase-recovery-fixture',
-                pageIds: [
-                    'page-a',
-                    'page-b',
-                ],
-            }));
-
-            await expect(markWorkingCopyRevisionChanged(workingPath, 'save-sync', 7))
-                .rejects
-                .toThrow('revision publication failed');
-            const pendingIdentity = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-                documentRevisionToken: string;
-                pageIds: string[];
-            };
-            const unpublishedRevision = JSON.parse(readFileSync(`${workingPath}.evb-revision.json`, 'utf8')) as {
-                token: string;
-                contentRevision: number;
-            };
-            expect(unpublishedRevision).toMatchObject({
-                token: initial.token,
-                contentRevision: 1,
-            });
-            expect(pendingIdentity.documentRevisionToken).not.toBe(initial.token);
-            expect(pendingIdentity.pageIds).toEqual([
-                'page-a',
-                'page-b',
-            ]);
-            expect(readWorkingCopyRevisionJournalEntries(workingPath))
-                .toEqual([expect.objectContaining({kind: 'revision-sidecar-commit'})]);
-
-            vi.resetModules();
-            const {getWorkingCopyRevision: getReloadedWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-            const {readWorkingCopyRevisionJournalEntries: readReloadedRevisionJournalEntries} = await import('@electron/file-access/documentRevisionSidecar');
-            const recovered = await getReloadedWorkingCopyRevision(workingPath, 7);
-            expect(recovered.token).toBe(pendingIdentity.documentRevisionToken);
-            expect(recovered.contentRevision).toBe(2);
-            expect(readReloadedRevisionJournalEntries(workingPath))
-                .toEqual([]);
-            const recoveredIdentity = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-                documentRevisionToken: string;
-                pageIds: string[];
-            };
-            expect(recoveredIdentity.documentRevisionToken).toBe(recovered.token);
-            expect(recoveredIdentity.pageIds).toEqual([
-                'page-a',
-                'page-b',
-            ]);
-        } finally {
-            vi.doUnmock('@electron/file-access/documentRevisionSidecar');
-        }
-    });
-
-    it('keeps the published identity and revision aligned when journal cleanup fails', async () => {
-        vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
-            const actual = await importOriginal<typeof DocumentRevisionSidecarModule>();
-            return {
-                ...actual,
-                clearWorkingCopyRevisionSidecarCommit: vi.fn(() => {
-                    throw new Error('revision journal cleanup failed');
-                }),
-            };
-        });
-        try {
-            const originalPath = join(tempRoot, 'rebase-clear-failure-original.pdf');
-            const workingPath = join(tempRoot, 'pdf-work-rebase-clear-failure', 'rebase-clear-failure.pdf');
-            mkdirSync(dirname(workingPath), {recursive: true});
-            writeFileSync(originalPath, new Uint8Array([1]));
-            writeFileSync(workingPath, new Uint8Array([2]));
-
-            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-            const {
-                ensureWorkingCopyRevision,
-                markWorkingCopyRevisionChanged,
-            } = await import('@electron/file-access/documentRevisionStore');
-            const {readWorkingCopyRevisionSidecar} = await import('@electron/file-access/documentRevisionSidecar');
-            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-            const initial = await ensureWorkingCopyRevision(workingPath, 7);
-            writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-                version: 2,
-                storage: 'ranges',
-                documentRevisionToken: initial.token,
-                pageCount: 2,
-                identitySeed: 'rebase-clear-failure-fixture',
-                pageIds: [
-                    'page-a',
-                    'page-b',
-                ],
-            }));
-
-            const changed = await markWorkingCopyRevisionChanged(workingPath, 'save-sync', 7);
-            expect(changed.contentRevision).toBe(2);
-            await expect(readWorkingCopyRevisionSidecar(workingPath)).resolves.toMatchObject({
-                token: changed.token,
-                contentRevision: 2,
-            });
-            const identity = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-                documentRevisionToken: string;
-                pageIds: string[];
-            };
-            expect(identity.documentRevisionToken).toBe(changed.token);
-            expect(identity.pageIds).toEqual([
-                'page-a',
-                'page-b',
-            ]);
-        } finally {
-            vi.doUnmock('@electron/file-access/documentRevisionSidecar');
-        }
     });
 
     it('keeps fresh revision fsync off the open path and fences the first mutation on durability', async () => {
@@ -379,18 +206,6 @@ describe('documentRevisionStore', () => {
         } = await import('@electron/file-access/documentRevisionStore');
         await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
         const initial = await ensureWorkingCopyRevision(workingPath, 7);
-        writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-            version: 2,
-            storage: 'ranges',
-            documentRevisionToken: initial.token,
-            pageCount: 3,
-            identitySeed: 'revision-transition-fixture',
-            pageIds: [
-                'page-a',
-                'page-b',
-                'page-c',
-            ],
-        }));
 
         await expect(transitionWorkingCopyContentRevision(
             workingPath,
@@ -412,16 +227,6 @@ describe('documentRevisionStore', () => {
         );
         expect(committed.previousToken).toBe(initial.token);
         expect(committed.contentRevision).toBe(2);
-        const pageIdentity = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-            documentRevisionToken: string;
-            pageIds: string[];
-        };
-        expect(pageIdentity.documentRevisionToken).toBe(committed.token);
-        expect(pageIdentity.pageIds).toEqual([
-            'page-a',
-            'page-b',
-            'page-c',
-        ]);
     });
 
     it('serializes overlapping content transitions before admitting the next revision', async () => {
@@ -479,206 +284,12 @@ describe('documentRevisionStore', () => {
         expect(initial.contentRevision).toBe(1);
     });
 
-    it('rolls back document bytes and page identities when revision publication fails after rebase', async () => {
-        let failedRevisionWrite = false;
-        vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
-            const actual = await importOriginal<typeof DocumentRevisionSidecarModule>();
-            return {
-                ...actual,
-                writeWorkingCopyRevisionSidecar: vi.fn(async (
-                    workingCopyPath: string,
-                    sidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar,
-                    options?: {markMutationCommitStarted?: boolean},
-                ) => {
-                    if (sidecar.contentRevision === 2 && !failedRevisionWrite) {
-                        failedRevisionWrite = true;
-                        throw new Error('revision publication failed');
-                    }
-                    return actual.writeWorkingCopyRevisionSidecar(workingCopyPath, sidecar, options);
-                }),
-            };
-        });
-        try {
-            const originalPath = join(tempRoot, 'rebase-failure-original.pdf');
-            const workingPath = join(tempRoot, 'pdf-work-rebase-failure', 'rebase-failure.pdf');
-            mkdirSync(dirname(workingPath), {recursive: true});
-            writeFileSync(originalPath, 'original');
-            writeFileSync(workingPath, 'before-transition');
-
-            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-            const {
-                ensureWorkingCopyRevision,
-                getWorkingCopyRevision,
-                transitionWorkingCopyContentRevision,
-            } = await import('@electron/file-access/documentRevisionStore');
-            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-            const initial = await ensureWorkingCopyRevision(workingPath, 7);
-            writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-                version: 2,
-                storage: 'ranges',
-                documentRevisionToken: initial.token,
-                pageCount: 2,
-                identitySeed: 'rebase-failure-fixture',
-                pageIds: [
-                    'page-a',
-                    'page-b',
-                ],
-            }));
-
-            await expect(transitionWorkingCopyContentRevision(
-                workingPath,
-                'save-sync',
-                async () => {
-                    writeFileSync(workingPath, 'after-transition');
-                },
-                7,
-            )).rejects.toThrow('revision publication failed');
-
-            expect(readFileSync(workingPath, 'utf8')).toBe('before-transition');
-            await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({
-                token: initial.token,
-                contentRevision: 1,
-            });
-            const identity = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-                documentRevisionToken: string;
-                pageIds: string[];
-            };
-            expect(identity.documentRevisionToken).toBe(initial.token);
-            expect(identity.pageIds).toEqual([
-                'page-a',
-                'page-b',
-            ]);
-        } finally {
-            vi.doUnmock('@electron/file-access/documentRevisionSidecar');
-        }
-    });
-
-    it('keeps page identities through leading delete, save, and trailing delete transitions', async () => {
-        const originalPath = join(tempRoot, 'delete-save-delete-original.pdf');
-        const workingPath = join(tempRoot, 'pdf-work-delete-save-delete', 'delete-save-delete.pdf');
-        mkdirSync(dirname(workingPath), {recursive: true});
-        writeFileSync(originalPath, new Uint8Array([1]));
-        writeFileSync(workingPath, new Uint8Array([2]));
-
-        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-        const {
-            ensureWorkingCopyRevision,
-            getWorkingCopyRevision,
-            transitionWorkingCopyContentRevision,
-        } = await import('@electron/file-access/documentRevisionStore');
-        const {
-            commitPageIdentityDelta,
-            createDeleteRangesIdentityDelta,
-        } = await import('@electron/file-access/pageIdentityStore');
-        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-        const initial = await ensureWorkingCopyRevision(workingPath, 7);
-        writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-            version: 2,
-            storage: 'ranges',
-            documentRevisionToken: initial.token,
-            pageCount: 4,
-            identitySeed: 'delete-save-delete-fixture',
-            pageIds: [
-                'page-a',
-                'page-b',
-                'page-c',
-                'page-d',
-            ],
-        }));
-
-        const readPageIds = () => (JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-            documentRevisionToken: string;
-            pageIds: string[];
-        });
-
-        const leadingDelete = await transitionWorkingCopyContentRevision(
-            workingPath,
-            'page-ops',
-            async nextRevision => {
-                writeFileSync(workingPath, 'after-leading-delete');
-                await commitPageIdentityDelta(
-                    workingPath,
-                    createDeleteRangesIdentityDelta(4, [{
-                        startPage: 1,
-                        endPage: 1,
-                    }]),
-                    nextRevision,
-                );
-            },
-            7,
-        );
-        expect(leadingDelete.contentRevision).toBe(2);
-        expect(readPageIds()).toMatchObject({
-            documentRevisionToken: leadingDelete.token,
-            pageIds: [
-                'page-b',
-                'page-c',
-                'page-d',
-            ],
-        });
-
-        const saved = await transitionWorkingCopyContentRevision(
-            workingPath,
-            'save-sync',
-            async () => {
-                writeFileSync(workingPath, 'after-save');
-            },
-            7,
-        );
-        expect(saved.contentRevision).toBe(3);
-        expect(readPageIds()).toMatchObject({
-            documentRevisionToken: saved.token,
-            pageIds: [
-                'page-b',
-                'page-c',
-                'page-d',
-            ],
-        });
-
-        const trailingDelete = await transitionWorkingCopyContentRevision(
-            workingPath,
-            'page-ops',
-            async nextRevision => {
-                writeFileSync(workingPath, 'after-trailing-delete');
-                await commitPageIdentityDelta(
-                    workingPath,
-                    createDeleteRangesIdentityDelta(3, [{
-                        startPage: 3,
-                        endPage: 3,
-                    }]),
-                    nextRevision,
-                );
-            },
-            7,
-        );
-        expect(trailingDelete.contentRevision).toBe(4);
-        expect(readPageIds()).toMatchObject({
-            documentRevisionToken: trailingDelete.token,
-            pageIds: [
-                'page-b',
-                'page-c',
-            ],
-        });
-        await expect(getWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({
-            token: trailingDelete.token,
-            contentRevision: 4,
-        });
-    });
-
-    it('marks content changes and clears derived artifacts', async () => {
+    it('marks content changes with a new revision', async () => {
         const originalPath = join(tempRoot, 'artifact-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-artifacts', 'artifact-original.pdf');
         mkdirSync(dirname(workingPath), {recursive: true});
         writeFileSync(originalPath, new Uint8Array([1]));
         writeFileSync(workingPath, new Uint8Array([2]));
-
-        const ocrDir = `${workingPath}.ocr`;
-        mkdirSync(ocrDir, {recursive: true});
-        writeFileSync(join(ocrDir, 'page-1.json'), '{}');
-        writeFileSync(`${workingPath}.index.json`, '{}');
-        const { getCompactSearchIndexPath } = await import('@electron/features/search/public');
-        const compactSearchIndexPath = getCompactSearchIndexPath(workingPath);
-        writeFileSync(compactSearchIndexPath, new Uint8Array([1]));
 
         const { setWorkingCopyOriginalPath } = await import('@electron/file-access/workingCopyStore');
         const {
@@ -694,9 +305,6 @@ describe('documentRevisionStore', () => {
         expect(changed.previousToken).toBe(revision.token);
         expect(changed.reason).toBe('page-ops');
         await expect(isWorkingCopyRevisionCurrent(workingPath, revision.token)).resolves.toBe(false);
-        expect(existsSync(ocrDir)).toBe(false);
-        expect(existsSync(`${workingPath}.index.json`)).toBe(false);
-        expect(existsSync(compactSearchIndexPath)).toBe(false);
     });
 
     it('reconciles a pending revision sidecar journal after module reload', async () => {
@@ -760,141 +368,62 @@ describe('documentRevisionStore', () => {
             .toMatchObject({token: nextSidecar.token});
     });
 
-    it('quarantines an unfenced ledger before recovering a corrupt revision sidecar', async () => {
-        vi.doMock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 2)}));
+    it('recovers a corrupt revision sidecar from its pending journal', async () => {
         const originalPath = join(tempRoot, 'journal-corrupt-revision-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-journal-corrupt-revision', 'journal-corrupt-revision.pdf');
         mkdirSync(dirname(workingPath), {recursive: true});
         writeFileSync(originalPath, new Uint8Array([1]));
         writeFileSync(workingPath, new Uint8Array([2]));
 
-        try {
-            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-            const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-            const {
-                readWorkingCopyRevisionJournalEntries,
-                stageWorkingCopyRevisionSidecarCommit,
-            } = await import('@electron/file-access/documentRevisionSidecar');
-            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        const {
+            readWorkingCopyRevisionJournalEntries,
+            stageWorkingCopyRevisionSidecarCommit,
+        } = await import('@electron/file-access/documentRevisionSidecar');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
-            const initial = await ensureWorkingCopyRevision(workingPath, 7);
-            writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-                version: 2,
-                storage: 'ranges',
-                documentRevisionToken: initial.token,
-                pageCount: 2,
-                identitySeed: 'journal-corrupt-revision-fixture',
-                pageIds: [
-                    'page-a',
-                    'page-b',
-                ],
-            }));
-            const recoveredSidecar = {
-                sidecarVersion: 1 as const,
-                version: 1 as const,
-                documentRef: requireDocumentRef(workingPath),
-                authority: 'electron-working-copy' as const,
-                token: requireDocumentRevisionToken('drt1:journal:2:recovered'),
-                contentRevision: 2,
-                mintedAt: requireEpochMs(Date.now()),
-                updatedAt: requireEpochMs(Date.now()),
-            };
-            stageWorkingCopyRevisionSidecarCommit(workingPath, recoveredSidecar, 'save-sync');
-            writeFileSync(`${workingPath}.evb-revision.json`, '{corrupt revision');
+        await ensureWorkingCopyRevision(workingPath, 7);
+        const recoveredSidecar = {
+            sidecarVersion: 1 as const,
+            version: 1 as const,
+            documentRef: requireDocumentRef(workingPath),
+            authority: 'electron-working-copy' as const,
+            token: requireDocumentRevisionToken('drt1:journal:2:recovered'),
+            contentRevision: 2,
+            mintedAt: requireEpochMs(Date.now()),
+            updatedAt: requireEpochMs(Date.now()),
+        };
+        stageWorkingCopyRevisionSidecarCommit(workingPath, recoveredSidecar, 'save-sync');
+        writeFileSync(`${workingPath}.evb-revision.json`, '{corrupt revision');
 
-            vi.resetModules();
-            const {ensureWorkingCopyRevision: ensureReloadedWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-            const recovered = await ensureReloadedWorkingCopyRevision(workingPath, 7);
+        vi.resetModules();
+        const {ensureWorkingCopyRevision: ensureReloadedWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        const recovered = await ensureReloadedWorkingCopyRevision(workingPath, 7);
 
-            expect(recovered.token).toBe(recoveredSidecar.token);
-            expect(recovered.contentRevision).toBe(2);
-            expect(readWorkingCopyRevisionJournalEntries(workingPath))
-                .not.toEqual(expect.arrayContaining([expect.objectContaining({kind: 'revision-sidecar-commit'})]));
-            expect(existsSync(`${workingPath}.evb-pages.json`)).toBe(false);
-            expect(readdirSync(dirname(workingPath)).some(name => (
-                name.startsWith(`${basename(workingPath)}.evb-pages.json.`)
-                && name.endsWith('.corrupt')
-            ))).toBe(true);
-
-            const {
-                awaitPageIdentityStoreInitialization,
-                schedulePageIdentityStoreInitialization,
-            } = await import('@electron/file-access/pageIdentityStore');
-            schedulePageIdentityStoreInitialization(workingPath, recovered);
-            await awaitPageIdentityStoreInitialization(workingPath);
-            const reseeded = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-                documentRevisionToken: string;
-                pageIds: string[];
-            };
-            expect(reseeded.documentRevisionToken).toBe(recovered.token);
-            expect(reseeded.pageIds).toHaveLength(2);
-            expect(reseeded.pageIds).not.toEqual([
-                'page-a',
-                'page-b',
-            ]);
-        } finally {
-            vi.doUnmock('@electron/pdf/pdfPageCount');
-        }
+        expect(recovered.token).toBe(recoveredSidecar.token);
+        expect(recovered.contentRevision).toBe(2);
+        expect(readWorkingCopyRevisionJournalEntries(workingPath))
+            .not.toEqual(expect.arrayContaining([expect.objectContaining({kind: 'revision-sidecar-commit'})]));
     });
 
-    it('quarantines an unfenced ledger when a corrupt revision has no pending journal', async () => {
-        vi.doMock('@electron/pdf/pdfPageCount', () => ({getPdfPageCount: vi.fn(async () => 2)}));
+    it('mints a fresh revision when a corrupt sidecar has no pending journal', async () => {
         const originalPath = join(tempRoot, 'no-journal-corrupt-revision-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-no-journal-corrupt-revision', 'no-journal-corrupt-revision.pdf');
         mkdirSync(dirname(workingPath), {recursive: true});
         writeFileSync(originalPath, new Uint8Array([1]));
         writeFileSync(workingPath, new Uint8Array([2]));
 
-        try {
-            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-            const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
-            const initial = await ensureWorkingCopyRevision(workingPath, 7);
-            writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-                version: 2,
-                storage: 'ranges',
-                documentRevisionToken: initial.token,
-                pageCount: 2,
-                identitySeed: 'no-journal-corrupt-revision-fixture',
-                pageIds: [
-                    'page-a',
-                    'page-b',
-                ],
-            }));
-            writeFileSync(`${workingPath}.evb-revision.json`, '{corrupt revision');
+        const initial = await ensureWorkingCopyRevision(workingPath, 7);
+        writeFileSync(`${workingPath}.evb-revision.json`, '{corrupt revision');
 
-            const recovered = await ensureWorkingCopyRevision(workingPath, 7);
-            expect(recovered.contentRevision).toBe(1);
-            expect(recovered.token).not.toBe(initial.token);
-            expect(existsSync(`${workingPath}.evb-pages.json`)).toBe(false);
-            expect(readdirSync(dirname(workingPath)).some(name => (
-                name.startsWith(`${basename(workingPath)}.evb-pages.json.`)
-                && name.endsWith('.corrupt')
-            ))).toBe(true);
-
-            vi.resetModules();
-            const {ensureWorkingCopyRevision: ensureReloadedWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-            const {
-                awaitPageIdentityStoreInitialization,
-                schedulePageIdentityStoreInitialization,
-            } = await import('@electron/file-access/pageIdentityStore');
-            const reloaded = await ensureReloadedWorkingCopyRevision(workingPath, 7);
-            schedulePageIdentityStoreInitialization(workingPath, reloaded);
-            await awaitPageIdentityStoreInitialization(workingPath);
-            const reseeded = JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8')) as {
-                documentRevisionToken: string;
-                pageIds: string[];
-            };
-            expect(reseeded.documentRevisionToken).toBe(reloaded.token);
-            expect(reseeded.pageIds).toHaveLength(2);
-            expect(reseeded.pageIds).not.toEqual([
-                'page-a',
-                'page-b',
-            ]);
-        } finally {
-            vi.doUnmock('@electron/pdf/pdfPageCount');
-        }
+        const recovered = await ensureWorkingCopyRevision(workingPath, 7);
+        expect(recovered.contentRevision).toBe(1);
+        expect(recovered.token).not.toBe(initial.token);
     });
 
     it('fails closed when the revision sidecar cannot be read', async () => {
@@ -931,20 +460,11 @@ describe('documentRevisionStore', () => {
                 mintedAt: requireEpochMs(Date.now()),
                 updatedAt: requireEpochMs(Date.now()),
             }));
-            writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
-                version: 2,
-                storage: 'ranges',
-                documentRevisionToken: requireDocumentRevisionToken('drt1:inaccessible:1:revision'),
-                pageCount: 1,
-                identitySeed: 'inaccessible-revision-fixture',
-                pageIds: ['page-a'],
-            }));
 
             await expect(ensureWorkingCopyRevision(workingPath, 7))
                 .rejects
                 .toMatchObject({code: 'EACCES'});
             expect(existsSync(`${workingPath}.evb-revision.json`)).toBe(true);
-            expect(existsSync(`${workingPath}.evb-pages.json`)).toBe(true);
         } finally {
             vi.doUnmock('fs/promises');
         }

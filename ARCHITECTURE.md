@@ -61,7 +61,7 @@ without a desktop install.
 | `pdf-image-combine` | Image pages to PDF, across bilevel, JBIG2, JPEG, JPEG 2000, and TIFF paths | ~10k lines |
 | `jbig2-codec` | Lossless JBIG2 generic-region encode and decode, in the layout PDF readers expect | ~4.6k lines |
 | `scan-primitives` | Deterministic image and geometry types shared by the imaging crates | ~4.5k lines |
-| `pdf-search` | A persistent search sidecar over a streamed index file, with Unicode casefolding | ~3.4k lines |
+| `pdf-search` | The desktop search engine: builds each document's text index and matches literal, whole-word and regex queries against it | ~1.1k lines |
 | `evb-raster-io` | PNG encode and decode with explicit decode limits and DPI metadata | ~2.5k lines |
 | `evb-native-support` | Shared CLI entry, error envelopes, and bounded readers | ~2k lines |
 | `protocol-fixtures` | Golden JSON fixtures both the Rust and TS decoders read | fixtures only |
@@ -95,8 +95,10 @@ and emits a text-only PDF layer, which is checkpointed per page so a long job
 can resume. Finally `pdf-page-ops ocr-text-layer` writes every recognized page
 into the original as one incremental revision: it removes previous OCR text
 from each page and maps the Tesseract page into the page view, including
-rotation and the preprocessing inverse. The recognized text also feeds the
-search index.
+rotation and the preprocessing inverse. That text layer is the only store of
+the recognized text: search, text export and the assistant read it from the
+PDF, and the search index is a cache rebuilt whenever the document revision
+changes.
 
 English and Russian are bundled. The other 28 languages download from a pinned
 upstream revision and are verified by SHA-256 before use.

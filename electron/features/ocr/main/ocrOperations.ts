@@ -25,11 +25,9 @@ import {
 } from '@electron/features/ocr/main/jobManager';
 import { createLogger } from '@electron/utils/createLogger';
 import {
-    resolveDocumentOcrAvailability,
-    resolveDocumentOcrPage,
-    resolveDocumentTextCatalogWindow,
-    resolveDocumentTextCatalogSnapshot,
-} from '@electron/features/ocr/main/documentTextCatalog';
+    readDocumentTextSnapshot,
+    readDocumentTextWindow,
+} from '@electron/features/ocr/main/documentText';
 import { getOcrLanguageModelStates } from '@electron/features/ocr/languageModels';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
@@ -49,51 +47,51 @@ import { getErrorMessage } from '@electron/utils/error';
 const log = createLogger('ocr-ipc');
 type TOcrOperationContext = IPlatformMainSenderContext<WebContents>;
 
-interface IOcrCatalogReadRequest {
+interface ITextReadRequest {
     senderId: number;
     requestId: string;
     controller: AbortController;
 }
 
-const activeCatalogReadRequests = new Map<string, IOcrCatalogReadRequest>();
+const activeTextReadRequests = new Map<string, ITextReadRequest>();
 
-function getCatalogReadRequestKey(senderId: number, requestId: string) {
+function getTextReadRequestKey(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
 }
 
-function beginCatalogReadRequest(
+function beginTextReadRequest(
     context: TOcrOperationContext,
     requestId: string | undefined,
 ) {
     if (requestId === undefined) {
         return undefined;
     }
-    const request: IOcrCatalogReadRequest = {
+    const request: ITextReadRequest = {
         senderId: context.senderId,
         requestId,
         controller: new AbortController(),
     };
-    const key = getCatalogReadRequestKey(context.senderId, requestId);
-    if (activeCatalogReadRequests.has(key)) {
-        throw new Error(`OCR catalog request is already active: ${requestId}`);
+    const key = getTextReadRequestKey(context.senderId, requestId);
+    if (activeTextReadRequests.has(key)) {
+        throw new Error(`Document text request is already active: ${requestId}`);
     }
-    activeCatalogReadRequests.set(key, request);
+    activeTextReadRequests.set(key, request);
     return request;
 }
 
-function finishCatalogReadRequest(request: IOcrCatalogReadRequest | undefined) {
+function finishTextReadRequest(request: ITextReadRequest | undefined) {
     if (request) {
-        activeCatalogReadRequests.delete(getCatalogReadRequestKey(request.senderId, request.requestId));
+        activeTextReadRequests.delete(getTextReadRequestKey(request.senderId, request.requestId));
     }
 }
 
-function cancelCatalogReadRequest(senderId: number, requestId: string) {
-    const request = activeCatalogReadRequests.get(getCatalogReadRequestKey(senderId, requestId));
+function cancelTextReadRequest(senderId: number, requestId: string) {
+    const request = activeTextReadRequests.get(getTextReadRequestKey(senderId, requestId));
     if (!request) {
         return false;
     }
     if (!request.controller.signal.aborted) {
-        request.controller.abort(new DOMException('OCR catalog read was canceled.', 'AbortError'));
+        request.controller.abort(new DOMException('Document text read was canceled.', 'AbortError'));
     }
     return true;
 }
@@ -154,30 +152,22 @@ export async function handleResolveDocumentTextCatalog(
     pageCount?: number,
     requestId?: string,
 ) {
-    const request = beginCatalogReadRequest(context, requestId);
+    const request = beginTextReadRequest(context, requestId);
     try {
         const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
         request?.controller.signal.throwIfAborted();
-        return await runCancellableOcrCatalogRead(
+        return await runCancellableTextRead(
             context,
             logicalPath,
             signal => runWithWorkingCopyReadBacking(
                 logicalPath,
-                physicalPath => resolveDocumentTextCatalogSnapshot(
-                    logicalPath,
-                    documentRevision,
-                    pageCount,
-                    {
-                        sourcePdfPath: physicalPath,
-                        signal,
-                    },
-                ),
+                physicalPath => readDocumentTextSnapshot(logicalPath, physicalPath, documentRevision, pageCount, signal),
                 {ownerWebContentsId: context.senderId},
             ),
             request,
         );
     } finally {
-        finishCatalogReadRequest(request);
+        finishTextReadRequest(request);
     }
 }
 
@@ -190,76 +180,79 @@ export async function handleResolveDocumentTextCatalogWindow(
     pageCount?: number,
     requestId?: string,
 ) {
-    const request = beginCatalogReadRequest(context, requestId);
+    const request = beginTextReadRequest(context, requestId);
     try {
         const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
         request?.controller.signal.throwIfAborted();
-        return await runCancellableOcrCatalogRead(
+        return await runCancellableTextRead(
             context,
             logicalPath,
             signal => runWithWorkingCopyReadBacking(
                 logicalPath,
-                physicalPath => resolveDocumentTextCatalogWindow(
+                physicalPath => readDocumentTextWindow(
                     logicalPath,
+                    physicalPath,
                     documentRevision,
-                    firstPage,
-                    lastPage,
-                    pageCount,
                     {
-                        sourcePdfPath: physicalPath,
-                        signal,
+                        firstPage,
+                        lastPage,
+                        pageCount,
                     },
+                    signal,
                 ),
                 {ownerWebContentsId: context.senderId},
             ),
             request,
         );
     } finally {
-        finishCatalogReadRequest(request);
+        finishTextReadRequest(request);
     }
 }
 
+// Desktop OCR writes its text into the PDF, where the viewer's own text layer
+// reads it, so no page carries separate OCR text.
 export async function handleResolveDocumentOcrAvailability(
     context: TOcrOperationContext,
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
 ) {
-    const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
-    return runCancellableOcrCatalogRead(
-        context,
-        logicalPath,
-        signal => resolveDocumentOcrAvailability(logicalPath, documentRevision, {signal}),
-    );
+    await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
+    return {
+        documentRevision,
+        pageCount: 0,
+        mappedPageCount: 0,
+        pageRanges: [],
+        rangesComplete: true,
+    };
 }
 
 export async function handleResolveDocumentOcrPage(
     context: TOcrOperationContext,
     workingCopyPath: string,
     documentRevision: TDocumentRevisionToken,
-    pageNumber: number,
 ) {
-    const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
-    return runCancellableOcrCatalogRead(
-        context,
-        logicalPath,
-        signal => resolveDocumentOcrPage(logicalPath, documentRevision, pageNumber, {signal}),
-    );
+    await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
+    return {
+        documentRevision,
+        pageCount: 0,
+        page: null,
+    };
 }
 
-// Catalog reads join the main operation lifecycle so a working-copy close or
+// Text reads join the main operation lifecycle so a working-copy close or
 // shutdown aborts them instead of racing the file deletion. The signal carries
 // the cancellation; the hook only makes the read eligible for close cancellation.
-async function runCancellableOcrCatalogRead<T>(
+async function runCancellableTextRead<T>(
     context: TOcrOperationContext,
     logicalPath: string,
     read: (signal: AbortSignal) => Promise<T>,
-    request?: IOcrCatalogReadRequest,
+    request?: ITextReadRequest,
 ) {
     const operation = registerMainOperation({
         kind: 'abortable-work',
         ownerWebContentsId: context.senderId,
         workingCopyPath: logicalPath,
-        cancel: reason => log.debug(`OCR catalog read cancelled: ${reason}`),
+        cancel: reason => log.debug(`Document text read cancelled: ${reason}`),
     });
     const combinedSignal = combineAbortSignals(operation.signal, request?.controller.signal);
     try {
@@ -376,9 +369,9 @@ export function handleOcrCancelValidated(
 ): IOcrCancelResult {
     try {
         const requestId = validateCancelRequestId(requestIdPayload);
-        const catalogCanceled = cancelCatalogReadRequest(context.senderId, requestId);
+        const textReadCanceled = cancelTextReadRequest(context.senderId, requestId);
         const jobResult = handleOcrCancel(context, requestId);
-        return catalogCanceled && !jobResult.canceled
+        return textReadCanceled && !jobResult.canceled
             ? {canceled: true}
             : jobResult;
     } catch (error) {

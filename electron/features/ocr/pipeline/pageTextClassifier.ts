@@ -8,7 +8,7 @@ import type {
 
 const TEXT_TOKEN_RE = /\bBT\b|\bET\b|(?:^|\s)([0-7])(?:\.0+)?\s+Tr\b|\b(Tj|TJ)\b|(?:^|\s)(['"])(?=\s|$)/gm;
 const EVB_OCR_LAYER_MARKER = 'EVB_VIEWER_OCR_LAYER';
-const EVB_OCR_LAYER_BLOCK_RE = /(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_BEGIN\s*\r?\n[\s\S]*?(?:^|\r?\n)\s*\/[A-Za-z0-9._-]+\s+Do\b[^\r\n]*\r?\n[\s\S]*?(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_END\s*(?=\r?\n|$)/m;
+const EVB_OCR_LAYER_BLOCK_RE = /(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_BEGIN\s*\r?\n[\s\S]*?(?:^|\r?\n)\s*%\s+EVB_VIEWER_OCR_LAYER_END\s*(?=\r?\n|$)/m;
 const OCR_TEXT_VISIBILITY_MAX_PAGE_MAP_BYTES = 16 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_STREAM_BYTES = 4 * 1024 * 1024;
 const OCR_TEXT_VISIBILITY_MAX_PAGE_BYTES = 16 * 1024 * 1024;
@@ -88,12 +88,13 @@ export interface IOcrPageTextEvidence {
     extractedTextLength: number;
     hasHiddenTextOperators: boolean;
     hasVisibleTextOperators: boolean;
-    evbGeneration?: string;
 }
 
 export interface IOcrPdfTextVisibility {
     hasHiddenTextOperators: boolean;
     hasVisibleTextOperators: boolean;
+    /** The page carries a text layer that EVB's OCR wrote. */
+    hasEvbOcrLayer: boolean;
 }
 
 function hasLanguageScript(text: string, languages: readonly string[] | undefined) {
@@ -155,15 +156,15 @@ export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcr
     let inTextObject = false;
     let hasHiddenTextOperators = false;
     let hasVisibleTextOperators = false;
+    let hasEvbOcrLayer = false;
 
     for (const source of streamSources) {
-        // EVB's searchable layer is a marked Form XObject. The page content
-        // stream therefore contains the marker and a Do operator, while the
-        // BT/ET and 3 Tr operators live in the nested object. Treat the
-        // marker as hidden text evidence so a missing catalog cannot make an
-        // unusable EVB layer look like native text and skip rescan.
+        // EVB writes its OCR text between BEGIN and END marker comments in a
+        // page content stream, inline since pdf-page-ops writes the layer and
+        // as a Form XObject drawn with Do in PDFs OCRed by earlier versions.
         if (source.includes(EVB_OCR_LAYER_MARKER) && EVB_OCR_LAYER_BLOCK_RE.test(source)) {
             hasHiddenTextOperators = true;
+            hasEvbOcrLayer = true;
         }
         TEXT_TOKEN_RE.lastIndex = 0;
         for (const match of source.matchAll(TEXT_TOKEN_RE)) {
@@ -183,6 +184,7 @@ export function inspectPdfTextVisibility(streamSources: readonly string[]): IOcr
     return {
         hasHiddenTextOperators,
         hasVisibleTextOperators,
+        hasEvbOcrLayer,
     };
 }
 
@@ -361,45 +363,35 @@ export async function inspectPdfPageTextVisibility(
 export function classifyOcrPageText(input: {
     extractedText: string;
     visibility?: IOcrPdfTextVisibility;
-    evbGeneration?: string;
     languages?: readonly string[];
 }): IOcrPageTextEvidence {
     const extractedTextLength = input.extractedText.trim().length;
     const hasHiddenTextOperators = input.visibility?.hasHiddenTextOperators ?? false;
     const hasVisibleTextOperators = input.visibility?.hasVisibleTextOperators ?? false;
-    if (input.evbGeneration && !isLikelyUsableOcrText(input.extractedText, input.languages)) {
+    const evidence = {
+        extractedTextLength,
+        hasHiddenTextOperators,
+        hasVisibleTextOperators,
+    };
+    if (input.visibility?.hasEvbOcrLayer) {
         return {
-            classification: 'foreign-hidden-ocr',
-            extractedTextLength,
-            hasHiddenTextOperators,
-            hasVisibleTextOperators,
-            evbGeneration: input.evbGeneration,
-        };
-    }
-    if (input.evbGeneration) {
-        return {
-            classification: 'evb-current-generation',
-            extractedTextLength,
-            hasHiddenTextOperators,
-            hasVisibleTextOperators,
-            evbGeneration: input.evbGeneration,
+            ...evidence,
+            classification: isLikelyUsableOcrText(input.extractedText, input.languages)
+                ? 'evb-current-generation'
+                : 'foreign-hidden-ocr',
         };
     }
     if (extractedTextLength === 0) {
         return {
+            ...evidence,
             classification: 'no-text',
-            extractedTextLength,
-            hasHiddenTextOperators,
-            hasVisibleTextOperators,
         };
     }
     return {
+        ...evidence,
         classification: hasHiddenTextOperators && !hasVisibleTextOperators
             ? 'foreign-hidden-ocr'
             : 'native-text',
-        extractedTextLength,
-        hasHiddenTextOperators,
-        hasVisibleTextOperators,
     };
 }
 

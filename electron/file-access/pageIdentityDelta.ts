@@ -1,20 +1,19 @@
 import {randomUUID} from 'node:crypto';
-import {
-    getPageIdentityDeltaNextPageCount,
-    type IPageIdentityDelta,
-    type IPageIdentityRangeInsert,
-    type IPageIdentityRangeMapping,
-    type IPageIdentityRangeTouch,
-    type TPageIdentityDeltaPage,
-    type TPageIdentityRangeOperation,
+import type {
+    IPageIdentityDelta,
+    IPageIdentityRangeInsert,
+    IPageIdentityRangeMapping,
+    IPageIdentityRangeTouch,
+    TPageIdentityDeltaPage,
+    TPageIdentityRangeOperation,
 } from '@contracts/electronApiPageOps';
 import type {
     IPageMoveRangeSegment,
     IPageMoveRanges,
 } from '@contracts/pageNumbers';
 
-export const PAGE_IDENTITY_INLINE_PAGE_COUNT = 4_096;
-export const PAGE_IDENTITY_MAX_RANGE_OPERATIONS = 100_000;
+const PAGE_IDENTITY_INLINE_PAGE_COUNT = 4_096;
+const PAGE_IDENTITY_MAX_RANGE_OPERATIONS = 100_000;
 
 type TMutablePageIdentityRangeOperation = TPageIdentityRangeOperation extends infer TOperation
     ? TOperation extends object
@@ -22,314 +21,22 @@ type TMutablePageIdentityRangeOperation = TPageIdentityRangeOperation extends in
         : never
     : never;
 
-export function assertPageCount(value: number, label: string) {
+function assertPageCount(value: number, label: string) {
     if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error(`${label} must be a non-negative safe integer`);
     }
 }
 
-export function assertPositivePageNumber(value: number, label: string) {
+function assertPositivePageNumber(value: number, label: string) {
     if (!Number.isSafeInteger(value) || value < 1) {
         throw new Error(`${label} must be a positive safe integer`);
     }
 }
 
-export function assertRangeCount(value: number, label: string) {
+function assertRangeCount(value: number, label: string) {
     if (!Number.isSafeInteger(value) || value < 1) {
         throw new Error(`${label} must be a positive safe integer`);
     }
-}
-
-export function assertIdentitySeed(value: string, label = 'identitySeed') {
-    if (typeof value !== 'string' || value.length === 0 || value.length > 512) {
-        throw new Error(`${label} must be a non-empty string of at most 512 characters`);
-    }
-}
-
-export interface IPageIdentitySourcePart {
-    count: number;
-    fromPageNumber: number;
-    kind: 'source';
-}
-
-export interface IPageIdentityInsertPart {
-    count: number;
-    identitySeed: string;
-    insertedIds?: string[];
-    kind: 'insert';
-}
-
-export type TPageIdentitySourcePart = IPageIdentityInsertPart | IPageIdentitySourcePart;
-
-export interface IPageIdentityDeltaPlan {
-    nextPageCount: number;
-    parts: TPageIdentitySourcePart[];
-}
-
-function validateInsertedIdentityIds(
-    insertedIds: readonly string[] | undefined,
-    count: number,
-    seen: Set<string>,
-) {
-    if (insertedIds === undefined) {
-        return;
-    }
-    if (insertedIds.length !== count) {
-        throw new Error('Inserted identity count does not match its range');
-    }
-    for (const id of insertedIds) {
-        if (typeof id !== 'string' || id.length === 0 || seen.has(id)) {
-            throw new Error('Page identity delta contains duplicate or invalid inserted identities');
-        }
-        seen.add(id);
-    }
-}
-
-/** Expands a page delta into bounded source and inserted identity runs. */
-export function createPageIdentityDeltaPlan(
-    pageCount: number,
-    delta: IPageIdentityDelta,
-): IPageIdentityDeltaPlan {
-    assertPageCount(pageCount, 'pageCount');
-    if (delta.previousPageCount !== pageCount) {
-        throw new Error(`Page identity delta expected ${pageCount} pages, received ${delta.previousPageCount}`);
-    }
-
-    const insertedIds = new Set<string>();
-    if (delta.pages !== undefined) {
-        const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
-        if (nextPageCount === undefined || nextPageCount !== delta.pages.length) {
-            throw new Error('Page identity delta nextPageCount does not match its pages');
-        }
-        if (delta.pages.length > PAGE_IDENTITY_MAX_RANGE_OPERATIONS) {
-            throw new Error('Page identity delta pages exceed the item limit');
-        }
-        const seenPages = new Set<number>();
-        const parts: TPageIdentitySourcePart[] = [];
-        for (const page of delta.pages) {
-            if ('insertedId' in page) {
-                validateInsertedIdentityIds([page.insertedId], 1, insertedIds);
-                parts.push({
-                    count: 1,
-                    identitySeed: `explicit:${randomUUID()}`,
-                    insertedIds: [page.insertedId],
-                    kind: 'insert',
-                });
-                continue;
-            }
-            assertPositivePageNumber(page.fromPageNumber, 'fromPageNumber');
-            if (page.fromPageNumber > pageCount || seenPages.has(page.fromPageNumber)) {
-                throw new Error('Page identity delta is not a one-to-one mapping');
-            }
-            seenPages.add(page.fromPageNumber);
-            parts.push({
-                count: 1,
-                fromPageNumber: page.fromPageNumber,
-                kind: 'source',
-            });
-        }
-        return {
-            nextPageCount,
-            parts,
-        };
-    }
-
-    const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
-    if (nextPageCount === undefined) {
-        throw new Error('Page identity delta must provide nextPageCount for range operations');
-    }
-    assertPageCount(nextPageCount, 'nextPageCount');
-    if (delta.ranges === undefined || delta.ranges.length > PAGE_IDENTITY_MAX_RANGE_OPERATIONS) {
-        throw new Error('Page identity delta must contain a bounded range list');
-    }
-    const ranges = delta.ranges;
-    const explicitMappings = ranges.filter(
-        (range): range is IPageIdentityRangeMapping => range.kind === 'retain' || range.kind === 'move',
-    );
-    const mappings: IPageIdentityRangeMapping[] = [
-        ...explicitMappings,
-        ...ranges
-            .filter((range): range is IPageIdentityRangeTouch => range.kind === 'touch')
-            .filter(range => !explicitMappings.some(mapping => (
-                mapping.fromPageNumber === mapping.toPageNumber
-                && range.toPageNumber >= mapping.fromPageNumber
-                && range.toPageNumber + range.count <= mapping.fromPageNumber + mapping.count
-            )))
-            .map(range => ({
-                kind: 'retain' as const,
-                fromPageNumber: range.toPageNumber,
-                toPageNumber: range.toPageNumber,
-                count: range.count,
-            })),
-    ];
-    const inserts = ranges.filter((range): range is IPageIdentityRangeInsert => range.kind === 'insert');
-    const deletes = ranges.filter(
-        (range): range is Extract<TPageIdentityRangeOperation, {kind: 'delete'}> => range.kind === 'delete',
-    );
-    for (const range of mappings) {
-        assertPositivePageNumber(range.fromPageNumber, 'fromPageNumber');
-        assertPositivePageNumber(range.toPageNumber, 'toPageNumber');
-        assertRangeCount(range.count, 'range count');
-        if (
-            range.fromPageNumber > pageCount - range.count + 1
-            || range.toPageNumber > nextPageCount - range.count + 1
-        ) {
-            throw new Error('Page identity range mapping exceeds the document page count');
-        }
-    }
-    for (const range of deletes) {
-        assertPositivePageNumber(range.fromPageNumber, 'fromPageNumber');
-        assertRangeCount(range.count, 'range count');
-        if (range.fromPageNumber > pageCount - range.count + 1) {
-            throw new Error('Page identity delete range exceeds the document page count');
-        }
-    }
-    for (const range of inserts) {
-        assertPositivePageNumber(range.toPageNumber, 'toPageNumber');
-        assertRangeCount(range.count, 'range count');
-        if (range.toPageNumber > nextPageCount - range.count + 1) {
-            throw new Error('Page identity insert range exceeds the next page count');
-        }
-        assertIdentitySeed(range.identitySeed, 'identitySeed');
-        validateInsertedIdentityIds(range.insertedIds, range.count, insertedIds);
-    }
-
-    if (mappings.length > 0) {
-        const sourceCoverage = [
-            ...mappings.map(range => ({
-                count: range.count,
-                fromPageNumber: range.fromPageNumber,
-            })),
-            ...deletes.map(range => ({
-                count: range.count,
-                fromPageNumber: range.fromPageNumber,
-            })),
-        ].sort((left, right) => left.fromPageNumber - right.fromPageNumber);
-        let expectedSource = 1;
-        for (const range of sourceCoverage) {
-            if (
-                range.fromPageNumber !== expectedSource
-                || range.fromPageNumber > pageCount - range.count + 1
-            ) {
-                throw new Error('Page identity range operations do not cover the source pages exactly');
-            }
-            expectedSource += range.count;
-        }
-        if (expectedSource !== pageCount + 1) {
-            throw new Error('Page identity range operations do not account for every source page');
-        }
-
-        const output = [
-            ...mappings,
-            ...inserts,
-        ].sort((left, right) => left.toPageNumber - right.toPageNumber);
-        const parts: TPageIdentitySourcePart[] = [];
-        let expectedDestination = 1;
-        for (const range of output) {
-            if (range.toPageNumber !== expectedDestination) {
-                throw new Error('Page identity range destinations are not contiguous');
-            }
-            if (range.kind === 'insert') {
-                parts.push({
-                    count: range.count,
-                    identitySeed: range.identitySeed,
-                    ...(range.insertedIds === undefined ? {} : {insertedIds: [...range.insertedIds]}),
-                    kind: 'insert',
-                });
-            } else {
-                parts.push({
-                    count: range.count,
-                    fromPageNumber: range.fromPageNumber,
-                    kind: 'source',
-                });
-            }
-            expectedDestination += range.count;
-        }
-        if (expectedDestination !== nextPageCount + 1) {
-            throw new Error('Page identity ranges do not produce the declared page count');
-        }
-        return {
-            nextPageCount,
-            parts,
-        };
-    }
-
-    const sortedDeletes = [...deletes].sort((left, right) => left.fromPageNumber - right.fromPageNumber);
-    const sourceRuns: IPageIdentitySourcePart[] = [];
-    let nextSourcePage = 1;
-    for (const range of sortedDeletes) {
-        if (range.fromPageNumber < nextSourcePage) {
-            throw new Error('Page identity delete ranges overlap');
-        }
-        if (range.fromPageNumber > nextSourcePage) {
-            sourceRuns.push({
-                count: range.fromPageNumber - nextSourcePage,
-                fromPageNumber: nextSourcePage,
-                kind: 'source',
-            });
-        }
-        nextSourcePage = range.fromPageNumber + range.count;
-    }
-    if (nextSourcePage <= pageCount) {
-        sourceRuns.push({
-            count: pageCount - nextSourcePage + 1,
-            fromPageNumber: nextSourcePage,
-            kind: 'source',
-        });
-    }
-    const parts: TPageIdentitySourcePart[] = [];
-    let sourceRunIndex = 0;
-    let sourceRunOffset = 0;
-    let expectedDestination = 1;
-    const appendSourceCount = (count: number) => {
-        let remaining = count;
-        while (remaining > 0) {
-            const sourceRun = sourceRuns[sourceRunIndex];
-            if (sourceRun === undefined) {
-                throw new Error('Page identity inserts exceed the surviving source pages');
-            }
-            const available = sourceRun.count - sourceRunOffset;
-            const take = Math.min(available, remaining);
-            parts.push({
-                count: take,
-                fromPageNumber: sourceRun.fromPageNumber + sourceRunOffset,
-                kind: 'source',
-            });
-            sourceRunOffset += take;
-            remaining -= take;
-            if (sourceRunOffset === sourceRun.count) {
-                sourceRunIndex += 1;
-                sourceRunOffset = 0;
-            }
-        }
-    };
-    for (const range of [...inserts].sort((left, right) => left.toPageNumber - right.toPageNumber)) {
-        if (range.toPageNumber < expectedDestination) {
-            throw new Error('Page identity insert destinations overlap');
-        }
-        appendSourceCount(range.toPageNumber - expectedDestination);
-        expectedDestination = range.toPageNumber;
-        parts.push({
-            count: range.count,
-            identitySeed: range.identitySeed,
-            ...(range.insertedIds === undefined ? {} : {insertedIds: [...range.insertedIds]}),
-            kind: 'insert',
-        });
-        expectedDestination += range.count;
-    }
-    const remainingSourceCount = nextPageCount - expectedDestination + 1;
-    if (remainingSourceCount < 0) {
-        throw new Error('Page identity edits do not produce the declared page count');
-    }
-    appendSourceCount(remainingSourceCount);
-    expectedDestination += remainingSourceCount;
-    if (expectedDestination !== nextPageCount + 1) {
-        throw new Error('Page identity edits do not produce the declared page count');
-    }
-    return {
-        nextPageCount,
-        parts,
-    };
 }
 
 function createLegacyOrRangeDelta(
@@ -939,6 +646,3 @@ export function createInsertIdentityDelta(pageCount: number, afterPage: number, 
 }
 
 /** Returns a sparse range mapping for the OCR v4 catalog remapper. */
-export function getPageIdentityRangeOperations(delta: IPageIdentityDelta) {
-    return delta.ranges ?? [];
-}

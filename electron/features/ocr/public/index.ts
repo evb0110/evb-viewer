@@ -3,9 +3,3 @@ export {
     discardOcrResultsForDocument,
     findOcrResultForDocument,
 } from '@electron/features/ocr/main/jobManager';
-export {
-    getOcrCatalogV4PreparedDescriptorPath,
-    publishPreparedOcrCatalogV4,
-    rollbackPreparedOcrCatalogV4,
-} from '@electron/features/ocr/pipeline/indexWriterV4';
-export {rebindDocumentTextCatalogRevision} from '@electron/features/ocr/main/documentTextCatalog';

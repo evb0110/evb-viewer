@@ -82,8 +82,6 @@ import type { IWorkingCopyMutationOperation } from '@electron/file-access/workin
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 import { transitionWorkingCopyContentRevision } from '@electron/file-access/documentRevisionStore';
 import {
-    awaitPageIdentityStoreInitialization,
-    commitPageIdentityDelta,
     createCropIdentityDelta,
     createCropRangesIdentityDelta,
     createDeleteIdentityDelta,
@@ -96,7 +94,7 @@ import {
     createReorderIdentityDelta,
     createRotateIdentityDelta,
     createRotateRangesIdentityDelta,
-} from '@electron/file-access/pageIdentityStore';
+} from '@electron/file-access/pageIdentityDelta';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     normalizeExpectedDocumentRevisionToken,
@@ -255,14 +253,12 @@ async function transitionPageMutation<T>(input: {
         delta: IPageIdentityDelta
     }>;
 }) {
-    await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () =>
-        awaitPageIdentityStoreInitialization(input.workingCopyPath));
     const values: T[] = [];
     let committedDelta = null as IPageIdentityDelta | null;
     const documentRevision = await runWithWorkingCopyMutationCommitSignal(DEFERRED_COMMIT_SIGNAL, () => transitionWorkingCopyContentRevision(
         input.workingCopyPath,
         'page-ops',
-        async nextRevision => {
+        async () => {
             const mutation = await input.mutate();
             if (!input.skipPageMetadataRemap) {
                 await applyPageMetadataRemap({
@@ -293,11 +289,10 @@ async function transitionPageMutation<T>(input: {
                     createNativeOperationOptions(input.operation),
                 );
             }
-            // Publishing the identity delta and revision is the commit point.
-            // A cancel accepted before it rolls the working copy back.
+            // Publishing the revision is the commit point. A cancel accepted
+            // before it rolls the working copy back.
             input.operation.signal.throwIfAborted();
             input.operation.markCommitStarted();
-            await commitPageIdentityDelta(input.workingCopyPath, mutation.delta, nextRevision);
             committedDelta = mutation.delta;
             values.push(mutation.value);
         },

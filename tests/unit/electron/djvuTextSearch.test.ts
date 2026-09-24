@@ -5,7 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {requireRequestId} from '@contracts/shared';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
@@ -14,21 +14,15 @@ vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRun
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 
 const {
+    addDjvuMatchGeometry,
     createDjvuTextSExpressionParser,
     detectDjvuHasText,
-    searchDjvuText,
 } = await import('@electron/features/djvu/main/textSearch');
 
 interface IRunOptions {
     onStdout?: (chunk: string) => void;
     signal?: AbortSignal;
 }
-
-const matchOptions = {
-    matchCase: false,
-    wholeWord: false,
-    useRegex: false,
-} as const;
 
 function nativeResult() {
     return {
@@ -124,54 +118,45 @@ describe('DjVu native streamed text search', () => {
         expect(pages[0]?.text).toBe('Предисловие line\nbreak Syriac ܐܪܡܝܐ 📖');
     });
 
-    it('finds text that exists only on a late page and streams incremental result geometry', async () => {
+    it('attaches the word boxes of a match from its page text zones', async () => {
         streamOutput([
-            '(page 0 0 1000 2000 "")',
             '(page 0 0 1000 2000 (line 10 1500 900 1600',
             ' (word 10 1500 130 1600 "Late")',
             ' (word 150 1500 350 1600 "Needle")))',
         ].join('\n'), 5);
-        const progress = vi.fn();
-        const onPageProcessed = vi.fn();
 
-        const response = await searchDjvuText('/library/book.djvu', {
-            requestId: requireRequestId('late-page-search'),
-            pageCount: 2,
-            query: 'needle',
-            matchOptions,
-            onPageProcessed,
-            onProgress: progress,
-        });
+        const results = await addDjvuMatchGeometry('/library/book.djvu', [{
+            pageNumber: requirePageNumber(2),
+            pageMatchIndex: 0,
+            matchIndex: 0,
+            startOffset: 5,
+            endOffset: 11,
+            excerpt: {
+                prefix: false,
+                suffix: false,
+                before: 'Late ',
+                match: 'Needle',
+                after: '',
+            },
+        }]);
 
-        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
-        expect(response).toMatchObject({
-            truncated: false,
-            results: [{
-                pageNumber: 2,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                pageWidth: 1000,
-                pageHeight: 2000,
-                words: [{
-                    text: 'Needle',
-                    x: 150,
-                    y: 400,
-                    width: 200,
-                    height: 100,
-                }],
-            }],
-        });
-        expect(progress).toHaveBeenCalledWith(expect.objectContaining({
-            requestId: 'late-page-search',
-            processed: 2,
-            total: 2,
-            resultsStartIndex: 0,
-            results: [expect.objectContaining({pageNumber: 2})],
-        }));
-        expect(onPageProcessed.mock.calls.map(call => call[0])).toEqual([
-            1,
-            2,
+        expect(mocks.runNativeCommand.mock.calls[0]?.[1]).toEqual([
+            '/library/book.djvu',
+            '-e',
+            'select 2; print-txt',
         ]);
+        expect(results).toMatchObject([{
+            pageNumber: 2,
+            pageWidth: 1000,
+            pageHeight: 2000,
+            words: [{
+                text: 'Needle',
+                x: 150,
+                y: 400,
+                width: 200,
+                height: 100,
+            }],
+        }]);
     });
 
     it('treats empty page syntax as empty and detects actual text on later pages', async () => {
@@ -187,58 +172,5 @@ describe('DjVu native streamed text search', () => {
 
         streamOutput('(page 0 0 1000 2000 "")\n(page 0 0 1000 2000 "")');
         await expect(detectDjvuHasText('/library/empty.djvu')).resolves.toBe(false);
-    });
-
-    it('caps results, bounds progress payloads, and stops the native scan early', async () => {
-        const words = Array.from({length: 501}, (_value, index) => (
-            `(word ${index * 2} 1500 ${index * 2 + 1} 1600 "hit")`
-        )).join(' ');
-        streamOutput(`(page 0 0 2000 2000 (line 0 1500 1500 1600 ${words}))`, 32 * 1024);
-        const progress = vi.fn();
-        const onPageProcessed = vi.fn();
-
-        const response = await searchDjvuText('/library/book.djvu', {
-            requestId: requireRequestId('bounded-search'),
-            pageCount: 10_000,
-            query: 'hit',
-            matchOptions,
-            onPageProcessed,
-            onProgress: progress,
-        });
-
-        expect(response.results).toHaveLength(500);
-        expect(response.truncated).toBe(true);
-        expect(progress.mock.calls
-            .map(call => call[0].results?.length ?? 0)
-            .every(resultCount => resultCount <= 64)).toBe(true);
-        expect(onPageProcessed).toHaveBeenCalledWith(1);
-        const nativeOptions = mocks.runNativeCommand.mock.calls[0]?.[2] as IRunOptions | undefined;
-        expect(nativeOptions?.signal?.aborted).toBe(true);
-    });
-
-    it('kills the single native scan when its caller cancels', async () => {
-        let nativeSignal: AbortSignal | undefined;
-        mocks.runNativeCommand.mockImplementation((
-            _command: string,
-            _args: string[],
-            options: IRunOptions,
-        ) => new Promise((_resolve, reject) => {
-            nativeSignal = options.signal;
-            options.signal?.addEventListener('abort', () => reject(abortError()), {once: true});
-        }));
-        const controller = new AbortController();
-        const pending = searchDjvuText('/library/book.djvu', {
-            requestId: requireRequestId('cancel-search'),
-            pageCount: 800,
-            query: 'needle',
-            matchOptions,
-            signal: controller.signal,
-        });
-
-        controller.abort(new Error('caller canceled'));
-
-        await expect(pending).rejects.toMatchObject({name: 'AbortError'});
-        expect(nativeSignal?.aborted).toBe(true);
-        expect(mocks.runNativeCommand).toHaveBeenCalledTimes(1);
     });
 });

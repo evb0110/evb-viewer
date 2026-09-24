@@ -194,17 +194,13 @@ jobs:
         with:
           artifact-name: electron-macos-${{ matrix.lane }}-${{ github.run_attempt }}
 
-  # High-zoom search over a generated large document with the native search
-  # sidecar and its own apply budget.
+  # High-zoom search over a generated large document with its own apply budget.
   nightly_electron_e2e_search_match_scroll:
     name: Electron E2E Search Match Scroll
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       EVB_E2E_TIMING_BUDGETS: enforce
-      EVB_PDF_SEARCH_ENABLE: '1'
-      EVB_SEARCH_REQUEST_TIMEOUT_MS: '180000'
-      EVB_PDF_SEARCH_TIMEOUT_MS: '180000'
 
     steps:
       - name: Checkout
@@ -218,9 +214,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           verify-electron: 'true'
           wasm: 'true'
-
-      - name: Build native search
-        run: pnpm run build:pdf-search
 
       - name: Electron E2E search match scroll
         run: pnpm run test:e2e e2e-search --reporter verbose

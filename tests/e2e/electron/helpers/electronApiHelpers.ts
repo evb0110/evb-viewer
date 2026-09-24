@@ -10,14 +10,14 @@ import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { extractTextWithPdfjs } from '@electron/features/search/extractTextWithPdfjs';
+import { extractTextWithPdfjs } from '@tests/helpers/pdfjsNodeText';
 
 function normalizeSemanticText(value: string) {
     return value.replace(/\s+/gu, ' ').trim().toLocaleLowerCase();
 }
 
 export async function assertOcrPdfSemanticOutput(pdfPath: string, expectedText: string) {
-    const recognizedText = (await extractTextWithPdfjs(pdfPath, {forcePdfjs: true}))
+    const recognizedText = (await extractTextWithPdfjs(pdfPath))
         .map(page => page.text)
         .join(' ')
         .replace(/\s+/gu, ' ')

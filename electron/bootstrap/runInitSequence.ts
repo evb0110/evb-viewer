@@ -77,10 +77,7 @@ export interface IRunInitSequenceOptions {
     allowOpenPaths(paths: string[], webContents: WebContents): void;
     attachHostEnvironmentToWindow(window: BrowserWindow): void;
     broadcastUpdateStatus(status: IAppUpdateStatus): void;
-    cleanupStaleWorkingCopyDirectories(): Promise<{
-        removedDirectories: number;
-        removedOcrDirectories: number;
-    }>;
+    cleanupStaleWorkingCopyDirectories(): Promise<{removedDirectories: number}>;
     cleanupStaleAppTempNamespaces?: () => Promise<number>;
     reapOrphanedScanCleanupSidecars?: () => Promise<unknown>;
     createWindow(options?: {
@@ -483,10 +480,8 @@ function createPostRendererReadyMaintenanceRunner(
             label: 'working-copy directories',
             run: async () => {
                 const result = await cleanupStaleWorkingCopyDirectories();
-                if (result.removedDirectories > 0 || result.removedOcrDirectories > 0) {
-                    logger.info(
-                        `Removed stale working-copy directories: work=${result.removedDirectories}, ocr=${result.removedOcrDirectories}`,
-                    );
+                if (result.removedDirectories > 0) {
+                    logger.info(`Removed stale working-copy directories: ${result.removedDirectories}`);
                 }
             },
         },

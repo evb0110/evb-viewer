@@ -204,7 +204,7 @@ async function loadPdfjsTextExtractor() {
     const bundlePath = join(workDirectory, 'ocr-quality-pdfjs-extractor.mjs');
     await build({
         bundle: true,
-        entryPoints: [join(repositoryRoot, 'electron', 'features', 'search', 'extractTextWithPdfjs.ts')],
+        entryPoints: [join(repositoryRoot, 'tests', 'helpers', 'pdfjsNodeText.ts')],
         format: 'esm',
         outfile: bundlePath,
         platform: 'node',
@@ -289,10 +289,7 @@ async function collectCatalogPageText(sourcePdfPath) {
 
 async function extractPdfjsPageText(pdfPath) {
     pdfjsTextExtractor ??= await loadPdfjsTextExtractor();
-    const pages = await pdfjsTextExtractor.extractTextWithPdfjs(pdfPath, {
-        collectPages: true,
-        forcePdfjs: true,
-    });
+    const pages = await pdfjsTextExtractor.extractTextWithPdfjs(pdfPath);
     return pages.map(page => page.text);
 }
 

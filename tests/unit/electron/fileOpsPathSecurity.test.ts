@@ -52,8 +52,6 @@ const mocks = vi.hoisted(() => ({
     originalPathSaveBaseMatches: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn<(path: string) => boolean>(),
     findOcrResultForDocument: vi.fn(),
-    publishPreparedOcrCatalogV4: vi.fn(),
-    rollbackPreparedOcrCatalogV4: vi.fn(),
     backingSwapCacheInvalidator: null as null | ((logicalRef: string, previousPhysicalPath: string) => Promise<void> | void),
     ensureWorkingCopyMaterialized: vi.fn(),
 }));
@@ -162,13 +160,7 @@ vi.mock('@electron/file-access/originalPathSaveWitness', async (importOriginal_1
     originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches,
 }));
 vi.mock('@electron/features/djvu/public', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
-vi.mock('@electron/features/ocr/public/index', () => ({
-    findOcrResultForDocument: mocks.findOcrResultForDocument,
-    rebindDocumentTextCatalogRevision: vi.fn(),
-    getOcrCatalogV4PreparedDescriptorPath: (path: string) => `${path}.ocr-v4-prepared.json`,
-    publishPreparedOcrCatalogV4: mocks.publishPreparedOcrCatalogV4,
-    rollbackPreparedOcrCatalogV4: mocks.rollbackPreparedOcrCatalogV4,
-}));
+vi.mock('@electron/features/ocr/public/index', () => ({findOcrResultForDocument: mocks.findOcrResultForDocument}));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: vi.fn(),
@@ -196,16 +188,6 @@ const {
     handleValidatePdfPath,
 } = await import('@electron/features/documents/main/documentPdfValidationHandlers');
 const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
-
-function expectAtomicJournalWrite(journalPath: string, fragment: string) {
-    expect(mocks.rename).toHaveBeenCalledWith(
-        expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
-        journalPath,
-    );
-    const writtenText = mocks.writeFile.mock.calls
-        .map(([payload]) => payload instanceof Uint8Array ? Buffer.from(payload).toString('utf8') : null);
-    expect(writtenText).toContainEqual(expect.stringContaining(fragment));
-}
 
 describe('fileOps path security', () => {
     const readContext = {senderId: 42};
@@ -245,8 +227,6 @@ describe('fileOps path security', () => {
         });
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
-        mocks.publishPreparedOcrCatalogV4.mockResolvedValue({});
-        mocks.rollbackPreparedOcrCatalogV4.mockResolvedValue(true);
         mocks.markWorkingCopyContentChanged.mockResolvedValue({});
         mocks.transitionWorkingCopyContentRevision.mockImplementation(async (
             _path: string,
@@ -494,31 +474,9 @@ describe('fileOps path security', () => {
         expect(mocks.transitionWorkingCopyContentRevision).not.toHaveBeenCalled();
     });
 
-    function stagePreparedOcrCatalog() {
-        mocks.readFile.mockImplementation(async (path: string) => (path.endsWith('.ocr-v4-prepared.json')
-            ? JSON.stringify({
-                version: 1,
-                catalogId: '00000000-0000-4000-8000-000000000001',
-                catalogRoot: '/tmp/electron-test/work.pdf.ocr',
-                sourceRootGeneration: null,
-                sourceRootRevisionToken: null,
-                stagedGeneration: 1,
-                pageCount: 1,
-                resultPath: '/tmp/electron-test/ocr-1-merged.pdf',
-                resultIdentity: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
-                createdAt: '2026-08-27T00:00:00.000Z',
-            })
-            : Buffer.from([
-                1,
-                2,
-                3,
-            ])));
-    }
-
     it('atomically replaces a managed working copy from an OCR result file path', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
-        stagePreparedOcrCatalog();
 
         await handleReplaceWorkingCopyFromPath(
             writeContext,
@@ -531,8 +489,7 @@ describe('fileOps path security', () => {
             ownerWebContentsId: 42,
             reason: 'ocr-persist',
         });
-        expect(mocks.copyFile).toHaveBeenNthCalledWith(
-            2,
+        expect(mocks.copyFile).toHaveBeenCalledWith(
             '/tmp/electron-test/ocr-1-merged.pdf',
             expect.stringMatching(/^\/tmp\/electron-test\/[.][0-9a-f]{16}\.tmp$/u),
         );
@@ -541,52 +498,6 @@ describe('fileOps path security', () => {
             '/tmp/electron-test/work.pdf',
         );
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
-        expect(mocks.publishPreparedOcrCatalogV4).toHaveBeenCalled();
-        expectAtomicJournalWrite('/tmp/electron-test/work.pdf.ocr-transition.json', '"targetDocumentRevisionToken":"next-revision"');
-    });
-
-    it('publishes a prepared v4 OCR root without recursively copying catalog artifacts', async () => {
-        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
-        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
-        const resultIdentity = '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81';
-        mocks.cp.mockImplementation(() => {
-            throw new Error('recursive catalog copy forbidden');
-        });
-        mocks.readFile.mockImplementation(async (path: string) => {
-            if (path.endsWith('.ocr-v4-prepared.json')) {
-                return JSON.stringify({
-                    version: 1,
-                    catalogId: '00000000-0000-4000-8000-000000000001',
-                    catalogRoot: '/tmp/electron-test/work.pdf.ocr',
-                    sourceRootGeneration: null,
-                    sourceRootRevisionToken: null,
-                    stagedGeneration: 1,
-                    pageCount: 1_000_001,
-                    resultPath: '/tmp/electron-test/ocr-1-merged.pdf',
-                    resultIdentity,
-                    createdAt: '2026-08-27T00:00:00.000Z',
-                });
-            }
-            return Buffer.from([
-                1,
-                2,
-                3,
-            ]);
-        });
-
-        await expect(handleReplaceWorkingCopyFromPath(
-            writeContext,
-            '/tmp/electron-test/work.pdf',
-            '/tmp/electron-test/ocr-1-merged.pdf',
-            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
-        )).resolves.toBe(true);
-
-        expect(mocks.cp).not.toHaveBeenCalled();
-        expect(mocks.publishPreparedOcrCatalogV4).toHaveBeenCalledWith(expect.objectContaining({
-            catalogRoot: '/tmp/electron-test/work.pdf.ocr',
-            descriptorPath: '/tmp/electron-test/ocr-1-merged.pdf.ocr-v4-prepared.json',
-            resultIdentity,
-        }));
     });
 
     it('refreshes the original save base after an OCR replacement when the previous base still matches', async () => {
@@ -597,7 +508,6 @@ describe('fileOps path security', () => {
             retired: false,
         });
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
-        stagePreparedOcrCatalog();
 
         await handleReplaceWorkingCopyFromPath(
             writeContext,
@@ -628,7 +538,6 @@ describe('fileOps path security', () => {
             retired: false,
         });
         mocks.originalPathSaveBaseMatches.mockResolvedValue(false);
-        stagePreparedOcrCatalog();
 
         await handleReplaceWorkingCopyFromPath(
             writeContext,

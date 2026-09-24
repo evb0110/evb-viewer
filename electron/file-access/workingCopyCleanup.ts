@@ -40,10 +40,6 @@ import {
     forgetWorkingCopyRevisionInitialization,
     hasWorkingCopySyncRequired,
 } from '@electron/file-access/documentRevisionStore';
-import {
-    clearPageIdentityStoreInitializations,
-    forgetPageIdentityStoreInitialization,
-} from '@electron/file-access/pageIdentityStore';
 import {cleanupStaleAtomicReplaceBackups} from '@electron/utils/atomicReplace';
 import {
     cancelWorkingCopyMaterialization,
@@ -140,19 +136,12 @@ function isRegisteredWorkingCopyDirectory(workDir: string) {
 
 async function performCleanupStaleWorkingCopyDirectories(
     options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
-): Promise<{
-    removedDirectories: number;
-    removedOcrDirectories: number;
-}> {
+): Promise<{removedDirectories: number}> {
     if (staleWorkingCopyCleanupBlockedReason) {
         logger.warn('Skipped stale working-copy cleanup for recovery preservation', {reason: staleWorkingCopyCleanupBlockedReason});
-        return {
-            removedDirectories: 0,
-            removedOcrDirectories: 0,
-        };
+        return {removedDirectories: 0};
     }
     let removedDirectories = 0;
-    let removedOcrDirectories = 0;
     const now = Date.now();
     const tempDirs = Array.from(new Set([
         resolve(getAppTempDir()),
@@ -169,7 +158,7 @@ async function performCleanupStaleWorkingCopyDirectories(
         }
     }));
     const candidates = entriesByTempDir.flat()
-        .filter(({entryName}) => isWorkingCopyDirectoryName(entryName) && !entryName.endsWith('.ocr'))
+        .filter(({entryName}) => isWorkingCopyDirectoryName(entryName))
         .slice(0, STALE_WORK_DIR_SCAN_LIMIT)
         .map(({
             entryName,
@@ -219,10 +208,7 @@ async function performCleanupStaleWorkingCopyDirectories(
     }));
 
     if (staleWorkingCopyCleanupBlockedReason) {
-        return {
-            removedDirectories,
-            removedOcrDirectories,
-        };
+        return {removedDirectories};
     }
 
     let nextCandidateIndex = 0;
@@ -262,38 +248,25 @@ async function performCleanupStaleWorkingCopyDirectories(
             if (await safeRemoveDirectory(workDir)) {
                 removedDirectories += 1;
             }
-            if (staleWorkingCopyCleanupBlockedReason) {
-                return;
-            }
-            if (await safeRemoveDirectory(`${workDir}.ocr`)) {
-                removedOcrDirectories += 1;
-            }
         }
     }));
 
     if (removedAtomicReplaceBackups > 0) {
         logger.info('Cleaned stale atomic replace backups', {removedAtomicReplaceBackups});
     }
-    if (removedDirectories > 0 || removedOcrDirectories > 0) {
+    if (removedDirectories > 0) {
         logger.info('Cleaned stale working copy temp directories', {
             removedDirectories,
-            removedOcrDirectories,
             scanned: candidates.length,
         });
     }
 
-    return {
-        removedDirectories,
-        removedOcrDirectories,
-    };
+    return {removedDirectories};
 }
 
 export function cleanupStaleWorkingCopyDirectories(
     options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
-): Promise<{
-    removedDirectories: number;
-    removedOcrDirectories: number;
-}> {
+): Promise<{removedDirectories: number}> {
     const previousCleanup = staleWorkingCopyCleanupPromise ?? Promise.resolve();
     const currentCleanup = previousCleanup.then(() => performCleanupStaleWorkingCopyDirectories(options));
     const settledCleanup = currentCleanup.then(() => undefined, () => undefined);
@@ -339,26 +312,15 @@ async function cleanupWorkingCopyDirectory(
         const isWorkingCopyDir = workDirName.startsWith('pdf-work-');
 
         if (isWithinTemp && isWorkingCopyDir) {
-            const ocrDir = `${workDir}.ocr`;
             const resolvedOriginalPath = originalPath ? normalizePathForLookup(originalPath) : null;
             if (resolvedOriginalPath && isPathWithin(workDir, resolvedOriginalPath)) {
                 logger.warn('Refused to delete a working directory containing its original backing', {workDir});
-                await rm(ocrDir, {
-                    recursive: true,
-                    force: true,
-                });
                 return;
             }
-            await Promise.all([
-                rm(workDir, {
-                    recursive: true,
-                    force: true,
-                }),
-                rm(ocrDir, {
-                    recursive: true,
-                    force: true,
-                }),
-            ]);
+            await rm(workDir, {
+                recursive: true,
+                force: true,
+            });
         }
     } catch (err) {
         logger.warn('Failed to delete working directory', {error: getErrorMessage(err)});
@@ -666,7 +628,6 @@ async function retireAndDeleteWorkingCopy(
             );
             forgetWorkingCopyOriginalPath(workingPath);
             forgetWorkingCopyRevisionInitialization(workingPath);
-            forgetPageIdentityStoreInitialization(workingPath);
             // The document is closed either way; only the bytes are in question.
             // A quarantine says some native reader was never proven dead, so the
             // directory outlives the registration and the stale sweep reclaims it.
@@ -867,7 +828,6 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
     if (workingCopyMap.size === 0) {
         clearRetiredWorkingCopyOriginals();
         clearWorkingCopyRevisionInitializations();
-        clearPageIdentityStoreInitializations();
     }
     if (skipPaths.size > 0) {
         logger.warn('Skipped shutdown deletion for working copies with pending writes or dirty sync state', {

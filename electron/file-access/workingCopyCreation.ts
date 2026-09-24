@@ -49,12 +49,10 @@ import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissin
 import { createLogger } from '@electron/utils/createLogger';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
-    ensureWorkingCopyRevision,
     initializeFreshWorkingCopyRevision,
     markWorkingCopyContentChanged,
 } from '@electron/file-access/documentRevisionStore';
 import { readWorkingCopySyncRequiredJournalEntry } from '@electron/file-access/documentRevisionSidecar';
-import {schedulePageIdentityStoreInitialization} from '@electron/file-access/pageIdentityStore';
 import {
     startBackgroundWorkingCopyMaterialization,
     ensureWorkingCopyMaterialized,
@@ -245,11 +243,8 @@ async function createWorkingCopyWithOutcomeInternal(
                 backingState,
             },
         ));
-        const revision = await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
+        await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
             initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId));
-        if (isPdf) {
-            void schedulePageIdentityStoreInitialization(workingPath, revision, originalPath);
-        }
         if (backingState === 'lazy-original' && materializationMode === 'background') {
             const backgroundMaterialization = startBackgroundWorkingCopyMaterialization(
                 workingPath,
@@ -348,11 +343,7 @@ export async function createWorkingCopyFromPath(
                 role,
             });
         }
-        const revision = await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
-        const pageIdentitySourcePath = options.mapToSourceWhenOriginalMissing === false
-            ? undefined
-            : sourcePath;
-        void schedulePageIdentityStoreInitialization(workingPath, revision, pageIdentitySourcePath);
+        await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
 
         return workingPath;
     } catch (error) {
@@ -409,8 +400,7 @@ export async function createWorkingCopyFromData(
                 role,
             });
         }
-        const revision = await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
-        void schedulePageIdentityStoreInitialization(workingPath, revision);
+        await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
 
         return workingPath;
     } catch (error) {
@@ -498,10 +488,6 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
             const role = getWorkingCopyRole(normalizedWorkingPath, senderWebContentsId) ?? 'current';
             await setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
             forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
-        }
-        if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
-            const revision = await ensureWorkingCopyRevision(normalizedWorkingPath, senderWebContentsId);
-            void schedulePageIdentityStoreInitialization(normalizedWorkingPath, revision, originalPath);
         }
         await markWorkingCopyContentChanged(normalizedWorkingPath, 'replace-working-copy', senderWebContentsId);
         logger.warn('Recreated missing working copy directory', {workingCopyPath: normalizedWorkingPath});

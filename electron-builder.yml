@@ -22,7 +22,6 @@ asarUnpack:
   - dist-electron/runtime/@napi-rs/canvas/*.node
   - dist-electron/pdfCombineWorker.js
   - dist-electron/pdfConformanceWorker.js
-  - dist-electron/search-worker.js
   - dist-electron/scan-cleanup-worker.js
 npmRebuild: false
 afterPack: ./scripts/afterPack.cjs

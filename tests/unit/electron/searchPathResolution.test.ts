@@ -74,20 +74,4 @@ describe('resolveSearchablePdfPath', () => {
 
         expect(resolved).toBeNull();
     });
-
-    it('resolves the bundled search worker beside main in development', async () => {
-        const { resolveSearchWorkerPath } = await import('@electron/features/search/main/ipc');
-
-        expect(resolveSearchWorkerPath('/tmp/evb/dist-electron')).toBe('/tmp/evb/dist-electron/search-worker.js');
-    });
-
-    it('prefers the unpacked bundled search worker path in packaged builds when present', async () => {
-        mocks.app.isPackaged = true;
-        mocks.existsSync.mockImplementation((path: string) => String(path).includes('app.asar.unpacked'));
-
-        const { resolveSearchWorkerPath } = await import('@electron/features/search/main/ipc');
-
-        expect(resolveSearchWorkerPath('/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron'))
-            .toBe('/Applications/EVB Viewer.app/Contents/Resources/app.asar.unpacked/dist-electron/search-worker.js');
-    });
 });

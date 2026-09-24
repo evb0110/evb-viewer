@@ -46,10 +46,7 @@ import {
     runOcrFileBased,
 } from '@electron/features/ocr/pipeline/tesseractRunner';
 import {tryPreprocessOcrImage} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
-import {
-    readPdfPageCount,
-    writeSearchablePdf,
-} from '@electron/features/ocr/pipeline/writeSearchablePdf';
+import {writeSearchablePdf} from '@electron/features/ocr/pipeline/writeSearchablePdf';
 import {
     buildPopplerEnv,
     createOcrRasterRenderLimits,
@@ -84,12 +81,9 @@ import {cleanupOcrTempFiles} from '@electron/features/ocr/pipeline/cleanupOcrTem
 import {persistOcrPageCheckpoint} from '@electron/features/ocr/pipeline/persistOcrPageCheckpoint';
 import {
     getLastOcrSelectionPage,
-    getOcrSelectionLanguages,
-    iterateCheckpointPageData,
     iterateCheckpointPageResults,
     normalizeOcrPageSelection,
 } from '@electron/features/ocr/pipeline/ocrPageSelectionStream';
-import {writeOcrIndexes} from '@electron/features/ocr/pipeline/writeOcrIndexes';
 import {getOcrRuntimePolicy} from '@electron/features/ocr/main/ocrRuntimePolicy';
 import {
     mainJobBroker,
@@ -818,7 +812,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             throwIfAborted(jobSignal);
             const selection = await selectOcrPagesForSupersession({
                 sourcePdfPath,
-                documentRevisionToken: documentRevision.token,
                 pages: requestBatch,
                 supersessionPolicy,
                 ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
@@ -910,10 +903,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             };
         }
 
-        const pageCountResult = await readPdfPageCount(paths.qpdfBinary, sourcePdfPath, lastPage, jobSignal);
-        const pageCount = pageCountResult.pageCount;
-        appendMessages(completionMessages, pageCountResult.warnings);
-
         throwIfAborted(jobSignal);
         publish(getFirstSelectionPage(requestedSelection), 0, {phase: 'merging'});
         await durableManifest.markNode('assembled-document', 'running');
@@ -954,24 +943,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
 
         throwIfAborted(jobSignal);
         const resultSha256 = await sha256OcrFile(mergedPdfPath, jobSignal);
-        publish(getFirstSelectionPage(requestedSelection), 0, {phase: 'indexing'});
-        await durableManifest.markNode('text-catalog', 'running');
-        appendMessages(completionMessages, await writeOcrIndexes({
-            sourcePdfPath,
-            stagedResultPdfPath: mergedPdfPath,
-            resultIdentity: resultSha256,
-            documentRevision,
-            ocrPageData: iterateCheckpointPageData(requestedSelection, checkpointDir, jobSignal),
-            successfulPageCount,
-            pageCount,
-            allLanguages: getOcrSelectionLanguages(requestedSelection),
-            effectiveRenderDpi: actualRenderDpi,
-            signal: jobSignal,
-            tempDir: paths.tempDir,
-            log,
-            storageBudget,
-        }));
-        await durableManifest.markNode('text-catalog', 'verified');
         await durableManifest.markNode('verified-result', 'verified');
         publish(lastPage, requestedPageCount, {
             phase: 'indexing',
@@ -979,9 +950,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         });
 
         keepFiles.add(mergedPdfPath);
-        // The catalog descriptor stays beside the staged PDF until the
-        // result is applied or discarded.
-        keepFiles.add(`${mergedPdfPath}.ocr-v4-prepared.json`);
         await durableManifest.setTerminal('completed');
         return {
             success: true,

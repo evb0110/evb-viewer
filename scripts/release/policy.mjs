@@ -278,7 +278,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/check-build-*.mjs',
                 'scripts/check-electron-builder-asar-unpack.mjs',
                 'scripts/check-native-tools-source-matrix.sh',
-                'scripts/checkSearchNativeParity.ts',
                 'scripts/ci/classify-changed-areas.mjs',
                 'scripts/ci/scan-cleanup-oracles.sh',
                 'scripts/generateBuildArtifacts.ts',

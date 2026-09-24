@@ -3,7 +3,6 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
-import type * as TFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
@@ -14,7 +13,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
 import type { IOcrPdfPageRequest } from '@electron/features/ocr/pipeline/types';
 
@@ -49,48 +47,12 @@ const probe = vi.hoisted(() => {
 
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: probe.runPdftotext}));
 
-const catalogReads = vi.hoisted(() => ({
-    files: [] as string[],
-    recording: false,
-}));
-
-vi.mock('node:fs/promises', async (importActual) => {
-    const actual = await importActual<typeof TFsPromises>();
-    const readFile = ((...args: Parameters<typeof actual.readFile>) => {
-        const target = String(args[0]);
-        if (catalogReads.recording && /\.ocr[\\/]/u.test(target)) {
-            catalogReads.files.push(target.split(/[\\/]/u).at(-1) ?? target);
-        }
-        return actual.readFile(...args);
-    }) as typeof actual.readFile;
-    const open = ((...args: Parameters<typeof actual.open>) => {
-        const target = String(args[0]);
-        if (catalogReads.recording && /\.ocr[\\/]/u.test(target)) {
-            catalogReads.files.push(target.split(/[\\/]/u).at(-1) ?? target);
-        }
-        return actual.open(...args);
-    }) as typeof actual.open;
-    return {
-        ...actual,
-        default: {
-            ...actual,
-            readFile,
-            open,
-        },
-        readFile,
-        open,
-    };
-});
-
-vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: () => Promise.resolve()}));
-
 const { selectOcrPagesForSupersession } = await import('@electron/features/ocr/pipeline/selectOcrPagesForSupersession');
 const {
     getOcrPageSelectionCount,
     iterateOcrPageRequestBatches,
     validateCreateSearchablePdfPayload,
 } = await import('@electron/features/ocr/contracts');
-const { writeOcrIndexV4 } = await import('@electron/features/ocr/pipeline/indexWriterV4');
 
 let tempDir: string | null = null;
 
@@ -123,7 +85,6 @@ function runSelection(
 ) {
     return selectOcrPagesForSupersession({
         sourcePdfPath,
-        documentRevisionToken: requireDocumentRevisionToken('revision-1'),
         pages: pageRequests(pageNumbers),
         supersessionPolicy,
         pdftotextBinary: '/fake/pdftotext',
@@ -137,52 +98,10 @@ function runSelection(
     });
 }
 
-const CURRENT_REVISION = requireDocumentRevisionToken('revision-1');
-
-async function writeCatalogWithOcrWorker(
-    sourcePdfPath: string,
-    pageNumbers: readonly number[],
-    pageCount = pageNumbers.length,
-    revision: string = CURRENT_REVISION,
-) {
-    await writeOcrIndexV4({
-        catalogRoot: `${sourcePdfPath}.ocr`,
-        sourcePdfPath,
-        documentRevision: requireDocumentRevisionToken(revision),
-        pageCount,
-        pageBatches: [pageNumbers.map(pageNumber => ({
-            pageNumber,
-            text: `evb ocr text ${pageNumber}`,
-            words: [{
-                text: 'evb',
-                x: 10,
-                y: 20,
-                width: 30,
-                height: 12,
-            }],
-            imageWidth: 1200,
-            imageHeight: 1600,
-        }))],
-    });
-}
-
-function recordCatalogReads() {
-    catalogReads.files = [];
-    catalogReads.recording = true;
-}
-
-function expectBoundedCatalogReads() {
-    expect(catalogReads.files.length).toBeGreaterThan(0);
-    // Mappings come from the catalog index; no page artifact is opened.
-    expect(catalogReads.files.every(file => !/^p\d+\.json$/u.test(file))).toBe(true);
-}
-
 afterEach(async () => {
     probe.state.invocations = [];
     probe.state.textByPage = new Map();
     probe.state.fail = false;
-    catalogReads.files = [];
-    catalogReads.recording = false;
     if (tempDir) {
         await rm(tempDir, {
             recursive: true,
@@ -324,11 +243,6 @@ describe('OCR supersession page selection', () => {
 
     it('reports a failed text probe instead of silently treating pages as text bearing', async () => {
         const sourcePdfPath = await createSourcePdf(3);
-        await writeCatalogWithOcrWorker(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ]);
         probe.state.fail = true;
         const logs: Array<[string, string]> = [];
 
@@ -348,13 +262,8 @@ describe('OCR supersession page selection', () => {
         expect(selection.warnings.some(warning => warning.includes('pdftotext exploded'))).toBe(true);
     });
 
-    it('allows explicit replacement policies to continue when the text probe fails', async () => {
+    it('lets replace-all continue when the text probe fails', async () => {
         const sourcePdfPath = await createSourcePdf(3);
-        await writeCatalogWithOcrWorker(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ]);
         probe.state.fail = true;
 
         const replaceEvb = await runSelection(sourcePdfPath, [
@@ -362,12 +271,8 @@ describe('OCR supersession page selection', () => {
             2,
             3,
         ], [], 'replace-evb');
-        expect(replaceEvb.pages.map(page => page.pageNumber)).toEqual([
-            1,
-            2,
-            3,
-        ]);
-        expect(replaceEvb.warnings.filter(warning => warning.includes('Scheduled page'))).toHaveLength(3);
+        // Without an EVB OCR layer in the page streams there is nothing to replace.
+        expect(replaceEvb.pages).toEqual([]);
 
         const replaceAll = await runSelection(sourcePdfPath, [
             1,
@@ -379,98 +284,6 @@ describe('OCR supersession page selection', () => {
             2,
             3,
         ]);
-    });
-
-    it('recognises its own OCR output from the manifest without opening page artifacts', async () => {
-        const sourcePdfPath = await createSourcePdf(3);
-        await writeCatalogWithOcrWorker(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ]);
-        probe.state.textByPage = new Map([
-            [
-                1,
-                'evb ocr text 1',
-            ],
-            [
-                2,
-                'evb ocr text 2',
-            ],
-            [
-                3,
-                'evb ocr text 3',
-            ],
-        ]);
-        recordCatalogReads();
-
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], []);
-
-        expect(selection.pages).toEqual([]);
-        expect(selection.diagnostics.map(diagnostic => diagnostic.pageNumber)).toEqual([
-            1,
-            2,
-            3,
-        ]);
-        expectBoundedCatalogReads();
-    });
-
-    it('keeps pages from an earlier run current after a partial re-OCR', async () => {
-        const sourcePdfPath = await createSourcePdf(3);
-        await writeCatalogWithOcrWorker(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ]);
-        await writeCatalogWithOcrWorker(sourcePdfPath, [2], 3);
-        probe.state.textByPage = new Map([
-            [
-                1,
-                'evb ocr text 1',
-            ],
-            [
-                2,
-                'evb ocr text 2',
-            ],
-            [
-                3,
-                'evb ocr text 3',
-            ],
-        ]);
-        recordCatalogReads();
-
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], []);
-
-        expect(selection.pages).toEqual([]);
-        expectBoundedCatalogReads();
-    });
-
-    it('ignores a catalog left behind by an earlier document revision', async () => {
-        const sourcePdfPath = await createSourcePdf(2);
-        await writeCatalogWithOcrWorker(sourcePdfPath, [
-            1,
-            2,
-        ], 2, 'revision-0');
-        recordCatalogReads();
-
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-        ], []);
-
-        expect(selection.pages.map(page => page.pageNumber)).toEqual([
-            1,
-            2,
-        ]);
-        expectBoundedCatalogReads();
     });
 
     it('reports degraded text visibility analysis instead of swallowing it', async () => {

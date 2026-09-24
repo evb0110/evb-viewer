@@ -17,8 +17,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {requireRequestId} from '@contracts/shared';
-import type {ISearchDjvuTextOptions} from '@electron/features/djvu/main/textSearch';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import {
@@ -52,7 +50,6 @@ const mocks = vi.hoisted(() => ({
     pruneStaleDjvuArtifactJobs: vi.fn(),
     getRecentFiles: vi.fn(),
     readDjvuPageText: vi.fn(),
-    searchDjvuText: vi.fn(),
     safeSendToWindow: vi.fn(),
     senderSend: vi.fn(),
     hostResourceTier: 'high' as 'low' | 'medium' | 'high',
@@ -103,10 +100,7 @@ vi.mock('@electron/features/djvu/main/pagePreview', () => ({
     renderDjvuPagePreview: mocks.renderDjvuPagePreview,
 }));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({cancelConversion: mocks.cancelConversion}));
-vi.mock('@electron/features/djvu/main/textSearch', () => ({
-    readDjvuPageText: mocks.readDjvuPageText,
-    searchDjvuText: mocks.searchDjvuText,
-}));
+vi.mock('@electron/features/djvu/main/textSearch', () => ({readDjvuPageText: mocks.readDjvuPageText}));
 vi.mock('@electron/features/djvu/main/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
     logicalCpus: 8,
@@ -156,36 +150,6 @@ function getHandler(channel: string) {
         throw new Error(`IPC handler is not registered for channel "${channel}"`);
     }
     return handler;
-}
-
-async function createAuthorizedSearchHarness(senderId: number) {
-    const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-search-progress-test-'));
-    const realPath = join(tempRoot, 'real.djvu');
-    writeFileSync(realPath, new Uint8Array([1]));
-    const event = createIpcEvent(senderId);
-    const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-    allowOpenPath(realPath, event.sender as never);
-    registerDjvuIpcAdapter();
-    return {
-        event,
-        realPath,
-        cleanup() {
-            rmSync(tempRoot, {
-                force: true,
-                recursive: true,
-            });
-        },
-    };
-}
-
-function getSentTextSearchProgress() {
-    return mocks.senderSend.mock.calls.flatMap(([
-        channel,
-        payload,
-    ]) => channel === 'djvu:text:progress' ? [payload as {
-        processed: number;
-        status: string
-    }] : []);
 }
 
 interface IPreviewResult {
@@ -264,10 +228,6 @@ describe('registerDjvuIpcAdapter', () => {
         mocks.cleanupDjvuTempPdfPath.mockResolvedValue(undefined);
         mocks.pruneStaleDjvuArtifactJobs.mockResolvedValue(0);
         mocks.getRecentFiles.mockResolvedValue([]);
-        mocks.searchDjvuText.mockResolvedValue({
-            results: [],
-            truncated: false,
-        });
     });
 
     it('prunes only manifest-owned stale artifact jobs during registration', () => {
@@ -282,286 +242,6 @@ describe('registerDjvuIpcAdapter', () => {
         registerDjvuIpcAdapter();
 
         expect(mocks.pruneStaleDjvuArtifactJobs).not.toHaveBeenCalled();
-    });
-
-    it('runs a full-document text search through one authorized native operation', async () => {
-        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-text-search-test-'));
-        try {
-            const realPath = join(tempRoot, 'real.djvu');
-            writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
-            const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
-            const event = createIpcEvent(1);
-            allowOpenPath(realPath, event.sender as never);
-            registerDjvuIpcAdapter();
-            mocks.searchDjvuText.mockResolvedValue({
-                results: [{
-                    pageNumber: 9,
-                    pageMatchIndex: 0,
-                    matchIndex: 0,
-                    startOffset: 0,
-                    endOffset: 6,
-                    excerpt: {
-                        before: '',
-                        match: 'needle',
-                        after: '',
-                    },
-                }],
-                truncated: false,
-            });
-
-            await expect(getHandler('djvu:text:search')(
-                event,
-                realPath,
-                'needle',
-                {
-                    requestId: 'native-search',
-                    pageCount: 431,
-                    matchCase: false,
-                    wholeWord: true,
-                    useRegex: false,
-                },
-            )).resolves.toMatchObject({results: [{pageNumber: 9}]});
-
-            expect(mocks.searchDjvuText).toHaveBeenCalledOnce();
-            expect(mocks.searchDjvuText).toHaveBeenCalledWith(
-                canonicalRealPath,
-                expect.objectContaining({
-                    requestId: 'native-search',
-                    pageCount: 431,
-                    query: 'needle',
-                    matchOptions: {
-                        matchCase: false,
-                        wholeWord: true,
-                        useRegex: false,
-                    },
-                    signal: expect.any(AbortSignal),
-                }),
-            );
-        } finally {
-            rmSync(tempRoot, {
-                force: true,
-                recursive: true,
-            });
-        }
-    });
-
-    it('reports the actual early-truncation page without inflating terminal success progress', async () => {
-        const harness = await createAuthorizedSearchHarness(21);
-        try {
-            mocks.searchDjvuText.mockImplementation(async (
-                _path: string,
-                options: ISearchDjvuTextOptions,
-            ) => {
-                options.onProgress?.({
-                    requestId: options.requestId,
-                    processed: 32,
-                    total: options.pageCount,
-                    status: 'running',
-                });
-                options.onPageProcessed?.(37);
-                return {
-                    results: [],
-                    truncated: true,
-                };
-            });
-
-            await expect(getHandler('djvu:text:search')(
-                harness.event,
-                harness.realPath,
-                'needle',
-                {
-                    requestId: 'truncated-progress',
-                    pageCount: 431,
-                },
-            )).resolves.toMatchObject({truncated: true});
-
-            const progress = getSentTextSearchProgress();
-            expect(progress.map(item => item.processed)).toEqual([
-                32,
-                37,
-            ]);
-            expect(progress.at(-1)).toEqual(expect.objectContaining({
-                processed: 37,
-                status: 'success',
-            }));
-        } finally {
-            harness.cleanup();
-        }
-    });
-
-    it('keeps canceled terminal progress at the last actually processed page', async () => {
-        const harness = await createAuthorizedSearchHarness(22);
-        try {
-            mocks.searchDjvuText.mockImplementation(async (
-                _path: string,
-                options: ISearchDjvuTextOptions,
-            ) => {
-                options.onProgress?.({
-                    requestId: options.requestId,
-                    processed: 16,
-                    total: options.pageCount,
-                    status: 'running',
-                });
-                options.onPageProcessed?.(23);
-                throw new DOMException('Operation aborted', 'AbortError');
-            });
-
-            await expect(getHandler('djvu:text:search')(
-                harness.event,
-                harness.realPath,
-                'needle',
-                {
-                    requestId: 'canceled-progress',
-                    pageCount: 431,
-                },
-            )).resolves.toMatchObject({canceled: true});
-
-            const progress = getSentTextSearchProgress();
-            expect(progress.map(item => item.processed)).toEqual([
-                16,
-                23,
-            ]);
-            expect(progress.at(-1)).toEqual(expect.objectContaining({
-                processed: 23,
-                status: 'canceled',
-            }));
-        } finally {
-            harness.cleanup();
-        }
-    });
-
-    it('suppresses stale progress and terminal events after a native request ID is superseded', async () => {
-        const harness = await createAuthorizedSearchHarness(24);
-        const runs = [
-            createDeferred<{
-                results: [];
-                truncated: false
-            }>(),
-            createDeferred<{
-                results: [];
-                truncated: false
-            }>(),
-            createDeferred<{
-                results: [];
-                truncated: false
-            }>(),
-        ];
-        const searchOptions: ISearchDjvuTextOptions[] = [];
-        try {
-            mocks.searchDjvuText.mockImplementation((
-                _path: string,
-                options: ISearchDjvuTextOptions,
-            ) => {
-                searchOptions.push(options);
-                return runs[searchOptions.length - 1]!.promise;
-            });
-            const handler = getHandler('djvu:text:search');
-            const request = {
-                requestId: requireRequestId('reused-native-search'),
-                pageCount: 431,
-            };
-
-            const firstRun = handler(harness.event, harness.realPath, 'first', request);
-            await vi.waitFor(() => expect(searchOptions).toHaveLength(1));
-            const secondRun = handler(harness.event, harness.realPath, 'second', request);
-            await vi.waitFor(() => expect(searchOptions).toHaveLength(2));
-            const currentRun = handler(harness.event, harness.realPath, 'current', request);
-            await vi.waitFor(() => expect(searchOptions).toHaveLength(3));
-
-            expect(searchOptions[0]!.signal!.aborted).toBe(true);
-            expect(searchOptions[1]!.signal!.aborted).toBe(true);
-            expect(searchOptions[2]!.signal!.aborted).toBe(false);
-
-            searchOptions[0]!.onProgress?.({
-                requestId: request.requestId,
-                processed: 101,
-                total: request.pageCount,
-                status: 'running',
-            });
-            searchOptions[1]!.onProgress?.({
-                requestId: request.requestId,
-                processed: 202,
-                total: request.pageCount,
-                status: 'running',
-            });
-            searchOptions[2]!.onProgress?.({
-                requestId: request.requestId,
-                processed: 3,
-                total: request.pageCount,
-                status: 'running',
-            });
-
-            runs[0]!.reject(new DOMException('Operation aborted', 'AbortError'));
-            runs[1]!.resolve({
-                results: [],
-                truncated: false,
-            });
-            runs[2]!.resolve({
-                results: [],
-                truncated: false,
-            });
-
-            await expect(firstRun).resolves.toMatchObject({canceled: true});
-            await expect(secondRun).resolves.toMatchObject({canceled: true});
-            await expect(currentRun).resolves.toEqual({
-                results: [],
-                truncated: false,
-            });
-
-            const progress = getSentTextSearchProgress();
-            expect(progress.map(item => item.processed)).toEqual([
-                3,
-                3,
-            ]);
-            expect(progress.map(item => item.status)).toEqual([
-                'running',
-                'success',
-            ]);
-        } finally {
-            harness.cleanup();
-        }
-    });
-
-    it('keeps failed terminal progress at the last actually processed page', async () => {
-        const harness = await createAuthorizedSearchHarness(23);
-        try {
-            mocks.searchDjvuText.mockImplementation(async (
-                _path: string,
-                options: ISearchDjvuTextOptions,
-            ) => {
-                options.onProgress?.({
-                    requestId: options.requestId,
-                    processed: 24,
-                    total: options.pageCount,
-                    status: 'running',
-                });
-                options.onPageProcessed?.(41);
-                throw new Error('native parser failed');
-            });
-
-            await expect(getHandler('djvu:text:search')(
-                harness.event,
-                harness.realPath,
-                'needle',
-                {
-                    requestId: 'failed-progress',
-                    pageCount: 431,
-                },
-            )).rejects.toThrow('native parser failed');
-
-            const progress = getSentTextSearchProgress();
-            expect(progress.map(item => item.processed)).toEqual([
-                24,
-                41,
-            ]);
-            expect(progress.at(-1)).toEqual(expect.objectContaining({
-                processed: 41,
-                status: 'failed',
-            }));
-        } finally {
-            harness.cleanup();
-        }
     });
 
     it('releases viewing paths without requiring the source file to still exist', () => {

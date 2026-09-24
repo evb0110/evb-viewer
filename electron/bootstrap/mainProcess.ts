@@ -68,7 +68,7 @@ import {
     recoverOcrJobManager,
     shutdownOcrJobManager,
 } from '@electron/features/ocr/public';
-import {searchWorkerService} from '@electron/features/search/public';
+import {searchService} from '@electron/features/search/public';
 import {
     captureMainFailure,
     consumeStartupCrashMarker,
@@ -300,7 +300,7 @@ const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({asy
     if (subsystem === 'ocr') {
         await recoverOcrJobManager();
     } else if (subsystem === 'search') {
-        await searchWorkerService.cleanupAll('unhandled rejection threshold');
+        searchService.cancelAll('unhandled rejection threshold');
     } else if (subsystem === 'agent') {
         await shutdownAgentAssistantIfLoaded();
     } else if (subsystem === 'djvu') {
@@ -551,9 +551,8 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             run: () => shutdownAgentAssistantIfLoaded(),
         },
         {
-            label: 'search-workers',
-            timeoutMs: 12_000,
-            run: () => searchWorkerService.shutdown('App shutting down'),
+            label: 'search',
+            run: () => searchService.shutdown(),
         },
         {
             label: 'mcp-server',

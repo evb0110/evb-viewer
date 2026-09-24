@@ -8,8 +8,6 @@ import {
 } from '@electron/file-access/documentFileWriteAtomic';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {withOriginalPathMutationLock} from '@electron/features/documents/main/withOriginalPathMutationLock';
-import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
-import {rebindDocumentTextCatalogIfPresent} from '@electron/file-access/rebindDocumentTextCatalogIfPresent';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {
@@ -67,11 +65,6 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         let shouldRestoreOriginal = false as boolean;
         let originalRestoredByRollback = false as boolean;
         try {
-            const previousRevision = await measureTransitionPhase(
-                'transition-read-revision',
-                input.onPhase,
-                () => readWorkingCopyRevisionSidecar(input.workingCopyPath),
-            );
             try {
                 await measureTransitionPhase('transition-backup-original', input.onPhase, () =>
                     linkOrCopyFileDurably(input.originalPath, originalBackupPath));
@@ -131,12 +124,6 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         input.onPhase,
                         async () => witness?.assertCurrent({allowBackupMetadataChange: true}),
                     );
-                    await measureTransitionPhase('transition-rebind-ocr', input.onPhase, () =>
-                        rebindDocumentTextCatalogIfPresent(
-                            input.workingCopyPath,
-                            previousRevision?.token,
-                            nextRevision.token,
-                        ));
                     if (input.afterWorkingCopySync) {
                         await measureTransitionPhase(
                             'transition-after-working-copy-sync',

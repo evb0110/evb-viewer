@@ -1,11 +1,5 @@
-import {
-    rm,
-    unlink,
-} from 'fs/promises';
-import { isErrnoException } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { getNativeCompactSearchIndexPath as getCompactSearchIndexPath } from '@electron/features/search/publicNative';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import {
@@ -313,36 +307,3 @@ export function enqueueWorkingCopyMutation<T>(
     return operationPromise;
 }
 
-async function unlinkIfPresent(filePath: string) {
-    try {
-        await unlink(filePath);
-    } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (code !== 'ENOENT') {
-            log.debug('Failed to remove page-op artifact', {
-                filePath,
-                error: getErrorMessage(error),
-            });
-        }
-    }
-}
-
-export async function clearWorkingCopyOcrArtifacts(workingCopyPath: string) {
-    await Promise.all([
-        rm(`${workingCopyPath}.ocr`, {
-            recursive: true,
-            force: true,
-        }).catch(error => {
-            log.debug('Failed to remove OCR sidecar for page-op mutation', {error: getErrorMessage(error)});
-        }),
-        unlinkIfPresent(`${workingCopyPath}.index.json`),
-        unlinkIfPresent(getCompactSearchIndexPath(workingCopyPath)),
-    ]);
-}
-
-export async function clearWorkingCopySearchArtifacts(workingCopyPath: string) {
-    await Promise.all([
-        unlinkIfPresent(`${workingCopyPath}.index.json`),
-        unlinkIfPresent(getCompactSearchIndexPath(workingCopyPath)),
-    ]);
-}

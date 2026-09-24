@@ -22,10 +22,8 @@ const mocks = vi.hoisted(() => ({
     handleOcrCancel: vi.fn(),
     handleOcrAcknowledgeResultFile: vi.fn(),
     getWorkingCopyBackingEntry: vi.fn(),
-    resolveDocumentOcrAvailability: vi.fn(),
-    resolveDocumentOcrPage: vi.fn(),
-    resolveDocumentTextCatalogSnapshot: vi.fn(),
-    resolveDocumentTextCatalogWindow: vi.fn(),
+    readDocumentTextSnapshot: vi.fn(),
+    readDocumentTextWindow: vi.fn(),
     resolveAllowedReadPath: vi.fn<(path: string) => Promise<string | null>>(),
     runWithWorkingCopyReadBacking: vi.fn(),
     ensureWorkingCopyMaterialized: vi.fn(),
@@ -79,11 +77,9 @@ vi.mock('@electron/features/ocr/main/jobManager', () => ({
     handleOcrAcknowledgeResultFile: mocks.handleOcrAcknowledgeResultFile,
     subscribeManagedOcrProgress: vi.fn(),
 }));
-vi.mock('@electron/features/ocr/main/documentTextCatalog', () => ({
-    resolveDocumentOcrAvailability: (...args: unknown[]) => mocks.resolveDocumentOcrAvailability(...args),
-    resolveDocumentOcrPage: (...args: unknown[]) => mocks.resolveDocumentOcrPage(...args),
-    resolveDocumentTextCatalogSnapshot: (...args: unknown[]) => mocks.resolveDocumentTextCatalogSnapshot(...args),
-    resolveDocumentTextCatalogWindow: (...args: unknown[]) => mocks.resolveDocumentTextCatalogWindow(...args),
+vi.mock('@electron/features/ocr/main/documentText', () => ({
+    readDocumentTextSnapshot: (...args: unknown[]) => mocks.readDocumentTextSnapshot(...args),
+    readDocumentTextWindow: (...args: unknown[]) => mocks.readDocumentTextWindow(...args),
 }));
 
 const { ocrMainBindings } = await import('@electron/features/ocr/mainBindings');
@@ -142,16 +138,8 @@ describe('OCR platform feature main bindings', () => {
         });
         mocks.handleOcrCancel.mockReturnValue({ canceled: true });
         mocks.handleOcrAcknowledgeResultFile.mockResolvedValue({ cleaned: true });
-        mocks.resolveDocumentOcrAvailability.mockResolvedValue({
-            pageCount: 0,
-            pageNumbers: [],
-        });
-        mocks.resolveDocumentOcrPage.mockResolvedValue({
-            pageCount: 0,
-            page: null,
-        });
-        mocks.resolveDocumentTextCatalogSnapshot.mockResolvedValue({pages: []});
-        mocks.resolveDocumentTextCatalogWindow.mockResolvedValue({pages: []});
+        mocks.readDocumentTextSnapshot.mockResolvedValue({pages: []});
+        mocks.readDocumentTextWindow.mockResolvedValue({pages: []});
         registerOcrFeatureHandlers();
     });
 
@@ -181,26 +169,12 @@ describe('OCR platform feature main bindings', () => {
 
         expect(mocks.resolveAllowedReadPath).not.toHaveBeenCalled();
         expect(mocks.resolveAllowedWritePath).toHaveBeenCalledWith(logicalPath);
-        expect(mocks.resolveDocumentTextCatalogSnapshot).toHaveBeenCalledWith(
+        expect(mocks.readDocumentTextSnapshot).toHaveBeenCalledWith(
             logicalPath,
+            physicalPath,
             revision,
             1,
-            {
-                sourcePdfPath: physicalPath,
-                signal: expect.any(AbortSignal),
-            },
-        );
-
-        const availabilityHandler = getHandler('ocr:resolveDocumentOcrAvailability');
-        await availabilityHandler(
-            {sender: createMockSender(31)},
-            logicalPath,
-            revision,
-        );
-        expect(mocks.resolveDocumentOcrAvailability).toHaveBeenCalledWith(
-            logicalPath,
-            revision,
-            {signal: expect.any(AbortSignal)},
+            expect.any(AbortSignal),
         );
     });
 
@@ -215,10 +189,10 @@ describe('OCR platform feature main bindings', () => {
             canceled: false,
             reason: 'not-found',
         });
-        mocks.resolveDocumentTextCatalogSnapshot.mockImplementationOnce(async (...args: unknown[]) => {
-            const options = args[3] as {signal?: AbortSignal};
+        mocks.readDocumentTextSnapshot.mockImplementationOnce(async (...args: unknown[]) => {
+            const signal = args[4] as AbortSignal;
             await readGate;
-            options.signal?.throwIfAborted();
+            signal.throwIfAborted();
             return {pages: []};
         });
 
@@ -229,14 +203,14 @@ describe('OCR platform feature main bindings', () => {
             1,
             requestId,
         );
-        await vi.waitFor(() => expect(mocks.resolveDocumentTextCatalogSnapshot).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(mocks.readDocumentTextSnapshot).toHaveBeenCalledTimes(1));
 
         expect(getHandler('ocr:cancel')(
             {sender: createMockSender(43)},
             requestId,
         )).toMatchObject({canceled: true});
-        const options = mocks.resolveDocumentTextCatalogSnapshot.mock.calls[0]?.[3] as {signal?: AbortSignal};
-        expect(options.signal?.aborted).toBe(true);
+        const signal = mocks.readDocumentTextSnapshot.mock.calls[0]?.[4] as AbortSignal;
+        expect(signal.aborted).toBe(true);
 
         releaseRead?.();
         await expect(readPromise).rejects.toMatchObject({name: 'AbortError'});
@@ -253,10 +227,10 @@ describe('OCR platform feature main bindings', () => {
             canceled: false,
             reason: 'not-found',
         });
-        mocks.resolveDocumentTextCatalogWindow.mockImplementationOnce(async (...args: unknown[]) => {
-            const options = args[5] as {signal?: AbortSignal};
+        mocks.readDocumentTextWindow.mockImplementationOnce(async (...args: unknown[]) => {
+            const signal = args[4] as AbortSignal;
             await readGate;
-            options.signal?.throwIfAborted();
+            signal.throwIfAborted();
             return {pages: []};
         });
 
@@ -269,14 +243,14 @@ describe('OCR platform feature main bindings', () => {
             100_001,
             requestId,
         );
-        await vi.waitFor(() => expect(mocks.resolveDocumentTextCatalogWindow).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(mocks.readDocumentTextWindow).toHaveBeenCalledTimes(1));
 
         expect(getHandler('ocr:cancel')(
             {sender: createMockSender(44)},
             requestId,
         )).toMatchObject({canceled: true});
-        const options = mocks.resolveDocumentTextCatalogWindow.mock.calls[0]?.[5] as {signal?: AbortSignal};
-        expect(options.signal?.aborted).toBe(true);
+        const signal = mocks.readDocumentTextWindow.mock.calls[0]?.[4] as AbortSignal;
+        expect(signal.aborted).toBe(true);
 
         releaseRead?.();
         await expect(readPromise).rejects.toMatchObject({name: 'AbortError'});
@@ -293,7 +267,7 @@ describe('OCR platform feature main bindings', () => {
             1,
         )).rejects.toThrow('sourcePdfPath is not a managed working copy: not managed');
         expect(mocks.runWithWorkingCopyReadBacking).not.toHaveBeenCalled();
-        expect(mocks.resolveDocumentTextCatalogSnapshot).not.toHaveBeenCalled();
+        expect(mocks.readDocumentTextSnapshot).not.toHaveBeenCalled();
     });
 
     it('marks timeout start failures as typed retriable errors', async () => {
@@ -619,43 +593,27 @@ describe('OCR platform feature main bindings', () => {
     it.each([
         {
             channel: 'ocr:resolveDocumentTextCatalog',
-            resolver: 'resolveDocumentTextCatalogSnapshot',
+            resolver: 'readDocumentTextSnapshot',
             args: [1],
-            optionsIndex: 3,
         },
         {
             channel: 'ocr:resolveDocumentTextCatalogWindow',
-            resolver: 'resolveDocumentTextCatalogWindow',
+            resolver: 'readDocumentTextWindow',
             args: [
                 1,
                 1,
                 1,
             ],
-            optionsIndex: 5,
-        },
-        {
-            channel: 'ocr:resolveDocumentOcrAvailability',
-            resolver: 'resolveDocumentOcrAvailability',
-            args: [],
-            optionsIndex: 2,
-        },
-        {
-            channel: 'ocr:resolveDocumentOcrPage',
-            resolver: 'resolveDocumentOcrPage',
-            args: [1],
-            optionsIndex: 3,
         },
     ] as const)('aborts $channel when its working copy closes mid-read (SRCH-006)', async ({
         channel,
         resolver,
         args,
-        optionsIndex,
     }) => {
         const logicalPath = '/tmp/working-copy.pdf';
         let observedSignal: AbortSignal | undefined;
         mocks[resolver].mockImplementation(async (...resolverArgs: unknown[]) => {
-            const options = resolverArgs[optionsIndex] as {signal?: AbortSignal} | undefined;
-            observedSignal = options?.signal;
+            observedSignal = resolverArgs[4] as AbortSignal | undefined;
             expect(snapshotCancellableWorkingCopyDependents(logicalPath)).toHaveLength(1);
             expect(cancelMainOperationsForClosingWorkingCopy(
                 logicalPath,

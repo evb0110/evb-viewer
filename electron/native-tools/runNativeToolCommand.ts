@@ -24,6 +24,7 @@ export interface IRunNativeToolCommandOptions {
     commandLabel?: string;
     onStdout?: (chunk: string) => void;
     onSpawn?: (pid: number) => void;
+    stdin?: AsyncIterable<string>;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
 

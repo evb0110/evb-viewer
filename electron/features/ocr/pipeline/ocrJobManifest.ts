@@ -14,7 +14,7 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 
-type TOcrDagNode = 'model' | 'normalized-source' | 'page-raster' | 'preprocessed' | 'recognized-page' | 'assembled-document' | 'text-catalog' | 'verified-result';
+type TOcrDagNode = 'model' | 'normalized-source' | 'page-raster' | 'preprocessed' | 'recognized-page' | 'assembled-document' | 'verified-result';
 
 interface IOcrDurableJobManifest {
     version: 1;
@@ -33,7 +33,6 @@ const OCR_DAG_NODES = [
     'preprocessed',
     'recognized-page',
     'assembled-document',
-    'text-catalog',
     'verified-result',
 ] as const satisfies readonly TOcrDagNode[];
 const OCR_DAG_NODE_STATES = [

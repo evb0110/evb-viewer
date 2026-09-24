@@ -11,10 +11,7 @@ import {
     assertQueuedWorkingCopyMutationPreconditions,
     normalizeExpectedDocumentRevisionToken,
 } from '@electron/file-access/documentMutationGuards';
-import {
-    clearWorkingCopyOcrArtifacts,
-    enqueueWorkingCopyMutation,
-} from '@electron/file-access/workingCopyMutationQueue';
+import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {copyFileCopyOnWrite} from '@electron/file-access/workingCopyDirectory';
@@ -160,7 +157,6 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
                     },
                     senderId,
                 );
-                await clearWorkingCopyOcrArtifacts(resolvedWorkingPath);
                 return true;
             } finally {
                 if (!promoted) {

@@ -23,11 +23,7 @@ export async function cleanupOcrTempFiles(
     if (!overflow || sessionId === null) {
         return;
     }
-    const keptPaths = new Set<string>();
-    for (const keptFile of keepFiles) {
-        keptPaths.add(keptFile);
-        keptPaths.add(`${keptFile}.ocr`);
-    }
+    const keptPaths = new Set(keepFiles);
     const sessionPrefix = `${sessionId}-`;
     const entries = await readdir(tempDir, {withFileTypes: true}).catch(() => []);
     await Promise.all(entries

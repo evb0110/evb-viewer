@@ -640,43 +640,6 @@ describe('workingCopy', () => {
         }
     });
 
-    it('publishes a PDF working copy without starting page identity discovery and joins it before mutation', async () => {
-        const pageCount = deferred<number>();
-        const {getPdfPageCount} = await import('@electron/pdf/pdfPageCount');
-        vi.mocked(getPdfPageCount).mockImplementationOnce(() => pageCount.promise);
-        const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
-        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-        const {awaitPageIdentityStoreInitialization} = await import('@electron/file-access/pageIdentityStore');
-        const originalPath = join(tempRoot, 'background-page-identity.pdf');
-        writeFileSync(originalPath, new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
-        const trustedOriginalPath = allowOpenPath(originalPath);
-        expect(trustedOriginalPath).not.toBeNull();
-
-        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
-        expect(existsSync(workingPath)).toBe(true);
-        expect(getPdfPageCount).not.toHaveBeenCalled();
-
-        let mutationSettled = false;
-        const mutation = awaitPageIdentityStoreInitialization(workingPath)
-            .finally(() => {
-                mutationSettled = true;
-            });
-        await waitForSettledQueueTurn();
-        expect(mutationSettled).toBe(false);
-
-        pageCount.resolve(3);
-        await expect(mutation).resolves.toBeUndefined();
-        expect(JSON.parse(readFileSync(`${workingPath}.evb-pages.json`, 'utf8'))).toMatchObject({pageIds: expect.arrayContaining([
-            expect.any(String),
-            expect.any(String),
-            expect.any(String),
-        ])});
-    });
-
     it('does not stack page-count or fingerprint work across repeated read-only opens', async () => {
         const fingerprintHash = vi.fn();
         vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', () => ({createOriginalFileContentFingerprintHash: fingerprintHash}));
@@ -707,40 +670,6 @@ describe('workingCopy', () => {
         } finally {
             vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');
         }
-    });
-
-    it('keeps a readable working copy when background page identity discovery fails but blocks mutation', async () => {
-        const pageCount = deferred<number>();
-        const {getPdfPageCount} = await import('@electron/pdf/pdfPageCount');
-        vi.mocked(getPdfPageCount).mockImplementationOnce(() => pageCount.promise);
-        const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
-        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-        const {awaitPageIdentityStoreInitialization} = await import('@electron/file-access/pageIdentityStore');
-        const originalPath = join(tempRoot, 'failed-page-identity.pdf');
-        writeFileSync(originalPath, new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
-        const trustedOriginalPath = allowOpenPath(originalPath);
-        expect(trustedOriginalPath).not.toBeNull();
-
-        const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
-        expect(readFileSync(workingPath)).toEqual(Buffer.from([
-            4,
-            5,
-            6,
-        ]));
-        const mutation = awaitPageIdentityStoreInitialization(workingPath);
-        await vi.waitFor(() => expect(getPdfPageCount).toHaveBeenCalled());
-        pageCount.reject(new Error('page count unavailable'));
-
-        await expect(mutation).rejects.toThrow('page count unavailable');
-        expect(readFileSync(workingPath)).toEqual(Buffer.from([
-            4,
-            5,
-            6,
-        ]));
     });
 
     it('prunes retired working-copy metadata after its TTL without requiring a later lookup', async () => {
@@ -1640,25 +1569,18 @@ describe('workingCopy', () => {
         }
     });
 
-    it('removes stale OCR sidecar directories with stale working-copy directories', async () => {
+    it('removes stale working-copy directories', async () => {
         const { cleanupStaleWorkingCopyDirectories } = await import('@electron/file-access/workingCopyCleanup');
         const appTempDir = join(tempRoot, 'evb-viewer');
-        const workDir = join(appTempDir, 'pdf-work-stale-ocr');
-        const ocrDir = `${workDir}.ocr`;
+        const workDir = join(appTempDir, 'pdf-work-stale');
         mkdirSync(workDir, {recursive: true});
-        mkdirSync(ocrDir, {recursive: true});
         writeFileSync(join(workDir, 'document.pdf'), new Uint8Array([1]));
-        writeFileSync(join(ocrDir, 'manifest.json'), '{}');
 
         const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
         utimesSync(workDir, staleDate, staleDate);
 
-        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({
-            removedDirectories: 1,
-            removedOcrDirectories: 1,
-        });
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 1});
         expect(existsSync(workDir)).toBe(false);
-        expect(existsSync(ocrDir)).toBe(false);
     });
 
     it('removes a stale atomic-replace backup after a Windows promotion crash when its destination survived', async () => {
@@ -1753,10 +1675,7 @@ describe('workingCopy', () => {
         const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
         utimesSync(workDir, staleDate, staleDate);
 
-        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({
-            removedDirectories: 0,
-            removedOcrDirectories: 0,
-        });
+        await expect(cleanupStaleWorkingCopyDirectories()).resolves.toEqual({removedDirectories: 0});
         expect(existsSync(workingPath)).toBe(true);
     });
 
