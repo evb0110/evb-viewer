@@ -20,7 +20,7 @@
 //
 //        node scripts/ci/ci-health.mjs --verdict-times [--days 7] [--json]
 //
-// It prints the required and extended tiers' per-job result for that commit
+// It prints the required verdict's per-job result for that commit
 // and marks every failure NEW or INHERITED, with the first bad SHA per failing
 // job. Run it before diagnosing a red main: an INHERITED failure belongs to
 // another commit and re-diagnosing it costs a turn for nothing.
@@ -43,19 +43,13 @@ import {parseArgs} from 'node:util';
 /** @typedef {{name: string, conclusion: string | null | undefined, attribution: 'NEW' | 'INHERITED' | 'UNDETERMINED' | null, firstBad: IFirstBad | null, olderThanWindow: boolean, candidates?: string[], lastGood?: string | null, firstBadCandidates?: string[]}} IShaJobVerdict */
 /** @typedef {{tier: string, workflow: string, found: boolean, run: IRun | null, jobs: IShaJobVerdict[]}} IShaTier */
 
-// The tiers a commit is judged by. The required tier is the verdict branch
-// protection and the release cutter read; the extended tier reports without
-// blocking. Nightly is deliberately absent: it is not about a commit.
-export const TIER_WORKFLOWS = [
-    {
-        tier: 'required',
-        workflow: 'ci.yml',
-    },
-    {
-        tier: 'extended',
-        workflow: 'ci-extended.yml',
-    },
-];
+// The workflow a commit is judged by: the one required verdict that branch
+// protection and the release cutter read. Nightly is deliberately absent: it
+// is not about a commit.
+export const TIER_WORKFLOWS = [{
+    tier: 'required',
+    workflow: 'ci.yml',
+}];
 
 const {values: options} = parseArgs({options: {
     attribute: {

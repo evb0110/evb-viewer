@@ -6,7 +6,6 @@ import {
 import {
     classifyShaJobs,
     formatShaReport,
-    TIER_WORKFLOWS,
 } from '@scripts/ci/ci-health.mjs';
 
 interface IRecordedRun {
@@ -165,8 +164,8 @@ describe('ci-health commit attribution', () => {
 
         const text = formatShaReport([{
             ...report,
-            tier: 'extended',
-            workflow: 'ci-extended.yml',
+            tier: 'required',
+            workflow: 'ci.yml',
         }], 'd'.repeat(40));
         expect(text).toContain('UNDETERMINED Electron E2E Regression: last green aaaaaaaaaa');
         expect(text).not.toContain('this commit broke');
@@ -203,8 +202,8 @@ describe('ci-health commit attribution', () => {
         ]);
         const text = formatShaReport([{
             ...report,
-            tier: 'extended',
-            workflow: 'ci-extended.yml',
+            tier: 'required',
+            workflow: 'ci.yml',
         }], 'd'.repeat(40));
         expect(text).toContain(
             'INHERITED Native And Build Safety: broke in one of bbbbbbbbbb, cccccccccc (last green aaaaaaaaaa',
@@ -279,8 +278,8 @@ describe('ci-health commit attribution', () => {
         });
         expect(formatShaReport([{
             ...report,
-            tier: 'extended',
-            workflow: 'ci-extended.yml',
+            tier: 'required',
+            workflow: 'ci.yml',
         }], 'f'.repeat(40))).toContain('no run for this commit');
     });
 
@@ -315,7 +314,7 @@ describe('ci-health commit attribution', () => {
         }], 'b'.repeat(40))).toContain('verdict: this commit broke Quality Gates');
     });
 
-    it('marks a superseded extended run as something other than a verdict', () => {
+    it('marks a cancelled run as something other than a verdict', () => {
         const cancelled = recordRun(2, 'b'.repeat(40), 'cancelled', {
             ...GREEN_JOBS,
             'Browser Integration': 'cancelled',
@@ -325,8 +324,8 @@ describe('ci-health commit attribution', () => {
         const report = classifyShaJobs([cancelled], 'b'.repeat(40));
         const text = formatShaReport([{
             ...report,
-            tier: 'extended',
-            workflow: 'ci-extended.yml',
+            tier: 'required',
+            workflow: 'ci.yml',
         }], 'b'.repeat(40));
 
         expect(text).toContain('superseded, not a verdict');
@@ -353,10 +352,4 @@ describe('ci-health commit attribution', () => {
         expect(text).toContain('verdict: this commit broke Quality Gates');
     });
 
-    it('judges a commit by the required and extended tiers only', () => {
-        expect(TIER_WORKFLOWS.map(entry => entry.workflow)).toEqual([
-            'ci.yml',
-            'ci-extended.yml',
-        ]);
-    });
 });
