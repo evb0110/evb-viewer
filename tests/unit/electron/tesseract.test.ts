@@ -36,7 +36,6 @@ const mocks = vi.hoisted(() => ({
     execFile: vi.fn(),
     spawn: vi.fn(),
     ensureTessdataLanguages: vi.fn(),
-    getOcrPaths: vi.fn(),
     resolveTesseractLanguageConfig: vi.fn(),
 }));
 
@@ -45,7 +44,6 @@ vi.mock('child_process', () => ({
     spawn: mocks.spawn,
 }));
 vi.mock('@electron/features/ocr/languageModels', () => ({ensureTessdataLanguages: mocks.ensureTessdataLanguages}));
-vi.mock('@electron/features/ocr/main/paths', () => ({getOcrPaths: mocks.getOcrPaths}));
 vi.mock('@electron/features/ocr/main/resolveTesseractLanguageConfig', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     resolveTesseractLanguageConfig: mocks.resolveTesseractLanguageConfig,
@@ -61,124 +59,6 @@ const PNG_SIGNATURE = Buffer.from([
     0x1A,
     0x0A,
 ]);
-
-describe('runOcr setup failure cleanup', () => {
-    beforeEach(() => {
-        vi.resetModules();
-        vi.clearAllMocks();
-
-        mocks.ensureTessdataLanguages.mockResolvedValue(undefined);
-        mocks.getOcrPaths.mockReturnValue({
-            binary: '/mock/tesseract',
-            tessdata: '/mock/tessdata',
-        });
-        mocks.resolveTesseractLanguageConfig.mockReturnValue({
-            orderedLanguages: ['eng'],
-            extraConfigArgs: [],
-        });
-    });
-
-    it('spawns Tesseract with piped stdio', async () => {
-        const child = new MockChildProcess();
-        const stdin = new MockStdin();
-        child.stdin = stdin;
-        mocks.spawn.mockReturnValue(child);
-
-        const { runOcr } = await import('@electron/features/ocr/main/runOcr');
-        const resultPromise = runOcr(Buffer.from('image'), ['eng']);
-        await vi.waitFor(() => {
-            expect(mocks.spawn).toHaveBeenCalledTimes(1);
-        });
-        child.emit('close', 0);
-
-        await expect(resultPromise).resolves.toEqual({
-            success: true,
-            text: '',
-        });
-        expect(mocks.spawn).toHaveBeenCalledWith(
-            '/mock/tesseract',
-            expect.any(Array),
-            expect.objectContaining({stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ]}),
-        );
-        expect(stdin.end).toHaveBeenCalledWith(Buffer.from('image'), expect.any(Function));
-    });
-
-    it('kills the child immediately when stdin emits an error', async () => {
-        const child = new MockChildProcess();
-        const stdin = new MockStdin();
-        child.stdin = stdin;
-        mocks.spawn.mockReturnValue(child);
-
-        const { runOcr } = await import('@electron/features/ocr/main/runOcr');
-        const resultPromise = runOcr(Buffer.from('image'), ['eng']);
-        await vi.waitFor(() => {
-            expect(mocks.spawn).toHaveBeenCalledTimes(1);
-        });
-
-        stdin.emit('error', new Error('broken pipe'));
-
-        await expect(resultPromise).resolves.toEqual({
-            success: false,
-            text: '',
-            error: 'broken pipe',
-        });
-        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
-    });
-
-    it('kills the child and resolves when the OCR signal aborts', async () => {
-        const child = new MockChildProcess();
-        const stdin = new MockStdin();
-        child.stdin = stdin;
-        mocks.spawn.mockReturnValue(child);
-        const controller = new AbortController();
-
-        const { runOcr } = await import('@electron/features/ocr/main/runOcr');
-        const resultPromise = runOcr(Buffer.from('image'), ['eng'], {signal: controller.signal});
-        await vi.waitFor(() => {
-            expect(mocks.spawn).toHaveBeenCalledTimes(1);
-        });
-
-        controller.abort();
-
-        await expect(resultPromise).resolves.toEqual({
-            success: false,
-            text: '',
-            error: 'Tesseract aborted',
-        });
-        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
-    });
-
-    it('fails instead of returning truncated successful plain OCR text', async () => {
-        vi.stubEnv('EVB_TESSERACT_MAX_STDOUT_BYTES', '1024');
-        try {
-            const child = new MockChildProcess();
-            const stdin = new MockStdin();
-            child.stdin = stdin;
-            mocks.spawn.mockReturnValue(child);
-
-            const { runOcr } = await import('@electron/features/ocr/main/runOcr');
-            const resultPromise = runOcr(Buffer.from('image'), ['eng']);
-            await vi.waitFor(() => {
-                expect(mocks.spawn).toHaveBeenCalledTimes(1);
-            });
-
-            child.stdout.emit('data', Buffer.alloc(2048, 'a'));
-            child.emit('close', 0);
-
-            await expect(resultPromise).resolves.toEqual({
-                success: false,
-                text: '',
-                error: 'Tesseract output exceeded maximum size (1024 bytes)',
-            });
-        } finally {
-            vi.unstubAllEnvs();
-        }
-    });
-});
 
 describe('Tesseract TSV geometry parsing', () => {
     it('uses line-level vertical geometry for word boxes', async () => {

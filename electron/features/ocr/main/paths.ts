@@ -19,10 +19,6 @@ import {
 } from '@electron/features/ocr/main/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
-interface IOcrPaths {
-    binary: string;
-    tessdata: string;
-}
 
 export interface IOcrToolPaths extends IOcrNativeToolPaths {
     pdftoppm: string;
@@ -89,14 +85,6 @@ async function getToolVersion(path: string, versionFlag = '--version'): Promise<
     return match?.[1];
 }
 
-export function getOcrPaths(): IOcrPaths & PromiseLike<IOcrPaths> {
-    const ocrPaths = getOcrNativeToolPaths();
-
-    return createAwaitablePaths({
-        binary: ocrPaths.tesseract,
-        tessdata: ocrPaths.tessdata,
-    });
-}
 
 export function getOcrToolPaths(): IOcrToolPaths & PromiseLike<IOcrToolPaths> {
     const ocrPaths = getOcrNativeToolPaths();
