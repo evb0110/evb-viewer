@@ -1,8 +1,32 @@
+import { realpathSync } from 'node:fs';
+import {
+    devNull,
+    tmpdir,
+} from 'node:os';
 import {
     afterEach,
     beforeEach,
     vi,
 } from 'vitest';
+
+// Tests that spawn git build fixture repositories under the temp directory and
+// must never reach the checkout that runs them. A git hook exports GIT_DIR and
+// related variables, which would send every fixture `git config` and `git commit`
+// to the real repository; that is how fixture identities reached real commits.
+// Drop those variables, keep global and system config out, and stop repository
+// discovery at the temp directory so a fixture without its own repository fails
+// instead of resolving to an enclosing checkout.
+delete process.env.GIT_DIR;
+delete process.env.GIT_WORK_TREE;
+delete process.env.GIT_INDEX_FILE;
+delete process.env.GIT_COMMON_DIR;
+delete process.env.GIT_OBJECT_DIRECTORY;
+delete process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+delete process.env.GIT_NAMESPACE;
+delete process.env.GIT_PREFIX;
+process.env.GIT_CONFIG_GLOBAL = devNull;
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+process.env.GIT_CEILING_DIRECTORIES = realpathSync(tmpdir());
 
 let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
 let consoleErrorSpy: ReturnType<typeof vi.spyOn> | null = null;
