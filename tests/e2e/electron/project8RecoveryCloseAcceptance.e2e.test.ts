@@ -347,8 +347,8 @@ const NATIVE_PDF_PAGE_OPS_PATH = join(
 
 /**
  * Stands in for the page-ops tool so a rotation stays in its native write
- * until the user cancels it. Every other call, and every call before the test
- * holds the tool, goes straight to the real binary.
+ * while the test holds it: canceling kills the held call, releasing lets it
+ * run the real binary. Every other call goes straight to the real binary.
  */
 function createHeldPageOpsTool(name: string) {
     const toolPath = createFixturePath(`${name}-page-ops.sh`);
@@ -358,7 +358,7 @@ function createHeldPageOpsTool(name: string) {
         '#!/usr/bin/env bash',
         `if [ "$1" = "save-mutations" ] && [ -e ${JSON.stringify(armPath)} ]; then`,
         `    : > ${JSON.stringify(heldPath)}`,
-        '    exec sleep 600',
+        `    while [ -e ${JSON.stringify(armPath)} ]; do sleep 0.05; done`,
         'fi',
         `exec ${JSON.stringify(NATIVE_PDF_PAGE_OPS_PATH)} "$@"`,
         '',
@@ -400,9 +400,14 @@ async function clickPageOperationCancel(session: IElectronE2ESession) {
     await session.page.mouse.click(point.x, point.y);
 }
 
-async function startBusyCloseAndWaitForDecision(session: IElectronE2ESession) {
+async function startBusyCloseAndWaitForDecision(
+    session: IElectronE2ESession,
+    heldTool: ReturnType<typeof createHeldPageOpsTool>,
+) {
     await waitForActiveTabCloseEnabled(session);
+    heldTool.hold();
     await rotateFirstPageCounterclockwise(session);
+    await heldTool.waitUntilHeld();
     await expect.poll(async () => (
         await readWorkspaceStateValues<{isPageOperationInProgress?: boolean}>(session.page, ['isPageOperationInProgress'])
     ).isPageOperationInProgress, {timeout: 30_000}).toBe(true);
@@ -441,6 +446,7 @@ async function startBusyCloseAndWaitForDecision(session: IElectronE2ESession) {
             || bodyText.includes('Закрытие продолжится после завершения обработки страниц.');
     }), {timeout: 2_000}).toBe(true);
 
+    heldTool.release();
     await session.page.waitForFunction(() => {
         const snapshot = window.__evbTestApi?.getActiveToolbarSnapshot?.();
         return Boolean(document.querySelector('[role="dialog"]')) || snapshot?.hasPdf === false;
@@ -500,7 +506,8 @@ describe('Project 8 recovered close decisions', () => {
         session = null;
     });
 
-    it('waits for page work before showing the tab decision and only saves after explicit Save', async () => {
+    it.skipIf(process.platform === 'win32')('waits for page work before showing the tab decision and only saves after explicit Save', async () => {
+        const heldTool = createHeldPageOpsTool(`project8-busy-tab-close-${Date.now()}`);
         const pdfPath = await createLargeScannedFixturePdf(
             `project8-busy-tab-close-${Date.now()}.pdf`,
             882,
@@ -512,13 +519,16 @@ describe('Project 8 recovered close decisions', () => {
         const originalMtime = (await stat(pdfPath)).mtimeMs;
         session = await startElectronE2ESession(`e2e-project8-busy-tab-close-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            extraEnv: {
+                EVB_PDF_PAGE_OPS_ENABLE: '1',
+                EVB_PDF_PAGE_OPS_PATH: heldTool.toolPath,
+            },
         });
         await openPdfInApp(session.page, pdfPath, 60_000);
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
 
-        await startBusyCloseAndWaitForDecision(session);
+        await startBusyCloseAndWaitForDecision(session, heldTool);
         await clickDirtyTabDecision(session, 'Cancel');
         const afterCancel = await getWorkspaceToolbarSnapshot(session.page);
         expect(afterCancel).toMatchObject({
