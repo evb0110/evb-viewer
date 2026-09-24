@@ -57,7 +57,6 @@ describe('documentOpeningPageFrame', () => {
             ...pdfGeometry,
             documentId: '/documents/scan.djvu',
         }, 'page-source')).toBe(DOCUMENT_PAGE_GUTTER_PX);
-        expect(resolveDocumentOpeningPageMargin(pdfGeometry, 'native-pdf')).toBe(DOCUMENT_PAGE_GUTTER_PX);
     });
 
     it('commits the exact PDF page shell synchronously from trusted geometry and the live chassis viewport', () => {

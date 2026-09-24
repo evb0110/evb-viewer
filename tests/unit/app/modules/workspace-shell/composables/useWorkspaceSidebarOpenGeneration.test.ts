@@ -144,7 +144,6 @@ function createGenerationHarness() {
             pdfError: ref(null),
             djvuError: ref(null),
             showDjvuSource: ref(false),
-            showNativePdfViewer: ref(false),
             openSurface: surface,
             markAnnotationCommentsLoading: () => undefined,
         });
