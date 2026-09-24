@@ -27,14 +27,6 @@ const release = {
             content_type: 'application/octet-stream',
         },
         {
-            id: 2,
-            name: 'EVB-Viewer-2.0.0-x64.zip',
-            browser_download_url: 'https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-x64.zip',
-            size: 2_048,
-            updated_at: '2026-08-19T00:00:00Z',
-            content_type: 'application/zip',
-        },
-        {
             id: 3,
             name: 'EVB-Viewer-2.0.0-arm64-setup.exe',
             browser_download_url: 'https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe',
@@ -60,9 +52,9 @@ describe('latest release endpoint policy', () => {
         const setHeader = vi.fn();
         const setCookie = vi.fn();
         const fetch = vi.fn(async () => [release]);
-        // The macOS Intel ZIP and the Windows ARM64 installer are attached
-        // after promotion, so the mirror answers for them only once the
-        // supplemental workflow has copied them.
+        // The Windows ARM64 installer is attached after promotion, so the
+        // mirror answers for it only once the supplemental workflow has
+        // copied it.
         const probedMirrorUrls: string[] = [];
         const mirrorProbe = vi.fn(async (url: string) => {
             probedMirrorUrls.push(url);
@@ -115,13 +107,9 @@ describe('latest release endpoint policy', () => {
         }>;
         expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl)
             .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
-        expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('x64.zip'))?.mirrorDownloadUrl).toBeUndefined();
         expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
         expect(fetch).toHaveBeenCalledTimes(1);
-        expect(probedMirrorUrls).toEqual([
-            'https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.zip',
-            'https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe',
-        ]);
+        expect(probedMirrorUrls).toEqual(['https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe']);
     });
 
     it('offers mirror downloads for supplemental installers the mirror already holds', async () => {
@@ -155,13 +143,11 @@ describe('latest release endpoint policy', () => {
             name: string;
             mirrorDownloadUrl?: string
         }>;
-        expect(responseAssets.find(asset => asset.name.endsWith('x64.zip'))?.mirrorDownloadUrl)
-            .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.zip');
         expect(responseAssets.find(asset => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl)
             .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe');
         expect(repeated.assets).toEqual(response.assets);
         // An immutable object that answered once is not probed again.
-        expect(mirrorProbe).toHaveBeenCalledTimes(2);
+        expect(mirrorProbe).toHaveBeenCalledTimes(1);
     });
 
     it('omits the mirror link instead of failing when the mirror cannot answer', async () => {
@@ -199,7 +185,7 @@ describe('latest release endpoint policy', () => {
             }>;
             expect(responseAssets.find(asset => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl)
                 .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
-            expect(responseAssets.find(asset => asset.name.endsWith('x64.zip'))?.mirrorDownloadUrl).toBeUndefined();
+            expect(responseAssets.find(asset => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
             expect(consoleWarn).toHaveBeenCalledWith(
                 'Unable to probe the release mirror',
                 expect.objectContaining({outcome: 'mirror-link-omitted'}),

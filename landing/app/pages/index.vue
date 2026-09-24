@@ -265,7 +265,6 @@
 </template>
 
 <script setup lang="ts">
-import { partition } from 'es-toolkit/array';
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
 import SentryAcknowledgement from '~/components/SentryAcknowledgement.vue';
@@ -323,24 +322,10 @@ const {
     server: false,
 });
 
-const releaseAssets = computed(() => releaseData.value?.assets ?? []);
-const releaseAssetGroups = computed(() => {
-    const [
-        legacyInstallers,
-        installers,
-    ] = partition(releaseAssets.value, asset => asset.isLegacy);
-
-    return {
-        installers,
-        legacyInstallers,
-    };
-});
-const installers = computed(() => releaseAssetGroups.value.installers);
-const legacyInstallers = computed(() => releaseAssetGroups.value.legacyInstallers);
+const installers = computed(() => releaseData.value?.assets ?? []);
 
 const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFORM_ORDER.filter(
-    platform => installers.value.some(asset => asset.platform === platform)
-        || (platform === 'windows' && legacyInstallers.value.some(asset => asset.platform === 'windows')),
+    platform => installers.value.some(asset => asset.platform === platform),
 ));
 
 const installerTabs = computed<TReleasePlatform[]>(() => selectablePlatforms.value);
@@ -368,18 +353,7 @@ const selectedInstallerTab = computed<TReleasePlatform>(() => {
     return selectablePlatforms.value[0] ?? 'unknown';
 });
 
-const installersForSelectedPlatform = computed(() => {
-    const base = selectInstallersForPlatform(installers.value, selectedInstallerTab.value);
-
-    if (selectedInstallerTab.value === 'windows') {
-        return [
-            ...base,
-            ...legacyInstallers.value,
-        ];
-    }
-
-    return base;
-});
+const installersForSelectedPlatform = computed(() => selectInstallersForPlatform(installers.value, selectedInstallerTab.value));
 
 // The mirror column is reserved for the whole list so every download chip lands
 // in the same place. Platforms whose assets are all absent from the mirror drop
@@ -497,20 +471,10 @@ function installerPlatformLabel(platform: TReleasePlatform): string {
 }
 
 function installerLabel(installer: IReleaseInstaller): string {
-    if (installer.platform === 'windows' && installer.name.toLowerCase().includes('win7')) {
-        return t('home.installers.legacy.win7Label');
-    }
+    const arch = installer.arch;
 
-    const arch = normalizedInstallerArch(installer);
-
-    if (installer.platform === 'macos') {
-        if (arch === 'arm64') {
-            return t('home.installers.arch.appleSilicon');
-        }
-
-        if (arch === 'x64') {
-            return t('home.installers.arch.intelMac');
-        }
+    if (installer.platform === 'macos' && arch === 'arm64') {
+        return t('home.installers.arch.appleSilicon');
     }
 
     if (arch === 'x64') {
@@ -528,19 +492,7 @@ function installerLabel(installer: IReleaseInstaller): string {
     return packageLabel(installer);
 }
 
-function normalizedInstallerArch(installer: IReleaseInstaller): TReleaseArch {
-    if (installer.platform === 'linux' && installer.extension === 'appimage' && installer.arch === 'unknown') {
-        return 'x64';
-    }
-
-    return installer.arch;
-}
-
 function packageLabel(installer: IReleaseInstaller): string {
-    if (installer.extension === 'appimage') {
-        return t('home.installers.package.appImage');
-    }
-
     if (installer.extension === 'deb') {
         return t('home.installers.package.deb');
     }
@@ -553,39 +505,23 @@ function packageLabel(installer: IReleaseInstaller): string {
         return t('home.installers.package.exe');
     }
 
-    if (installer.extension === 'zip') {
-        return t('home.installers.package.zip');
-    }
-
     return installer.extension.toUpperCase();
 }
 
 function installerDetail(installer: IReleaseInstaller): string {
-    if (installer.platform === 'windows' && installer.name.toLowerCase().includes('win7')) {
-        return t('home.installers.detail.win7Legacy');
-    }
-
     if (installer.platform === 'linux' && installer.extension === 'deb') {
         return t('home.installers.detail.linuxDeb');
     }
 
-    if (installer.platform === 'linux' && installer.extension === 'appimage') {
-        return t('home.installers.detail.linuxAppImage');
-    }
-
-    if (installer.platform === 'macos' && normalizedInstallerArch(installer) === 'arm64') {
+    if (installer.platform === 'macos' && installer.arch === 'arm64') {
         return t('home.installers.detail.macosArm64');
     }
 
-    if (installer.platform === 'macos' && normalizedInstallerArch(installer) === 'x64') {
-        return t('home.installers.detail.macosX64');
-    }
-
-    if (installer.platform === 'windows' && normalizedInstallerArch(installer) === 'arm64') {
+    if (installer.platform === 'windows' && installer.arch === 'arm64') {
         return t('home.installers.detail.windowsArm64');
     }
 
-    if (installer.platform === 'windows' && normalizedInstallerArch(installer) === 'x64') {
+    if (installer.platform === 'windows' && installer.arch === 'x64') {
         return t('home.installers.detail.windowsX64');
     }
 

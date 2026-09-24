@@ -10,16 +10,13 @@ import {
     uniq,
 } from 'es-toolkit/array';
 
+// The shipped installers: macOS DMG, Windows NSIS EXE and Linux DEB. Older
+// releases also carry AppImage, Intel ZIP and Windows 7 legacy assets, which
+// the download page no longer offers.
 const INSTALLER_EXTENSIONS = new Set([
-    'appimage',
     'deb',
     'dmg',
     'exe',
-    'msi',
-    'pkg',
-    'rpm',
-    'tar.gz',
-    'zip',
 ]);
 
 const NON_INSTALLER_SUFFIXES = [
@@ -47,41 +44,20 @@ export const INSTALLER_PLATFORM_ORDER = [
 ] as const satisfies readonly TReleasePlatform[];
 
 const PREFERRED_EXTENSION_ORDER: Record<TReleasePlatform, string[]> = {
-    macos: [
-        'dmg',
-        'pkg',
-        'zip',
-    ],
-    windows: [
-        'exe',
-        'msi',
-    ],
-    linux: [
-        'deb',
-        'appimage',
-        'rpm',
-        'tar.gz',
-        'zip',
-    ],
+    macos: ['dmg'],
+    windows: ['exe'],
+    linux: ['deb'],
     unknown: [
         'dmg',
         'exe',
         'deb',
-        'appimage',
-        'zip',
     ],
 };
 
 const EXTENSION_LABEL: Record<string, string> = {
-    appimage: 'AppImage',
     deb: 'DEB',
     dmg: 'DMG',
     exe: 'EXE',
-    msi: 'MSI',
-    pkg: 'PKG',
-    rpm: 'RPM',
-    'tar.gz': 'TAR.GZ',
-    zip: 'ZIP',
 };
 
 const INSTALLER_ARCH_ORDER: Record<TReleaseArch, number> = {
@@ -113,15 +89,11 @@ export function isInstallerAsset(assetName: string) {
         return false;
     }
 
-    if (lowerName.includes('latest-mac') || lowerName.includes('latest-linux') || lowerName.includes('latest.yml')) {
+    if (lowerName.includes('legacy')) {
         return false;
     }
 
     return INSTALLER_EXTENSIONS.has(getAssetExtension(assetName));
-}
-
-export function isLegacyInstallerAsset(assetName: string) {
-    return assetName.toLowerCase().includes('legacy');
 }
 
 export function detectPlatform(assetName: string): TReleasePlatform {
@@ -132,39 +104,16 @@ export function detectPlatform(assetName: string): TReleasePlatform {
         lowerName.includes('darwin')
         || lowerName.includes('mac')
         || extension === 'dmg'
-        || extension === 'pkg'
     ) {
         return 'macos';
     }
 
-    if (
-        lowerName.includes('win')
-        || extension === 'exe'
-        || extension === 'msi'
-    ) {
+    if (lowerName.includes('win') || extension === 'exe') {
         return 'windows';
     }
 
-    if (
-        lowerName.includes('linux')
-        || extension === 'appimage'
-        || extension === 'deb'
-        || extension === 'rpm'
-        || extension === 'tar.gz'
-    ) {
+    if (lowerName.includes('linux') || extension === 'deb') {
         return 'linux';
-    }
-
-    // macOS is the only target that publishes ZIPs here, and mac artifactName
-    // always embeds the architecture. scripts/release/policy.mjs states the same
-    // invariant from the publishing side: Windows x64 ships as "-x64-setup.exe"
-    // and the Store package as "-x64-store.appx", so the macOS Intel ZIP is the
-    // only released "-x64.zip". Without this the supplemental Intel ZIP -- the
-    // only Intel Mac download the project ships -- falls into the unknown bucket
-    // and disappears from the macOS downloads. A ZIP carrying no architecture
-    // token stays unclassified rather than being guessed at.
-    if (extension === 'zip' && detectArchitecture(lowerName) !== 'unknown') {
-        return 'macos';
     }
 
     return 'unknown';
@@ -279,15 +228,12 @@ export function buildClientProfile(
 }
 
 export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAgentProfile): IReleaseInstaller | null {
-    const preferredAssets = assets.filter(asset => !asset.isLegacy);
-    const candidatePool = preferredAssets.length ? preferredAssets : assets;
-
-    if (!candidatePool.length || profile.platform === 'unknown') {
+    if (!assets.length || profile.platform === 'unknown') {
         return null;
     }
 
     const extensionPreference = PREFERRED_EXTENSION_ORDER[profile.platform];
-    const platformScopedAssets = candidatePool.filter(asset => asset.platform === profile.platform);
+    const platformScopedAssets = assets.filter(asset => asset.platform === profile.platform);
     if (!platformScopedAssets.length) {
         return null;
     }
@@ -326,32 +272,19 @@ function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TRelease
 }
 
 export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
-    const normalizedAssets = assets.map((asset) => {
-        if (asset.platform === 'linux' && asset.extension === 'appimage' && asset.arch === 'unknown') {
-            return {
-                ...asset,
-                arch: 'x64' as const,
-            };
-        }
-
-        return asset;
-    });
-
-    const primaryAssets = normalizedAssets.filter(asset => !asset.isLegacy);
-    const windowsExeArchs = new Set(uniq(primaryAssets
+    const windowsExeArchs = new Set(uniq(assets
         .filter(asset => asset.platform === 'windows' && asset.extension === 'exe' && asset.arch !== 'unknown')
         .map(asset => asset.arch)));
 
     const hasArchSpecificWindowsBuilds = windowsExeArchs.has('x64') && windowsExeArchs.has('arm64');
     if (!hasArchSpecificWindowsBuilds) {
-        return normalizedAssets;
+        return assets;
     }
 
-    return normalizedAssets.filter(asset => !(
+    return assets.filter(asset => !(
         asset.platform === 'windows'
         && asset.extension === 'exe'
         && asset.arch === 'unknown'
-        && !asset.isLegacy
     ));
 }
 
@@ -456,14 +389,8 @@ export function formatInstallerVariantLabel(asset: IReleaseInstaller) {
 }
 
 export function formatInstallerArchLabel(asset: IReleaseInstaller) {
-    if (asset.platform === 'macos') {
-        if (asset.arch === 'arm64') {
-            return 'Apple Silicon';
-        }
-
-        if (asset.arch === 'x64') {
-            return 'Intel';
-        }
+    if (asset.platform === 'macos' && asset.arch === 'arm64') {
+        return 'Apple Silicon';
     }
 
     return formatArch(asset.arch) || formatExtension(asset.extension);

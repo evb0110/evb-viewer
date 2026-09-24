@@ -767,10 +767,7 @@ a {
 
      The bound is --installer-max-rows plain rows. Every tab of a normal release
      fits it, including Windows, whose Store row plus "direct downloads" label
-     costs less than the fourth row it replaces. A release that also ships the
-     win7 legacy installer pushes the Windows tab about 35px past the reservation
-     and reintroduces a shift on that tab; raising the row count to cover it
-     would instead add a blank row to every normal visit. */
+     costs less than the fourth row it replaces. */
   --installer-reserved-height: calc(
     2.875rem + 0.875rem + var(--installer-list-reserved-height) + 0.875rem + 2.25rem
   );

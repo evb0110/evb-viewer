@@ -17,7 +17,7 @@ export const RELEASE_ARCHES = [
 export type TReleasePlatform = typeof RELEASE_PLATFORMS[number];
 export type TReleaseArch = typeof RELEASE_ARCHES[number];
 export type TReleaseInstallerExtension = LiteralUnion<
-    'appimage' | 'deb' | 'dmg' | 'exe' | 'msi' | 'pkg' | 'rpm' | 'tar.gz' | 'zip',
+    'deb' | 'dmg' | 'exe',
     string
 >;
 
@@ -33,7 +33,6 @@ export interface IReleaseInstaller {
     extension: TReleaseInstallerExtension;
     platform: TReleasePlatform;
     arch: TReleaseArch;
-    isLegacy: boolean;
 }
 
 export interface IReleaseSummary {
