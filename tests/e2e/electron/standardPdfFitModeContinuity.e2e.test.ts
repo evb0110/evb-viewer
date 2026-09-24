@@ -87,7 +87,7 @@ const FIT_CHANGE_FREEZE_BUDGET_MS = 750;
 
 function assertNativeOpeningFitWidthIsSettled(
     frames: Awaited<ReturnType<typeof stopNativePdfOpeningSampler>>,
-    reconciledPreviewWidth: number,
+    reconciledPreviewWidth: number | null,
 ) {
     const visibleShellFrames = frames.filter(frame => (
         frame.transitionSurfaceVisible
@@ -136,10 +136,12 @@ function assertNativeOpeningFitWidthIsSettled(
     expect(Math.abs((visibleShellWidths[0] ?? 0) - settledCanvasWidth), evidence)
         .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
     // The preview is a head start, not a guaranteed frame: on a loaded machine
-    // PDF.js can paint page one before the preview is ever shown. Its geometry
-    // is reconciled either way, and must already be the settled width.
-    expect(Math.abs(reconciledPreviewWidth - settledCanvasWidth), evidence)
-        .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
+    // PDF.js can paint page one before the preview is ever shown. When the
+    // preview geometry was reconciled, it must already be the settled width.
+    if (reconciledPreviewWidth !== null) {
+        expect(Math.abs(reconciledPreviewWidth - settledCanvasWidth), evidence)
+            .toBeLessThanOrEqual(OPENING_WIDTH_TOLERANCE_PX);
+    }
     if (firstPreview === undefined) {
         return;
     }
@@ -1727,10 +1729,21 @@ describe('standard PDF.js fit-mode continuity', () => {
             entry.event === 'pdf-open-native-preview-fit-width-reconciled'
             && entry.payload.previousWidth !== entry.payload.nextWidth
         ));
-        expect(documentWideReconciliation, JSON.stringify(trace)).toBeDefined();
+        // A slow host can finish the PDF.js open before the native page table
+        // resolves. The preview is then never staged and has nothing to
+        // reconcile; the opening surface must still keep one width.
+        const previewResolvedAfterReady = trace.some(entry => (
+            entry.event === 'pdf-open-native-preview-resolution-end'
+            && entry.payload.phase === 'ready'
+        ));
+        if (!previewResolvedAfterReady) {
+            expect(documentWideReconciliation, JSON.stringify(trace)).toBeDefined();
+        }
         assertNativeOpeningFitWidthIsSettled(
             frames,
-            Number.parseFloat(String(documentWideReconciliation?.payload.nextWidth ?? '')),
+            documentWideReconciliation
+                ? Number.parseFloat(String(documentWideReconciliation.payload.nextWidth))
+                : null,
         );
     }, 180_000);
 
