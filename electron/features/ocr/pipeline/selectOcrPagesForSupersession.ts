@@ -56,8 +56,8 @@ async function readCurrentEvbGenerations(
                 if (!entry.mapping) {
                     continue;
                 }
-                if (catalog.header.version === 3 || entry.mapping.generation === 0) {
-                    generations.set(entry.pageNumber, 'legacy-v3');
+                if (entry.mapping.generation === 0) {
+                    generations.set(entry.pageNumber, 'legacy');
                 } else if (entry.mapping.generation > 0) {
                     generations.set(entry.pageNumber, `gen-${String(entry.mapping.generation).padStart(8, '0')}`);
                 }

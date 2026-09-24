@@ -1,5 +1,4 @@
 import {createHash} from 'node:crypto';
-import {join} from 'node:path';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {
     IDocumentTextCatalogPage,
@@ -22,7 +21,6 @@ import {
     OcrCatalogCorruptError,
     type IOcrCatalogHandle,
 } from '@electron/features/ocr/main/ocrCatalogV4';
-import {readOcrIndexV3ManifestMetadata} from '@electron/features/ocr/main/ocrIndexV3Stream';
 import {createLogger} from '@electron/utils/createLogger';
 import {
     hasOcrCatalogRecoveryReceipt,
@@ -61,16 +59,6 @@ function throwIfAborted(signal?: AbortSignal) {
             ? signal.reason
             : new DOMException('The operation was aborted.', 'AbortError');
     }
-}
-
-async function loadCurrentOcrManifest(
-    workingCopyPath: string,
-    documentRevision: TDocumentRevisionToken,
-) {
-    const catalogDir = `${workingCopyPath}.ocr`;
-    const manifest = await readOcrIndexV3ManifestMetadata(join(catalogDir, 'manifest.json'))
-        .catch(() => null);
-    return manifest?.documentRevision.token === documentRevision ? manifest : null;
 }
 
 export async function openCurrentOcrCatalog(
@@ -144,18 +132,6 @@ export async function closeOcrCatalog(catalog: IOcrCatalogHandle | null) {
     await catalog?.close();
 }
 
-export async function loadLegacyOcrLanguages(
-    workingCopyPath: string,
-    documentRevision: TDocumentRevisionToken,
-    catalog: IOcrCatalogHandle | null,
-) {
-    if (catalog?.header.version !== 3) {
-        return undefined;
-    }
-    const manifest = await loadCurrentOcrManifest(workingCopyPath, documentRevision);
-    return manifest ? [...manifest.ocr.languages] : undefined;
-}
-
 export function digestCanonicalPage(page: Omit<IDocumentTextCatalogPage, 'contentDigest'>) {
     return createHash('sha256').update(JSON.stringify(page)).digest('hex');
 }
@@ -163,7 +139,6 @@ export function digestCanonicalPage(page: Omit<IDocumentTextCatalogPage, 'conten
 export function createOcrCatalogPage(
     pageNumber: number,
     ocrPage: TOcrPageArtifact,
-    languages?: readonly string[],
 ): IDocumentTextCatalogPage | null {
     if (
         ocrPage.words.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS
@@ -185,7 +160,6 @@ export function createOcrCatalogPage(
         source: 'evb-ocr',
         ...(ocrPage.canonicalText?.generation ? {generation: ocrPage.canonicalText.generation} : {}),
         render: ocrPage.render,
-        ...(languages === undefined ? {} : {languages: [...languages]}),
     };
     const contentDigest = ocrPage.canonicalText?.contentDigest ?? '';
     return {
@@ -218,14 +192,13 @@ export async function visitDocumentOcrCatalogPages(
 
     let corruption: unknown = null;
     try {
-        const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         let visitedPages = 0;
         for await (const {
             pageNumber,
             artifact,
         } of catalog.iterateMappedPages()) {
             throwIfAborted(options.signal);
-            const page = createOcrCatalogPage(pageNumber, artifact, languages);
+            const page = createOcrCatalogPage(pageNumber, artifact);
             if (!page) {
                 continue;
             }
@@ -293,10 +266,9 @@ function setCanonicalOcrCatalogPage(
     canonicalByPage: Map<number, IDocumentTextCatalogPage>,
     pageNumber: number,
     artifact: TOcrPageArtifact,
-    languages: readonly string[] | undefined,
     budget: ITextBudget,
 ) {
-    const page = createOcrCatalogPage(pageNumber, artifact, languages);
+    const page = createOcrCatalogPage(pageNumber, artifact);
     if (page) {
         const {
             words: _words,
@@ -351,7 +323,6 @@ async function visitDocumentTextCatalogPages(
         if (!isValidWindowEnd(firstPage, lastPage) || lastPage > resolvedPageCount) {
             throw new RangeError('Invalid document text catalog window');
         }
-        const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         let visitedPages = 0;
         for (let windowFirst = firstPage; windowFirst <= lastPage; windowFirst += pageWindow) {
             throwIfAborted(options.signal);
@@ -386,7 +357,7 @@ async function visitDocumentTextCatalogPages(
                 } of catalog.readWindow(windowFirst, windowLast - windowFirst + 1)) {
                     throwIfAborted(options.signal);
                     if (artifact) {
-                        setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, languages, budget);
+                        setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, budget);
                     }
                 }
             }

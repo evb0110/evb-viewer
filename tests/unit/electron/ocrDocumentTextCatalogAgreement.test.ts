@@ -1,3 +1,4 @@
+import type * as TOcrCatalogV4Module from '@electron/features/ocr/main/ocrCatalogV4';
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -20,13 +21,17 @@ import {
     resolveDocumentTextCatalogSnapshot,
     resolveDocumentTextCatalogWindow,
 } from '@electron/features/ocr/main/documentTextCatalog';
+import type {IOcrCatalogOpenOptions} from '@electron/features/ocr/main/ocrCatalogV4';
 import {
     createOcrDocumentTextCatalogFixture,
     OCR_CATALOG_FIXTURE_PATH,
     OCR_CATALOG_FIXTURE_REVISION,
 } from '@tests/helpers/ocrDocumentTextCatalogFixture';
 
-const state = vi.hoisted(() => ({artifacts: new Map<string, unknown>()}));
+const state = vi.hoisted(() => ({
+    artifacts: new Map<string, unknown>(),
+    catalog: null as ReturnType<typeof createOcrDocumentTextCatalogFixture> | null,
+}));
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(async () => undefined),
     assertWorkingCopyRevisionSidecarCurrent: vi.fn(async () => undefined),
@@ -127,6 +132,10 @@ function virtualFileHandle(path: string) {
     };
 }
 
+vi.mock('@electron/features/ocr/main/ocrCatalogV4', async importOriginal => ({
+    ...await importOriginal<typeof TOcrCatalogV4Module>(),
+    openCatalog: async (catalogRoot: string, options?: IOcrCatalogOpenOptions) => state.catalog?.open(catalogRoot, options) ?? null,
+}));
 vi.mock('fs', () => ({existsSync: (path: string) => state.artifacts.has(relativeArtifactPath(path))}));
 vi.mock('fs/promises', () => ({
     access: vi.fn(async () => undefined),
@@ -275,6 +284,7 @@ describe('DocumentTextCatalog reader agreement', () => {
         vi.clearAllMocks();
         mocks.stat.mockResolvedValue({size: 1});
         state.artifacts.clear();
+        state.catalog = null;
         useOcrTextContent().clearCache();
         mocks.resolveAvailabilityViaCapability.mockImplementation(resolveDocumentOcrAvailability);
         mocks.resolveCatalogViaCapability.mockImplementation(resolveDocumentTextCatalogSnapshot);
@@ -289,7 +299,7 @@ describe('DocumentTextCatalog reader agreement', () => {
                 text: `page ${index + 1}`,
             }),
         ));
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
 
         const viewer = useOcrTextContent();
         await expect(viewer.hasPageOcrData(requireDocumentRef(fixture.path), fixture.revision, requirePageNumber(406))).resolves.toBe(true);
@@ -311,7 +321,7 @@ describe('DocumentTextCatalog reader agreement', () => {
             pageNumber: 1,
             text: 'large document page',
         }]);
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
         mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
         mocks.extractTextFromPdf.mockResolvedValue([]);
 
@@ -344,7 +354,7 @@ describe('DocumentTextCatalog reader agreement', () => {
                 text: 'third catalog page',
             },
         ]);
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
         mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
         mocks.extractTextFromPdf.mockResolvedValue([
             {
@@ -388,7 +398,7 @@ describe('DocumentTextCatalog reader agreement', () => {
             pageNumber: 1,
             text: 'must not return stale OCR',
         }]);
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
         mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
         mocks.assertWorkingCopyRevisionSidecarCurrent.mockImplementationOnce(async () => {
             throw new Error('Document revision is stale');
@@ -408,7 +418,7 @@ describe('DocumentTextCatalog reader agreement', () => {
             pageNumber: 1,
             text: 'logical sidecar text',
         }]);
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
         const controller = new AbortController();
         const extractionStarted = Promise.withResolvers<undefined>();
         const releaseExtraction = Promise.withResolvers<undefined>();
@@ -442,7 +452,7 @@ describe('DocumentTextCatalog reader agreement', () => {
             text: 'logical sidecar text',
         }]);
         const physicalPath = '/Users/alice/Documents/source.pdf';
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
         mocks.extractTextWithPdfjsWordBoxes.mockResolvedValue([{
             pageNumber: 1,
             text: 'physical PDF text',
@@ -495,7 +505,7 @@ describe('DocumentTextCatalog reader agreement', () => {
             text: 'logical sidecar text',
         }]);
         const physicalPath = '/Users/alice/Documents/large-source.pdf';
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
         mocks.stat.mockResolvedValue({size: 17 * 1024 * 1024});
         mocks.extractTextFromPdf.mockResolvedValue([{
             pageNumber: 1,
@@ -528,7 +538,7 @@ describe('DocumentTextCatalog reader agreement', () => {
                 text: 'foreign-looking third page',
             },
         ]);
-        state.artifacts = new Map(fixture.artifacts);
+        state.catalog = fixture;
 
         const exportPages = await loadDocumentTextCatalogPages(requireDocumentRef(fixture.path), fixture.revision);
         const viewer = useOcrTextContent();
@@ -550,12 +560,12 @@ describe('DocumentTextCatalog reader agreement', () => {
         }));
         const search = await buildSearchIndex(fixture.path, [], {
             documentRevision: fixture.revision,
-            pageCount: fixture.manifest.pageCount,
+            pageCount: 3,
         });
         const canonical = await resolveDocumentTextCatalogSnapshot(
             fixture.path,
             fixture.revision,
-            fixture.manifest.pageCount,
+            3,
         );
 
         const expected = comparablePages(exportPages ?? []);
@@ -566,30 +576,11 @@ describe('DocumentTextCatalog reader agreement', () => {
         expect(mocks.extractTextWithPdfjs).not.toHaveBeenCalled();
     });
 
-    it.each([
-        [
-            'stale manifest revision',
-            (artifacts: Map<string, unknown>) => {
-                const manifest = structuredClone(artifacts.get('manifest.json')) as {documentRevision: {token: string}};
-                manifest.documentRevision.token = 'stale-revision';
-                artifacts.set('manifest.json', manifest);
-            },
-        ],
-        [
-            'zero render width',
-            (artifacts: Map<string, unknown>) => {
-                const page = structuredClone(artifacts.get('page-0001.json')) as {render: {imagePx: {w: number}}};
-                page.render.imagePx.w = 0;
-                artifacts.set('page-0001.json', page);
-            },
-        ],
-    ])('strict readers refuse %s', async (_label, mutate) => {
-        const fixture = createOcrDocumentTextCatalogFixture([{
+    it('strict readers refuse a catalog of another document revision', async () => {
+        state.catalog = createOcrDocumentTextCatalogFixture([{
             pageNumber: 1,
             text: 'must not leak',
-        }]);
-        mutate(fixture.artifacts);
-        state.artifacts = new Map(fixture.artifacts);
+        }], {revision: 'stale-revision'});
 
         const exportPages = await loadDocumentTextCatalogPages(requireDocumentRef(OCR_CATALOG_FIXTURE_PATH), OCR_CATALOG_FIXTURE_REVISION);
         const viewerContent = await useOcrTextContent().getOcrTextContent(

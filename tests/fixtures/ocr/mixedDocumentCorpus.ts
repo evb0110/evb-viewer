@@ -1,10 +1,6 @@
 import {createHash} from 'node:crypto';
-import type {
-    IOcrIndexV3Manifest,
-    IOcrIndexV3Page,
-} from '@contracts/ocrIndex';
+import type {TOcrPageArtifact} from '@contracts/ocrIndex';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {requireEpochMs} from '@contracts/timestamps';
 
 export const MIXED_OCR_CORPUS_PATH = '/tmp/evb-mixed-ocr-corpus.pdf';
 export const MIXED_OCR_CORPUS_REVISION = requireDocumentRevisionToken('mixed-ocr-corpus-r1');
@@ -26,7 +22,7 @@ export const mixedEmbeddedTextPages = [
 ] as const;
 
 const evbText = 'EVB generated text generation two';
-export const mixedEvbPage: IOcrIndexV3Page = {
+export const mixedEvbPage: TOcrPageArtifact = {
     rotation: 0,
     render: {
         dpi: 300,
@@ -42,21 +38,6 @@ export const mixedEvbPage: IOcrIndexV3Page = {
         generation: 'generation-2',
         contentDigest: createHash('sha256').update(evbText).digest('hex'),
     },
-};
-
-export const mixedOcrManifest: IOcrIndexV3Manifest = {
-    version: 3,
-    documentRevision: {token: MIXED_OCR_CORPUS_REVISION},
-    createdAt: requireEpochMs(1),
-    source: {pdfPath: MIXED_OCR_CORPUS_PATH},
-    pageCount: 4,
-    pageBox: 'crop',
-    ocr: {
-        engine: 'tesseract',
-        languages: ['eng'],
-        renderDpi: 300,
-    },
-    pages: {4: {path: 'page-0004.json'}},
 };
 
 export const mixedOcrCorpusExpectedSources = [

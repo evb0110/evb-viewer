@@ -1,7 +1,5 @@
 import {
-    mkdir,
     mkdtemp,
-    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -17,8 +15,6 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import {requireDocumentRef} from '@contracts/documentRef';
-import {requireEpochMs} from '@contracts/timestamps';
 import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
 import type { IOcrPdfPageRequest } from '@electron/features/ocr/pipeline/types';
 
@@ -94,7 +90,7 @@ const {
     iterateOcrPageRequestBatches,
     validateCreateSearchablePdfPayload,
 } = await import('@electron/features/ocr/contracts');
-const { writeOcrIndexV3 } = await import('@electron/features/ocr/pipeline/indexWriter');
+const { writeOcrIndexV4 } = await import('@electron/features/ocr/pipeline/indexWriterV4');
 
 let tempDir: string | null = null;
 
@@ -147,18 +143,14 @@ async function writeCatalogWithOcrWorker(
     sourcePdfPath: string,
     pageNumbers: readonly number[],
     pageCount = pageNumbers.length,
+    revision: string = CURRENT_REVISION,
 ) {
-    await writeOcrIndexV3(
+    await writeOcrIndexV4({
+        catalogRoot: `${sourcePdfPath}.ocr`,
         sourcePdfPath,
-        {
-            version: 1,
-            documentRef: requireDocumentRef(sourcePdfPath),
-            authority: 'electron-working-copy',
-            token: CURRENT_REVISION,
-            contentRevision: 1,
-            mintedAt: requireEpochMs(1),
-        },
-        pageNumbers.map(pageNumber => ({
+        documentRevision: requireDocumentRevisionToken(revision),
+        pageCount,
+        pageBatches: [pageNumbers.map(pageNumber => ({
             pageNumber,
             text: `evb ocr text ${pageNumber}`,
             words: [{
@@ -170,86 +162,8 @@ async function writeCatalogWithOcrWorker(
             }],
             imageWidth: 1200,
             imageHeight: 1600,
-        })),
-        pageCount,
-        ['eng'],
-        300,
-        () => {},
-    );
-}
-
-async function readManifestGenerations(sourcePdfPath: string) {
-    const manifest = JSON.parse(await readFile(join(`${sourcePdfPath}.ocr`, 'manifest.json'), 'utf8')) as {pages: Record<string, {
-        path: string;
-        generation?: string;
-    }>;};
-    return Object.fromEntries(Object.entries(manifest.pages)
-        .map(([
-            pageNumber,
-            mapping,
-        ]) => [
-            Number(pageNumber),
-            mapping.generation,
-        ]));
-}
-
-async function readArtifactGenerations(sourcePdfPath: string) {
-    const manifest = JSON.parse(await readFile(join(`${sourcePdfPath}.ocr`, 'manifest.json'), 'utf8')) as {pages: Record<string, {path: string}>;};
-    const generations: Record<number, string | undefined> = {};
-    for (const [
-        pageNumber,
-        mapping,
-    ] of Object.entries(manifest.pages)) {
-        const artifact = JSON.parse(await readFile(join(`${sourcePdfPath}.ocr`, mapping.path), 'utf8')) as {canonicalText?: {generation?: string};};
-        generations[Number(pageNumber)] = artifact.canonicalText?.generation;
-    }
-    return generations;
-}
-
-/** A v3 catalog as written before the manifest carried per-page generations. */
-async function writeCatalogWithoutManifestGenerations(
-    sourcePdfPath: string,
-    pageNumbers: readonly number[],
-    revisionToken: string,
-) {
-    const catalogDir = `${sourcePdfPath}.ocr`;
-    await mkdir(catalogDir, {recursive: true});
-    const pages: Record<number, {path: string}> = {};
-    for (const pageNumber of pageNumbers) {
-        const pageFile = `page-${String(pageNumber).padStart(4, '0')}.json`;
-        pages[pageNumber] = {path: pageFile};
-        await writeFile(join(catalogDir, pageFile), JSON.stringify({
-            rotation: 0,
-            render: {
-                dpi: 300,
-                imagePx: {
-                    w: 1200,
-                    h: 1600,
-                },
-            },
-            text: `evb ocr text ${pageNumber}`,
-            words: [],
-            canonicalText: {
-                source: 'evb-ocr',
-                generation: 'legacy-run',
-                contentDigest: 'a'.repeat(64),
-            },
-        }));
-    }
-    await writeFile(join(catalogDir, 'manifest.json'), JSON.stringify({
-        version: 3,
-        documentRevision: {token: revisionToken},
-        createdAt: 1753500000000,
-        source: {pdfPath: sourcePdfPath},
-        pageCount: pageNumbers.length,
-        pageBox: 'crop',
-        ocr: {
-            engine: 'tesseract',
-            languages: ['eng'],
-            renderDpi: 300,
-        },
-        pages,
-    }));
+        }))],
+    });
 }
 
 function recordCatalogReads() {
@@ -259,8 +173,8 @@ function recordCatalogReads() {
 
 function expectBoundedCatalogReads() {
     expect(catalogReads.files.length).toBeGreaterThan(0);
-    expect(catalogReads.files.length).toBeLessThanOrEqual(3);
-    expect(catalogReads.files.every(file => file === 'manifest.json')).toBe(true);
+    // Mappings come from the catalog index; no page artifact is opened.
+    expect(catalogReads.files.every(file => !/^p\d+\.json$/u.test(file))).toBe(true);
 }
 
 afterEach(async () => {
@@ -537,51 +451,14 @@ describe('OCR supersession page selection', () => {
 
         expect(selection.pages).toEqual([]);
         expectBoundedCatalogReads();
-        const generations = await readManifestGenerations(sourcePdfPath);
-        expect(generations[2]).not.toBe(generations[1]);
-        expect(generations[3]).toBe(generations[1]);
-        expect(generations).toEqual(await readArtifactGenerations(sourcePdfPath));
-    });
-
-    it('keeps a catalog written before the manifest carried generations from forcing a re-OCR', async () => {
-        const sourcePdfPath = await createSourcePdf(3);
-        await writeCatalogWithoutManifestGenerations(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], CURRENT_REVISION);
-        probe.state.textByPage = new Map([
-            [
-                1,
-                'evb ocr text 1',
-            ],
-            [
-                2,
-                'evb ocr text 2',
-            ],
-            [
-                3,
-                'evb ocr text 3',
-            ],
-        ]);
-        recordCatalogReads();
-
-        const selection = await runSelection(sourcePdfPath, [
-            1,
-            2,
-            3,
-        ], []);
-
-        expect(selection.pages).toEqual([]);
-        expectBoundedCatalogReads();
     });
 
     it('ignores a catalog left behind by an earlier document revision', async () => {
         const sourcePdfPath = await createSourcePdf(2);
-        await writeCatalogWithoutManifestGenerations(sourcePdfPath, [
+        await writeCatalogWithOcrWorker(sourcePdfPath, [
             1,
             2,
-        ], requireDocumentRevisionToken('revision-0'));
+        ], 2, 'revision-0');
         recordCatalogReads();
 
         const selection = await runSelection(sourcePdfPath, [

@@ -5,7 +5,6 @@ import {
 import {
     mkdir,
     open,
-    readFile,
     readdir,
     realpath,
     rename,
@@ -57,7 +56,6 @@ import {
     OCR_SHARD_INDEX_MAGIC,
     OCR_SHARD_INDEX_RECORD_BYTES,
     OCR_SHARD_SIZE,
-    decodeOcrPage,
     parseOcrCatalogRootV4,
     parseOcrCatalogV4PreparedDescriptor,
     parseOcrGenerationV4,
@@ -79,7 +77,6 @@ import {
     readBoundedFileContents,
     canonicalPathParts as parseCanonicalPagePath,
     hasOcrCatalogV4ReaderLease,
-    readCatalogFile,
     readCatalogRoot,
     readExactly,
     readJsonFile,
@@ -87,12 +84,6 @@ import {
 } from '@electron/features/ocr/main/ocrCatalogV4';
 import {clearOcrCatalogRecoveryReceipt} from '@electron/features/ocr/main/ocrCatalogRecovery';
 import {assertWorkingCopyRevisionSidecarCurrent as assertWorkingCopyRevisionCurrent} from '@electron/file-access/documentRevisionSidecar';
-import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/features/ocr/main/ocrIndexV3Stream';
-import {
-    OcrIndexV3ManifestStreamError,
-    readOcrIndexV3ManifestMetadata,
-    streamOcrIndexV3ManifestMappings,
-} from '@electron/features/ocr/main/ocrIndexV3Stream';
 export interface IOcrIndexV4WriteOptions {
     catalogRoot: string;
     sourcePdfPath: string;
@@ -107,7 +98,6 @@ export interface IOcrIndexV4WriteOptions {
     log?: TWorkerLog;
     extractionDpi?: number;
     assertRevisionCurrent?: () => Promise<void>;
-    migrateLegacy?: boolean;
     durabilityBoundary?: IOcrCatalogV4DurabilityBoundary;
 }
 export interface IOcrIndexV4WriteResult {
@@ -119,20 +109,7 @@ export interface IOcrIndexV4WriteResult {
     mappedPageCount: number;
     dirtyShards: number[];
     published: boolean;
-    migrated: boolean;
 }
-export interface IMigrateOcrIndexV3ToV4Options {
-    catalogRoot: string;
-    sourcePdfPath?: string;
-    documentRevision?: IDocumentRevisionInfo | TDocumentRevisionToken;
-    workingCopyPath?: string;
-    catalogId?: string;
-    signal?: AbortSignal;
-    log?: TWorkerLog;
-    assertRevisionCurrent?: () => Promise<void>;
-    durabilityBoundary?: IOcrCatalogV4DurabilityBoundary;
-}
-
 export interface IOcrIndexV4PrepareOptions {
     catalogRoot: string;
     sourcePdfPath: string;
@@ -280,12 +257,7 @@ interface ICurrentV4Catalog {
     indexPath: string;
     indexByteLength: number;
 }
-interface ICurrentV3Catalog {
-    kind: 'v3';
-    manifestPath: string;
-    metadata: IOcrIndexV3ManifestStreamMetadata;
-}
-type TCurrentCatalog = ICurrentV4Catalog | ICurrentV3Catalog | null;
+type TCurrentCatalog = ICurrentV4Catalog | null;
 interface IRevisionContext {
     token: TDocumentRevisionToken;
     fence: () => Promise<void>;
@@ -489,42 +461,10 @@ async function openReadOnlyNoFollow(filePath: string): Promise<FileHandle> {
         throw error;
     }
 }
-interface IStreamingV3RootValue {
-    kind: 'v3-stream';
-    metadata: IOcrIndexV3ManifestStreamMetadata;
-}
-function isStreamingV3RootValue(value: unknown): value is IStreamingV3RootValue {
-    return !!value
-        && typeof value === 'object'
-        && !Array.isArray(value)
-        && 'kind' in value
-        && value.kind === 'v3-stream'
-        && 'metadata' in value;
-}
-async function readRootValue(catalogRoot: string): Promise<unknown | IStreamingV3RootValue | null> {
-    const rootProbe = await readCatalogRoot(catalogRoot);
-    if (rootProbe === null) {
-        return null;
-    }
-    if (rootProbe.kind === 'v3') {
-        return {
-            kind: 'v3-stream',
-            metadata: rootProbe.metadata,
-        };
-    }
-    return rootProbe.value;
-}
 async function readCurrentCatalog(catalogRoot: string): Promise<TCurrentCatalog> {
-    const rootValue = await readRootValue(catalogRoot);
+    const rootValue = (await readCatalogRoot(catalogRoot))?.value ?? null;
     if (rootValue === null) {
         return null;
-    }
-    if (isStreamingV3RootValue(rootValue)) {
-        return {
-            kind: 'v3',
-            manifestPath: join(catalogRoot, ROOT_MANIFEST_FILENAME),
-            metadata: rootValue.metadata,
-        };
     }
     if (
         rootValue
@@ -1739,235 +1679,6 @@ async function createGenerationDirectory(catalogRoot: string, generation: number
     return generationPath;
 }
 
-/**
- * Migration publishes only v3 artifacts that still decode as pages; a missing,
- * truncated, oversized, or malformed artifact is dropped instead of being
- * advertised as mapped. Path escapes keep failing the whole migration.
- */
-async function isReadableLegacyPageArtifact(catalogRoot: string, relativePath: string): Promise<boolean> {
-    let contents: Buffer | null;
-    try {
-        contents = await readCatalogFile(catalogRoot, relativePath, {kind: 'legacy'});
-    } catch (error) {
-        if (error instanceof OcrCatalogPathError) {
-            throw error;
-        }
-        return false;
-    }
-    if (contents === null) {
-        return false;
-    }
-    try {
-        return decodeOcrPage(JSON.parse(contents.toString('utf8')) as unknown, 'strict') !== null;
-    } catch {
-        return false;
-    }
-}
-
-/**
- * Streams a legacy page map into one bounded temporary spool per shard. V3
- * object property order is not part of the format, so migration cannot assume
- * that page numbers arrive in shard order. The spool keeps that compatibility
- * without retaining the manifest or a complete page map in JavaScript.
- */
-async function streamLegacyManifestShards(
-    catalogRoot: string,
-    manifestPath: string,
-    pageCount: number,
-    signal: AbortSignal | undefined,
-    onShard: (shard: number, pages: Record<string, IOcrPageMappingV4>) => Promise<void>,
-): Promise<number> {
-    const spoolDirectory = join(
-        catalogRoot,
-        `.ocr-v3-migration-${process.pid}-${randomUUID()}`,
-    );
-    const openSpools = new Map<number, FileHandle>();
-    const spooledShards = new Set<number>();
-    let mappedPageCount = 0;
-    const closeSpools = async () => {
-        const closeErrors: unknown[] = [];
-        for (const file of openSpools.values()) {
-            try {
-                await file.close();
-            } catch (error) {
-                closeErrors.push(error);
-            }
-        }
-        openSpools.clear();
-        if (closeErrors.length > 0) {
-            throw closeErrors[0];
-        }
-    };
-
-    let operationFailed = false;
-    let operationError: unknown;
-    try {
-        await mkdir(spoolDirectory, {recursive: false});
-        await streamOcrIndexV3ManifestMappings(manifestPath, async mapping => {
-            throwIfAborted(signal);
-            if (mapping.pageNumber > pageCount) {
-                throw new OcrCatalogCorruptError('v3 page mapping exceeds the document page count');
-            }
-            if (!await isReadableLegacyPageArtifact(catalogRoot, mapping.path)) {
-                return;
-            }
-            const shard = Math.floor((mapping.pageNumber - 1) / OCR_SHARD_SIZE);
-            let spool = openSpools.get(shard);
-            if (spool === undefined) {
-                if (openSpools.size >= 32) {
-                    const [
-                        oldestShard,
-                        oldestSpool,
-                    ] = openSpools.entries().next().value as [number, FileHandle];
-                    await oldestSpool.close();
-                    openSpools.delete(oldestShard);
-                }
-                const spoolPath = join(
-                    spoolDirectory,
-                    `shard-${String(shard).padStart(6, '0')}.ndjson`,
-                );
-                spool = await open(spoolPath, 'a');
-                openSpools.set(shard, spool);
-                spooledShards.add(shard);
-            }
-            await spool.write(`${JSON.stringify({
-                pageNumber: mapping.pageNumber,
-                path: mapping.path,
-            })}\n`);
-            mappedPageCount += 1;
-        });
-        await closeSpools();
-        for (const shard of [...spooledShards].sort((left, right) => left - right)) {
-            throwIfAborted(signal);
-            const spoolPath = join(
-                spoolDirectory,
-                `shard-${String(shard).padStart(6, '0')}.ndjson`,
-            );
-            const spoolStat = await stat(spoolPath);
-            if (!Number.isSafeInteger(spoolStat.size) || spoolStat.size > 512 * 1024) {
-                throw new OcrCatalogCorruptError(`v3 shard spool ${shard} exceeds its bounded size`);
-            }
-            const lines = (await readFile(spoolPath, 'utf8')).split('\n');
-            const pages: Record<string, IOcrPageMappingV4> = {};
-            for (const line of lines) {
-                if (line.length === 0) {
-                    continue;
-                }
-                let value: unknown;
-                try {
-                    value = JSON.parse(line) as unknown;
-                } catch {
-                    throw new OcrCatalogCorruptError(`v3 shard spool ${shard} is invalid`);
-                }
-                if (
-                    value === null
-                    || typeof value !== 'object'
-                    || Array.isArray(value)
-                ) {
-                    throw new OcrCatalogCorruptError(`v3 shard spool ${shard} contains an invalid page`);
-                }
-                const record = value as {
-                    pageNumber?: unknown;
-                    path?: unknown
-                };
-                const pageNumber = typeof record.pageNumber === 'number' ? record.pageNumber : null;
-                const path = typeof record.path === 'string' ? record.path : null;
-                if (
-                    pageNumber === null
-                    || !Number.isSafeInteger(pageNumber)
-                    || pageNumber < 1
-                    || pageNumber > pageCount
-                    || Math.floor((pageNumber - 1) / OCR_SHARD_SIZE) !== shard
-                    || path === null
-                ) {
-                    throw new OcrCatalogCorruptError(`v3 shard spool ${shard} contains an invalid page`);
-                }
-                const pageKey = String(pageNumber);
-                if (pages[pageKey] !== undefined) {
-                    throw new OcrCatalogCorruptError(`v3 manifest contains duplicate page ${pageKey}`);
-                }
-                pages[pageKey] = {
-                    path,
-                    generation: 0,
-                };
-            }
-            if (Object.keys(pages).length > OCR_SHARD_SIZE) {
-                throw new OcrCatalogCorruptError(`v3 shard ${shard} contains too many pages`);
-            }
-            await onShard(shard, pages);
-        }
-        const metadata = await readOcrIndexV3ManifestMetadata(manifestPath);
-        if (
-            metadata === null
-            || metadata.pageCount !== pageCount
-            || metadata.mappedPageCount < mappedPageCount
-        ) {
-            throw new OcrCatalogCorruptError('v3 manifest metadata is invalid');
-        }
-    } catch (error) {
-        operationFailed = true;
-        if (error instanceof OcrCatalogCorruptError) {
-            operationError = error;
-        } else if (error instanceof OcrIndexV3ManifestStreamError) {
-            operationError = new OcrCatalogCorruptError(`invalid v3 manifest: ${error.message}`);
-        } else {
-            operationError = error;
-        }
-    }
-    const cleanupErrors: unknown[] = [];
-    try {
-        await closeSpools();
-    } catch (error) {
-        cleanupErrors.push(error);
-    }
-    try {
-        await removePathAndSync(spoolDirectory, catalogRoot);
-    } catch (error) {
-        cleanupErrors.push(error);
-    }
-    if (operationFailed) {
-        if (cleanupErrors.length > 0) {
-            throw new AggregateError([
-                operationError,
-                ...cleanupErrors,
-            ], 'OCR catalog legacy migration cleanup failed');
-        }
-        throw operationError;
-    }
-    if (cleanupErrors.length > 0) {
-        throw new AggregateError(cleanupErrors, 'OCR catalog legacy migration cleanup failed');
-    }
-    return mappedPageCount;
-}
-
-/** Seeds one staged generation from a legacy manifest without copying artifacts. */
-async function seedLegacyManifest(
-    state: IGenerationBuildState,
-    manifestPath: string,
-    pageCount: number,
-    signal?: AbortSignal,
-) {
-    state.mappedPageCount = await streamLegacyManifestShards(
-        state.catalogRoot,
-        manifestPath,
-        pageCount,
-        signal,
-        async (shard, pages) => {
-            throwIfAborted(signal);
-            await writeShard(state.catalogRoot, state.generation, shard, pages);
-            const mappedCount = Object.keys(pages).length;
-            state.dirtyShards.add(shard);
-            state.touchedShards.add(shard);
-            state.dirtyRecords.set(shard, {
-                generation: state.generation,
-                mappedCount,
-                reserved: 0,
-            });
-            state.liveRefs.set(state.generation, (state.liveRefs.get(state.generation) ?? 0) + 1);
-        },
-    );
-}
-
 /** Source identity is shared by preparation, carry-forward, and publication. */
 async function isSameSourcePdf(left: string, right: string): Promise<boolean> {
     if (resolve(left) === resolve(right)) {
@@ -1996,7 +1707,6 @@ async function createBuildState(input: {
     pageCount: number;
     generation: number;
     catalog: ICurrentV4Catalog | null;
-    legacyManifestPath: string | null;
     signal?: AbortSignal;
     catalogId: string;
     extractionDpi: number;
@@ -2048,9 +1758,6 @@ async function createBuildState(input: {
         releasedGenerations,
         mappedPageCount: sourceCatalog?.generation.mappedPageCount ?? 0,
     } satisfies IGenerationBuildState;
-    if (input.legacyManifestPath !== null) {
-        await seedLegacyManifest(state, input.legacyManifestPath, input.pageCount, input.signal);
-    }
     return {state};
 }
 function generationManifestFromState(state: IGenerationBuildState): IOcrGenerationV4 {
@@ -2110,129 +1817,6 @@ async function publishBuildState(
         ...(signal === undefined ? {} : {signal}),
     });
 }
-export async function migrateOcrIndexV3ToV4(
-    options: IMigrateOcrIndexV3ToV4Options,
-): Promise<IOcrIndexV4WriteResult | null> {
-    return withCatalogLock(options.catalogRoot, () => migrateOcrIndexV3ToV4Unlocked(options));
-}
-
-async function migrateOcrIndexV3ToV4Unlocked(
-    options: IMigrateOcrIndexV3ToV4Options,
-): Promise<IOcrIndexV4WriteResult | null> {
-    const log = options.log ?? (() => {});
-    throwIfAborted(options.signal);
-    const current = await readCurrentCatalog(options.catalogRoot);
-    if (current === null || current.kind === 'v4') {
-        return null;
-    }
-    const revision = options.documentRevision === undefined
-        ? current.metadata.documentRevision.token
-        : requireRevisionToken(options.documentRevision);
-    if (current.metadata.documentRevision.token !== revision) {
-        throw new OcrCatalogFencedError(
-            'Cannot migrate an OCR v3 catalog from a different document revision',
-            revision,
-            current.metadata.documentRevision.token,
-        );
-    }
-    const sourcePdfPath = options.sourcePdfPath ?? current.metadata.source.pdfPath;
-    if (
-        options.sourcePdfPath !== undefined
-        && !await isSameSourcePdf(options.sourcePdfPath, current.metadata.source.pdfPath)
-    ) {
-        throw new OcrCatalogFencedError('Cannot migrate an OCR v3 catalog from a different source PDF');
-    }
-    const catalogId = options.catalogId ?? randomUUID();
-    assertCatalogId(catalogId);
-    const generation = await findNextGeneration(options.catalogRoot);
-    const pageCount = current.metadata.pageCount;
-    const shardCount = expectedShardCount(pageCount);
-    const releasedLegacyPaths = new Set<string>();
-    const generationPath = join(options.catalogRoot, generationDirectoryName(generation));
-    try {
-        await createGenerationDirectory(options.catalogRoot, generation);
-        const dirtyRecords = new Map<number, IOcrShardIndexRecord>();
-        let mappedPageCount = 0;
-        await streamLegacyManifestShards(
-            options.catalogRoot,
-            current.manifestPath,
-            pageCount,
-            options.signal,
-            async (shard, pages) => {
-                throwIfAborted(options.signal);
-                await writeShard(options.catalogRoot, generation, shard, pages);
-                const mappedCount = Object.keys(pages).length;
-                mappedPageCount += mappedCount;
-                dirtyRecords.set(shard, {
-                    generation,
-                    mappedCount,
-                    reserved: 0,
-                });
-            },
-        );
-        const generationManifest: IOcrGenerationV4 = {
-            version: OCR_CATALOG_VERSION,
-            catalogId,
-            generation,
-            parent: null,
-            source: {pdfPath: sourcePdfPath},
-            documentRevision: {token: revision},
-            pageCount,
-            shardSize: OCR_SHARD_SIZE,
-            shardCount,
-            mappedPageCount,
-            createdAt: createIsoTimestamp(),
-            dirtyShards: [...dirtyRecords.keys()].sort((left, right) => left - right),
-            liveRefs: {
-                [String(generation)]: dirtyRecords.size,
-                '0': 0,
-            },
-            releasedGenerations: [],
-            releasedLegacyPaths: [...releasedLegacyPaths],
-        };
-        const root: IOcrCatalogRootV4 = {
-            version: OCR_CATALOG_VERSION,
-            catalogId,
-            source: {pdfPath: sourcePdfPath},
-            documentRevision: {token: revision},
-            pageCount,
-            shardSize: OCR_SHARD_SIZE,
-            generation,
-            publishedAt: createIsoTimestamp(),
-        };
-        const revisionFence = revisionContext(
-            revision,
-            options.workingCopyPath,
-            options.assertRevisionCurrent,
-        );
-        await publishOcrCatalogV4GenerationUnlocked({
-            catalogRoot: options.catalogRoot,
-            root,
-            generation: generationManifest,
-            sourceIndexPath: null,
-            dirtyRecords,
-            revisionFence: revisionFence.fence,
-            ...(options.signal === undefined ? {} : {signal: options.signal}),
-            ...(options.durabilityBoundary === undefined ? {} : {durabilityBoundary: options.durabilityBoundary}),
-        });
-        log('debug', `Migrated OCR v3 catalog to v4 generation ${generation}`);
-        return {
-            catalogRoot: options.catalogRoot,
-            catalogId,
-            generation,
-            parent: null,
-            pageCount,
-            mappedPageCount: generationManifest.mappedPageCount,
-            dirtyShards: [...generationManifest.dirtyShards],
-            published: true,
-            migrated: true,
-        };
-    } catch (error) {
-        return throwAfterCleanup(error, isCommittedDurabilityError(error)
-            ? []
-            : [() => removePathAndSync(generationPath, options.catalogRoot)]);
-    }
-}
 export async function writeOcrIndexV4(
     options: IOcrIndexV4WriteOptions,
 ): Promise<IOcrIndexV4WriteResult> {
@@ -2255,35 +1839,13 @@ async function writeOcrIndexV4Unlocked(
         throw new TypeError('OCR v4 source PDF path must not be empty');
     }
     await mkdir(options.catalogRoot, {recursive: true});
-    let current = await readCurrentCatalog(options.catalogRoot);
+    const current = await readCurrentCatalog(options.catalogRoot);
     const revision = revisionContext(
         options.documentRevision,
         options.workingCopyPath,
         options.assertRevisionCurrent,
     );
-    let migrated = false;
-    if (
-        options.publishRoot !== false
-        && current?.kind === 'v3'
-        && options.migrateLegacy !== false
-        && current.metadata.documentRevision.token === revision.token
-        && await isSameSourcePdf(current.metadata.source.pdfPath, options.sourcePdfPath)
-    ) {
-        await migrateOcrIndexV3ToV4Unlocked({
-            catalogRoot: options.catalogRoot,
-            sourcePdfPath: options.sourcePdfPath,
-            documentRevision: revision.token,
-            log,
-            ...(options.workingCopyPath === undefined ? {} : {workingCopyPath: options.workingCopyPath}),
-            ...(options.catalogId === undefined ? {} : {catalogId: options.catalogId}),
-            ...(options.signal === undefined ? {} : {signal: options.signal}),
-            ...(options.assertRevisionCurrent === undefined ? {} : {assertRevisionCurrent: options.assertRevisionCurrent}),
-            ...(options.durabilityBoundary === undefined ? {} : {durabilityBoundary: options.durabilityBoundary}),
-        });
-        migrated = true;
-        current = await readCurrentCatalog(options.catalogRoot);
-    }
-    const currentV4 = current?.kind === 'v4' ? current : null;
+    const currentV4 = current;
     if (
         currentV4 !== null
         && options.catalogId !== undefined
@@ -2291,13 +1853,6 @@ async function writeOcrIndexV4Unlocked(
     ) {
         throw new OcrCatalogFencedError('Cannot write an OCR catalog with a different catalogId');
     }
-    const legacyManifestPath = options.publishRoot === false
-        && current?.kind === 'v3'
-        && current.metadata.documentRevision.token === revision.token
-        && await isSameSourcePdf(current.metadata.source.pdfPath, options.sourcePdfPath)
-        && current.metadata.pageCount === options.pageCount
-        ? current.manifestPath
-        : null;
     const currentGeneration = currentV4?.root.generation ?? 0;
     const generation = await findNextGeneration(options.catalogRoot, currentGeneration);
     const catalogId = options.catalogId ?? currentV4?.root.catalogId ?? randomUUID();
@@ -2310,7 +1865,6 @@ async function writeOcrIndexV4Unlocked(
             pageCount: options.pageCount,
             generation,
             catalog: currentV4,
-            legacyManifestPath,
             catalogId,
             extractionDpi: options.extractionDpi ?? 300,
             ...(options.signal === undefined ? {} : {signal: options.signal}),
@@ -2336,7 +1890,6 @@ async function writeOcrIndexV4Unlocked(
             mappedPageCount: state.mappedPageCount,
             dirtyShards: [...state.dirtyShards].sort((left, right) => left - right),
             published: published.published,
-            migrated,
         };
     } catch (error) {
         return throwAfterCleanup(error, isCommittedDurabilityError(error)
@@ -2348,16 +1901,11 @@ async function writeOcrIndexV4Unlocked(
     }
 }
 function sourceRootRevision(current: TCurrentCatalog): TDocumentRevisionToken | null {
-    if (current === null) {
-        return null;
-    }
-    return current.kind === 'v4'
-        ? current.root.documentRevision.token
-        : current.metadata.documentRevision.token;
+    return current?.root.documentRevision.token ?? null;
 }
 
 function sourceRootGeneration(current: TCurrentCatalog): number | null {
-    return current?.kind === 'v4' ? current.root.generation : null;
+    return current?.root.generation ?? null;
 }
 
 function assertPreparedDescriptorMatchesResult(
@@ -2422,16 +1970,12 @@ export async function prepareOcrCatalogV4Generation(
             currentRevision,
         );
     }
-    const currentSourcePath = current?.kind === 'v4'
-        ? current.root.source.pdfPath
-        : current?.kind === 'v3'
-            ? current.metadata.source.pdfPath
-            : null;
+    const currentSourcePath = current?.root.source.pdfPath ?? null;
     if (currentSourcePath !== null && !await isSameSourcePdf(currentSourcePath, options.sourcePdfPath)) {
         throw new OcrCatalogFencedError('Cannot prepare OCR catalog from a different source PDF');
     }
     if (
-        current?.kind === 'v4'
+        current !== null
         && options.catalogId !== undefined
         && options.catalogId !== current.root.catalogId
     ) {
@@ -2517,17 +2061,15 @@ async function publishPreparedOcrCatalogV4Unlocked(
         );
     }
     if (current !== null) {
-        const currentPageCount = current.kind === 'v4' ? current.root.pageCount : current.metadata.pageCount;
+        const currentPageCount = current.root.pageCount;
         if (currentPageCount !== descriptor.pageCount) {
             throw new OcrCatalogFencedError('OCR catalog page count changed before prepared generation apply');
         }
-        const currentSourcePath = current.kind === 'v4'
-            ? current.root.source.pdfPath
-            : current.metadata.source.pdfPath;
+        const currentSourcePath = current.root.source.pdfPath;
         if (!await isSameSourcePdf(currentSourcePath, input.sourcePdfPath)) {
             throw new OcrCatalogFencedError('Prepared OCR catalog source PDF does not match the live catalog');
         }
-        if (current.kind === 'v4' && current.root.catalogId !== descriptor.catalogId) {
+        if (current.root.catalogId !== descriptor.catalogId) {
             throw new OcrCatalogFencedError('Prepared OCR catalog belongs to a different catalogId');
         }
     }
@@ -2600,7 +2142,6 @@ async function publishPreparedOcrCatalogV4Unlocked(
         mappedPageCount: staged.generation.mappedPageCount,
         dirtyShards: [],
         published: true,
-        migrated: false,
     };
 }
 

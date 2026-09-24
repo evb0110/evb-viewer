@@ -40,12 +40,10 @@ import {
 const log = createLogger('workingCopyContentTransitionJournal');
 
 /**
- * V3 catalogs are retained only for old documents and old journals. A v4
- * catalog never crosses this path as a tree: its immutable generations stay
- * in place and this journal stores the small root manifest instead.
+ * A v4 catalog never crosses this path as a tree: its immutable generations
+ * stay in place and this journal stores the small root manifest instead. Any
+ * other catalog directory is a refused v3 tree and is left untouched.
  */
-export const MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES = 16 * 1024 * 1024;
-export const MAX_LEGACY_OCR_CATALOG_FILES = 100_000;
 const OCR_ROOT_MANIFEST_FILENAME = 'manifest.json';
 const OCR_GENERATION_DIRECTORY_PATTERN = /^gen-\d{8}$/u;
 
@@ -176,45 +174,6 @@ function parseJournal(value: unknown): IWorkingCopyContentTransitionJournal | nu
     };
 }
 
-/**
- * Stop at the compatibility budget. Large legacy roots remain in place
- * during generic PDF transitions instead of being copied or rejected.
- */
-async function isLegacyOcrCatalogWithinBudget(targetPath: string) {
-    let totalBytes = 0;
-    let fileCount = 0;
-    const pending: string[] = [targetPath];
-    while (pending.length > 0) {
-        const currentPath = pending.pop()!;
-        const currentStat = await lstat(currentPath);
-        if (currentStat.isSymbolicLink()) {
-            throw new Error(`OCR legacy catalog contains a symbolic link: ${currentPath}`);
-        }
-        if (currentStat.isDirectory()) {
-            const entries = await readdir(currentPath, {withFileTypes: true});
-            if (entries.length > MAX_LEGACY_OCR_CATALOG_FILES) {
-                return false;
-            }
-            for (const entry of entries) {
-                fileCount += 1;
-                if (fileCount > MAX_LEGACY_OCR_CATALOG_FILES) {
-                    return false;
-                }
-                pending.push(join(currentPath, entry.name));
-            }
-            continue;
-        }
-        if (!currentStat.isFile()) {
-            throw new Error(`OCR legacy catalog contains a non-file entry: ${currentPath}`);
-        }
-        totalBytes += currentStat.size;
-        if (totalBytes > MAX_LEGACY_OCR_CATALOG_BACKUP_BYTES) {
-            return false;
-        }
-    }
-    return true;
-}
-
 async function isPreparedV4Root(targetPath: string) {
     const manifestPath = join(targetPath, OCR_ROOT_MANIFEST_FILENAME);
     let manifestText: string | null;
@@ -324,18 +283,16 @@ async function backupSidecars(
             continue;
         }
         if (index === 0 && targetStat.isDirectory()) {
-            if (!await isLegacyOcrCatalogWithinBudget(targetPath)) {
-                backups.push({
-                    targetPath,
-                    backupPath: null,
-                    directory: true,
-                    originalState: 'present',
-                    kind: 'ocr-v3-untouched',
-                });
-                continue;
-            }
-            await cp(targetPath, backupPath, {recursive: true});
-        } else if (targetStat.isDirectory()) await cp(targetPath, backupPath, {recursive: true});
+            backups.push({
+                targetPath,
+                backupPath: null,
+                directory: true,
+                originalState: 'present',
+                kind: 'ocr-v3-untouched',
+            });
+            continue;
+        }
+        if (targetStat.isDirectory()) await cp(targetPath, backupPath, {recursive: true});
         else await copyFileAtomic(targetPath, backupPath);
         backups.push({
             targetPath,
@@ -366,8 +323,7 @@ async function restoreSidecars(sidecars: readonly ITransitionSidecarBackup[]) {
             return;
         }
         if (sidecar.kind === 'ocr-v3-untouched') {
-            // Generic PDF transitions do not modify the legacy OCR root.
-            // Leave the large tree where it is and avoid a recursive restore.
+            // Transitions never modify a refused v3 tree; leave it in place.
             return;
         }
         if (!sidecar.backupPath) {

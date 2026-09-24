@@ -1,9 +1,7 @@
 import {
     lstat,
-    mkdtemp,
     open,
     realpath,
-    rm,
     stat,
 } from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
@@ -16,7 +14,6 @@ import {
     sep,
     win32,
 } from 'node:path';
-import {tmpdir} from 'node:os';
 import type {
     IDocumentRevisionStamp,
     TDocumentRevisionToken,
@@ -49,13 +46,6 @@ import {
     parseOcrShardIndexHeader,
     parseOcrShardV4,
 } from '@contracts/ocrIndex';
-import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/features/ocr/main/ocrIndexV3Stream';
-import {
-    OcrIndexV3ManifestStreamError,
-    iterateOcrIndexV3ManifestMappings,
-    readOcrIndexV3ManifestMetadata,
-    streamOcrIndexV3ManifestMappings,
-} from '@electron/features/ocr/main/ocrIndexV3Stream';
 
 const OCR_CATALOG_MANIFEST_FILENAME = 'manifest.json' as const;
 const OCR_CATALOG_GENERATION_MANIFEST_FILENAME = 'generation.json' as const;
@@ -95,7 +85,7 @@ const readerLeaseFinalizer = typeof FinalizationRegistry === 'undefined'
         releaseReaderLease(lease);
     });
 
-export type TOcrCatalogVersion = 3 | 4;
+export type TOcrCatalogVersion = 4;
 
 export interface IOcrCatalogHeader {
     version: TOcrCatalogVersion;
@@ -1005,174 +995,6 @@ function createHeaderFromV4(root: IOcrCatalogRootV4, generation: IOcrGenerationV
     };
 }
 
-function createHeaderFromV3(manifest: IOcrIndexV3ManifestStreamMetadata): IOcrCatalogHeader {
-    const mappedPageCount = manifest.mappedPageCount;
-    return {
-        version: 3,
-        source: {pdfPath: manifest.source.pdfPath},
-        documentRevision: {token: manifest.documentRevision.token},
-        pageCount: manifest.pageCount,
-        generation: 0,
-        mappedPageCount,
-        complete: mappedPageCount === manifest.pageCount,
-    };
-}
-
-interface IOcrCatalogV3Mapping {
-    path: string;
-    generation?: string;
-}
-
-async function readV3WindowMappings(
-    catalogRoot: string,
-    manifestPath: string,
-    metadata: IOcrIndexV3ManifestStreamMetadata,
-    start: number,
-    count: number,
-): Promise<Map<number, IOcrCatalogV3Mapping>> {
-    const end = start + count - 1;
-    const mappings = new Map<number, IOcrCatalogV3Mapping>();
-    if (!await assertCatalogRegularFile(manifestPath, OCR_CATALOG_MANIFEST_FILENAME, catalogRoot)) {
-        throw new OcrCatalogCorruptError('v3 manifest disappeared while a window was being read');
-    }
-    try {
-        const streamedMetadata = await streamOcrIndexV3ManifestMappings(manifestPath, mapping => {
-            if (mapping.pageNumber >= start && mapping.pageNumber <= end) {
-                resolveCatalogPath(catalogRoot, mapping.path, {kind: 'legacy'});
-                mappings.set(mapping.pageNumber, {
-                    path: mapping.path,
-                    ...(mapping.generation === undefined ? {} : {generation: mapping.generation}),
-                });
-            }
-        });
-        if (
-            streamedMetadata === null
-            || streamedMetadata.documentRevision.token !== metadata.documentRevision.token
-            || streamedMetadata.pageCount !== metadata.pageCount
-        ) {
-            throw new OcrCatalogCorruptError('v3 manifest changed while a window was being read');
-        }
-    } catch (error) {
-        if (error instanceof OcrCatalogCorruptError) {
-            throw error;
-        }
-        if (error instanceof OcrIndexV3ManifestStreamError) {
-            throw new OcrCatalogCorruptError(`invalid v3 manifest: ${error.message}`);
-        }
-        throw error;
-    }
-    return mappings;
-}
-
-/**
- * Finds the first absent or unreadable v3 page in one manifest pass. The
- * legacy object is allowed to arrive in arbitrary property order, so a sparse
- * on-disk bitset records only page presence. The scan that follows reads at
- * most one 256-page window into memory.
- */
-async function findFirstUnmappedV3Page(
-    catalogRoot: string,
-    manifestPath: string,
-    metadata: IOcrIndexV3ManifestStreamMetadata,
-    fromPage: number,
-): Promise<number | null> {
-    const bitmapBytes = Math.ceil(metadata.pageCount / 8);
-    if (!Number.isSafeInteger(bitmapBytes) || bitmapBytes < 1) {
-        throw new OcrCatalogCorruptError('v3 mapped-page bitset size is unsafe');
-    }
-    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-ocr-v3-page-bits-'));
-    const bitmapPath = join(temporaryDirectory, 'mapped.bits');
-    let bitmap: FileHandle | null = null;
-    let firstUnreadablePage = null as number | null;
-    const markUnreadable = (pageNumber: number) => {
-        if (firstUnreadablePage === null || pageNumber < firstUnreadablePage) {
-            firstUnreadablePage = pageNumber;
-        }
-    };
-    try {
-        bitmap = await open(bitmapPath, 'w+');
-        await bitmap.truncate(bitmapBytes);
-        let streamedMetadata: IOcrIndexV3ManifestStreamMetadata | null;
-        try {
-            streamedMetadata = await streamOcrIndexV3ManifestMappings(manifestPath, async mapping => {
-                if (mapping.pageNumber < fromPage) {
-                    return;
-                }
-                const byteOffset = Math.floor((mapping.pageNumber - 1) / 8);
-                if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 || byteOffset >= bitmapBytes) {
-                    throw new OcrCatalogCorruptError('v3 mapped-page bitset offset is unsafe');
-                }
-                const byte = Buffer.alloc(1);
-                await readExactly(bitmap!, byte, byteOffset);
-                byte[0] = byte[0]! | (1 << ((mapping.pageNumber - 1) % 8));
-                let written = 0;
-                while (written < byte.byteLength) {
-                    const result = await bitmap!.write(byte, written, byte.byteLength - written, byteOffset + written);
-                    if (result.bytesWritten <= 0) {
-                        throw new OcrCatalogCorruptError('unable to update v3 mapped-page bitset');
-                    }
-                    written += result.bytesWritten;
-                }
-                try {
-                    const path = resolveCatalogPath(catalogRoot, mapping.path, {kind: 'legacy'});
-                    if (!await assertCatalogRegularFile(path, mapping.path, catalogRoot)) {
-                        markUnreadable(mapping.pageNumber);
-                    }
-                } catch (error) {
-                    if (error instanceof OcrCatalogPathError) {
-                        markUnreadable(mapping.pageNumber);
-                        return;
-                    }
-                    throw error;
-                }
-            });
-        } catch (error) {
-            if (error instanceof OcrCatalogCorruptError) {
-                throw error;
-            }
-            if (error instanceof OcrIndexV3ManifestStreamError) {
-                throw new OcrCatalogCorruptError(`invalid v3 manifest: ${error.message}`);
-            }
-            throw error;
-        }
-        if (
-            streamedMetadata === null
-            || streamedMetadata.documentRevision.token !== metadata.documentRevision.token
-            || streamedMetadata.pageCount !== metadata.pageCount
-        ) {
-            throw new OcrCatalogCorruptError('v3 manifest changed while finding an unmapped page');
-        }
-        for (let firstPage = fromPage; firstPage <= metadata.pageCount; firstPage += OCR_MAX_WINDOW_PAGES) {
-            if (firstUnreadablePage !== null && firstUnreadablePage <= firstPage) {
-                return firstUnreadablePage;
-            }
-            const lastPage = Math.min(metadata.pageCount, firstPage + OCR_MAX_WINDOW_PAGES - 1);
-            const firstByte = Math.floor((firstPage - 1) / 8);
-            const lastByte = Math.floor((lastPage - 1) / 8);
-            const bytes = Buffer.alloc(lastByte - firstByte + 1);
-            await readExactly(bitmap, bytes, firstByte);
-            for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
-                if (firstUnreadablePage === pageNumber) {
-                    return pageNumber;
-                }
-                const byte = bytes[Math.floor((pageNumber - 1) / 8) - firstByte]!;
-                if ((byte & (1 << ((pageNumber - 1) % 8))) === 0) {
-                    return pageNumber;
-                }
-            }
-        }
-        return firstUnreadablePage;
-    } finally {
-        if (bitmap !== null) {
-            await bitmap.close();
-        }
-        await rm(temporaryDirectory, {
-            recursive: true,
-            force: true,
-        });
-    }
-}
-
 function assertPageNumberInRange(pageNumber: number, pageCount: number) {
     if (!isSafePositiveInteger(pageNumber) || pageNumber > pageCount) {
         throw new RangeError(`OCR catalog page number must be between 1 and ${pageCount}`);
@@ -1445,185 +1267,10 @@ class OcrCatalogV4Handle implements IOcrCatalogHandle {
     }
 }
 
-class OcrCatalogV3Handle implements IOcrCatalogHandle {
-    readonly header: IOcrCatalogHeader;
-    private readonly catalogRoot: string;
-    private readonly manifestPath: string;
-    private readonly metadata: IOcrIndexV3ManifestStreamMetadata;
-
-    constructor(
-        catalogRoot: string,
-        manifestPath: string,
-        metadata: IOcrIndexV3ManifestStreamMetadata,
-    ) {
-        this.catalogRoot = catalogRoot;
-        this.manifestPath = manifestPath;
-        this.metadata = metadata;
-        this.header = createHeaderFromV3(metadata);
-    }
-
-    async close(): Promise<void> {
-        // The compatibility adapter also has no retained file descriptors.
-    }
-
-    async readPage(pageNumber: number): Promise<TOcrPageArtifact | null> {
-        assertPageNumberInRange(pageNumber, this.metadata.pageCount);
-        const mappings = await readV3WindowMappings(this.catalogRoot, this.manifestPath, this.metadata, pageNumber, 1);
-        const mapping = mappings.get(pageNumber);
-        if (!mapping) {
-            return null;
-        }
-        const v4Mapping: IOcrPageMappingV4 = {
-            path: mapping.path,
-            generation: 0,
-        };
-        return loadPageArtifact(
-            this.catalogRoot,
-            v4Mapping,
-            pageNumber,
-            shardForPage(pageNumber),
-            0,
-            false,
-        );
-    }
-
-    async *readWindow(start: number, count: number): AsyncIterable<IOcrCatalogWindowPage> {
-        assertWindowInRange(start, count, this.metadata.pageCount);
-        const mappings = await readV3WindowMappings(this.catalogRoot, this.manifestPath, this.metadata, start, count);
-        for (let index = 0; index < count; index += 1) {
-            const pageNumber = start + index;
-            const mapping = mappings.get(pageNumber);
-            yield {
-                pageNumber,
-                artifact: mapping === undefined
-                    ? null
-                    : await loadPageArtifact(
-                        this.catalogRoot,
-                        {
-                            path: mapping.path,
-                            generation: 0,
-                        },
-                        pageNumber,
-                        shardForPage(pageNumber),
-                        0,
-                        false,
-                    ),
-            };
-        }
-    }
-
-    async readWindowMappings(start: number, count: number): Promise<IOcrCatalogWindowMapping[]> {
-        assertWindowInRange(start, count, this.metadata.pageCount);
-        const mappings = await readV3WindowMappings(this.catalogRoot, this.manifestPath, this.metadata, start, count);
-        const result: IOcrCatalogWindowMapping[] = [];
-        for (let index = 0; index < count; index += 1) {
-            const pageNumber = start + index;
-            const mapping = mappings.get(pageNumber);
-            result.push({
-                pageNumber,
-                mapping: mapping === undefined
-                    ? null
-                    : {
-                        path: mapping.path,
-                        generation: 0,
-                    },
-            });
-        }
-        return result;
-    }
-
-    async windowAvailability(start: number, count: number): Promise<Uint8Array> {
-        assertWindowInRange(start, count, this.metadata.pageCount);
-        const mappings = await readV3WindowMappings(this.catalogRoot, this.manifestPath, this.metadata, start, count);
-        const result = new Uint8Array(count);
-        for (let index = 0; index < count; index += 1) {
-            const pageNumber = start + index;
-            const mapping = mappings.get(pageNumber);
-            if (!mapping) {
-                continue;
-            }
-            const artifact = await loadPageArtifact(
-                this.catalogRoot,
-                {
-                    path: mapping.path,
-                    generation: 0,
-                },
-                pageNumber,
-                shardForPage(pageNumber),
-                0,
-                false,
-            );
-            result[index] = artifact === null ? 0 : 1;
-        }
-        return result;
-    }
-
-    async *iterateMappedPages(fromPage = 1): AsyncIterable<{
-        pageNumber: number;
-        artifact: TOcrPageArtifact
-    }> {
-        if (!isSafePositiveInteger(fromPage) || fromPage > this.metadata.pageCount + 1) {
-            throw new RangeError('OCR catalog iteration start is outside the page count');
-        }
-        if (!await assertCatalogRegularFile(this.manifestPath, OCR_CATALOG_MANIFEST_FILENAME, this.catalogRoot)) {
-            throw new OcrCatalogCorruptError('v3 manifest disappeared while pages were being iterated');
-        }
-        try {
-            for await (const mapping of iterateOcrIndexV3ManifestMappings(this.manifestPath)) {
-                if (mapping.pageNumber < fromPage) {
-                    continue;
-                }
-                const artifact = await loadPageArtifact(
-                    this.catalogRoot,
-                    {
-                        path: mapping.path,
-                        generation: 0,
-                    },
-                    mapping.pageNumber,
-                    shardForPage(mapping.pageNumber),
-                    0,
-                    false,
-                );
-                if (artifact) {
-                    yield {
-                        pageNumber: mapping.pageNumber,
-                        artifact,
-                    };
-                }
-            }
-        } catch (error) {
-            if (error instanceof OcrIndexV3ManifestStreamError) {
-                throw new OcrCatalogCorruptError(`invalid v3 manifest: ${error.message}`);
-            }
-            throw error;
-        }
-    }
-
-    async findFirstUnmapped(fromPage = 1): Promise<number | null> {
-        if (!isSafePositiveInteger(fromPage) || fromPage > this.metadata.pageCount + 1) {
-            throw new RangeError('OCR catalog search start is outside the page count');
-        }
-        if (fromPage === this.metadata.pageCount + 1) {
-            return null;
-        }
-        return findFirstUnmappedV3Page(
-            this.catalogRoot,
-            this.manifestPath,
-            this.metadata,
-            fromPage,
-        );
-    }
+export interface IOcrCatalogRootProbe {
+    kind: 'v4';
+    value: unknown;
 }
-
-export type TOcrCatalogRootProbe =
-    | {
-        kind: 'v4';
-        value: unknown
-    }
-    | {
-        kind: 'v3';
-        metadata: IOcrIndexV3ManifestStreamMetadata
-    };
 
 async function openV4Catalog(
     catalogRoot: string,
@@ -1673,7 +1320,12 @@ async function openV4Catalog(
     });
 }
 
-export async function readCatalogRoot(catalogRoot: string): Promise<TOcrCatalogRootProbe | null> {
+/**
+ * Reads the published v4 root. A v3 catalog, or any other root without the
+ * v4 version marker, is refused and reads as an absent catalog: the OCR text
+ * itself lives in the PDF, and the next OCR run writes a fresh v4 catalog.
+ */
+export async function readCatalogRoot(catalogRoot: string): Promise<IOcrCatalogRootProbe | null> {
     const rootPath = join(catalogRoot, OCR_CATALOG_MANIFEST_FILENAME);
     if (!await assertCatalogRegularFile(rootPath, OCR_CATALOG_MANIFEST_FILENAME, catalogRoot)) {
         return null;
@@ -1686,32 +1338,13 @@ export async function readCatalogRoot(catalogRoot: string): Promise<TOcrCatalogR
     const fileSize = prefix.size;
     const rawText = raw.toString('utf8');
     const hasV4Marker = hasV4VersionMarker(rawText);
-    if (fileSize >= OCR_CATALOG_ROOT_MAX_BYTES) {
-        if (hasV4Marker) {
-            throw new OcrCatalogCorruptError(
-                `v4 root manifest must be smaller than ${OCR_CATALOG_ROOT_MAX_BYTES} bytes`,
-            );
-        }
-        // v3 stores the complete page map in the root manifest. Parse only
-        // the stream metadata here. Page mappings are consumed by the adapter
-        // or explicit migration in bounded callbacks.
-        const metadata = await readOcrIndexV3ManifestMetadata(rootPath);
-        if (metadata !== null) {
-            return {
-                kind: 'v3',
-                metadata,
-            };
-        }
+    if (!hasV4Marker) {
         return null;
     }
-    if (!hasV4Marker) {
-        const metadata = await readOcrIndexV3ManifestMetadata(rootPath);
-        return metadata === null
-            ? null
-            : {
-                kind: 'v3',
-                metadata,
-            };
+    if (fileSize >= OCR_CATALOG_ROOT_MAX_BYTES) {
+        throw new OcrCatalogCorruptError(
+            `v4 root manifest must be smaller than ${OCR_CATALOG_ROOT_MAX_BYTES} bytes`,
+        );
     }
     try {
         const parsed = JSON.parse(rawText) as unknown;
@@ -1728,10 +1361,10 @@ export async function readCatalogRoot(catalogRoot: string): Promise<TOcrCatalogR
 }
 
 /**
- * Opens either the current v4 catalog or the compatibility-only v3 catalog.
- * A malformed or unknown root is treated as an absent catalog. Once a v4 root
- * has been accepted, malformed generation/index data is a hard corruption
- * error because the root is already published state.
+ * Opens the v4 catalog. A malformed or unknown root, including a v3 catalog,
+ * is treated as an absent catalog. Once a v4 root has been accepted,
+ * malformed generation/index data is a hard corruption error because the root
+ * is already published state.
  */
 export async function openCatalog(
     catalogRoot: string,
@@ -1742,17 +1375,6 @@ export async function openCatalog(
     if (rootProbe === null) {
         return null;
     }
-    if (rootProbe.kind === 'v4') {
-        const handle = await openV4Catalog(catalogRoot, rootProbe.value, options);
-        return handle === null ? null : attachReaderLease(handle, catalogRoot);
-    }
-    assertExpectedRevision(
-        parseExpectedRevision(options.expectedDocumentRevision ?? options.documentRevision),
-        rootProbe.metadata.documentRevision.token,
-    );
-    return attachReaderLease(new OcrCatalogV3Handle(
-        catalogRoot,
-        join(catalogRoot, OCR_CATALOG_MANIFEST_FILENAME),
-        rootProbe.metadata,
-    ), catalogRoot);
+    const handle = await openV4Catalog(catalogRoot, rootProbe.value, options);
+    return handle === null ? null : attachReaderLease(handle, catalogRoot);
 }

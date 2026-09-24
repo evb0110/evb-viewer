@@ -5,8 +5,6 @@ import type {
     TPageIdentityRangeOperation,
 } from '@contracts/electronApiPageOps';
 
-export const OCR_V3_DIRECT_REMAP_PAGE_LIMIT = 1_024;
-
 type TMutablePageIdentityRangeOperation = TPageIdentityRangeOperation extends infer TOperation
     ? TOperation extends object
         ? {-readonly [TKey in keyof TOperation]: TOperation[TKey]}
@@ -96,9 +94,7 @@ function appendInsert(
 /**
  * Converts a page identity delta into the range form expected by OCR v4.
  * An inline `pages` permutation is already bounded by the delta decoder, and
- * the conversion is linear, so it applies at every document size. Capping it at
- * the v3 direct-remap limit made every page op fail on OCR'd documents between
- * that limit and `PAGE_IDENTITY_INLINE_PAGE_COUNT`.
+ * the conversion is linear, so it applies at every document size.
  */
 export function createOcrRangeDelta(delta: IPageIdentityDelta): IOcrRangeIdentityDelta | null {
     if (delta.pages === undefined) {

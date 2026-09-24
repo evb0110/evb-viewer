@@ -1,23 +1,7 @@
-import {
-    open,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    randomUUID,
-    createHash,
-} from 'node:crypto';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {stat} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    IOcrIndexV3Manifest,
-    TOcrPageArtifact,
-} from '@contracts/ocrIndex';
+import type {TOcrPageArtifact} from '@contracts/ocrIndex';
 import type {
     IDocumentOcrAvailability,
     IDocumentOcrPageRange,
@@ -37,7 +21,6 @@ import {
 } from '@contracts/ocrIndex';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {buildOcrTextLayerIndexText} from '@pdf-core';
-import {requireEpochMs} from '@contracts/timestamps';
 import {
     extractTextFromPdf,
     loadPdfjsTextExtractor,
@@ -50,19 +33,11 @@ import {
     openCatalog,
     type IOcrCatalogHandle,
 } from '@electron/features/ocr/main/ocrCatalogV4';
-import {
-    migrateOcrIndexV3ToV4,
-    remapOcrCatalogV4,
-} from '@electron/features/ocr/pipeline/indexWriterV4';
-import {
-    readOcrIndexV3ManifestMetadata,
-    streamOcrIndexV3ManifestMappings,
-} from '@electron/features/ocr/main/ocrIndexV3Stream';
+import {remapOcrCatalogV4} from '@electron/features/ocr/pipeline/indexWriterV4';
 import {
     closeOcrCatalog,
     createOcrCatalogPage,
     digestCanonicalPage,
-    loadLegacyOcrLanguages,
     hasOcrCatalogRecovery,
     openCurrentOcrCatalog,
     recoverOcrCatalogCorruption,
@@ -98,53 +73,12 @@ export async function resolveDocumentTextCatalogWindow(
 const DOCUMENT_TEXT_EXPORT_PAGE_WINDOW = MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES;
 const DOCUMENT_TEXT_EXPORT_PDFJS_MAX_PAGES = 200;
 const DOCUMENT_TEXT_EXPORT_PDFJS_MAX_BYTES = 16 * 1024 * 1024;
-const OCR_V3_COMPATIBILITY_PAGE_LIMIT = 1_024;
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
         throw signal.reason instanceof Error
             ? signal.reason
             : new DOMException('The operation was aborted.', 'AbortError');
-    }
-}
-
-function temporaryPath(path: string) {
-    return `${path}.${process.pid}.${randomUUID()}.tmp`;
-}
-
-async function syncDirectory(path: string) {
-    const directory = await open(path, 'r');
-    try {
-        await directory.sync();
-    } finally {
-        await directory.close();
-    }
-}
-
-async function writeJsonAtomic(path: string, value: unknown) {
-    const tempPath = temporaryPath(path);
-    try {
-        await writeFile(tempPath, JSON.stringify(value), 'utf8');
-        const file = await open(tempPath, 'r');
-        try {
-            await file.sync();
-        } finally {
-            await file.close();
-        }
-        await rename(tempPath, path);
-        await syncDirectory(dirname(path));
-    } catch (error) {
-        const errors: unknown[] = [error];
-        try {
-            await rm(tempPath, {force: true});
-            await syncDirectory(dirname(path));
-        } catch (cleanupError) {
-            errors.push(cleanupError);
-        }
-        if (errors.length > 1) {
-            throw new AggregateError(errors, 'OCR document text catalog cleanup failed');
-        }
-        throw error;
     }
 }
 
@@ -195,75 +129,13 @@ export async function rebindDocumentTextCatalogRevision(
         throw new Error('OCR DocumentTextCatalog is missing or stale');
     }
     try {
-        if (catalog.header.version === 4) {
-            await rebindV4CatalogRevision(
-                catalogRoot,
-                workingCopyPath,
-                expectedRevision,
-                nextRevision,
-                catalog.header.pageCount,
-            );
-            return;
-        }
-        const manifestPath = join(catalogRoot, 'manifest.json');
-        const metadata = await readOcrIndexV3ManifestMetadata(manifestPath);
-        if (!metadata || metadata.documentRevision.token !== expectedRevision) {
-            throw new Error('OCR DocumentTextCatalog is missing or stale');
-        }
-        if (metadata.pageCount > OCR_V3_COMPATIBILITY_PAGE_LIMIT) {
-            const migrated = await migrateOcrIndexV3ToV4({
-                catalogRoot,
-                sourcePdfPath: workingCopyPath,
-                documentRevision: expectedRevision,
-            });
-            if (migrated === null) {
-                throw new Error('OCR DocumentTextCatalog is missing or stale');
-            }
-            const rebound = await remapOcrCatalogV4({
-                catalogRoot,
-                delta: {
-                    previousPageCount: metadata.pageCount,
-                    nextPageCount: metadata.pageCount,
-                    ranges: [{
-                        kind: 'retain',
-                        fromPageNumber: 1,
-                        toPageNumber: 1,
-                        count: metadata.pageCount,
-                    }],
-                },
-                nextRevision,
-                sourcePdfPath: workingCopyPath,
-            });
-            if (rebound === null) {
-                throw new Error('OCR DocumentTextCatalog is missing or stale');
-            }
-            return;
-        }
-        const pages: Record<number, IOcrIndexV3Manifest['pages'][number]> = {};
-        const streamedMetadata = await streamOcrIndexV3ManifestMappings(manifestPath, mapping => {
-            pages[mapping.pageNumber] = {
-                path: mapping.path,
-                ...(mapping.generation === undefined ? {} : {generation: mapping.generation}),
-            };
-        });
-        if (
-            streamedMetadata === null
-            || streamedMetadata.documentRevision.token !== expectedRevision
-            || streamedMetadata.pageCount !== metadata.pageCount
-        ) {
-            throw new Error('OCR DocumentTextCatalog is missing or stale');
-        }
-        const manifest: IOcrIndexV3Manifest = {
-            version: 3,
-            documentRevision: {token: nextRevision},
-            createdAt: requireEpochMs(metadata.createdAt),
-            source: {pdfPath: workingCopyPath},
-            pageCount: metadata.pageCount,
-            pageBox: metadata.pageBox,
-            ocr: metadata.ocr,
-            pages,
-        };
-        await writeJsonAtomic(manifestPath, manifest);
+        await rebindV4CatalogRevision(
+            catalogRoot,
+            workingCopyPath,
+            expectedRevision,
+            nextRevision,
+            catalog.header.pageCount,
+        );
     } finally {
         await closeOcrCatalog(catalog);
     }
@@ -317,10 +189,9 @@ function setCanonicalOcrCatalogPage(
     canonicalByPage: Map<number, IDocumentTextCatalogPage>,
     pageNumber: number,
     artifact: TOcrPageArtifact,
-    languages: readonly string[] | undefined,
     budget: ITextBudget,
 ) {
-    const page = createOcrCatalogPage(pageNumber, artifact, languages);
+    const page = createOcrCatalogPage(pageNumber, artifact);
     if (page) {
         setCanonicalPage(canonicalByPage, asTextOnlyCatalogPage(page), budget);
     }
@@ -468,7 +339,6 @@ export async function resolveDocumentOcrPage(
     }
     let corruption: unknown = null;
     try {
-        const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         throwIfAborted(options.signal);
         const page = Number.isSafeInteger(pageNumber)
             && pageNumber >= 1
@@ -480,7 +350,7 @@ export async function resolveDocumentOcrPage(
             pageCount: catalog.header.pageCount,
             page: page === null
                 ? null
-                : createOcrCatalogPage(pageNumber, page, languages),
+                : createOcrCatalogPage(pageNumber, page),
         };
     } catch (error) {
         throwIfAborted(options.signal);
@@ -555,7 +425,6 @@ export async function resolveDocumentTextCatalogSnapshot(
                 : await extractTextFromPdf(sourcePdfPath, {signal: options.signal});
             embeddedPages.push(...extractedPages);
         }
-        const languages = await loadLegacyOcrLanguages(workingCopyPath, documentRevision, catalog);
         throwIfAborted(options.signal);
         const resolvedPageCount = pageCount ?? Math.max(embeddedPages.length, catalogPageCount ?? 0);
         const canonicalByPage = new Map<number, IDocumentTextCatalogPage>();
@@ -582,7 +451,7 @@ export async function resolveDocumentTextCatalogSnapshot(
                 artifact,
             } of catalog.iterateMappedPages()) {
                 throwIfAborted(options.signal);
-                setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, languages, budget);
+                setCanonicalOcrCatalogPage(canonicalByPage, pageNumber, artifact, budget);
             }
         }
         await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);

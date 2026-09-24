@@ -1,3 +1,5 @@
+import type * as TOcrCatalogV4Module from '@electron/features/ocr/main/ocrCatalogV4';
+import type * as TFsPromises from 'node:fs/promises';
 import {
     describe,
     expect,
@@ -10,63 +12,33 @@ import {
     mixedEmbeddedTextPages,
     mixedEvbPage,
     mixedOcrCorpusExpectedSources,
-    mixedOcrManifest,
 } from '@tests/fixtures/ocr/mixedDocumentCorpus';
 
-function isMockFile(path: string) {
-    return path.endsWith('manifest.json') || path.endsWith('page-0004.json');
-}
-
-function mockFileHandle(path: string) {
-    const text = path.endsWith('manifest.json')
-        ? JSON.stringify(mixedOcrManifest)
-        : path.endsWith('page-0004.json')
-            ? JSON.stringify(mixedEvbPage)
-            : '';
-    const contents = Buffer.from(text, 'utf8');
-    return {
-        close: vi.fn(async () => undefined),
-        read: vi.fn(async (
-            buffer: Buffer,
-            offset: number,
-            length: number,
-            position: number,
-        ) => {
-            const chunk = contents.subarray(position, position + length);
-            chunk.copy(buffer, offset);
-            return {
-                bytesRead: chunk.byteLength,
-                buffer,
+// The EVB catalog maps only page 4, the scanned page that EVB recognized.
+vi.mock('@electron/features/ocr/main/ocrCatalogV4', async importOriginal => ({
+    ...await importOriginal<typeof TOcrCatalogV4Module>(),
+    openCatalog: async () => ({
+        header: {
+            version: 4,
+            source: {pdfPath: MIXED_OCR_CORPUS_PATH},
+            documentRevision: {token: MIXED_OCR_CORPUS_REVISION},
+            pageCount: 4,
+            generation: 2,
+            mappedPageCount: 1,
+            complete: false,
+        },
+        async* iterateMappedPages() {
+            yield {
+                pageNumber: 4,
+                artifact: mixedEvbPage,
             };
-        }),
-        stat: vi.fn(async () => ({size: contents.byteLength})),
-    };
-}
-
-const openMock = vi.fn(async (path: string) => mockFileHandle(path));
-const lstatMock = vi.fn(async (path: string) => ({
-    isDirectory: () => path.endsWith('mixed-ocr-corpus.pdf.ocr'),
-    isFile: () => isMockFile(path),
-    isSymbolicLink: () => false,
-}));
-const realpathMock = vi.fn(async (path: string) => path);
-
-vi.mock('node:fs/promises', () => ({
-    readFile: vi.fn(async (path: string) => {
-        if (path.endsWith('manifest.json')) {
-            return JSON.stringify(mixedOcrManifest);
-        }
-        if (path.endsWith('page-0004.json')) {
-            return JSON.stringify(mixedEvbPage);
-        }
-        throw new Error('ENOENT');
+        },
+        close: async () => undefined,
     }),
-    lstat: lstatMock,
-    open: openMock,
-    realpath: realpathMock,
-    rename: vi.fn(),
+}));
+vi.mock('node:fs/promises', async importOriginal => ({
+    ...await importOriginal<typeof TFsPromises>(),
     stat: vi.fn(async () => ({size: 1})),
-    writeFile: vi.fn(),
 }));
 vi.mock('@electron/features/search/loadPdfjsTextExtractor', () => ({loadPdfjsTextExtractor: async () => ({extractTextWithPdfjsWordBoxes: vi.fn(async () => mixedEmbeddedTextPages)})}));
 vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCopyRevisionSidecarCurrent: vi.fn(async () => undefined)}));

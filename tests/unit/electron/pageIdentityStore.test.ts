@@ -1,5 +1,4 @@
 import {
-    mkdir,
     mkdtemp,
     readFile,
     rm,
@@ -608,7 +607,7 @@ describe('page identity deltas', () => {
         await expect(readPageIdentity(path, pageCount, pageCount)).resolves.toBe(pageIds[0]);
     }, 30_000);
 
-    it('routes a range-only delta through OCR v4 before the v3 fallback', async () => {
+    it('routes a range-only delta through OCR v4', async () => {
         root = await mkdtemp(join(tmpdir(), 'evb-page-identity-ocr-v4-'));
         const path = join(root, 'working.pdf');
         await Promise.all([
@@ -667,55 +666,6 @@ describe('page identity deltas', () => {
             'page-a',
             'page-c',
         ]);
-    });
-
-    it('migrates a million-page legacy OCR catalog without reading or copying its manifest', async () => {
-        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-ocr-v3-large-'));
-        const path = join(root, 'working.pdf');
-        const pageCount = 1_000_000;
-        const ocrPath = `${path}.ocr`;
-        await mkdir(ocrPath);
-        await Promise.all([
-            writeFile(path, '%PDF fixture'),
-            writeFile(join(ocrPath, 'manifest.json'), JSON.stringify({
-                version: 3,
-                documentRevision: {token: OLD_TOKEN},
-                createdAt: 1,
-                source: {pdfPath: path},
-                pageCount,
-                pageBox: 'crop',
-                ocr: {
-                    engine: 'tesseract',
-                    languages: ['eng'],
-                    renderDpi: 300,
-                },
-                pages: {},
-            })),
-        ]);
-        const remap = vi.spyOn(ocrIndexWriter, 'remapOcrCatalogV4PageRanges')
-            .mockResolvedValueOnce(false)
-            .mockResolvedValue(true);
-        const migrate = vi.spyOn(ocrIndexWriter, 'migrateOcrIndexV3ToV4')
-            .mockResolvedValue(null);
-        fsGuards.forbidRead = true;
-        fsGuards.forbidCopy = true;
-        const parseSpy = vi.spyOn(JSON, 'parse')
-            .mockImplementation(() => {
-                throw new Error('whole-manifest parse is forbidden');
-            });
-        const delta = createMoveIdentityDelta(pageCount, 1, pageCount);
-        const nextRevision = nextRevisionInfo(path);
-
-        await commitPageIdentityDelta(path, delta, nextRevision);
-
-        expect(migrate).toHaveBeenCalledWith({
-            catalogRoot: ocrPath,
-            sourcePdfPath: path,
-            workingCopyPath: path,
-        });
-        expect(remap).toHaveBeenCalledTimes(2);
-        expect(remap).toHaveBeenLastCalledWith(path, delta, nextRevision);
-        expect(parseSpy).not.toHaveBeenCalled();
     });
 
     it('rejects publication when the existing sidecar belongs to an older revision', async () => {

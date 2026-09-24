@@ -3,13 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    decodeOcrPage,
-    parseOcrIndexV3Manifest,
-} from '@contracts/ocrIndex';
+import {decodeOcrPage} from '@contracts/ocrIndex';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-
-const revision = requireDocumentRevisionToken('drt1:test');
 
 function createPage(overrides: Record<string, unknown> = {}) {
     return {
@@ -28,76 +23,6 @@ function createPage(overrides: Record<string, unknown> = {}) {
 }
 
 describe('OCR index codecs', () => {
-    it('reconstructs a strict manifest and rejects malformed page mappings', () => {
-        const manifest = {
-            version: 3,
-            documentRevision: {token: revision},
-            createdAt: 1,
-            source: {pdfPath: '/tmp/work.pdf'},
-            pageCount: 1,
-            pageBox: 'crop',
-            ocr: {
-                engine: 'tesseract',
-                languages: ['eng'],
-                renderDpi: 300,
-            },
-            pages: {1: {path: 'page-1.json'}},
-        };
-
-        expect(parseOcrIndexV3Manifest(manifest)).toEqual(manifest);
-        expect(parseOcrIndexV3Manifest({
-            ...manifest,
-            pages: {'1junk': {path: 'page-1.json'}},
-        })).toBeNull();
-    });
-
-    it('carries the page generation and drops an unusable one instead of the mapping', () => {
-        const manifest = {
-            version: 3,
-            documentRevision: {token: revision},
-            createdAt: 1,
-            source: {pdfPath: '/tmp/work.pdf'},
-            pageCount: 2,
-            pageBox: 'crop',
-            ocr: {
-                engine: 'tesseract',
-                languages: ['eng'],
-                renderDpi: 300,
-            },
-            pages: {
-                1: {
-                    path: 'page-1.json',
-                    generation: 'run-a',
-                },
-                2: {path: 'page-2.json'},
-            },
-        };
-
-        expect(parseOcrIndexV3Manifest(manifest)?.pages).toEqual({
-            1: {
-                path: 'page-1.json',
-                generation: 'run-a',
-            },
-            2: {path: 'page-2.json'},
-        });
-        expect(parseOcrIndexV3Manifest({
-            ...manifest,
-            pages: {
-                1: {
-                    path: 'page-1.json',
-                    generation: '',
-                },
-                2: {
-                    path: 'page-2.json',
-                    generation: 7,
-                },
-            },
-        })?.pages).toEqual({
-            1: {path: 'page-1.json'},
-            2: {path: 'page-2.json'},
-        });
-    });
-
     it('reads a page artifact written under the per-page revision schema', () => {
         expect(decodeOcrPage(createPage({
             pageNumber: 7,

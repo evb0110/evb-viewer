@@ -7,7 +7,6 @@ import {
 } from 'vitest';
 import {
     mkdtemp,
-    mkdir,
     readdir,
     readFile,
     rm,
@@ -33,6 +32,7 @@ import {requireEpochMs} from '@contracts/timestamps';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 import {resolveDocumentOcrPage} from '@electron/features/ocr/main/documentTextCatalog';
+import {writeOcrIndexV4} from '@electron/features/ocr/pipeline/indexWriterV4';
 import {
     loadCompactSearchIndex,
     loadSearchIndex,
@@ -52,7 +52,9 @@ const OCR_PAGE_TEXTS = [
 ];
 
 async function describeOcrPageFiles(ocrPath: string) {
-    const names = (await readdir(ocrPath)).filter(name => name !== 'manifest.json').sort();
+    const names = (await readdir(ocrPath, {recursive: true}))
+        .filter(name => /[\\/]pages[\\/].+\.json$/u.test(name))
+        .sort();
     const described = await Promise.all(names.map(async name => [
         name,
         (await stat(join(ocrPath, name))).ino,
@@ -126,7 +128,6 @@ describe('page identity revision fencing', () => {
         const ocrPath = `${path}.ocr`;
         await Promise.all([
             writeFile(path, '%PDF fixture'),
-            mkdir(ocrPath),
             writeFile(`${path}.evb-pages.json`, JSON.stringify({
                 version: 1,
                 documentRevisionToken: OLD_TOKEN,
@@ -138,48 +139,20 @@ describe('page identity revision fencing', () => {
             })),
             publishRevisionSidecar(path, OLD_TOKEN),
         ]);
-        await Promise.all(OCR_PAGE_TEXTS.map((text, index) => writeFile(
-            join(ocrPath, `page-${index + 1}.json`),
-            JSON.stringify({
-                rotation: 0,
-                render: {
-                    dpi: 300,
-                    imagePx: {
-                        w: 1200,
-                        h: 1600,
-                    },
-                },
+        await writeOcrIndexV4({
+            catalogRoot: ocrPath,
+            sourcePdfPath: path,
+            documentRevision: OLD_TOKEN,
+            pageCount: 3,
+            pageBatches: [OCR_PAGE_TEXTS.map((text, index) => ({
+                pageNumber: index + 1,
                 text,
                 words: [],
-            }),
-        )));
-        await writeFile(join(ocrPath, 'manifest.json'), JSON.stringify({
-            version: 3,
-            documentRevision: {token: OLD_TOKEN},
-            createdAt: 1,
-            source: {pdfPath: path},
-            pageCount: 3,
-            pageBox: 'crop',
-            ocr: {
-                engine: 'tesseract',
-                languages: ['eng'],
-                renderDpi: 300,
-            },
-            pages: {
-                1: {
-                    path: 'page-1.json',
-                    generation: 'ocr-run-one',
-                },
-                2: {
-                    path: 'page-2.json',
-                    generation: 'ocr-run-one',
-                },
-                3: {
-                    path: 'page-3.json',
-                    generation: 'ocr-run-two',
-                },
-            },
-        }));
+                imageWidth: 1200,
+                imageHeight: 1600,
+            }))],
+            assertRevisionCurrent: async () => {},
+        });
         await writeFile(`${path}.index.json`, JSON.stringify({
             schemaVersion: 7,
             documentRevision: {token: OLD_TOKEN},
@@ -317,7 +290,7 @@ describe('page identity revision fencing', () => {
 
     it('conserves page IDs, OCR, and both search indexes through one structural delta', async () => {
         const {
-            path, ocrPath, newToken,
+            path, newToken,
         } = await seedOcrdWorkingCopy();
         await commitPageIdentityDelta(path, createReorderIdentityDelta(3, [
             3,
@@ -341,20 +314,6 @@ describe('page identity revision fencing', () => {
                 'page-b',
             ],
         });
-        const ocrManifest = JSON.parse(await readFile(join(ocrPath, 'manifest.json'), 'utf8')) as {
-            documentRevision: {token: string};
-            pages: Record<string, {generation?: string}>;
-        };
-        expect(ocrManifest.documentRevision.token).toBe(newToken);
-        expect([
-            ocrManifest.pages['1']?.generation,
-            ocrManifest.pages['2']?.generation,
-            ocrManifest.pages['3']?.generation,
-        ]).toEqual([
-            'ocr-run-two',
-            'ocr-run-one',
-            'ocr-run-one',
-        ]);
         await publishRevisionSidecar(path, newToken);
         await expect(resolveDocumentOcrPage(path, newToken, 1)).resolves.toMatchObject({page: {text: 'three'}});
         await expect(loadSearchIndex(path, newToken)).resolves.toMatchObject({

@@ -10,10 +10,7 @@ import type {
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
-    createEpochMs,
-    isEpochMs,
     isIsoTimestamp,
-    type TEpochMs,
     type TIsoTimestamp,
 } from '@contracts/timestamps';
 
@@ -42,39 +39,8 @@ export const OCR_CATALOG_PREPARED_DESCRIPTOR_VERSION = 1 as const;
 
 export type TOcrIndexRotation = 0 | 90 | 180 | 270;
 
-interface IOcrIndexV3PageMapping {
-    readonly path: string;
-    /**
-     * Mirrors `canonicalText.generation` of the artifact at `path` so callers can
-     * tell evb-written pages from foreign text by reading the manifest alone.
-     * Optional because v3 catalogs written before 2026-07-26 omit it; those fall
-     * back to a catalog-wide stamp rather than invalidating. Make it required
-     * once the manifest version moves past 3.
-     */
-    readonly generation?: string;
-}
-
-/**
- * The manifest is the sole owner of the catalog's revision and page ordering.
- * Page artifacts are position- and revision-independent so a revision bump or a
- * page reorder costs one manifest write instead of one rewrite per page.
- */
-export interface IOcrIndexV3Manifest {
-    readonly version: 3;
-    readonly documentRevision: IDocumentRevisionStamp;
-    readonly createdAt: TEpochMs;
-    readonly source: {readonly pdfPath: string};
-    readonly pageCount: number;
-    readonly pageBox: 'crop';
-    readonly ocr: {
-        readonly engine: 'tesseract';
-        readonly languages: readonly string[];
-        readonly renderDpi: number;
-    };
-    readonly pages: Readonly<Record<number, IOcrIndexV3PageMapping>>;
-}
-
-export interface IOcrIndexV3Page {
+/** One recognized page as stored in the catalog. */
+export interface IOcrPageArtifact {
     readonly rotation: TOcrIndexRotation;
     readonly render: {
         readonly dpi: number;
@@ -92,8 +58,7 @@ export interface IOcrIndexV3Page {
     };
 }
 
-/** The page payload remains the v3 JSON artifact in v4. */
-export type TOcrPageArtifact = IOcrIndexV3Page;
+export type TOcrPageArtifact = IOcrPageArtifact;
 
 export interface IOcrCatalogSourceV4 {readonly pdfPath: string;}
 
@@ -115,8 +80,8 @@ export interface IOcrPageMappingV4 {
     readonly path: string;
     /** Generation that first recorded the referenced page artifact. */
     readonly generation: number;
-    /** Carried from migrated v3 mappings for diagnostics and tie breaking. */
-    // Migrated v3 page mappings persist their established ISO wire format.
+    /** Carried by mappings that older migrated catalogs still contain. */
+    // Those mappings persist their established ISO wire format.
     readonly createdAt?: TIsoTimestamp;
 }
 
@@ -182,100 +147,12 @@ export interface IOcrCatalogV4PreparedDescriptor {
 
 export type TOcrIndexDecodeMode = 'strict' | 'repair-legacy';
 
-function isPositiveSafeInteger(value: unknown): value is number {
-    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
 function isFinitePositiveNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
-function parseDocumentRevisionStamp(value: unknown) {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const token = parseDocumentRevisionToken(value.token);
-    return token === null ? null : {token};
-}
-
 function parseOcrRotation(value: unknown): TOcrIndexRotation | null {
     return value === 0 || value === 90 || value === 180 || value === 270 ? value : null;
-}
-
-export function parseOcrIndexV3Manifest(
-    value: unknown,
-    mode: TOcrIndexDecodeMode = 'strict',
-): IOcrIndexV3Manifest | null {
-    if (!isRecord(value) || value.version !== 3 || !isRecord(value.source) || !isRecord(value.pages)) {
-        return null;
-    }
-    const documentRevision = parseDocumentRevisionStamp(value.documentRevision);
-    if (!documentRevision || typeof value.source.pdfPath !== 'string' || !isPositiveSafeInteger(value.pageCount)) {
-        return null;
-    }
-    const strict = mode === 'strict';
-    const ocr = isRecord(value.ocr) ? value.ocr : null;
-    const languages = Array.isArray(ocr?.languages) && ocr.languages.every(language => typeof language === 'string')
-        ? ocr.languages
-        : null;
-    const createdAt = isEpochMs(value.createdAt) ? value.createdAt : null;
-    const renderDpi = isFinitePositiveNumber(ocr?.renderDpi) ? ocr.renderDpi : null;
-    if (
-        strict
-        && (
-            createdAt === null
-            || value.pageBox !== 'crop'
-            || ocr?.engine !== 'tesseract'
-            || languages === null
-            || renderDpi === null
-        )
-    ) {
-        return null;
-    }
-    const pages: Record<number, IOcrIndexV3PageMapping> = {};
-    for (const [
-        rawPageNumber,
-        rawMapping,
-    ] of Object.entries(value.pages)) {
-        const pageNumber = Number(rawPageNumber);
-        const path = isRecord(rawMapping) && typeof rawMapping.path === 'string' && rawMapping.path.length > 0
-            ? rawMapping.path
-            : null;
-        if (
-            !isPositiveSafeInteger(pageNumber)
-            || String(pageNumber) !== rawPageNumber
-            || pageNumber > value.pageCount
-            || path === null
-        ) {
-            if (strict) {
-                return null;
-            }
-            continue;
-        }
-        const generation = isRecord(rawMapping)
-            && typeof rawMapping.generation === 'string'
-            && rawMapping.generation.length > 0
-            ? rawMapping.generation
-            : null;
-        pages[pageNumber] = {
-            path,
-            ...(generation === null ? {} : {generation}),
-        };
-    }
-    return {
-        version: 3,
-        documentRevision,
-        createdAt: createdAt ?? createEpochMs(),
-        source: {pdfPath: value.source.pdfPath},
-        pageCount: value.pageCount,
-        pageBox: 'crop',
-        ocr: {
-            engine: 'tesseract',
-            languages: languages ?? [],
-            renderDpi: renderDpi ?? 0,
-        },
-        pages,
-    };
 }
 
 /**
@@ -286,7 +163,7 @@ export function parseOcrIndexV3Manifest(
 export function decodeOcrPage(
     value: unknown,
     mode: TOcrIndexDecodeMode = 'strict',
-): IOcrIndexV3Page | null {
+): IOcrPageArtifact | null {
     if (!isRecord(value)) {
         return null;
     }

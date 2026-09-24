@@ -2,28 +2,20 @@ import {
     createHash,
     randomUUID,
 } from 'node:crypto';
-import {constants} from 'node:fs';
 import {
-    copyFile,
-    mkdir,
     readFile,
-    rename,
     rm,
     stat,
     writeFile,
 } from 'node:fs/promises';
-import {join} from 'node:path';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type {IOcrIndexV3Manifest} from '@contracts/ocrIndex';
-import {parseOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
-import {readOcrIndexV3ManifestMetadata} from '@electron/features/ocr/public/index';
 import {
     loadNativeCompactSearchIndex as loadCompactSearchIndex,
     persistNativeCompactSearchIndex as persistCompactSearchIndex,
@@ -58,15 +50,8 @@ import {
     writeIdentityStateFromSidecarSource,
     type IPageIdentitySidecarSource,
 } from '@electron/file-access/pageIdentitySidecarStreaming';
-import {
-    createOcrRangeDelta,
-    OCR_V3_DIRECT_REMAP_PAGE_LIMIT,
-    type IOcrRangeIdentityDelta,
-} from '@electron/file-access/pageIdentityOcrRemap';
-import {
-    migrateOcrIndexV3ToV4,
-    remapOcrCatalogV4PageRanges,
-} from '@electron/features/ocr/pipeline/indexWriterV4';
+import {createOcrRangeDelta} from '@electron/file-access/createOcrRangeDelta';
+import {remapOcrCatalogV4PageRanges} from '@electron/features/ocr/pipeline/indexWriterV4';
 
 /**
  * The v1 sidecar kept one UUID in a JSON array for every page. A range
@@ -856,111 +841,12 @@ async function remapSearchIndexes(workingCopyPath: string, delta: IPageIdentityD
     ]);
 }
 
-function isIdentityPageDelta(delta: IPageIdentityDelta) {
-    return delta.pages !== undefined
-        && delta.pages.length === delta.previousPageCount
-        && delta.pages.every((page, index) => 'fromPageNumber' in page && page.fromPageNumber === index + 1);
-}
-
-async function remapOcrCatalogAfterV3Migration(
-    workingCopyPath: string,
-    delta: IOcrRangeIdentityDelta,
-    nextRevision: IDocumentRevisionInfo,
-) {
-    await migrateOcrIndexV3ToV4({
-        catalogRoot: `${workingCopyPath}.ocr`,
-        sourcePdfPath: workingCopyPath,
-        workingCopyPath,
-    });
-    return remapOcrCatalogV4PageRanges(workingCopyPath, delta, nextRevision);
-}
-
 async function remapOcrCatalog(workingCopyPath: string, delta: IPageIdentityDelta, nextRevision: IDocumentRevisionInfo) {
+    // Only v4 catalogs are remapped, through bounded range operations. Any
+    // other catalog reads as absent; its text lives in the PDF.
     const rangeDelta = createOcrRangeDelta(delta);
-    // OCR v4 stores page mappings in bounded shards. Give it range operations
-    // first so a large document never falls back to a full page permutation.
-    if (rangeDelta !== null) {
-        const remappedV4 = await remapOcrCatalogV4PageRanges(workingCopyPath, rangeDelta, nextRevision);
-        if (remappedV4) {
-            return;
-        }
+    if (rangeDelta === null) {
+        throw new Error('OCR page remaps require page or range operations');
     }
-
-    if (delta.pages === undefined || delta.previousPageCount > OCR_V3_DIRECT_REMAP_PAGE_LIMIT) {
-        if (rangeDelta === null) {
-            throw new Error('Large OCR page remaps require sparse range operations');
-        }
-        await remapOcrCatalogAfterV3Migration(workingCopyPath, rangeDelta, nextRevision);
-        return;
-    }
-
-    // OCR v3 stores one manifest entry per page. Keep this seam for the
-    // existing small-document remapper when no v4 catalog exists. Read only
-    // bounded metadata before deciding whether the legacy object is safe to
-    // parse. Larger catalogs are migrated to v4 and remapped through shards.
-    const ocrDir = `${workingCopyPath}.ocr`;
-    const manifestPath = join(ocrDir, 'manifest.json');
-    const metadata = await readOcrIndexV3ManifestMetadata(manifestPath).catch(() => null);
-    if (metadata === null) {
-        return;
-    }
-
-    if (
-        metadata.pageCount > OCR_V3_DIRECT_REMAP_PAGE_LIMIT
-        || rangeDelta === null
-    ) {
-        if (rangeDelta === null) {
-            throw new Error('Large OCR page remaps require sparse range operations');
-        }
-        await remapOcrCatalogAfterV3Migration(workingCopyPath, rangeDelta, nextRevision);
-        return;
-    }
-
-    const manifest = await readFile(manifestPath, 'utf8')
-        .then(raw => parseOcrIndexV3Manifest(JSON.parse(raw), 'strict'))
-        .catch(() => null);
-    if (!manifest) {
-        return;
-    }
-    if (isIdentityPageDelta(delta) && manifest.pageCount === delta.pages.length) {
-        await writeJsonAtomic(manifestPath, {
-            ...manifest,
-            documentRevision: {token: nextRevision.token},
-        });
-        return;
-    }
-    const replacement = `${ocrDir}.${process.pid}.${randomUUID()}.tmp`;
-    await mkdir(replacement, {recursive: true});
-    const mappings: Record<number, IOcrIndexV3Manifest['pages'][number]> = {};
-    for (const [
-        index,
-        identity,
-    ] of delta.pages.entries()) {
-        if (!('fromPageNumber' in identity)) continue;
-        const source = manifest.pages[identity.fromPageNumber];
-        if (!source) continue;
-        const pageNumber = index + 1;
-        const path = `page-${String(pageNumber).padStart(4, '0')}.json`;
-        const copied = await copyFile(join(ocrDir, source.path), join(replacement, path), constants.COPYFILE_FICLONE)
-            .then(() => true, () => false);
-        if (copied) {
-            mappings[pageNumber] = {
-                path,
-                ...(source.generation === undefined ? {} : {generation: source.generation}),
-            };
-        }
-    }
-    await writeFile(join(replacement, 'manifest.json'), JSON.stringify({
-        ...manifest,
-        documentRevision: {token: nextRevision.token},
-        pageCount: delta.pages.length,
-        pages: mappings,
-    }), 'utf8');
-    const backup = `${ocrDir}.${process.pid}.${randomUUID()}.bak`;
-    await rename(ocrDir, backup);
-    await rename(replacement, ocrDir);
-    await rm(backup, {
-        recursive: true,
-        force: true,
-    });
+    await remapOcrCatalogV4PageRanges(workingCopyPath, rangeDelta, nextRevision);
 }

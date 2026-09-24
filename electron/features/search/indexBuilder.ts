@@ -332,7 +332,7 @@ async function buildIndexFromOcrPages(
     signal?: AbortSignal,
     validateBeforePersist?: (index: IPdfSearchIndex) => void,
 ): Promise<IPdfSearchIndex> {
-    log.debug(`Using OCR v3 index with ${ocrPages.size} pages`);
+    log.debug(`Using OCR catalog text for ${ocrPages.size} pages`);
     const pages = pagesFromOcrIndexPages(ocrPages, signal);
 
     const index: IPdfSearchIndex = {

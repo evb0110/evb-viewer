@@ -55,13 +55,13 @@ async function createInterruptedTransition() {
 }
 
 describe('OCR revision transition crash recovery', () => {
-    it('restores PDF and catalog together, then becomes idempotent', async () => {
+    it('restores the PDF of a pre-v4 transition, drops its v3 catalog, then becomes idempotent', async () => {
         const {workingCopyPath} = await createInterruptedTransition();
 
         await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).resolves.toBe(true);
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('exact-before-pdf');
         await expect(readFile(join(`${workingCopyPath}.ocr`, 'manifest.json'), 'utf8'))
-            .resolves.toBe('exact-before-catalog');
+            .rejects.toMatchObject({code: 'ENOENT'});
         await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).resolves.toBe(false);
     });
 

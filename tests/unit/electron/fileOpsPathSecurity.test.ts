@@ -494,9 +494,31 @@ describe('fileOps path security', () => {
         expect(mocks.transitionWorkingCopyContentRevision).not.toHaveBeenCalled();
     });
 
+    function stagePreparedOcrCatalog() {
+        mocks.readFile.mockImplementation(async (path: string) => (path.endsWith('.ocr-v4-prepared.json')
+            ? JSON.stringify({
+                version: 1,
+                catalogId: '00000000-0000-4000-8000-000000000001',
+                catalogRoot: '/tmp/electron-test/work.pdf.ocr',
+                sourceRootGeneration: null,
+                sourceRootRevisionToken: null,
+                stagedGeneration: 1,
+                pageCount: 1,
+                resultPath: '/tmp/electron-test/ocr-1-merged.pdf',
+                resultIdentity: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+                createdAt: '2026-08-27T00:00:00.000Z',
+            })
+            : Buffer.from([
+                1,
+                2,
+                3,
+            ])));
+    }
+
     it('atomically replaces a managed working copy from an OCR result file path', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
+        stagePreparedOcrCatalog();
 
         await handleReplaceWorkingCopyFromPath(
             writeContext,
@@ -519,11 +541,7 @@ describe('fileOps path security', () => {
             '/tmp/electron-test/work.pdf',
         );
         expect(mocks.transitionWorkingCopyContentRevision).toHaveBeenCalled();
-        expect(mocks.cp).toHaveBeenCalledWith(
-            '/tmp/electron-test/ocr-1-merged.pdf.ocr',
-            '/tmp/electron-test/work.pdf.ocr',
-            {recursive: true},
-        );
+        expect(mocks.publishPreparedOcrCatalogV4).toHaveBeenCalled();
         expectAtomicJournalWrite('/tmp/electron-test/work.pdf.ocr-transition.json', '"targetDocumentRevisionToken":"next-revision"');
     });
 
@@ -571,98 +589,6 @@ describe('fileOps path security', () => {
         }));
     });
 
-    it('renames a large legacy OCR catalog during apply rollback without reading its manifest', async () => {
-        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
-        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
-        const catalogPath = '/tmp/electron-test/work.pdf.ocr';
-        const stagedCatalogPath = '/tmp/electron-test/ocr-1-merged.pdf.ocr';
-        const manifestPath = `${catalogPath}/manifest.json`;
-        const stagedManifestPath = `${stagedCatalogPath}/manifest.json`;
-        const directoryStat = {
-            isSymbolicLink: () => false,
-            isDirectory: () => true,
-            isFile: () => false,
-            size: 0,
-        };
-        const largeManifestStat = {
-            isSymbolicLink: () => false,
-            isDirectory: () => false,
-            isFile: () => true,
-            size: 16 * 1024 * 1024 + 1,
-        };
-        const notFound = Object.assign(new Error('descriptor missing'), {code: 'ENOENT'});
-        mocks.lstat.mockImplementation(async (path: string) => {
-            if (path.endsWith('.ocr-v4-prepared.json')) {
-                throw notFound;
-            }
-            if (path === catalogPath || path === stagedCatalogPath) {
-                return directoryStat;
-            }
-            if (path === manifestPath || path === stagedManifestPath) {
-                return largeManifestStat;
-            }
-            return largeManifestStat;
-        });
-        mocks.readdir.mockResolvedValue(['manifest.json']);
-        mocks.readFile.mockImplementation(async (path: string) => {
-            if (path === manifestPath || path === stagedManifestPath) {
-                throw new Error('legacy manifest reads are forbidden');
-            }
-            return Buffer.from([
-                1,
-                2,
-                3,
-            ]);
-        });
-        mocks.cp.mockImplementation(() => {
-            throw new Error('recursive catalog copy forbidden');
-        });
-        mocks.rename.mockImplementation(async (from: string, to: string) => {
-            if (from === stagedCatalogPath && to === catalogPath) {
-                throw new Error('staged rename failed');
-            }
-        });
-
-        await expect(handleReplaceWorkingCopyFromPath(
-            writeContext,
-            '/tmp/electron-test/work.pdf',
-            '/tmp/electron-test/ocr-1-merged.pdf',
-            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
-        )).rejects.toThrow('staged rename failed');
-
-        expect(mocks.readFile).not.toHaveBeenCalledWith(manifestPath, 'utf8');
-        expect(mocks.readFile).not.toHaveBeenCalledWith(stagedManifestPath, 'utf8');
-        expect(mocks.cp).not.toHaveBeenCalled();
-        expect(mocks.rename).toHaveBeenCalledWith(
-            catalogPath,
-            expect.stringMatching(/work\.pdf\.ocr\.transition-.*\.bak$/u),
-        );
-        expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(/work\.pdf\.ocr\.transition-.*\.bak$/u),
-            catalogPath,
-        );
-    });
-
-    it('applies a staged OCR catalog when the document had no previous OCR catalog', async () => {
-        mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
-        mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
-        mocks.cp.mockRejectedValueOnce(Object.assign(new Error('missing catalog'), {code: 'ENOENT'}));
-
-        await expect(handleReplaceWorkingCopyFromPath(
-            writeContext,
-            '/tmp/electron-test/work.pdf',
-            '/tmp/electron-test/ocr-1-merged.pdf',
-            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-ocr')},
-        )).resolves.toBe(true);
-
-        expect(mocks.cp).toHaveBeenCalledWith(
-            '/tmp/electron-test/ocr-1-merged.pdf.ocr',
-            '/tmp/electron-test/work.pdf.ocr',
-            {recursive: true},
-        );
-        expectAtomicJournalWrite('/tmp/electron-test/work.pdf.ocr-transition.json', '"undoCatalogExisted":false');
-    });
-
     it('refreshes the original save base after an OCR replacement when the previous base still matches', async () => {
         mocks.resolveAllowedWritePath.mockResolvedValue('/tmp/electron-test/work.pdf');
         mocks.resolveAllowedReadPath.mockResolvedValue('/tmp/electron-test/ocr-1-merged.pdf');
@@ -671,6 +597,7 @@ describe('fileOps path security', () => {
             retired: false,
         });
         mocks.originalPathSaveBaseMatches.mockResolvedValue(true);
+        stagePreparedOcrCatalog();
 
         await handleReplaceWorkingCopyFromPath(
             writeContext,
@@ -701,6 +628,7 @@ describe('fileOps path security', () => {
             retired: false,
         });
         mocks.originalPathSaveBaseMatches.mockResolvedValue(false);
+        stagePreparedOcrCatalog();
 
         await handleReplaceWorkingCopyFromPath(
             writeContext,

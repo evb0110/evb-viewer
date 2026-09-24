@@ -295,8 +295,8 @@ describe('workingCopyContentTransitionJournal', () => {
         await writeFile(join(ocrPath, 'manifest.json'), 'old-ocr');
         await prepareWorkingCopyContentTransition(path, requireDocumentRevisionToken('revision-n-plus-one'));
         await Promise.all([
+            // A catalog that is not v4 is never modified by a transition.
             writeFile(path, 'revision-n-plus-one'),
-            rm(ocrPath, {recursive: true}),
             writeFile(pageIdentityPath, 'new-page-identities'),
             rm(legacyIndexPath),
             writeFile(compactIndexPath, 'new-compact-index'),

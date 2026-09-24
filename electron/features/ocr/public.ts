@@ -18,14 +18,6 @@ export type {
     IResolveDocumentTextCatalogOptions,
 } from '@electron/features/ocr/main/documentTextCatalog';
 export {
-    readOcrIndexV3ManifestMetadata,
-    streamOcrIndexV3ManifestMappings,
-} from '@electron/features/ocr/main/ocrIndexV3Stream';
-export type {
-    IOcrIndexV3ManifestStreamMapping,
-    IOcrIndexV3ManifestStreamMetadata,
-} from '@electron/features/ocr/main/ocrIndexV3Stream';
-export {
     getOcrCatalogV4PreparedDescriptorPath,
     publishPreparedOcrCatalogV4,
     rollbackPreparedOcrCatalogV4,
