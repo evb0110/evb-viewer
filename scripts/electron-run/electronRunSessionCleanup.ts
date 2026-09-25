@@ -9,11 +9,11 @@ import {
     sessionPreserveWorkspaceCheckpointMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunProcessIdentity';
-import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {hasWorkspaceCrashCheckpoint} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 export function hasWorkspaceRecoveryEvidence(name = getCurrentSessionName()) {
     return existsSync(sessionPreserveWorkspaceCheckpointMarkerPath(name))
-        || existsSync(workspaceCrashCheckpointPath(name));
+        || hasWorkspaceCrashCheckpoint(name);
 }
 
 /**

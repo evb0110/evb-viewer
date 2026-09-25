@@ -78,7 +78,7 @@ import {
 import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
 import {
     clearAutomationWorkspaceCrashCheckpoint,
-    workspaceCrashCheckpointPath,
+    hasWorkspaceCrashCheckpoint,
 } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 let sessionState: ISessionState | null = null;
@@ -289,7 +289,7 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
     const preserveWorkspaceCheckpoint = shouldPreserveWorkspaceRecoveryArtifacts(
         exitCode,
         existsSync(sessionPreserveWorkspaceCheckpointMarkerPath()),
-        existsSync(workspaceCrashCheckpointPath(getCurrentSessionName())),
+        hasWorkspaceCrashCheckpoint(getCurrentSessionName()),
     );
     if (keepNuxtOnStop) {
         logLauncher('info', 'nuxt', 'Keeping dev server alive for fast restart');

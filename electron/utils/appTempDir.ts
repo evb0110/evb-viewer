@@ -205,9 +205,9 @@ function parseAppTempNamespaceOwner(value: unknown): IAppTempNamespaceOwner | nu
 }
 
 async function hasWorkspaceRecoveryCheckpoint(owner: IAppTempNamespaceOwner) {
-    return (await lstat(
-        joinTempDirectory(owner.userDataPath, 'workspace-checkpoint.json'),
-    )).isFile();
+    const records = await readdir(joinTempDirectory(owner.userDataPath, 'workspace-recovery')).catch(() => []);
+    return records.some(name => name.endsWith('.json'))
+        || (await lstat(joinTempDirectory(owner.userDataPath, 'workspace-checkpoint.json'))).isFile();
 }
 
 async function readAppTempNamespaceOwner(namespacePath: string) {

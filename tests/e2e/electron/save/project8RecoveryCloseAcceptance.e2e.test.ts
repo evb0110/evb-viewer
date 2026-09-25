@@ -47,7 +47,10 @@ import {
     requireWorkspaceCommand,
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {
+    hasWorkspaceCrashCheckpoint,
+    readWorkspaceRecoveryRecords,
+} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import {projectRoot} from '@scripts/electron-run/projectRoot';
 import {createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRunId';
@@ -100,12 +103,12 @@ async function createRecoveredSession(
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
         await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
-        const checkpointPath = workspaceCrashCheckpointPath(session.name);
+        const checkpointSession = session.name;
         await expect.poll(async () => {
-            if (!existsSync(checkpointPath)) {
+            if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
                 return null;
             }
-            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+            const stored = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
                 isDirty?: boolean;
                 workingCopyRef?: string | null
             }>};};
@@ -652,11 +655,11 @@ describe('Project 8 recovered close decisions', () => {
         expect(state.dirtyState?.fileDirty).toBe(true);
         expect((await readPdfPageSnapshots(recovered.workingCopyPath))[0]?.rotation).toBe(90);
         await expect.poll(async () => {
-            const checkpointPath = workspaceCrashCheckpointPath(session!.name);
-            if (!existsSync(checkpointPath)) {
+            const checkpointSession = session!.name;
+            if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
                 return null;
             }
-            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+            const stored = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
                 isDirty?: boolean;
                 workingCopyRef?: string | null;
             }>};};
@@ -680,12 +683,12 @@ describe('Project 8 recovered close decisions', () => {
         const firstWorkingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
         expect(await callWorkspaceCommand(session.page, 'handleRotateCw', [[1]])).toMatchObject({called: true});
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
-        const checkpointPath = workspaceCrashCheckpointPath(session.name);
+        const checkpointSession = session.name;
         await expect.poll(async () => {
-            if (!existsSync(checkpointPath)) {
+            if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
                 return null;
             }
-            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+            const stored = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
                 sourceRef?: string | null;
                 workingCopyRef?: string | null;
                 isDirty?: boolean;
@@ -705,10 +708,10 @@ describe('Project 8 recovered close decisions', () => {
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
 
         await expect.poll(async () => {
-            if (!existsSync(checkpointPath)) {
+            if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
                 return null;
             }
-            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+            const stored = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
                 sourceRef?: string | null;
                 workingCopyRef?: string | null;
                 isDirty?: boolean;
@@ -729,7 +732,7 @@ describe('Project 8 recovered close decisions', () => {
         const firstRecoverySidecarPaths = [`${firstWorkingCopyPath}.evb-revision.json`];
         expect(firstRecoverySidecarPaths.every(path => existsSync(path))).toBe(true);
 
-        const initialCheckpoint = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+        const initialCheckpoint = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
             sourceRef?: string | null;
             workingCopyRef?: string | null;
             isDirty?: boolean;
@@ -754,10 +757,10 @@ describe('Project 8 recovered close decisions', () => {
         await activateTabWithWorkingCopy(session, secondWorkingCopyPath, secondPdfPath);
         await waitForPdfLoaded(session.page, 60_000);
         await expect.poll(async () => {
-            if (!existsSync(checkpointPath)) {
+            if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
                 return null;
             }
-            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+            const stored = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
                 sourceRef?: string | null;
                 workingCopyRef?: string | null;
                 isDirty?: boolean;
@@ -804,10 +807,10 @@ describe('Project 8 recovered close decisions', () => {
         });
         expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
         await expect.poll(async () => {
-            if (!existsSync(checkpointPath)) {
+            if (!hasWorkspaceCrashCheckpoint(checkpointSession)) {
                 return null;
             }
-            const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {checkpoint?: {tabs?: Array<{
+            const stored = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
                 sourceRef?: string | null;
                 workingCopyRef?: string | null;
                 isDirty?: boolean;
@@ -862,14 +865,14 @@ describe('Project 8 recovered close decisions', () => {
         const livePages = await appPages();
         await Promise.all(livePages.map(page => waitForViewerInteractive(page, 60_000)));
 
-        const checkpointPath = workspaceCrashCheckpointPath(session.name);
+        const checkpointSession = session.name;
         // Each window debounces its own record, so the journal reaches two
         // records while the source window still lists the moved tab and the new
         // window lists an empty tab. Crash only once each record holds exactly
         // its own dirty document.
         await expect.poll(async () => {
             try {
-                const stored = JSON.parse(await readFile(checkpointPath, 'utf8')) as {records?: Array<{checkpoint: {tabs: Array<{
+                const stored = {records: readWorkspaceRecoveryRecords(checkpointSession)} as {records?: Array<{checkpoint: {tabs: Array<{
                     sourceRef?: string | null;
                     workingCopyRef?: string | null;
                     isDirty?: boolean;

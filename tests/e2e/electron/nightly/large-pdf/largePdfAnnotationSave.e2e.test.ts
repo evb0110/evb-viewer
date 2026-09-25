@@ -66,7 +66,7 @@ import {
     createStickyNoteWithPointer,
     waitForNoOpenNoteWindows,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import { workspaceCrashCheckpointPath } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import { readWorkspaceRecoveryRecords } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {
     readExactPdfFixtureIdentity,
     resolveExactPdfFixtureExpectation,
@@ -869,7 +869,7 @@ async function waitForCrashCheckpointPath(sessionName: string, expectedPath: str
     const expectedRealPath = realpathSync(expectedPath);
     await expect.poll(() => {
         try {
-            const stored = JSON.parse(readFileSync(workspaceCrashCheckpointPath(sessionName), 'utf8')) as {checkpoint?: {tabs?: Array<{sourceRef?: string | null;}>;};};
+            const stored = (readWorkspaceRecoveryRecords(sessionName)[0] ?? {}) as {checkpoint?: {tabs?: Array<{sourceRef?: string | null;}>;};};
             return stored.checkpoint?.tabs?.some(tab => (
                 typeof tab.sourceRef === 'string'
                 && realpathSync(tab.sourceRef) === expectedRealPath

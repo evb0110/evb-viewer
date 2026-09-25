@@ -7,9 +7,7 @@ import {
 import {
     constants,
     copyFileSync,
-    existsSync,
     mkdtempSync,
-    readFileSync,
     realpathSync,
     rmSync,
     writeFileSync,
@@ -56,7 +54,7 @@ import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {
     readExactPdfFixtureIdentity,
     resolveExactPdfFixtureExpectation,
@@ -147,11 +145,7 @@ function copyExactFixture(sourcePath: string) {
 async function waitForCrashCheckpoint(sessionName: string, expectedPath: string) {
     const expectedRealPath = realpathSync(expectedPath);
     const readMatchingCheckpointTab = () => {
-        const checkpointPath = workspaceCrashCheckpointPath(sessionName);
-        if (!existsSync(checkpointPath)) {
-            return null;
-        }
-        const stored = JSON.parse(String(readFileSync(checkpointPath))) as {checkpoint?: {tabs?: Array<{
+        const stored = (readWorkspaceRecoveryRecords(sessionName)[0] ?? {}) as {checkpoint?: {tabs?: Array<{
             isDirty?: boolean;
             sourceRef?: string | null;
             workingCopyRef?: string | null;

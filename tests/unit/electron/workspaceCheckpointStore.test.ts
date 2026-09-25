@@ -215,6 +215,20 @@ function createWebContents(id: number) {
     }) as Electron.WebContents;
 }
 
+async function readRecoveryRecords() {
+    const directory = join(state.userDataPath, 'workspace-recovery');
+    const names = await readdir(directory).catch(() => []);
+    return Promise.all(names.filter(name => name.endsWith('.json')).map(async name => (
+        JSON.parse(await readFile(join(directory, name), 'utf8'))
+    )));
+}
+
+async function readRecoveryRecord() {
+    const records = await readRecoveryRecords();
+    expect(records).toHaveLength(1);
+    return records[0];
+}
+
 function reloadRenderer(window: Electron.WebContents) {
     window.emit('did-start-navigation', {}, 'app://electron', false, true);
 }
@@ -246,7 +260,7 @@ describe('workspace checkpoint store', () => {
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
         await saveWorkspaceCheckpoint(checkpoint, 11);
 
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const stored = (await readRecoveryRecord());
         expect(stored).toMatchObject({
             version: 1,
             ownerWebContentsId: 11,
@@ -255,7 +269,7 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(22)).resolves.toEqual(checkpoint);
         expect(state.owners.get(workingCopyRef)).toBe(22);
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(true);
-        await expect(readdir(state.userDataPath)).resolves.toContain('workspace-checkpoint.json');
+        expect(await readRecoveryRecords()).toHaveLength(1);
         await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
         expect(state.recoveryClaims.has(workingCopyRef)).toBe(false);
         await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
@@ -307,12 +321,12 @@ describe('workspace checkpoint store', () => {
         state.webContentsById.set(11, ownerA);
 
         await saveWorkspaceCheckpoint(checkpoint, 11, ownerA);
-        const saved = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const saved = (await readRecoveryRecord());
         state.webContentsById.set(11, ownerB);
 
         await expect(claimWorkspaceCheckpoint(11, ownerB)).resolves.toEqual(checkpoint);
         expect(saved.ownerRecoveryId).toEqual(expect.any(String));
-        const claimed = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const claimed = (await readRecoveryRecord());
         const claimedRecord = claimed.records?.[0] ?? claimed;
         expect(claimedRecord.ownerRecoveryId).toEqual(expect.any(String));
         expect(claimedRecord.ownerRecoveryId).not.toBe(saved.ownerRecoveryId);
@@ -323,7 +337,7 @@ describe('workspace checkpoint store', () => {
             capturedAt: requireEpochMs(124),
         }, 11, ownerB);
         await flushPendingWorkspaceCheckpointSave();
-        const updated = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const updated = (await readRecoveryRecord());
         const updatedRecord = updated.records?.[0] ?? updated;
         expect(updated.records ?? [updatedRecord]).toHaveLength(1);
         expect(updatedRecord).toMatchObject({
@@ -361,7 +375,6 @@ describe('workspace checkpoint store', () => {
 
     it('keeps a reloaded renderer\'s takeover when its first claim cannot read the journal', async () => {
         const window = createWebContents(11);
-        const checkpointPath = join(state.userDataPath, 'workspace-checkpoint.json');
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
         state.liveOwners.add(11);
@@ -377,6 +390,9 @@ describe('workspace checkpoint store', () => {
         await flushPendingWorkspaceCheckpointSave();
         reloadRenderer(window);
 
+        const recordDirectory = join(state.userDataPath, 'workspace-recovery');
+        const [recordName] = await readdir(recordDirectory);
+        const checkpointPath = join(recordDirectory, recordName!);
         const journal = await readFile(checkpointPath, 'utf8');
         await rm(checkpointPath);
         await mkdir(checkpointPath);
@@ -437,7 +453,7 @@ describe('workspace checkpoint store', () => {
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
 
         await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const stored = (await readRecoveryRecord());
         const storedRecovery = stored.checkpoint.tabs[0].annotationRecovery;
         expect(storedRecovery).toMatchObject({
             documentInstanceId: 'document-1',
@@ -562,7 +578,7 @@ describe('workspace checkpoint store', () => {
         state.originalPaths.set(secondWorkingCopyRef, '/documents/second-draft.pdf');
 
         await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')) as {checkpoint: IWorkspaceCheckpoint};
+        const stored = (await readRecoveryRecord()) as {checkpoint: IWorkspaceCheckpoint};
         await corruptArtifact(join(
             state.userDataPath,
             'workspace-annotation-recovery',
@@ -594,7 +610,7 @@ describe('workspace checkpoint store', () => {
         });
 
         await saveWorkspaceCheckpoint(checkpoint, 11);
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const stored = (await readRecoveryRecord());
         expect(stored.workingCopies).toEqual([expect.objectContaining({
             backingState: 'materialized',
             originalFileExpectation: {
@@ -716,7 +732,7 @@ describe('workspace checkpoint store', () => {
             }],
         }, 11);
 
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const stored = (await readRecoveryRecord());
         expect(stored.checkpoint.tabs[0]).toMatchObject({
             sourceRef: '/documents/canonical-draft.pdf',
             workingCopyRef,
@@ -740,7 +756,7 @@ describe('workspace checkpoint store', () => {
         }, 11);
         await flushPendingWorkspaceCheckpointSave();
 
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const stored = (await readRecoveryRecord());
         expect(stored.checkpoint).toMatchObject({
             capturedAt: 456,
             tabs: [{
@@ -850,7 +866,7 @@ describe('workspace checkpoint store', () => {
         await expect(saveWorkspaceCheckpoint(forgedCheckpoint, 11, 11))
             .rejects.toThrow('Path not allowed');
         expect(() => requireOpenPath(ungrantedJsonPath, 11)).toThrow('Path not allowed');
-        expect(JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')).checkpoint)
+        expect((await readRecoveryRecord()).checkpoint)
             .toEqual(grantedCheckpoint);
     });
 
@@ -871,7 +887,7 @@ describe('workspace checkpoint store', () => {
         await saveWorkspaceCheckpoint(grantedCheckpoint, 11, 11);
         await expect(saveWorkspaceCheckpoint(grantedCheckpoint, 11))
             .rejects.toThrow('no sender-bound authorization');
-        expect(JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8')).checkpoint)
+        expect((await readRecoveryRecord()).checkpoint)
             .toEqual(grantedCheckpoint);
     });
 
@@ -904,7 +920,7 @@ describe('workspace checkpoint store', () => {
         await saveWorkspaceCheckpoint(workspaceWithOpeningOutput, 11, 11);
         await flushPendingWorkspaceCheckpointSave();
 
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const stored = (await readRecoveryRecord());
         const storedRecord = stored.records?.[0] ?? stored;
         expect(storedRecord.checkpoint.tabs).toMatchObject([
             {
@@ -988,7 +1004,7 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(22))
             .rejects.toThrow('no durable authorization provenance');
         expect(() => requireOpenPath(legacyPath, 22)).toThrow('Path not allowed');
-        expect(await readdir(state.userDataPath)).toContain('workspace-checkpoint.json');
+        expect(await readRecoveryRecords()).toHaveLength(1);
     });
 
     it('does not reuse source-only provenance for a forged working-copy ref', async () => {
@@ -1016,7 +1032,7 @@ describe('workspace checkpoint store', () => {
         await expect(claimWorkspaceCheckpoint(22))
             .rejects.toThrow('no durable authorization provenance');
         expect(state.owners.has(forgedWorkingCopyPath)).toBe(false);
-        expect(await readdir(state.userDataPath)).toContain('workspace-checkpoint.json');
+        expect(await readRecoveryRecords()).toHaveLength(1);
     });
 
     it('fails closed and preserves the checkpoint when its file cannot be read', async () => {
@@ -1036,7 +1052,8 @@ describe('workspace checkpoint store', () => {
 
     it('does not replace unread evidence during empty autosave, then retries after the read recovers', async () => {
         await clearWorkspaceCheckpoint();
-        const checkpointPath = join(state.userDataPath, 'workspace-checkpoint.json');
+        const checkpointPath = join(state.userDataPath, 'workspace-recovery', 'legacy%3AwebContents%3A11.json');
+        await mkdir(join(checkpointPath, '..'));
         await writeFile(checkpointPath, JSON.stringify({
             version: 1,
             ownerWebContentsId: 11,
@@ -1054,7 +1071,7 @@ describe('workspace checkpoint store', () => {
             name: 'WorkspaceCheckpointReadError',
             code: 'WORKSPACE_CHECKPOINT_READ_FAILED',
         });
-        expect(JSON.parse(await readFile(checkpointPath, 'utf8')).checkpoint.tabs).toHaveLength(1);
+        expect((await readRecoveryRecord()).checkpoint.tabs).toHaveLength(1);
 
         await saveWorkspaceCheckpoint({
             ...checkpoint,
@@ -1065,11 +1082,7 @@ describe('workspace checkpoint store', () => {
             layout: null,
         }, 11);
         await flushPendingWorkspaceCheckpointSave();
-        const persisted = JSON.parse(await readFile(checkpointPath, 'utf8')) as {
-            checkpoint?: IWorkspaceCheckpoint;
-            records?: Array<{checkpoint: IWorkspaceCheckpoint}>;
-        };
-        expect((persisted.records?.[0]?.checkpoint ?? persisted.checkpoint)?.tabs).toEqual([]);
+        expect((await readRecoveryRecord()).checkpoint.tabs).toEqual([]);
     });
 
     it('roundtrips a clean lazy working copy across a full main-process restart', async () => {
@@ -1100,7 +1113,7 @@ describe('workspace checkpoint store', () => {
         });
 
         await saveWorkspaceCheckpoint(cleanCheckpoint, 11);
-        const stored = JSON.parse(await readFile(join(state.userDataPath, 'workspace-checkpoint.json'), 'utf8'));
+        const stored = (await readRecoveryRecord());
         expect(stored.lazyWorkingCopies).toEqual([expect.objectContaining({
             admissionSnapshot: {
                 mtimeNs: '123456789',
@@ -1177,8 +1190,8 @@ describe('workspace checkpoint store', () => {
         // because the guard runs before any transfer.
         await expect(claimWorkspaceCheckpoint(22)).resolves.toBeNull();
         expect(state.owners.get(workingCopyRef)).toBe(11);
-        const entries = await readdir(state.userDataPath);
-        expect(entries).not.toContain('workspace-checkpoint.json');
+        expect(await readRecoveryRecords()).toHaveLength(0);
+        const entries = await readdir(join(state.userDataPath, 'workspace-recovery'));
         expect(entries.some(name => name.endsWith('.corrupt'))).toBe(true);
     });
 });
