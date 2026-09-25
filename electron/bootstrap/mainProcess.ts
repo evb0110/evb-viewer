@@ -95,6 +95,7 @@ import {
     markWindowTabTransferWindowClosed,
 } from '@electron/windowTabTransfer';
 import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
+import { unregisterOtherMacAppCopies } from '@electron/unregisterOtherMacAppCopies';
 import {
     configureLogDirectory,
     createLogger,
@@ -424,10 +425,13 @@ function maybePromptForDefaultViewer() {
     defaultViewerPromptShown = true;
     defaultViewerPromptTimer = setTimeout(() => {
         defaultViewerPromptTimer = null;
-        if (window.isDestroyed()) {
-            return;
-        }
-        void promptSetDefaultViewer(window);
+        // Stale copies first, so "Open With" and the default handler name
+        // the installed app only.
+        void unregisterOtherMacAppCopies().then(() => {
+            if (!window.isDestroyed()) {
+                void promptSetDefaultViewer(window);
+            }
+        });
     }, 1_500);
 }
 

@@ -287,10 +287,12 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     }
 
     function showConversionError(message: string, failure: FailureReceipt) {
+        // A conversion can run for minutes; its failure stays until dismissed.
         presentFailureToast({
             failure,
             title: t('errors.djvu.convert'),
             description: message,
+            persistent: true,
         });
     }
 

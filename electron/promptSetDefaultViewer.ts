@@ -24,9 +24,9 @@ const LINUX_MIME_TYPES = [
     'application/pdf',
     'image/vnd.djvu',
 ] as const;
+// A development profile's answer does not speak for the installed app.
 const KNOWN_USER_DATA_DIR_NAMES = [
     'EVB Viewer',
-    'EVB Viewer Dev',
     'EVB-Viewer',
 ] as const;
 
@@ -110,6 +110,12 @@ export async function promptSetDefaultViewer(window: BrowserWindow) {
 
 async function showDefaultAppsInstructions(window: BrowserWindow) {
     if (process.platform === 'darwin') {
+        try {
+            await setMacDefaultViewer();
+            return;
+        } catch (err) {
+            logger.warn(`Failed to set macOS default viewer: ${getErrorMessage(err)}`);
+        }
         await dialog.showMessageBox(window, {
             type: 'info',
             title: te('dialogs.defaultViewer.instructionsTitle'),
@@ -167,6 +173,41 @@ async function showDefaultAppsInstructions(window: BrowserWindow) {
             detail: te('dialogs.defaultViewer.instructionsLinux'),
             buttons: ['OK'],
         });
+    }
+}
+
+// Matches appId in electron-builder.yml.
+const MAC_BUNDLE_ID = 'com.evb.viewer';
+// com.lizardtech.djvu is imported by the app's Info.plist.
+const MAC_CONTENT_TYPES = [
+    'com.adobe.pdf',
+    'com.lizardtech.djvu',
+] as const;
+
+/** Makes the app the LaunchServices handler for PDF and DjVu, and proves it. */
+async function setMacDefaultViewer() {
+    const script = `
+        ObjC.import('CoreServices');
+        const types = ${JSON.stringify(MAC_CONTENT_TYPES)};
+        for (const type of types) {
+            $.LSSetDefaultRoleHandlerForContentType($(type), $.kLSRolesAll, $('${MAC_BUNDLE_ID}'));
+        }
+        JSON.stringify(types.map(type => ObjC.unwrap(ObjC.castRefToObject(
+            $.LSCopyDefaultRoleHandlerForContentType($(type), $.kLSRolesAll),
+        )) ?? null));
+    `;
+    const {stdout} = await execFileAsync('osascript', [
+        '-l',
+        'JavaScript',
+        '-e',
+        script,
+    ], {timeout: 10_000});
+    const handlers: unknown = JSON.parse(stdout.trim());
+    if (
+        !Array.isArray(handlers)
+        || handlers.some(handler => typeof handler !== 'string' || handler.toLowerCase() !== MAC_BUNDLE_ID)
+    ) {
+        throw new Error(`Default handlers are ${stdout.trim()}`);
     }
 }
 

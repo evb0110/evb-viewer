@@ -68,6 +68,21 @@ mac:
   target:
     - dmg
     - zip
+  # macOS has no system DjVu type, so .djvu files get a dynamic type that no
+  # app can become the default for. Importing the DjView type gives them one.
+  extendInfo:
+    UTImportedTypeDeclarations:
+      - UTTypeIdentifier: com.lizardtech.djvu
+        UTTypeDescription: DjVu document
+        UTTypeConformsTo:
+          - public.data
+          - public.content
+        UTTypeTagSpecification:
+          public.filename-extension:
+            - djvu
+            - djv
+          public.mime-type:
+            - image/vnd.djvu
   # Native tools are staged through the generated resource manifest, then afterPack moves the
   # executable payloads under Contents/MacOS/native-tools. macOS kills Mach-O
   # launches from Contents/Resources inside .app bundles on current hosts.

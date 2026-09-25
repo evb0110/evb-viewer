@@ -89,6 +89,7 @@
             :show-djvu-conversion-ui="showDjvuConversionUi"
             :djvu-error="djvuError"
             :show-djvu-banner="showDjvuConversionBanner"
+            :djvu-converting="conversionState.isConverting"
             @convert="openConvertDialog"
             @dismiss="djvuDismissBanner"
         />

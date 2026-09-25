@@ -36,6 +36,7 @@ interface IDjvuConversionOptions {
 
 export interface IRegisteredDjvuProcessOptions {
     env?: NodeJS.ProcessEnv;
+    timeoutResetsOnStdout?: boolean;
     onStderr?: (chunk: string) => void;
     onStdout?: (chunk: string) => void;
     timeoutMs?: number;
@@ -730,6 +731,7 @@ export async function cancelConversion(jobId: string) {
 
 interface IRunProcessOptions {
     env?: NodeJS.ProcessEnv;
+    timeoutResetsOnStdout?: boolean;
     onStderr?: (chunk: string) => void;
     onStdout?: (chunk: string) => void;
     timeoutMs?: number;
@@ -758,6 +760,9 @@ async function runProcess(
         };
         if (options.env !== undefined) {
             commandOptions.env = options.env;
+        }
+        if (options.timeoutResetsOnStdout !== undefined) {
+            commandOptions.timeoutResetsOnStdout = options.timeoutResetsOnStdout;
         }
         if (options.signal !== undefined) {
             commandOptions.signal = options.signal;

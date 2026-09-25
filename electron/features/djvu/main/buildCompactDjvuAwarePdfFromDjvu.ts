@@ -390,6 +390,9 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 ],
                 {
                     signal: combineSignal,
+                    // A book-length combine can outlast any fixed deadline;
+                    // it streams per-page progress, so only silence times out.
+                    timeoutResetsOnStdout: true,
                     // The PDF stays a file under the disk-quota monitor above;
                     // only byte-returning combines take the shared memory cap.
                     env: {

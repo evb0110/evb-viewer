@@ -36,6 +36,8 @@ export interface IRunCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
+    /** Restart the timeout on every stdout chunk, for tools that stream progress. */
+    timeoutResetsOnStdout?: boolean;
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
     allowedExitCodes?: number[];
@@ -311,6 +313,7 @@ export async function runNativeCommand(
         cwd,
         env,
         timeoutMs = DEFAULT_NATIVE_COMMAND_TIMEOUT_MS,
+        timeoutResetsOnStdout = false,
         maxStdoutBytes = DEFAULT_MAX_STDOUT_BYTES,
         maxStderrBytes = DEFAULT_MAX_STDERR_BYTES,
         allowedExitCodes = [0],
@@ -582,6 +585,19 @@ export async function runNativeCommand(
                 return;
             }
         }
+        function armTimeout() {
+            if (typeof timeoutMs !== 'number' || timeoutMs <= 0) {
+                return;
+            }
+            if (timeoutHandle !== null) {
+                clearTimeout(timeoutHandle);
+            }
+            const idle = timeoutResetsOnStdout ? ' without output' : '';
+            timeoutHandle = setTimeout(() => {
+                log?.('error', `${context.displayName} timed out after ${timeoutMs}ms${idle}; cmd=${context.displayCommand}`);
+                requestTermination(new Error(`${context.displayName} timed out after ${timeoutMs}ms${idle}`));
+            }, timeoutMs);
+        }
         const appendDecodedStdout = (text: string) => {
             if (!text) {
                 return;
@@ -609,6 +625,9 @@ export async function runNativeCommand(
         // The raw chunk goes to the capture and the decoder separately, rather
         // than the capture re-encoding what the decoder just decoded.
         stdoutDataHandler = (data: Buffer) => {
+            if (timeoutResetsOnStdout) {
+                armTimeout();
+            }
             output.appendStdout(data);
             appendDecodedStdout(stdoutDecoder.write(data));
         };
@@ -619,12 +638,7 @@ export async function runNativeCommand(
         proc.stdout.on('data', stdoutDataHandler);
         proc.stderr.on('data', stderrDataHandler);
 
-        if (typeof timeoutMs === 'number' && timeoutMs > 0) {
-            timeoutHandle = setTimeout(() => {
-                log?.('error', `${context.displayName} timed out after ${timeoutMs}ms; cmd=${context.displayCommand}`);
-                requestTermination(new Error(`${context.displayName} timed out after ${timeoutMs}ms`));
-            }, timeoutMs);
-        }
+        armTimeout();
         if (signal?.aborted) {
             requestTermination(abortErrorFromSignal(signal));
         }

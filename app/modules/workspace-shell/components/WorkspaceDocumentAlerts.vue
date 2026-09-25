@@ -36,8 +36,10 @@
         />
 
         <Transition name="document-status">
+            <!-- Hidden, not unmounted, while converting: the convert dialog returns focus to its button. -->
             <DjvuBanner
                 v-if="showDjvuBanner"
+                v-show="!djvuConverting"
                 @convert="handleConvert"
                 @dismiss="handleDismiss"
             />
@@ -58,6 +60,7 @@ defineProps<{
     djvuError: unknown;
     djvuFailurePresentation?: FailurePresentation | null;
     showDjvuBanner: boolean;
+    djvuConverting: boolean;
 }>();
 
 const emit = defineEmits<{

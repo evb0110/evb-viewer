@@ -6118,6 +6118,11 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         }, progressSelector);
         expect(modalState.backgroundIsInert).toBe(true);
         expect(modalState.focusInside).toBe(true);
+        // The convert prompt leaves while its conversion runs.
+        await waitForFunctionInPage(session.page, () => (
+            document.querySelector('.editor-pane.is-active .djvu-banner')?.getClientRects().length === 0
+        ), {timeout: 5_000});
+        expect(await session.page.$(progressSelector)).not.toBeNull();
         await session.page.keyboard.press('Tab');
         expect(await session.page.evaluate((selector) => document.activeElement?.matches(`${selector} button`), progressSelector)).toBe(true);
         await session.page.keyboard.down('Shift');
