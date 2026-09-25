@@ -38,7 +38,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { originalPathSaveBaseMatches } from '@electron/file-access/originalPathSaveWitness';
 import { findOcrResultForDocument } from '@electron/features/ocr/public/index';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
 function requireSenderId(context: IDocumentsSenderIdContext) {
     if (typeof context.senderId !== 'number') {

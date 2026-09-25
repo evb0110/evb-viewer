@@ -45,7 +45,7 @@ import {
 import type {
     IDocumentsDialogContext,
     IDocumentsWebContentsContext,
-} from '@electron/features/documents/documentsService';
+} from '@electron/features/documents/documentsContexts';
 import {isPdfDecryptPassword} from '@contracts/pdfDecryptSchemas';
 import {
     MAX_COMBINE_INPUT_PATHS,

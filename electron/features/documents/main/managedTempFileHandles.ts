@@ -25,7 +25,7 @@ import {
     type ITypedStagedArtifact,
     type TArtifactFileIdentity,
 } from '@contracts/stagedArtifacts';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import { readWorkingCopyRevisionSidecar } from '@electron/file-access/documentRevisionSidecar';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';

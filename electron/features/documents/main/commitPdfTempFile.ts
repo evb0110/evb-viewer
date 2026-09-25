@@ -5,7 +5,7 @@ import { mainJobBroker } from '@electron/resources/jobBroker';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
-import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import {runDocumentSaveUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';

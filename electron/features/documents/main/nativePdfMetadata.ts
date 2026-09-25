@@ -20,7 +20,7 @@ import {
     type IPdfPageLabelRange,
 } from '@contracts/pdfPageLabels';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';

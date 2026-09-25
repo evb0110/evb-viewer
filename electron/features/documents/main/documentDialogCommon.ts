@@ -15,7 +15,7 @@ import {
     getAutomationSaveDialogPath,
     getDocumentsDialogDefaultPath,
 } from '@electron/utils/dialogDefaultPaths';
-import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 
 interface IOpenDocumentDialogOptions {
     title: string;

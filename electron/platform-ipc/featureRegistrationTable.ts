@@ -248,7 +248,7 @@ const documentDescriptors: readonly IFeatureRegistrationDescriptor[] = DOCUMENT_
     kind: 'documents',
     feature,
     lifecycle: {
-        create: 'createDocumentsService',
+        create: 'registerDocumentsIpcAdapter',
         ipcRegistration: 'registerDocumentsIpcAdapter',
         shutdown: 'serialized PDF persistence and sender cleanup',
     },
@@ -297,7 +297,6 @@ export function registerDocumentFeatureAdapters(ipcMain: Electron.IpcMain) {
             allowedChannels: channelSet,
             codecs,
         }),
-        undefined,
         {eventRegistrar: createValidatedIpcMainEventRegistrar(ipcMain, {allowedChannels: channelSet})},
     );
     registerDocumentRevisionEventBridge();

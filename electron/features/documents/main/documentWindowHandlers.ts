@@ -15,7 +15,7 @@ import type { TOpenPathOwner } from '@electron/features/documents/main/openPathO
 import type {
     IDocumentsOpenPathContext,
     IDocumentsWindowContext,
-} from '@electron/features/documents/documentsService';
+} from '@electron/features/documents/documentsContexts';
 
 const logger = createLogger('documents-dialogs');
 const MAX_WINDOW_TITLE_LENGTH = 512;

@@ -25,7 +25,7 @@ import { getAppTempDir } from '@electron/utils/appTempDir';
 import type {
     IDocumentsSenderIdContext,
     IDocumentsWindowContext,
-} from '@electron/features/documents/documentsService';
+} from '@electron/features/documents/documentsContexts';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import {

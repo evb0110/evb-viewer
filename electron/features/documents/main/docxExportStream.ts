@@ -19,7 +19,7 @@ import {
 } from '@electron/utils/atomicReplace';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import {
     createSessionId,
     requireSessionId,

@@ -8,7 +8,7 @@ import { isKnownWorkingCopyOriginalPath } from '@electron/file-access/workingCop
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import { createLogger } from '@electron/utils/createLogger';
 import { IPC_FILENAME_MAX_LENGTH } from '@electron/utils/ipcLimits';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import {
     isPdfDecryptPassword,
     PDF_DECRYPT_PASSWORD_MAX_BYTES,

@@ -33,7 +33,7 @@ import {
     normalizePdfOptimizeOptions,
     optimizePdfToFile,
 } from '@electron/features/documents/main/pdfOptimization';
-import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 
 const logger = createLogger('documents-pdfOptimization');
 

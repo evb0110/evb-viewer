@@ -19,7 +19,7 @@ import {
     vi,
 } from 'vitest';
 import { allowDocxWritePath } from '@electron/file-access/docxExportPaths';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(async (

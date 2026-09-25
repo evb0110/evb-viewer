@@ -17,10 +17,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { EventEmitter } from 'node:events';
 import { DOCUMENT_PLATFORM_FEATURES } from '@contracts/documentsPlatformFeature';
-import {
-    DOCUMENTS_CHANNELS,
-    DOCUMENTS_EVENT_CHANNELS,
-} from '@electron/features/documents/contract';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {
     registerMainOperation,
     resetMainOperationLifecycleForTests,
@@ -32,7 +29,6 @@ const mocks = vi.hoisted(() => ({
     access: vi.fn(async (_path: string) => undefined),
     attachSerializedPdfPersistencePort: vi.fn(),
     allowOpenPath: vi.fn(),
-    createDocumentsService: vi.fn(() => ({onWorkingCopyBackingStatusChanged: vi.fn(() => () => {})})),
     fromWebContents: vi.fn(),
     getAllWindows: vi.fn(() => []),
     isSupportedOpenPath: vi.fn((_path: unknown) => true),
@@ -65,7 +61,6 @@ function createRegistrationHarness() {
     };
 }
 
-vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
 vi.mock('node:fs/promises', () => ({access: (path: string) => mocks.access(path)}));
 vi.mock('electron', () => ({
     app: {isPackaged: false},
@@ -103,7 +98,7 @@ describe('documents ipc adapter', () => {
         } = createRegistrationHarness();
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
-        registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+        registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
 
         const expectedChannels = [...new Set([
             ...Object.values(DOCUMENTS_CHANNELS),
@@ -115,175 +110,6 @@ describe('documents ipc adapter', () => {
         }
         expect(handlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(false);
         expect(eventHandlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(true);
-    });
-
-    it('forwards backing status only to the owning renderer', async () => {
-        vi.useFakeTimers();
-        const {
-            eventRegistrar,
-            registrar,
-        } = createRegistrationHarness();
-        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-        let statusListener: ((event: {
-            ownerWebContentsId?: number;
-            status: {
-                documentRef: string;
-                failure: null;
-                progress: number;
-                state: 'materialized' | 'materializing';
-            };
-        }) => void) | undefined;
-        const send = vi.fn();
-        mocks.getAllWindows.mockReturnValue([
-            {webContents: {
-                id: 7,
-                isDestroyed: () => false,
-                send,
-            }},
-            {webContents: {
-                id: 8,
-                isDestroyed: () => false,
-                send: vi.fn(),
-            }},
-        ] as never);
-        const service = {onWorkingCopyBackingStatusChanged: (listener: typeof statusListener) => {
-            statusListener = listener;
-            return vi.fn();
-        }};
-
-        registerDocumentsIpcAdapter(registrar as never, service as never, {eventRegistrar});
-        statusListener?.({
-            ownerWebContentsId: 7,
-            status: {
-                documentRef: '/tmp/managed.pdf',
-                failure: null,
-                progress: 0.5,
-                state: 'materializing',
-            },
-        });
-        statusListener?.({
-            ownerWebContentsId: 7,
-            status: {
-                documentRef: '/tmp/managed.pdf',
-                failure: null,
-                progress: 0.75,
-                state: 'materializing',
-            },
-        });
-
-        expect(send).toHaveBeenCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
-            {
-                documentRef: '/tmp/managed.pdf',
-                failure: null,
-                progress: 0.5,
-                state: 'materializing',
-            },
-        );
-        expect(send).toHaveBeenCalledTimes(1);
-
-        vi.advanceTimersByTime(250);
-        expect(send).toHaveBeenLastCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
-            expect.objectContaining({progress: 0.75}),
-        );
-
-        statusListener?.({
-            ownerWebContentsId: 7,
-            status: {
-                documentRef: '/tmp/managed.pdf',
-                failure: null,
-                progress: 1,
-                state: 'materialized',
-            },
-        });
-        expect(send).toHaveBeenCalledTimes(3);
-        expect(send).toHaveBeenLastCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
-            expect.objectContaining({state: 'materialized'}),
-        );
-    });
-
-    it('reports the native print-dialog handoff to the renderer that requested it', async () => {
-        const {
-            eventRegistrar,
-            handlers,
-            registrar,
-        } = createRegistrationHarness();
-        const send = vi.fn();
-        const sender = Object.assign(new EventEmitter(), {
-            id: 91,
-            send,
-        });
-        const printPdfPath = vi.fn(async (context: {onNativePrintDialogOpened?: (requestId: string) => void}) => {
-            context.onNativePrintDialogOpened?.('print-request-91');
-            return {success: true};
-        });
-        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-
-        registerDocumentsIpcAdapter(registrar as never, {
-            onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
-            printPdfPath,
-        } as never, {eventRegistrar});
-        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfPrintPath)?.(
-            {sender},
-            '/tmp/document.pdf',
-            'document.pdf',
-            {
-                viewMode: 'facing',
-                orientation: 'landscape',
-                requestId: 'print-request-91',
-            },
-        )).resolves.toEqual({success: true});
-
-        expect(send).toHaveBeenCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
-            {requestId: 'print-request-91'},
-        );
-    });
-
-    it('reports a data print-dialog handoff to the renderer that requested it', async () => {
-        const {
-            eventRegistrar,
-            handlers,
-            registrar,
-        } = createRegistrationHarness();
-        const send = vi.fn();
-        const sender = Object.assign(new EventEmitter(), {
-            id: 92,
-            send,
-        });
-        const printPdfData = vi.fn(async (context: {onNativePrintDialogOpened?: (requestId: string) => void}) => {
-            context.onNativePrintDialogOpened?.('print-data-request-92');
-            return {success: true};
-        });
-        const cancelPdfPrint = vi.fn(async () => ({canceled: true}));
-        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-
-        registerDocumentsIpcAdapter(registrar as never, {
-            cancelPdfPrint,
-            onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
-            printPdfData,
-        } as never, {eventRegistrar});
-        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfPrintData)?.(
-            {sender},
-            Uint8Array.of(1, 2, 3),
-            'document.pdf',
-            {requestId: 'print-data-request-92'},
-        )).resolves.toEqual({success: true});
-
-        expect(send).toHaveBeenCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
-            {requestId: 'print-data-request-92'},
-        );
-        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfPrintCancel)?.(
-            {sender},
-            'print-data-request-92',
-        )).resolves.toEqual({canceled: true});
-        expect(cancelPdfPrint).toHaveBeenCalledWith(
-            expect.objectContaining({senderId: 92}),
-            'print-data-request-92',
-        );
     });
 
     it('fails the documents ipc invariant for duplicate channel values', async () => {
@@ -326,7 +152,7 @@ describe('documents ipc adapter', () => {
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+            registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                 {sender},
@@ -365,7 +191,7 @@ describe('documents ipc adapter', () => {
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+            registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                 {sender},
@@ -417,7 +243,7 @@ describe('documents ipc adapter', () => {
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+            registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenTokens)?.(
                 {sender},
@@ -465,7 +291,7 @@ describe('documents ipc adapter', () => {
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
         try {
-            registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+            registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
 
             expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
                 {sender},
@@ -505,7 +331,7 @@ describe('documents ipc adapter', () => {
         sender.id = 48;
         const {registerDocumentsIpcAdapter} = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
-        registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+        registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
         expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.(
             {sender},
             makeUuid(80),
@@ -566,7 +392,7 @@ describe('documents ipc adapter', () => {
         });
         const {registerDocumentsIpcAdapter} = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
-        registerDocumentsIpcAdapter(registrar as never, undefined, {eventRegistrar});
+        registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
         expect(handlers.get(DOCUMENTS_CHANNELS.registerRendererFileOpenToken)?.({sender}, makeUuid(70))).toBe(true);
 
         emit(sender);

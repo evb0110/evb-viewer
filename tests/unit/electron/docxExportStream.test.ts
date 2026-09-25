@@ -22,7 +22,7 @@ import {
     nextDocxExportStreamByteCount,
     writeDocxExportStreamChunk,
 } from '@electron/features/documents/main/docxExportStream';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 import { DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES } from '@contracts/docxExport';
 
 class FakeWebContents extends EventEmitter {

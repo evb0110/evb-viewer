@@ -31,7 +31,7 @@ import {
     resolveReadablePath,
     resolveReadablePathSync,
 } from '@electron/features/documents/main/documentFilePathResolution';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
 const ALLOWED_READ_EXTENSIONS = new Set([
     '.json',

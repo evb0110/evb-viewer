@@ -22,7 +22,7 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {decodePdfAnnotationParseEntry} from '@contracts/pdfAnnotationParseSchemas';
-import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
 import {
     assertWorkingCopyRevisionCurrent,

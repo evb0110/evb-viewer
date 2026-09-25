@@ -5,7 +5,7 @@ import {
 } from '@electron/features/documents/main/documentSave.service';
 import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
 import { normalizePdfSaveAsOptions } from '@electron/features/documents/public/pdfSaveAsOptimization';
-import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 import type {IDocumentMutationRevisionOptions} from '@contracts/electronApiDocuments';
 
 export async function handleSavePdfAs(

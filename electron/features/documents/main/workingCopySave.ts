@@ -50,7 +50,7 @@ import {
     optimizeLargePdfForOrdinarySave,
     optimizePdfForSave,
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
 const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
     'EVB_QPDF_REPAIR_SAVE_TIMEOUT_MS',

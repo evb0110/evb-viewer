@@ -20,7 +20,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import {resolveAllowedWritePath} from '@electron/utils/pathValidator';
-import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {
     releaseManagedTempFileHandle,
     resolveTypedStagedArtifact,

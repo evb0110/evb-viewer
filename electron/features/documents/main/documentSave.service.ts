@@ -36,7 +36,7 @@ import { validatePdfFile } from '@electron/features/documents/main/pdfConformanc
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { optimizePdfForSaveAs } from '@electron/features/documents/public/pdfSaveAsOptimization';
-import type { IDocumentsDialogContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 import {
     markWorkingCopySyncRequired,
     markWorkingCopyContentChanged,

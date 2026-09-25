@@ -12,7 +12,7 @@ import {
 } from '@electron/features/documents/main/pdfConformance';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
 async function readResolvedPdf<T>(
     context: IDocumentsSenderIdContext,

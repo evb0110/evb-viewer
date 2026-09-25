@@ -28,12 +28,10 @@ import {
     DOCUMENTS_EVENT_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {createDocumentsService} from '@electron/features/documents/createDocumentsService';
 import type {
     IDocumentsSenderIdContext,
-    IDocumentsService,
     IDocumentsWebContentsContext,
-} from '@electron/features/documents/documentsService';
+} from '@electron/features/documents/documentsContexts';
 import { attachSerializedPdfPersistencePort } from '@electron/features/documents/public';
 import {
     beginDocxExportStream,
@@ -55,12 +53,116 @@ import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
-import {revokeManagedTempFileHandlesForSender} from '@electron/features/documents/main/managedTempFileHandles';
+import {
+    revokeManagedTempFileHandlesForSender,
+    createManagedTempFileHandle,
+    releaseManagedTempFileHandle,
+} from '@electron/features/documents/main/managedTempFileHandles';
 import {
     cancelMainOperationsForOwner,
     type TMainOperationOwnerEndEvent,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
+
+import {
+    handleCancelOpenDocumentDirectBatch,
+    handleOpenCombineDialog,
+    handleOpenFolderDialog,
+    handleOpenImageDialog,
+    handleOpenPdfDialog,
+    handleOpenPdfDirect,
+    handleOpenPdfDirectBatch,
+} from '@electron/features/documents/main/documentOpenHandlers';
+import {
+    handleSaveDocxAs,
+    handleSavePdfAs,
+    handleSavePdfDialog,
+} from '@electron/features/documents/main/documentSaveDialogHandlers';
+import {
+    handleSetWindowTitle,
+    handleShowItemInFolder,
+} from '@electron/features/documents/main/documentWindowHandlers';
+import {
+    handleCreateWorkingCopyFromData,
+    handleCreateWorkingCopyFromPath,
+} from '@electron/features/documents/main/documentWorkingCopyHandlers';
+import {
+    handleFileExists,
+    handleFileRead,
+    handleFileReadRange,
+    handleFileReadText,
+    handleFileStat,
+} from '@electron/features/documents/main/documentFileReadHandlers';
+import {
+    handlePdfOpeningGeometry,
+    handlePdfPageLabelRanges,
+    handlePdfNativePageSizes,
+} from '@electron/features/documents/main/nativePdfMetadata';
+import {
+    beginPdfEmbeddedShapeIndex,
+    readPdfEmbeddedShapeIndexChunk,
+    releasePdfEmbeddedShapeIndex,
+} from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
+import {parsePdfAnnotations} from '@electron/features/documents/main/pdfAnnotationParse';
+import {
+    handleFileWrite,
+    handleFileWriteDocx,
+    handleReplaceWorkingCopyFromPath,
+} from '@electron/features/documents/main/documentFileWriteHandlers';
+import {
+    handleAnalyzePdfConformance,
+    handleValidatePdfPath,
+} from '@electron/features/documents/main/documentPdfValidationHandlers';
+import {
+    handleCancelPdfPrint,
+    handlePrintPdfData,
+    handlePrintPdfPath,
+} from '@electron/features/documents/main/print';
+import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
+import { discardOcrResultsForDocument } from '@electron/features/ocr/public/index';
+import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
+import {
+    clearRecentFiles,
+    getRecentFiles,
+    removeRecentFile,
+} from '@electron/recentFiles';
+import {
+    allowRevealPaths,
+    removeAllowedOpenPath,
+    removeAllowedRevealPath,
+} from '@electron/file-access/openPathCapabilities';
+import {
+    setMenuDocumentState,
+    setMenuTabCount,
+    updateRecentFilesMenu,
+} from '@electron/menu';
+import {
+    getWorkingCopyBackingStatus,
+    onWorkingCopyBackingStatusChanged,
+} from '@electron/features/documents/main/workingCopyBackingStatus';
+
+import {
+    handleFileSaveStructured,
+    handleOptimizePdfForInteraction,
+    handleRepairPdfSave,
+    handleSerializedPdfSave,
+} from '@electron/features/documents/main/workingCopySave';
+import { handleOptimizePdfAsCopy } from '@electron/features/documents/main/handleOptimizePdfAsCopy';
+import {
+    handleNativePdfMutationsApplyToWorkingCopy,
+    handleCommitStagedPdfNativeMutations,
+    handleNativeNoteChangesSave,
+    handleNativeNoteTextSave,
+} from '@electron/features/documents/main/nativePdfMutationSaveHandlers';
+import {
+    handleCloneStagedPdfNativeMutationToWorkingCopy,
+    handleReplaceWorkingCopyFromStagedPdfNativeMutation,
+} from '@electron/features/documents/main/stagedPdfNativeMutationHandlers';
+import {
+    beginSerializedPdfSaveToOriginal,
+    cancelStagedSerializedPdf,
+    commitStagedSerializedPdf,
+} from '@electron/features/documents/main/serializedPdfPersistence';
 
 interface IRendererFileOpenToken {expiresAtMs: number;}
 interface IDocumentsIpcEventRegistrar {on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;}
@@ -298,7 +400,6 @@ async function requireWorkingCopySourcePath(
 
 export function registerDocumentsIpcAdapter(
     registrar: TDocumentsIpcRegistrar,
-    service: IDocumentsService = createDocumentsService(),
     options: IRegisterDocumentsIpcAdapterOptions = {},
 ) {
     const backingStatusPump = createIpcProgressPump<IWorkingCopyBackingStatus>({
@@ -311,7 +412,7 @@ export function registerDocumentsIpcAdapter(
             logger.debug(`Failed to send working-copy backing status: ${getErrorMessage(error)}`);
         },
     });
-    service.onWorkingCopyBackingStatusChanged((statusEvent) => {
+    onWorkingCopyBackingStatusChanged((statusEvent) => {
         const windows = BrowserWindow.getAllWindows().filter(window => (
             statusEvent.ownerWebContentsId === undefined
             || window.webContents.id === statusEvent.ownerWebContentsId
@@ -359,114 +460,117 @@ export function registerDocumentsIpcAdapter(
         registrar.handle(channel as never, handler as never);
     }};
     const featureBindings = {
-        openDocumentDialog: context => service.openDocumentDialog({
+        openDocumentDialog: context => handleOpenPdfDialog({
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }),
-        openCombineDialog: context => service.openCombineDialog({
+        openCombineDialog: context => handleOpenCombineDialog({
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }),
-        openFolderDialog: context => service.openFolderDialog({
+        openFolderDialog: context => handleOpenFolderDialog({
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }),
-        openImageDialog: context => service.openImageDialog({
+        openImageDialog: context => handleOpenImageDialog({
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }),
         openDocumentDirect: (context, filePath, password) => password === undefined
-            ? service.openDocumentDirect(context, filePath)
-            : service.openDocumentDirect(context, filePath, password),
+            ? handleOpenPdfDirect(context, filePath)
+            : handleOpenPdfDirect(context, filePath, password),
         openDocumentDirectBatch: (context, filePaths, requestId, batchOptions) =>
-            service.openDocumentDirectBatch(context, filePaths, requestId, batchOptions),
+            handleOpenPdfDirectBatch(context, filePaths, requestId, batchOptions),
         cancelOpenDocumentDirectBatch: (context, requestId) =>
-            service.cancelOpenDocumentDirectBatch(context, requestId),
+            handleCancelOpenDocumentDirectBatch(context, requestId),
         createWorkingCopyFromData: (context, fileName, data, originalPath, password) =>
-            service.createWorkingCopyFromData(context, fileName, data, originalPath, password)
+            handleCreateWorkingCopyFromData(context, fileName, data, originalPath, password)
                 .then(result => requireDocumentRef(result)),
         createWorkingCopyFromPath: async (context, sourcePath, originalPath, password) => {
             const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
-            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath, password)
+            return handleCreateWorkingCopyFromPath(context, trustedSourcePath, originalPath, password)
                 .then(result => requireDocumentRef(result));
         },
         parsePdfAnnotations: (context, filePath, options) =>
-            service.parsePdfAnnotations(context, filePath, options),
-        cleanupFile: (context, workingPath) =>
-            service.cleanupFile(context, workingPath).then(() => undefined),
+            parsePdfAnnotations(context, filePath, options),
+        cleanupFile: async (context, workingPath) => {
+            if (await cleanupWorkingCopy(workingPath, context.senderId)) {
+                await discardOcrResultsForDocument(requireDocumentRef(workingPath));
+            }
+        },
         readFile: (context, filePath) =>
-            service.readFile(context, filePath),
+            handleFileRead(context, filePath),
         readPdfPageLabelRanges: (context, filePath) =>
-            service.readPdfPageLabelRanges(context, filePath),
+            handlePdfPageLabelRanges(context, filePath),
         statFile: (context, filePath) =>
-            service.statFile(context, filePath),
+            handleFileStat(context, filePath),
         readFileRange: (context, filePath, offset, length) =>
-            service.readFileRange(context, filePath, offset, length),
+            handleFileReadRange(context, filePath, offset, length),
         createManagedTempFileHandle: (context, filePath) =>
-            service.createManagedTempFileHandle(context, filePath),
+            createManagedTempFileHandle(context, filePath),
         releaseManagedTempFileHandle: (context, leaseId) =>
-            service.releaseManagedTempFileHandle(context, leaseId),
+            releaseManagedTempFileHandle(context, leaseId),
         getPdfOpeningGeometry: (context, filePath) =>
-            service.getPdfOpeningGeometry(context, filePath),
+            handlePdfOpeningGeometry(context, filePath),
         getPdfNativePageSizes: (context, filePath, options) =>
-            service.getPdfNativePageSizes(context, filePath, options),
+            handlePdfNativePageSizes(context, filePath, options),
         beginPdfEmbeddedShapeIndex: (context, filePath, options) =>
-            service.beginPdfEmbeddedShapeIndex(context, filePath, options),
+            beginPdfEmbeddedShapeIndex(context, filePath, options),
         readPdfEmbeddedShapeIndexChunk: (context, sessionId, offset, options) =>
-            service.readPdfEmbeddedShapeIndexChunk(context, sessionId, offset, options),
+            readPdfEmbeddedShapeIndexChunk(context, sessionId, offset, options),
         releasePdfEmbeddedShapeIndex: (context, sessionId) =>
-            service.releasePdfEmbeddedShapeIndex(context, sessionId),
+            releasePdfEmbeddedShapeIndex(context, sessionId),
         readTextFile: (context, filePath) =>
-            service.readTextFile(context, filePath),
+            handleFileReadText(context, filePath),
         fileExists: (context, filePath) =>
-            service.fileExists(context, filePath),
+            handleFileExists(context, filePath),
         getDocumentRevision: (context, filePath) =>
-            service.getDocumentRevision(context, filePath),
+            getWorkingCopyRevision(filePath, context.senderId),
         getWorkingCopyBackingStatus: (context, filePath) =>
-            service.getWorkingCopyBackingStatus(context, filePath),
+            getWorkingCopyBackingStatus(context.senderId, filePath),
         savePdfAs: (context, workingPath, saveOptions, revisionOptions) =>
-            service.savePdfAs({
+            handleSavePdfAs({
                 ...context,
                 parentWindow: BrowserWindow.fromWebContents(context.sender),
             }, workingPath, saveOptions, revisionOptions),
         savePdfDialog: (context, suggestedName) =>
-            service.savePdfDialog({
+            handleSavePdfDialog({
                 ...context,
                 parentWindow: BrowserWindow.fromWebContents(context.sender),
             }, suggestedName),
         saveDocxAs: (context, workingPath) =>
-            service.saveDocxAs({
+            handleSaveDocxAs({
                 ...context,
                 parentWindow: BrowserWindow.fromWebContents(context.sender),
             }, workingPath),
         writeFile: (context, filePath, data, revisionOptions) =>
-            service.writeFile(context, filePath, data, revisionOptions),
+            handleFileWrite(context, filePath, data, revisionOptions),
         replaceWorkingCopyFromPath: (context, workingPath, sourcePath, revisionOptions) =>
-            service.replaceWorkingCopyFromPath(context, workingPath, sourcePath, revisionOptions),
+            handleReplaceWorkingCopyFromPath(context, workingPath, sourcePath, revisionOptions),
         writeDocxFile: (context, filePath, data) =>
-            service.writeDocxFile(context, filePath, data),
+            handleFileWriteDocx(context, filePath, data),
         saveFileStructured: (context, workingPath, revisionOptions) =>
-            service.saveFileStructured(context, workingPath, revisionOptions),
+            handleFileSaveStructured(context, workingPath, revisionOptions),
         repairPdf: (context, workingPath, revisionOptions) =>
-            service.repairPdf(context, workingPath, revisionOptions),
+            handleRepairPdfSave(context, workingPath, revisionOptions),
         optimizePdfForInteraction: (context, workingPath, revisionOptions) =>
-            service.optimizePdfForInteraction(context, workingPath, revisionOptions),
+            handleOptimizePdfForInteraction(context, workingPath, revisionOptions),
         optimizePdfAsCopy: (context, workingPath, optimizeOptions, requestId, revisionOptions) =>
-            service.optimizePdfAsCopy({
+            handleOptimizePdfAsCopy({
                 ...context,
                 parentWindow: BrowserWindow.fromWebContents(context.sender),
             }, workingPath, optimizeOptions, requestId, revisionOptions),
         savePdfNoteTextUpdates: (context, workingPath, updates, modifiedAt, revisionOptions) =>
-            service.savePdfNoteTextUpdates(context, workingPath, updates, modifiedAt, revisionOptions),
+            handleNativeNoteTextSave(context, workingPath, updates, modifiedAt, revisionOptions),
         savePdfNoteChanges: (context, workingPath, changes, modifiedAt, revisionOptions) =>
-            service.savePdfNoteChanges(context, workingPath, changes, modifiedAt, revisionOptions),
+            handleNativeNoteChangesSave(context, workingPath, changes, modifiedAt, revisionOptions),
         applyPdfNativeMutationsToWorkingCopy: (
             context,
             workingPath,
             mutations,
             modifiedAt,
             revisionOptions,
-        ) => service.applyPdfNativeMutationsToWorkingCopy(
+        ) => handleNativePdfMutationsApplyToWorkingCopy(
             context,
             workingPath,
             mutations,
@@ -474,24 +578,24 @@ export function registerDocumentsIpcAdapter(
             revisionOptions,
         ),
         commitStagedPdfNativeMutations: (context, workingPath, stagedOutput, revisionOptions) =>
-            service.commitStagedPdfNativeMutations(context, workingPath, stagedOutput, revisionOptions),
+            handleCommitStagedPdfNativeMutations(context, workingPath, stagedOutput, revisionOptions),
         cloneStagedPdfNativeMutationToWorkingCopy: (context, stagedOutput, originalPath) =>
-            service.cloneStagedPdfNativeMutationToWorkingCopy(context, stagedOutput, originalPath)
+            handleCloneStagedPdfNativeMutationToWorkingCopy(context, stagedOutput, originalPath)
                 .then(result => requireDocumentRef(result)),
         replaceWorkingCopyFromStagedPdfNativeMutation: (context, workingPath, stagedOutput, revisionOptions) =>
-            service.replaceWorkingCopyFromStagedPdfNativeMutation(
+            handleReplaceWorkingCopyFromStagedPdfNativeMutation(
                 context,
                 workingPath,
                 stagedOutput,
                 revisionOptions,
             ),
         analyzePdfConformance: (context, filePath, options) =>
-            service.analyzePdfConformance(context, filePath, options),
+            handleAnalyzePdfConformance(context, filePath, options),
         validatePdfPath: (context, filePath, options) =>
-            service.validatePdfPath(context, filePath, options),
+            handleValidatePdfPath(context, filePath, options),
         printPdfData: (context, data, fileName, options) => {
             registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
-            return service.printPdfData({
+            return handlePrintPdfData({
                 onNativePrintDialogOpened: requestId => context.sender.send(
                     DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
                     {requestId},
@@ -501,10 +605,10 @@ export function registerDocumentsIpcAdapter(
             }, data, fileName, options);
         },
         cancelPdfPrint: (context, requestId) =>
-            service.cancelPdfPrint(context, requestId),
+            handleCancelPdfPrint(context, requestId),
         printPdfPath: (context, filePath, fileName, options) => {
             registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
-            return service.printPdfPath({
+            return handlePrintPdfPath({
                 onNativePrintDialogOpened: requestId => context.sender.send(
                     DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
                     {requestId},
@@ -513,37 +617,42 @@ export function registerDocumentsIpcAdapter(
                 window: BrowserWindow.fromWebContents(context.sender),
             }, filePath, fileName, options);
         },
-        getRecentFiles: context => service.getRecentFiles(context),
+        getRecentFiles: async (context) => {
+            const files = await getRecentFiles();
+            allowRevealPaths(files.map(file => file.originalPath), context.sender);
+            return files;
+        },
         removeRecentFile: async (originalPath) => {
-            await service.removeRecentFile(originalPath);
-            return undefined;
+            await removeRecentFile(originalPath);
+            removeAllowedOpenPath(originalPath);
+            removeAllowedRevealPath(originalPath);
+            updateRecentFilesMenu();
         },
         clearRecentFiles: async () => {
-            await service.clearRecentFiles();
-            return undefined;
+            const files = await getRecentFiles();
+            await clearRecentFiles();
+            for (const file of files) {
+                removeAllowedOpenPath(file.originalPath);
+                removeAllowedRevealPath(file.originalPath);
+            }
+            updateRecentFilesMenu();
         },
         setWindowTitle: (context, title) => {
-            service.setWindowTitle({
+            handleSetWindowTitle({
                 senderId: context.senderId,
                 window: BrowserWindow.fromWebContents(context.sender),
             }, title);
             return undefined;
         },
         showItemInFolder: (context, filePath) =>
-            service.showItemInFolder({owner: context.sender}, filePath),
+            handleShowItemInFolder({owner: context.sender}, filePath),
         setMenuDocumentState: (context, state) => {
-            service.setMenuDocumentState({
-                senderId: context.senderId,
-                window: BrowserWindow.fromWebContents(context.sender),
-            }, state);
-            return undefined;
+            const window = BrowserWindow.fromWebContents(context.sender);
+            if (window) setMenuDocumentState(window.id, state);
         },
         setMenuTabCount: (context, tabCount) => {
-            service.setMenuTabCount({
-                senderId: context.senderId,
-                window: BrowserWindow.fromWebContents(context.sender),
-            }, tabCount);
-            return undefined;
+            const window = BrowserWindow.fromWebContents(context.sender);
+            if (window) setMenuTabCount(window.id, tabCount);
         },
     } satisfies
         TFeatureMainBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE, IpcMainInvokeEvent>
@@ -598,7 +707,7 @@ export function registerDocumentsIpcAdapter(
             options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfData>
     ) =>
-        service.savePdfData(createSenderIdContext(event), workingPath, data, options));
+        handleSerializedPdfSave(createSenderIdContext(event), workingPath, data, options));
     register(DOCUMENTS_CHANNELS.fileSavePdfDataBegin, (
         event: IpcMainInvokeEvent,
         ...[
@@ -607,14 +716,14 @@ export function registerDocumentsIpcAdapter(
             options,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfDataBegin>
     ) =>
-        service.beginSavePdfData(createWebContentsContext(event), workingPath, totalBytes, options));
+        beginSerializedPdfSaveToOriginal(createWebContentsContext(event), workingPath, totalBytes, options));
     register(DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf, (
         event: IpcMainInvokeEvent,
         ...[
             sessionId,
             stagedOutput,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf>
-    ) => service.commitStagedSerializedPdf(
+    ) => commitStagedSerializedPdf(
         createSenderIdContext(event),
         sessionId,
         stagedOutput,
@@ -628,7 +737,7 @@ export function registerDocumentsIpcAdapter(
             sessionId,
             stagedOutput,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf>
-    ) => service.cancelStagedSerializedPdf(
+    ) => cancelStagedSerializedPdf(
         createSenderIdContext(event),
         sessionId,
         stagedOutput,

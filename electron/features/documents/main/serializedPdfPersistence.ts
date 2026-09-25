@@ -77,7 +77,7 @@ import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTe
 import type {
     IDocumentsSenderIdContext,
     IDocumentsWebContentsContext,
-} from '@electron/features/documents/documentsService';
+} from '@electron/features/documents/documentsContexts';
 import {
     registerMainOperation,
     type IRegisteredMainOperation,

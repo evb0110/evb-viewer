@@ -112,7 +112,6 @@ const mocks = vi.hoisted(() => {
         scanCleanupDispose,
         scanCleanupMainBindings,
         createAgentService: vi.fn(() => agentService),
-        createDocumentsService: vi.fn(() => ({onWorkingCopyBackingStatusChanged: vi.fn(() => () => {})})),
         registerDocumentRevisionEventBridge: vi.fn(),
         registerDocumentRevisionInvalidationEffects: vi.fn(),
         allowOpenPath: vi.fn(),
@@ -143,7 +142,6 @@ vi.mock('electron', () => ({
 vi.mock('@contracts/externalUrl', () => ({sanitizeAllowedExternalUrl: mocks.sanitizeAllowedExternalUrl}));
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'http://127.0.0.1:41001/electron'}}}));
 vi.mock('@electron/features/agent/createAgentService', () => ({createAgentService: mocks.createAgentService}));
-vi.mock('@electron/features/documents/createDocumentsService', () => ({createDocumentsService: mocks.createDocumentsService}));
 vi.mock('@electron/features/documents/public', () => ({
     attachSerializedPdfPersistencePort: mocks.attachSerializedPdfPersistencePort,
     registerDocumentRevisionEventBridge: mocks.registerDocumentRevisionEventBridge,
