@@ -101,7 +101,6 @@ export const useSettings = () => {
     const settingsSaveError = useState<string | null>('settings:save-error', () => null);
     const settingsLoadFailure = useState<IPresentedFailureCapture | null>('settings:load-failure', () => null);
     const settingsSaveFailure = useState<IPresentedFailureCapture | null>('settings:save-failure', () => null);
-    const isSettingsSavePendingRetry = computed(() => settingsSaveStatus.value === 'retry-pending');
 
     function rememberSavedSettings(nextSettings: ISettingsData) {
         lastSavedSettings.value = sanitizeSettings(nextSettings);
@@ -260,7 +259,6 @@ export const useSettings = () => {
         settings,
         isLoaded,
         hasCookieSnapshot: hasSettingsCookieSnapshot,
-        isSettingsSavePendingRetry,
         load,
         loadOrThrow,
         settingsLoadError,
@@ -280,7 +278,6 @@ if (import.meta.hot) {
             window.removeEventListener('pagehide', settingsSaveFlushListener);
             settingsSaveFlushListener = null;
         }
-        settingsPersistenceQueue?.clearRetryTimer();
         settingsPersistenceQueue = null;
         settingsIntentRevision = 0;
     });

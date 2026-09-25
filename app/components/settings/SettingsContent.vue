@@ -124,7 +124,7 @@
     </div>
 
     <div
-        v-if="settingsSaveStatus === 'retry-pending' || settingsSaveError"
+        v-if="settingsSaveStatus === 'failed' || settingsSaveError"
         class="settings-save-error"
         role="alert"
         aria-live="assertive"

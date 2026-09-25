@@ -78,7 +78,6 @@ describe('Electron diagnostics consent persistence ordering', () => {
 
         expect(mocks.events).toEqual([
             'persist',
-            'persist',
             'preference:granted',
         ]);
     });
@@ -165,7 +164,7 @@ describe('Electron diagnostics consent persistence ordering', () => {
         }
     });
 
-    it('does not reopen after revocation is admitted during the final explicit grant write', async () => {
+    it('does not reopen after revocation is admitted during the grant write', async () => {
         vi.useFakeTimers();
         try {
             mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-consent-grant-interleave-'));
@@ -186,7 +185,7 @@ describe('Electron diagnostics consent persistence ordering', () => {
             mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
                 atomicWriteCount += 1;
                 mocks.events.push(`persist:${atomicWriteCount}`);
-                if (atomicWriteCount === 2) {
+                if (atomicWriteCount === 1) {
                     denialSave = denialBindings.save(
                         {senderId: 22} as never,
                         {clientDiagnosticsPreference: 'denied'},
@@ -200,7 +199,7 @@ describe('Electron diagnostics consent persistence ordering', () => {
                 {senderId: 21} as never,
                 {clientDiagnosticsPreference: 'granted'},
             );
-            await vi.waitFor(() => expect(atomicWriteCount).toBe(2));
+            await vi.waitFor(() => expect(atomicWriteCount).toBe(1));
             finalGrantWrite.resolve(undefined);
             await Promise.all([
                 grantSave,

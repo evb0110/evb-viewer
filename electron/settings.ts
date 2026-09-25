@@ -38,32 +38,48 @@ let settingsCache: ISettingsData | null = null;
 let settingsLoadPromise: Promise<ISettingsData> | null = null;
 let settingsCacheGeneration = 0;
 let settingsMutationQueue: Promise<unknown> = Promise.resolve();
-let diagnosticsConsentRevision = 0;
-let diagnosticsDeniedOverride: TClientDiagnosticsPreference | null = null;
 let settingsRecoveryNotice: ISettingsRecoveryNotice | null = null;
+// The user's latest diagnostics choice, recorded as soon as it reaches main.
+// It wins over whatever an older queued write carries.
+let consentIntent: {
+    revision: number;
+    preference: TClientDiagnosticsPreference | null;
+} = {
+    revision: 0,
+    preference: null,
+};
 
 type TSettingsUpdateResult = Partial<ISettingsData> | undefined;
 type TSettingsUpdater = (
     settings: ISettingsData,
 ) => TSettingsUpdateResult | Promise<TSettingsUpdateResult>;
 
+/** A revocation takes effect immediately; a grant only once it is on disk. */
 export function recordMainDiagnosticsConsentIntent(value: unknown) {
     const preference = parseClientDiagnosticsPreference(value);
-    diagnosticsConsentRevision += 1;
+    consentIntent = {
+        revision: consentIntent.revision + 1,
+        preference,
+    };
     if (preference !== 'granted') {
-        diagnosticsDeniedOverride = preference;
         setMainDiagnosticsPreference(preference);
+        if (settingsCache) {
+            settingsCache = {
+                ...settingsCache,
+                clientDiagnosticsPreference: preference,
+            };
+        }
     }
-    return diagnosticsConsentRevision;
+    return consentIntent.revision;
 }
 
-function applyDiagnosticsDeniedOverride(settings: ISettingsData) {
-    return diagnosticsDeniedOverride === null || settings.clientDiagnosticsPreference !== 'granted'
+function withLatestConsent(settings: ISettingsData): ISettingsData {
+    return consentIntent.preference === null
         ? settings
-        : {
+        : migrateSettings({
             ...settings,
-            clientDiagnosticsPreference: diagnosticsDeniedOverride,
-        };
+            clientDiagnosticsPreference: consentIntent.preference,
+        });
 }
 
 function getStoragePath() {
@@ -187,11 +203,11 @@ export async function loadSettings(): Promise<ISettingsData> {
         if (STARTUP_TRACE_ENABLED) {
             logger.info(`[startup] loadSettings cache hit (+${Date.now() - startedAt}ms)`);
         }
-        return cloneSettings(applyDiagnosticsDeniedOverride(settingsCache));
+        return cloneSettings(settingsCache);
     }
 
     if (settingsLoadPromise) {
-        return cloneSettings(applyDiagnosticsDeniedOverride(await settingsLoadPromise));
+        return cloneSettings(withLatestConsent(await settingsLoadPromise));
     }
 
     const generation = settingsCacheGeneration;
@@ -202,7 +218,7 @@ export async function loadSettings(): Promise<ISettingsData> {
     try {
         parsed = await loadPromise;
         if (generation === settingsCacheGeneration) {
-            settingsCache = applyDiagnosticsDeniedOverride(parsed);
+            settingsCache = withLatestConsent(parsed);
         }
     } finally {
         if (settingsLoadPromise === loadPromise) {
@@ -212,7 +228,7 @@ export async function loadSettings(): Promise<ISettingsData> {
     if (STARTUP_TRACE_ENABLED) {
         logger.info(`[startup] loadSettings file read complete (+${Date.now() - startedAt}ms)`);
     }
-    return cloneSettings(applyDiagnosticsDeniedOverride(parsed));
+    return cloneSettings(withLatestConsent(parsed));
 }
 
 export function resetSettingsCacheAfterUserDataPathChange() {
@@ -229,107 +245,31 @@ export async function updateSettings(
     return queueSettingsMutation(async () => {
         const generation = settingsCacheGeneration;
         const storagePath = getStoragePath();
-        const startingConsentRevision = diagnosticsConsentRevision;
-        const current = settingsCache
-            ? cloneSettings(applyDiagnosticsDeniedOverride(settingsCache))
-            : await loadSettings();
-        const workingCopy = cloneSettings(current);
-        const mutationResult = await mutate(workingCopy);
-        let next = migrateSettings(
-            isRecord(mutationResult)
-                ? {
-                    ...workingCopy,
-                    ...mutationResult,
-                }
-                : workingCopy,
-        );
-
-        let consentIntentRevision = options.diagnosticsConsentRevision;
+        const current = settingsCache ? cloneSettings(settingsCache) : await loadSettings();
+        const draft = cloneSettings(current);
+        const mutationResult = await mutate(draft);
+        let next = migrateSettings(isRecord(mutationResult)
+            ? {
+                ...draft,
+                ...mutationResult,
+            }
+            : draft);
         if (
-            consentIntentRevision === undefined
+            options.diagnosticsConsentRevision === undefined
             && next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
         ) {
-            consentIntentRevision = recordMainDiagnosticsConsentIntent(next.clientDiagnosticsPreference);
+            recordMainDiagnosticsConsentIntent(next.clientDiagnosticsPreference);
         }
-
-        const staleConsentIntent = consentIntentRevision === undefined
-            ? startingConsentRevision !== diagnosticsConsentRevision
-            : consentIntentRevision !== diagnosticsConsentRevision;
-        if (next.clientDiagnosticsPreference === 'granted' && staleConsentIntent) {
-            next = migrateSettings({
-                ...next,
-                clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
-            });
-        }
-        if (
-            next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
-            && next.clientDiagnosticsPreference !== 'granted'
-        ) {
-            // Keep later settings writes from reopening a failed revocation
-            // from the stale durable snapshot.
-            if (generation === settingsCacheGeneration) {
-                settingsCache = {
-                    ...current,
-                    clientDiagnosticsPreference: next.clientDiagnosticsPreference,
-                };
+        // A choice made while this write was in flight is written after it.
+        for (;;) {
+            const revision = consentIntent.revision;
+            next = withLatestConsent(next);
+            await writeSettingsAtomically(storagePath, next);
+            if (revision === consentIntent.revision) {
+                break;
             }
         }
-        try {
-            const hasExplicitGrantIntent = next.clientDiagnosticsPreference === 'granted'
-                && consentIntentRevision !== undefined;
-            const persistedBeforeGrant = hasExplicitGrantIntent
-                ? migrateSettings({
-                    ...next,
-                    clientDiagnosticsPreference: 'denied',
-                })
-                : next;
-            await writeSettingsAtomically(storagePath, persistedBeforeGrant);
-            if (next.clientDiagnosticsPreference === 'granted') {
-                const consentStillCurrent = consentIntentRevision === undefined
-                    ? startingConsentRevision === diagnosticsConsentRevision
-                    : consentIntentRevision === diagnosticsConsentRevision;
-                if (!consentStillCurrent) {
-                    next = migrateSettings({
-                        ...next,
-                        clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
-                    });
-                    if (
-                        !hasExplicitGrantIntent
-                        || next.clientDiagnosticsPreference !== persistedBeforeGrant.clientDiagnosticsPreference
-                    ) {
-                        await writeSettingsAtomically(storagePath, next);
-                    }
-                } else if (hasExplicitGrantIntent) {
-                    await writeSettingsAtomically(storagePath, next);
-                    if (consentIntentRevision !== diagnosticsConsentRevision) {
-                        next = migrateSettings({
-                            ...next,
-                            clientDiagnosticsPreference: diagnosticsDeniedOverride ?? 'unknown',
-                        });
-                        await writeSettingsAtomically(storagePath, next);
-                    } else {
-                        diagnosticsDeniedOverride = null;
-                    }
-                    setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
-                } else {
-                    setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
-                }
-            } else {
-                setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
-            }
-        } catch (error) {
-            if (consentIntentRevision !== undefined && next.clientDiagnosticsPreference === 'granted') {
-                diagnosticsDeniedOverride = 'denied';
-                if (generation === settingsCacheGeneration) {
-                    settingsCache = {
-                        ...current,
-                        clientDiagnosticsPreference: 'denied',
-                    };
-                }
-                setMainDiagnosticsPreference('denied');
-            }
-            throw error;
-        }
+        setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
         if (generation === settingsCacheGeneration) {
             settingsCache = next;
         }

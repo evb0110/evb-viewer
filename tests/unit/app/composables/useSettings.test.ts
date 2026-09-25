@@ -203,16 +203,14 @@ describe('useSettings', () => {
         expect(settings.value.defaultZoomPreset).toBe('150');
     });
 
-    it('retries a failed settings save with the latest dirty payload', async () => {
+    it('reports a failed settings save and saves the latest payload on the next change', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        vi.useFakeTimers();
         mockSave
             .mockRejectedValueOnce(new Error('temporary failure'))
             .mockResolvedValue(undefined);
 
         const { useSettings } = await import('@app/composables/useSettings');
         const {
-            isSettingsSavePendingRetry,
             load,
             settings,
             save,
@@ -224,24 +222,16 @@ describe('useSettings', () => {
         await load();
         settings.value.locale = 'fr';
         await expect(save()).resolves.toBe(false);
-        expect(mockSave).toHaveBeenCalledTimes(1);
-        expect(settingsSaveStatus.value).toBe('retry-pending');
+        expect(settingsSaveStatus.value).toBe('failed');
         expect(settingsSaveError.value).toBe('temporary failure');
-        const firstFailure = settingsSaveFailure.value;
-        expect(firstFailure?.failure.code).toBe('SETTINGS_SAVE_FAILED');
-        expect(isSettingsSavePendingRetry.value).toBe(true);
+        expect(settingsSaveFailure.value?.failure.code).toBe('SETTINGS_SAVE_FAILED');
 
         settings.value.locale = 'de';
-        await vi.advanceTimersByTimeAsync(1_000);
-
-        expect(mockSave).toHaveBeenCalledTimes(2);
+        await expect(save()).resolves.toBe(true);
         expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ locale: 'de' }));
         expect(settingsSaveStatus.value).toBe('idle');
         expect(settingsSaveError.value).toBeNull();
         expect(settingsSaveFailure.value).toBeNull();
-        expect(firstFailure?.failure.eventId).toBeDefined();
-        expect(isSettingsSavePendingRetry.value).toBe(false);
-        vi.useRealTimers();
     });
 
     it('debounces updateSetting saves and flushes a pending save on pagehide', async () => {
