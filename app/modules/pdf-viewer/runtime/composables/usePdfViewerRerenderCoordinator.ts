@@ -607,7 +607,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             applyResizeAnchorPreview?.(fitAnchor);
             syncHorizontalScrollAfterLayoutUpdate();
             void cancelInFlightPageRenders?.();
-            await reRenderAllVisiblePages(getVisibleRange, {
+            await reRenderAllVisiblePages(() => resolvePageRowRange(pageToPreserve), {
                 rerenderSource: normalizePdfRerenderSource(source),
                 renderBufferOverride: 0,
             });

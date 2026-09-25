@@ -904,12 +904,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             if (version !== renderVersion) {
                 return;
             }
-            const range = getVisibleRange();
-            for (const pageNumber of [...pageCanvases.keys()]) {
-                if (pageNumber < range.start || pageNumber > range.end) {
-                    clearAuthoritativePage(pageNumber);
-                }
-            }
             viewport.setupPagePlaceholders();
             await nextTick();
             if (version !== renderVersion) {

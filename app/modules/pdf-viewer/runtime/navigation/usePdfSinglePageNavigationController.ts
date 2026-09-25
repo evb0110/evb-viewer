@@ -892,17 +892,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         kind: TPdfViewportIntentKind,
     ): IPdfSemanticAnchor {
         const semanticPage = toBoundedPageNumber(viewportAuthority.currentPage.value);
-        if (kind === 'fit') {
-            // Fit replaces row heights, so retain the committed page instead of the old pixel offset.
+        if (kind === 'fit' || kind === 'view-mode') {
+            // These replace row heights: keep the committed page, not the old pixel offset.
             return getRequestAnchor(undefined, semanticPage);
         }
-        const liveAnchor = resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value));
-        // A zoom ref and page layout can update before this watcher runs. Keep
-        // the live point fractions, but do not reinterpret the old pixel scroll
-        // against new-scale rows and jump to an earlier page. The viewport
-        // authority's committed page is the semantic owner here; the outer
-        // requested-page prop can briefly lag after a completed toolbar
-        // navigation.
+        const liveAnchor = resolveAnchorForViewport(snapshot, semanticPage);
+        // Zoom keeps the live point fractions but not the old pixel scroll,
+        // which new-scale rows would map to an earlier page.
         return kind === 'zoom'
             ? {
                 ...liveAnchor,
@@ -1246,9 +1242,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         flush: 'post',
         immediate: true,
     });
-    const navigationAnchorPage = computed(() => (
-        viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value
-    ));
+    // A view-mode change keeps its page mounted like a navigation target.
+    const navigationAnchorPage = computed(() => viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value
+        ?? (viewportAuthority.activeIntent.value?.kind === 'view-mode' ? viewportAuthority.activeIntent.value.anchor?.page : null)
+        ?? null);
     const searchNavigationTargetPage = computed(() => currentNavigationTicket()?.request.source === 'search'
         ? navigationAnchorPage.value
         : null);

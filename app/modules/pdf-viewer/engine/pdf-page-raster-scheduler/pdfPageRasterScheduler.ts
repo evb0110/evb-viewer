@@ -624,9 +624,14 @@ export function createPdfPageRasterScheduler(
                 sourceId: work.sourceId,
                 target: work.target,
             };
-            const previous = residents.get(work.key);
-            if (previous) {
-                releaseResident(previous, 'raster-replaced');
+            const pagePrefix = `${work.target.id}\0${String(work.demand.pageNumber)}\0`;
+            for (const [
+                key,
+                previous,
+            ] of [...residents]) {
+                if (key.startsWith(pagePrefix)) {
+                    releaseResident(previous, 'raster-replaced');
+                }
             }
             residents.set(work.key, resident);
             surfaceBudget.enforceBudget();
@@ -778,6 +783,7 @@ export function createPdfPageRasterScheduler(
                 null,
             ));
         }
+        const demandedPages = new Set(demands.map(demand => demand.pageNumber));
         demandKeysBySource.set(request.sourceId, nextKeys);
         for (const key of previousKeys) {
             if (nextKeys.has(key)) {
@@ -788,7 +794,14 @@ export function createPdfPageRasterScheduler(
                 cancelWork(work, 'demand-replaced');
             }
             const resident = residents.get(key);
-            if (resident?.sourceId === request.sourceId) {
+            if (resident?.sourceId !== request.sourceId) {
+                continue;
+            }
+            // A page demanded at another scale keeps its raster on screen
+            // until the replacement commits.
+            if (demandedPages.has(resident.demand.pageNumber)) {
+                nextKeys.add(key);
+            } else {
                 releaseResident(resident, 'demand-replaced');
             }
         }
@@ -884,16 +897,26 @@ export function createPdfPageRasterScheduler(
         }
     }
 
+    // Cancels the source's pending work only. Its committed rasters stay on
+    // screen until the next demand replaces or releases them.
     async function cancelSource(sourceId: string) {
-        const workSettlements = [...inFlight.values()]
-            .filter(work => work.sourceId === sourceId)
+        const cancelled = [...new Set([
+            ...queued.values(),
+            ...inFlight.values(),
+            ...retryPending.values(),
+        ])].filter(work => work.sourceId === sourceId);
+        const workSettlements = cancelled
             .map(work => work.execution)
             .filter((execution): execution is Promise<void> => execution !== null);
-        invalidate({
-            reason: 'source-cancelled',
-            sourceId,
-        });
-        demandKeysBySource.delete(sourceId);
+        for (const work of cancelled) {
+            cancelWork(work, 'source-cancelled');
+        }
+        const keys = demandKeysBySource.get(sourceId);
+        for (const key of [...keys ?? []]) {
+            if (!residents.has(key)) {
+                keys?.delete(key);
+            }
+        }
         for (const identity of [...currentDemandByIdentity.keys()]) {
             if (identity.startsWith(`${sourceId}\0`)) {
                 currentDemandByIdentity.delete(identity);
