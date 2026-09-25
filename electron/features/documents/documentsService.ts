@@ -28,10 +28,6 @@ import type {
     IPdfPathValidationOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
-    IPdfAnnotationIndexChunk,
-    IPdfAnnotationIndexChunkOptions,
-    IPdfAnnotationIndexOptions,
-    IPdfAnnotationIndexSession,
     IPdfAnnotationParseOptions,
     IPdfAnnotationParseResult,
     IPdfDataPrintOptions,
@@ -138,21 +134,6 @@ export interface IDocumentsService {
         filePath: string,
         options: IPdfNativePageSizesExactOptions,
     ) => Promise<IPdfNativePageGeometry>;
-    beginPdfAnnotationIndex: (
-        context: IDocumentsSenderIdContext,
-        filePath: string,
-        options: IPdfAnnotationIndexOptions,
-    ) => Promise<IPdfAnnotationIndexSession>;
-    readPdfAnnotationIndexChunk: (
-        context: IDocumentsSenderIdContext,
-        sessionId: string,
-        offset: number,
-        options?: IPdfAnnotationIndexChunkOptions,
-    ) => Promise<IPdfAnnotationIndexChunk>;
-    releasePdfAnnotationIndex: (
-        context: IDocumentsSenderIdContext,
-        sessionId: string,
-    ) => Promise<boolean>;
     beginPdfEmbeddedShapeIndex: (
         context: IDocumentsSenderIdContext,
         filePath: string,

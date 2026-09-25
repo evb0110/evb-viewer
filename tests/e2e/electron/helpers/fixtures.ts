@@ -2665,7 +2665,7 @@ export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAn
     };
 }
 
-function resolveQpdfBinary() {
+export function resolveQpdfBinary() {
     return resolveNativeToolPath({
         binaryName: process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
         binaryRelativePath: [

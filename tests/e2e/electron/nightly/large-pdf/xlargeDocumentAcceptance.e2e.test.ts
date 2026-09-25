@@ -25,14 +25,10 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
+    readPdfAnnotationIndex,
+    type IPdfAnnotationIndex,
     type IPdfAnnotationIndexEntry,
-    type IPdfAnnotationIndexSession,
-} from '@contracts/electronApiDocuments';
+} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
@@ -91,7 +87,6 @@ const XLARGE_HEARTBEAT_INTERVAL_MS = 100;
 // CI telemetry recorded a 9,231.1 ms maximum heartbeat gap in this lane.
 // Keep the blocking limit at 14 seconds, at least 1.5x that observed maximum.
 const XLARGE_HEARTBEAT_MAX_GAP_MS = 14_000;
-const XLARGE_INDEX_CHUNK_BYTES = 512 * 1_024;
 const XLARGE_IPC_PAYLOAD_MAX_BYTES = 8 * 1_024 * 1_024;
 // This is a renderer heap budget, not a machine-specific RSS ceiling. A
 // 512 MiB growth limit is one quarter of the minimum admitted input size and
@@ -342,13 +337,6 @@ interface IRendererRssTelemetry {
 }
 
 interface IRssSampler {stop: () => Promise<IRendererRssTelemetry>;}
-
-interface IAnnotationIndexRead {
-    session: IPdfAnnotationIndexSession;
-    entries: IPdfAnnotationIndexEntry[];
-    chunkByteLengths: number[];
-    transportPayloadByteLengths: number[];
-}
 
 interface IPhaseTiming {
     durationMs: number;
@@ -1061,7 +1049,7 @@ interface IStructuralObjectSummary {
 
 async function readStructuralObjectSummary(
     pdfPath: string,
-    index: IAnnotationIndexRead,
+    index: IPdfAnnotationIndex,
 ): Promise<IStructuralObjectSummary[]> {
     const summaries = await Promise.all(index.entries.map(async entry => {
         const object = await readAnnotationObjectContents(pdfPath, entry);
@@ -1131,95 +1119,9 @@ async function installSaveReceiptProbe(page: Page) {
     });
 }
 
-async function readPdfAnnotationIndex(page: Page, documentPath: string): Promise<IAnnotationIndexRead> {
-    const documentRef = requireDocumentRef(documentPath);
-    const result = await page.evaluate(async (input: {
-        documentPath: TDocumentRef;
-        chunkBytes: number;
-        payloadBudget: number;
-    }) => {
-        const documentFiles = window.electronAPI?.documentFiles;
-        if (
-            !documentFiles
-            || typeof documentFiles.beginPdfAnnotationIndex !== 'function'
-            || typeof documentFiles.readPdfAnnotationIndexChunk !== 'function'
-            || typeof documentFiles.releasePdfAnnotationIndex !== 'function'
-        ) {
-            throw new Error('PDF annotation index capability is unavailable in the renderer');
-        }
-
-        const revision = await documentFiles.getDocumentRevision(input.documentPath);
-        const session = await documentFiles.beginPdfAnnotationIndex(input.documentPath, {expectedDocumentRevisionToken: revision.token});
-        const entries: IPdfAnnotationIndexEntry[] = [];
-        const chunkByteLengths: number[] = [];
-        const transportPayloadByteLengths: number[] = [];
-        let offset = 0;
-        let released = false;
-        try {
-            while (true) {
-                const chunk = await documentFiles.readPdfAnnotationIndexChunk(
-                    session.sessionId,
-                    offset,
-                    {chunkBytes: input.chunkBytes},
-                );
-                if (chunk.offset !== offset) {
-                    throw new Error(`PDF annotation index offset mismatch: ${chunk.offset} !== ${offset}`);
-                }
-                if (
-                    !Number.isSafeInteger(chunk.byteLength)
-                    || chunk.byteLength < 0
-                    || chunk.byteLength > input.payloadBudget
-                ) {
-                    throw new Error(`PDF annotation index chunk exceeded ${input.payloadBudget} bytes`);
-                }
-                chunkByteLengths.push(chunk.byteLength);
-                const transportPayloadByteLength = new TextEncoder().encode(JSON.stringify(chunk)).byteLength;
-                if (transportPayloadByteLength > input.payloadBudget) {
-                    throw new Error(`PDF annotation index transport payload exceeded ${input.payloadBudget} bytes`);
-                }
-                transportPayloadByteLengths.push(transportPayloadByteLength);
-                entries.push(...chunk.entries);
-                if (chunk.done) {
-                    if (chunk.nextOffset !== null) {
-                        throw new Error('PDF annotation index marked a chunk done with a next offset');
-                    }
-                    break;
-                }
-                if (chunk.nextOffset === null || chunk.nextOffset <= offset) {
-                    throw new Error('PDF annotation index chunk offset did not advance');
-                }
-                offset = chunk.nextOffset;
-            }
-        } finally {
-            released = await documentFiles.releasePdfAnnotationIndex(session.sessionId);
-        }
-        if (!released) {
-            throw new Error('PDF annotation index session was not released');
-        }
-        return {
-            session,
-            entries,
-            chunkByteLengths,
-            transportPayloadByteLengths,
-        };
-    }, {
-        documentPath: documentRef,
-        chunkBytes: XLARGE_INDEX_CHUNK_BYTES,
-        payloadBudget: XLARGE_IPC_PAYLOAD_MAX_BYTES,
-    });
-    return result as IAnnotationIndexRead;
-}
-
-function assertBaselineAnnotationIndex(index: IAnnotationIndexRead) {
-    expect(index.session.pageCount).toBe(XLARGE_PAGE_COUNT);
-    expect(index.session.entryCount).toBe(EXPECTED_BASELINE_ENTRIES.length);
+function assertBaselineAnnotationIndex(index: IPdfAnnotationIndex) {
+    expect(index.pageCount).toBe(XLARGE_PAGE_COUNT);
     expect(index.entries).toHaveLength(EXPECTED_BASELINE_ENTRIES.length);
-    expect(index.session.totalBytes).toBeGreaterThan(0);
-    expect(XLARGE_INDEX_CHUNK_BYTES).toBeLessThanOrEqual(PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES);
-    expect(index.chunkByteLengths).not.toHaveLength(0);
-    expect(index.transportPayloadByteLengths).not.toHaveLength(0);
-    expect(index.chunkByteLengths.every(length => length <= XLARGE_IPC_PAYLOAD_MAX_BYTES)).toBe(true);
-    expect(index.transportPayloadByteLengths.every(length => length > 0 && length <= XLARGE_IPC_PAYLOAD_MAX_BYTES)).toBe(true);
     expect(index.entries).toEqual(expect.arrayContaining(EXPECTED_BASELINE_ENTRIES));
 }
 
@@ -1247,16 +1149,11 @@ async function waitForDetachedEditorLayers(
     ), {timeout});
 }
 
-function assertFinalAnnotationIndex(index: IAnnotationIndexRead) {
-    expect(index.session.pageCount).toBe(XLARGE_PAGE_COUNT);
-    expect(index.session.entryCount).toBe(10);
+function assertFinalAnnotationIndex(index: IPdfAnnotationIndex) {
+    expect(index.pageCount).toBe(XLARGE_PAGE_COUNT);
+    expect(index.entries.length).toBe(10);
     expect(index.entries).toHaveLength(10);
     expect(index.entries).toEqual(expect.arrayContaining(EXPECTED_BASELINE_ENTRIES));
-    expect(XLARGE_INDEX_CHUNK_BYTES).toBeLessThanOrEqual(PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES);
-    expect(index.chunkByteLengths).not.toHaveLength(0);
-    expect(index.transportPayloadByteLengths).not.toHaveLength(0);
-    expect(index.chunkByteLengths.every(length => length <= XLARGE_IPC_PAYLOAD_MAX_BYTES)).toBe(true);
-    expect(index.transportPayloadByteLengths.every(length => length > 0 && length <= XLARGE_IPC_PAYLOAD_MAX_BYTES)).toBe(true);
 
     const canonicalNotes = index.entries.filter(entry => (
         entry.pageIndex === XLARGE_MIDDLE_PAGE - 1
@@ -1347,20 +1244,6 @@ async function assertAnnotationObjectsContainTexts(
         }
         expect(matchedObjectIndexes.has(matchingObjectIndex)).toBe(false);
         matchedObjectIndexes.add(matchingObjectIndex);
-    }
-}
-
-function recordAnnotationIndexPayloads(
-    telemetry: IXlargeAcceptanceTelemetry,
-    session: 'A' | 'B',
-    index: IAnnotationIndexRead,
-) {
-    for (const bytes of index.transportPayloadByteLengths) {
-        telemetry.ipcPayloadMeasurements.push({
-            bytes,
-            operation: 'annotation-index-chunk',
-            session,
-        });
     }
 }
 
@@ -1700,7 +1583,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             const baselineIndex = await timed(
                 telemetry,
                 'session-a-read-baseline-annotation-index',
-                () => readPdfAnnotationIndex(sessionA!.page, sessionAPath),
+                () => readPdfAnnotationIndex(sessionAPath),
             );
             assertBaselineAnnotationIndex(baselineIndex);
             const baselineStructuralSummary = await timed(
@@ -1708,7 +1591,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 'session-a-read-baseline-structural-summary',
                 () => readStructuralObjectSummary(stagedFixture!.stagedPath, baselineIndex),
             );
-            recordAnnotationIndexPayloads(telemetry, 'A', baselineIndex);
 
             const closedA = await callWorkspaceCommand<boolean>(sessionA.page, 'handleCloseFileFromUi', [{persist: false}]);
             expect(closedA).toEqual({
@@ -1952,7 +1834,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             const finalIndex = await timed(
                 telemetry,
                 'fresh-renderer-read-final-annotation-index',
-                () => readPdfAnnotationIndex(sessionB!.page, reopenedPath),
+                () => readPdfAnnotationIndex(reopenedPath),
             );
             const finalStructuralSummary = await timed(
                 telemetry,
@@ -1965,7 +1847,6 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 finalStructuralSummary,
             );
             const {canonicalNotes} = assertFinalAnnotationIndex(finalIndex);
-            recordAnnotationIndexPayloads(telemetry, 'B', finalIndex);
             await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
             await timed(telemetry, 'fresh-renderer-read-annotation-objects', () => (
                 assertAnnotationObjectsContainTexts(

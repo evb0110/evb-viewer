@@ -504,15 +504,6 @@ export function createElectronApi(
         ...(baseDocuments.getPdfOpeningGeometry
             ? {getPdfOpeningGeometry: baseDocuments.getPdfOpeningGeometry}
             : {}),
-        ...(baseDocuments.beginPdfAnnotationIndex
-            ? {beginPdfAnnotationIndex: baseDocuments.beginPdfAnnotationIndex}
-            : {}),
-        ...(baseDocuments.readPdfAnnotationIndexChunk
-            ? {readPdfAnnotationIndexChunk: baseDocuments.readPdfAnnotationIndexChunk}
-            : {}),
-        ...(baseDocuments.releasePdfAnnotationIndex
-            ? {releasePdfAnnotationIndex: baseDocuments.releasePdfAnnotationIndex}
-            : {}),
         ...(baseDocuments.beginPdfEmbeddedShapeIndex
             ? {beginPdfEmbeddedShapeIndex: baseDocuments.beginPdfEmbeddedShapeIndex}
             : {}),

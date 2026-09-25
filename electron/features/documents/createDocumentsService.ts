@@ -33,11 +33,6 @@ import {
     handlePdfNativePageSizes,
 } from '@electron/features/documents/main/nativePdfMetadata';
 import {
-    beginPdfAnnotationIndex,
-    readPdfAnnotationIndexChunk,
-    releasePdfAnnotationIndex,
-} from '@electron/features/documents/main/pdfAnnotationIndex';
-import {
     beginPdfEmbeddedShapeIndex,
     readPdfEmbeddedShapeIndexChunk,
     releasePdfEmbeddedShapeIndex,
@@ -253,12 +248,6 @@ export function createDocumentsService(): IDocumentsService {
         getPdfOpeningGeometry: (...args: TDocumentsServiceArgs<'getPdfOpeningGeometry'>) =>
             handlePdfOpeningGeometry(...args),
         getPdfNativePageSizes: handlePdfNativePageSizes,
-        beginPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'beginPdfAnnotationIndex'>) =>
-            beginPdfAnnotationIndex(...args),
-        readPdfAnnotationIndexChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationIndexChunk'>) =>
-            readPdfAnnotationIndexChunk(...args),
-        releasePdfAnnotationIndex: (...args: TDocumentsServiceArgs<'releasePdfAnnotationIndex'>) =>
-            releasePdfAnnotationIndex(...args),
         beginPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'beginPdfEmbeddedShapeIndex'>) =>
             beginPdfEmbeddedShapeIndex(...args),
         readPdfEmbeddedShapeIndexChunk: (...args: TDocumentsServiceArgs<'readPdfEmbeddedShapeIndexChunk'>) =>

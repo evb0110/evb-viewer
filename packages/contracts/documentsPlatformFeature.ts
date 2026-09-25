@@ -77,13 +77,6 @@ import {
 } from '@contracts/documentsPlatformFeatureSchemas';
 import {decodePdfNativePrintDialogOpenedEvent} from '@contracts/pdfPathPrintOptions';
 import {
-    beginPdfAnnotationIndexArgs,
-    pdfAnnotationIndexChunkResult,
-    pdfAnnotationIndexSessionResult,
-    readPdfAnnotationIndexChunkArgs,
-    releasePdfAnnotationIndexArgs,
-} from '@contracts/pdfAnnotationIndexSchemas';
-import {
     parsePdfAnnotationsArgs,
     pdfAnnotationParseResult,
 } from '@contracts/pdfAnnotationParseSchemas';
@@ -410,32 +403,6 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 result: pageSizesResult,
                 timeoutMs: longNativeIpcTimeoutMs,
             },
-            ...electronImplementedOptional,
-        },
-        beginPdfAnnotationIndex: {
-            ...defineIpcMethod(
-                'beginPdfAnnotationIndex', 'pdf:annotationIndex:begin', beginPdfAnnotationIndexArgs,
-                pdfAnnotationIndexSessionResult, 'beginPdfAnnotationIndex', 'sender',
-            ),
-            ipc: {
-                args: beginPdfAnnotationIndexArgs,
-                result: pdfAnnotationIndexSessionResult,
-                timeoutMs: longNativeIpcTimeoutMs,
-            },
-            ...electronImplementedOptional,
-        },
-        readPdfAnnotationIndexChunk: {
-            ...defineIpcMethod(
-                'readPdfAnnotationIndexChunk', 'pdf:annotationIndex:readChunk', readPdfAnnotationIndexChunkArgs,
-                pdfAnnotationIndexChunkResult, 'readPdfAnnotationIndexChunk', 'sender',
-            ),
-            ...electronImplementedOptional,
-        },
-        releasePdfAnnotationIndex: {
-            ...defineIpcMethod(
-                'releasePdfAnnotationIndex', 'pdf:annotationIndex:release', releasePdfAnnotationIndexArgs,
-                booleanResult, 'releasePdfAnnotationIndex', 'sender',
-            ),
             ...electronImplementedOptional,
         },
         beginPdfEmbeddedShapeIndex: {

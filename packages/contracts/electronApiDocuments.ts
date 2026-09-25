@@ -85,47 +85,6 @@ export interface IPdfPathPrintOptions {
 }
 export interface IPdfDataPrintOptions {requestId?: TRequestId;}
 export interface IPdfNativePrintDialogOpenedEvent {readonly requestId: TRequestId;}
-/** A PDF indirect-object reference returned by the native annotation index. */
-export interface IPdfAnnotationIndexObjectRef {
-    readonly objectNumber: number;
-    readonly generationNumber: number;
-}
-
-export const PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
-
-/** One page-addressed annotation entry in a PDF annotation index. */
-export interface IPdfAnnotationIndexEntry {
-    readonly pageIndex: TPageIndex;
-    /** Zero is reserved for a direct-dictionary page-presence marker. */
-    readonly objectNumber: number;
-    readonly generationNumber: number;
-    readonly subtype: string;
-    readonly name: string | null;
-    readonly popupRef: IPdfAnnotationIndexObjectRef | null;
-    readonly parentRef: IPdfAnnotationIndexObjectRef | null;
-}
-
-export interface IPdfAnnotationIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
-
-export interface IPdfAnnotationIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
-
-export interface IPdfAnnotationIndexSession {
-    readonly sessionId: TSessionId;
-    readonly documentRef: TDocumentRef;
-    readonly documentRevisionToken: TDocumentRevisionToken;
-    readonly pageCount: number;
-    readonly entryCount: number;
-    readonly totalBytes: number;
-}
-
-export interface IPdfAnnotationIndexChunk {
-    readonly offset: number;
-    readonly nextOffset: number | null;
-    readonly byteLength: number;
-    readonly done: boolean;
-    readonly entries: readonly IPdfAnnotationIndexEntry[];
-}
-
 export {
     PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
 } from '@contracts/pdfAnnotationParseTypes';
@@ -960,16 +919,6 @@ export interface IDocumentsFileCapability {
     parsePdfAnnotations: PdfAnnotationParse.TPdfAnnotationParse;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: IPdfNativePageSizesCapability;
-    beginPdfAnnotationIndex?: (
-        path: TDocumentRef,
-        options: IPdfAnnotationIndexOptions,
-    ) => Promise<IPdfAnnotationIndexSession>;
-    readPdfAnnotationIndexChunk?: (
-        sessionId: TSessionId,
-        offset: number,
-        options?: IPdfAnnotationIndexChunkOptions,
-    ) => Promise<IPdfAnnotationIndexChunk>;
-    releasePdfAnnotationIndex?: (sessionId: TSessionId) => Promise<boolean>;
     beginPdfEmbeddedShapeIndex?: (
         path: TDocumentRef,
         options: IPdfEmbeddedShapeIndexOptions,
@@ -1143,9 +1092,6 @@ export interface IDocumentsReadCapability extends Pick<
     | 'releaseManagedTempFileHandle'
     | 'getPdfOpeningGeometry'
     | 'getPdfNativePageSizes'
-    | 'beginPdfAnnotationIndex'
-    | 'readPdfAnnotationIndexChunk'
-    | 'releasePdfAnnotationIndex'
     | 'beginPdfEmbeddedShapeIndex'
     | 'readPdfEmbeddedShapeIndexChunk'
     | 'releasePdfEmbeddedShapeIndex'

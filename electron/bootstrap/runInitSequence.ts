@@ -123,7 +123,6 @@ export interface IRunInitSequenceOptions {
     shutdownCoordinator: IShutdownCoordinator | null;
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
     sweepStalePdfAnnotationParseArtifacts?: () => Promise<unknown>;
-    sweepStalePdfAnnotationIndexArtifacts?: () => Promise<unknown>;
     sweepStalePdfEmbeddedShapeIndexArtifacts?: () => Promise<unknown>;
     sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
     sweepStaleScanCleanupScratchDirs?: () => Promise<unknown>;
@@ -404,7 +403,6 @@ function createPostRendererReadyMaintenanceRunner(
         logger,
         sweepStaleDefaultAppTempPdfs,
         sweepStalePdfAnnotationParseArtifacts,
-        sweepStalePdfAnnotationIndexArtifacts,
         sweepStalePdfEmbeddedShapeIndexArtifacts,
         sweepStaleManagedScratchTempDirs,
         sweepStaleScanCleanupScratchDirs,
@@ -444,12 +442,6 @@ function createPostRendererReadyMaintenanceRunner(
             ? [{
                 label: 'OCR temp artifacts',
                 run: sweepStaleOcrTempArtifacts,
-            }]
-            : []),
-        ...(sweepStalePdfAnnotationIndexArtifacts
-            ? [{
-                label: 'PDF annotation index sidecars',
-                run: sweepStalePdfAnnotationIndexArtifacts,
             }]
             : []),
         ...(sweepStalePdfAnnotationParseArtifacts

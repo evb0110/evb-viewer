@@ -20,10 +20,11 @@ import {
     join,
 } from 'node:path';
 import {promisify} from 'node:util';
-import type {
-    IPdfAnnotationIndexEntry,
-    IPdfEmbeddedShapeIndexEntry,
-} from '@contracts/electronApiDocuments';
+import type {IPdfEmbeddedShapeIndexEntry} from '@contracts/electronApiDocuments';
+import {
+    readPdfAnnotationIndex,
+    type IPdfAnnotationIndexEntry,
+} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
 import {
     requireDocumentRef,
     type TLegacyDocumentRef,
@@ -175,60 +176,6 @@ async function readWorkingCopyPath(page: Page) {
         throw new Error(`Native annotation matrix has no working copy: ${JSON.stringify(state)}`);
     }
     return requireDocumentRef(state.workingCopyPath);
-}
-
-async function readAnnotationIndex(page: Page, documentPath: string) {
-    const documentRef = requireDocumentRef(documentPath);
-    return page.evaluate(async (input: {
-        chunkBytes: number;
-        documentPath: TLegacyDocumentRef
-    }) => {
-        const files = window.electronAPI?.documentFiles;
-        if (
-            !files?.beginPdfAnnotationIndex
-            || !files.readPdfAnnotationIndexChunk
-            || !files.releasePdfAnnotationIndex
-        ) {
-            throw new Error('PDF annotation index APIs are unavailable');
-        }
-        const revision = await files.getDocumentRevision(input.documentPath);
-        const session = await files.beginPdfAnnotationIndex(
-            input.documentPath,
-            {expectedDocumentRevisionToken: revision.token},
-        );
-        const entries: IPdfAnnotationIndexEntry[] = [];
-        let offset = 0;
-        let released = false;
-        try {
-            while (true) {
-                const chunk = await files.readPdfAnnotationIndexChunk(
-                    session.sessionId,
-                    offset,
-                    {chunkBytes: input.chunkBytes},
-                );
-                entries.push(...chunk.entries);
-                if (chunk.done) {
-                    break;
-                }
-                if (chunk.nextOffset === null || chunk.nextOffset <= offset) {
-                    throw new Error('Annotation index offset did not advance');
-                }
-                offset = chunk.nextOffset;
-            }
-        } finally {
-            released = await files.releasePdfAnnotationIndex(session.sessionId);
-        }
-        if (!released) {
-            throw new Error('Annotation index session was not released');
-        }
-        return {
-            entries,
-            revisionToken: revision.token,
-        };
-    }, {
-        chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath: documentRef,
-    });
 }
 
 async function readShapeIndex(page: Page, documentPath: string) {
@@ -1127,7 +1074,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const initialIndex = await readAnnotationIndex(session.page, initialWorkingCopyPath);
+        const initialIndex = await readPdfAnnotationIndex(initialWorkingCopyPath);
         const initialShapes = await readShapeIndex(session.page, initialWorkingCopyPath);
 
         const beforeNote = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
@@ -1270,16 +1217,15 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             shapeIds.push(shape.id);
         }
 
-        const firstSaveToken = await saveCanonicalRevision(
+        await saveCanonicalRevision(
             session.page,
             documentPath,
             'issue 192 canonical annotation create save',
         );
         const firstSavedPath = await readWorkingCopyPath(session.page);
         expect(firstSavedPath).toBe(initialWorkingCopyPath);
-        const firstIndex = await readAnnotationIndex(session.page, firstSavedPath);
+        const firstIndex = await readPdfAnnotationIndex(firstSavedPath);
         const firstShapes = await readShapeIndex(session.page, firstSavedPath);
-        expect(firstIndex.revisionToken).toBe(firstSaveToken);
         for (const [
             subtype,
             expectedDelta,
@@ -1377,15 +1323,14 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         );
         expect(replacementShape.kind).toBe('shape');
 
-        const secondSaveToken = await saveCanonicalRevision(
+        await saveCanonicalRevision(
             session.page,
             documentPath,
             'issue 192 canonical annotation update delete recreate save',
         );
         const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const secondIndex = await readAnnotationIndex(session.page, secondWorkingCopyPath);
+        const secondIndex = await readPdfAnnotationIndex(secondWorkingCopyPath);
         const secondShapes = await readShapeIndex(session.page, secondWorkingCopyPath);
-        expect(secondIndex.revisionToken).toEqual(secondSaveToken);
         expect(countAnnotationSubtype(secondIndex.entries, 'Text')).toBe(countAnnotationSubtype(firstIndex.entries, 'Text'));
         expect(countAnnotationSubtype(secondIndex.entries, 'FreeText')).toBe(countAnnotationSubtype(firstIndex.entries, 'FreeText'));
         expect(pageShapes(secondShapes)).toHaveLength(pageShapes(firstShapes).length);
@@ -1422,7 +1367,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const initialIndex = await readAnnotationIndex(session.page, initialWorkingCopyPath);
+        const initialIndex = await readPdfAnnotationIndex(initialWorkingCopyPath);
         const imagePath = join(dirname(initialWorkingCopyPath), `issue-192-placed-image-${process.pid}.jpg`);
         writeFileSync(imagePath, PLACED_IMAGE_JPEG);
         onTestFinished(() => rmSync(imagePath, {force: true}));
@@ -1447,15 +1392,14 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             y: 28,
         });
 
-        const firstSaveToken = await saveCanonicalRevision(
+        await saveCanonicalRevision(
             session.page,
             documentPath,
             'issue 192 canonical placed-image create save',
         );
         const firstSavedPath = await readWorkingCopyPath(session.page);
         expect(firstSavedPath).toBe(initialWorkingCopyPath);
-        const firstIndex = await readAnnotationIndex(session.page, firstSavedPath);
-        expect(firstIndex.revisionToken).toBe(firstSaveToken);
+        const firstIndex = await readPdfAnnotationIndex(firstSavedPath);
         const addedStamps = diffAnnotationEntries(initialIndex.entries, firstIndex.entries)
             .filter(entry => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp');
         expect(addedStamps).toHaveLength(1);
@@ -1480,14 +1424,13 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             x: 32,
             y: 22,
         });
-        const secondSaveToken = await saveCanonicalRevision(
+        await saveCanonicalRevision(
             session.page,
             documentPath,
             'issue 192 canonical placed-image update save',
         );
         const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const secondIndex = await readAnnotationIndex(session.page, secondWorkingCopyPath);
-        expect(secondIndex.revisionToken).toBe(secondSaveToken);
+        const secondIndex = await readPdfAnnotationIndex(secondWorkingCopyPath);
         expect(secondIndex.entries.filter(entry => (
             entry.pageIndex === PLACED_IMAGE_PAGE_INDEX
             && entry.subtype === 'Stamp'
@@ -1504,14 +1447,13 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             throw new Error('Updated placed image did not reopen in the canonical editor layer');
         }
         await deleteCanonicalEntityWithKeyboard(session.page, reopenedImage);
-        const deletedSaveToken = await saveCanonicalRevision(
+        await saveCanonicalRevision(
             session.page,
             documentPath,
             'issue 192 canonical placed-image delete save',
         );
         const deletedWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const deletedIndex = await readAnnotationIndex(session.page, deletedWorkingCopyPath);
-        expect(deletedIndex.revisionToken).toBe(deletedSaveToken);
+        const deletedIndex = await readPdfAnnotationIndex(deletedWorkingCopyPath);
         expect(deletedIndex.entries.filter(entry => entry.name === stampEntry.name)).toHaveLength(0);
         await assertAnnotationStoreClean(session.page);
 

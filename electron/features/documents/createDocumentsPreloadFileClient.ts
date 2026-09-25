@@ -39,7 +39,6 @@ import {
 import {
     decodeWorkingCopyBackingStatus,
     isPdfOptimizePreset,
-    PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
 } from '@contracts/electronApiDocuments';
 import {
@@ -117,7 +116,6 @@ const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.openDocumentDirectBatch]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfOpeningGeometry]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: LONG_NATIVE_IPC_TIMEOUT_MS,
-    [DOCUMENTS_CHANNELS.pdfAnnotationIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.parsePdfAnnotations]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfEmbeddedShapeIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfAnalyzeConformance]: LONG_NATIVE_IPC_TIMEOUT_MS,
@@ -731,24 +729,6 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'getPdfOpeningGeometry.path'),
             ),
         getPdfNativePageSizes,
-        beginPdfAnnotationIndex: (path, options) =>
-            invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfAnnotationIndex,
-                assertAbsolutePath(path, 'beginPdfAnnotationIndex.path'),
-                assertPdfSerializedSaveOptions(options, 'beginPdfAnnotationIndex.options'),
-            ),
-        readPdfAnnotationIndexChunk: (sessionId, offset, options) =>
-            invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationIndexChunk,
-                requireSessionId(assertNonEmptyString(sessionId, 'readPdfAnnotationIndexChunk.sessionId')),
-                assertPdfSidecarChunkOffset(offset, 'readPdfAnnotationIndexChunk.offset'),
-                assertPdfIndexChunkOptions(options, 'readPdfAnnotationIndexChunk.options', PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES),
-            ),
-        releasePdfAnnotationIndex: (sessionId) =>
-            invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationIndex,
-                requireSessionId(assertNonEmptyString(sessionId, 'releasePdfAnnotationIndex.sessionId')),
-            ),
         beginPdfEmbeddedShapeIndex: (path, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfEmbeddedShapeIndex,

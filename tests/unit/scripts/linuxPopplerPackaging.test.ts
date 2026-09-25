@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
 import {
-    chmod,
     mkdir,
     mkdtemp,
     readFile,
@@ -112,22 +111,13 @@ describe('linux Poppler packaging', () => {
                 await expect(readFile(path.join(bundleDir, 'stale-sentinel'), 'utf8')).rejects.toThrow();
             }
 
-            const fakeBin = path.join(fixtureRoot, 'fake-bin');
-            await mkdir(fakeBin);
-            await writeFile(path.join(fakeBin, 'rm'), '#!/bin/sh\nexit 17\n', 'utf8');
-            await chmod(path.join(fakeBin, 'rm'), 0o755);
+            // A shell function shadows rm without writing an executable.
             const failedCleanup = spawnSync('/bin/bash', [
                 '-c',
-                `set -euo pipefail\n${resetFunction}\nreset_bundle_dir "$1"`,
+                `set -euo pipefail\nrm() { return 17; }\n${resetFunction}\nreset_bundle_dir "$1"`,
                 'reset-bundle',
                 path.join(fixtureRoot, 'unremovable'),
-            ], {
-                encoding: 'utf8',
-                env: {
-                    ...process.env,
-                    PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-                },
-            });
+            ], {encoding: 'utf8'});
             expect(failedCleanup.status).toBe(17);
 
             const emptyCleanup = spawnSync('/bin/bash', [

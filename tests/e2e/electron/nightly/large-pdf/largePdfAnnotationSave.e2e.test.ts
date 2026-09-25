@@ -39,15 +39,7 @@ import {
     StandardFonts,
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
-import {
-    PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
-    type IPdfAnnotationIndexEntry,
-    type IPdfAnnotationIndexSession,
-} from '@contracts/electronApiDocuments';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {
@@ -99,6 +91,10 @@ import {
     waitForSaveFrontierReady,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+import {
+    readPdfAnnotationIndex,
+    type IPdfAnnotationIndexEntry,
+} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
 // The 8-second user-facing save budget missed by small margins on Ubuntu CI.
@@ -111,8 +107,6 @@ const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const execFileAsync = promisify(execFile);
 const EXACT_ZALIZNYAK_REQUIRED_ENV = 'EVB_E2E_REQUIRE_EXACT_ZALIZNYAK';
 const EXACT_ZALIZNYAK_EXPECTATION = resolveExactPdfFixtureExpectation();
-const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
-const IPC_PAYLOAD_MAX_BYTES = 8 * 1_024 * 1_024;
 const LARGE_PDF_ARTIFACT_ROOT_ENV = 'EVB_E2E_LARGE_PDF_ARTIFACT_ROOT';
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
@@ -210,13 +204,6 @@ interface IOrdinaryFreeTextLiveState {
     editorMatchCount: number;
     visualMatchCount: number;
     sidebarMatchCount: number;
-}
-
-interface IAnnotationIndexRead {
-    chunkByteLengths: number[];
-    entries: IPdfAnnotationIndexEntry[];
-    session: IPdfAnnotationIndexSession;
-    transportPayloadByteLengths: number[];
 }
 
 interface IVerifiedStickyNote {
@@ -1330,91 +1317,6 @@ async function admitExactZaliznyakFixture(filePath: string) {
     return identity;
 }
 
-async function readBoundedAnnotationIndex(
-    page: Page,
-    documentPath: string,
-    expectedRevisionToken?: string,
-): Promise<IAnnotationIndexRead> {
-    const documentRef = requireDocumentRef(documentPath);
-    const result = await page.evaluate(async (input: {
-        chunkBytes: number;
-        documentPath: TDocumentRef;
-        payloadBudget: number;
-    }) => {
-        const documentFiles = window.electronAPI?.documentFiles;
-        if (
-            !documentFiles
-            || typeof documentFiles.beginPdfAnnotationIndex !== 'function'
-            || typeof documentFiles.readPdfAnnotationIndexChunk !== 'function'
-            || typeof documentFiles.releasePdfAnnotationIndex !== 'function'
-        ) {
-            throw new Error('PDF annotation index capability is unavailable in the renderer');
-        }
-
-        const revision = await documentFiles.getDocumentRevision(input.documentPath);
-        const session = await documentFiles.beginPdfAnnotationIndex(input.documentPath, {expectedDocumentRevisionToken: revision.token});
-        const entries: IPdfAnnotationIndexEntry[] = [];
-        const chunkByteLengths: number[] = [];
-        const transportPayloadByteLengths: number[] = [];
-        let offset = 0;
-        let released = false;
-        try {
-            while (true) {
-                const chunk = await documentFiles.readPdfAnnotationIndexChunk(
-                    session.sessionId,
-                    offset,
-                    {chunkBytes: input.chunkBytes},
-                );
-                if (chunk.offset !== offset) {
-                    throw new Error(`PDF annotation index offset mismatch: ${chunk.offset} !== ${offset}`);
-                }
-                const transportBytes = new TextEncoder().encode(JSON.stringify(chunk)).byteLength;
-                if (
-                    chunk.byteLength < 0
-                    || chunk.byteLength > input.payloadBudget
-                    || transportBytes < 1
-                    || transportBytes > input.payloadBudget
-                ) {
-                    throw new Error(`PDF annotation index exceeded ${input.payloadBudget} bytes`);
-                }
-                chunkByteLengths.push(chunk.byteLength);
-                transportPayloadByteLengths.push(transportBytes);
-                entries.push(...chunk.entries);
-                if (chunk.done) {
-                    if (chunk.nextOffset !== null) {
-                        throw new Error('Completed annotation index chunk has a next offset');
-                    }
-                    break;
-                }
-                if (chunk.nextOffset === null || chunk.nextOffset <= offset) {
-                    throw new Error('PDF annotation index chunk offset did not advance');
-                }
-                offset = chunk.nextOffset;
-            }
-        } finally {
-            released = await documentFiles.releasePdfAnnotationIndex(session.sessionId);
-        }
-        if (!released) {
-            throw new Error('PDF annotation index session was not released');
-        }
-        return {
-            chunkByteLengths,
-            entries,
-            session,
-            transportPayloadByteLengths,
-        };
-    }, {
-        chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath: documentRef,
-        payloadBudget: IPC_PAYLOAD_MAX_BYTES,
-    });
-    const read = result as IAnnotationIndexRead;
-    if (expectedRevisionToken) {
-        expect(read.session.documentRevisionToken).toBe(expectedRevisionToken);
-    }
-    return read;
-}
-
 async function readQpdfObject(
     filePath: string,
     objectRef: {
@@ -1964,7 +1866,7 @@ async function readBoundedOrdinaryFreeTextMatches(
     expectedPageIndex?: number,
     indexPath = filePath,
 ) {
-    const index = await readBoundedAnnotationIndex(page, indexPath);
+    const index = await readPdfAnnotationIndex(indexPath);
     const candidates = index.entries.filter(entry => (
         entry.subtype === 'FreeText'
         && (expectedPageIndex === undefined || entry.pageIndex === expectedPageIndex)
@@ -1996,15 +1898,12 @@ async function verifyStickyNoteStructure(
     expectedRevisionToken?: string,
     indexPath = filePath,
 ): Promise<IVerifiedStickyNote> {
-    const index = await readBoundedAnnotationIndex(page, indexPath, expectedRevisionToken);
+    const index = await readPdfAnnotationIndex(indexPath);
     if (process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1') {
-        expect(index.session.pageCount).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
+        expect(index.pageCount).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
     } else {
-        expect(index.session.pageCount).toBeGreaterThan(0);
+        expect(index.pageCount).toBeGreaterThan(0);
     }
-    expect(ANNOTATION_INDEX_CHUNK_BYTES).toBeLessThanOrEqual(PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES);
-    expect(index.chunkByteLengths.length).toBeGreaterThan(0);
-    expect(index.transportPayloadByteLengths.every(bytes => bytes > 0 && bytes <= IPC_PAYLOAD_MAX_BYTES)).toBe(true);
 
     const candidates = index.entries.filter(entry => (
         entry.pageIndex === expectedPageIndex

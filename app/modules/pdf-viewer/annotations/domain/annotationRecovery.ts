@@ -1,4 +1,3 @@
-import {PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
 import type {
     AnnotationEntity,
     AnnotationId,
@@ -11,7 +10,7 @@ import type {
 import {isRecord} from '@contracts/runtimeGuards';
 
 export const CANONICAL_ANNOTATION_RECOVERY_VERSION = 1 as const;
-const MAX_RECOVERY_BYTES = PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES;
+const MAX_RECOVERY_BYTES = 4 * 1024 * 1024;
 const MAX_DRAFT_TEXT_CHARS = 1_000_000;
 
 export interface IAnnotationRecoveryDraft {
