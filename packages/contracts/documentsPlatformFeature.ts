@@ -39,6 +39,7 @@ import {
     nativeSaveResult,
     noPayload,
     nonNegativeInteger,
+    nullableDocumentRefResult,
     nullableStringResult,
     openBatchProgress,
     openDocumentDirectArgs,
@@ -453,7 +454,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ...electronImplementedOptional,
         },
         savePdfAs: defineIpcMethod(
-            'savePdfAs', 'dialog:savePdfAs', savePdfAsArgs, nullableStringResult, 'savePdfAs', 'sender',
+            'savePdfAs', 'dialog:savePdfAs', savePdfAsArgs, nullableDocumentRefResult, 'savePdfAs', 'sender',
         ),
         savePdfDialog: defineIpcMethod(
             'savePdfDialog', 'dialog:savePdfDialog', savePdfDialogArgs,
@@ -461,7 +462,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
         ),
         saveDocxAs: defineIpcMethod(
             'saveDocxAs', 'dialog:saveDocxAs', pathArgs('workingPath'),
-            nullableStringResult, 'saveDocxAs', 'sender',
+            nullableDocumentRefResult, 'saveDocxAs', 'sender',
         ),
         writeFile: defineIpcMethod(
             'writeFile', 'file:write', writeFileArgs, booleanResult, 'writeFile', 'sender',

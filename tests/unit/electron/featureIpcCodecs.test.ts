@@ -1,3 +1,4 @@
+import {DOCX_EXPORT_STREAM_CHANNELS} from '@contracts/docxExport';
 import {
     describe,
     expect,
@@ -7,6 +8,7 @@ import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import {
     DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PDF_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
@@ -61,7 +63,10 @@ describe('feature IPC codec maps', () => {
         for (const feature of PLATFORM_FEATURE_REGISTRY) {
             expectExhaustiveMap(feature.invokeChannels, feature.ipcCodecs);
         }
-        expectExhaustiveMap(DOCUMENTS_CHANNELS, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
+        expectExhaustiveMap({
+            ...DOCUMENTS_CHANNELS,
+            ...DOCX_EXPORT_STREAM_CHANNELS,
+        }, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
     });
 
     it('keeps scan-cleanup generated-output pruning zero-argument', () => {
@@ -82,7 +87,7 @@ describe('feature IPC codec maps', () => {
             orientation: 'landscape',
             requestId: 'print-request-1',
         } as const;
-        const codec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintPath];
+        const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath];
 
         expect(codec.decodeArgs([
             '/tmp/document.pdf',
@@ -106,7 +111,7 @@ describe('feature IPC codec maps', () => {
     it('preserves native data print handoff options when the filename is omitted', () => {
         const data = Uint8Array.of(1, 2, 3);
         const options = {requestId: 'print-data-request-1'};
-        const codec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintData];
+        const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData];
 
         expect(codec.decodeArgs([
             data,
@@ -123,7 +128,7 @@ describe('feature IPC codec maps', () => {
             {requestId: ''},
         ])).toThrow('options.requestId must be a non-empty bounded string');
 
-        const cancelCodec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintCancel];
+        const cancelCodec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint];
         expect(cancelCodec.decodeArgs(['print-data-request-1'])).toEqual(['print-data-request-1']);
         expect(cancelCodec.decodeResult({canceled: true})).toEqual({canceled: true});
         expect(() => cancelCodec.decodeArgs([])).toThrow('expected 1 arguments');
@@ -283,14 +288,14 @@ describe('feature IPC codec maps', () => {
         expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry
         ]?.decodeResult(null)).toBeNull();
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileStat].decodeResult({
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile].decodeResult({
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         })).toEqual({
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         });
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.fileStat].decodeResult({
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile].decodeResult({
             size: 28_000_000,
             modifiedAt: -1,
         })).toThrow('invalid file modification time');
@@ -484,13 +489,13 @@ describe('feature IPC codec maps', () => {
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         };
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult(validGeometry))
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult(validGeometry))
             .toEqual(validGeometry);
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
             ...validGeometry,
             widestPageWidth: 500,
         })).toThrow('invalid PDF opening geometry result');
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
             kind: 'pdf',
             workingPath: '/managed/scan.pdf',
             originalPath: '/documents/scan.pdf',
@@ -499,50 +504,50 @@ describe('feature IPC codec maps', () => {
             workingPath: '/managed/scan.pdf',
             originalPath: '/documents/scan.pdf',
         });
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
             kind: 'pdf-needs-password',
             originalPath: '/documents/scan.pdf',
         })).toEqual({
             kind: 'pdf-needs-password',
             originalPath: '/documents/scan.pdf',
         });
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
             kind: 'pdf-unsupported-encryption',
             originalPath: '/documents/scan.pdf',
         })).toEqual({
             kind: 'pdf-unsupported-encryption',
             originalPath: '/documents/scan.pdf',
         });
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
             'correct-password',
         ])).toEqual([
             '/documents/scan.pdf',
             'correct-password',
         ]);
-        expect(DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
             undefined,
         ])).toEqual(['/documents/scan.pdf']);
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
             'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1),
         ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
         const multibytePassword = '🔒'.repeat(Math.ceil((PDF_DECRYPT_PASSWORD_MAX_BYTES + 1) / 4));
         expect(multibytePassword.length).toBeLessThan(PDF_DECRYPT_PASSWORD_MAX_BYTES);
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeArgs([
+        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
             '/documents/scan.pdf',
             multibytePassword,
         ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.openDocumentDirect].decodeResult({
+        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
             kind: 'pdf-needs-password',
             originalPath: '',
         })).toThrow('invalid encrypted PDF open-file result');
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
             ...validGeometry,
             pageNumber: 2,
         })).toThrow('invalid PDF opening geometry result');
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfOpeningGeometry].decodeResult({
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
             ...validGeometry,
             rotation: 45,
         })).toThrow('invalid PDF opening geometry result');
@@ -570,8 +575,8 @@ describe('feature IPC codec maps', () => {
     });
 
     it('decodes staged artifact receipts in both native IPC directions', () => {
-        expect(DOCUMENTS_IPC_CODECS[
-            DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
         ].decodeResult({
             applied: true,
             validation: {
@@ -582,8 +587,8 @@ describe('feature IPC codec maps', () => {
             },
             stagedOutput: validStagedArtifact,
         })).toMatchObject({stagedOutput: validStagedArtifact});
-        expect(DOCUMENTS_IPC_CODECS[
-            DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations
+        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations
         ].decodeArgs([
             '/tmp/working.pdf',
             validStagedArtifact,
@@ -602,15 +607,15 @@ describe('feature IPC codec maps', () => {
             },
         };
 
-        expect(() => DOCUMENTS_IPC_CODECS[
-            DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
         ].decodeResult({
             applied: true,
             validation: null,
             stagedOutput: malformedArtifact,
         })).toThrow('invalid staged native PDF output');
-        expect(() => DOCUMENTS_IPC_CODECS[
-            DOCUMENTS_CHANNELS.fileCommitStagedPdfNativeMutations
+        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations
         ].decodeArgs([
             '/tmp/working.pdf',
             malformedArtifact,

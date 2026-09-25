@@ -1,5 +1,3 @@
-import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
-import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
 import type { IpcRenderer } from 'electron';
 import {
     afterEach,
@@ -8,39 +6,15 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    DOCUMENTS_CHANNELS,
-    DOCUMENTS_EVENT_CHANNELS,
-} from '@electron/features/documents/contract';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
 } from '@contracts/docxExport';
-import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
+import { createDocumentsPreloadStreams } from '@electron/features/documents/createDocumentsPreloadStreams';
 import {requireDocumentRef} from '@contracts/documentRef';
-import type {TDocumentRef} from '@contracts/documentRef';
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import type {TPageNumber} from '@contracts/pageNumbers';
-import {normalizePdfNativeModifiedAt} from '@contracts/nativePdfMutations';
-import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {
-    requireLeaseId,
-    requireRequestId,
-} from '@contracts/shared';
-import type {TRequestId} from '@contracts/shared';
-import {requireEpochMs} from '@contracts/timestamps';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import {waitForCondition} from '@tests/unit/electron/waitForCondition';
-
-// These values deliberately violate their brands so the preload runtime guards are tested.
-const invalidDocumentRef = 'relative.pdf' as TDocumentRef;
-const invalidPageNumber = 0 as TPageNumber;
-const invalidEmptyRequestId = '' as TRequestId;
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -75,205 +49,11 @@ class FakeMessagePort {
     }
 }
 
-interface INativeMutationInvokePayload {placedImages: Array<{source: unknown}>}
-
-
-
-
-
-
-function createNativePlacedImage() {
-    return {
-        pageIndex: requirePageIndex(0),
-        x: 0.1,
-        y: 0.2,
-        width: 0.3,
-        height: 0.2,
-        rotationDegrees: 0,
-        mimeType: 'image/jpeg' as const,
-        source: {
-            path: requireDocumentRef('/tmp/image.jpg'),
-            size: 3,
-            sha256: 'a'.repeat(64),
-            leaseId: requireLeaseId('image-lease'),
-            revision: null,
-        },
-    };
-}
-
-function createStagedPdfArtifact() {
-    const validation = {
-        isValid: true,
-        tool: 'qpdf' as const,
-        errors: [],
-        warnings: [],
-    };
-    return {
-        validation,
-        artifact: {
-            receiptVersion: 1 as const,
-            artifactKind: 'pdf' as const,
-            path: '/tmp/staged.pdf',
-            size: 5,
-            sha256: 'a'.repeat(64),
-            fileIdentity: {
-                platform: 'posix' as const,
-                deviceId: '1',
-                inode: '2',
-            },
-            validations: {
-                qpdfCheck: true,
-                tailCheck: true,
-                semanticCheck: false,
-                fsynced: true,
-                qpdfResult: validation,
-            },
-            leaseId: 'staged-lease',
-            revision: null,
-        },
-    };
-}
-
-describe('createDocumentsPreloadFileClient', () => {
+describe('createDocumentsPreloadStreams', () => {
     const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save') };
-    const nativeModifiedAt = normalizePdfNativeModifiedAt('D:20260609133855+03\'00\'', 'modifiedAt');
 
     afterEach(() => {
         vi.unstubAllGlobals();
-    });
-
-    it('preserves the typed staged PDF receipt across the Save As preload boundary', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => '/tmp/saved.pdf'),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const stagedOutput = decodeTypedStagedArtifact(createStagedPdfArtifact().artifact);
-        if (!stagedOutput) throw new Error('Invalid staged PDF fixture');
-        await client.savePdfAs(requireDocumentRef('/tmp/working.pdf'), {stagedOutput}, revisionOptions);
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.savePdfAs, '/tmp/working.pdf', {stagedOutput}, revisionOptions);
-    });
-
-    it('rejects invalid working-copy passwords before invoking IPC', () => {
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const oversizedPassword = 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1);
-
-        expect(() => client.createWorkingCopyFromData(
-            'protected.pdf',
-            Uint8Array.of(1),
-            undefined,
-            oversizedPassword,
-        )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
-        expect(() => client.createWorkingCopyFromPath(
-            requireDocumentRef('/tmp/protected.pdf'),
-            undefined,
-            null as never,
-        )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
-        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
-    });
-
-    it('validates and forwards native path print layout options', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => ({success: true})),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const options = {
-            pageNumbers: [
-                requirePageNumber(2),
-                requirePageNumber(5),
-            ],
-            viewMode: 'facing' as const,
-            orientation: 'landscape' as const,
-            requestId: requireRequestId('print-request-1'),
-        };
-
-        await expect(client.printPdfPath(requireDocumentRef('/tmp/document.pdf'), undefined, options))
-            .resolves.toEqual({success: true});
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.pdfPrintPath,
-            '/tmp/document.pdf',
-            undefined,
-            options,
-        );
-        expect(() => client.printPdfPath(requireDocumentRef('/tmp/document.pdf'), undefined, {
-            ...options,
-            pageNumbers: [invalidPageNumber],
-        })).toThrow('printPdfPath.options.pageNumbers[0] must be a positive safe integer');
-        expect(ipcRenderer.invoke).toHaveBeenCalledOnce();
-    });
-
-    it('validates and forwards native data print handoff options', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async (channel: string) => channel === DOCUMENTS_CHANNELS.pdfPrintCancel
-                ? {canceled: true}
-                : {success: true}),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const data = Uint8Array.of(1, 2, 3);
-        const options = {requestId: requireRequestId('print-data-request-1')};
-
-        await expect(client.printPdfData(data, 'document.pdf', options))
-            .resolves.toEqual({success: true});
-        await expect(client.cancelPdfPrint?.(requireRequestId(' print-data-request-1 ')))
-            .resolves.toEqual({canceled: true});
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.pdfPrintData,
-            data,
-            'document.pdf',
-            options,
-        );
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.pdfPrintCancel,
-            'print-data-request-1',
-        );
-        expect(() => client.printPdfData(data, 'document.pdf', {requestId: invalidEmptyRequestId}))
-            .toThrow('printPdfData.options.requestId must be a non-empty bounded string');
-        expect(() => client.cancelPdfPrint?.(invalidEmptyRequestId))
-            .toThrow('cancelPdfPrint.requestId must not be empty');
-        expect(ipcRenderer.invoke).toHaveBeenCalledTimes(2);
-    });
-
-    it('drops malformed native print-dialog events and removes the subscribed listener', () => {
-        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-                return undefined as never;
-            }),
-            removeListener: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send' | 'on' | 'removeListener'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const callback = vi.fn();
-        const unsubscribe = client.onNativePrintDialogOpened?.(callback);
-        const listener = listeners.get(DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened);
-        if (!listener) {
-            throw new Error('Expected native print-dialog listener');
-        }
-
-        listener({}, {requestId: ''});
-        listener({}, {requestId: 'x'.repeat(129)});
-        listener({}, {requestId: 'print-request-1'});
-        unsubscribe?.();
-
-        expect(callback).toHaveBeenCalledOnce();
-        expect(callback).toHaveBeenCalledWith({requestId: 'print-request-1'});
-        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
-            listener,
-        );
     });
 
     it('writes DOCX chunks through the dedicated stream channels', async () => {
@@ -287,7 +67,7 @@ describe('createDocumentsPreloadFileClient', () => {
             send: vi.fn(),
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const client = createDocumentsPreloadStreams(ipcRenderer);
 
         const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
         await expect(client.writeDocxFileStreamChunk(session.sessionId, Uint8Array.of(1, 2))).resolves.toBe(true);
@@ -323,7 +103,7 @@ describe('createDocumentsPreloadFileClient', () => {
             send: vi.fn(),
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const client = createDocumentsPreloadStreams(ipcRenderer);
 
         const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
         await expect(Promise.resolve().then(() => client.writeDocxFileStreamChunk(session.sessionId, new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)))).rejects.toThrow('writeDocxFileStreamChunk chunk exceeds maximum size');
@@ -365,7 +145,7 @@ describe('createDocumentsPreloadFileClient', () => {
             send: vi.fn(),
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const client = createDocumentsPreloadStreams(ipcRenderer);
         const session = await client.beginDocxFileStream(requireDocumentRef('/tmp/export.docx'));
         const writePromise = client.writeDocxFileStreamChunk(session.sessionId, Uint8Array.of(1, 2));
 
@@ -379,304 +159,6 @@ describe('createDocumentsPreloadFileClient', () => {
             channel === DOCX_EXPORT_STREAM_CHANNELS.cancel
         ))).toHaveLength(1);
         expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(DOCX_EXPORT_STREAM_CHANNELS.commit, session.sessionId);
-    });
-
-    it('rejects structured save calls without revision options before invoking IPC', () => {
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        expect(() => client.saveFileStructured(requireDocumentRef('/tmp/working.pdf')))
-            .toThrow('saveFileStructured.options.expectedDocumentRevisionToken must be a non-empty string');
-        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
-    });
-
-    it('forwards the one-shot annotation parse through the working-copy channel', async () => {
-        const revision = requireDocumentRevisionToken('preload-parse-revision');
-        const parsed = {
-            documentRevisionToken: revision,
-            pageCount: 1,
-            entities: [],
-            foreign: [],
-        };
-        const ipcRenderer = {
-            invoke: vi.fn(async (channel: string) => {
-                expect(channel).toBe(DOCUMENTS_CHANNELS.parsePdfAnnotations);
-                return parsed;
-            }),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        await expect(client.parsePdfAnnotations(requireDocumentRef('/tmp/working.pdf'), {expectedDocumentRevisionToken: revision})).resolves.toEqual(parsed);
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.parsePdfAnnotations,
-            requireDocumentRef('/tmp/working.pdf'),
-            {expectedDocumentRevisionToken: revision},
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
-        );
-    });
-
-    it('rejects invalid optimize-as-copy options before invoking IPC', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        expect(() => client.optimizePdfAsCopy?.(
-            requireDocumentRef('/tmp/working.pdf'),
-            { preset: 'ultra' } as never,
-        )).toThrow('optimizePdfAsCopy.options.preset is invalid');
-
-        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
-    });
-
-    it('rejects invalid optimize-as-copy revision options before invoking IPC', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        expect(() => client.optimizePdfAsCopy?.(
-            requireDocumentRef('/tmp/working.pdf'),
-            { preset: 'lossless' },
-            requireRequestId('request-1'),
-            { expectedDocumentRevisionToken: '' as TDocumentRevisionToken },
-        )).toThrow('optimizePdfAsCopy.revisionOptions.expectedDocumentRevisionToken must be a non-empty string');
-
-        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
-    });
-
-    it('rejects malformed stat results while preserving safe large-file metadata', async () => {
-        let result: unknown = {size: -1};
-        const ipcRenderer = {
-            invoke: vi.fn(async () => result),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        for (result of [
-            {size: -1},
-            {size: 1.5},
-            {size: Number.MAX_SAFE_INTEGER + 1},
-            {size: '100'},
-        ]) {
-            await expect(client.statFile(requireDocumentRef('/tmp/working.pdf'))).rejects.toThrow(
-                'invalid file stat',
-            );
-        }
-
-        result = {size: MAX_DOCUMENT_ALLOCATION_BYTES + 1};
-        await expect(client.statFile(requireDocumentRef('/tmp/working.pdf'))).resolves.toEqual({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
-    });
-
-    it('drops malformed revision events and removes the exact subscribed listener', () => {
-        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-                return undefined as never;
-            }),
-            removeListener: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send' | 'on' | 'removeListener'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const callback = vi.fn();
-        const unsubscribe = client.onDocumentRevisionChanged(callback);
-        const listener = listeners.get(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged);
-        if (!listener) {
-            throw new Error('Expected document revision listener');
-        }
-        const valid = {
-            version: 1,
-            token: requireDocumentRevisionToken('revision-2'),
-            previousToken: requireDocumentRevisionToken('revision-1'),
-            documentRef: '/tmp/working.pdf',
-            authority: 'electron-working-copy',
-            contentRevision: 2,
-            mintedAt: 123,
-            reason: 'write',
-        };
-
-        listener({}, {
-            ...valid,
-            reason: 'future-reason',
-        });
-        listener({}, {
-            ...valid,
-            contentRevision: -1,
-        });
-        listener({}, valid);
-        unsubscribe();
-
-        expect(callback).toHaveBeenCalledOnce();
-        expect(callback).toHaveBeenCalledWith(valid);
-        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged,
-            listener,
-        );
-    });
-
-    it('decodes backing status queries and drops malformed backing status events', async () => {
-        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer = {
-            invoke: vi.fn(async () => ({
-                documentRef: '/tmp/working.pdf',
-                failure: null,
-                originalPath: '/private/source.pdf',
-                progress: 0.25,
-                state: 'materializing',
-            })),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-                return undefined as never;
-            }),
-            removeListener: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send' | 'on' | 'removeListener'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        await expect(client.getWorkingCopyBackingStatus?.(requireDocumentRef('/tmp/working.pdf'))).resolves.toEqual({
-            documentRef: '/tmp/working.pdf',
-            failure: null,
-            progress: 0.25,
-            state: 'materializing',
-        });
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.workingCopyBackingStatusGet,
-            '/tmp/working.pdf',
-        );
-
-        const callback = vi.fn();
-        const unsubscribe = client.onWorkingCopyBackingStatusChanged?.(callback);
-        const listener = listeners.get(DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged);
-        if (!listener) {
-            throw new Error('Expected working-copy backing status listener');
-        }
-        listener({}, {
-            documentRef: '/tmp/working.pdf',
-            failure: null,
-            progress: 2,
-            state: 'materializing',
-        });
-        listener({}, {
-            documentRef: '/tmp/working.pdf',
-            failure: {
-                code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
-                retryable: true,
-            },
-            progress: 0.75,
-            state: 'lazy-original',
-        });
-        unsubscribe?.();
-
-        expect(callback).toHaveBeenCalledOnce();
-        expect(callback).toHaveBeenCalledWith({
-            documentRef: '/tmp/working.pdf',
-            failure: {
-                code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
-                retryable: true,
-            },
-            progress: 0.75,
-            state: 'lazy-original',
-        });
-        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
-            DOCUMENTS_EVENT_CHANNELS.workingCopyBackingStatusChanged,
-            listener,
-        );
-    });
-
-    it('invokes native PDF metadata channels with validated inputs', async () => {
-        const openingGeometry = {
-            pageNumber: 1 as const,
-            pageCount: 431,
-            width: 612,
-            height: 792,
-            rotation: 0 as const,
-            widestPageWidth: 792,
-            size: 28_000_000,
-            modifiedAt: 1_720_000_000_000,
-        };
-        const exactOptions = {
-            mode: 'exact' as const,
-            expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:huge'),
-        };
-        const pageSizes = {
-            kind: 'exact' as const,
-            documentRef: '/tmp/huge.pdf',
-            documentRevisionToken: 'drt1:huge',
-            pageCount: 1,
-            pages: [{
-                pageNumber: 1,
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 612,
-                heightPoints: 792,
-                rotation: 0 as const,
-                userUnit: 1,
-            }],
-        };
-        const ipcRenderer = {
-            invoke: vi.fn(async (channel: string) => {
-                if (channel === DOCUMENTS_CHANNELS.pdfOpeningGeometry) {
-                    return openingGeometry;
-                }
-                if (channel === DOCUMENTS_CHANNELS.pdfNativePageSizes) {
-                    return pageSizes;
-                }
-                throw new Error(`Unexpected invoke: ${channel}`);
-            }),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        await expect(client.getPdfOpeningGeometry?.(requireDocumentRef('/tmp/huge.pdf'))).resolves.toStrictEqual(openingGeometry);
-        await expect(client.getPdfNativePageSizes?.(requireDocumentRef('/tmp/huge.pdf'), exactOptions))
-            .resolves.toStrictEqual(pageSizes);
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.pdfOpeningGeometry,
-            '/tmp/huge.pdf',
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
-        );
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.pdfNativePageSizes,
-            '/tmp/huge.pdf',
-            exactOptions,
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
-        );
-    });
-
-    it('rejects invalid native PDF metadata requests before invoking IPC', () => {
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        expect(() => client.getPdfOpeningGeometry?.(invalidDocumentRef))
-            .toThrow('getPdfOpeningGeometry.path must be an absolute path');
-        expect(() => client.getPdfNativePageSizes?.(invalidDocumentRef, {
-            mode: 'exact',
-            expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:huge'),
-        }))
-            .toThrow('getPdfNativePageSizes.path must be an absolute path');
-
-        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('streams PDF persistence chunks with tight backing buffers without transferring ArrayBuffers', async () => {
@@ -731,7 +213,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 });
             }
         };
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const client = createDocumentsPreloadStreams(ipcRenderer);
 
         await expect(client.savePdfData(requireDocumentRef('/tmp/working.pdf'), sourceBytes, revisionOptions))
             .resolves
@@ -775,7 +257,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 });
             }),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const client = createDocumentsPreloadStreams(ipcRenderer);
         const sourceBytes = new Uint8Array((8 * 1024 * 1024) + 1);
 
         const savePromise = client.savePdfData(requireDocumentRef('/tmp/working.pdf'), sourceBytes, revisionOptions);
@@ -858,7 +340,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     resolveComplete();
                 }
             };
-            const client = createDocumentsPreloadFileClient(ipcRenderer);
+            const client = createDocumentsPreloadStreams(ipcRenderer);
             const savePromise = client.savePdfData(
                 requireDocumentRef('/tmp/working.pdf'),
                 new Uint8Array([1]),
@@ -882,163 +364,7 @@ describe('createDocumentsPreloadFileClient', () => {
         }
     });
 
-    it('rejects invalid native note text update requests before IPC', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        expect(() => client.savePdfNoteTextUpdates!(requireDocumentRef('/tmp/working.pdf'), [], nativeModifiedAt))
-            .toThrow('savePdfNoteTextUpdates.updates must be a non-empty array');
-
-        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
-    });
-
-    it('validates native FreeText note change requests before IPC', async () => {
-        const ipcRenderer = {
-            invoke: vi.fn(async () => ({
-                applied: true,
-                validation: {
-                    isValid: true,
-                    tool: 'qpdf' as const,
-                    errors: [],
-                    warnings: [],
-                },
-            })),
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-
-        const freeTextNotes = [{
-            pageIndex: requirePageIndex(0),
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
-            text: 'Editor note',
-            markerRect: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.0016,
-                height: 0.0016,
-            },
-            author: 'Tester',
-            color: 'rgba(255, 204, 0, 0.8)',
-            createdAt: requireEpochMs(1781009077000),
-        }];
-
-        await expect(client.savePdfNoteChanges!(
-            requireDocumentRef('/tmp/working.pdf'),
-            {
-                updates: [],
-                freeTextNotes,
-                deletes: [
-                    {
-                        pageIndex: requirePageIndex(0),
-                        objectNumber: 3856,
-                        generationNumber: 0,
-                    },
-                    {
-                        pageIndex: requirePageIndex(0),
-                        stableKey: 'uid:0:pdfjs_internal_editor_0',
-                        createdAt: requireEpochMs(1781009077000),
-                    },
-                ],
-            },
-            nativeModifiedAt,
-            revisionOptions,
-        )).resolves.toMatchObject({applied: true});
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.fileSavePdfNoteChanges,
-            '/tmp/working.pdf',
-            {
-                freeTextNotes: [expect.objectContaining({
-                    stableKey: 'uid:0:pdfjs_internal_editor_0',
-                    text: 'Editor note',
-                })],
-                deletes: [
-                    {
-                        pageIndex: requirePageIndex(0),
-                        objectNumber: 3856,
-                        generationNumber: 0,
-                    },
-                    {
-                        pageIndex: requirePageIndex(0),
-                        stableKey: 'uid:0:pdfjs_internal_editor_0',
-                        createdAt: requireEpochMs(1781009077000),
-                    },
-                ],
-            },
-            nativeModifiedAt,
-            revisionOptions,
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
-        );
-    });
-
-    it('validates native working-copy placed image mutations before IPC', async () => {
-        const invoke = vi.fn<(
-            channel: string,
-            path: string,
-            mutations: INativeMutationInvokePayload,
-            modifiedAt: string,
-            options: unknown,
-        ) => Promise<unknown>>(async () => ({
-            applied: true,
-            validation: {
-                isValid: true,
-                tool: 'native' as const,
-                errors: [],
-                warnings: [],
-            },
-        }));
-        const ipcRenderer = {
-            invoke,
-            send: vi.fn(),
-            postMessage: vi.fn(),
-        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const imageSource = createNativePlacedImage().source;
-
-        await expect(client.applyPdfNativeMutationsToWorkingCopy!(
-            requireDocumentRef('/tmp/working.pdf'),
-            {placedImages: [{
-                pageIndex: requirePageIndex(0),
-                x: 0.1,
-                y: 0.2,
-                width: 0.3,
-                height: 0.2,
-                rotationDegrees: 15,
-                mimeType: 'image/jpeg',
-                source: imageSource,
-            }]},
-            nativeModifiedAt,
-            revisionOptions,
-        )).resolves.toMatchObject({applied: true});
-
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.fileApplyPdfNativeMutationsToWorkingCopy,
-            '/tmp/working.pdf',
-            {placedImages: [expect.objectContaining({
-                pageIndex: 0,
-                mimeType: 'image/jpeg',
-                source: imageSource,
-            })]},
-            nativeModifiedAt,
-            revisionOptions,
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
-        );
-        const firstCall = invoke.mock.calls[0];
-        expect(firstCall).toBeDefined();
-        if (!firstCall) {
-            throw new Error('Expected native mutation IPC call');
-        }
-        const mutations = firstCall[2];
-        expect(mutations.placedImages[0]).not.toHaveProperty('bytes');
-        expect(mutations.placedImages[0]?.source).toEqual(imageSource);
-    });
 });
-
 function isChunkMessage(message: unknown): message is {
     type: 'chunk';
     seq: number;

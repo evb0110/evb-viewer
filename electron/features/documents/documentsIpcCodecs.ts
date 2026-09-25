@@ -8,7 +8,6 @@ import {
     SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
     type ISerializedPdfPersistenceLimits,
 } from '@contracts/documentPersistenceFrames';
-import { isPdfValidationResult } from '@contracts/pdfConformance';
 import {
     appendOptionalDocumentArg as appendOptional,
     decodePdfRevisionOptions as decodeRevisionOptions,
@@ -16,12 +15,6 @@ import {
     decodeRequiredDocumentObject as decodeRequiredObject,
     decodeSaveAsWarning,
 } from '@contracts/documentsPersistenceSchemas';
-import {
-    DOCUMENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_OPEN_PLATFORM_FEATURE,
-    DOCUMENT_PDF_PLATFORM_FEATURE,
-    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
@@ -46,10 +39,7 @@ import {
     decodeStringArrayArg,
     decodeUint8ArrayArg,
 } from '@electron/platform-ipc/ipcArgumentValidation';
-import {
-    decodeBooleanResult,
-    requireDecoded,
-} from '@electron/platform-ipc/ipcCodecValidation';
+import { decodeBooleanResult } from '@electron/platform-ipc/ipcCodecValidation';
 
 function decodeRendererFileOpenRequest(value: unknown, fieldName: string) {
     const decoded = decodeRequiredObject(value, fieldName);
@@ -132,11 +122,6 @@ function decodePersistenceBeginResult(value: unknown): IBeginSerializedPdfPersis
 
 
 
-const decodeValidationResult = (value: unknown) => requireDecoded(
-    value,
-    candidate => isPdfValidationResult(candidate) ? decodePdfValidation(candidate) : null,
-    'PDF validation',
-);
 
 function decodeDocxStreamBeginResult(value: unknown): IDocxExportStreamBeginResult {
     if (!isRecord(value) || typeof value.sessionId !== 'string' || value.sessionId.trim().length === 0) {
@@ -164,10 +149,6 @@ function decodeDocxStreamChunkArgs(args: readonly unknown[]) {
 }
 
 export const DOCUMENTS_IPC_CODECS = {
-    ...DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs,
-    ...DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs,
     [DOCUMENTS_CHANNELS.registerRendererFileOpenToken]: {
         decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'token')],
         decodeResult: decodeBooleanResult,
@@ -189,13 +170,6 @@ export const DOCUMENTS_IPC_CODECS = {
             return [requests.map(item => decodeRendererFileOpenRequest(item, 'request'))];
         },
         decodeResult: decodeBooleanResult,
-    },
-    [DOCUMENTS_CHANNELS.fileSavePdfData]: {
-        decodeArgs: (args: readonly unknown[]) => appendOptional([
-            decodeDocumentRef(decodeStringArg(args, 0, 'path'), 'path'),
-            decodeUint8ArrayArg(args, 1, 'data'),
-        ], decodeRevisionOptions(args[2])),
-        decodeResult: decodeValidationResult,
     },
     [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {
         decodeArgs: (args: readonly unknown[]) => appendOptional([

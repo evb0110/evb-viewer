@@ -66,14 +66,6 @@ function expectCallablePathParity(
 }
 
 async function createMockedElectronApi() {
-    const fixture = createElectronPlatformApiFixture();
-    vi.doMock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => ({
-        ...fixture.documentOpen,
-        ...fixture.documentWorkingCopy,
-        ...fixture.documentFiles,
-        ...fixture.documentPdf,
-        createCombinedPdfFromFiles: fixture.documentPicker.createCombinedPdfFromFiles,
-    })}));
     vi.doMock('@electron/preload/debugLogBuffer', () => ({getDebugLogMessages: () => []}));
 
     const { createElectronApi } = await import('@electron/preload/createElectronApi');
@@ -120,7 +112,20 @@ describe('platform API contract parity', () => {
             diagnostics,
             ...platformApi
         } = api;
-        expectCallablePathParity(platformApi, descriptorPaths);
+        // Electron has no in-process PDF combiner; DOCX export streams outside the descriptors.
+        expectCallablePathParity(platformApi, [
+            ...descriptorPaths.filter(path => path.join('.') !== 'documentPicker.createCombinedPdfFromFiles'),
+            ...[
+                'beginDocxFileStream',
+                'writeDocxFileStreamChunk',
+                'commitDocxFileStream',
+                'cancelDocxFileStream',
+            ]
+                .map(method => [
+                    'documentFiles',
+                    method,
+                ]),
+        ]);
         expectCallablePathParity(diagnostics, [['onDebugLog']]);
     });
 });

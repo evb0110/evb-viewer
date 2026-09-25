@@ -42,14 +42,17 @@ import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
 import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
 import {
+    DOCUMENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_OPEN_PLATFORM_FEATURE,
+    DOCUMENT_PDF_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
-import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
+import {createDocumentsPreloadStreams} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
@@ -173,7 +176,11 @@ export function createElectronApi(
 ): IElectronAPI & {diagnostics: IPreloadDiagnosticsApi;} {
     const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
-    const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
+    const documentStreams = createDocumentsPreloadStreams(ipcRenderer);
+    const documentOpenFeature = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_OPEN_PLATFORM_FEATURE,
+    );
     const pageOps = createPlatformFeaturePreloadClient(ipcRenderer, PAGE_OPS_PLATFORM_FEATURE);
     const imageExport = createPlatformFeaturePreloadClient(ipcRenderer, IMAGE_EXPORT_PLATFORM_FEATURE);
     const ocr = createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE);
@@ -287,8 +294,8 @@ export function createElectronApi(
         }
         await options.waitForDocumentOpenDirect?.(path);
         return password === undefined
-            ? baseDocuments.openDocumentDirect(path)
-            : baseDocuments.openDocumentDirect(path, password);
+            ? documentOpenFeature.openDocumentDirect(path)
+            : documentOpenFeature.openDocumentDirect(path, password);
     };
     const openDocumentDirectBatch = async (
         paths: TDocumentRef[],
@@ -303,8 +310,8 @@ export function createElectronApi(
             return null;
         }
         return options === undefined
-            ? baseDocuments.openDocumentDirectBatch(paths, requestId)
-            : baseDocuments.openDocumentDirectBatch(paths, requestId, options);
+            ? documentOpenFeature.openDocumentDirectBatch(paths, requestId)
+            : documentOpenFeature.openDocumentDirectBatch(paths, requestId, options);
     };
 
     const extractPathsForFiles = (files: File[]): TDocumentRef[] => files
@@ -435,9 +442,6 @@ export function createElectronApi(
             getPathForFile,
             getPathsForFiles,
             registerFilesForOpen,
-            ...(baseDocuments.createCombinedPdfFromFiles
-                ? {createCombinedPdfFromFiles: baseDocuments.createCombinedPdfFromFiles}
-                : {}),
         },
     ) satisfies IDocumentsPickerCapability;
     const recentFilesIpc = createPlatformFeaturePreloadClient(
@@ -457,104 +461,31 @@ export function createElectronApi(
         ipcRenderer,
         DOCUMENT_MENU_PLATFORM_FEATURE,
     );
-    const documentOpenFeature = createPlatformFeaturePreloadClient(
-        ipcRenderer,
-        DOCUMENT_OPEN_PLATFORM_FEATURE,
-    );
     const documentOpen = {
         openDocumentDirect,
         openDocumentDirectBatch,
-        cancelOpenDocumentDirectBatch: baseDocuments.cancelOpenDocumentDirectBatch
-            ?? documentOpenFeature.cancelOpenDocumentDirectBatch!,
+        cancelOpenDocumentDirectBatch: documentOpenFeature.cancelOpenDocumentDirectBatch!,
         onOpenDocumentDirectBatchProgress: documentOpenFeature.onOpenDocumentDirectBatchProgress,
     } satisfies IDocumentsOpenCapability;
-    const documentWorkingCopy = {
-        createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
-        createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
-        parsePdfAnnotations: baseDocuments.parsePdfAnnotations,
-        cleanupFile: baseDocuments.cleanupFile,
-    } satisfies IDocumentsWorkingCopyCapability;
-    const optionalDocumentFileMethods = {
-        ...(baseDocuments.createManagedTempFileHandle
-            ? {createManagedTempFileHandle: baseDocuments.createManagedTempFileHandle}
-            : {}),
-        ...(baseDocuments.releaseManagedTempFileHandle
-            ? {releaseManagedTempFileHandle: baseDocuments.releaseManagedTempFileHandle}
-            : {}),
-        ...(baseDocuments.repairPdf ? {repairPdf: baseDocuments.repairPdf} : {}),
-        ...(baseDocuments.optimizePdfForInteraction ? {optimizePdfForInteraction: baseDocuments.optimizePdfForInteraction} : {}),
-        ...(baseDocuments.optimizePdfAsCopy ? {optimizePdfAsCopy: baseDocuments.optimizePdfAsCopy} : {}),
-        ...(baseDocuments.savePdfNoteTextUpdates ? {savePdfNoteTextUpdates: baseDocuments.savePdfNoteTextUpdates} : {}),
-        ...(baseDocuments.savePdfNoteChanges ? {savePdfNoteChanges: baseDocuments.savePdfNoteChanges} : {}),
-        ...(baseDocuments.applyPdfNativeMutationsToWorkingCopy
-            ? {applyPdfNativeMutationsToWorkingCopy: baseDocuments.applyPdfNativeMutationsToWorkingCopy}
-            : {}),
-        ...(baseDocuments.commitStagedPdfNativeMutations
-            ? {commitStagedPdfNativeMutations: baseDocuments.commitStagedPdfNativeMutations}
-            : {}),
-        ...(baseDocuments.cloneStagedPdfNativeMutationToWorkingCopy
-            ? {cloneStagedPdfNativeMutationToWorkingCopy: baseDocuments.cloneStagedPdfNativeMutationToWorkingCopy}
-            : {}),
-        ...(baseDocuments.replaceWorkingCopyFromStagedPdfNativeMutation
-            ? {replaceWorkingCopyFromStagedPdfNativeMutation: baseDocuments.replaceWorkingCopyFromStagedPdfNativeMutation}
-            : {}),
-        ...(baseDocuments.getPdfNativePageSizes
-            ? {getPdfNativePageSizes: baseDocuments.getPdfNativePageSizes}
-            : {}),
-        ...(baseDocuments.getPdfOpeningGeometry
-            ? {getPdfOpeningGeometry: baseDocuments.getPdfOpeningGeometry}
-            : {}),
-        ...(baseDocuments.beginPdfEmbeddedShapeIndex
-            ? {beginPdfEmbeddedShapeIndex: baseDocuments.beginPdfEmbeddedShapeIndex}
-            : {}),
-        ...(baseDocuments.readPdfEmbeddedShapeIndexChunk
-            ? {readPdfEmbeddedShapeIndexChunk: baseDocuments.readPdfEmbeddedShapeIndexChunk}
-            : {}),
-        ...(baseDocuments.releasePdfEmbeddedShapeIndex
-            ? {releasePdfEmbeddedShapeIndex: baseDocuments.releasePdfEmbeddedShapeIndex}
-            : {}),
-        ...(baseDocuments.getWorkingCopyBackingStatus
-            ? {getWorkingCopyBackingStatus: baseDocuments.getWorkingCopyBackingStatus}
-            : {}),
-        ...(baseDocuments.onWorkingCopyBackingStatusChanged
-            ? {onWorkingCopyBackingStatusChanged: baseDocuments.onWorkingCopyBackingStatusChanged}
-            : {}),
-    };
+    const documentWorkingCopy = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
+    ) satisfies IDocumentsWorkingCopyCapability;
     const documentFiles = {
-        readFile: baseDocuments.readFile,
-        readPdfPageLabelRanges: baseDocuments.readPdfPageLabelRanges,
-        statFile: baseDocuments.statFile,
-        readFileRange: baseDocuments.readFileRange,
-        readTextFile: baseDocuments.readTextFile,
-        fileExists: baseDocuments.fileExists,
-        getDocumentRevision: baseDocuments.getDocumentRevision,
-        onDocumentRevisionChanged: baseDocuments.onDocumentRevisionChanged,
-        savePdfAs: baseDocuments.savePdfAs,
-        savePdfDialog: baseDocuments.savePdfDialog,
-        saveDocxAs: baseDocuments.saveDocxAs,
-        writeFile: baseDocuments.writeFile,
-        replaceWorkingCopyFromPath: baseDocuments.replaceWorkingCopyFromPath,
-        writeDocxFile: baseDocuments.writeDocxFile,
-        saveFileStructured: baseDocuments.saveFileStructured,
-        savePdfData: baseDocuments.savePdfData,
-        ...optionalDocumentFileMethods,
-        beginDocxFileStream: baseDocuments.beginDocxFileStream,
-        writeDocxFileStreamChunk: baseDocuments.writeDocxFileStreamChunk,
-        commitDocxFileStream: baseDocuments.commitDocxFileStream,
-        cancelDocxFileStream: baseDocuments.cancelDocxFileStream,
+        ...createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            DOCUMENT_FILES_PLATFORM_FEATURE,
+            {savePdfData: documentStreams.savePdfData},
+        ),
+        beginDocxFileStream: documentStreams.beginDocxFileStream,
+        writeDocxFileStreamChunk: documentStreams.writeDocxFileStreamChunk,
+        commitDocxFileStream: documentStreams.commitDocxFileStream,
+        cancelDocxFileStream: documentStreams.cancelDocxFileStream,
     } satisfies IDocumentsFileIoCapability & IDocxExportFileCapability;
-    const documentPdf = {
-        analyzePdfConformance: baseDocuments.analyzePdfConformance,
-        validatePdfPath: baseDocuments.validatePdfPath,
-        printPdfData: baseDocuments.printPdfData,
-        ...(baseDocuments.cancelPdfPrint
-            ? {cancelPdfPrint: baseDocuments.cancelPdfPrint}
-            : {}),
-        printPdfPath: baseDocuments.printPdfPath,
-        ...(baseDocuments.onNativePrintDialogOpened
-            ? {onNativePrintDialogOpened: baseDocuments.onNativePrintDialogOpened}
-            : {}),
-    } satisfies IDocumentsPdfCapability;
+    const documentPdf = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        DOCUMENT_PDF_PLATFORM_FEATURE,
+    ) satisfies IDocumentsPdfCapability;
     const api = {
         manifest: ELECTRON_PLATFORM_MANIFEST,
         documentPicker,

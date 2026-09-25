@@ -1,8 +1,5 @@
 import { existsSync } from 'fs';
-import {
-    rm,
-    writeFile,
-} from 'fs/promises';
+import {rm} from 'fs/promises';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
     IDocumentMutationRevisionOptions,
@@ -29,7 +26,6 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
-import {normalizeIpcWritePayload} from '@electron/file-access/documentFileWriteAtomic';
 import {
     validatePdfFile,
     validatePdfFileForSave,
@@ -393,51 +389,6 @@ export async function handleFileSaveStructured(
     }
 }
 
-
-export async function handleSerializedPdfSave(
-    context: IDocumentsSenderIdContext,
-    workingPath: string,
-    data: unknown,
-    options?: IPdfSerializedSaveOptions,
-): Promise<IPdfValidationResult> {
-    const senderId = requireSenderId(context);
-    if (!workingPath || workingPath.trim() === '') {
-        throw new Error('Invalid file path');
-    }
-
-    const normalizedWorkingPath = workingPath.trim();
-    const payload = normalizeIpcWritePayload(data);
-    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
-
-    try {
-        const validation = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
-            await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
-            await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-                ownerWebContentsId: senderId,
-                reason: 'serialized-persistence',
-            });
-            const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
-
-            const queuedSave = await replaceOriginalWithValidatedTemp(
-                originalPath,
-                normalizedWorkingPath,
-                senderId,
-                tempPath => writeFile(tempPath, payload),
-                { validation: 'full' },
-            );
-            return queuedSave.validation;
-        });
-        return validation;
-    } catch (err) {
-        if (err instanceof WorkingCopyMaterializationError) {
-            throw err;
-        }
-        if (err instanceof WorkingCopyMissingError) {
-            throw err;
-        }
-        throw new Error(`Failed to save: ${getErrorMessage(err)}`);
-    }
-}
 
 export async function handleRepairPdfSave(
     context: IDocumentsSenderIdContext,

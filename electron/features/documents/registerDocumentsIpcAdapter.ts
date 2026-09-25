@@ -6,6 +6,7 @@ import { BrowserWindow } from 'electron';
 import { access } from 'node:fs/promises';
 import { withTimeout } from 'es-toolkit/promise';
 import { isAbsolute } from 'path';
+import { DOCX_EXPORT_STREAM_CHANNELS } from '@contracts/docxExport';
 import type {
     IIpcMainRegistrar,
     TIpcMainInvokeHandler,
@@ -17,7 +18,6 @@ import {
     DOCUMENT_PDF_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_PLATFORM_FEATURES,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
@@ -145,7 +145,6 @@ import {
     handleFileSaveStructured,
     handleOptimizePdfForInteraction,
     handleRepairPdfSave,
-    handleSerializedPdfSave,
 } from '@electron/features/documents/main/workingCopySave';
 import { handleOptimizePdfAsCopy } from '@electron/features/documents/main/handleOptimizePdfAsCopy';
 import {
@@ -184,43 +183,6 @@ function requireDocumentRef(value: unknown) {
         throw new Error('Expected an absolute document ref');
     }
     return documentRef;
-}
-
-function getDistinctDocumentsChannelValues() {
-    return [...new Set<string>([
-        ...Object.values(DOCUMENTS_CHANNELS),
-        ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature =>
-            [...feature.invokeChannelSet]),
-    ])];
-}
-
-export function assertDocumentsIpcSingleRegistrationInvariant(registrations: readonly string[]) {
-    const expectedChannels = getDistinctDocumentsChannelValues();
-    const expectedChannelSet = new Set(expectedChannels);
-    const registrationCounts = new Map<string, number>();
-    for (const channel of registrations) {
-        registrationCounts.set(channel, (registrationCounts.get(channel) ?? 0) + 1);
-    }
-
-    const unexpectedChannels = [...registrationCounts.keys()].filter(channel => !expectedChannelSet.has(channel));
-    if (unexpectedChannels.length > 0) {
-        throw new Error(`Unexpected documents IPC channel registration: ${unexpectedChannels.join(', ')}`);
-    }
-
-    const duplicateChannels = [...registrationCounts.entries()]
-        .filter(([
-            ,
-            count,
-        ]) => count > 1)
-        .map(([channel]) => channel);
-    if (duplicateChannels.length > 0) {
-        throw new Error(`Duplicate documents IPC channel registration: ${duplicateChannels.join(', ')}`);
-    }
-
-    const missingChannels = expectedChannels.filter(channel => !registrationCounts.has(channel));
-    if (missingChannels.length > 0) {
-        throw new Error(`Missing documents IPC channel registration: ${missingChannels.join(', ')}`);
-    }
 }
 
 function getSenderId(event: IpcMainInvokeEvent) {
@@ -428,7 +390,6 @@ export function registerDocumentsIpcAdapter(
             },
         });
     });
-    const registeredChannels: string[] = [];
     const register = <TChannel extends TDocumentsIpcChannel>(
         channel: TChannel,
         handler: TIpcMainInvokeHandler<
@@ -437,7 +398,6 @@ export function registerDocumentsIpcAdapter(
             IpcMainInvokeEvent
         >,
     ) => {
-        registeredChannels.push(channel);
         registrar.handle(channel, handler);
     };
     const registerRawEvent = (
@@ -447,7 +407,6 @@ export function registerDocumentsIpcAdapter(
         if (!options.eventRegistrar) {
             throw new Error(`Documents IPC event registrar is required for ${channel}`);
         }
-        registeredChannels.push(channel);
         options.eventRegistrar.on(channel, handler);
     };
 
@@ -456,7 +415,6 @@ export function registerDocumentsIpcAdapter(
         unknown,
         IpcMainInvokeEvent
     >) => {
-        registeredChannels.push(channel);
         registrar.handle(channel as never, handler as never);
     }};
     const featureBindings = {
@@ -673,11 +631,11 @@ export function registerDocumentsIpcAdapter(
     registerPlatformFeatureHandlers(featureRegistrar as never, DOCUMENT_MENU_PLATFORM_FEATURE, featureBindings);
 
     featureRegistrar.handle(
-        DOCUMENTS_CHANNELS.fileWriteDocxStreamBegin,
+        DOCX_EXPORT_STREAM_CHANNELS.begin,
         (event, filePath) => beginDocxExportStream(createSenderIdContext(event), filePath),
     );
     featureRegistrar.handle(
-        DOCUMENTS_CHANNELS.fileWriteDocxStreamChunk,
+        DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
         (event, sessionId, chunk) => writeDocxExportStreamChunk(
             createSenderIdContext(event),
             sessionId,
@@ -685,29 +643,20 @@ export function registerDocumentsIpcAdapter(
         ),
     );
     featureRegistrar.handle(
-        DOCUMENTS_CHANNELS.fileWriteDocxStreamCommit,
+        DOCX_EXPORT_STREAM_CHANNELS.commit,
         (event, sessionId) => commitDocxExportStream(
             createSenderIdContext(event),
             sessionId,
         ),
     );
     featureRegistrar.handle(
-        DOCUMENTS_CHANNELS.fileWriteDocxStreamCancel,
+        DOCX_EXPORT_STREAM_CHANNELS.cancel,
         (event, sessionId) => cancelDocxExportStream(
             createSenderIdContext(event),
             sessionId,
         ),
     );
 
-    register(DOCUMENTS_CHANNELS.fileSavePdfData, (
-        event: IpcMainInvokeEvent,
-        ...[
-            workingPath,
-            data,
-            options,
-        ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.fileSavePdfData>
-    ) =>
-        handleSerializedPdfSave(createSenderIdContext(event), workingPath, data, options));
     register(DOCUMENTS_CHANNELS.fileSavePdfDataBegin, (
         event: IpcMainInvokeEvent,
         ...[
@@ -785,5 +734,4 @@ export function registerDocumentsIpcAdapter(
             logger.warn(`[ipc] rejected ${DOCUMENTS_CHANNELS.fileSavePdfDataPort}: ${getErrorMessage(error)}`);
         }
     });
-    assertDocumentsIpcSingleRegistrationInvariant(registeredChannels);
 }

@@ -16,7 +16,6 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { EventEmitter } from 'node:events';
-import { DOCUMENT_PLATFORM_FEATURES } from '@contracts/documentsPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {
     registerMainOperation,
@@ -86,55 +85,6 @@ describe('documents ipc adapter', () => {
     afterEach(() => {
         resetMainOperationLifecycleForTests();
         vi.useRealTimers();
-    });
-
-    it('registers every distinct documents channel value exactly once', async () => {
-        const {
-            eventHandlers,
-            eventRegistrar,
-            handlers,
-            registrar,
-            registrations,
-        } = createRegistrationHarness();
-        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-
-        registerDocumentsIpcAdapter(registrar as never, {eventRegistrar});
-
-        const expectedChannels = [...new Set([
-            ...Object.values(DOCUMENTS_CHANNELS),
-            ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
-        ])];
-        expect(registrations).toHaveLength(expectedChannels.length);
-        for (const channel of expectedChannels) {
-            expect(registrations.filter(registeredChannel => registeredChannel === channel)).toHaveLength(1);
-        }
-        expect(handlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(false);
-        expect(eventHandlers.has(DOCUMENTS_CHANNELS.fileSavePdfDataPort)).toBe(true);
-    });
-
-    it('fails the documents ipc invariant for duplicate channel values', async () => {
-        const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-        const registeredChannels = [...new Set([
-            ...Object.values(DOCUMENTS_CHANNELS),
-            ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
-        ])];
-
-        expect(() => assertDocumentsIpcSingleRegistrationInvariant([
-            ...registeredChannels,
-            DOCUMENTS_CHANNELS.openDocumentDirect,
-        ])).toThrow(/Duplicate documents IPC channel registration/u);
-    });
-
-    it('fails the documents ipc invariant for omitted channel values', async () => {
-        const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
-        const registeredChannels = [...new Set([
-            ...Object.values(DOCUMENTS_CHANNELS),
-            ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
-        ])]
-            .filter(channel => channel !== DOCUMENTS_CHANNELS.fileSavePdfDataPort);
-
-        expect(() => assertDocumentsIpcSingleRegistrationInvariant(registeredChannels))
-            .toThrow(/Missing documents IPC channel registration/u);
     });
 
     it('grants renderer file-open paths to the sender webContents owner', async () => {

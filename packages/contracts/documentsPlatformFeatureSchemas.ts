@@ -498,6 +498,12 @@ function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
         saveRestrictions: value.saveRestrictions.map(String),
     };
 }
+const nullableDocumentRefResult = s.fromParser<TDocumentRef | null>(
+    value => value === null
+        ? null
+        : parseDocumentRef(value) ?? fail('expected a nullable absolute document ref'),
+    () => null,
+);
 const nullableStringResult = s.fromParser<string | null>(
     value => value === null || typeof value === 'string'
         ? value
@@ -1220,6 +1226,7 @@ export {
     nativeSaveResult,
     noPayload,
     nonNegativeInteger,
+    nullableDocumentRefResult,
     nullableStringResult,
     openBatchProgress,
     openDocumentDirectArgs,

@@ -10,6 +10,7 @@ import {
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
 import {DOCUMENTS_IPC_CODECS} from '@electron/features/documents/documentsIpcCodecs';
+import {DOCX_EXPORT_STREAM_CHANNELS} from '@contracts/docxExport';
 import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_FILES_PLATFORM_FEATURE,
@@ -279,6 +280,7 @@ export {RAW_IPC_HANDLER_DESCRIPTORS};
 export function registerDocumentFeatureAdapters(ipcMain: Electron.IpcMain) {
     const channelSet = new Set([
         ...Object.values(DOCUMENTS_CHANNELS),
+        ...Object.values(DOCX_EXPORT_STREAM_CHANNELS),
         ...DOCUMENT_PLATFORM_FEATURES.flatMap(feature => [...feature.invokeChannelSet]),
     ]);
     const codecs = {

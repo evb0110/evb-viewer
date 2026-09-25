@@ -8,8 +8,10 @@ import {
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
-import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
+import {
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
@@ -111,7 +113,7 @@ describe('preload global event fan-out', () => {
             ipcRenderer,
             listeners,
         } = createIpcRendererHarness();
-        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, DOCUMENT_FILES_PLATFORM_FEATURE, {savePdfData: vi.fn()});
         const callbacks = Array.from({length: 24}, () => vi.fn());
         const unsubscribes = callbacks.map(callback => client.onDocumentRevisionChanged(callback));
 

@@ -25,6 +25,7 @@ import {
 import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
+import type * as TIpcClientModule from '@electron/preload/ipcClient';
 
 const agentEventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
 const documentsClientMock = vi.hoisted(() => ({
@@ -140,7 +141,24 @@ const documentsClientMock = vi.hoisted(() => ({
     onMenuClearRecentFiles: vi.fn(),
     onOpenDocumentDirectBatchProgress: vi.fn(),
 }));
-vi.mock('@electron/features/documents/createDocumentsPreloadClient', () => ({createDocumentsPreloadClient: () => documentsClientMock}));
+// The open client is the one these tests observe: preload must hold a direct
+// open until the renderer's file-open grant settles.
+vi.mock('@electron/preload/ipcClient', async (importOriginal) => {
+    const original = await importOriginal<typeof TIpcClientModule>();
+    return {
+        ...original,
+        createPlatformFeaturePreloadClient: ((ipcRenderer, feature, directBindings) => {
+            const client = original.createPlatformFeaturePreloadClient(ipcRenderer, feature, directBindings);
+            return feature.path.join('.') === 'documentOpen'
+                ? {
+                    ...client,
+                    openDocumentDirect: documentsClientMock.openDocumentDirect,
+                    openDocumentDirectBatch: documentsClientMock.openDocumentDirectBatch,
+                }
+                : client;
+        }) as typeof original.createPlatformFeaturePreloadClient,
+    };
+});
 vi.mock('@electron/preload/debugLogBuffer', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getDebugLogMessages: () => [],

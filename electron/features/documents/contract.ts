@@ -1,15 +1,8 @@
 import {
     DOCUMENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PDF_PLATFORM_FEATURE,
-    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
-    type IDocumentFilesInvokeMap,
-    type IDocumentOpenInvokeMap,
-    type IDocumentPdfInvokeMap,
-    type IDocumentWorkingCopyInvokeMap,
 } from '@contracts/documentsPlatformFeature';
 import type {
-    IDocumentsFileCapability,
     IPdfCommittedSaveAsResult,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
@@ -17,73 +10,18 @@ import type {IBeginSerializedPdfPersistenceResult} from '@electron/features/docu
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TSessionId } from '@contracts/shared';
-import {
-    DOCX_EXPORT_STREAM_CHANNELS,
-    type IDocxExportInvokeMap,
-} from '@contracts/docxExport';
+import type {IDocxExportInvokeMap} from '@contracts/docxExport';
 
+/** Channels outside the platform-feature specs: file-open grants and the streamed PDF save. */
 export const DOCUMENTS_CHANNELS = {
-    openDocumentDirect: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
-    openDocumentDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch,
-    cancelOpenDocumentDirectBatch: DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch,
     registerRendererFileOpenToken: 'dialog:registerRendererFileOpenToken',
     registerRendererFileOpenTokens: 'dialog:registerRendererFileOpenTokens',
     allowRendererFileOpen: 'dialog:allowRendererFileOpen',
     allowRendererFileOpenBatch: 'dialog:allowRendererFileOpenBatch',
-    createWorkingCopyFromData: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
-    createWorkingCopyFromPath: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
-    parsePdfAnnotations: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations,
-    savePdfAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfAs,
-    savePdfDialog: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfDialog,
-    saveDocxAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
-    fileRead: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile,
-    pdfPageLabelRangesRead: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfPageLabelRanges,
-    fileStat: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile,
-    fileReadRange: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange,
-    fileCreateManagedHandle: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.createManagedTempFileHandle,
-    fileReleaseManagedHandle: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releaseManagedTempFileHandle,
-    pdfOpeningGeometry: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry,
-    pdfNativePageSizes: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfNativePageSizes,
-    pdfEmbeddedShapeIndexBegin: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.beginPdfEmbeddedShapeIndex,
-    pdfEmbeddedShapeIndexReadChunk: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfEmbeddedShapeIndexChunk,
-    pdfEmbeddedShapeIndexRelease: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfEmbeddedShapeIndex,
-    fileReadText: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readTextFile,
-    fileExists: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.fileExists,
-    documentRevisionGet: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getDocumentRevision,
-    workingCopyBackingStatusGet:
-        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getWorkingCopyBackingStatus,
-    pdfAnalyzeConformance: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.analyzePdfConformance,
-    pdfValidatePath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath,
-    pdfPrintData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData,
-    pdfPrintCancel: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint,
-    pdfPrintPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
-    fileWrite: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeFile,
-    fileReplaceWorkingCopyFromPath: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromPath,
-    fileWriteDocx: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeDocxFile,
-    fileWriteDocxStreamBegin: DOCX_EXPORT_STREAM_CHANNELS.begin,
-    fileWriteDocxStreamChunk: DOCX_EXPORT_STREAM_CHANNELS.writeChunk,
-    fileWriteDocxStreamCommit: DOCX_EXPORT_STREAM_CHANNELS.commit,
-    fileWriteDocxStreamCancel: DOCX_EXPORT_STREAM_CHANNELS.cancel,
-    fileSaveStructured: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured,
-    fileRepairPdf: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.repairPdf,
-    fileOptimizePdfForInteraction: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfForInteraction,
-    fileOptimizePdfAsCopy: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.optimizePdfAsCopy,
-    fileSavePdfData: 'file:savePdfData',
     fileSavePdfDataBegin: 'file:savePdfData:begin',
     fileSavePdfDataPort: 'file:savePdfData:port',
     fileCommitStagedSerializedPdf: 'file:commitStagedSerializedPdf',
     fileCancelStagedSerializedPdf: 'file:cancelStagedSerializedPdf',
-    fileSavePdfNoteTextUpdates: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteTextUpdates,
-    fileSavePdfNoteChanges: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfNoteChanges,
-    fileApplyPdfNativeMutationsToWorkingCopy:
-        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy,
-    fileCommitStagedPdfNativeMutations:
-        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations,
-    fileCloneStagedPdfNativeMutationToWorkingCopy:
-        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cloneStagedPdfNativeMutationToWorkingCopy,
-    fileReplaceWorkingCopyFromStagedPdfNativeMutation:
-        DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromStagedPdfNativeMutation,
-    fileCleanup: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.cleanupFile,
 } as const;
 
 export const DOCUMENTS_EVENT_CHANNELS = {
@@ -116,10 +54,6 @@ interface IDocumentsDirectPersistenceInvokeMap {
         }>];
         result: boolean;
     };
-    [DOCUMENTS_CHANNELS.fileSavePdfData]: {
-        args: [path: TDocumentRef, data: Uint8Array, options?: IPdfSerializedSaveOptions];
-        result: Awaited<ReturnType<IDocumentsFileCapability['savePdfData']>>;
-    };
     [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {
         args: [path: TDocumentRef, totalBytes: number, options?: IPdfSerializedSaveOptions];
         result: IBeginSerializedPdfPersistenceResult;
@@ -140,12 +74,6 @@ interface IDocumentsDirectPersistenceInvokeMap {
     };
 }
 
-export type IDocumentsInvokeMap =
-    IDocumentOpenInvokeMap
-    & IDocumentWorkingCopyInvokeMap
-    & IDocumentFilesInvokeMap
-    & IDocumentPdfInvokeMap
-    & IDocumentsDirectPersistenceInvokeMap
-    & IDocxExportInvokeMap;
+export type IDocumentsInvokeMap = IDocumentsDirectPersistenceInvokeMap & IDocxExportInvokeMap;
 
 export type { TOpenFileResult } from '@contracts/electronApiDocuments';
