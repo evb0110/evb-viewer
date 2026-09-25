@@ -1,5 +1,4 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
 import { createRequestId } from '@contracts/shared';
 import type {
@@ -35,10 +34,11 @@ import {
 import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
 import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
 import {
-    createOcrRunLifecycle,
-    OcrRunCanceledError,
-    type TOcrRunGuard,
-} from '@app/utils/ocr/ocrRunLifecycle';
+    JobCanceledError,
+    JobTimeoutError,
+    runJob,
+    type IJobRun,
+} from '@app/utils/jobs/runJob';
 import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
 import { getOcrCapability } from '@app/utils/getOcrCapability';
 import { getErrorMessage } from '@app/utils/error';
@@ -58,7 +58,6 @@ class OcrJobStartError extends Error {
 type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
     result: infer TResult,
 ) => void ? TResult : never;
-const OCR_CANCEL_COMPLETION_GRACE_MS = 5_000;
 
 export const useOcr = () => {
     const { t } = useTypedI18n();
@@ -97,16 +96,10 @@ export const useOcr = () => {
 
     const activeRunSettings = ref<IOcrSettings | null>(null);
     const lastCompletedRunSettings = ref<IOcrSettings | null>(null);
-    const ocrRunLifecycle = createOcrRunLifecycle();
 
-    let progressCleanup: (() => void) | null = null;
-    let completeCleanup: (() => void) | null = null;
-    let timeoutRunToken: symbol | null = null;
-    let pendingOcrReject: ((reason?: unknown) => void) | null = null;
-    let pendingCanceledResult: TOcrCompleteResult | null = null;
-    let cancelCleanupTimer: ReturnType<typeof setTimeout> | null = null;
-    let cancelRequestPromise: Promise<IOcrCancelResult> | null = null;
-    let cancelingRunSettings: IOcrSettings | null = null;
+    let activeRun: IJobRun<TOcrCompleteResult, IOcrCancelResult> | null = null;
+    let pendingRunToken: symbol | null = null;
+    let cancelRequest: Promise<IOcrCancelResult> | null = null;
     let disposed = false;
     let activeDocxAbortController: AbortController | null = null;
 
@@ -114,132 +107,17 @@ export const useOcr = () => {
         activeDocxAbortController?.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
     }
 
-    function clearCancelCleanupTimer() {
-        if (cancelCleanupTimer !== null) {
-            clearTimeout(cancelCleanupTimer);
-            cancelCleanupTimer = null;
-        }
-    }
-
-    function finishCancelCompletionWatch(requestId: TRequestId, status: 'cancelled' | 'idle' = 'cancelled') {
-        if (!ocrRunLifecycle.finishCancelingRequest(requestId)) {
-            return;
-        }
-        pendingCanceledResult = null;
-        cancelingRunSettings = null;
-        clearCancelCleanupTimer();
-        progressCleanup?.();
-        progressCleanup = null;
-        completeCleanup?.();
-        completeCleanup = null;
+    function resetRunProgress(status: 'idle' | 'cancelled' = 'idle') {
         progress.value.isRunning = false;
         progress.value.status = status;
-    }
-
-    function cleanupRunState(options: {
-        keepCompleteListener?: boolean;
-        keepProgressListener?: boolean;
-        keepActiveRequestId?: boolean
-    } = {}) {
-        if (options.keepActiveRequestId !== true) {
-            ocrRunLifecycle.clearActiveRequest();
-        }
-        progress.value.isRunning = false;
-        progress.value.status = 'idle';
         activeRunSettings.value = null;
-        if (options.keepProgressListener !== true) {
-            progressCleanup?.();
-            progressCleanup = null;
-        }
-        if (options.keepCompleteListener !== true) {
-            completeCleanup?.();
-            completeCleanup = null;
-        }
-        clearOcrTimeout();
-        pendingOcrReject = null;
     }
 
-    function clearOcrTimeout() {
-        stopOcrTimeout();
-        timeoutRunToken = null;
-    }
-
-    async function cancelBackendRequest(
-        requestIdToCancel: TRequestId,
-        reason: 'manual' | 'timeout',
-    ): Promise<IOcrCancelResult> {
-        if (!requestIdToCancel) {
-            return {
-                canceled: false,
-                reason: 'not-found',
-            };
-        }
-
-        BrowserLogger.info('ocr', reason === 'timeout' ? 'Cancelling timed-out OCR' : 'Cancelling OCR', { requestId: requestIdToCancel });
-        try {
-            return await getOcrCapability().cancel(requestIdToCancel);
-        } catch (cancelError) {
-            const normalizedCancelError: unknown = cancelError;
-            BrowserLogger.debug('ocr', 'OCR cancel request failed', {
-                requestId: requestIdToCancel,
-                error: normalizedCancelError,
-            });
-            return {
-                canceled: false,
-                reason: 'failed',
-                error: getErrorMessage(cancelError),
-            };
-        }
-    }
-
-    function scheduleCancelCompletionWatch(requestId: TRequestId) {
-        clearCancelCleanupTimer();
-        cancelCleanupTimer = setTimeout(() => {
-            BrowserLogger.debug('ocr', 'OCR cancel completion watch timed out', { requestId });
-            if (ocrRunLifecycle.getCancelingRequestId() === requestId) {
-                error.value = t('errors.ocr.cancel');
-            }
-        }, OCR_CANCEL_COMPLETION_GRACE_MS);
-    }
-
-    function applyCancelOutcome(requestId: TRequestId, cancelResult: IOcrCancelResult) {
-        const outcome = !cancelResult.canceled && cancelResult.reason === 'failed'
-            ? 'unconfirmed'
-            : 'confirmed';
-        if (!ocrRunLifecycle.markCancelOutcome(requestId, outcome)) {
-            return;
-        }
-        if (pendingCanceledResult?.requestId === requestId) {
-            const result = pendingCanceledResult;
-            pendingCanceledResult = null;
-            cleanupLateCanceledResult(result);
-        }
-    }
-
-    function cleanupLateCanceledResult(result: TOcrCompleteResult) {
-        if (!ocrRunLifecycle.shouldHandleLateCanceledResult(result.requestId)) {
-            return;
-        }
-
+    function releaseLateResult(result: TOcrCompleteResult) {
         BrowserLogger.debug('ocr', 'Terminal OCR result arrived after cancellation', {
             requestId: result.requestId,
-            success: result.success,
             requiresCleanupAck: result.requiresCleanupAck === true,
         });
-        if (ocrRunLifecycle.shouldApplyLateResult(result.requestId)) {
-            const runSettings = cancelingRunSettings;
-            if (runSettings !== null) {
-                error.value = null;
-                try {
-                    handleOcrResponse(result.requestId, result, null, runSettings);
-                } catch (caughtError) {
-                    logOcrRunFailure(result.requestId, caughtError);
-                    error.value = localizeOcrError(caughtError, 'errors.ocr.createSearchablePdf');
-                }
-                finishCancelCompletionWatch(result.requestId, 'idle');
-                return;
-            }
-        }
         if (result.requiresCleanupAck === true && result.pdfPath) {
             void getOcrCapability().acknowledgeResultFile(result.requestId, result.pdfPath)
                 .catch((ackError) => {
@@ -249,46 +127,7 @@ export const useOcr = () => {
                     });
                 });
         }
-        error.value = null;
-        finishCancelCompletionWatch(result.requestId);
     }
-
-    function beginCancelingRequest(requestId: TRequestId) {
-        if (cancelingRunSettings === null && activeRunSettings.value !== null) {
-            cancelingRunSettings = cloneOcrSettings(activeRunSettings.value);
-        }
-        ocrRunLifecycle.beginCancelingRequest(requestId);
-        scheduleCancelCompletionWatch(requestId);
-        cleanupRunState({
-            keepCompleteListener: true,
-            keepProgressListener: true,
-            keepActiveRequestId: true,
-        });
-        progress.value.isRunning = true;
-        progress.value.status = 'cancel-requested';
-    }
-
-    const {
-        start: startOcrTimeout,
-        stop: stopOcrTimeout,
-    } = useTimeoutFn(() => {
-        const runToken = timeoutRunToken;
-        if (runToken === null || !ocrRunLifecycle.isRunTokenActive(runToken)) {
-            return;
-        }
-        const rejectPending = pendingOcrReject;
-        pendingOcrReject = null;
-        timeoutRunToken = null;
-        const requestIdToCancel = ocrRunLifecycle.getActiveRequestId();
-        if (requestIdToCancel) {
-            ocrRunLifecycle.cancelActiveRun();
-            beginCancelingRequest(requestIdToCancel);
-            void cancelBackendRequest(requestIdToCancel, 'timeout').then(cancelResult => {
-                applyCancelOutcome(requestIdToCancel, cancelResult);
-            });
-        }
-        rejectPending?.(new Error(t('errors.ocr.timeout')));
-    }, OCR_TIMEOUT_MS, { immediate: false });
 
     async function loadLanguages(surfaceError = true) {
         languageLoadState.value = 'loading';
@@ -434,92 +273,14 @@ export const useOcr = () => {
         };
     }
 
-    async function waitForRunUiReady(runToken: symbol, runGeneration: number) {
-        await nextTick();
-        if (!ocrRunLifecycle.isRunActive(runToken, runGeneration)) {
-            return false;
-        }
 
-        await waitForVisualFrames({ frames: 2 });
-        return ocrRunLifecycle.isRunActive(runToken, runGeneration);
-    }
-
-    function resetOcrTimeout(runToken: symbol) {
-        timeoutRunToken = runToken;
-        startOcrTimeout();
-    }
-
-    function registerProgressListener(
-        ocr: IOcrCapability,
-        requestId: TRequestId,
-        runToken: symbol,
-    ) {
-        progressCleanup = ocr.onProgress((p) => {
-            if (!ocrRunLifecycle.isRunTokenActive(runToken)) {
-                return;
-            }
-            BrowserLogger.debug('ocr', 'Progress update', {
-                ...p,
-                requestId,
-            });
-            if (p.requestId === requestId) {
-                resetOcrTimeout(runToken);
-                progress.value.phase = p.phase ?? 'processing';
-                progress.value.currentPage = p.currentPage;
-                progress.value.processedCount = p.processedCount;
-                progress.value.phaseProgress = typeof p.phaseProgress === 'number'
-                    ? p.phaseProgress
-                    : null;
-            }
-        });
-    }
-
-    function waitForOcrCompletion(
-        ocr: IOcrCapability,
-        requestId: TRequestId,
-        runToken: symbol,
-    ) {
-        return new Promise<TOcrCompleteResult>((resolve, reject) => {
-            let didResolve = false;
-            pendingOcrReject = reject;
-
-            completeCleanup = ocr.onComplete((result) => {
-                BrowserLogger.debug('ocr', 'Complete event received', {
-                    requestId,
-                    resultRequestId: result.requestId,
-                    success: result.success,
-                    didResolve,
-                });
-                if (result.requestId !== requestId) {
-                    return;
-                }
-                if (!ocrRunLifecycle.isRunTokenActive(runToken)) {
-                    if (didResolve) {
-                        BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
-                        return;
-                    }
-                    didResolve = true;
-                    pendingOcrReject = null;
-                    clearOcrTimeout();
-                    if (!ocrRunLifecycle.isCancelOutcomeKnown(requestId)) {
-                        pendingCanceledResult = result;
-                        return;
-                    }
-                    cleanupLateCanceledResult(result);
-                    return;
-                }
-                if (didResolve) {
-                    BrowserLogger.debug('ocr', 'Ignoring duplicate completion', { requestId });
-                    return;
-                }
-                didResolve = true;
-                pendingOcrReject = null;
-                clearOcrTimeout();
-                resolve(result);
-            });
-
-            resetOcrTimeout(runToken);
-        });
+    function applyProgress(p: Parameters<Parameters<IOcrCapability['onProgress']>[0]>[0]) {
+        progress.value.phase = p.phase ?? 'processing';
+        progress.value.currentPage = p.currentPage;
+        progress.value.processedCount = p.processedCount;
+        progress.value.phaseProgress = typeof p.phaseProgress === 'number'
+            ? p.phaseProgress
+            : null;
     }
 
     function buildSearchablePdfOptions(runSettings: IOcrSettings): IOcrSearchablePdfOptions {
@@ -710,14 +471,12 @@ export const useOcr = () => {
             requestId,
             pages: getPageSelectionCount(selection),
         });
-        ocrRunLifecycle.markRequestActive(requestId);
         return requestId;
     }
 
     function handleOcrResponse(
         requestId: TRequestId,
         response: TOcrCompleteResult,
-        ensureRunActive: TOcrRunGuard | null,
         runSettings: IOcrSettings,
     ) {
         lastRunOutcome.value = response.outcome ?? null;
@@ -728,7 +487,6 @@ export const useOcr = () => {
         }
 
         if (response.pdfPath) {
-            ensureRunActive?.();
             storeOcrPdfResult(requestId, response, runSettings);
         } else if (response.success) {
             throw new Error(t('errors.ocr.noPdfData'));
@@ -739,59 +497,38 @@ export const useOcr = () => {
         }
     }
 
-    async function executeOcrRun(
+
+    function startOcrJob(
         requestId: TRequestId,
         selection: TOcrPageSelectionScope,
         workingCopyPath: TDocumentRef,
         runSettings: IOcrSettings,
-        runToken: symbol,
-        ensureRunActive: TOcrRunGuard,
     ) {
         const ocr = getOcrCapability();
-        registerProgressListener(ocr, requestId, runToken);
-        const pageRequests = buildPageSelection(selection, runSettings);
-
-        BrowserLogger.debug('ocr', 'Starting backend job', {
+        return runJob(ocr, {
             requestId,
-            pages: getPageSelectionCount(selection),
-            workingCopyPath,
+            inactivityTimeoutMs: OCR_TIMEOUT_MS,
+            onProgress: applyProgress,
+            releaseLateResult,
+            start: async () => {
+                const startResult = await ocr.createSearchablePdf(
+                    workingCopyPath,
+                    buildPageSelection(selection, runSettings),
+                    requestId,
+                    buildSearchablePdfOptions(runSettings),
+                );
+                BrowserLogger.debug('ocr', 'Job started', {
+                    requestId,
+                    ...startResult,
+                });
+                if (!startResult.started) {
+                    throw new OcrJobStartError(
+                        localizeOcrError(startResult.errorEnvelope ?? startResult.error, 'errors.ocr.start'),
+                        startResult.errorEnvelope,
+                    );
+                }
+            },
         });
-
-        ensureRunActive();
-        const ocrPromise = waitForOcrCompletion(ocr, requestId, runToken);
-
-        ensureRunActive();
-        const startResult = await ocr.createSearchablePdf(
-            workingCopyPath,
-            pageRequests,
-            requestId,
-            buildSearchablePdfOptions(runSettings),
-        );
-        ensureRunActive();
-
-        BrowserLogger.debug('ocr', 'Job started', {
-            requestId,
-            ...startResult,
-        });
-
-        if (!startResult.started) {
-            throw new OcrJobStartError(
-                localizeOcrError(startResult.errorEnvelope ?? startResult.error, 'errors.ocr.start'),
-                startResult.errorEnvelope,
-            );
-        }
-
-        ensureRunActive();
-        const response = await ocrPromise;
-        ensureRunActive();
-
-        BrowserLogger.debug('ocr', 'Backend response', {
-            requestId,
-            success: response.success,
-            errors: response.errors,
-        });
-
-        handleOcrResponse(requestId, response, ensureRunActive, runSettings);
     }
 
     async function runOcr(
@@ -805,7 +542,7 @@ export const useOcr = () => {
             workingCopyPath,
         });
 
-        if (progress.value.isRunning || ocrRunLifecycle.getCancelingRequestId() !== null) {
+        if (progress.value.isRunning || cancelRequest !== null) {
             BrowserLogger.debug('ocr', 'runOcr ignored; already running');
             return;
         }
@@ -820,30 +557,29 @@ export const useOcr = () => {
             return;
         }
 
-        const {
-            runToken,
-            runGeneration,
-            ensureRunActive,
-        } = ocrRunLifecycle.beginRun();
-
+        const runToken = Symbol('ocr-run');
+        pendingRunToken = runToken;
         beginRunProgress(selection, runSettings);
-        if (!await waitForRunUiReady(runToken, runGeneration)) {
+        await nextTick();
+        await waitForVisualFrames({ frames: 2 });
+        if (pendingRunToken !== runToken) {
             return;
         }
+        pendingRunToken = null;
 
         const requestId = createOcrRequestId(selection);
-
+        const run = startOcrJob(requestId, selection, workingCopyPath, runSettings);
+        activeRun = run;
         try {
-            await executeOcrRun(
+            const response = await run.result;
+            BrowserLogger.debug('ocr', 'Backend response', {
                 requestId,
-                selection,
-                workingCopyPath,
-                runSettings,
-                runToken,
-                ensureRunActive,
-            );
+                success: response.success,
+                errors: response.errors,
+            });
+            handleOcrResponse(requestId, response, runSettings);
         } catch (e) {
-            if (disposed || e instanceof OcrRunCanceledError) {
+            if (disposed || e instanceof JobCanceledError) {
                 return;
             }
             logOcrRunFailure(requestId, e);
@@ -851,52 +587,56 @@ export const useOcr = () => {
                 error.value = e.message;
                 return;
             }
-            error.value = localizeOcrError(e, 'errors.ocr.createSearchablePdf');
+            error.value = e instanceof JobTimeoutError
+                ? t('errors.ocr.timeout')
+                : localizeOcrError(e, 'errors.ocr.createSearchablePdf');
         } finally {
-            if (ocrRunLifecycle.clearRunIfActive(runToken)) {
-                cleanupRunState();
+            if (activeRun === run) {
+                activeRun = null;
+                resetRunProgress();
             }
             await loadLanguages(false);
         }
     }
 
-    async function cancelOcr(): Promise<IOcrCancelResult> {
-        if (ocrRunLifecycle.getCancelingRequestId() !== null && cancelRequestPromise !== null) {
-            return cancelRequestPromise;
+    function cancelOcr(): Promise<IOcrCancelResult> {
+        if (cancelRequest !== null) {
+            return cancelRequest;
         }
-
-        const requestIdToCancel = ocrRunLifecycle.cancelActiveRun();
-
-        const rejectPending = pendingOcrReject;
-        pendingOcrReject = null;
-        rejectPending?.(new OcrRunCanceledError());
-
-        if (!requestIdToCancel) {
-            cleanupRunState();
-            return {
+        const run = activeRun;
+        activeRun = null;
+        pendingRunToken = null;
+        if (!run) {
+            resetRunProgress();
+            return Promise.resolve({
                 canceled: false,
                 reason: 'not-found',
-            };
+            });
         }
 
-        beginCancelingRequest(requestIdToCancel);
-        const requestPromise = cancelBackendRequest(requestIdToCancel, 'manual').then((cancelResult) => {
-            applyCancelOutcome(requestIdToCancel, cancelResult);
-            if (ocrRunLifecycle.getCancelingRequestId() === requestIdToCancel) {
-                if (cancelResult.canceled) {
-                    error.value = null;
-                } else {
-                    error.value = cancelResult.error ?? t('errors.ocr.cancel');
-                }
-            }
+        BrowserLogger.info('ocr', 'Cancelling OCR');
+        progress.value.status = 'cancel-requested';
+        const request = run.cancel().then(
+            (cancelResult): IOcrCancelResult => cancelResult ?? {
+                canceled: false,
+                reason: 'not-found',
+            },
+            (cancelError: unknown): IOcrCancelResult => ({
+                canceled: false,
+                reason: 'failed',
+                error: getErrorMessage(cancelError),
+            }),
+        ).then((cancelResult) => {
+            error.value = !cancelResult.canceled && cancelResult.reason === 'failed'
+                ? cancelResult.error ?? t('errors.ocr.cancel')
+                : null;
+            resetRunProgress('cancelled');
             return cancelResult;
         }).finally(() => {
-            if (cancelRequestPromise === requestPromise) {
-                cancelRequestPromise = null;
-            }
+            cancelRequest = null;
         });
-        cancelRequestPromise = requestPromise;
-        return requestPromise;
+        cancelRequest = request;
+        return request;
     }
 
     onScopeDispose(() => {
