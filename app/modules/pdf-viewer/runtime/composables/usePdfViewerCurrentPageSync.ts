@@ -10,7 +10,6 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { getVisiblePageDebugSnapshot } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getVisiblePageDebugSnapshot';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { isAnchoredCurrentPageSyncSource } from '@app/modules/pdf-viewer/runtime/rerender-strategy/isAnchoredCurrentPageSyncSource';
-import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -22,7 +21,6 @@ export interface ICurrentPageSyncOptions {
     stabilize?: boolean;
     resizeAnchor?: IResizeAnchorContext | null;
     zoomGestureSessionId?: number | undefined;
-    zoomLockOperationId?: TZoomInteractionLockOperationId | null;
     transactionId?: number | undefined;
 }
 

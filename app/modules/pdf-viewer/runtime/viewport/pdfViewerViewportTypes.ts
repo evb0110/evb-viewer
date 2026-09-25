@@ -1,4 +1,3 @@
-import type { TZoomInteractionLockOperationId } from '@app/modules/pdf-viewer/runtime/zoom/pdfViewerZoomTypes';
 import type { IResizeAnchorContext } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 
 export interface IResizeTransitionSignal {
@@ -11,7 +10,6 @@ export interface IResizeTransitionSignal {
 export interface IZoomViewportAnchor {
     id?: number;
     sessionId?: number;
-    zoomLockOperationId?: TZoomInteractionLockOperationId | null;
     x: number;
     y: number;
     capturedAtMs: number;

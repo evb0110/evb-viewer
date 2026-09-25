@@ -203,7 +203,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 ...(zoomViewportAnchor?.sessionId !== undefined
                     ? {zoomGestureSessionId: zoomViewportAnchor.sessionId}
                     : {}),
-                zoomLockOperationId: zoomViewportAnchor?.zoomLockOperationId ?? null,
             });
         } finally {
             pending?.endGeometryReplacement?.();
