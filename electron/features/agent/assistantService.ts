@@ -443,35 +443,41 @@ function requestBestEffortCodexTurnCleanup(
     });
 }
 
+function createAssistantTurnInterrupt(session: IAssistantChatSession) {
+    if (session.provider === 'claude') {
+        const claudeSession = session.claudeSession;
+        return claudeSession && isAssistantTurnActive(session.turnOwner)
+            ? () => waitForBoundedAssistantInterrupt(claudeSession.interrupt())
+            : null;
+    }
+
+    const currentRuntime = runtimeLifecycle.getRuntime();
+    const threadId = session.providerThreadId;
+    const turnId = getAssistantTurnProviderTurnId(session.turnOwner);
+    return currentRuntime && threadId && turnId
+        ? () => waitForBoundedAssistantInterrupt(currentRuntime.client.request('turn/interrupt', {
+            threadId,
+            turnId,
+        }))
+        : null;
+}
+
 async function interruptStaleSessionTurn(
     session: IAssistantChatSession,
     reason: string,
 ) {
-    if (session.provider === 'claude') {
-        if (!session.claudeSession || !isAssistantTurnActive(session.turnOwner)) {
-            return;
-        }
-        await waitForBoundedAssistantInterrupt(session.claudeSession.interrupt()).catch((error: unknown) => {
-            logger.warn(`Failed to interrupt ${reason} Claude assistant turn: ${getErrorMessage(error)}`);
-        });
-        if (isAssistantTurnActive(session.turnOwner)) {
-            supersedeSessionTurn(session);
-        }
+    const interrupt = createAssistantTurnInterrupt(session);
+    if (!interrupt) {
         return;
     }
 
-    const currentRuntime = runtimeLifecycle.getRuntime();
-    const activeTurnId = getAssistantTurnProviderTurnId(session.turnOwner);
-    if (!currentRuntime || !session.providerThreadId || !activeTurnId) {
-        return;
-    }
-
-    await currentRuntime.client.request('turn/interrupt', {
-        threadId: session.providerThreadId,
-        turnId: activeTurnId,
-    }).catch((error: unknown) => {
-        logger.warn(`Failed to interrupt ${reason} assistant turn: ${getErrorMessage(error)}`);
+    const providerLabel = session.provider === 'claude' ? 'Claude ' : '';
+    await interrupt().catch((error: unknown) => {
+        logger.warn(`Failed to interrupt ${reason} ${providerLabel}assistant turn: ${getErrorMessage(error)}`);
     });
+    if (session.provider === 'claude' && isAssistantTurnActive(session.turnOwner)) {
+        supersedeSessionTurn(session);
+    }
 }
 
 function failCodexTurnAndFence(
@@ -1126,13 +1132,14 @@ export async function interruptAgentAssistant(
     const session = requestedSession ?? sessionStore.getActiveSession(selection.provider);
     abortActiveEmbeddedMcpRequests(session?.scopeBinding ?? null, 'Assistant turn interrupted by the user.');
     if (session?.provider === 'claude') {
-        if (session.claudeSession && isAssistantTurnActive(session.turnOwner)) {
-            const claudeSession = session.claudeSession;
+        const claudeSession = session.claudeSession;
+        const interrupt = createAssistantTurnInterrupt(session);
+        if (claudeSession && interrupt) {
             const setupPending = session.turnOwner.phase === 'starting';
             claudeProviderRuntime.runtimeState = 'busy';
             interruptSessionTurn(session);
             publishState(session.scope, session);
-            await waitForBoundedAssistantInterrupt(claudeSession.interrupt()).catch((error: unknown) => {
+            await interrupt().catch((error: unknown) => {
                 logger.warn(`Failed to interrupt Claude assistant turn: ${getErrorMessage(error)}`);
                 session.turnPresentation.phase = 'stalled';
                 session.turnPresentation.lastEventAtMs = Date.now();
@@ -1161,19 +1168,14 @@ export async function interruptAgentAssistant(
         return currentState(session.scope, session);
     }
 
-    const currentRuntime = runtimeLifecycle.getRuntime();
-    const activeTurnId = session ? getAssistantTurnProviderTurnId(session.turnOwner) : null;
-    let codexInterruptRequested = false;
-    if (currentRuntime && session?.providerThreadId && activeTurnId) {
-        codexInterruptRequested = true;
+    const interrupt = session ? createAssistantTurnInterrupt(session) : null;
+    const codexInterruptRequested = interrupt !== null;
+    if (session && interrupt) {
         interruptSessionTurn(session);
         codexProviderRuntime.runtimeState = 'busy';
         publishState(session.scope, session);
         try {
-            await waitForBoundedAssistantInterrupt(currentRuntime.client.request('turn/interrupt', {
-                threadId: session.providerThreadId,
-                turnId: activeTurnId,
-            }));
+            await interrupt();
         } catch (error) {
             const message = getErrorMessage(error);
             logger.warn(`Failed to interrupt assistant turn: ${message}`);
@@ -1211,11 +1213,12 @@ export async function resetAgentAssistantChat(
     }
 
     if (session.provider === 'claude') {
-        if (session.claudeSession && isAssistantTurnActive(session.turnOwner)) {
+        const interrupt = createAssistantTurnInterrupt(session);
+        if (interrupt) {
             claudeProviderRuntime.runtimeState = 'busy';
             interruptSessionTurn(session);
             publishState(session.scope, session);
-            await waitForBoundedAssistantInterrupt(session.claudeSession.interrupt()).catch((error: unknown) => {
+            await interrupt().catch((error: unknown) => {
                 logger.warn(`Failed to interrupt Claude assistant turn during reset: ${getErrorMessage(error)}`);
             });
         }
@@ -1233,15 +1236,12 @@ export async function resetAgentAssistantChat(
     }
 
     const previousThreadId = session.providerThreadId;
-    const previousTurnId = getAssistantTurnProviderTurnId(session.turnOwner);
     const currentRuntime = runtimeLifecycle.getRuntime();
-    if (currentRuntime && previousThreadId && previousTurnId) {
+    const interrupt = createAssistantTurnInterrupt(session);
+    if (interrupt) {
         interruptSessionTurn(session);
         publishState(session.scope, session);
-        await currentRuntime.client.request('turn/interrupt', {
-            threadId: previousThreadId,
-            turnId: previousTurnId,
-        }).catch((error: unknown) => {
+        await interrupt().catch((error: unknown) => {
             logger.warn(`Failed to interrupt assistant turn during reset: ${getErrorMessage(error)}`);
         });
     }
