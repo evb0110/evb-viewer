@@ -160,6 +160,8 @@ macos_verify_relocated_file() {
       return 1
     fi
   done
+
+  codesign --verify --strict "$file"
 }
 
 macos_bundle_dylib_closure() {
@@ -175,12 +177,14 @@ macos_bundle_dylib_closure() {
   for library in "$destination_lib/"*.dylib; do
     [ -f "$library" ] || continue
     macos_rewrite_library_paths "$destination_lib" "$library"
+    codesign --force --sign - "$library"
   done
 
   local binary
   for binary in "${binaries[@]}"; do
     [ -f "$binary" ] || continue
     macos_rewrite_binary_paths "$destination_lib" "$binary"
+    codesign --force --sign - "$binary"
   done
 
   for library in "$destination_lib/"*.dylib; do
