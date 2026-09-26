@@ -132,19 +132,19 @@
         <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
             <PdfStatusBar
-                :file-path="statusFilePath"
-                :file-size-label="statusFileSizeLabel"
+                :file-path="statusBar.statusFilePath.value"
+                :file-size-label="statusBar.statusFileSizeLabel.value"
                 :zoom-label="statusZoomLabelForDisplay"
-                :materialization-label="statusMaterializationLabel"
-                :can-show-in-folder="statusCanShowInFolder"
-                :show-in-folder-tooltip="statusShowInFolderTooltip"
-                :show-in-folder-aria-label="statusShowInFolderAriaLabel"
-                :save-dot-class="statusSaveDotClass"
-                :save-dot-tooltip="statusSaveDotTooltip"
-                :save-dot-aria-label="statusSaveDotAriaLabel"
-                :can-save="statusSaveDotCanSave"
-                @show-in-folder="handleStatusShowInFolderClick"
-                @save="handleStatusSaveClick"
+                :materialization-label="statusBar.statusMaterializationLabel.value"
+                :can-show-in-folder="statusBar.statusCanShowInFolder.value"
+                :show-in-folder-tooltip="statusBar.statusShowInFolderTooltip.value"
+                :show-in-folder-aria-label="statusBar.statusShowInFolderAriaLabel.value"
+                :save-dot-class="statusBar.statusSaveDotClass.value"
+                :save-dot-tooltip="statusBar.statusSaveDotTooltip.value"
+                :save-dot-aria-label="statusBar.statusSaveDotAriaLabel.value"
+                :can-save="statusBar.statusSaveDotCanSave.value"
+                @show-in-folder="statusBar.handleStatusShowInFolderClick"
+                @save="statusBar.handleStatusSaveClick"
             />
         </Teleport>
         <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader'" />
@@ -429,34 +429,13 @@ const {
 const {
     pageLabels,
     pageLabelModel,
-    pageLabelRanges,
-    pageLabelsDirty,
     pageLabelsResolved,
-    handlePageLabelRangesUpdate,
 } = pageLabelState;
-const {
-    bookmarkItems,
-    bookmarksDirty,
-    handleBookmarksChange,
-} = bookmarkState;
-const {
-    annotationTool,
-    annotationComments,
-    annotationCommentsStatus,
-    annotationInventory,
-    markAnnotationCommentsLoading,
-    annotationDirty,
-    markAnnotationDirty,
-    handleAnnotationToolChange,
-    sortedAnnotationNoteWindows,
-    updateAnnotationNoteText,
-    isSameAnnotationComment,
-} = annotationSession;
+const {markAnnotationCommentsLoading} = annotationSession;
 const {
     handleSave,
     handleRepairSave,
     isAnySaving,
-    canSave,
 } = save;
 const {
     error: docxExportError,
@@ -470,8 +449,6 @@ const {
     handlePrintCurrentPage,
 } = printWorkflow;
 const {
-    canUndo,
-    canRedo,
     handleUndo,
     handleRedo,
 } = history;
@@ -486,26 +463,6 @@ const {
     captureSplitPayload,
     restoreSplitPayload,
 } = splitPayload;
-const {
-    handleZoomIn,
-    handleZoomOut,
-    handleActualSize,
-} = context.viewerDefaults;
-const {
-    statusFilePath,
-    statusFileSizeLabel,
-    statusZoomLabel,
-    statusMaterializationLabel,
-    statusCanShowInFolder,
-    statusShowInFolderTooltip,
-    statusShowInFolderAriaLabel,
-    statusSaveDotClass,
-    statusSaveDotCanSave,
-    statusSaveDotTooltip,
-    statusSaveDotAriaLabel,
-    handleStatusSaveClick,
-    handleStatusShowInFolderClick,
-} = statusBar;
 const {
     hasQueuedSplitRestore,
     isExternallyRestoring,
@@ -648,7 +605,7 @@ const {
     toolbarDocumentBusy,
     canRepairSave,
     canOptimizePdf,
-    statusZoomLabel,
+    statusZoomLabel: statusBar.statusZoomLabel,
     totalPages,
     pageLabels,
     pageLabelModel,
@@ -759,69 +716,68 @@ const documentOpenIdle = computed(() => (
 async function waitForDocumentOpenSettled() {
     await until(documentOpenIdle).toBe(true);
 }
+const viewerCapabilities = computed(() => activeDriverCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
 const {
     runAgentAction,
     readAgentResource,
 } = useDocumentWorkspaceAgent({
-    annotationComments,
-    annotationCommentsStatus,
-    annotationInventory,
-    annotationDirty,
-    annotationTool,
-    bookmarkItems,
-    bookmarksDirty,
-    canSave,
-    canUndo,
-    canRedo,
+    annotationComments: annotationSession.annotationComments,
+    annotationCommentsStatus: annotationSession.annotationCommentsStatus,
+    annotationInventory: annotationSession.annotationInventory,
+    annotationDirty: annotationSession.annotationDirty,
+    annotationTool: annotationSession.annotationTool,
+    bookmarkItems: bookmarkState.bookmarkItems,
+    bookmarksDirty: bookmarkState.bookmarksDirty,
+    canSave: save.canSave,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
     closeAllDropdowns,
     continuousScroll,
-    viewerCapabilities: computed(() => activeDriverCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
+    viewerCapabilities,
     currentPage,
     documentIdentity: fileLifecycle.documentRevisionInfo,
     fitMode,
-    handleActualSize,
+    handleActualSize: context.viewerDefaults.handleActualSize,
     handleAnnotationFocusComment: annotationActions.handleAnnotationFocusComment,
-    handleAnnotationToolChange,
-    handleBookmarksChange,
+    handleAnnotationToolChange: annotationSession.handleAnnotationToolChange,
+    handleBookmarksChange: bookmarkState.handleBookmarksChange,
     updateTextMarkupColorWithHistory: annotationActions.updateTextMarkupColorWithHistory,
     handleDeleteAnnotationComment: annotationActions.handleDeleteAnnotationComment,
-    handleDropdownOpen: (dropdown, isOpen) => {
-        handleDropdownOpen(dropdown, isOpen);
-    },
+    handleDropdownOpen,
     handleExportDocx,
-    handleExportImages,
-    handleExportMultiPageTiff,
+    handleExportImages: exportWorkflow.handleExportImages,
+    handleExportMultiPageTiff: exportWorkflow.handleExportMultiPageTiff,
     handleFitMode,
     handleGoToPage,
     handleOpenAnnotationNote: annotationActions.handleOpenAnnotationNote,
     handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
-    handleRepairSave,
+    handleRepairSave: save.handleRepairSave,
     handleOptimizePdfForInteraction: save.handleOptimizePdfForInteraction,
-    handleUndo,
-    handleRedo,
-    handlePageLabelRangesUpdate,
+    handleUndo: history.handleUndo,
+    handleRedo: history.handleRedo,
+    handlePageLabelRangesUpdate: pageLabelState.handlePageLabelRangesUpdate,
     handlePageRotate: pageOps.handlePageRotate,
-    handlePrint,
-    handlePrintCurrentPage,
+    handlePrint: printWorkflow.handlePrint,
+    handlePrintCurrentPage: printWorkflow.handlePrintCurrentPage,
     handleQuickNoteAction,
-    handleSave,
+    handleSave: save.handleSave,
     handleSaveAs,
-    handleZoomIn,
-    handleZoomOut,
+    handleZoomIn: context.viewerDefaults.handleZoomIn,
+    handleZoomOut: context.viewerDefaults.handleZoomOut,
     hasPdf,
-    isAnySaving,
+    isAnySaving: save.isAnySaving,
     isDjvuMode,
-    isSameAnnotationComment,
-    markAnnotationDirty,
+    isSameAnnotationComment: annotationSession.isSameAnnotationComment,
+    markAnnotationDirty: annotationSession.markAnnotationDirty,
     ocrPopupOpen,
     ocrPopupRef,
     openConvertDialog,
     originalPath,
-    pageLabelRanges,
-    pageLabels,
-    pageLabelModel,
-    pageLabelsResolved,
-    pageLabelsDirty,
+    pageLabelRanges: pageLabelState.pageLabelRanges,
+    pageLabels: pageLabelState.pageLabels,
+    pageLabelModel: pageLabelState.pageLabelModel,
+    pageLabelsResolved: pageLabelState.pageLabelsResolved,
+    pageLabelsDirty: pageLabelState.pageLabelsDirty,
     pageOpsDelete: pageOps.pageOpsDelete,
     pageOpsExtract: pageOps.pageOpsExtract,
     pageOpsInsert: pageOps.pageOpsInsert,
@@ -833,16 +789,18 @@ const {
     showConvertDialog,
     showSidebar,
     sidebarTab,
-    sortedAnnotationNoteWindows,
+    sortedAnnotationNoteWindows: annotationSession.sortedAnnotationNoteWindows,
     t,
     tabId,
     totalPages,
-    updateAnnotationNoteText,
+    updateAnnotationNoteText: annotationSession.updateAnnotationNoteText,
     viewMode,
     waitForDocumentOpenSettled,
     workingCopyPath,
     zoom,
 });
+
+
 const workspaceExpose = createWorkspaceExpose(context, {
     ensurePdfProjectionForEdit: ensureEditProjection,
     handleSave: handleSaveWithAutomationEvent,
@@ -858,7 +816,7 @@ const workspaceExpose = createWorkspaceExpose(context, {
     canRepairSave: canRepairSaveForDisplay,
     canOptimizePdf: canOptimizePdfForDisplay,
     canExportDocx,
-    viewerCapabilities: computed(() => activeDriverCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()),
+    viewerCapabilities,
     captureSplitPayload,
     restoreSplitPayload,
     waitForDocumentOpenSettled,
