@@ -26,12 +26,20 @@ Override the port with `EVB_MCP_PORT`. Requests are JSON-RPC over `POST` to the
 same address, and `GET /health` returns the server identity along with the
 tools, resources, and prompts it offers.
 
+Every request needs the header `Authorization: Bearer <token>`. The app creates
+the token on first start and keeps it in `agent-mcp-token.txt` in its user data
+folder; setting `EVB_MCP_TOKEN` before launch uses that value instead. The Codex
+registration made from Settings includes it.
+
 Point any MCP client at `http://127.0.0.1:38671`. For clients that speak stdio
-rather than HTTP, `scripts/evb-mcp-proxy.mjs` forwards to the same endpoint.
+rather than HTTP, `scripts/evb-mcp-proxy.mjs` relays each message to the same
+endpoint and writes the reply back. It reads the token from `EVB_MCP_TOKEN` and
+defaults to the development port, so pass `--url http://127.0.0.1:38671` for the
+packaged app.
 
 ## What the tools cover
 
-Around 28 tools, in five groups.
+Fifteen tools, in five groups.
 
 - **Workspace**: list open documents, snapshot panes and tabs, activate a tab,
   go to a page.
