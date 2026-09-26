@@ -1,0 +1,60 @@
+packages/i18n-app/messages/en.ts
+  s_b98379aeda0108::t_ad591bfb2058f8 371
+  s_b98379aeda0108::t_ddc84f0c77e8cb 381
+packages/i18n-app/messages/ru.ts
+  s_b98379aeda0108::t_ad591bfb2058f8 373
+  s_b98379aeda0108::t_ddc84f0c77e8cb 383
+tests/unit/electron/ocrSupersessionPageSelection.test.ts
+  s_b98379aeda0108::t_b359fe61638531 131-134,142-149
+  s_b98379aeda0108::t_6927e9e12ee0e7 115-130,135-141,150-154
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_b98379aeda0108::t_79b04c131196a0 511
+  s_b98379aeda0108::t_db0ab6873bb854 508,512
+  s_b98379aeda0108::t_744a765bcfa7d6 443-444,509-510,513,516,926,932
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_b98379aeda0108::t_b359fe61638531 354
+  s_b98379aeda0108::t_e74ff7a8fda3f3 336,352,358,362,364-365
+  s_b98379aeda0108::t_8e083bb84501d6 353
+scripts/test-ocr-quality-corpus.mjs
+  s_b98379aeda0108::t_61685f469b5018 265-266,273,278,281,284-285,972
+packages/i18n-app/messages/fr.ts
+  s_b98379aeda0108::t_ddc84f0c77e8cb 898
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_b98379aeda0108::t_a46234310a00a6 600,606
+  s_b98379aeda0108::t_face5961a0607b 255-261,289,292,320
+  s_b98379aeda0108::t_e37811d797f67c 291,301
+packages/i18n-app/messages/de.ts
+  s_b98379aeda0108::t_ddc84f0c77e8cb 897
+tests/unit/electron/ocrIpcHandlers.test.ts
+  s_b98379aeda0108::t_b359fe61638531 453-456,483-485,499-502
+  s_b98379aeda0108::t_eba57de4f5441f 428,451-452,457,481-482,497-498,503-504
+packages/i18n-app/messages/it.ts
+  s_b98379aeda0108::t_ddc84f0c77e8cb 897
+packages/i18n-app/messages/nl.ts
+  s_b98379aeda0108::t_ddc84f0c77e8cb 897
+packages/i18n-app/messages/pt.ts
+  s_b98379aeda0108::t_ddc84f0c77e8cb 898
+packages/i18n-app/messages/ptBr.ts
+  s_b98379aeda0108::t_ddc84f0c77e8cb 898
+packages/i18n-app/messages/es.ts
+  s_b98379aeda0108::t_ddc84f0c77e8cb 897
+electron/features/ocr/contracts.ts
+  s_b98379aeda0108::t_4ebe74c8bc1cd0 462,478-480,488
+  s_b98379aeda0108::t_b9ae5bdc495ac0 463-477
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e4022310ad9a06e37ec6f4b1ef8be244104de7b8",
+  "prompts": {},
+  "sessions": {
+    "s_b98379aeda0108": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0de0f-d649-7d83-9832-44afd04ccf5c",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
