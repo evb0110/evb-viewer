@@ -10,10 +10,8 @@
 - `pnpm lint && pnpm typecheck && pnpm build`
 - `pnpm run test:electron-bundle-static-integrity:no-build`
 - `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`
-- `pnpm run validate:iteration`
-- `pnpm validate`
-- `pnpm run validate:integration`
-- `pnpm run validate:nightly`
+- `pnpm run test:unit`
+- `pnpm run check:architecture`
 
 ## Intended Use
 
@@ -40,22 +38,12 @@
   through the vendored DjVu.js worker path.
 - Desktop app updates unavailable in browser runtime
 
-## Broader Gates
+## Architecture and checks
 
-- `pnpm run check:architecture` validates app/module boundaries. Normal `lint` runs the same focused import/boundary subset directly.
-- `pnpm run validate:iteration` classifies the current diff, runs content-cached
-  changed-file lint, affected TypeScript configs, and related Vitest tests.
-- `pnpm validate` selects affected lint, types, tests, deploy/native/build checks,
-  and Electron smoke when desktop behavior changed. Ordinary unit-test edits
-  run their changed files; shared helpers keep their consumer projects.
-- `pnpm run validate:integration` uses the affected plan with Electron regression
-  for app or Electron changes. It reuses a strict build when the plan needs one.
-- `pnpm run validate:nightly` adds informational reports, type and test coverage,
-  duplicate analysis and Rust/resource matrices. It is not a
-  per-worktree requirement.
-- Gate timings and input/cache evidence are written below the ignored
-  `.devkit/analysis/gates/` directory. Heavy builds, full unit runs, Rust work,
-  and Electron E2E share a cross-worktree weighted host semaphore.
+- `pnpm run check:architecture` runs ESLint path-boundary rules and dependency-cruiser cycle checks.
+- `pnpm lint` adds Stylelint and the landing-site lint command, using the tools' native caches.
+- `pnpm typecheck` uses the existing incremental TypeScript builds; `pnpm run test:unit` runs the unit projects.
+- Use `node scripts/run-all-gates.mjs` for full local release verification.
 
 ## Dependency graph
 

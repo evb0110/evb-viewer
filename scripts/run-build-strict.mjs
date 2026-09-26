@@ -1,7 +1,11 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
-import { spawn } from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+} from 'node:child_process';
 import {
     mkdirSync,
+    readFileSync,
     writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -9,7 +13,6 @@ import {
     fileURLToPath,
     pathToFileURL,
 } from 'node:url';
-import {writeValidationBuildMarker} from './validation-gates.mjs';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
@@ -64,6 +67,48 @@ export function getStrictBuildEnv(env = process.env) {
 }
 
 export const STRICT_BUILD_SCRIPT_NAME = 'build:desktop';
+const strictBuildStampPath = path.join(projectRoot, '.devkit', 'cache', 'build', 'strict.txt');
+
+/** @param {string} [root] @returns {string} */
+export function getStrictBuildStamp(root = projectRoot) {
+    const tree = execFileSync('git', [
+        'rev-parse',
+        'HEAD^{tree}',
+    ], {
+        cwd: root,
+        encoding: 'utf8',
+    }).trim();
+    const status = execFileSync('git', [
+        'status',
+        '--porcelain=v1',
+        '--untracked-files=all',
+    ], {
+        cwd: root,
+        encoding: 'utf8',
+    });
+    return `${tree}\n${status}`;
+}
+
+/** @param {string} [root] */
+export function writeStrictBuildStamp(root = projectRoot) {
+    const stampPath = root === projectRoot
+        ? strictBuildStampPath
+        : path.join(root, '.devkit', 'cache', 'build', 'strict.txt');
+    mkdirSync(path.dirname(stampPath), {recursive: true});
+    writeFileSync(stampPath, getStrictBuildStamp(root));
+}
+
+/** @param {string} [root] @returns {boolean} */
+export function isStrictBuildStampFresh(root = projectRoot) {
+    const stampPath = root === projectRoot
+        ? strictBuildStampPath
+        : path.join(root, '.devkit', 'cache', 'build', 'strict.txt');
+    try {
+        return readFileSync(stampPath, 'utf8') === getStrictBuildStamp(root);
+    } catch {
+        return false;
+    }
+}
 
 const COLLAPSED_WARNING_PATTERNS = [/\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u];
 
@@ -220,10 +265,8 @@ async function main() {
         'scripts/check-build-warnings.mjs',
         '.tmp/build.log',
     ], { preserveExistingBuildLog: true });
-    const markerPath = await writeValidationBuildMarker({buildScriptName: STRICT_BUILD_SCRIPT_NAME});
-    if (markerPath) {
-        process.stdout.write(`Recorded fresh strict-build marker at ${markerPath}.\n`);
-    }
+    writeStrictBuildStamp();
+    process.stdout.write(`Recorded strict-build stamp at ${strictBuildStampPath}.\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

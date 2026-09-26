@@ -123,8 +123,9 @@ persistence code, and why the runtime never loads on ordinary startup.
 
 ## Boundaries
 
-The module graph is enforced, not documented. `pnpm check:architecture` fails
-the build on a violation. The rules worth knowing:
+The module graph is enforced, not documented. `pnpm run check:architecture`
+runs ESLint import-boundary zones and dependency-cruiser cycle checks. The
+rules worth knowing:
 
 - `electron/**`, `packages/**`, and `landing/**` must not import `app/**`, and
   the reverse edges are blocked too. Nothing imports `scripts/**`.
@@ -134,11 +135,11 @@ the build on a violation. The rules worth knowing:
   go through a public entrypoint. A feature's `main/**` internals are private to
   that feature.
 - `app/services/**` must not import `app/composables/**`.
-- Deleted paths stay deleted: retired component and composable locations are
-  blocked so they cannot quietly come back.
+- Component directories contain Vue SFCs only, and PDF composables stay in
+  feature modules.
 
-Dependency cycles and platform-capability composition are checked by the same
-script.
+Platform-capability composition and other source-level policies are ESLint
+rules in the existing custom plugin.
 
 ## Where things live
 

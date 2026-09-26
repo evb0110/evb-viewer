@@ -1,3 +1,4 @@
+// eslint-disable-next-line import-classic/no-restricted-paths -- platform selector composes the aggregate API.
 import type { IPlatformApi } from '@contracts/platformApi';
 import { delay } from 'es-toolkit/promise';
 import {

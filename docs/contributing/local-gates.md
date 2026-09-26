@@ -3,15 +3,14 @@
 Run the smallest check that can detect a defect in the change. Remove a check
 when its value is unclear. Counts, quotas, source spelling, file layout, and
 duplicated proof are not acceptance criteria. The default
-`pnpm validate` selects affected checks. Use `pnpm validate:iteration` while
-editing and `pnpm validate:integration` when the change needs the affected
-Electron regression lane. Preview or inspect the selected plan before an
-expensive run when its scope is unclear.
+Run the smallest direct package command that covers the change: `pnpm lint`,
+`pnpm typecheck`, `pnpm run test:unit`, or a focused Vitest project/file.
+CI selects platform and Electron lanes from the changed areas.
 
-The pre-push hook checks commit attribution and runs the existing affected
-typecheck plan for the commits being pushed. It reads the ref-update lines once
-and passes them to both checks, so first pushes, force pushes, deletions, and
-multiple ref updates use the push's actual range. It does not run unit tests.
+The pre-push hook runs the publication policy first, then `pnpm typecheck` only
+when a pushed range includes TypeScript or Vue files. It reads the ref-update
+lines once, so first pushes, force pushes, deletions, and multiple ref updates
+use the push's actual ranges. It does not run unit tests.
 For a rare deliberate bypass, set `EVB_SKIP_PRE_PUSH_VERIFICATION=1` for that
 push. The attribution check still runs.
 
@@ -128,32 +127,15 @@ counting how its source was written.
 
 ## Reuse and parallel work
 
-The existing validation runner schedules independent stages by weight.
-`EVB_GATE_CAPACITY` can lower capacity when another workload shares the host.
-Cross-process heavy-gate coordination prevents concurrent runs from consuming
-the same capacity twice. Preserve the user's processes and other tasks' output
-directories. Do not overlap dependency installation or shared-output rebuilds
-with tests that consume those files.
-
-Lint and typecheck caches use source, configuration, toolchain, and environment
-fingerprints. Reuse successful evidence when its relevant inputs are unchanged.
-Rerun affected checks after changing a dependency, a test helper, or a conflict
-resolution. A new commit identifier alone does not require repeating every local
-check. Tests and artifact-producing stages execute whenever their selected
-plan runs.
-
-`--cold` uses clean lint and typecheck caches. `--no-cache` disables stage reuse.
-Use these to investigate cache behavior, not as routine extra acceptance runs.
-Gate logs are under `.devkit/analysis/gates/` and include stage results and
-elapsed time.
+ESLint, Stylelint, TypeScript, and Vitest use their own caches. Avoid overlapping
+dependency installation or shared-output rebuilds with tests that consume those
+files.
 
 ## Explicit broad and release checks
 
-Use `node scripts/run-all-gates.mjs` when a complete local release verification
-is actually required. It consolidates checks and reuses the validated strict
-build during packaging. `node scripts/validation-gates.mjs acceptance --all`
-selects its broad validation portion. These are deliberate selections, not the
-default path for ordinary fixes.
+Use `node scripts/run-all-gates.mjs` when complete local release verification
+is required. It runs the direct lint, typecheck, unit, strict-build, bundle
+integrity, Electron smoke, and release-verification commands in sequence.
 
 Select stress, fuzz, exhaustive corpora, and platform commands for the risks they
 exercise. Do not append every available suite to each release or repeat checks

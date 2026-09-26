@@ -1,3 +1,4 @@
+// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';

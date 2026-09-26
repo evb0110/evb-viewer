@@ -17,7 +17,6 @@
         "node_modules",
         "scripts/afterPack.cjs",
         "scripts/afterSign.cjs",
-        "scripts/architecture/formatComparisonRule.mjs",
         "scripts/benchmark-native-release-profiles.mjs",
         "scripts/benchmark-save-pipeline.mjs",
         "scripts/benchmark-targeted-pdf-validation-rss.mjs",

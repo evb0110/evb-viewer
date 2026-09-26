@@ -2,6 +2,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfDocument,
     IPdfPage,
+    // eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as types only.
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     assertDocumentPageNumber,

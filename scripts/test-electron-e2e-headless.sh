@@ -23,7 +23,6 @@ if [ "${1:-}" = "--no-build" ]; then
     exit 1
   fi
   shift 2
-  target_id="$target_project-no-build"
   test_command=(pnpm exec vitest run --project "$target_project" "$@")
 else
   echo "Usage: $0 --no-build <vitest-project> [vitest files, title filters, and arguments...]" >&2
@@ -44,9 +43,7 @@ if [ "$host_display_isolation" = "xvfb" ]; then
   # xvfb-run defaults to a 1280x1024 screen, which caps the real window a test
   # can ask for at about 1279x996 once the frame is counted. Give tests a
   # display an ordinary desktop window fits on.
-  exec node scripts/validation-gates.mjs heavy --id="electron-${target_id//:/-}" --weight=2 -- \
-    xvfb-run -a -s "-screen 0 ${EVB_XVFB_SCREEN:-1920x1200x24}" "${test_command[@]}"
+  exec xvfb-run -a -s "-screen 0 ${EVB_XVFB_SCREEN:-1920x1200x24}" "${test_command[@]}"
 fi
 
-exec node scripts/validation-gates.mjs heavy --id="electron-${target_id//:/-}" --weight=2 -- \
-  "${test_command[@]}"
+exec "${test_command[@]}"

@@ -29,10 +29,10 @@ export function getAllGateDefinitions() {
         },
         {
             args: [
-                'scripts/validation-gates.mjs',
-                'acceptance',
+                '-c',
+                'pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run build:strict && pnpm run test:electron-bundle-static-integrity:no-build && bash scripts/test-electron-e2e-headless.sh --no-build e2e-smoke',
             ],
-            command: 'node',
+            command: 'bash',
             description: 'Consolidated lint, types, unit and native tests, one strict build, and blocking Electron smoke',
             id: 'validate',
         },
@@ -57,12 +57,6 @@ export function getAllGateEnvironment(gateId, {
         ...baseEnv,
         FORCE_COLOR: baseEnv.FORCE_COLOR ?? '1',
     };
-    if (gateId === 'validate') {
-        return {
-            ...env,
-            EVB_VALIDATE_ALL_GATES: '1',
-        };
-    }
     if (gateId === 'release-verify' && receiptReady) {
         return {
             ...env,

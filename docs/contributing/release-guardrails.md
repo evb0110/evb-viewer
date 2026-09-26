@@ -13,7 +13,7 @@ here is required reading for an ordinary cut.
 - `pnpm run release:verify` is intentionally host-only for packaging. The release cutter relies on exact-SHA hosted CI for the cross-platform matrix.
 - Fresh installs follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../../landing/pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Routine local checks use `pnpm validate` and the affected plan. Coverage is an optional diagnostic with no numeric acceptance quota. Hosted CI runs for pull requests, every push to `main`, and integration-candidate pushes, with expensive behavior lanes selected by changed area. Select broader checks only for a concrete risk.
+- Routine local checks use `pnpm lint`, `pnpm typecheck`, and the affected tests. Coverage is an optional diagnostic with no numeric acceptance quota. Hosted CI runs for pull requests, every push to `main`, and integration-candidate pushes, with expensive behavior lanes selected by changed area. Select broader checks only for a concrete risk.
 
 ## Release invariants
 

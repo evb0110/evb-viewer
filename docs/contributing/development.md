@@ -153,17 +153,10 @@ pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test
 # One Electron E2E lane (see the lane table in docs/contributing/ci.md)
 pnpm run test:e2e e2e-smoke
 
-# Changed/related local loop
-pnpm run validate:iteration
-
-# Affected worktree acceptance
-pnpm validate
-
-# Affected integration checks and Electron regression
-pnpm run validate:integration
-
-# Exhaustive maintenance/soak tier
-pnpm run validate:nightly
+# Root lint, typecheck, and unit suite
+pnpm lint
+pnpm typecheck
+pnpm run test:unit
 
 # Native-resource sanity check
 pnpm run check:resources:matrix
@@ -203,11 +196,11 @@ the package phase reuses those exact outputs only while both the inputs and
 artifact hashes still match. Standalone package verification builds normally.
 Select coverage reports and stress tests only when they answer
 a concrete question. Run native and
-platform checks when the changed behavior requires them. For local iteration, use affected or file-scoped loops
-such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
+platform checks when the changed behavior requires them. For local iteration, use file-scoped loops
+such as `pnpm exec eslint app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
-`dist-electron/` already exists. Use `pnpm validate` for affected local acceptance. Select
+`dist-electron/` already exists. Select
 `node scripts/run-all-gates.mjs` when full local release verification is needed. Every pull request, every
 push to `main`, and every integration-candidate push runs the hosted checks;
 the release cutter trusts only the exact-SHA push run. The dormant Python page-processor was

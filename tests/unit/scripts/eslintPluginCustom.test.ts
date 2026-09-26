@@ -79,28 +79,6 @@ describe('commonjs-named-imports rule', () => {
     });
 });
 
-describe('no-removed-package-aliases rule', () => {
-    it('rejects the contracts barrel and removed scoped aliases while allowing canonical subpaths', () => {
-        tester.run('no-removed-package-aliases', rules['no-removed-package-aliases'] as Parameters<typeof tester.run>[1], {
-            valid: [
-                { code: 'import { requireDocumentRevisionToken } from \'@contracts/documentRevision\';' },
-                { code: 'import { LOCALE_CODES } from \'@i18n-core/localeCodes\';' },
-                { code: 'export { selectPreferredInstallers } from \'@releaseSelection\';' },
-            ],
-            invalid: [
-                {
-                    code: 'import { requireDocumentRevisionToken } from \'@contracts\';',
-                    errors: [{message: 'Use a canonical package subpath instead of removed alias "@contracts".'}],
-                },
-                {
-                    code: 'export { plural } from \'@evb/i18n-core/messageFormat\';',
-                    errors: [{message: 'Use a canonical package subpath instead of removed alias "@evb/i18n-core/messageFormat".'}],
-                },
-            ],
-        });
-    });
-});
-
 describe('no-bare-page-number-type rule', () => {
     it('requires branded scalar and collection page addresses', () => {
         tester.run(

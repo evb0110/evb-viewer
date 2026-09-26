@@ -32,7 +32,6 @@ const vitestProjectNames = {
     unitElectron: 'unit-electron',
     unitScripts: 'unit-scripts',
     unitPolicy: 'unit-policy',
-    unitStaticArchitecture: 'unit-static-architecture',
     browserIntegration: 'browser-integration',
     nativeIntegration: 'native-integration',
     electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
@@ -41,10 +40,6 @@ const vitestProjectNames = {
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
 const browserIntegrationTestFiles = ['tests/integration/browser/**/*.test.ts'];
 const unitPolicyTestFiles = ['tests/unit/scripts/*Policy.test.ts'];
-export const staticArchitectureTestFiles = [
-    'tests/unit/architecture/**/*.test.ts',
-    'tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts',
-];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
@@ -177,7 +172,6 @@ export const vitestProjects = [
         ['tests/unit/app/**/*.test.ts'],
         {
             autoImport: true,
-            exclude: staticArchitectureTestFiles,
             vueComponents: true,
             setupFiles: appUnitTestSetupFiles,
         },
@@ -197,10 +191,6 @@ export const vitestProjects = [
     createUnitTestProject(
         vitestProjectNames.unitPolicy,
         unitPolicyTestFiles,
-    ),
-    createUnitTestProject(
-        vitestProjectNames.unitStaticArchitecture,
-        staticArchitectureTestFiles,
     ),
     createBundleIntegrityTestProject(),
     ...[

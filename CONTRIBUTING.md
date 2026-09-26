@@ -53,9 +53,9 @@ Full setup, commands, and the checks are in
 
 ## Checks
 
-Run `pnpm validate:iteration` while editing and `pnpm validate` for the
-change's affected checks. Run a targeted behavior or platform test when it
-covers a risk that the selected plan cannot exercise. See
+Run `pnpm lint`, `pnpm typecheck`, and the affected unit or integration tests.
+Run a targeted behavior or platform test when it covers a risk those checks do
+not exercise. See
 [local checks](docs/contributing/local-gates.md) for explicit broader and release commands.
 
 Keep tests small and useful. Give an invariant one owning suite with the cases

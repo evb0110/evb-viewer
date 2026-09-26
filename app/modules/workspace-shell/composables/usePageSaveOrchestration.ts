@@ -2,6 +2,7 @@ import type {
     ComputedRef, Ref, ShallowRef,
 } from 'vue';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfBookmarkEntry, IPdfPageLabelRange,

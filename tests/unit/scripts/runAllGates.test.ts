@@ -26,22 +26,9 @@ interface IRunAllGatesModule {
     }) => IGateDefinition[];
 }
 
-interface IStagePoolModule {runStagePool: <T extends {
-    dependsOn?: string[];
-    id: string;
-    weight?: number
-}>(
-    stages: T[],
-    runStage: (stage: T) => Promise<void>,
-    options?: {capacity?: number},
-) => Promise<void>;}
-
 const runner = await import(pathToFileURL(
     path.resolve(process.cwd(), 'scripts/run-all-gates.mjs'),
 ).href) as IRunAllGatesModule;
-const {runStagePool} = await import(pathToFileURL(
-    path.resolve(process.cwd(), 'scripts/validation-gates.mjs'),
-).href) as IStagePoolModule;
 
 describe('all-gates orchestration', () => {
     it('uses one consolidated validation phase before release verification', () => {
@@ -85,34 +72,4 @@ describe('all-gates orchestration', () => {
         expect(withReceipt).not.toHaveProperty('EVB_RELEASE_VERIFY_SKIP');
     });
 
-    it('runs independent stages while releasing weighted capacity for dependents', async () => {
-        const events: string[] = [];
-        let activeWeight = 0;
-        let maxActiveWeight = 0;
-        await runStagePool([
-            {
-                id: 'lint',
-                weight: 2,
-            },
-            {
-                id: 'coverage',
-                weight: 1,
-            },
-            {
-                id: 'build',
-                dependsOn: ['lint'],
-                weight: 2,
-            },
-        ], async stage => {
-            activeWeight += stage.weight ?? 1;
-            maxActiveWeight = Math.max(maxActiveWeight, activeWeight);
-            events.push(`start:${stage.id}`);
-            await new Promise(resolve => setTimeout(resolve, 5));
-            events.push(`end:${stage.id}`);
-            activeWeight -= stage.weight ?? 1;
-        }, {capacity: 2});
-
-        expect(maxActiveWeight).toBeLessThanOrEqual(2);
-        expect(events.indexOf('start:build')).toBeGreaterThan(events.indexOf('end:lint'));
-    });
 });

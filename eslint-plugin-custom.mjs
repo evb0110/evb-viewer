@@ -54,64 +54,6 @@ function toRepoPath(filePath) {
     return path.relative(process.cwd(), filePath).split(path.sep).join('/');
 }
 
-const REMOVED_PACKAGE_ALIAS_PREFIXES = [
-    '@evb/contracts',
-    '@evb/pdf-core',
-    '@evb/electron-worker-bundles',
-    '@evb/i18n-core',
-    '@evb/i18n-app',
-    '@evb/releaseSelection',
-];
-
-function isRemovedPackageAlias(value) {
-    return value === '@contracts'
-        || value === '@contracts/index'
-        || REMOVED_PACKAGE_ALIAS_PREFIXES.some(prefix => (
-            value === prefix || value.startsWith(`${prefix}/`)
-        ));
-}
-
-const noRemovedPackageAliasesRule = {
-    meta: {
-        type: 'problem',
-        docs: {
-            description: 'Reject removed package aliases and the contracts barrel import',
-            recommended: true,
-        },
-        schema: [],
-    },
-    create(context) {
-        function reportSource(source) {
-            const value = getLiteralValue(source);
-            if (!value || !isRemovedPackageAlias(value)) {
-                return;
-            }
-            context.report({
-                node: source,
-                message: `Use a canonical package subpath instead of removed alias "${value}".`,
-            });
-        }
-
-        return {
-            ImportDeclaration(node) {
-                reportSource(node.source);
-            },
-            ExportNamedDeclaration(node) {
-                reportSource(node.source);
-            },
-            ExportAllDeclaration(node) {
-                reportSource(node.source);
-            },
-            ImportExpression(node) {
-                reportSource(node.source);
-            },
-            TSImportType(node) {
-                reportSource(node.source ?? node.argument);
-            },
-        };
-    },
-};
-
 function stripTypeScriptSuffixes(fileName) {
     let stem = fileName.replace(/(?:\.d)?\.[cm]?tsx?$/u, '');
     const parts = stem.split('.');
@@ -813,8 +755,283 @@ const noBarePageNumberTypeRule = {
     },
 };
 
+function makeArchitectureRule(description, create) {
+    return {
+        meta: {
+            type: 'problem',
+            docs: {description},
+            schema: [],
+        },
+        create,
+    };
+}
+
+function hasRepoPathPrefix(fileName, prefix) {
+    return fileName === prefix || fileName.startsWith(`${prefix}/`);
+}
+
+const architectureRules = {
+    'annotation-storage-public-access': makeArchitectureRule(
+        'Require public annotation storage diagnostics access',
+        context => {
+            const fileName = toRepoPath(context.filename);
+            if (![
+                'app',
+                'electron',
+                'landing',
+                'packages',
+                'scripts',
+                'server',
+            ].some(root => hasRepoPathPrefix(fileName, root))) return {};
+            const source = context.sourceCode.text;
+            const aliases = new Set(['annotationStorage']);
+            for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*\??\.\s*annotationStorage\b/gu)) {
+                if (match[1]) aliases.add(match[1]);
+            }
+            const members = '(?:serializable|modifiedIds|resetModified|resetModifiedIds)';
+            return {Program() {
+                if ([...aliases].some(alias => new RegExp(`\\b${alias}\\s*(?:\\?\\.)?\\s*(?:\\.\\s*${members}|\\?\\.\\s*${members}|\\[\\s*["']${members}["']\\s*\\])`, 'u').test(source))) {
+                    context.report({
+                        node: context.sourceCode.ast,
+                        message: 'PDF.js annotationStorage internals must be accessed through the public annotation diagnostics accessor.',
+                    });
+                }
+            }};
+        },
+    ),
+    'pdfjs-import-boundary': makeArchitectureRule('Restrict PDF.js imports to renderer and adapter roots', context => {
+        const fileName = toRepoPath(context.filename);
+        const allowed = [
+            'app/modules/pdf-viewer',
+            'app/services/pdfjs',
+            'app/modules/document-viewer/source',
+            'electron/features/search',
+            'tests/e2e/electron/helpers/fixtures.ts',
+            'tests/helpers/renderPdfCanvasFidelityMetrics.ts',
+            'tests/unit/app/platform/pdfjsJbig2Consumer.test.ts',
+            'tests/unit/app/modules/pdf-viewer/engine/createPdfRangeRequestBridge.test.ts',
+        ];
+        if (allowed.some(root => hasRepoPathPrefix(fileName, root))
+            || fileName === 'app/platform/browser-api/browserPdfjsDocumentInit.ts') return {};
+        const report = node => {
+            const value = getLiteralValue(node);
+            if (typeof value === 'string' && /^pdfjs-dist(?:\/|$)/u.test(value)) {
+                context.report({
+                    node,
+                    message: 'pdfjs-dist imports belong only in the renderer or its PDF.js adapter roots.',
+                });
+            }
+        };
+        return {
+            ImportDeclaration: node => report(node.source),
+            ExportNamedDeclaration: node => { if (node.source) report(node.source); },
+            ExportAllDeclaration: node => { if (node.source) report(node.source); },
+            TSImportEqualsDeclaration(node) { report(node.moduleReference?.expression); },
+            ImportExpression: node => report(node.source),
+            CallExpression(node) {
+                if (node.arguments.length === 1 && node.callee.type === 'Identifier' && node.callee.name === 'require') report(node.arguments[0]);
+            },
+        };
+    }),
+    'platform-api-narrow-getter': makeArchitectureRule('Require narrow platform capability getters', context => {
+        const fileName = toRepoPath(context.filename);
+        if (!hasRepoPathPrefix(fileName, 'app') || /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(fileName)
+            || fileName.includes('/__tests__/')) return {};
+        const allowed = new Set([
+            'app/utils/platformDocuments.ts',
+            'app/utils/getShellCapability.ts',
+            'app/utils/getSettingsCapability.ts',
+            'app/utils/getDjvuCapability.ts',
+            'app/utils/getOcrCapability.ts',
+            'app/utils/getScanCleanupCapability.ts',
+            'app/utils/getSearchCapability.ts',
+            'app/utils/platformUpdates.ts',
+            'app/utils/platformWindowTabs.ts',
+            'app/utils/getAgentCapability.ts',
+            'app/utils/getHostCapability.ts',
+            'app/utils/getSystemCapability.ts',
+        ]);
+        if (allowed.has(fileName)) return {};
+        const direct = new Set();
+        const namespace = new Set();
+        const normalize = value => value.startsWith('@app/') ? `app/${value.slice(5)}`
+            : value.startsWith('~/') ? `app/${value.slice(2)}`
+                : value.startsWith('./') || value.startsWith('../')
+                    ? path.posix.normalize(path.posix.join(path.posix.dirname(fileName), value)) : value;
+        function isPlatformHelper(value) {
+            return path.posix.normalize(normalize(value).replace(/\.[cm]?[jt]sx?$/u, '')) === 'app/utils/platform';
+        }
+        return {
+            ImportDeclaration(node) {
+                if (!isPlatformHelper(node.source.value) || node.importKind === 'type') return;
+                for (const specifier of node.specifiers) {
+                    if (specifier.importKind === 'type') continue;
+                    if (specifier.type === 'ImportNamespaceSpecifier') namespace.add(specifier.local.name);
+                    if (specifier.type === 'ImportSpecifier' && (specifier.imported.name ?? specifier.imported.value) === 'getPlatformAPI') direct.add(specifier.local.name);
+                }
+            },
+            CallExpression(node) {
+                const callee = node.callee;
+                if ((callee.type === 'Identifier' && direct.has(callee.name))
+                    || (callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'getPlatformAPI'
+                        && callee.object.type === 'Identifier' && namespace.has(callee.object.name))) {
+                    context.report({
+                        node,
+                        message: 'App code must use a narrow platform capability getter instead of calling getPlatformAPI() directly.',
+                    });
+                }
+            },
+        };
+    }),
+    'contracts-node-runtime': makeArchitectureRule('Keep shared contracts free of Node runtime dependencies', context => {
+        if (!hasRepoPathPrefix(toRepoPath(context.filename), 'packages/contracts')) return {};
+        const builtins = new Set('assert buffer child_process cluster console constants crypto dgram diagnostics_channel dns domain events fs http http2 https module net os path perf_hooks process punycode querystring readline repl stream string_decoder sys timers tls trace_events tty url util v8 vm wasi worker_threads zlib electron'.split(' '));
+        const isNodeModule = value => value.startsWith('node:') || builtins.has(value.split('/')[0]);
+        const hasRuntimeBindings = node => node.importKind !== 'type'
+            && (node.specifiers.length === 0 || node.specifiers.some(specifier => specifier.importKind !== 'type' && specifier.importKind !== 'typeof'));
+        const checkSource = (node, isExport = false) => {
+            const value = getLiteralValue(node.source);
+            const runtime = isExport
+                ? node.exportKind !== 'type' && (!node.specifiers?.length || node.specifiers.some(specifier => specifier.exportKind !== 'type'))
+                : hasRuntimeBindings(node);
+            if (value && runtime && isNodeModule(value)) context.report({
+                node: node.source,
+                message: 'Portable contracts must not import or re-export Node runtime modules.',
+            });
+        };
+        return {
+            ImportDeclaration: node => checkSource(node),
+            ExportNamedDeclaration: node => { if (node.source) checkSource(node, true); },
+            ExportAllDeclaration: node => { if (node.source) checkSource(node, true); },
+            TSImportEqualsDeclaration(node) {
+                const value = getLiteralValue(node.moduleReference?.expression);
+                if (!node.isTypeOnly && value && isNodeModule(value)) context.report({
+                    node,
+                    message: 'Portable contracts must not import Node runtime modules.',
+                });
+            },
+            ImportExpression(node) {
+                const value = getLiteralValue(node.source);
+                if (value && isNodeModule(value)) context.report({
+                    node,
+                    message: 'Portable contracts must not load Node runtime modules dynamically.',
+                });
+            },
+            CallExpression(node) {
+                if (node.callee.type !== 'Identifier' || node.callee.name !== 'require') return;
+                const value = getLiteralValue(node.arguments[0]);
+                if (value && isNodeModule(value)) context.report({
+                    node,
+                    message: 'Portable contracts must not load Node runtime modules dynamically.',
+                });
+            },
+            Identifier(node) {
+                if ([
+                    'process',
+                    'Buffer',
+                ].includes(node.name)
+                    && !(node.parent.type === 'MemberExpression' && node.parent.property === node)
+                    && !(node.parent.type === 'TSQualifiedName' && node.parent.right === node)) {
+                    context.report({
+                        node,
+                        message: `Portable contracts must not access the Node global ${node.name}.`,
+                    });
+                }
+            },
+        };
+    }),
+    'workspace-format-comparison': makeArchitectureRule('Avoid format comparisons in workspace shell', context => {
+        if (!hasRepoPathPrefix(toRepoPath(context.filename), 'app/modules/workspace-shell')) return {};
+        const formatLiterals = new Set([
+            'pdf',
+            'native-pdf',
+            'pdfjs',
+            'djvu',
+            'image',
+        ]);
+        const isLiteral = node => node?.type === 'Literal' && typeof node.value === 'string' && formatLiterals.has(node.value);
+        const unwrap = node => {
+            let current = node;
+            while (current && [
+                'ChainExpression',
+                'TSAsExpression',
+                'TSTypeAssertion',
+                'TSNonNullExpression',
+                'TSSatisfiesExpression',
+            ].includes(current.type)) current = current.expression;
+            return current;
+        };
+        const liveName = name => name === 'adapter' || name === 'document' || name === 'driver' || name === 'format' || name === 'sourceKind' || name === 'viewer'
+            || /^(?:active|workspace)?(?:adapter|document|driver|viewer)(?:adapter|driver|viewer|id|type|kind|format|identifier|state)?$/iu.test(name)
+            || /^(?:document|driver|viewer)(?:id|type|kind|format|identifier|state)$/iu.test(name);
+        const memberNames = node => {
+            const item = unwrap(node);
+            if (item?.type === 'Identifier') return [item.name];
+            if (item?.type !== 'MemberExpression') return [];
+            const property = item.property.type === 'Identifier' ? item.property.name : item.property.value;
+            return [
+                ...memberNames(item.object),
+                property,
+            ].filter(Boolean);
+        };
+        const isDiscriminant = node => {
+            const item = unwrap(node);
+            return item?.type === 'Identifier' ? liveName(item.name)
+                : item?.type === 'MemberExpression' && memberNames(item).some(liveName);
+        };
+        const text = node => context.sourceCode.getText(node);
+        return {
+            BinaryExpression(node) {
+                if (![
+                    '==',
+                    '===',
+                    '!=',
+                    '!==',
+                ].includes(node.operator)) return;
+                const literal = isLiteral(node.left) ? node.left : isLiteral(node.right) ? node.right : null;
+                const discriminant = literal === node.left ? node.right : node.left;
+                if (literal && isDiscriminant(discriminant)) context.report({
+                    node,
+                    message: `Format comparison on ${text(discriminant)} uses "${literal.value}".`,
+                });
+            },
+            SwitchStatement(node) {
+                if (!isDiscriminant(node.discriminant)) return;
+                for (const item of node.cases) if (isLiteral(item.test)) context.report({
+                    node: item,
+                    message: `Format switch case on ${text(node.discriminant)} uses "${item.test.value}".`,
+                });
+            },
+        };
+    }),
+    'component-directory-source': makeArchitectureRule('Keep component directories limited to Vue SFCs', context => ({Program() {
+        const fileName = toRepoPath(context.filename);
+        if ([
+            'app',
+            'electron',
+            'landing',
+            'packages',
+            'scripts',
+            'server',
+        ].some(root => hasRepoPathPrefix(fileName, root))
+            && fileName.split('/').includes('components') && !fileName.endsWith('.vue')
+            && !/\.d\.(?:ts|mts|cts)$/u.test(fileName)) context.report({
+            node: context.sourceCode.ast,
+            message: 'Component directories must contain Vue SFCs only; move helpers, state, and schedulers into feature modules.',
+        });
+    }})),
+    'top-level-pdf-composable': makeArchitectureRule('Keep PDF composables in feature modules', context => ({Program() {
+        const fileName = toRepoPath(context.filename);
+        if (fileName.startsWith('app/composables/usePdf') && fileName.endsWith('.ts')
+            && !fileName.endsWith('.d.ts') && fileName !== 'app/composables/usePdfFile.ts') context.report({
+            node: context.sourceCode.ast,
+            message: 'Top-level app/composables/usePdf*.ts files are blocked; keep PDF composables in feature modules.',
+        });
+    }})),
+};
+
 export default {rules: {
-    'no-removed-package-aliases': noRemovedPackageAliasesRule,
+    ...architectureRules,
     'no-raw-red-presentation': noRawRedPresentationRule,
     'no-direct-console-error': noDirectConsoleErrorRule,
     'no-bare-page-number-type': noBarePageNumberTypeRule,

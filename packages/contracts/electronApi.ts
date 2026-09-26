@@ -1,3 +1,4 @@
+// eslint-disable-next-line import-classic/no-restricted-paths -- Electron API contract reuses the aggregate API.
 import type { IPlatformApi } from '@contracts/platformApi';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';

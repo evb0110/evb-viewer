@@ -1,8 +1,10 @@
+import {readdirSync} from 'node:fs';
 import withNuxt from './.nuxt/eslint.config.mjs';
 import stylistic from '@stylistic/eslint-plugin';
 import * as tsParser from '@typescript-eslint/parser';
 import * as vueParser from 'vue-eslint-parser';
 import customPlugin from './eslint-plugin-custom.mjs';
+import importPlugin from 'eslint-plugin-import';
 import {
     arrayTypeRules,
     namingRules,
@@ -19,7 +21,100 @@ const ABSOLUTE_IMPORT_SOURCE_FILES = [
     'tests/**/*.ts',
 ];
 
+const moduleEntrypoints = [
+    'public', 'index.ts', 'index.tsx', 'index.js', 'index.mjs', 'public.ts', 'public.tsx',
+    'publicNative.ts', 'public.js', 'public.mjs', 'public/index.ts', 'public/index.tsx',
+    'public/index.js', 'public/index.mjs',
+];
+const boundaryZones = [];
+const addZone = (target, from, except = []) => boundaryZones.push({
+    target,
+    from,
+    ...(except.length > 0 ? {except} : {}),
+});
+
+for (const [source, target] of [
+    ['electron', 'app'], ['landing', 'app'], ['landing', 'electron'], ['electron', 'landing'],
+    ['app', 'landing'], ['packages', 'app'], ['packages', 'electron'], ['packages', 'landing'],
+    ['app/services', 'app/composables'], ['scripts', 'electron'], ['scripts', 'app'],
+    ['app', 'scripts'], ['electron', 'scripts'], ['packages', 'scripts'], ['server', 'electron'],
+    ['server', 'landing'], ['app', 'server'], ['electron', 'server'], ['landing', 'server'],
+    ['packages', 'server'],
+]) addZone(source, target);
+
+for (const [source, allowed] of [
+    ['packages/contracts', ['contracts', 'i18n-core']],
+    ['packages/pdf-core', ['pdf-core', 'contracts']],
+    ['packages/agent-core', ['agent-core', 'contracts']],
+    ['packages/i18n-core', ['i18n-core']],
+    ['packages/i18n-app', ['i18n-app', 'i18n-core']],
+    ['packages/release-selection', ['release-selection', 'contracts']],
+    ['packages/electron-worker-bundles', ['electron-worker-bundles']],
+    ['packages/scan-cleanup', ['scan-cleanup', 'contracts']],
+]) addZone(source, 'packages', allowed.map(name => `./${name}`));
+addZone('packages/!(contracts|pdf-core|agent-core|release-selection|scan-cleanup)/**/*', 'packages/contracts');
+
+for (const [prefix, allowed] of [
+    ['app/modules', moduleEntrypoints],
+    ['electron/features', [...moduleEntrypoints, 'contract.ts']],
+]) {
+    const owners = readdirSync(prefix, {withFileTypes: true})
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+    for (const sourceOwner of owners) {
+        for (const targetOwner of owners) {
+            if (sourceOwner === targetOwner) continue;
+            addZone(`${prefix}/${sourceOwner}`, `${prefix}/${targetOwner}`, allowed);
+        }
+    }
+}
+for (const owner of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
+    for (const importer of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
+        if (owner !== importer) addZone(`electron/features/${importer}`, `electron/features/${owner}/main`);
+    }
+}
+
+for (const ownerRoot of ['app/platform/browser-api', 'app/modules/document-viewer']) {
+    const appChildren = readdirSync('app', {withFileTypes: true})
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+    for (const child of appChildren) {
+        if (ownerRoot.startsWith(`app/${child}/`)) {
+            const ownerName = ownerRoot.slice(`app/${child}/`.length);
+            addZone(`app/${child}/!(${ownerName})/**/*`, ownerRoot, ['public.ts']);
+        } else {
+            addZone(`app/${child}`, ownerRoot, ['public.ts']);
+        }
+    }
+}
+for (const owner of readdirSync('app/modules', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
+    addZone('app/pages', `app/modules/${owner}`, moduleEntrypoints);
+}
+for (const [target, from] of [
+    ['app/modules/pdf-viewer/runtime/annotations', 'app/modules/pdf-viewer/tools'],
+    ['app/modules/pdf-viewer/tools', 'app/modules/pdf-viewer/runtime/annotations'],
+    ['app/modules/pdf-viewer/runtime/save', 'app/modules/pdf-viewer/runtime/annotations'],
+    ['app/modules/pdf-viewer/runtime/save', 'app/modules/pdf-viewer/tools'],
+]) addZone(target, from);
+addZone('app/!(modules/pdf-viewer)/**/*', 'app/modules/pdf-viewer/runtime/save');
+for (const target of ['electron', 'packages', 'scripts', 'server', 'landing']) addZone(target, 'app/modules/pdf-viewer/runtime/save');
+addZone('app/modules/pdf-viewer/engine', 'app/modules/pdf-viewer', ['./engine', './dom']);
+addZone(['app', 'packages'], 'packages/contracts/platformApi.ts');
+addZone('electron/native-tools', ['electron/pdf', 'electron/features/djvu']);
+const ocrNativeToolPaths = [
+    'electron/features/ocr/main/paths.ts',
+    'electron/features/ocr/main/nativeToolPaths.ts',
+    'electron/features/ocr/main/resolveOcrResourcesBase.ts',
+    'electron/features/ocr/pipeline/dpiDetection.ts',
+];
+for (const entry of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
+    if (entry !== 'ocr') addZone(`electron/features/${entry}`, ocrNativeToolPaths);
+}
+for (const entry of ['pdf', 'djvu', 'native-tools']) addZone(`electron/${entry}`, ocrNativeToolPaths);
+addZone('electron/native-tools', ocrNativeToolPaths);
+
 const namingOnlyConfig = [
+    {ignores: ['landing/.nuxt/**', 'landing/.output/**', 'landing/dist/**', 'landing/node_modules/**']},
     {
         files: ['landing/**/*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}'],
         languageOptions: {
@@ -29,8 +124,14 @@ const namingOnlyConfig = [
                 sourceType: 'module',
             },
         },
-        plugins: {custom: customPlugin},
-        rules: {'custom/file-naming': 'error'},
+        plugins: {custom: customPlugin, 'import-classic': importPlugin},
+        settings: {
+            'import/resolver': {typescript: {project: './tsconfig.json'}},
+        },
+        rules: {
+            'custom/file-naming': 'error',
+            'import-classic/no-restricted-paths': ['error', {basePath: import.meta.dirname, zones: boundaryZones}],
+        },
     },
     {
         files: ['landing/**/*.vue'],
@@ -42,8 +143,14 @@ const namingOnlyConfig = [
                 sourceType: 'module',
             },
         },
-        plugins: {custom: customPlugin},
-        rules: {'custom/file-naming': 'error'},
+        plugins: {custom: customPlugin, 'import-classic': importPlugin},
+        settings: {
+            'import/resolver': {typescript: {project: './tsconfig.json'}},
+        },
+        rules: {
+            'custom/file-naming': 'error',
+            'import-classic/no-restricted-paths': ['error', {basePath: import.meta.dirname, zones: boundaryZones}],
+        },
     },
 ];
 
@@ -64,8 +171,20 @@ const projectConfig = withNuxt(
         plugins: {
             '@stylistic': stylistic,
             custom: customPlugin,
+            'import-classic': importPlugin,
+        },
+        settings: {
+            'import/resolver': {
+                typescript: {
+                    project: './tsconfig.json',
+                },
+            },
         },
         rules: {
+            'import-classic/no-restricted-paths': ['error', {
+                basePath: import.meta.dirname,
+                zones: boundaryZones,
+            }],
             'vue/no-multiple-template-root': 'off',
             'vue/html-self-closing': 'off',
             'vue/no-undef-components': [
@@ -95,9 +214,7 @@ const projectConfig = withNuxt(
             '@typescript-eslint/explicit-module-boundary-types': 'off',
             '@typescript-eslint/no-inferrable-types': 'error',
             'no-return-await': 'error',
-            // Import graph and architectural boundaries are enforced by
-            // `check:architecture:imports`; keeping them out of ESLint avoids
-            // resolver-heavy graph work on every lint pass.
+            // Keep shared package imports on their public entrypoints.
             'no-restricted-imports': [
                 'error',
                 {patterns: [
@@ -129,7 +246,13 @@ const projectConfig = withNuxt(
             'custom/no-core-correctness-timers': 'error',
             'custom/no-raw-red-presentation': 'error',
             'custom/no-direct-console-error': 'error',
-            'custom/no-removed-package-aliases': 'error',
+            'custom/annotation-storage-public-access': 'error',
+            'custom/pdfjs-import-boundary': 'error',
+            'custom/platform-api-narrow-getter': 'error',
+            'custom/contracts-node-runtime': 'error',
+            'custom/workspace-format-comparison': 'error',
+            'custom/component-directory-source': 'error',
+            'custom/top-level-pdf-composable': 'error',
             ...stylisticRules,
         },
     },
@@ -142,6 +265,19 @@ const projectConfig = withNuxt(
         files: ['app/components/AppTooltip.vue'],
         rules: {
             'custom/app-tooltip-only': 'off',
+        },
+    },
+    {
+        files: ['tests/**/*'],
+        rules: {
+            'import-classic/no-restricted-paths': 'off',
+            'custom/annotation-storage-public-access': 'off',
+            'custom/pdfjs-import-boundary': 'off',
+            'custom/platform-api-narrow-getter': 'off',
+            'custom/contracts-node-runtime': 'off',
+            'custom/workspace-format-comparison': 'off',
+            'custom/component-directory-source': 'off',
+            'custom/top-level-pdf-composable': 'off',
         },
     },
     {
