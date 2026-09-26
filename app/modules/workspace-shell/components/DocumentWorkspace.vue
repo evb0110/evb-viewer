@@ -10,7 +10,7 @@
                 :has-pdf="toolbarHasPdf"
                 :can-toggle-sidebar="canToggleSidebar"
                 :can-use-ocr="canUseOcr"
-                :can-use-djvu="canUseDjvu"
+                can-use-djvu
                 :is-desktop-runtime="isDesktopRuntime"
                 :surface="toolbarSurface"
                 :is-fullscreen="isFullscreen"
@@ -46,11 +46,11 @@
                 @open-settings="emit('open-settings')"
                 @open-scan-cleanup="scanCleanup.openScanCleanup"
                 @save="runToolbarAction(handleSaveWithAutomationEvent)"
-                @repair-save="runToolbarAction(handleRepairSave)"
+                @repair-save="runToolbarAction(save.handleRepairSave)"
                 @optimize-pdf-for-interaction="runToolbarAction(openOptimizePdfForInteractionDialog)"
                 @save-as="runToolbarAction(handleSaveAs)"
-                @print="handlePrint"
-                @print-current-page="handlePrintCurrentPage"
+                @print="print.handlePrint"
+                @print-current-page="print.handlePrintCurrentPage"
                 @combine-files="emit('open-combine')"
                 @export-docx="runToolbarAction(handleExportDocx)"
                 @ocr-export-docx="handleExportDocx"
@@ -107,12 +107,12 @@
         >
             <template #sidebar>
                 <WorkspaceDocumentSidebar
-                    :shows-pdf-sidebar="driverShowsPdfSidebar"
+                    :shows-pdf-sidebar="showsPdfSidebar"
                     :is-open="isSidebarPresented"
                     :is-active="isDocumentSidebarActive"
                     :is-source-resizing="isSourceSidebarResizing"
                     :page-labels="toolbarPageLabels"
-                    :document-opening="isOpeningDocumentForToolbarDisplay"
+                    :document-opening="isOpeningDocumentForDisplay"
                 />
             </template>
             <!-- The document chassis stays laid out while Start covers it, so an
@@ -134,7 +134,7 @@
             <PdfStatusBar
                 :file-path="statusBar.statusFilePath.value"
                 :file-size-label="statusBar.statusFileSizeLabel.value"
-                :zoom-label="statusZoomLabelForDisplay"
+                :zoom-label="statusZoomLabel"
                 :materialization-label="statusBar.statusMaterializationLabel.value"
                 :can-show-in-folder="statusBar.statusCanShowInFolder.value"
                 :show-in-folder-tooltip="statusBar.statusShowInFolderTooltip.value"
@@ -162,7 +162,6 @@
 </template>
 
 <script setup lang="ts">
-import { until } from '@vueuse/core';
 import '@app/assets/css/pdfjs-overrides.scss';
 import '@app/assets/css/pdf-comment-markers.scss';
 import '@app/assets/css/pdf-comment-ui.scss';
@@ -182,26 +181,17 @@ import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout
 import WorkspaceDocumentSidebar from '@app/modules/workspace-shell/components/WorkspaceDocumentSidebar.vue';
 import WorkspaceScanCleanupSurface from '@app/modules/workspace-shell/components/WorkspaceScanCleanupSurface.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
-import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TPdfViewMode } from '@contracts/shared';
-import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     useDocumentWorkspaceAgent,
     type IOcrPopupAgentExpose,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
-import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
 import {
     createDocumentContext,
     provideDocumentContext,
 } from '@app/modules/workspace-shell/documentContext';
-import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
-import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
-import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
-import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
-import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
-import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
-import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
+import { useWorkspacePresentation } from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
@@ -209,7 +199,6 @@ import {
     EMPTY_STATE_READER_COMMAND_SURFACE,
 } from '@app/utils/readerCommandSurface';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
-import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useWorkspaceDocumentLifecycle } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import { DjvuConversionOverlay } from '@app/modules/djvu-viewer/public';
@@ -249,22 +238,6 @@ const {
     documentSession: IWorkspaceDocumentController;
     splitCacheSession?: IWorkspaceSplitCacheSessionState | null | undefined;
 }>();
-// The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
-// comes back where it was.
-const initialViewState = documentSession.viewState.value;
-const {
-    canTeleportStatus,
-    canTeleportToolbar,
-} = useWorkspaceHostTeleportAvailability({
-    toolbarHostId: 'editor-global-toolbar-host',
-    statusHostId: 'editor-global-status-host',
-});
-const { isDesktopRuntime } = useRuntimeEnvironment();
-const hasDesktopRuntime = computed(() => isDesktopRuntime.value);
-const canUseOcr = hasDesktopRuntime;
-const canUseDjvu = true;
-const isOcrRunning = ref(false);
-const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
 const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
@@ -273,38 +246,28 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();
-const workspaceSplitCache = useWorkspaceSplitCache();
-const workspaceRestoreTracker = useWorkspaceRestoreTracker();
-const isRestoringSplitPayload = ref(false);
-const currentPageTransitionHistory = ref<Array<{
-    page: number;
-    at: number 
-}>>([]);
-const navigationFeedbackPage = ref<number | null>(null);
-const documentSnapshot = computed(() => documentSession.snapshot.value);
-const openingTransaction = computed(() => {
-    const transaction = documentSnapshot.value.activeTransaction;
-    return transaction && transaction.kind !== 'close' ? transaction : null;
+const {
+    canTeleportStatus,
+    canTeleportToolbar,
+} = useWorkspaceHostTeleportAvailability({
+    toolbarHostId: 'editor-global-toolbar-host',
+    statusHostId: 'editor-global-status-host',
 });
-const isOpeningDocument = computed(() => openingTransaction.value !== null);
-const pendingDocumentPath = computed(() => (
-    isOpeningDocument.value ? openingTransaction.value?.target?.originalPath ?? null : null
-));
-const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
-const isActiveRef = computed(() => isActive);
+const { isDesktopRuntime } = useRuntimeEnvironment();
+const canUseOcr = computed(() => isDesktopRuntime.value);
+const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
+// The tab's retained view (page, zoom, sidebar) seeds this mount; a cold tab
+// comes back where it was.
+const initialViewState = documentSession.viewState.value;
 const preserveInitialStateForFirstSource = documentSession.snapshot.value.phase === 'presented'
     && documentSession.toolbarSnapshot.value.initialVisualReady;
 const context = createDocumentContext({
     tabId,
-    isActive: isActiveRef,
+    isActive: computed(() => isActive),
     initialViewState,
     preserveInitialStateForFirstSource,
     controller: documentSession,
     openSurface: documentOpenSurface,
-    pendingDocumentPath,
-    pendingDocumentSize: computed(() => (
-        documentOpenSurface.snapshot.value.openingPageGeometry?.size ?? null
-    )),
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
     emitOpenInNewTab: result => emit('open-in-new-tab', result),
     emitOpenSettings: () => emit('open-settings'),
@@ -313,79 +276,49 @@ provideDocumentContext(context);
 const {
     scanCleanup,
     scanCleanup: {surfaceMode},
-} = context;
-const {
-    file: fileLifecycle,
-    driver: documentDriver,
-    view: viewerShell,
-    search: searchSidebar,
-    annotations: annotationSession,
-    annotationActions,
-    pageOps,
+    file,
+    view,
+    search,
     fileOps,
     statusBar,
     exportWorkflow,
-    metadata: {
-        pageLabelState, bookmarkState,
-    },
     navigation,
     history,
     save,
-    print: printWorkflow,
-    crop,
+    print,
     splitPayload,
     docxExport,
+    handleCaptureRegion,
+    handleOcrComplete,
 } = context;
 const {
-    activeDocumentDriver,
-    mountedDocumentDriver,
-} = documentDriver;
-const {
-    pdfSrc,
     pdfError,
     pdfFailurePresentation,
     workingCopyPath,
-    originalPath,
     documentRevisionToken,
-    notifyPdfInitialVisualReady,
-    isDjvuMode,
-    djvuSourcePath,
     conversionState,
-    djvuShowBanner,
     djvuError,
-    djvuOpeningPath,
-    showConvertDialog,
     openConvertDialog,
     djvuDismissBanner,
     handleDjvuCancel,
-    openBatchProgress,
-    hasPdf,
-    initFromStorage,
-} = fileLifecycle;
+} = file;
 const {
-    pdfViewerRef,
-    documentViewerRef,
     zoomDropdownOpen,
     pageDropdownOpen,
     ocrPopupOpen,
     overflowMenuOpen,
     appMenuOpen,
-    selectedThumbnailPages,
-    selectedPageSelection,
     closeAllDropdowns,
     zoom,
     effectiveZoom,
     zoomMode,
     fitMode,
     viewMode,
-    currentPage,
     totalPages,
     pdfDocument,
-    isLoading,
     continuousScroll,
     showSidebar,
-    sidebarTab,
-} = viewerShell;
+} = view;
 const {
     sidebarWidth,
     sidebarWrapperStyle,
@@ -394,8 +327,59 @@ const {
     isSlidingSidebar,
     startSidebarResize,
     setSidebarContainerWidth,
-    cleanupSidebarResizeListeners,
-} = searchSidebar;
+} = search;
+const {
+    handleExportImages,
+    handleExportMultiPageTiff,
+} = exportWorkflow;
+const {
+    error: docxExportError,
+    isExporting: isExportingDocx,
+    cancel: cancelDocxExportDirect,
+} = docxExport;
+const {
+    handleUndo,
+    handleRedo,
+} = history;
+const {
+    enableDragMode,
+    handleGoToPage,
+} = navigation;
+const {
+    ensureEditProjection,
+    handleDropdownOpen,
+    handleExportDocx,
+    handleInsertImageFromFile,
+    handlePasteImageFromClipboard,
+    handleQuickNoteAction,
+    handleSaveAs,
+    runEdit: runPdfEditAction,
+} = context.djvuProjection;
+const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
+const presentation = useWorkspacePresentation(context, {
+    splitCacheSession: computed(() => splitCacheSession),
+    isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
+    initialPage: initialViewState?.currentPage,
+    preserveInitialPage: preserveInitialStateForFirstSource,
+});
+const {
+    isOcrRunning,
+    showsPdfSidebar,
+    toolbarHasPdf,
+    canToggleSidebar,
+    toolbarShowSidebarForDisplay,
+    isOpeningDocumentForDisplay,
+    toolbarDocumentBusyForDisplay,
+    statusZoomLabel,
+    documentMetadataReady,
+    toolbarPageLabels,
+    toolbarControlsDisabled,
+    showDjvuConversionUi,
+    showDjvuConversionBanner,
+    showWorkspaceViewerDocument,
+    waitForDocumentOpenSettled,
+} = presentation;
+
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
 const isActiveViewerLayoutResizing = computed(() => (
     isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
@@ -415,248 +399,47 @@ const isSourceSidebarResizing = computed(() => (
     || isTabTransitionBusy
     || (isRenderActive && !isActive)
 ));
-// Keep the PDF feature pack mounted so its document session and page source stay
-// durable for scan cleanup. Its reader presentation is separate and can be
-// removed while the cleanup surface owns the visible page work.
-const isDocumentViewerPresentationMounted = computed(() => surfaceMode.value === 'reader');
-const isDocumentViewerRenderActive = computed(() => (
-    isRenderActive && surfaceMode.value === 'reader'
-));
 const {
-    handleExportImages,
-    handleExportMultiPageTiff,
-} = exportWorkflow;
-const {
-    pageLabels,
-    pageLabelModel,
-    pageLabelsResolved,
-} = pageLabelState;
-const {markAnnotationCommentsLoading} = annotationSession;
-const {
-    handleSave,
-    handleRepairSave,
-    isAnySaving,
-} = save;
-const {
-    error: docxExportError,
-    isExporting: isExportingDocx,
-    cancel: cancelDocxExportDirect,
-} = docxExport;
-const {handleOcrComplete} = context;
-const {isHistoryBusy} = history;
-const {
-    handlePrint,
-    handlePrintCurrentPage,
-} = printWorkflow;
-const {
-    handleUndo,
-    handleRedo,
-} = history;
-const {
-    handleFitMode,
-    enableDragMode,
-    handleGoToPage,
-} = navigation;
-const {handleCrop} = crop;
-const {handleCaptureRegion} = context;
-const {
-    captureSplitPayload,
-    restoreSplitPayload,
-} = splitPayload;
-const {
-    hasQueuedSplitRestore,
-    isExternallyRestoring,
-} = useDocumentWorkspaceSplitRestore({
-    tabId: tabId,
-    pendingDocumentOpen: isOpeningDocument,
-    isTabTransitionBusy: computed(() => isTabTransitionBusy === true),
-    workspaceSplitCache,
-    workspaceRestoreTracker,
-    splitCacheSession: computed(() => splitCacheSession),
-    hasPdf,
-    currentPage,
-    totalPages,
-    showSidebar,
-    sidebarTab,
-    isResizingSidebar,
-    isLoading,
-    continuousScroll,
-    fitMode,
-    viewMode,
-    zoom,
-    documentViewerRef,
-    initFromStorage,
-    cleanupSidebarResizeListeners,
-    captureSplitPayload,
-    restoreSplitPayload,
-    isRestoringSplitPayload,
-    currentPageTransitionHistory,
-});
-
-const {
-    activeDriverCapabilities,
-    driverShowsPdfSidebar,
-    driverShowsDjvuSource,
-    driverStartupVisualSource,
-    isOpeningDocumentForToolbar,
-    toolbarDocumentBusy,
-    toolbarHasPdf,
-    sidebarPresentationEnabled,
-    canToggleSidebar,
-    canRepairSave,
-    canOptimizePdf,
-} = useWorkspaceViewerVisibility({
-    activeDocumentDriver,
-    conversionState,
-    djvuOpeningPath,
-    hasPdf,
-    hasQueuedSplitRestore,
-    isAnySaving,
-    isExternallyRestoring,
-    isHistoryBusy,
-    isOcrRunning,
-    isRestoringSplitPayload,
-    pendingDocumentOpen: isOpeningDocument,
-    showSidebar,
-});
-useDocumentWorkspacePageSessionRestore({
-    activeViewerAdapter: activeDocumentDriver,
-    currentPage,
-    documentViewerRef,
-    initialPage: initialViewState?.currentPage,
-    preserveInitialPage: preserveInitialStateForFirstSource,
-    isLoading,
-    onRestore: handleGoToPage,
-    totalPages,
-});
-
-const {
-    scheduleStartupOpenVisualReady,
-    dispatchStartupOpenVisualReady,
-} = useWorkspaceStartupReadiness(documentViewerRef);
-const {
-    documentOpenAccepted,
-    documentOpenSettled,
-    initialDocumentVisualReady,
-} = useDocumentOpenVisualSettle({
-    pdfSrc,
-    pdfDocument,
-    totalPages,
-    isLoading,
-    pdfError,
-    djvuError,
-    showDjvuSource: driverShowsDjvuSource,
-    openSurface: documentOpenSurface,
-});
-const { toolbarShowSidebarForDisplay } = useWorkspaceSidebarOpenGeneration({
-    sidebarPresentationEnabled,
-    isOpeningDocumentForToolbar,
-    initialDocumentVisualReady,
-    hasDocumentOpenError: computed(() => Boolean(pdfError.value) || Boolean(djvuError.value)),
-    openSurfaceSnapshot: documentOpenSurface.snapshot,
-});
-const {
-    handleInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEventBase,
+    handleInitialVisualReady: emitFirstPageRendered,
     handleSave: handleSaveWithAutomationEvent,
 } = createDocumentWorkspaceAutomationHandlers({
     getContext: () => ({
-        currentPage: currentPage.value,
+        currentPage: view.currentPage.value,
         documentRevisionToken: documentRevisionToken.value,
-        path: originalPath.value ?? workingCopyPath.value,
+        path: file.originalPath.value ?? workingCopyPath.value,
         tabId,
         totalPages: totalPages.value,
     }),
-    handleSave,
+    handleSave: save.handleSave,
 });
-function handleDocumentInitialVisualReadyWithAutomationEvent() {
-    notifyPdfInitialVisualReady();
-    return handleDocumentInitialVisualReadyWithAutomationEventBase();
-}
+// Keep the PDF feature pack mounted so its document session and page source stay
+// durable for scan cleanup. Its reader presentation is separate and can be
+// removed while the cleanup surface owns the visible page work.
 const {
     activeViewerComponent,
     activeViewerProps,
     activeViewerListeners,
     bindActiveViewerRef,
 } = context.bindDocumentView({
-    mountPresentation: isDocumentViewerPresentationMounted,
-    isRenderActive: isDocumentViewerRenderActive,
+    mountPresentation: computed(() => surfaceMode.value === 'reader'),
+    isRenderActive: computed(() => isRenderActive && surfaceMode.value === 'reader'),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
-    navigationFeedbackPage,
-    onInitialVisualPending: markAnnotationCommentsLoading,
-    onInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
+    navigationFeedbackPage: presentation.navigationFeedbackPage,
+    onInitialVisualPending: context.annotations.markAnnotationCommentsLoading,
+    onInitialVisualReady: () => {
+        file.notifyPdfInitialVisualReady();
+        emitFirstPageRendered();
+    },
 });
-
-const {
-    canOptimizePdfForDisplay,
-    canRepairSaveForDisplay,
-    documentMetadataReady,
-    isOpeningDocumentForToolbarDisplay,
-    statusZoomLabelForDisplay,
-    toolbarControlsDisabled,
-    toolbarDocumentBusyForDisplay,
-    toolbarPageLabels,
-} = useDocumentWorkspaceVisualOpeningState({
-    toolbarHasPdf,
-    isLoading,
-    initialDocumentVisualReady,
-    pdfError,
-    djvuError,
-    isOpeningDocumentForToolbar,
-    toolbarDocumentBusy,
-    canRepairSave,
-    canOptimizePdf,
-    statusZoomLabel: statusBar.statusZoomLabel,
-    totalPages,
-    pageLabels,
-    pageLabelModel,
-    pageLabelsResolved,
-    isAnySaving,
-    t,
-});
+const {mountedDocumentDriver} = context.driver;
 // Start shows only the shell's own actions; document commands arrive with a document.
 const toolbarSurface = computed(() => (
     toolbarHasPdf.value ? DESKTOP_EDITOR_READER_COMMAND_SURFACE : EMPTY_STATE_READER_COMMAND_SURFACE
 ));
-const {
-    showDjvuConversionBanner,
-    showDjvuConversionUi,
-    showWorkspaceViewerDocument: showWorkspaceViewerDocumentFromAdapter,
-} = useDocumentWorkspaceViewerPresentation({
-    activeViewerCapabilities: computed(() => activeDriverCapabilities.value ?? null),
-    canUseDjvu,
-    conversionState,
-    documentOpenReady: computed(() => documentOpenSurface.snapshot.value.phase === 'ready'),
-    djvuOpeningPath,
-    djvuShowBanner,
-    initialDocumentVisualReady,
-    pendingDjvuDocumentOpen,
-    showDjvuSource: driverShowsDjvuSource,
-    showStandardPdfViewer: driverShowsPdfSidebar,
-});
-const showWorkspaceViewerDocument = computed(() => {
-    const phase = documentOpenSurface.snapshot.value.phase;
-    return showWorkspaceViewerDocumentFromAdapter.value
-        || phase === 'pending'
-        || phase === 'geometry-committed'
-        || phase === 'canvas-committed'
-        || phase === 'viewport-committed';
-});
-const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
-
-const {
-    ensureEditProjection,
-    handleDropdownOpen,
-    handleExportDocx,
-    handleInsertImageFromFile,
-    handlePasteImageFromClipboard,
-    handleQuickNoteAction,
-    handleSaveAs,
-    runEdit: runPdfEditAction,
-} = context.djvuProjection;
-
-
-const canExportDocx = computed(() => Boolean(workingCopyPath.value) && !isAnySaving.value && !isHistoryBusy.value);
-const handleCropAction = () => runPdfEditAction(handleCrop);
+const canExportDocx = computed(() => (
+    Boolean(workingCopyPath.value) && !save.isAnySaving.value && !history.isHistoryBusy.value
+));
+const handleCropAction = () => runPdfEditAction(context.crop.handleCrop);
 // A toolbar action closes the open menus and logs its failure.
 function runToolbarAction(action: () => unknown) {
     const result = action();
@@ -676,124 +459,84 @@ function toggleContinuousScroll() {
 function setViewMode(mode: TPdfViewMode) {
     viewMode.value = mode;
 }
-
-
-watch(pdfSrc, (src) => {
-    navigationFeedbackPage.value = null;
-    if (src) {
-        scheduleStartupOpenVisualReady('pdf-src');
-    }
-});
-watch(driverStartupVisualSource, (source) => {
-    if (source) {
-        navigationFeedbackPage.value = null;
-        scheduleStartupOpenVisualReady(source);
-    }
-});
-useDocumentOpenedAutomationEvent({
-    currentPage,
-    originalPath,
-    tabId,
-    totalPages,
-    waitForDocumentOpenSettled,
-    workingCopyPath,
-});
-watch([
-    pdfError,
-    djvuError,
-], ([
-    nextPdfError,
-    nextDjvuError,
-]) => {
-    if (nextPdfError || nextDjvuError) {
-        dispatchStartupOpenVisualReady('document-error', true);
-    }
-});
-const documentOpenIdle = computed(() => (
-    !isOpeningDocument.value && (documentOpenSettled.value || !toolbarHasPdf.value)
-));
-/** Resolves once no open is in flight and any document shows its first page. */
-async function waitForDocumentOpenSettled() {
-    await until(documentOpenIdle).toBe(true);
-}
-const viewerCapabilities = computed(() => activeDriverCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
+const viewerCapabilities = computed(() => context.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
 const {
     runAgentAction,
     readAgentResource,
 } = useDocumentWorkspaceAgent({
-    annotationComments: annotationSession.annotationComments,
-    annotationCommentsStatus: annotationSession.annotationCommentsStatus,
-    annotationInventory: annotationSession.annotationInventory,
-    annotationDirty: annotationSession.annotationDirty,
-    annotationTool: annotationSession.annotationTool,
-    bookmarkItems: bookmarkState.bookmarkItems,
-    bookmarksDirty: bookmarkState.bookmarksDirty,
+    annotationComments: context.annotations.annotationComments,
+    annotationCommentsStatus: context.annotations.annotationCommentsStatus,
+    annotationInventory: context.annotations.annotationInventory,
+    annotationDirty: context.annotations.annotationDirty,
+    annotationTool: context.annotations.annotationTool,
+    bookmarkItems: context.metadata.bookmarkState.bookmarkItems,
+    bookmarksDirty: context.metadata.bookmarkState.bookmarksDirty,
     canSave: save.canSave,
     canUndo: history.canUndo,
     canRedo: history.canRedo,
     closeAllDropdowns,
     continuousScroll,
     viewerCapabilities,
-    currentPage,
-    documentIdentity: fileLifecycle.documentRevisionInfo,
+    currentPage: view.currentPage,
+    documentIdentity: file.documentRevisionInfo,
     fitMode,
     handleActualSize: context.viewerDefaults.handleActualSize,
-    handleAnnotationFocusComment: annotationActions.handleAnnotationFocusComment,
-    handleAnnotationToolChange: annotationSession.handleAnnotationToolChange,
-    handleBookmarksChange: bookmarkState.handleBookmarksChange,
-    updateTextMarkupColorWithHistory: annotationActions.updateTextMarkupColorWithHistory,
-    handleDeleteAnnotationComment: annotationActions.handleDeleteAnnotationComment,
+    handleAnnotationFocusComment: context.annotationActions.handleAnnotationFocusComment,
+    handleAnnotationToolChange: context.annotations.handleAnnotationToolChange,
+    handleBookmarksChange: context.metadata.bookmarkState.handleBookmarksChange,
+    updateTextMarkupColorWithHistory: context.annotationActions.updateTextMarkupColorWithHistory,
+    handleDeleteAnnotationComment: context.annotationActions.handleDeleteAnnotationComment,
     handleDropdownOpen,
     handleExportDocx,
     handleExportImages: exportWorkflow.handleExportImages,
     handleExportMultiPageTiff: exportWorkflow.handleExportMultiPageTiff,
-    handleFitMode,
+    handleFitMode: navigation.handleFitMode,
     handleGoToPage,
-    handleOpenAnnotationNote: annotationActions.handleOpenAnnotationNote,
+    handleOpenAnnotationNote: context.annotationActions.handleOpenAnnotationNote,
     handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
     handleRepairSave: save.handleRepairSave,
     handleOptimizePdfForInteraction: save.handleOptimizePdfForInteraction,
     handleUndo: history.handleUndo,
     handleRedo: history.handleRedo,
-    handlePageLabelRangesUpdate: pageLabelState.handlePageLabelRangesUpdate,
-    handlePageRotate: pageOps.handlePageRotate,
-    handlePrint: printWorkflow.handlePrint,
-    handlePrintCurrentPage: printWorkflow.handlePrintCurrentPage,
+    handlePageLabelRangesUpdate: context.metadata.pageLabelState.handlePageLabelRangesUpdate,
+    handlePageRotate: context.pageOps.handlePageRotate,
+    handlePrint: print.handlePrint,
+    handlePrintCurrentPage: print.handlePrintCurrentPage,
     handleQuickNoteAction,
     handleSave: save.handleSave,
     handleSaveAs,
     handleZoomIn: context.viewerDefaults.handleZoomIn,
     handleZoomOut: context.viewerDefaults.handleZoomOut,
-    hasPdf,
+    hasPdf: file.hasPdf,
     isAnySaving: save.isAnySaving,
-    isDjvuMode,
-    isSameAnnotationComment: annotationSession.isSameAnnotationComment,
-    markAnnotationDirty: annotationSession.markAnnotationDirty,
+    isDjvuMode: file.isDjvuMode,
+    isSameAnnotationComment: context.annotations.isSameAnnotationComment,
+    markAnnotationDirty: context.annotations.markAnnotationDirty,
     ocrPopupOpen,
     ocrPopupRef,
     openConvertDialog,
-    originalPath,
-    pageLabelRanges: pageLabelState.pageLabelRanges,
-    pageLabels: pageLabelState.pageLabels,
-    pageLabelModel: pageLabelState.pageLabelModel,
-    pageLabelsResolved: pageLabelState.pageLabelsResolved,
-    pageLabelsDirty: pageLabelState.pageLabelsDirty,
-    pageOpsDelete: pageOps.pageOpsDelete,
-    pageOpsExtract: pageOps.pageOpsExtract,
-    pageOpsInsert: pageOps.pageOpsInsert,
-    handleCropPages: pageOps.handleCropPages,
-    handleRemoveCrop: pageOps.handleRemoveCrop,
-    pdfViewerRef,
-    selectedPageSelection,
-    selectedThumbnailPages,
-    showConvertDialog,
+    originalPath: file.originalPath,
+    pageLabelRanges: context.metadata.pageLabelState.pageLabelRanges,
+    pageLabels: context.metadata.pageLabelState.pageLabels,
+    pageLabelModel: context.metadata.pageLabelState.pageLabelModel,
+    pageLabelsResolved: context.metadata.pageLabelState.pageLabelsResolved,
+    pageLabelsDirty: context.metadata.pageLabelState.pageLabelsDirty,
+    pageOpsDelete: context.pageOps.pageOpsDelete,
+    pageOpsExtract: context.pageOps.pageOpsExtract,
+    pageOpsInsert: context.pageOps.pageOpsInsert,
+    handleCropPages: context.pageOps.handleCropPages,
+    handleRemoveCrop: context.pageOps.handleRemoveCrop,
+    pdfViewerRef: view.pdfViewerRef,
+    selectedPageSelection: view.selectedPageSelection,
+    selectedThumbnailPages: view.selectedThumbnailPages,
+    showConvertDialog: file.showConvertDialog,
     showSidebar,
-    sidebarTab,
-    sortedAnnotationNoteWindows: annotationSession.sortedAnnotationNoteWindows,
+    sidebarTab: view.sidebarTab,
+    sortedAnnotationNoteWindows: context.annotations.sortedAnnotationNoteWindows,
     t,
     tabId,
     totalPages,
-    updateAnnotationNoteText: annotationSession.updateAnnotationNoteText,
+    updateAnnotationNoteText: context.annotations.updateAnnotationNoteText,
     viewMode,
     waitForDocumentOpenSettled,
     workingCopyPath,
@@ -811,14 +554,14 @@ const workspaceExpose = createWorkspaceExpose(context, {
     handleCrop: () => { void handleCropAction(); },
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
-    initialVisualReady: initialDocumentVisualReady,
-    isOpeningDocument: isOpeningDocumentForToolbarDisplay,
-    canRepairSave: canRepairSaveForDisplay,
-    canOptimizePdf: canOptimizePdfForDisplay,
+    initialVisualReady: presentation.initialDocumentVisualReady,
+    isOpeningDocument: isOpeningDocumentForDisplay,
+    canRepairSave: presentation.canRepairSave,
+    canOptimizePdf: presentation.canOptimizePdf,
     canExportDocx,
     viewerCapabilities,
-    captureSplitPayload,
-    restoreSplitPayload,
+    captureSplitPayload: splitPayload.captureSplitPayload,
+    restoreSplitPayload: splitPayload.restoreSplitPayload,
     waitForDocumentOpenSettled,
     runAgentAction,
     readAgentResource,
@@ -828,15 +571,15 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     documentSession,
     openSurface: documentOpenSurface,
     isShown: () => isActive || isRenderActive,
-    fileName: fileLifecycle.fileName,
-    originalPath,
-    isDjvuMode,
-    djvuSourcePath,
-    documentRevisionInfo: fileLifecycle.documentRevisionInfo,
+    fileName: file.fileName,
+    originalPath: file.originalPath,
+    isDjvuMode: file.isDjvuMode,
+    djvuSourcePath: file.djvuSourcePath,
+    documentRevisionInfo: file.documentRevisionInfo,
     isDirty: save.hasPendingUnsavedChanges,
-    openBatchProgress,
-    documentOpenSettled,
-    documentOpenAccepted,
+    openBatchProgress: file.openBatchProgress,
+    documentOpenSettled: presentation.documentOpenSettled,
+    documentOpenAccepted: presentation.documentOpenAccepted,
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
     readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentSession.viewState.value),

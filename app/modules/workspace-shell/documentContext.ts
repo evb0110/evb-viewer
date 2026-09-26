@@ -85,8 +85,6 @@ interface IDocumentContextDeps {
     isActive: Ref<boolean>;
     controller: IWorkspaceDocumentController;
     initialViewState: ITabViewSessionState | null;
-    pendingDocumentPath: Ref<TDocumentRef | null>;
-    pendingDocumentSize: Ref<number | null>;
     openSurface: IDocumentOpenSurfaceSession;
     preserveInitialStateForFirstSource: boolean;
     /** Runs a user open as the tab controller's open transaction. */
@@ -116,6 +114,13 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     } = deps;
     const { t } = useTypedI18n();
     const toast = useToast();
+    const openingTransaction = computed(() => {
+        const transaction = controller.snapshot.value.activeTransaction;
+        return transaction && transaction.kind !== 'close' ? transaction : null;
+    });
+    const isOpeningDocument = computed(() => openingTransaction.value !== null);
+    const pendingDocumentPath = computed(() => openingTransaction.value?.target?.originalPath ?? null);
+    const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
     // Every workspace failure that reaches the user goes through this one
     // surface, so save, annotation, and open failures share one toast path.
     const failure = useWorkspaceFailureSurface();
@@ -311,8 +316,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             saveAs: saveService.handleSaveAs,
             saveAsDjvuProjection: () => file.ensureDjvuPdfProjection('save-as-pdf'),
         },
-        pendingDocumentPath: deps.pendingDocumentPath,
-        pendingDocumentSize: deps.pendingDocumentSize,
+        pendingDocumentPath: pendingDocumentPath,
+        pendingDocumentSize: computed(() => openSurface.snapshot.value.openingPageGeometry?.size ?? null),
     });
     const activeDriver = driver.activeDocumentDriver;
     watch(activeDriver, (active) => {
@@ -505,7 +510,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         hasDocument: hasOpenDocument,
         pdfSrc,
         pdfData,
-        originalPath: computed(() => deps.pendingDocumentPath.value ?? originalPath.value),
+        originalPath: computed(() => pendingDocumentPath.value ?? originalPath.value),
         workingCopyPath,
         effectiveZoom: view.effectiveZoom,
         knownFileSizeBytes: file.djvuSourceSizeBytes,
@@ -942,7 +947,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             pdfReloadSrc: file.pdfReloadSrc,
             pdfRasterDisplayProfile: file.pdfRasterDisplayProfile,
             pdfSrc,
-            pendingDocumentPath: deps.pendingDocumentPath,
+            pendingDocumentPath: pendingDocumentPath,
             pdfViewerRef,
             djvuViewerRef: view.djvuViewerRef,
             sourcePdfData: pdfData,
@@ -993,6 +998,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         tabId: deps.tabId,
         controller,
         openSurface,
+        isOpeningDocument,
+        pendingDjvuDocumentOpen,
         isActive,
         sourceCapabilities,
         failure,
