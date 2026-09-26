@@ -55,10 +55,16 @@ describe('DjVu artifact manifests', () => {
         });
         await first.updateRange(1, {status: 'running'});
         await first.close();
+        const savedManifest = JSON.parse(readFileSync(first.manifestPath, 'utf8')) as Record<string, unknown> & {ranges: Array<Record<string, unknown>>};
+        savedManifest.extra = 'stripped';
+        savedManifest.ranges[0]!.extra = 'stripped';
+        writeFileSync(first.manifestPath, JSON.stringify(savedManifest));
 
         const resumed = await openDjvuArtifactJob(sourcePath, ranges, {});
 
         expect(resumed.directory).toBe(first.directory);
+        expect(Object.hasOwn(resumed.manifest, 'extra')).toBe(false);
+        expect(Object.hasOwn(resumed.manifest.ranges[0]!, 'extra')).toBe(false);
         expect(resumed.manifest.ranges.map(range => range.status)).toEqual([
             'verified',
             'pending',

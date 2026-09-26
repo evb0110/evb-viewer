@@ -17,6 +17,10 @@ import {
 } from '@contracts/shared';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    djvuConvertResultSchema, djvuPageSourceInfoSchema,
+} from '@contracts/electronApiDjvu';
+import * as v from 'valibot';
 
 type TIpcRendererFixture = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
 
@@ -58,10 +62,10 @@ describe('DjVu platform feature', () => {
             onTextSearchProgress: 'djvu:text:progress',
             onMenuConvertToPdf: 'menu:convertToPdf',
         });
-        expect(DJVU_PLATFORM_FEATURE.events.onMenuConvertToPdf.payload.decode(undefined))
+        expect(v.parse(DJVU_PLATFORM_FEATURE.events.onMenuConvertToPdf.payload, undefined))
             .toBeUndefined();
-        expect(() => DJVU_PLATFORM_FEATURE.events.onMenuConvertToPdf.payload.decode('payload'))
-            .toThrow('expected an undefined IPC result');
+        expect(() => v.parse(DJVU_PLATFORM_FEATURE.events.onMenuConvertToPdf.payload, 'payload'))
+            .toThrow();
         const replay = DJVU_PLATFORM_FEATURE.events.onProgress.subscription.replay;
         expect(replay).toMatchObject({
             intervalMs: 50,
@@ -86,9 +90,14 @@ describe('DjVu platform feature', () => {
             .toBe(30 * 60 * 1_000);
     });
 
-    it('rejects oversized preview request ids before invoking main', async () => {
+    it('leaves preview request validation to the main IPC boundary', async () => {
+        const invoke = vi.fn().mockResolvedValue({
+            bytes: new Uint8Array([1]),
+            width: 600,
+            height: 800,
+        });
         const ipcRenderer = {
-            invoke: vi.fn(),
+            invoke,
             on: vi.fn(),
             removeListener: vi.fn(),
             send: vi.fn(),
@@ -101,11 +110,48 @@ describe('DjVu platform feature', () => {
 
         // This deliberately invalid branded value reaches the client validator.
         const invalidRequestId = oversizedRequestId as TRequestId;
-        expect(() => client.renderPagePreview(requireDocumentRef('/tmp/book.djvu'), requirePageNumber(1), {previewRequestId: invalidRequestId}))
-            .toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
-        expect(() => DJVU_PLATFORM_FEATURE.methods.cancelPagePreview.ipc.args.decode([oversizedRequestId]))
+        await client.renderPagePreview(requireDocumentRef('/tmp/book.djvu'), requirePageNumber(1), {previewRequestId: invalidRequestId});
+        expect(invoke).toHaveBeenCalledOnce();
+        expect(() => v.parse(DJVU_PLATFORM_FEATURE.methods.renderPagePreview.ipc.args, [
+            '/tmp/book.djvu',
+            1,
+            {previewRequestId: oversizedRequestId},
+        ], {abortEarly: true})).toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
+        expect(() => v.parse(DJVU_PLATFORM_FEATURE.methods.cancelPagePreview.ipc.args, [oversizedRequestId], {abortEarly: true}))
             .toThrow('cancelPagePreview.requestId exceeds maximum length (128)');
-        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    });
+
+    it('strips undeclared result fields and preserves the optional source revision policy', () => {
+        expect(v.parse(djvuConvertResultSchema, {
+            success: true,
+            extra: 'discarded',
+        })).toEqual({success: true});
+        expect(v.parse(djvuPageSourceInfoSchema, {
+            pageCount: 1,
+            pageNumber: 1,
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
+            },
+            sourceSize: 'invalid legacy value',
+        })).toEqual({
+            pageCount: 1,
+            pageNumber: 1,
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
+            },
+        });
+        expect(v.safeParse(djvuConvertResultSchema, {
+            success: true,
+            expected: {
+                kind: 'expected',
+                code: 'canceled',
+            },
+        }).success)
+            .toBe(false);
     });
 
     it('normalizes bounded native text-search requests before invoking main', async () => {
@@ -148,14 +194,22 @@ describe('DjVu platform feature', () => {
         );
         // This deliberately invalid branded value reaches the client validator.
         const invalidRequestId = 'x'.repeat(129) as TRequestId;
-        expect(() => client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
-            requestId: invalidRequestId,
-            pageCount: 431,
-        })).toThrow('searchText.options.requestId exceeds maximum length (128)');
-        expect(() => client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
-            requestId: requireRequestId('djvu-search-2'),
-            pageCount: 0,
-        })).toThrow('searchText.options.pageCount must be a positive safe integer');
+        expect(() => v.parse(DJVU_PLATFORM_FEATURE.methods.searchText.ipc.args, [
+            '/tmp/book.djvu',
+            'needle',
+            {
+                requestId: invalidRequestId,
+                pageCount: 431,
+            },
+        ], {abortEarly: true})).toThrow('searchText.options.requestId exceeds maximum length (128)');
+        expect(() => v.parse(DJVU_PLATFORM_FEATURE.methods.searchText.ipc.args, [
+            '/tmp/book.djvu',
+            'needle',
+            {
+                requestId: requireRequestId('djvu-search-2'),
+                pageCount: 0,
+            },
+        ], {abortEarly: true})).toThrow('searchText.options.pageCount must be a positive safe integer');
     });
 
     it('preserves a conversion receipt and expected cancellation in durable job state', async () => {

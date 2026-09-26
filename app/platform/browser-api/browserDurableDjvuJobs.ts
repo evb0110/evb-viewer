@@ -221,7 +221,7 @@ export class BrowserDurableDjvuJobs {
             operation,
             status: result.success
                 ? 'completed'
-                : 'expected' in result && result.expected.code === 'canceled'
+                : 'expected' in result && result.expected?.code === 'canceled'
                     ? 'canceled'
                     : 'failed',
             progress: {

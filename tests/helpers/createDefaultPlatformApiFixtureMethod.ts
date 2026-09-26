@@ -171,6 +171,60 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     'settings.getRecoveryNotice': null,
     'settings.save': undefined,
     'shell.openExternal': undefined,
+    'djvu.startOpenForViewing': {
+        jobId: 'djvu-open-fixture',
+        requestId: 'djvu-request-fixture',
+    },
+    'djvu.releaseViewingPath': undefined,
+    'djvu.startConvertToPdf': {
+        jobId: 'djvu-convert-fixture',
+        requestId: 'djvu-request-fixture',
+    },
+    'djvu.printDjvuPath': {success: true},
+    'djvu.cancel': {canceled: false},
+    'djvu.getJobState': null,
+    'djvu.cancelPagePreview': {canceled: false},
+    'djvu.searchText': {
+        results: [],
+        truncated: false,
+    },
+    'djvu.cancelTextSearch': {canceled: false},
+    'djvu.getInfo': {
+        pageCount: 1,
+        sourceDpi: 300,
+        hasBookmarks: false,
+        hasText: false,
+        metadata: {},
+    },
+    'djvu.getPageSourceInfo': {
+        pageCount: 1,
+        pageNumber: 1,
+        pageSize: {
+            width: 600,
+            height: 800,
+            dpi: 300,
+        },
+    },
+    'djvu.getPageSizes': [{
+        width: 600,
+        height: 800,
+        dpi: 300,
+    }],
+    'djvu.getPageText': '',
+    'djvu.getOutline': [],
+    'djvu.renderPagePreview': {
+        bytes: new Uint8Array([1]),
+        width: 600,
+        height: 800,
+    },
+    'djvu.estimateSizes': [{
+        subsample: 1,
+        label: 'Original',
+        description: 'Original resolution',
+        resultingDpi: 300,
+        estimatedBytes: 1,
+    }],
+    'djvu.cleanupTemp': undefined,
 };
 
 function createAsyncDefault(path: string) {
