@@ -13,35 +13,30 @@
 <script setup lang="ts">
 import { clamp } from 'es-toolkit/math';
 import AppProgressChip from '@app/components/AppProgressChip.vue';
-import type { IWorkspaceExportOverlay } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
+import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
 
-const { overlay } = defineProps<{overlay: IWorkspaceExportOverlay | null;}>();
+const { exportOverlay: overlay } = useDocumentContext().exportWorkflow;
 
 const { t } = useTypedI18n();
 
 const title = computed(() => {
-    if (!overlay) {
+    const current = overlay.value;
+    if (!current) {
         return '';
     }
-
-    if (overlay.state === 'success') {
-        return overlay.kind === 'images'
-            ? t('export.successImages')
-            : t('export.successTiff');
+    if (current.state === 'success') {
+        return current.kind === 'images' ? t('export.successImages') : t('export.successTiff');
     }
-
-    return overlay.kind === 'images'
-        ? t('export.statusImages')
-        : t('export.statusTiff');
+    return current.kind === 'images' ? t('export.statusImages') : t('export.statusTiff');
 });
-const detail = computed(() => overlay
-    ? t('export.pageCount', {count: overlay.pageCount})
+const detail = computed(() => overlay.value
+    ? t('export.pageCount', {count: overlay.value.pageCount})
     : '');
 const subDetail = computed(() => {
-    if (!overlay || overlay.state !== 'running' || typeof overlay.progressPercent !== 'number') {
+    const current = overlay.value;
+    if (!current || current.state !== 'running' || typeof current.progressPercent !== 'number') {
         return '';
     }
-
-    return `${clamp(Math.round(overlay.progressPercent), 0, 100)}%`;
+    return `${clamp(Math.round(current.progressPercent), 0, 100)}%`;
 });
 </script>

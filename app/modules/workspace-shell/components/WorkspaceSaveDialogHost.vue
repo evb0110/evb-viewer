@@ -1,63 +1,63 @@
 <template>
     <div v-show="visible" class="workspace-save-dialog-host-root">
         <PdfExportScopeDialog
-            :open="visible && exportScopeDialogOpen"
-            :mode="exportScopeDialogMode"
+            :open="visible && exportWorkflow.exportScopeDialogOpen.value"
+            :mode="exportWorkflow.exportScopeDialogMode.value"
             :total-pages="totalPages"
             :current-page="currentPage"
-            :selected-pages="exportScopeDialogSelectedPages"
-            :selected-page-selection="exportScopeDialogPageSelection"
-            @submit="handleExportSubmit"
-            @update:open="handleExportOpenChange"
+            :selected-pages="exportWorkflow.exportScopeDialogSelectedPages.value"
+            :selected-page-selection="exportWorkflow.exportScopeDialogPageSelection.value"
+            @submit="exportWorkflow.handleExportScopeDialogSubmit"
+            @update:open="exportWorkflow.handleExportScopeDialogOpenChange"
         />
 
         <PdfPrintDialog
-            :open="visible && printDialogOpen"
+            :open="visible && print.printDialogOpen.value"
             :total-pages="totalPages"
             :current-page="currentPage"
-            :selected-pages="printDialogSelectedPages"
-            :selected-page-selection="printDialogPageSelection"
+            :selected-pages="print.printDialogSelectedPages.value"
+            :selected-page-selection="print.printDialogPageSelection.value"
             :default-view-mode="viewMode"
-            :supports-advanced-print-options="supportsAdvancedPrintOptions"
-            :supports-first-page-single-print-layout="supportsFirstPageSinglePrintLayout"
-            :is-preparing="isPreparingPrint"
-            :status="printStatus"
-            :error="printError"
-            @submit="handlePrintSubmit"
-            @update:open="handlePrintOpenChange"
+            :supports-advanced-print-options="print.supportsAdvancedPrintOptions.value"
+            :supports-first-page-single-print-layout="print.supportsFirstPageSinglePrintLayout.value"
+            :is-preparing="print.isPreparingPrint.value"
+            :status="print.printStatus.value"
+            :error="print.printError.value"
+            @submit="print.handlePrintDialogSubmit"
+            @update:open="print.handlePrintDialogOpenChange"
         />
 
         <PdfOptimizeDialog
-            :open="visible && optimizeDialogOpen"
-            :is-running="optimizeDialogRunning"
-            :progress="optimizeDialogProgress"
-            :error="optimizeDialogError"
-            @submit="handleOptimizeSubmit"
-            @update:open="handleOptimizeOpenChange"
+            :open="visible && optimize.optimizeDialogOpen.value"
+            :is-running="optimize.isOptimizeDialogRunning.value"
+            :progress="optimize.optimizeProgress.value"
+            :error="optimize.optimizeDialogError.value"
+            @submit="optimize.handleOptimizeDialogSubmit"
+            @update:open="optimize.handleOptimizeDialogOpenChange"
         />
 
         <PdfCropDialog
-            :open="visible && cropDialogOpen"
-            :loading="cropDialogLoading"
+            :open="visible && crop.cropDialogOpen.value"
+            :loading="crop.cropDialogLoading.value"
             :total-pages="totalPages"
-            :current-page="cropDialogPageNumber"
+            :current-page="crop.cropDialogPageNumber.value"
             :selected-pages="selectedThumbnailPages"
             :selected-page-selection="selectedPageSelection"
-            :initial-margins="cropDialogMargins"
-            :media-box="cropDialogMediaBox"
-            :current-visible-box="cropDialogCurrentBox"
-            :rotation="cropDialogRotation"
-            @apply="handleCropApply"
-            @remove="handleCropRemove"
-            @update:open="handleCropOpenChange"
+            :initial-margins="crop.cropDialogMargins.value"
+            :media-box="crop.cropDialogMediaBox.value"
+            :current-visible-box="crop.cropDialogCurrentBox.value"
+            :rotation="crop.cropDialogRotation.value"
+            @apply="void pageOps.handleCropPages($event.pageSelection ?? $event.pages, $event.margins)"
+            @remove="void pageOps.handleRemoveCrop($event.pageSelection ?? $event.pages)"
+            @update:open="crop.cropDialogOpen.value = $event"
         />
 
         <DjvuConvertDialog
             v-if="showDjvuConversionUi"
-            :open="visible && showConvertDialog"
-            :djvu-path="djvuPath"
-            @convert="handleDjvuConvert"
-            @update:open="handleConvertOpenChange"
+            :open="visible && file.showConvertDialog.value"
+            :djvu-path="file.djvuSourcePath.value"
+            @convert="file.handleDjvuConvert"
+            @update:open="file.showConvertDialog.value = $event"
         />
     </div>
 </template>
@@ -67,112 +67,34 @@ import { PdfCropDialog } from '@app/modules/pdf-viewer/public/component-exports/
 import { PdfExportScopeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfExportScopeDialog';
 import { PdfOptimizeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfOptimizeDialog';
 import { PdfPrintDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
-import type { TPageSelection } from '@contracts/pageNumbers';
+import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
 
 const DjvuConvertDialog = defineAsyncComponent(
     () => import('@app/modules/djvu-viewer/public')
         .then(componentModule => componentModule.DjvuConvertDialog),
 );
 
-type TPdfExportScopeDialogProps = InstanceType<typeof PdfExportScopeDialog>['$props'];
-type TPdfOptimizeDialogProps = InstanceType<typeof PdfOptimizeDialog>['$props'];
-type TPdfPrintDialogProps = InstanceType<typeof PdfPrintDialog>['$props'];
-type TPdfCropDialogProps = InstanceType<typeof PdfCropDialog>['$props'];
-type TDjvuConvertDialogProps = InstanceType<typeof DjvuConvertDialog>['$props'];
-type TRequiredHandler<T> = NonNullable<T> extends (...args: infer TArgs) => unknown ? TArgs : never;
-
 defineProps<{
     visible: boolean;
-    exportScopeDialogOpen: boolean;
-    exportScopeDialogMode: TPdfExportScopeDialogProps['mode'];
-    exportScopeDialogSelectedPages: number[];
-    exportScopeDialogPageSelection?: TPageSelection | null;
-    printDialogOpen: boolean;
-    printDialogSelectedPages: number[];
-    printDialogPageSelection?: TPageSelection | null;
-    printStatus: TPdfPrintDialogProps['status'];
-    printError: TPdfPrintDialogProps['error'];
-    isPreparingPrint: boolean;
-    optimizeDialogOpen: boolean;
-    optimizeDialogRunning: boolean;
-    optimizeDialogProgress: TPdfOptimizeDialogProps['progress'];
-    optimizeDialogError: TPdfOptimizeDialogProps['error'];
-    cropDialogOpen: boolean;
-    cropDialogLoading: boolean;
-    cropDialogPageNumber: number;
-    cropDialogMargins: TPdfCropDialogProps['initialMargins'];
-    cropDialogMediaBox: TPdfCropDialogProps['mediaBox'];
-    cropDialogCurrentBox: TPdfCropDialogProps['currentVisibleBox'];
-    cropDialogRotation: TPdfCropDialogProps['rotation'];
-    selectedThumbnailPages: number[];
-    selectedPageSelection?: TPageSelection | null | undefined;
-    totalPages: number;
-    currentPage: number;
-    viewMode: TPdfPrintDialogProps['defaultViewMode'];
-    supportsAdvancedPrintOptions: TPdfPrintDialogProps['supportsAdvancedPrintOptions'];
-    supportsFirstPageSinglePrintLayout: TPdfPrintDialogProps['supportsFirstPageSinglePrintLayout'];
     showDjvuConversionUi: boolean;
-    showConvertDialog: boolean;
-    djvuPath: TDjvuConvertDialogProps['djvuPath'];
 }>();
 
-const emit = defineEmits<{
-    'export-submit': [payload: TRequiredHandler<TPdfExportScopeDialogProps['onSubmit']>[0]];
-    'export-open-change': [value: boolean];
-    'print-submit': [payload: TRequiredHandler<TPdfPrintDialogProps['onSubmit']>[0]];
-    'print-open-change': [value: boolean];
-    'optimize-submit': [payload: TRequiredHandler<TPdfOptimizeDialogProps['onSubmit']>[0]];
-    'optimize-open-change': [value: boolean];
-    'crop-apply': [payload: TRequiredHandler<TPdfCropDialogProps['onApply']>[0]];
-    'crop-remove': [payload: TRequiredHandler<TPdfCropDialogProps['onRemove']>[0]];
-    'crop-open-change': [value: boolean];
-    'djvu-convert': TRequiredHandler<TDjvuConvertDialogProps['onConvert']>;
-    'convert-open-change': [value: boolean];
-}>();
-
-function handleExportSubmit(payload: TRequiredHandler<TPdfExportScopeDialogProps['onSubmit']>[0]) {
-    emit('export-submit', payload);
-}
-
-function handleExportOpenChange(value: boolean) {
-    emit('export-open-change', value);
-}
-
-function handlePrintSubmit(payload: TRequiredHandler<TPdfPrintDialogProps['onSubmit']>[0]) {
-    emit('print-submit', payload);
-}
-
-function handlePrintOpenChange(value: boolean) {
-    emit('print-open-change', value);
-}
-
-function handleOptimizeSubmit(payload: TRequiredHandler<TPdfOptimizeDialogProps['onSubmit']>[0]) {
-    emit('optimize-submit', payload);
-}
-
-function handleOptimizeOpenChange(value: boolean) {
-    emit('optimize-open-change', value);
-}
-
-function handleCropApply(payload: TRequiredHandler<TPdfCropDialogProps['onApply']>[0]) {
-    emit('crop-apply', payload);
-}
-
-function handleCropRemove(payload: TRequiredHandler<TPdfCropDialogProps['onRemove']>[0]) {
-    emit('crop-remove', payload);
-}
-
-function handleCropOpenChange(value: boolean) {
-    emit('crop-open-change', value);
-}
-
-function handleDjvuConvert(...args: TRequiredHandler<TDjvuConvertDialogProps['onConvert']>) {
-    emit('djvu-convert', ...args);
-}
-
-function handleConvertOpenChange(value: boolean) {
-    emit('convert-open-change', value);
-}
+const {
+    view,
+    exportWorkflow,
+    print,
+    crop,
+    pageOps,
+    file,
+    save: {optimizeDialog: optimize},
+} = useDocumentContext();
+const {
+    totalPages,
+    currentPage,
+    viewMode,
+    selectedThumbnailPages,
+    selectedPageSelection,
+} = view;
 </script>
 
 <style scoped>

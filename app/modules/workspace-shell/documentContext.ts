@@ -15,6 +15,7 @@ import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composabl
 import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
+import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
@@ -346,7 +347,10 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         handleSaveAs: () => saveThroughDriver('save-as'),
         handleRepairSave: saveService.handleRepairSave,
         handleOptimizePdfForInteraction: saveService.handleOptimizePdfForInteraction,
-        handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy,
+        optimizeDialog: useDocumentWorkspaceOptimizeDialog({
+            handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy,
+            getLastFailurePresentation: failure.getLastFailurePresentation,
+        }),
         createRecoverySnapshotBytes: saveService.createRecoverySnapshotBytes,
         ensureWorkingCopyFreshForRead,
     };

@@ -4,22 +4,20 @@ import type {
 } from '@contracts/electronApiDocuments';
 import { createRequestId } from '@contracts/shared';
 import type { TRequestId } from '@contracts/shared';
-import type { ComputedRef } from 'vue';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
+import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
 
 interface IUseDocumentWorkspaceOptimizeDialogOptions {
-    canOptimizePdf: ComputedRef<boolean>;
     handleOptimizePdfAsCopy: (options: IPdfOptimizeOptions, requestId: TRequestId) => Promise<boolean>;
-    getLastFailurePresentation?: () => FailurePresentation | null;
-    onOptimizeSuccess: () => void;
+    getLastFailurePresentation: () => FailurePresentation | null;
 }
 
 export const useDocumentWorkspaceOptimizeDialog = ({
-    canOptimizePdf,
     getLastFailurePresentation,
     handleOptimizePdfAsCopy,
-    onOptimizeSuccess,
 }: IUseDocumentWorkspaceOptimizeDialogOptions) => {
+    const { t } = useTypedI18n();
+    const toast = useToast();
     const optimizeDialogOpen = ref(false);
     const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
     const optimizeDialogError = ref<FailurePresentation | null>(null);
@@ -31,10 +29,6 @@ export const useDocumentWorkspaceOptimizeDialog = ({
     }
 
     function openOptimizePdfForInteractionDialog() {
-        if (!canOptimizePdf.value) {
-            return false;
-        }
-
         optimizeDialogError.value = null;
         optimizeProgress.value = null;
         optimizeDialogOpen.value = true;
@@ -73,25 +67,31 @@ export const useDocumentWorkspaceOptimizeDialog = ({
         const success = await handleOptimizePdfAsCopy(options, requestId);
         if (success) {
             optimizeDialogOpen.value = false;
-            onOptimizeSuccess();
+            toast.add({
+                color: 'success',
+                title: t('optimizePdf.successTitle'),
+            });
         } else {
-            optimizeDialogError.value = getLastFailurePresentation?.() ?? null;
+            optimizeDialogError.value = getLastFailurePresentation();
             optimizeProgress.value = null;
         }
 
         optimizeRequestId.value = null;
     }
 
-    function handleOptimizeProgress(progress: IPdfOptimizeProgress) {
-        if (progress.requestId === optimizeRequestId.value) {
-            optimizeProgress.value = progress;
-        }
-    }
+    let unsubscribeProgress: (() => void) | null = null;
+    onMounted(() => {
+        unsubscribeProgress = getDocumentMenuCapability().onPdfOptimizeProgress((progress) => {
+            if (progress.requestId === optimizeRequestId.value) {
+                optimizeProgress.value = progress;
+            }
+        });
+    });
+    onBeforeUnmount(() => unsubscribeProgress?.());
 
     return {
         handleOptimizeDialogOpenChange,
         handleOptimizeDialogSubmit,
-        handleOptimizeProgress,
         isOptimizeDialogRunning,
         openOptimizePdfForInteractionDialog,
         optimizeDialogError,

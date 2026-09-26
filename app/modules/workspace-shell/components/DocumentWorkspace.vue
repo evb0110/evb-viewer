@@ -229,19 +229,8 @@
                 @update:session-state="updateScanCleanupSessionState"
             />
         </div>
-        <WorkspacePageOpProgressOverlay
-            v-show="surfaceMode === 'reader'"
-            :has-document="toolbarHasPdf"
-            :progress="pageOpBatchProgress"
-            :eta-text="pageOpBatchEtaText"
-            :is-page-operation-in-progress="isPageOperationInProgress"
-            :operation="pageOperationPresentation"
-            :can-cancel="canCancelPageOperation"
-            :cancel-state="pageOperationCancelState"
-            :last-outcome-status="lastPageOperationOutcome?.status ?? null"
-            @cancel="cancelActivePageOperation"
-        />
-        <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" :overlay="exportOverlay" />
+        <WorkspacePageOpProgressOverlay v-show="surfaceMode === 'reader'" :has-document="toolbarHasPdf" />
+        <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
             <PdfStatusBar
                 :file-path="statusFilePath"
@@ -313,48 +302,7 @@
         />
         <WorkspaceSaveDialogHost
             :visible="surfaceMode === 'reader'"
-            :export-scope-dialog-open="exportScopeDialogOpen"
-            :export-scope-dialog-mode="exportScopeDialogMode"
-            :export-scope-dialog-selected-pages="exportScopeDialogSelectedPages"
-            :export-scope-dialog-page-selection="exportScopeDialogPageSelection"
-            :print-dialog-open="printDialogOpen"
-            :print-dialog-selected-pages="printDialogSelectedPages"
-            :print-dialog-page-selection="printDialogPageSelection"
-            :print-status="printStatus"
-            :print-error="printError"
-            :is-preparing-print="isPreparingPrint"
-            :optimize-dialog-open="optimizeDialogOpen"
-            :optimize-dialog-running="isOptimizeDialogRunning"
-            :optimize-dialog-progress="optimizeProgress"
-            :optimize-dialog-error="optimizeDialogError"
-            :crop-dialog-open="cropDialogOpen"
-            :crop-dialog-loading="cropDialogLoading"
-            :crop-dialog-page-number="cropDialogPageNumber"
-            :crop-dialog-margins="cropDialogMargins"
-            :crop-dialog-media-box="cropDialogMediaBox"
-            :crop-dialog-current-box="cropDialogCurrentBox"
-            :crop-dialog-rotation="cropDialogRotation"
-            :selected-thumbnail-pages="selectedThumbnailPages"
-            :selected-page-selection="selectedPageSelection"
-            :total-pages="totalPages"
-            :current-page="currentPage"
-            :view-mode="viewMode"
-            :supports-advanced-print-options="supportsAdvancedPrintOptions"
-            :supports-first-page-single-print-layout="supportsFirstPageSinglePrintLayout"
             :show-djvu-conversion-ui="showDjvuConversionUi"
-            :show-convert-dialog="showConvertDialog"
-            :djvu-path="djvuSourcePath"
-            @export-submit="handleExportScopeDialogSubmit"
-            @export-open-change="handleExportScopeDialogOpenChange"
-            @print-submit="handlePrintDialogSubmit"
-            @print-open-change="handlePrintDialogOpenChange"
-            @optimize-submit="handleOptimizeDialogSubmit"
-            @optimize-open-change="handleOptimizeDialogOpenChange"
-            @crop-apply="handleCropApply"
-            @crop-remove="handleCropRemove"
-            @crop-open-change="cropDialogOpen = $event"
-            @djvu-convert="handleDjvuConvert"
-            @convert-open-change="showConvertDialog = $event"
         />
     </WorkspaceShell>
 </template>
@@ -384,7 +332,6 @@ import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
-import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
@@ -409,7 +356,6 @@ import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-she
 import { useDocumentSourceSidebarSession } from '@app/modules/workspace-shell/composables/useDocumentSourceSidebarSession';
 import { createWorkspacePdfSearchResultNavigation } from '@app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import { formatEtaDuration } from '@app/utils/progressFormatting';
 import {
     DESKTOP_EDITOR_READER_COMMAND_SURFACE,
     EMPTY_STATE_READER_COMMAND_SURFACE,
@@ -430,7 +376,6 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
 const ScanCleanupWorkspace = defineAsyncComponent({
     loader: () => import('@app/modules/scan-cleanup/public/workspace')
         .then(module => module.ScanCleanupWorkspace),
@@ -517,7 +462,6 @@ const emit = defineEmits<{
     'toggle-fullscreen': [];
 }>();
 const { t } = useTypedI18n();
-const toast = useToast();
 const workspaceSplitCache = useWorkspaceSplitCache();
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const isRestoringSplitPayload = ref(false);
@@ -602,7 +546,6 @@ const {
     showConvertDialog,
     openConvertDialog,
     djvuDismissBanner,
-    handleDjvuConvert,
     ensureDjvuPdfProjection,
     handleDjvuCancel,
     openBatchProgress,
@@ -720,15 +663,8 @@ watch(
     {flush: 'post'},
 );
 const {
-    exportOverlay,
-    exportScopeDialogOpen,
-    exportScopeDialogMode,
-    exportScopeDialogPageSelection,
-    exportScopeDialogSelectedPages,
     handleExportImages,
     handleExportMultiPageTiff,
-    handleExportScopeDialogSubmit,
-    handleExportScopeDialogOpenChange,
 } = exportWorkflow;
 const {
     pageLabels,
@@ -785,7 +721,6 @@ const {
 const {
     handleSave,
     handleRepairSave,
-    handleOptimizePdfAsCopy,
     isAnySaving,
     canSave,
 } = save;
@@ -799,16 +734,6 @@ const {isHistoryBusy} = history;
 const {
     handlePrint,
     handlePrintCurrentPage,
-    handlePrintDialogOpenChange,
-    handlePrintDialogSubmit,
-    isPreparingPrint,
-    printDialogOpen,
-    printDialogPageSelection,
-    printDialogSelectedPages,
-    printError,
-    printStatus,
-    supportsAdvancedPrintOptions,
-    supportsFirstPageSinglePrintLayout,
 } = printWorkflow;
 const {
     canUndo,
@@ -825,16 +750,7 @@ const handleGoToResult = createWorkspacePdfSearchResultNavigation({
     results,
     select: selectPdfSearchResult,
 });
-const {
-    handleCrop,
-    cropDialogOpen,
-    cropDialogLoading,
-    cropDialogMargins,
-    cropDialogMediaBox,
-    cropDialogCurrentBox,
-    cropDialogPageNumber,
-    cropDialogRotation,
-} = crop;
+const {handleCrop} = crop;
 const {
     handleCaptureRegion,
     handleDropdownOpen: handleDropdownOpenDirect,
@@ -870,15 +786,7 @@ const {
     handleStatusSaveClick,
     handleStatusShowInFolderClick,
 } = statusBar;
-const {
-    isPageOperationInProgress,
-    pageOperationPresentation,
-    pageOpBatchProgress,
-    lastPageOperationOutcome,
-    pageOperationCancelState,
-    canCancelPageOperation,
-    cancelActivePageOperation,
-} = pageOps;
+const {isPageOperationInProgress} = pageOps;
 const {
     hasQueuedSplitRestore,
     isExternallyRestoring,
@@ -1078,26 +986,7 @@ const showWorkspaceViewerDocument = computed(() => {
         || phase === 'canvas-committed'
         || phase === 'viewport-committed';
 });
-const {
-    handleOptimizeDialogOpenChange,
-    handleOptimizeDialogSubmit,
-    handleOptimizeProgress,
-    isOptimizeDialogRunning,
-    openOptimizePdfForInteractionDialog,
-    optimizeDialogError,
-    optimizeDialogOpen,
-    optimizeProgress,
-} = useDocumentWorkspaceOptimizeDialog({
-    canOptimizePdf: canOptimizePdfForDisplay,
-    handleOptimizePdfAsCopy,
-    getLastFailurePresentation: context.failure.getLastFailurePresentation,
-    onOptimizeSuccess: () => {
-        toast.add({
-            color: 'success',
-            title: t('optimizePdf.successTitle'),
-        });
-    },
-});
+const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
 
 const {
     ensureEditProjection,
@@ -1126,8 +1015,6 @@ const {
 
 const {
     canExportDocx,
-    handleCropApply,
-    handleCropRemove,
     handleOverflowSetViewMode,
     handleToolbarCaptureRegion,
     handleToolbarCrop,
@@ -1180,7 +1067,6 @@ const {
     pdfViewerRef,
     isResizingSidebar,
 });
-const pageOpBatchEtaText = computed(() => formatEtaDuration(pageOpBatchProgress.value?.estimatedRemainingMs ?? null));
 const {
     handleDeletePages,
     handleExtractPages,
@@ -1407,16 +1293,13 @@ watch(() => isActive || isRenderActive, (shown, wasShown) => {
         documentLifecycle.captureViewState();
     }
 }, {flush: 'sync'});
-let unsubscribeOptimizeProgress: (() => void) | null = null;
 onMounted(() => {
-    unsubscribeOptimizeProgress = getDocumentMenuCapability().onPdfOptimizeProgress(handleOptimizeProgress);
     documentSession.attachWorkspace(workspaceExpose);
 });
 onBeforeUnmount(() => {
     if (surfaceMode.value === 'scan-cleanup') {
         discardScanCleanupState();
     }
-    unsubscribeOptimizeProgress?.();
     // A cold tab can unmount in the same render that hides it; capture
     // while the workspace is still live.
     documentLifecycle.captureViewState();

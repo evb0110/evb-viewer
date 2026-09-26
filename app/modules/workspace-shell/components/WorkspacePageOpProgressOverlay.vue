@@ -26,42 +26,28 @@ import {
     formatEtaDuration,
 } from '@app/utils/progressFormatting';
 import type { IPageOperationPresentation } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
-import type { TPageOperationCancelState } from '@app/modules/pdf-viewer/public';
+import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
 
+const { hasDocument } = defineProps<{hasDocument: boolean;}>();
 const {
-    progress,
-    etaText,
-    hasDocument,
+    pageOpBatchProgress: progress,
     isPageOperationInProgress,
-    operation,
-    canCancel,
-    cancelState,
-    lastOutcomeStatus,
-} = defineProps<{
-    progress: {
-        processed: number;
-        total: number;
-        percent: number;
-    } | null;
-    etaText: string | null;
-    hasDocument: boolean;
-    isPageOperationInProgress: boolean;
-    operation: IPageOperationPresentation | null;
-    canCancel: boolean;
-    cancelState: TPageOperationCancelState;
-    lastOutcomeStatus: string | null;
-}>();
-
-const emit = defineEmits<{cancel: [];}>();
+    pageOperationPresentation: operation,
+    canCancelPageOperation: canCancel,
+    pageOperationCancelState: cancelState,
+    lastPageOperationOutcome,
+    cancelActivePageOperation,
+} = useDocumentContext().pageOps;
+const etaText = computed(() => formatEtaDuration(progress.value?.estimatedRemainingMs ?? null));
 
 const { t } = useTypedI18n();
 const toast = useToast();
 
 const cancelLabel = computed(() => {
-    if (!canCancel) {
+    if (!canCancel.value) {
         return '';
     }
-    switch (cancelState) {
+    switch (cancelState.value) {
         case 'canceling':
             return t('pageOps.canceling');
         case 'finishing':
@@ -74,7 +60,7 @@ const cancelLabel = computed(() => {
 let userRequestedCancel = false;
 function requestCancel() {
     userRequestedCancel = true;
-    emit('cancel');
+    void cancelActivePageOperation();
 }
 
 const delayedProgressVisible = ref(false);
@@ -85,7 +71,7 @@ const {
     delayedProgressVisible.value = true;
 }, 400, {immediate: false});
 
-const showProgress = computed(() => isPageOperationInProgress && delayedProgressVisible.value);
+const showProgress = computed(() => isPageOperationInProgress.value && delayedProgressVisible.value);
 function resolveOperationTitle(activeOperation: IPageOperationPresentation) {
     const operationLabel = (() => {
         switch (activeOperation.kind) {
@@ -115,10 +101,7 @@ function resolveOperationTitle(activeOperation: IPageOperationPresentation) {
     return `${operationLabel} · ${operationCountLabel}`;
 }
 const operationTitle = computed(() => {
-    if (!operation) {
-        return t('pageOps.operationInProgress');
-    }
-    return resolveOperationTitle(operation);
+    return operation.value ? resolveOperationTitle(operation.value) : t('pageOps.operationInProgress');
 });
 
 // Without a measurable count the panel shows an elapsed clock, so long work
@@ -137,7 +120,7 @@ const elapsedText = computed(() => (
         : formatEtaDuration(now.value - operationStartedAt.value)
 ));
 
-watch(() => isPageOperationInProgress, (inProgress) => {
+watch(isPageOperationInProgress, (inProgress) => {
     stopProgressDelay();
     delayedProgressVisible.value = false;
     if (inProgress) {
@@ -150,7 +133,7 @@ watch(() => isPageOperationInProgress, (inProgress) => {
     }
     pauseElapsedClock();
     operationStartedAt.value = null;
-    if (userRequestedCancel && lastOutcomeStatus === 'canceled') {
+    if (userRequestedCancel && lastPageOperationOutcome.value?.status === 'canceled') {
         toast.add({
             color: 'neutral',
             title: t('pageOps.canceled'),
@@ -165,20 +148,20 @@ onBeforeUnmount(() => {
 });
 
 const detailText = computed(() => {
-    if (!progress) {
-        return '';
-    }
-    return t('emptyState.preparingBatchProgress', {
-        processed: displayProcessedCount(progress.processed, progress.total),
-        total: progress.total,
-    });
+    const current = progress.value;
+    return current
+        ? t('emptyState.preparingBatchProgress', {
+            processed: displayProcessedCount(current.processed, current.total),
+            total: current.total,
+        })
+        : '';
 });
 
 const subDetailText = computed(() => {
-    if (etaText) {
-        return t('emptyState.preparingBatchEta', { eta: etaText });
+    if (etaText.value) {
+        return t('emptyState.preparingBatchEta', { eta: etaText.value });
     }
-    return !progress && elapsedText.value
+    return !progress.value && elapsedText.value
         ? t('pageOps.elapsed', {time: elapsedText.value})
         : '';
 });
