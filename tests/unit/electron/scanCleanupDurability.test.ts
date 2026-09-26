@@ -3,11 +3,13 @@ import {
     mkdir,
     mkdtemp,
     readFile,
+    readdir,
     rm,
     symlink,
     utimes,
     writeFile,
 } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -31,8 +33,11 @@ import {
     type IManagedProcessIdentity,
     type IManagedProcessRegistryEntry,
 } from '@electron/native-tools/managedProcessRegistry';
+import { terminateProcessTree } from '@electron/utils/processTree';
+import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 
 const temporaryDirectories: string[] = [];
+const itPosix = process.platform === 'win32' ? it.skip : it;
 
 async function createTemporaryDirectory() {
     const directory = await mkdtemp(join(tmpdir(), 'scan-cleanup-durability-test-'));
@@ -185,6 +190,7 @@ describe('scan-cleanup durability', () => {
     it('reaps only an orphan whose executable, manifest, and process start identity match', async () => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
+        const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
         await mkdir(registryDirectory);
         const entry: IManagedProcessRegistryEntry = {
             version: 1,
@@ -192,6 +198,7 @@ describe('scan-cleanup durability', () => {
             ownerPid: 4241,
             binaryPath: '/native/evb-scan-cleanup',
             manifestPath: '/scratch/manifest.json',
+            scratchPath,
             processStartTime: 'child-start',
             ownerStartTime: 'owner-start',
         };
@@ -224,6 +231,7 @@ describe('scan-cleanup durability', () => {
         expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: true}));
         expect(readIdentity).not.toHaveBeenCalledWith(4241);
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('reaps a managed tool by executable path and process start identity', async () => {
@@ -260,6 +268,117 @@ describe('scan-cleanup durability', () => {
 
         expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: true}));
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    itPosix('keeps native scratch while a process group has a live descendant', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
+        const child = spawn('sh', [
+            '-c',
+            'sleep 30 & exit 0',
+        ], {
+            detached: true,
+            stdio: 'ignore',
+        });
+        const pid = child.pid;
+        if (typeof pid !== 'number') {
+            throw new Error('Expected a process id for the detached group');
+        }
+        await new Promise<void>(resolve => child.once('close', () => resolve()));
+
+        const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
+        const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}descendant.json`);
+        const entry: IManagedProcessRegistryEntry = {
+            version: 1,
+            pid,
+            ownerPid: 2_147_483_647,
+            binaryPath: '/native/tool',
+            processStartTime: 'leader-start',
+            scratchPath,
+        };
+        await mkdir(registryDirectory);
+        await writeFile(entryPath, JSON.stringify(entry), 'utf8');
+        const options = {
+            isProcessAlive: () => false,
+            platform: 'linux' as NodeJS.Platform,
+        };
+
+        try {
+            await expect(reapOrphanedManagedProcesses(namespacePath, options)).resolves.toBe(0);
+            await expect(access(scratchPath)).resolves.toBeUndefined();
+            await expect(access(entryPath)).resolves.toBeUndefined();
+
+            await expect(terminateProcessTree(pid, {
+                graceMs: 1_000,
+                platform: 'linux',
+                preferProcessGroup: true,
+            })).resolves.toBe(true);
+            await reapOrphanedManagedProcesses(namespacePath, options);
+
+            await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            try {
+                process.kill(-pid, 'SIGKILL');
+            } catch {
+                // The process group was already reaped.
+            }
+        }
+    });
+
+    it('reaps only finished invocations in the selected profile namespace', async () => {
+        const firstNamespace = await createTemporaryDirectory();
+        const secondNamespace = await createTemporaryDirectory();
+        const finishedScratch = await createManagedScratchTempDir('native-command-', firstNamespace);
+        const liveScratch = await createManagedScratchTempDir('native-command-', firstNamespace);
+        const otherProfileScratch = await createManagedScratchTempDir('native-command-', secondNamespace);
+        const finishedEntryPath = join(getManagedProcessRegistryDirectory(firstNamespace), `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}finished.json`);
+        const liveEntryPath = join(getManagedProcessRegistryDirectory(firstNamespace), `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}live.json`);
+        const otherProfileEntryPath = join(getManagedProcessRegistryDirectory(secondNamespace), `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}other-profile.json`);
+        for (const directory of [
+            getManagedProcessRegistryDirectory(firstNamespace),
+            getManagedProcessRegistryDirectory(secondNamespace),
+        ]) {
+            await mkdir(directory);
+        }
+        const writeEntry = (pid: number, ownerPid: number, scratchPath: string) => writeFile(
+            pid === 2_147_483_644 ? liveEntryPath : pid === 2_147_483_643 ? otherProfileEntryPath : finishedEntryPath,
+            JSON.stringify({
+                version: 1,
+                pid,
+                ownerPid,
+                binaryPath: '/native/tool',
+                processStartTime: `process-${pid}`,
+                ownerStartTime: ownerPid === process.pid ? 'live-owner' : 'dead-owner',
+                scratchPath,
+            } satisfies IManagedProcessRegistryEntry),
+            'utf8',
+        );
+        await writeEntry(2_147_483_645, 2_147_483_647, finishedScratch);
+        await writeEntry(2_147_483_644, process.pid, liveScratch);
+        await writeEntry(2_147_483_643, 2_147_483_646, otherProfileScratch);
+        const options = {
+            isProcessAlive: (pid: number) => pid === process.pid,
+            readProcessIdentity: async (): Promise<IManagedProcessIdentity> => ({
+                executablePath: '/electron',
+                arguments: ['electron'],
+                startTime: 'live-owner',
+            }),
+            platform: 'linux' as NodeJS.Platform,
+        };
+
+        await reapOrphanedManagedProcesses(firstNamespace, options);
+
+        await expect(access(finishedScratch)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(finishedEntryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(liveScratch)).resolves.toBeUndefined();
+        await expect(access(liveEntryPath)).resolves.toBeUndefined();
+        await expect(access(otherProfileScratch)).resolves.toBeUndefined();
+        await expect(access(otherProfileEntryPath)).resolves.toBeUndefined();
+
+        await reapOrphanedManagedProcesses(secondNamespace, options);
+        await expect(access(otherProfileScratch)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(otherProfileEntryPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it.each([
@@ -324,11 +443,11 @@ describe('scan-cleanup durability', () => {
             manifestPath,
         });
 
-        await expect(readFile(registration.entryPath, 'utf8')).resolves.toContain(`"manifestPath":"${manifestPath}"`);
+        expect(JSON.parse(await readFile(registration.entryPath, 'utf8'))).toMatchObject({manifestPath});
         await expect(access(registration.entryPath)).resolves.toBeUndefined();
         await registration.unregister();
         await expect(access(registration.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
-        await expect(access(getManagedProcessRegistryDirectory(namespacePath))).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(readdir(getManagedProcessRegistryDirectory(namespacePath))).resolves.toEqual([]);
     });
 
     it('leaves a marker for a live owning worker and never signals its sidecar', async () => {

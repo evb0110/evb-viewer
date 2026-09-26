@@ -38,6 +38,7 @@ import {
 } from '@electron/native-tools/buildPopplerEnv';
 import { detectSourceDpiDetails } from '@electron/pdf/sourceDpiDetection';
 import { forEachConcurrent } from '@electron/utils/concurrency';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
@@ -799,7 +800,9 @@ function usingExportScratch<T>(
     prefix: TManagedScratchPrefix,
     run: (scratchPath: string) => Promise<T>,
 ) {
-    return (options.scratch?.using ?? usingManagedScratchScope)(prefix, run);
+    return options.scratch?.using
+        ? options.scratch.using(prefix, run)
+        : usingManagedScratchScope(prefix, getAppTempDir(), run);
 }
 
 async function renderPdfToTempPages(

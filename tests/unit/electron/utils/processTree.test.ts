@@ -5,7 +5,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import { spawn } from 'node:child_process';
 import {
+    isProcessTreeAlive,
     processTreeRuntime,
     terminateProcessTree,
 } from '@electron/utils/processTree';
@@ -14,6 +16,7 @@ const describePosix = process.platform === 'win32' ? describe.skip : describe;
 // terminateProcessTree intentionally refuses to signal the current process.
 // Avoid fixed PIDs that can collide with the Vitest worker on CI runners.
 const makeTestPid = (pid: number) => (pid === process.pid ? pid + 1 : pid);
+const errno = (code: string) => Object.assign(new Error(code), {code});
 
 describePosix('terminateProcessTree (posix)', () => {
     afterEach(() => {
@@ -66,7 +69,7 @@ describePosix('terminateProcessTree (posix)', () => {
                 if (alive) {
                     return true;
                 }
-                throw new Error('ESRCH');
+                throw errno('ESRCH');
             }
             if (signal === 'SIGTERM') {
                 alive = false;
@@ -126,12 +129,12 @@ describePosix('terminateProcessTree (posix)', () => {
             });
             if (signal === 0) {
                 if (targetPid === -pid) {
-                    throw new Error('ESRCH: process group was never created');
+                    throw errno('ESRCH');
                 }
                 if (targetPid === pid && directAlive) {
                     return true;
                 }
-                throw new Error('ESRCH');
+                throw errno('ESRCH');
             }
             if (targetPid === pid && signal === 'SIGTERM') {
                 directAlive = false;
@@ -168,7 +171,7 @@ describePosix('terminateProcessTree (posix)', () => {
                 if (processGroupAlive) {
                     return true;
                 }
-                throw new Error('ESRCH');
+                throw errno('ESRCH');
             }
             if (signal === 'SIGTERM') {
                 originalTargetAlive = false;
@@ -188,6 +191,45 @@ describePosix('terminateProcessTree (posix)', () => {
         expect(terminated).toBe(true);
         expect(killCalls.some(call => call.signal === 'SIGTERM')).toBe(true);
         expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(true);
+    });
+
+    it('detects and terminates a descendant that outlives its group leader', async () => {
+        const child = spawn('sh', [
+            '-c',
+            'sleep 30 & exit 0',
+        ], {
+            detached: true,
+            stdio: 'ignore',
+        });
+        const pid = child.pid;
+        if (typeof pid !== 'number') {
+            throw new Error('Expected a process id for the detached group');
+        }
+        await new Promise<void>(resolve => child.once('close', () => resolve()));
+
+        try {
+            expect(isProcessTreeAlive(pid, 'linux')).toBe(true);
+            await expect(terminateProcessTree(pid, {
+                graceMs: 1_000,
+                platform: 'linux',
+                preferProcessGroup: true,
+            })).resolves.toBe(true);
+            expect(isProcessTreeAlive(pid, 'linux')).toBe(false);
+        } finally {
+            try {
+                process.kill(-pid, 'SIGKILL');
+            } catch {
+                // The process group was already reaped.
+            }
+        }
+    });
+
+    it('treats unknown liveness errors as alive', () => {
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(() => {
+            throw new Error('process status unavailable');
+        });
+
+        expect(isProcessTreeAlive(makeTestPid(4344), 'linux')).toBe(true);
     });
 });
 
@@ -223,7 +265,7 @@ describe('terminateProcessTree (win32 taskkill)', () => {
         }));
         vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
             if (targetPid === pid && signal === 0 && !alive) {
-                throw new Error('ESRCH');
+                throw errno('ESRCH');
             }
             return true;
         }) as typeof processTreeRuntime.kill);
@@ -250,7 +292,7 @@ describe('terminateProcessTree (win32 taskkill)', () => {
         }));
         vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
             if (targetPid === pid && signal === 0 && !alive) {
-                throw new Error('ESRCH');
+                throw errno('ESRCH');
             }
             return true;
         }) as typeof processTreeRuntime.kill);

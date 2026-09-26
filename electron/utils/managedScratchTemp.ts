@@ -6,9 +6,13 @@ import {
     rm,
     writeFile,
 } from 'fs/promises';
-import { join } from 'path';
+import {
+    basename,
+    dirname,
+    join,
+    resolve,
+} from 'path';
 import { createLogger } from '@electron/utils/createLogger';
-import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
@@ -24,6 +28,7 @@ const MANAGED_SCRATCH_PREFIXES = [
     'qpdfArgs-',
     'qpdfOutput-',
     'pdf-page-ops-',
+    'native-command-',
     'djvu-image-export-',
     'djvu-tiff-export-',
     'scan-cleanup-preview-',
@@ -100,12 +105,15 @@ function isProcessAlive(pid: number) {
         process.kill(pid, 0);
         return true;
     } catch (error) {
-        return isErrnoException(error) && error.code === 'EPERM';
+        return !isErrnoException(error) || error.code !== 'ESRCH';
     }
 }
 
-export async function createManagedScratchTempDir(prefix: TManagedScratchPrefix) {
-    const tempDir = await mkdtemp(join(getAppTempDir(), prefix));
+export async function createManagedScratchTempDir(
+    prefix: TManagedScratchPrefix,
+    rootPath: string,
+) {
+    const tempDir = await mkdtemp(join(rootPath, prefix));
     try {
         await writeFile(join(tempDir, MANAGED_SCRATCH_MARKER_FILE), `${JSON.stringify({
             createdAt: Date.now(),
@@ -122,11 +130,51 @@ export async function createManagedScratchTempDir(prefix: TManagedScratchPrefix)
     return tempDir;
 }
 
+export async function removeManagedScratchTempDir(
+    directoryPath: string,
+    prefix: TManagedScratchPrefix,
+    rootPath: string,
+) {
+    const resolvedDirectory = resolve(directoryPath);
+    const resolvedRoot = resolve(rootPath);
+    const normalizedDirectory = process.platform === 'win32'
+        ? resolvedDirectory.toLowerCase()
+        : resolvedDirectory;
+    const normalizedRoot = process.platform === 'win32'
+        ? resolvedRoot.toLowerCase()
+        : resolvedRoot;
+    let directoryStat;
+    try {
+        directoryStat = await lstat(resolvedDirectory);
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return true;
+        }
+        throw error;
+    }
+    if (!directoryStat.isDirectory()
+        || directoryStat.isSymbolicLink()
+        || dirname(normalizedDirectory) !== normalizedRoot
+        || !basename(resolvedDirectory).startsWith(prefix)) {
+        return false;
+    }
+    const marker = await readManagedScratchMarker(resolvedDirectory);
+    if (marker?.prefix !== prefix) {
+        return false;
+    }
+    await rm(resolvedDirectory, {
+        force: true,
+        recursive: true,
+    });
+    return true;
+}
+
 export async function usingManagedScratchScope<T>(
     prefix: TManagedScratchPrefix,
+    rootPath: string,
     run: (scratchPath: string) => Promise<T>,
 ): Promise<T> {
-    const scratchPath = await createManagedScratchTempDir(prefix);
+    const scratchPath = await createManagedScratchTempDir(prefix, rootPath);
     try {
         return await run(scratchPath);
     } finally {
@@ -138,10 +186,10 @@ export async function usingManagedScratchScope<T>(
 }
 
 export async function sweepStaleManagedScratchTempDirs(
+    tempDir: string,
     maxAgeMs = MANAGED_SCRATCH_STALE_MAX_AGE_MS,
     maxEntries = MANAGED_SCRATCH_SWEEP_MAX_ENTRIES,
 ) {
-    const tempDir = getAppTempDir();
     const now = Date.now();
     let deletedCount = 0;
 
@@ -152,7 +200,8 @@ export async function sweepStaleManagedScratchTempDirs(
         return 0;
     }
 
-    const managedEntries = entries.filter(isManagedScratchDirectoryName);
+    const managedEntries = entries.filter(entry => isManagedScratchDirectoryName(entry)
+        && !entry.startsWith('native-command-'));
     for (const entry of managedEntries.slice(0, maxEntries)) {
         const scratchPath = join(tempDir, entry);
         try {

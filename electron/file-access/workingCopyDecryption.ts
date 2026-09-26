@@ -13,6 +13,7 @@ import {
 import { hasNativeErrorCode } from '@contracts/nativeErrors';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {createManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
+import {getAppTempDir} from '@electron/utils/appTempDir';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
@@ -127,7 +128,7 @@ export async function decryptWorkingCopyWithWriter(
         throw new Error('Native PDF decrypt operation is unavailable');
     }
 
-    const scratchPath = await createManagedScratchTempDir('pdf-page-ops-');
+    const scratchPath = await createManagedScratchTempDir('pdf-page-ops-', getAppTempDir());
     const outputPath = join(scratchPath, 'decrypted.pdf');
     const sidecarPath = `${outputPath}.decrypt.json`;
     let passwordPath: string | undefined;

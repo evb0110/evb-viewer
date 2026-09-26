@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@electron/utils/error';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import {randomUUID} from 'node:crypto';
 import type {WebContents} from 'electron';
@@ -423,7 +424,7 @@ export function createMainJobRegistry<
         const context: IMainJobRunContext<TProgress, TResult, TError> = {
             jobId,
             signal: controller.signal,
-            scratch: options.scratch ?? {using: usingManagedScratchScope},
+            scratch: options.scratch ?? {using: (prefix, run) => usingManagedScratchScope(prefix, getAppTempDir(), run)},
             publish: progress => { if (record.terminalAtMs === null) {
                 const previousKey = options.progress?.getEventKey(record.snapshot.progress);
                 const nextKey = options.progress?.getEventKey(progress);

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { IPdfPathPrintOptions } from '@contracts/electronApiDocuments';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 
 const PDF_PRINT_LAYOUT_TIMEOUT_MS = 10 * 60_000;
@@ -21,7 +22,7 @@ export async function buildPrintablePdfPath(options: {
         throw new Error('Native print layout is unavailable');
     }
     const {pageNumbers} = options.printOptions;
-    await usingManagedScratchScope('pdf-page-ops-', async (scratchPath) => {
+    await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async (scratchPath) => {
         const pagesArgs: string[] = [];
         if (pageNumbers?.length) {
             const pagesFile = join(scratchPath, 'pages.txt');

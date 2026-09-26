@@ -47,8 +47,8 @@ function isPidAlive(pid: number) {
     try {
         processTreeRuntime.kill(pid, 0);
         return true;
-    } catch {
-        return false;
+    } catch (error) {
+        return !(error instanceof Error && (error as NodeJS.ErrnoException).code === 'ESRCH');
     }
 }
 
@@ -60,9 +60,15 @@ function isProcessGroupAlive(pid: number) {
     try {
         processTreeRuntime.kill(-pid, 0);
         return true;
-    } catch {
-        return false;
+    } catch (error) {
+        return !(error instanceof Error && (error as NodeJS.ErrnoException).code === 'ESRCH');
     }
+}
+
+export function isProcessTreeAlive(pid: number, platform: NodeJS.Platform = process.platform) {
+    return platform === 'win32'
+        ? isPidAlive(pid)
+        : isProcessGroupAlive(pid) || isPidAlive(pid);
 }
 
 async function waitForExit(isAlive: () => boolean, timeoutMs: number) {

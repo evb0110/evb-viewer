@@ -4,7 +4,6 @@ import {
     readFile,
     readlink,
     readdir,
-    rmdir,
     unlink,
     writeFile,
 } from 'node:fs/promises';
@@ -13,7 +12,11 @@ import {
     join, resolve,
 } from 'node:path';
 import {promisify} from 'node:util';
-import {terminateProcessTree} from '@electron/utils/processTree';
+import {removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
+import {
+    isProcessTreeAlive,
+    terminateProcessTree,
+} from '@electron/utils/processTree';
 
 // Keep the marker path stable so newer builds can reap children recorded by older builds.
 export const MANAGED_PROCESS_REGISTRY_DIRECTORY = '.evb-scan-cleanup-sidecars';
@@ -33,6 +36,7 @@ export interface IManagedProcessRegistryEntry {
     ownerPid: number;
     binaryPath: string;
     manifestPath?: string;
+    scratchPath?: string;
     processStartTime?: string;
     ownerStartTime?: string;
 }
@@ -69,6 +73,9 @@ function parseEntry(value: unknown): IManagedProcessRegistryEntry | null {
         || value.ownerPid <= 0
         || typeof value.binaryPath !== 'string'
         || value.binaryPath.length === 0
+        || (value.scratchPath !== undefined && (typeof value.scratchPath !== 'string'
+            || value.scratchPath.length === 0
+            || !isAbsolute(value.scratchPath)))
         || (value.manifestPath !== undefined && (typeof value.manifestPath !== 'string' || value.manifestPath.length === 0))
         || (value.manifestPath === undefined && typeof value.processStartTime !== 'string')
         || (value.processStartTime !== undefined && typeof value.processStartTime !== 'string')
@@ -80,6 +87,7 @@ function parseEntry(value: unknown): IManagedProcessRegistryEntry | null {
         pid: value.pid,
         ownerPid: value.ownerPid,
         binaryPath: value.binaryPath,
+        ...(value.scratchPath === undefined ? {} : {scratchPath: value.scratchPath}),
         ...(value.manifestPath === undefined ? {} : {manifestPath: value.manifestPath}),
         ...(value.processStartTime === undefined ? {} : {processStartTime: value.processStartTime}),
         ...(value.ownerStartTime === undefined ? {} : {ownerStartTime: value.ownerStartTime}),
@@ -259,7 +267,7 @@ function defaultIsProcessAlive(pid: number) {
         process.kill(pid, 0);
         return true;
     } catch (error) {
-        return error instanceof Error && (error as NodeJS.ErrnoException).code === 'EPERM';
+        return !(error instanceof Error && (error as NodeJS.ErrnoException).code === 'ESRCH');
     }
 }
 
@@ -293,6 +301,7 @@ export async function registerManagedProcess(
         pid: number;
         binaryPath: string;
         manifestPath?: string;
+        scratchPath?: string;
     },
 ): Promise<IManagedProcessRegistration> {
     const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
@@ -311,6 +320,7 @@ export async function registerManagedProcess(
         pid: input.pid,
         ownerPid: process.pid,
         binaryPath: resolve(input.binaryPath),
+        ...(input.scratchPath === undefined ? {} : {scratchPath: resolve(input.scratchPath)}),
         ...(input.manifestPath === undefined ? {} : {manifestPath: resolve(input.manifestPath)}),
         processStartTime: processIdentity.startTime,
         ...(ownerIdentity === null ? {} : {ownerStartTime: ownerIdentity.startTime}),
@@ -327,7 +337,6 @@ export async function registerManagedProcess(
                     throw error;
                 }
             });
-            await removeEmptyRegistryDirectory(registryDirectory);
         },
     };
 }
@@ -382,10 +391,6 @@ async function readRegistryEntries(registryDirectory: string) {
     return entries;
 }
 
-async function removeEmptyRegistryDirectory(registryDirectory: string) {
-    await rmdir(registryDirectory).catch(() => undefined);
-}
-
 export async function reapOrphanedManagedProcesses(
     namespacePath: string,
     options: IManagedProcessRecoveryOptions = {},
@@ -420,6 +425,14 @@ export async function reapOrphanedManagedProcesses(
             continue;
         }
         if (!isProcessAlive(entry.pid)) {
+            if (entry.scratchPath && isProcessTreeAlive(entry.pid, platform)) {
+                log('warn', `Preserved scratch for managed process pid ${String(entry.pid)} while its process group is still alive`);
+                continue;
+            }
+            if (entry.scratchPath && !await removeManagedScratchTempDir(entry.scratchPath, 'native-command-', namespacePath)) {
+                log('warn', `Preserved managed process pid ${String(entry.pid)} because its scratch path is outside the namespace`);
+                continue;
+            }
             await unlink(entryPath).catch(() => undefined);
             continue;
         }
@@ -434,7 +447,12 @@ export async function reapOrphanedManagedProcesses(
             platform,
             preferProcessGroup: platform !== 'win32',
         }).catch(() => false);
-        if (terminated || !isProcessAlive(entry.pid)) {
+        const processTreeGone = terminated || !isProcessTreeAlive(entry.pid, platform);
+        if (processTreeGone) {
+            if (entry.scratchPath && !await removeManagedScratchTempDir(entry.scratchPath, 'native-command-', namespacePath)) {
+                log('warn', `Preserved managed process pid ${String(entry.pid)} because its scratch path is outside the namespace`);
+                continue;
+            }
             await unlink(entryPath).catch(() => undefined);
             reapedCount += 1;
             log('debug', `Reaped orphaned managed process pid ${String(entry.pid)}`);
@@ -442,6 +460,5 @@ export async function reapOrphanedManagedProcesses(
             log('warn', `Could not reap orphaned managed process pid ${String(entry.pid)}`);
         }
     }
-    await removeEmptyRegistryDirectory(registryDirectory);
     return reapedCount;
 }

@@ -831,7 +831,7 @@ void runInitSequence({
     sweepStaleDefaultAppTempPdfs,
     sweepStalePdfAnnotationParseArtifacts,
     sweepStalePdfEmbeddedShapeIndexArtifacts,
-    sweepStaleManagedScratchTempDirs,
+    sweepStaleManagedScratchTempDirs: () => sweepStaleManagedScratchTempDirs(getAppTempDir()),
     sweepStaleScanCleanupScratchDirs: () => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,

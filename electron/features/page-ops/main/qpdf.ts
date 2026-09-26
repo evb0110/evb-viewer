@@ -13,6 +13,7 @@ import {devNull} from 'node:os';
 import { join } from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';
@@ -184,7 +185,7 @@ function formatComplementPageList(pagesToRemove: number[], totalPages: number) {
 }
 
 async function writeQpdfArgsFile(args: string[]) {
-    const tempDir = await createManagedScratchTempDir('qpdfArgs-');
+    const tempDir = await createManagedScratchTempDir('qpdfArgs-', getAppTempDir());
     const argsPath = join(tempDir, 'args.txt');
     await writeFile(argsPath, args.map(arg => arg.replace(/\r?\n/g, ' ')).join('\n'));
     return {
@@ -253,7 +254,7 @@ async function cleanupQpdfTemp(tempPath: string) {
 }
 
 async function createManagedQpdfOutputPath() {
-    const tempDir = await createManagedScratchTempDir('qpdfOutput-');
+    const tempDir = await createManagedScratchTempDir('qpdfOutput-', getAppTempDir());
     return {
         outputPath: join(tempDir, 'output.pdf'),
         tempDir,
@@ -664,7 +665,7 @@ export async function rotatePages(
         throw new Error('Native page rotation is unavailable');
     }
 
-    const tempDir = await createManagedScratchTempDir('pdf-page-ops-');
+    const tempDir = await createManagedScratchTempDir('pdf-page-ops-', getAppTempDir());
     const mutationsPath = join(tempDir, 'mutations.json');
     const targetPath = appendInPlace ? materializedPath : makeTempPdfOutputPath(materializedPath);
     try {

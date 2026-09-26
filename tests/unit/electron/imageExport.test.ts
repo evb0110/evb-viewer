@@ -223,7 +223,11 @@ vi.mock('@electron/utils/atomicReplace', () => ({
 }));
 vi.mock('@electron/utils/managedScratchTemp', () => ({
     createManagedScratchTempDir: (...args: [string]) => mocks.createManagedScratchTempDir(...args),
-    usingManagedScratchScope: async (prefix: string, run: (scratchPath: string) => Promise<unknown>) => {
+    usingManagedScratchScope: async (
+        prefix: string,
+        _rootPath: string,
+        run: (scratchPath: string) => Promise<unknown>,
+    ) => {
         const scratchPath = await mocks.createManagedScratchTempDir(prefix);
         try {
             return await run(scratchPath);

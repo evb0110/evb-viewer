@@ -8,6 +8,7 @@ import type { ICropMargins } from '@contracts/shared';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { hasNativeErrorCode } from '@contracts/nativeErrors';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -161,7 +162,7 @@ async function tryRunNativeCropOperation(
     }
 
     const tempPath = makeTempPdfOutputPath(workingCopyPath);
-    const tempDir = await createManagedScratchTempDir('pdf-page-ops-');
+    const tempDir = await createManagedScratchTempDir('pdf-page-ops-', getAppTempDir());
     const pagesFilePath = join(tempDir, 'pages.txt');
 
     try {

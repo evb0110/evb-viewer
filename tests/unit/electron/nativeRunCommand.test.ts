@@ -1,4 +1,10 @@
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
+import {
+    mkdtemp,
+    rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import {
     afterEach,
     beforeEach,
@@ -7,16 +13,27 @@ import {
     it,
     vi,
 } from 'vitest';
+import { join } from 'node:path';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
     terminateDetachedChildProcess: vi.fn(async (_proc: unknown, _graceMs: number): Promise<boolean> => false),
+    createManagedScratchTempDir: vi.fn(async (prefix: string, rootPath?: string) => join(rootPath ?? '/tmp', `${prefix}test`)),
+    removeManagedScratchTempDir: vi.fn(async (_path: string, _prefix: string, _root: string) => true),
+    unregisterManagedProcess: vi.fn(async () => undefined),
+    registerManagedProcess: vi.fn(async () => ({
+        entryPath: '/tmp/sidecar-test.json',
+        unregister: mocks.unregisterManagedProcess,
+    })),
+    isProcessTreeAlive: vi.fn((_pid: number) => false),
     telemetryDebug: vi.fn(),
     telemetryWarn: vi.fn(),
 }));
 
 class MockNativeProcess extends EventEmitter {
-    readonly pid = 42_424;
+    constructor(readonly pid = 42_424) {
+        super();
+    }
 
     readonly stdout = Object.assign(new EventEmitter(), {
         destroy: vi.fn(),
@@ -36,6 +53,12 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
+vi.mock('@electron/utils/managedScratchTemp', () => ({
+    createManagedScratchTempDir: mocks.createManagedScratchTempDir,
+    removeManagedScratchTempDir: mocks.removeManagedScratchTempDir,
+}));
+vi.mock('@electron/native-tools/managedProcessRegistry', () => ({registerManagedProcess: mocks.registerManagedProcess}));
+vi.mock('@electron/utils/processTree', () => ({isProcessTreeAlive: mocks.isProcessTreeAlive}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     debug: mocks.telemetryDebug,
     info: vi.fn(),
@@ -49,6 +72,14 @@ describe('runNativeCommand', () => {
         vi.clearAllMocks();
         vi.useRealTimers();
         vi.unstubAllEnvs();
+        mocks.createManagedScratchTempDir.mockImplementation(async (prefix, rootPath) => join(rootPath ?? '/tmp', `${prefix}test`));
+        mocks.removeManagedScratchTempDir.mockResolvedValue(true);
+        mocks.unregisterManagedProcess.mockResolvedValue(undefined);
+        mocks.registerManagedProcess.mockResolvedValue({
+            entryPath: '/tmp/sidecar-test.json',
+            unregister: mocks.unregisterManagedProcess,
+        });
+        mocks.isProcessTreeAlive.mockReturnValue(false);
     });
 
     // Several cases below install fake timers and the last one to run would
@@ -71,6 +102,129 @@ describe('runNativeCommand', () => {
 
         await expect(rejection).resolves.toMatchObject({message: '/bin/tool timed out after 1000ms'});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
+    });
+
+    it('routes managed native temp files to per-invocation scratch and removes it after success', async () => {
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {env: {EXTRA: 'preserved'}});
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        const scratchPath = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
+        const spawnOptions = mocks.spawn.mock.calls[0]?.[2] as {env: NodeJS.ProcessEnv};
+        expect(spawnOptions.env).toMatchObject({
+            EXTRA: 'preserved',
+            TMPDIR: scratchPath,
+            TMP: scratchPath,
+            TEMP: scratchPath,
+        });
+
+        proc.emit('close', 0, null);
+        await expect(resultPromise).resolves.toMatchObject({exitCode: 0});
+        expect(mocks.registerManagedProcess).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                pid: proc.pid,
+                scratchPath,
+            }),
+        );
+        expect(mocks.removeManagedScratchTempDir).toHaveBeenCalledWith(
+            scratchPath,
+            'native-command-',
+            expect.any(String),
+        );
+        expect(mocks.unregisterManagedProcess).toHaveBeenCalledOnce();
+    });
+
+    it('keeps concurrent native invocations in separate scratch directories', async () => {
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
+        const scratchRoot = await mkdtemp(join(tmpdir(), 'native-run-command-test-'));
+        mocks.createManagedScratchTempDir.mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
+        mocks.removeManagedScratchTempDir.mockImplementation(async path => {
+            await rm(path, {
+                force: true,
+                recursive: true,
+            });
+            return true;
+        });
+        const firstProcess = new MockNativeProcess();
+        const secondProcess = new MockNativeProcess(42_425);
+        mocks.spawn.mockReturnValueOnce(firstProcess).mockReturnValueOnce(secondProcess);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const firstResult = runNativeCommand('/bin/tool', []);
+        const secondResult = runNativeCommand('/bin/tool', []);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(2));
+        const firstScratch = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
+        const secondScratch = await mocks.createManagedScratchTempDir.mock.results[1]!.value;
+
+        expect(firstScratch).not.toBe(secondScratch);
+        expect(existsSync(firstScratch)).toBe(true);
+        expect(existsSync(secondScratch)).toBe(true);
+
+        firstProcess.emit('close', 0, null);
+        await expect(firstResult).resolves.toMatchObject({exitCode: 0});
+        expect(existsSync(firstScratch)).toBe(false);
+        expect(existsSync(secondScratch)).toBe(true);
+
+        secondProcess.emit('close', 0, null);
+        await expect(secondResult).resolves.toMatchObject({exitCode: 0});
+        expect(existsSync(secondScratch)).toBe(false);
+        await rm(scratchRoot, {
+            force: true,
+            recursive: true,
+        });
+    });
+
+    it('removes managed native scratch after a native error', async () => {
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', []);
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        proc.emit('close', 2, null);
+
+        await expect(resultPromise).rejects.toMatchObject({kind: 'exit-code'});
+        expect(mocks.removeManagedScratchTempDir).toHaveBeenCalledOnce();
+        expect(mocks.unregisterManagedProcess).toHaveBeenCalledOnce();
+    });
+
+    it('removes managed native scratch after confirmed cancellation', async () => {
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
+        const controller = new AbortController();
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {signal: controller.signal});
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        controller.abort();
+
+        await expect(resultPromise).rejects.toMatchObject({message: /(?:This|The) operation was aborted/u});
+        expect(mocks.removeManagedScratchTempDir).toHaveBeenCalledOnce();
+        expect(mocks.unregisterManagedProcess).toHaveBeenCalledOnce();
+    });
+
+    it('keeps managed native scratch when cancellation cannot prove tree death', async () => {
+        vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
+        const proc = new MockNativeProcess();
+        mocks.spawn.mockReturnValue(proc);
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
+        const controller = new AbortController();
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {signal: controller.signal});
+        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+        controller.abort();
+
+        await expect(resultPromise).rejects.toMatchObject({message: /(?:This|The) operation was aborted/u});
+        expect(mocks.removeManagedScratchTempDir).not.toHaveBeenCalled();
+        expect(mocks.unregisterManagedProcess).not.toHaveBeenCalled();
     });
 
     it('rejects an already-aborted signal before spawning', async () => {

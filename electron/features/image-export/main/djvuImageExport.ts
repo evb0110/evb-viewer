@@ -33,6 +33,7 @@ import {
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     type TManagedScratchPrefix,
     usingManagedScratchScope,
@@ -62,7 +63,9 @@ function usingDjvuScratch<T>(
     prefix: TManagedScratchPrefix,
     run: (scratchPath: string) => Promise<T>,
 ) {
-    return (options.scratch?.using ?? usingManagedScratchScope)(prefix, run);
+    return options.scratch?.using
+        ? options.scratch.using(prefix, run)
+        : usingManagedScratchScope(prefix, getAppTempDir(), run);
 }
 
 async function resolvePages(path: string, requested: number[] | undefined, signal?: AbortSignal) {
