@@ -17,7 +17,10 @@ import {
 import { decode as decodePng } from 'fast-png';
 import { PDFDocument } from 'pdf-lib';
 import { requireDocumentRef } from '@contracts/documentRef';
-import {mkdirSync} from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+} from 'node:fs';
 import {
     dirname,
     join,
@@ -6178,6 +6181,8 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     }, 120_000);
 
     it('restores a valid focus target after native DjVu conversion completes', async () => {
+        const deadlineAt = performance.now() + 120_000;
+        const remainingMs = () => Math.max(1, deadlineAt - performance.now());
         let session = sessionFixture.getSession();
         const completionFixture = await copyDjvuFixtureForMutation(djvuFixture, 'completion');
         if (!completionFixture.path) {
@@ -6209,16 +6214,40 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(initiator).not.toBeNull();
         await initiator!.click();
         await session.page.waitForSelector('[role="dialog"]', {visible: true});
+
         await clickEnabledDialogButton(session.page, 'Convert');
         const progressSelector = '.app-progress-overlay[role="dialog"]';
         await session.page.waitForSelector(progressSelector, {
-            timeout: 30_000,
+            timeout: remainingMs(),
             visible: true,
         });
+        // A long conversion must not spend the PDF open's budget: wait for its published output first.
+        await expect.poll(() => existsSync(destinationPath), {timeout: remainingMs()}).toBe(true);
         await waitForFunctionInPage(session.page, () => (
             document.querySelector('.editor-pane.is-active .djvu-banner') === null
             && document.querySelector('.app-progress-overlay[role="dialog"]') === null
-        ), {timeout: 30_000});
+            && (() => {
+                const pane = document.querySelector<HTMLElement>('.editor-pane.is-active');
+                const viewer = pane?.querySelector<HTMLElement>('.workspace-host #pdf-viewer');
+                const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]');
+                const canvas = page?.querySelector<HTMLCanvasElement>(
+                    '.page_canvas__render-layer canvas, .page_canvas canvas, canvas',
+                );
+                if (!viewer || !page || !canvas) return false;
+                const viewerRect = viewer.getBoundingClientRect();
+                const pageRect = page.getBoundingClientRect();
+                const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom)
+                    - Math.max(pageRect.top, viewerRect.top);
+                return visibleHeight > 8
+                    && canvas.width > 0
+                    && canvas.height > 0
+                    && (
+                        page.classList.contains('page_container--rendered')
+                        || page.dataset.initialCanvasCommitted === 'true'
+                        || canvas.dataset.rendered === 'true'
+                    );
+            })()
+        ), {timeout: remainingMs()});
         const convertedBytes = await readFile(destinationPath);
         expect(convertedBytes.subarray(0, 5).toString()).toBe('%PDF-');
         // The converted PDF keeps every page the viewer showed for the DjVu.
