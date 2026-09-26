@@ -693,6 +693,11 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                     if (terminated.valueOf() || canceledPreviewRequestIds.has(previewRequestId)) {
                         throw new Error('DjVu conversion canceled');
                     }
+                } catch (error) {
+                    if (error instanceof Error && error.message.endsWith('DjVu preview request superseded')) {
+                        throw new DOMException(error.message, 'AbortError');
+                    }
+                    throw error;
                 } finally {
                     activePreviewRequestIds.delete(previewRequestId);
                     canceledPreviewRequestIds.delete(previewRequestId);
