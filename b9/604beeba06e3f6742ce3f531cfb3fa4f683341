@@ -1,0 +1,28 @@
+packages/contracts/pdfDecryptSchemas.ts
+  s_bc7b0a6bb889e2::t_7df4ebd0fbe35f 1,3-4,13-16,18-25,27-46
+packages/contracts/pdfOpenFileSchemas.ts
+  s_bc7b0a6bb889e2::t_4856c800eadb66 6-32,35-36
+  s_bc7b0a6bb889e2::t_d012d18074a586 48,51
+  s_bc7b0a6bb889e2::t_547c2369d385a7 1-3,37-46
+packages/contracts/decodePageGeometry.ts
+  s_bc7b0a6bb889e2::t_cb85e6f9b10380 1-2,4,9,11-13,15,17-19
+  s_bc7b0a6bb889e2::t_1beb8ff25cb4a2 5-8,14
+packages/contracts/pageOpsPlatformFeature.ts
+  s_bc7b0a6bb889e2::t_f276e41783b1fe 22,648-652
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b9604beeba06e3f6742ce3f531cfb3fa4f683341",
+  "prompts": {},
+  "sessions": {
+    "s_bc7b0a6bb889e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0de54-8be9-73b2-8717-97e8d7262512",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
