@@ -3359,10 +3359,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const artifactRoot = process.env[LARGE_PDF_ARTIFACT_ROOT_ENV]?.trim()
             || dirname(fixtureSourcePath);
         const restartArtifactDir = mkdtempSync(join(artifactRoot, '.evb-large-pdf-sticky-restart-'));
-        onTestFinished(() => rmSync(restartArtifactDir, {
-            force: true,
-            recursive: true,
-        }));
+        fixtureDirectories.push(restartArtifactDir);
         const fixturePath = join(restartArtifactDir, 'saved.pdf');
         try {
             copyFileSync(fixtureSourcePath, fixturePath, constants.COPYFILE_FICLONE);
