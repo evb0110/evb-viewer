@@ -7,9 +7,8 @@ name: CI Nightly
 # the one required verdict).
 #
 # Nightly execution certifies nothing about a release. The release path runs
-# its own packaging and packaged verification for the exact target SHA through
-# build.yml, build-target.yml, and release.yml's packaged proofs; the jobs here
-# are early warning, not release evidence.
+# its own five-target packaging and packaged verification for the exact target
+# SHA in release.yml; the jobs here are early warning, not release evidence.
 #
 # The manual lanes need a local fixture profile or a visible window, so they
 # stay on workflow_dispatch: a scheduled red from a missing fixture

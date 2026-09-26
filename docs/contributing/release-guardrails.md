@@ -17,13 +17,10 @@ here is required reading for an ordinary cut.
 
 ## Release invariants
 
-- `release:cut` runs from a clean `main` checkout and releases the newest commit on freshly fetched `origin/main` that has a successful `ci.yml` push run with a green `gates_ok`, the one required CI verdict. A job the changed-area classifier skipped counts as success. It never waits on CI and never requires `HEAD` to be the tip.
-- The release commit changes only the `package.json` version over that candidate and uses `release: <version> [skip ci]`. The version is then carried to `main`, by fast-forward when main still sits at the candidate, by a fresh version-only commit otherwise.
-- Release CI accepts a target that is on protected `main`, or a version-only commit whose parent is, and judges that commit through a successful `gates_ok` run on its parent after checking the exact version-only diff. `wait-for-exact-sha-ci.mjs` waits for that verdict.
-- Core packaging, checksums, mirror staging, and public promotion determine whether the release is complete.
-- The release cutter pushes the `vX.Y.Z` tag with developer credentials before it dispatches `release.yml`; `prepare` requires that tag at the target, and the draft is created against the tag without a `--target`. GitHub demands the `workflows` scope to point a new ref at a commit that is behind the `main` tip in `.github/workflows/`, and the built-in token cannot hold that scope, so a workflow-created tag or a `--target` on the draft fails with HTTP 403 whenever a workflow change landed on `main` after the release commit. Keep the tag in the cutter; the workflow only verifies it.
-- The Windows ARM64 lane is supplemental. It never gates public promotion. The Store AppX lane runs only on manual dispatch.
-- The publish chain is exercised without a real release by the drill described in [Publish-chain drill](#publish-chain-drill).
+- `release:cut` selects the newest commit on `origin/main` with a successful exact-SHA `ci.yml` push run and green `gates_ok`, after the newest stable release tag. It pushes a lightweight tag and leaves `package.json` on `main` unchanged.
+- The tag-triggered `release.yml` validates tag format, main ancestry, and exact-SHA CI before running the five required package targets. Dispatch with an existing tag only for recovery; `dry_run=true` uses a unique prerelease version, draft, and isolated mirror namespace.
+- Windows ARM64 is a required package target before promotion. The Store AppX lane remains a separate manual workflow.
+- The draft is promoted only after final updater metadata, checksums, provenance, and the mirror transaction pass. `electron-builder --publish never` remains necessary because macOS notarization rewrites the DMG and updater metadata before explicit upload.
 
 ## macOS signing, startup, and Gatekeeper
 
@@ -37,17 +34,17 @@ here is required reading for an ordinary cut.
 
 ## Signing and updater-feed policy
 
-- Public releases require the macOS Developer ID and notarization secrets. Artifact-only builds may remain ad-hoc signed and must still build and launch correctly.
-- Ad-hoc macOS artifact builds are manual-install only. GitHub builds prune `latest-mac*.yml` and `.blockmap` for ad-hoc mac bundles so the updater feed cannot mix signed and ad-hoc framework blocks.
+- Public releases require the macOS Developer ID and notarization secrets. A branch dry run may be ad-hoc signed when protected environment secrets are unavailable; it cannot be promoted.
+- Unsigned macOS packages are manual-install only. GitHub builds prune `latest-mac*.yml` and `.blockmap` for ad-hoc mac bundles so the updater feed cannot mix signed and ad-hoc framework blocks.
 - Windows signing secrets are optional for public releases. Standalone x64 and ARM64 NSIS builds publish separate `latest-win-x64.yml` and `latest-win-arm64.yml` feeds and blockmaps. The updater verifies SHA-512 integrity and, when the installed build has a signing publisher configured, its Authenticode signature. Store builds update through Microsoft Store.
-- The release publish step must tolerate zero updater metadata files. Some releases are intentionally download-only across every platform.
+- The public release requires the signed macOS feed and both Windows architecture feeds; final metadata hashes and sizes must match the uploaded files.
 - Distribution decisions must remain compatible with an individual, free, non-commercial project. Treat any business identity, paid account, or account conversion requirement as an explicit owner decision rather than an assumed release prerequisite.
 
 ## Pre-release proof of packaged behaviour
 
-- The packaged core-PDF journey (`scripts/release/verifyPackagedCorePdfSmoke.ts`) has no local runner and no vitest coverage. It executes before a release in the daily artifact canary (`release-artifacts.yml`, through `build.yml` and `build-target.yml` on every platform), and a patch cut requires a green canary for its exact candidate.
-- The proof is Linux-only by design. Both verifier regressions that failed v0.1.447 and v0.1.448 failed identically on all four platforms; the platform-specific steps (signing, notarization, NSIS install, Windows append sharing) stay release-only and are covered daily by the artifact canary.
-- Do not add release-only assertions to the journey without a CI or canary execution first. A behaviour pin that has never run is not a guardrail.
+- Every release package runs its platform's native-tool, content, version, and packaged smoke checks before the finalization job can promote the draft.
+- The packaged core-PDF smoke remains a Linux-only proof by design. Windows NSIS install journeys run on x64 and ARM64, and macOS signing, notarization, startup, and updater metadata checks run on the Apple Silicon target.
+- The workflow-dispatch dry run uses the same package and finalization jobs, keeps a draft, writes to an isolated mirror prefix and channel, and removes its draft, tag, and prefix. It does not replace post-promotion installed-client updater acceptance.
 
 ## Dependency advisories
 
@@ -55,12 +52,9 @@ here is required reading for an ordinary cut.
 - `pnpm-workspace.yaml` holds new registry releases for seven days (`minimumReleaseAge`). A fix version younger than that needs `pnpm install --config.minimum-release-age=0` for that install only; say so in the commit message. Do not lower the workspace setting.
 - A dependency fix is ordinary work: it goes through push CI like any commit and may be released whenever the next cut happens.
 
-## Artifact-only flow
+## Dry-run flow
 
-- Run `pnpm run release:artifacts` from a clean worktree to have GitHub build the release artifacts without cutting a release. It uses the same preflight, clean-worktree, upstream, and publication-policy checks as the cutter, then dispatches [`Build Release Artifacts`](../../.github/workflows/release-artifacts.yml) for the exact pushed commit.
-- The same workflow runs on a daily schedule as the artifact canary. With no `target_ref` input it resolves the current `main` tip itself and skips when `main` is older than 24 hours.
-- The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix and the supplemental Windows ARM64 lane, applying the same packaged native-tool and ASAR/content verification as release lanes.
-- It never creates a tag, a GitHub Release, or release assets. Downloads live as GitHub Actions artifacts on the workflow run.
+Dispatch `release.yml` with `dry_run=true` to exercise the real package matrix, final asset checks, checksums, and isolated mirror transaction without promoting a release. The run uses a unique `v0.0.0-drill.<run_id>` version and removes its draft, tag, and run-specific mirror prefix. There is no scheduled artifact canary or synthetic publication drill.
 
 ## Current-tree size and Git history
 
@@ -88,7 +82,7 @@ Before submitting an AppX package, confirm that `Send privacy-sanitized error di
 
 ## Publication policy gate
 
-`scripts/check-publication-policy.mjs` is the single gate on what becomes public: the pre-commit hook checks the staged tree, the pre-push hook checks everything a push would newly publish (including annotated tag objects), the release cutter and the artifact-only flow run it before their push, and CI reruns it for pushes and pull requests. It rejects the local-only artifacts listed in `scripts/lib/local-artifact-policy.mjs`.
+`scripts/check-publication-policy.mjs` is the single gate on what becomes public: the pre-commit hook checks the staged tree, the pre-push hook checks everything a push would newly publish (including annotated tag objects), the release cutter selects only commits already accepted by push CI, and CI reruns it for pushes and pull requests. It rejects the local-only artifacts listed in `scripts/lib/local-artifact-policy.mjs`.
 
 In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is reachable, and otherwise scans the complete history of the pushed head. An absent SHA, a zero OID, and an unreachable SHA all take that wider path. Push CI runs only for `main`, so the wider path means someone force-pushed or replaced `main`. That scan is expected to fail: published history predates the `Adds-Checks:` rule and still holds legacy artifacts. The failure is intentional and fail-closed.
 
@@ -106,39 +100,6 @@ To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the
 
 ## Command behavior notes
 
-- The release and artifact-only commands stop after the dispatched GitHub workflow run is visible; GitHub owns the remote matrix from that point.
-- If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
-- The publish-chain jobs (draft, checksums, mirror, promote, Windows ARM64 attach, supplemental mirror) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
-- Mirror transfers are bounded. The publisher uploads every artifact above 8 MiB as a multipart upload with 8 MiB parts, four parts in flight, and one HTTP request per part, so a stalled connection costs one part's request timeout (2 minutes) instead of a whole installer. The S3 client also aborts a socket that carries no bytes for 60 seconds, the publisher retries each artifact up to three times after aborting the failed multipart upload, and every publish-chain job declares `timeout-minutes` (finalize 20, mirror 40, promote 40, which covers its own three bounded activation attempts). A stalled upload fails within minutes and is repaired by re-running the failed jobs; it no longer holds the global release concurrency group for GitHub's six-hour job limit. Every drill seeds one asset larger than two parts, so the release drill proves the multipart path against the real bucket. The bucket needs a lifecycle rule that aborts incomplete multipart uploads (Yandex `AbortIncompleteMultipartUpload`, one day) because an aborted publisher process cannot clean up after itself.
-- Supplemental assets reach the mirror without joining the immutable core set. `publish-release-mirror.mjs supplemental` writes the Windows ARM64 installer and its provenance as plain objects under the release prefix once they are attached, and refuses any name outside that set. `manifest.json` and the stable channel keep exactly the bytes promotion verified, so a same-tag repair run still reproduces them byte for byte. The upload is skipped when the tag has no core manifest, because the mirror keeps four releases and an object under a pruned tag is unreachable weight. The landing page asks the mirror for each supplemental installer rather than assuming coverage, so a release cut before this lane existed, or one whose supplemental workflow failed, offers its GitHub link alone.
-- A red daily artifact canary means a failure in a lane that ships: Windows ARM64 or the main build matrix.
-
-## Deferred by evidence
-
-Decisions parked with explicit revisit conditions after the 2026-08 rework
-and the v0.1.427 campaign:
-
-- **Build-receipt machinery** (`scripts/release/build-receipt.mjs` and the
-  `EVB_RELEASE_BUILD_RECEIPT` handoff): dead on the release path now that
-  `release:cut` never runs the local gate; only `release:verify` still uses it.
-  Delete once one or two releases have gone through the new cutter cleanly.
-- **Matrix-artifact reuse across same-SHA attempts**: worth building only if
-  publish-chain failures recur. Same-SHA repair is proven cheap.
-- **Linux container image** with preinstalled system deps: stronger fix for
-  apt-mirror hangs; requires a registry decision first.
-
-## Publish-chain drill
-
-`release-drill.yml` runs the publish chain against a draft prerelease and a
-dedicated mirror prefix. It uses tags shaped like `v0.0.0-drill.<run_id>` and
-mirror objects under `evb-viewer/drill/<run_id>/`. The drill must never write to
-`evb-viewer/releases/` or `evb-viewer/channels/`, and its cleanup job removes the
-draft and the complete drill prefix even when an earlier job fails.
-
-The drill uploads deterministic core assets, runs checksum finalization,
-mirror staging, and draft verification, then runs the same Windows
-ARM64 attachment code with small stub files and mirrors those stubs into the
-run's own prefix. Attestation is skipped for drill files. The supplemental
-lanes wait for the chain because a supplemental mirror copy is only written
-next to a core manifest that already exists. A production release still uses the stable `vX.Y.Z` tag grammar, the
-production mirror prefix, and GitHub release promotion.
+- `release:cut` pushes the tag and prints the release workflow link. GitHub runs the package matrix after the tag event.
+- A failed release can be recovered by dispatching `release.yml` with the same existing tag. Immutable assets are compared before reuse; different bytes fail validation.
+- Mirror transfers retain bounded multipart requests, retries, transaction reconciliation, and rollback. The drill mode is restricted to run-specific `evb-viewer/drill/` prefixes and channels.

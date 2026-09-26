@@ -89,17 +89,15 @@ need the owner's words in an `Adds-Checks:` trailer; see
 ## Release evidence
 
 `release:cut` picks the newest commit on `origin/main` whose `ci.yml` push run
-has a green `gates_ok` (and, for a patch cut, an exact-SHA artifact canary; see
-[release guardrails](./release-guardrails.md)). `release.yml` waits for the
-same verdict on its exact target:
+has a green `gates_ok`. The tag-triggered `release.yml` waits for that
+verdict on the tag commit before packaging:
 
 ```
 node scripts/release/wait-for-exact-sha-ci.mjs [<commit-ish>]
 ```
 
 The target defaults to `HEAD` and may be a short SHA, a branch name, or a full
-SHA. A version-only release commit carries `[skip ci]`; its parent's run vouches
-for it.
+SHA.
 
 ## Changed areas
 
@@ -139,12 +137,7 @@ These run the lanes under `tests/e2e/electron/nightly/`: `e2e-search`,
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `release.yml` | Dispatch from `release:cut` | Core release: build matrix, draft, publish chain, supplemental dispatch |
-| `build.yml`, `build-target.yml` | Called | One release target's native tools, package and packaged proofs (macOS arm64, Windows x64, Linux x64 and arm64) |
-| `publish-chain.yml` | Called | Checksums, attestation, S3 mirror, promotion |
-| `release-supplemental.yml` | Called and dispatch | Windows ARM64 installer, attached and mirrored after promotion |
-| `release-artifacts.yml` | Daily 04:10 UTC and dispatch | Artifact canary: the release build matrix without publishing |
-| `release-drill.yml` | Daily, dispatch, release-script pushes | Publish chain against a draft drill release |
+| `release.yml` | `v*` tags and dispatch | Five-target package matrix, draft validation, checksums, provenance, mirror transaction, final promotion |
 | `store-appx.yml` | Dispatch only | Microsoft Store AppX packages for a release tag, uploaded by hand |
 | `dependency-audit.yml` | Daily and dispatch | Advisory and license audit, reported as an issue |
 | `process-safety-platform.yml` | Dispatch | Focused process-safety acceptance on Linux, macOS and Windows |

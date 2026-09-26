@@ -1,709 +1,773 @@
 name: Release
-run-name: Release ${{ inputs.tag }}
+run-name: Release ${{ inputs.tag || github.ref_name }}
 
 concurrency:
-  # Stable-channel publication is global state. Different tags must not race
-  # each other while updating the mirror pointer or GitHub release channel.
   group: release-${{ github.repository }}
   cancel-in-progress: false
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to validate, package, and publish (for example v1.2.3).
-        required: true
-        type: string
-      target_ref:
-        description: Exact commit SHA or ref to release. The checked-out package.json version must match the tag.
-        required: true
-        type: string
-      scan_cleanup_fixture:
-        description: Optional repository-relative packaged scan-cleanup fixture override.
+        description: Existing tag to recover. Leave empty for a drill run.
         required: false
         type: string
-      scan_cleanup_expected_pages:
-        description: Optional expected page count for the packaged scan-cleanup fixture override.
+      dry_run:
+        description: Package and publish to an isolated draft and mirror namespace, then clean up.
         required: false
-        type: string
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 env:
-  # Pin exact Node 24 patch level so release orchestration matches build jobs.
   NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  prepare:
-    name: Resolve Target
-    if: ${{ github.ref == 'refs/heads/main' }}
+  gate:
+    name: Validate tag and exact-SHA CI
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       actions: read
       contents: read
     outputs:
-      tag: ${{ steps.target.outputs.tag }}
-      target_sha: ${{ steps.validate.outputs.target_sha }}
-      version: ${{ steps.target.outputs.version }}
-      workflow_sha: ${{ steps.workflow_trust.outputs.workflow_sha }}
-
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      target_sha: ${{ steps.resolve.outputs.target_sha }}
+      drill: ${{ steps.resolve.outputs.drill }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Verify trusted workflow revision
-        id: workflow_trust
-        shell: bash
+      - name: Resolve and validate tag
+        id: resolve
         env:
-          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          INPUT_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REF: ${{ github.ref }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Release workflow revision is not an exact commit SHA."
-            exit 1
-          fi
-          if ! git merge-base --is-ancestor "$WORKFLOW_SHA" refs/remotes/origin/main; then
-            echo "::error::Release workflow revision $WORKFLOW_SHA is not reachable from protected main."
-            exit 1
-          fi
-          echo "workflow_sha=$WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve requested release
-        id: target
-        shell: bash
-        env:
-          DISPATCH_TAG: ${{ inputs.tag }}
-          DISPATCH_TARGET_REF: ${{ inputs.target_ref }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="$DISPATCH_TAG"
-
-          if [ -z "$TAG" ]; then
-            echo "::error::A release tag is required."
-            exit 1
-          fi
-          if [ -z "$DISPATCH_TARGET_REF" ]; then
-            echo "::error::A target commit SHA or ref is required."
-            exit 1
-          fi
-          if [[ ! "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
-            echo "::error::Stable public release tag must be exactly vMAJOR.MINOR.PATCH."
-            exit 1
-          fi
-
-          target_sha="$(git rev-parse --verify "${DISPATCH_TARGET_REF}^{commit}" 2>/dev/null || true)"
-          if [ -z "$target_sha" ]; then
-            target_sha="$(gh api \
-              -H 'Accept: application/vnd.github+json' \
-              "repos/${GITHUB_REPOSITORY}/commits/${DISPATCH_TARGET_REF}" \
-              --jq .sha 2>/dev/null || true)"
-          fi
-          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Could not resolve target ref '$DISPATCH_TARGET_REF' to one exact commit."
-            exit 1
-          fi
-
-          # A full fetch, not --depth=1: a shallow marker on the target would
-          # hide its parent from the ancestry check below.
-          git fetch --no-tags origin "$target_sha"
-
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify protected-main ancestry and exact-SHA CI
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
-        run: |
-          set -euo pipefail
-
-          # target_ref is operator input. Do not execute that checkout or expose
-          # release secrets until protected main and its aggregate CI gate have
-          # vouched for this exact commit.
-          # The cutter releases the newest verified commit on main, which is
-          # rarely the tip, so the release commit itself is usually not on
-          # main: it changes only the package.json version line over a parent
-          # that is. Accept exactly that shape; anything else must be on main.
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main; then
-            echo "Release target $TARGET_SHA is on protected main."
+          drill=false
+          if [ "$DRY_RUN" = 'true' ]; then
+            TAG="v0.0.0-drill.${RUN_ID}"
+            TARGET_SHA="${GITHUB_SHA}"
+            drill=true
+          elif [[ "$REF" == refs/tags/* ]]; then
+            TAG="${REF#refs/tags/}"
+            TARGET_SHA="$(git rev-parse "${REF}^{commit}")"
           else
-            parent_sha="$(git rev-parse --verify "${TARGET_SHA}^" 2>/dev/null || true)"
-            if [ -z "$parent_sha" ] || ! git merge-base --is-ancestor "$parent_sha" refs/remotes/origin/main; then
-              echo "::error::Release target $TARGET_SHA is not reachable from protected main and neither is its parent."
+            TAG="$INPUT_TAG"
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo '::error::Recovery requires an existing vMAJOR.MINOR.PATCH tag.'
               exit 1
             fi
-            if [ "$(git diff --numstat "$parent_sha" "$TARGET_SHA")" != "$(printf '1\t1\tpackage.json')" ]; then
-              echo "::error::Release target $TARGET_SHA is off protected main and changes more than the package.json version line over $parent_sha."
-              exit 1
+            git fetch --force --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            TARGET_SHA="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          fi
+          if [ "$drill" = true ]; then
+            [[ "$TAG" =~ ^v0\.0\.0-drill\.[0-9]+$ ]]
+          else
+            [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if [ "$drill" = true ]; then
+            if ! git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main; then
+              echo "::notice::Dry-run branch commit $TARGET_SHA is not on main; protected-main ancestry gate is bypassed for this isolated run."
             fi
-            echo "Release target $TARGET_SHA is a version-only commit over $parent_sha on protected main."
+          elif ! git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main; then
+            echo '::error::Release tag commit is not reachable from protected main.'
+            exit 1
           fi
-
-          # The wait script runs from this job's dispatch-ref checkout (the
-          # trusted main-tip revision; the target detach happens only in the
-          # later Validate step). Its budgets are policy-tested against the
-          # blocking CI job timeouts so the release wait can never fall
-          # behind its own CI graph again (issue #109).
-          node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"
-          echo "::notice::Release target $TARGET_SHA is anchored to protected main and passed exact-SHA CI."
-
-      - name: Validate target
-        id: validate
-        shell: bash
+          {
+            echo "tag=$TAG"
+            echo "version=${TAG#v}"
+            echo "target_sha=$TARGET_SHA"
+            echo "drill=$drill"
+          } >> "$GITHUB_OUTPUT"
+      - name: Validate signing credentials
+        if: ${{ inputs.dry_run != true }}
         env:
-          RELEASE_TAG: ${{ steps.target.outputs.tag }}
-          RELEASE_VERSION: ${{ steps.target.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          # Only now, after ancestry and exact-SHA CI vouched for the target,
-          # does this job check out operator-input content.
-          git checkout --detach "${{ steps.target.outputs.target_sha }}"
-          target_sha="$(git rev-parse HEAD)"
-          if [ "$target_sha" != "${{ steps.target.outputs.target_sha }}" ]; then
-            echo "::error::Resolved target changed during checkout: expected ${{ steps.target.outputs.target_sha }}, got $target_sha."
-            exit 1
-          fi
-          package_version="$(node -p "require('./package.json').version")"
-          if [ "$package_version" != "$RELEASE_VERSION" ]; then
-            echo "::error::package.json version $package_version does not match release tag $RELEASE_TAG."
-            exit 1
-          fi
-
-          # The workflow token cannot create a tag for a commit that is
-          # behind the main tip in .github/workflows/ (GitHub requires the
-          # workflows scope for that, and GITHUB_TOKEN never has it). The
-          # cutter pushes the tag with developer credentials before it
-          # dispatches this workflow, so the tag is required here and the
-          # publish job creates the release against it without a target.
-          if ! git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "::error::Tag $RELEASE_TAG does not exist on origin. The release cutter pushes it before dispatch; run pnpm run release:resume from the release commit."
-            exit 1
-          fi
-          git fetch --force --depth=1 origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-          tag_sha="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
-          if [ "$tag_sha" != "$target_sha" ]; then
-            echo "::error::Tag $RELEASE_TAG points at $tag_sha, not requested target $target_sha."
-            exit 1
-          fi
-
-          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
-
-  release_credentials:
-    name: Validate Public Release Credentials
-    needs: prepare
-    runs-on: ubuntu-latest
-    environment: release
-
-    steps:
-      - name: Validate public release credentials
-        shell: bash
-        env:
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
+            echo '::error::Public releases require Developer ID signing and notarization credentials.'
+            exit 1
+          fi
+          if { [ -n "$WIN_CSC_LINK" ] && [ -z "$WIN_CSC_KEY_PASSWORD" ]; } || { [ -z "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; }; then
+            echo '::error::Partial Windows signing credentials detected.'
+            exit 1
+          fi
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_DESKTOP_PROJECT" ] || [ -z "$SENTRY_DESKTOP_DSN" ]; then
+            echo '::error::Public releases require Sentry source-map upload credentials and desktop DSN.'
+            exit 1
+          fi
+          if [ -z "$MIRROR_S3_ENDPOINT" ] || [ -z "$MIRROR_S3_BUCKET" ] || [ -z "$MIRROR_S3_ACCESS_KEY_ID" ] || [ -z "$MIRROR_S3_SECRET_KEY" ]; then
+            echo '::error::Public releases require S3 mirror credentials.'
+            exit 1
+          fi
+      - name: Require exact-SHA push CI verdict
+        if: ${{ inputs.dry_run != true }}
+        env:
+          TARGET_SHA: ${{ steps.resolve.outputs.target_sha }}
+        run: node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"
+      - name: Report dry-run gate bypass
+        if: ${{ inputs.dry_run == true }}
+        run: echo '::notice::Dry run from a branch cannot satisfy the protected-main exact-SHA gates_ok gate; packaging continues without publication.'
+
+  package:
+    name: Package (${{ matrix.os }}, ${{ matrix.platform }}, ${{ matrix.arch }})
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    environment: release
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+            arch: arm64
+          - os: windows-2022
+            platform: win
+            arch: x64
+          - os: windows-11-arm
+            platform: win
+            arch: arm64
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+    env:
+      EVB_RELEASE_TARGET_ARCH: ${{ matrix.arch }}
+      EVB_RELEASE_TARGET_PLATFORM: ${{ matrix.platform }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.gate.outputs.target_sha }}
+
+      - name: Setup release environment
+        # Fresh installs must leave Electron fully usable for later packaging.
+        # The checked-in pnpm-workspace policy should make any drift fail in
+        # the action's install/verify steps.
+        uses: ./.github/actions/setup-release-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          rust-targets: ${{ matrix.platform == 'win' && matrix.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
+          needs-system-fpm: ${{ matrix.platform == 'linux' }}
+
+      - name: Test Windows PDF append sharing
+        if: runner.os == 'Windows' && matrix.arch == 'x64'
+        shell: bash
+        run: >-
+          cargo test --manifest-path native/Cargo.toml --package evb-pdf-page-ops
+          --locked windows_in_place_append_succeeds_when_delete_sharing_is_denied
+
+      - name: Fetch pinned native tools
+        shell: bash
+        run: |
+          case "$EVB_RELEASE_TARGET_PLATFORM" in
+            mac) platform=darwin ;;
+            win) platform=win32 ;;
+            linux) platform=linux ;;
+            *) echo "Unsupported platform: $EVB_RELEASE_TARGET_PLATFORM" >&2; exit 1 ;;
+          esac
+          node --import tsx scripts/fetchRuntimeBinaries.ts --target "$platform-$EVB_RELEASE_TARGET_ARCH"
+
+      - name: Set application version from release tag
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.gate.outputs.version }}
+        run: node -e "const fs=require('node:fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.env.RELEASE_VERSION; fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
+
+      - name: Build (Nuxt + Electron)
+        env:
+          EVB_NATIVE_TARGET_ARCH: ${{ matrix.arch }}
+          EVB_NATIVE_TARGET_PLATFORM: ${{ matrix.platform }}
+        run: pnpm run build:strict
+
+      - name: Upload strict build log on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: build-log-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: .tmp/build.log
+          if-no-files-found: ignore
+
+      - name: Upload Sentry source maps
+        if: env.SENTRY_AUTH_TOKEN != ''
+        shell: bash
+        env:
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+        run: node scripts/release/upload-sentry-sourcemaps.mjs dist-electron nuxt-output/public
+
+      - name: Configure optional macOS signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: bash scripts/release/configure-macos-signing.sh
+
+      - name: Package installer (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -n "${MAC_CSC_LINK:-}" ] && [ -n "${MAC_CSC_KEY_PASSWORD:-}" ]; then
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+
+          if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID_ENV:-}" ] && [ -n "${APPLE_API_ISSUER_ENV:-}" ]; then
+            export APPLE_API_KEY="$APPLE_API_KEY_PATH"
+            export APPLE_API_KEY_ID="$APPLE_API_KEY_ID_ENV"
+            export APPLE_API_ISSUER="$APPLE_API_ISSUER_ENV"
+          else
+            unset APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
+          fi
+
+          bash scripts/release/run-with-retries.sh 3 20 "macOS packaging" \
+            pnpm exec electron-builder --publish never --mac "--$EVB_RELEASE_TARGET_ARCH"
+
+      - name: Notarize and staple macOS disk images
+        if: runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
+        shell: bash
+        run: |
+          if [ -n "${MAC_CSC_LINK:-}" ] && [ -n "${MAC_CSC_KEY_PASSWORD:-}" ]; then
+            export CSC_LINK="$MAC_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+            bash scripts/release/import-macos-codesign-certificate.sh
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
+
+          if [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID_ENV:-}" ] && [ -n "${APPLE_API_ISSUER_ENV:-}" ]; then
+            export APPLE_API_KEY="$APPLE_API_KEY_PATH"
+            export APPLE_API_KEY_ID="$APPLE_API_KEY_ID_ENV"
+            export APPLE_API_ISSUER="$APPLE_API_ISSUER_ENV"
+          else
+            unset APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
+          fi
+
+          node scripts/release/notarize-macos-dmgs.mjs release
+
+      - name: Verify macOS signature
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MAC_EXPECT_DEVELOPER_ID: ${{ env.MAC_EXPECT_DEVELOPER_ID }}
+        run: bash scripts/release/verify-macos-signature.sh
+
+      # pnpm may lose exec permission on the app-builder binary (pnpm/pnpm#8546)
+      - name: Fix app-builder-bin permissions (Linux arm64)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        run: |
+          APP_BUILDER="$(find node_modules -path '*/app-builder-bin/linux/arm64/app-builder' -type f 2>/dev/null | head -1)"
+          if [ -n "$APP_BUILDER" ]; then
+            chmod +x "$APP_BUILDER"
+            echo "Fixed permissions: $APP_BUILDER"
+          else
+            echo "::notice::app-builder binary not found; skipping explicit chmod workaround"
+          fi
+
+      - name: Package installer (Linux)
+        if: runner.os == 'Linux'
+        env:
+          USE_SYSTEM_FPM: "true"
+        run: pnpm exec electron-builder --publish never --linux "--$EVB_RELEASE_TARGET_ARCH"
+
+      - name: Configure optional Windows signing
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
-          set -euo pipefail
-          if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] \
-            || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
-            echo "::error::Public releases require Developer ID signing and App Store Connect notarization credentials; unsigned or unnotarized macOS artifacts cannot be promoted."
-            exit 1
+          {
+            echo "WIN_CSC_LINK_ENV="
+            echo "WIN_CSC_KEY_PASSWORD_ENV="
+            echo "WIN_EXPECT_SIGNATURE=false"
+          } >> "$GITHUB_ENV"
+
+          if [ -n "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
+            {
+              echo "WIN_CSC_LINK_ENV=$WIN_CSC_LINK"
+              echo "WIN_CSC_KEY_PASSWORD_ENV=$WIN_CSC_KEY_PASSWORD"
+              echo "WIN_EXPECT_SIGNATURE=true"
+            } >> "$GITHUB_ENV"
+          elif [ -n "$WIN_CSC_LINK" ] || [ -n "$WIN_CSC_KEY_PASSWORD" ]; then
+            if [ "${CI:-}" = "true" ]; then
+              echo "::error::Partial WIN_CSC_* secrets detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither"
+              exit 1
+            fi
+            echo "::warning::Partial WIN_CSC_* secrets detected; building unsigned Windows installer"
+          else
+            echo "::notice::No Windows signing certificate configured; building unsigned Windows installer"
           fi
 
-          if { [ -n "$WIN_CSC_LINK" ] && [ -z "$WIN_CSC_KEY_PASSWORD" ]; } \
-            || { [ -z "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; }; then
-            echo "::error::Partial Windows signing credentials detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither."
-            exit 1
-          fi
-          if [ -z "$WIN_CSC_LINK" ]; then
-            echo "::notice::Windows signing credentials are not configured; direct-download Windows installers will be unsigned."
-          fi
-
-  build_artifacts:
-    # Validation authority is the exact-SHA push CI gate that prepare already
-    # hard-requires (gates_ok); the release workflow does not rerun the
-    # release:verify:checks list a second time.
-    name: Package Release Artifacts
-    needs:
-      - prepare
-      - release_credentials
-    uses: ./.github/workflows/build.yml
-    with:
-      ref: ${{ needs.prepare.outputs.target_sha }}
-      release_environment: release
-    secrets:
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-
-  verify_packaged_scan_cleanup:
-    # Advisory evidence, not a publish gate. Its record as a blocking gate:
-    # zero real packaged defects caught at release time, and repeated
-    # campaign kills from its own UI pins drifting while it sat dormant
-    # between releases (issue #82's tail). The toolbar contract it exercised
-    # is pinned continuously by the blocking electron smoke lane in push CI
-    # (scanCleanupToolbarContract.e2e.test.ts); this job still uploads scale
-    # evidence for every release and a failure annotates the run.
-    name: Verify packaged scan-cleanup (macOS arm64)
-    needs:
-      - prepare
-      - build_artifacts
-    continue-on-error: true
-    runs-on: macos-14
-
-    env:
-      EVB_RELEASE_SCAN_CLEANUP_FIXTURE: ${{ inputs.scan_cleanup_fixture }}
-      EVB_RELEASE_SCAN_CLEANUP_EXPECTED_PAGES: ${{ inputs.scan_cleanup_expected_pages }}
-
-    steps:
-      - name: Checkout target
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.target_sha }}
-
-      - name: Setup release environment
-        uses: ./.github/actions/setup-release-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'false'
-
-      - name: Resolve required packaged scan-cleanup fixture
-        id: fixture
+      - name: Package installer (Windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import {appendFileSync} from 'node:fs';
-          import {getPackagedScanCleanupFixture} from './scripts/release/scan-cleanup-release-fixture.mjs';
+          if [ -n "${WIN_CSC_LINK_ENV:-}" ] && [ -n "${WIN_CSC_KEY_PASSWORD_ENV:-}" ]; then
+            export WIN_CSC_LINK="$WIN_CSC_LINK_ENV"
+            export WIN_CSC_KEY_PASSWORD="$WIN_CSC_KEY_PASSWORD_ENV"
+          else
+            unset WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+          fi
 
-          const fixture = getPackagedScanCleanupFixture();
-          console.log(`Using packaged scan-cleanup fixture: ${fixture.sourcePath}`);
-          console.log(`Expected packaged scan-cleanup pages: ${fixture.expectedPages}`);
-          const delimiter = `evb_fixture_${crypto.randomUUID()}`;
-          appendFileSync(
-            process.env.GITHUB_OUTPUT,
-            `fixture<<${delimiter}\n${fixture.sourcePath}\n${delimiter}\n`,
-          );
-          appendFileSync(process.env.GITHUB_OUTPUT, `expected_pages=${fixture.expectedPages}\n`);
-          NODE
+          bash scripts/release/run-with-retries.sh 3 20 "Windows packaging" \
+            pnpm exec electron-builder --publish never --win "--$EVB_RELEASE_TARGET_ARCH"
 
-      - name: Download macOS arm64 package
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: dist-mac-arm64
-          path: artifacts
-
-      - name: Extract packaged app
-        id: packaged_app
-        shell: bash
+      - name: Verify Windows signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WIN_EXPECT_SIGNATURE: ${{ env.WIN_EXPECT_SIGNATURE }}
         run: |
-          set -euo pipefail
-          archive="$(find artifacts -type f -name '*.zip' -print -quit)"
-          if [ -z "$archive" ]; then
-            echo "::error::The macOS arm64 build did not publish an app ZIP."
+          $executables = Get-ChildItem -Path release -Filter *.exe
+          if (-not $executables) {
+            Write-Error "No .exe artifact found in release/"
             exit 1
-          fi
-          extract_dir="$RUNNER_TEMP/evb-release-mac-arm64"
-          mkdir -p "$extract_dir"
-          ditto -x -k "$archive" "$extract_dir"
-          executable="$(find "$extract_dir" -type f -path '*/EVB Viewer.app/Contents/MacOS/EVB Viewer' -print -quit)"
-          if [ -z "$executable" ]; then
-            echo "::error::The macOS arm64 package did not contain EVB Viewer.app."
-            exit 1
-          fi
-          echo "executable=$executable" >> "$GITHUB_OUTPUT"
+          }
 
-      - name: Run packaged scan-cleanup scale verifier
+          foreach ($exe in $executables) {
+            $sig = Get-AuthenticodeSignature -FilePath $exe.FullName
+            Write-Host "Installer: $($exe.Name)"
+            Write-Host "Authenticode status: $($sig.Status)"
+
+            if ($env:WIN_EXPECT_SIGNATURE -eq "true" -and $sig.Status -ne "Valid") {
+              Write-Error "Windows installer is not validly signed"
+              exit 1
+            }
+          }
+
+      - name: Verify packaged native tools
+        shell: bash
+        run: bash scripts/verify-packaged-native-tools.sh "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH"
+
+      - name: Verify packaged app contents
+        shell: bash
+        run: node scripts/release/assert-packaged-app-contents.mjs
+
+      - name: Verify packaged version
         shell: bash
         env:
-          PACKAGED_APP_EXECUTABLE: ${{ steps.packaged_app.outputs.executable }}
-          PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES: ${{ steps.fixture.outputs.expected_pages }}
-          PACKAGED_SCAN_CLEANUP_FIXTURE: ${{ steps.fixture.outputs.fixture }}
+          RELEASE_VERSION: ${{ needs.gate.outputs.version }}
+        run: node scripts/release/assert-packaged-version.mjs release "$RELEASE_VERSION"
+
+      - name: Enforce Linux glibc 2.35 compatibility baseline
+        if: runner.os == 'Linux'
+        shell: bash
+        run: node scripts/release/assert-linux-glibc-baseline.mjs release 2.35
+
+      - name: Record Windows packaged-app provenance
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          unpacked_dir="win-unpacked"
+          if [ "$EVB_RELEASE_TARGET_ARCH" = "arm64" ]; then
+            unpacked_dir="win-arm64-unpacked"
+          fi
+          node scripts/release/build-provenance.mjs create direct "$EVB_RELEASE_TARGET_ARCH" \
+            "release/${unpacked_dir}/resources/app.asar" \
+            "release/EVB-Viewer-${version}-win-${EVB_RELEASE_TARGET_ARCH}-provenance.json"
+
+      - name: Verify installed Linux DEB journey
+        if: runner.os == 'Linux'
+        shell: bash
+        # One core-PDF proof for the one shipped Linux artifact (design
+        # charter: one real-app proof per scenario).
         run: |
           set -euo pipefail
-          pnpm exec tsx scripts/release/verifyPackagedScanCleanup.ts \
-            --executable "$PACKAGED_APP_EXECUTABLE" \
-            --source "$PACKAGED_SCAN_CLEANUP_FIXTURE" \
-            --expected-pages "$PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES" \
-            --scale-only \
-            --artifact-dir "$RUNNER_TEMP/evb-release-packaged-scan-cleanup"
+          deb="$(find release -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$deb"
 
-      - name: Upload packaged scan-cleanup verifier evidence
-        if: ${{ always() }}
+          package_name="$(dpkg-deb -f "$deb" Package)"
+          cleanup_deb() {
+            sudo apt-get remove -y "$package_name" >/dev/null 2>&1 || true
+          }
+          trap cleanup_deb EXIT
+          sudo apt-get install -y "$(realpath "$deb")"
+          installed_executable="$(command -v evb-viewer)"
+          test -x "$installed_executable"
+          xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable "$installed_executable"
+          cleanup_deb
+          trap - EXIT
+          hash -r
+          if command -v evb-viewer >/dev/null 2>&1; then
+            echo "::error::DEB uninstall left the EVB Viewer executable installed."
+            exit 1
+          fi
+
+      - name: Verify packaged Windows core PDF journey
+        if: runner.os == 'Windows'
+        shell: bash
+        # One proof per invariant: this covers the packaged (unpacked) app and
+        # stays blocking on both arches; the NSIS journey below covers the
+        # installed app on both architectures.
+        run: |
+          executable="$(find release -type f -path '*/win*-unpacked/EVB Viewer.exe' -print -quit)"
+          test -n "$executable"
+          pnpm run test:packaged-core-pdf-smoke -- --executable "$executable"
+
+      - name: Verify installed Windows NSIS journey
+        if: runner.os == 'Windows'
+        id: nsis_journey
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem release -File -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "evb-viewer-nsis-$env:EVB_RELEASE_TARGET_ARCH-${{ github.run_attempt }}"
+          $appPath = Join-Path $installDir 'EVB Viewer.exe'
+          # Extraction-finished markers only, so name files every supported
+          # Electron ships. Electron 44 dropped libEGL.dll and libGLESv2.dll.
+          # The smoke below is what proves the installed runtime works.
+          $runtimePaths = @(
+            $appPath,
+            (Join-Path $installDir 'd3dcompiler_47.dll'),
+            (Join-Path $installDir 'ffmpeg.dll'),
+            (Join-Path $installDir 'vk_swiftshader.dll'),
+            (Join-Path $installDir 'vulkan-1.dll')
+          )
+          function Write-InstallerDiagnostics {
+            param(
+              [string] $TargetDir,
+              [string[]] $MissingPaths,
+              [datetime] $Since
+            )
+            Get-ChildItem $TargetDir -Recurse -Force -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "Installer output: $($_.FullName)" }
+            Write-Host "Missing runtime paths: $($MissingPaths -join ', ')"
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '(?i)(evb|setup|install|nsis|7z)' } |
+              Select-Object Name, ProcessId, ParentProcessId, ExecutablePath, CommandLine |
+              Format-List | Out-String | Write-Host
+            if (Get-Command Get-MpThreatDetection -ErrorAction SilentlyContinue) {
+              Get-MpThreatDetection -ErrorAction SilentlyContinue |
+                Select-Object InitialDetectionTime, ThreatName, Resources |
+                Format-List | Out-String | Write-Host
+            }
+            Get-WinEvent -FilterHashtable @{
+              LogName = 'Microsoft-Windows-Windows Defender/Operational'
+              StartTime = $Since
+            } -ErrorAction SilentlyContinue |
+              Select-Object -First 20 TimeCreated, Id, Message |
+              Format-List | Out-String | Write-Host
+          }
+
+          $installStartedAt = Get-Date
+          $install = Start-Process -FilePath $installer.FullName `
+            -ArgumentList '/S', "/D=$installDir" -PassThru
+          if (-not $install.WaitForExit(120000)) {
+            Write-InstallerDiagnostics -TargetDir $installDir -MissingPaths $runtimePaths -Since $installStartedAt
+            Stop-Process -Id $install.Id -Force -ErrorAction SilentlyContinue
+            throw 'NSIS installer launcher did not exit before the deadline.'
+          }
+          if ($install.ExitCode -ne 0) { throw "NSIS installer exited with $($install.ExitCode)." }
+          # Assisted NSIS installers can leave their extraction child running
+          # after the launcher exits. The ARM64 payload is large enough that the
+          # PE files may arrive well after static resources and the uninstaller.
+          $installDeadline = $installStartedAt.AddMinutes(15)
+          $nextProgressAt = $installStartedAt.AddSeconds(30)
+          $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
+          while ($missingRuntimePaths.Count -gt 0 -and (Get-Date) -lt $installDeadline) {
+            Start-Sleep -Milliseconds 500
+            $missingRuntimePaths = @($runtimePaths | Where-Object { -not (Test-Path $_ -PathType Leaf) })
+            if ((Get-Date) -ge $nextProgressAt) {
+              $installedFiles = @(Get-ChildItem $installDir -Recurse -File -Force -ErrorAction SilentlyContinue)
+              $installedBytes = ($installedFiles | Measure-Object -Property Length -Sum).Sum
+              Write-Host "NSIS extraction progress: $($installedFiles.Count) files, $installedBytes bytes, $($missingRuntimePaths.Count) required runtime files missing."
+              $nextProgressAt = (Get-Date).AddSeconds(30)
+            }
+          }
+          if ($missingRuntimePaths.Count -gt 0) {
+            Write-InstallerDiagnostics `
+              -TargetDir $installDir `
+              -MissingPaths $missingRuntimePaths `
+              -Since $installStartedAt
+            throw 'Installed EVB Viewer runtime did not become ready before the deadline.'
+          }
+          $app = Get-Item $appPath
+
+          try {
+            pnpm run test:packaged-core-pdf-smoke -- --executable $app.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Installed NSIS smoke failed with $LASTEXITCODE." }
+          } finally {
+            $uninstaller = Get-ChildItem $installDir -File -Filter 'Uninstall*.exe' | Select-Object -First 1
+            if ($uninstaller) {
+              $uninstall = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait -PassThru
+              if ($uninstall.ExitCode -ne 0) { throw "NSIS uninstaller exited with $($uninstall.ExitCode)." }
+            }
+          }
+          $uninstallDeadline = (Get-Date).AddMinutes(3)
+          while ((Test-Path $appPath) -and (Get-Date) -lt $uninstallDeadline) {
+            Start-Sleep -Milliseconds 500
+          }
+          if (Test-Path $appPath) { throw 'NSIS uninstall left the EVB Viewer executable installed.' }
+
+      - name: Verify packaged macOS arm64 core PDF journey
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        shell: bash
+        run: pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"
+
+      - name: Upload packaged core PDF diagnostics
+        if: failure() || steps.nsis_journey.outcome == 'failure'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: packaged-scan-cleanup-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/evb-release-packaged-scan-cleanup/**
+          name: packaged-core-pdf-smoke-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: .devkit/test/packaged-core-pdf-smoke/**
           include-hidden-files: true
           if-no-files-found: ignore
 
-  publish:
-    name: Stage GitHub Release
-    needs:
-      - prepare
-      - build_artifacts
+      - name: Verify packaged startup
+        if: runner.os == 'macOS'
+        shell: bash
+        # Keep the fast startup marker alongside the stronger macOS arm64 core-PDF journey.
+        run: bash scripts/verify-packaged-startup.sh "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH"
+
+      - name: Verify signed bundle through LaunchServices
+        if: runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
+        shell: bash
+        run: |
+          mkdir -p .devkit/test/macos-launchservices-startup
+          set -o pipefail
+          bash scripts/verify-macos-launchservices-startup.sh "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH" \
+            2>&1 | tee .devkit/test/macos-launchservices-startup/verify.log
+
+      - name: Upload macOS LaunchServices diagnostics
+        if: failure() && runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-launchservices-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: .devkit/test/macos-launchservices-startup/**
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+      - name: Prune updater metadata on unsupported updater targets
+        if: |
+          runner.os == 'Linux'
+          || (runner.os == 'macOS' && env.MAC_EXPECT_DEVELOPER_ID != 'true')
+        shell: bash
+        run: |
+          # Unsigned mac builds still launch when installed fresh, but publishing
+          # latest-mac.yml + blockmaps lets signed installs reconstruct an update
+          # from mixed-signature blocks. Keep ad-hoc mac artifacts manual-only.
+          rm -f release/latest*.yml
+          rm -f release/*.blockmap
+
+      - name: Upload artifacts
+        id: upload_artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dist-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.deb
+            release/latest*.yml
+            release/*.blockmap
+            release/*-provenance.json
+          if-no-files-found: error
+
+
+  finalize:
+    name: Validate assets, checksum, mirror, promote
+    needs: [gate, package]
+    if: ${{ always() && needs.gate.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     environment: release
-    permissions:
-      contents: write
-    outputs:
-      already_public: ${{ steps.draft_release.outputs.already_public }}
-      finalized_draft: ${{ steps.draft_release.outputs.finalized_draft }}
-
-    steps:
-      - name: Checkout target
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-          ref: ${{ needs.prepare.outputs.target_sha }}
-
-      - name: Setup release environment
-        uses: ./.github/actions/setup-release-env
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          verify-electron: 'false'
-
-      - name: Download release artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          # dist-* matches exactly the four core build-matrix artifacts.
-          # Supplemental macOS Intel and Windows ARM64 assets attach after
-          # promotion.
-          pattern: dist-*
-          path: artifacts
-          merge-multiple: true
-
-      - name: Validate updater metadata paths
-        id: metadata_policy
-        shell: bash
-        env:
-          EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
-        run: |
-          set -euo pipefail
-          node scripts/release/assert-publish-metadata-policy.mjs artifacts "${{ needs.prepare.outputs.version }}"
-
-      - name: Create or update draft GitHub release
-        id: draft_release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "already_public=false" >> "$GITHUB_OUTPUT"
-          echo "finalized_draft=false" >> "$GITHUB_OUTPUT"
-
-          # Prefer the GitHub CLI here so the release publish path tracks the
-          # runner's current Node/LTS stack instead of a separately versioned
-          # JavaScript action runtime.
-          release_view_error="$RUNNER_TEMP/release-view-error.txt"
-          if release_json="$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish 2> "$release_view_error")"; then
-            is_draft="$(jq -r .isDraft <<< "$release_json")"
-            release_target="$(jq -r .targetCommitish <<< "$release_json")"
-            tag_ref_error="$RUNNER_TEMP/release-tag-ref-error.txt"
-            if tag_object="$(gh api \
-              -H 'Accept: application/vnd.github+json' \
-              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
-              --jq '.object' 2> "$tag_ref_error")"; then
-              tag_type="$(jq -r .type <<< "$tag_object")"
-              resolved_release_sha="$(jq -r .sha <<< "$tag_object")"
-              for _ in $(seq 1 5); do
-                [ "$tag_type" = 'tag' ] || break
-                tag_object="$(gh api \
-                  -H 'Accept: application/vnd.github+json' \
-                  "repos/${GITHUB_REPOSITORY}/git/tags/${resolved_release_sha}" \
-                  --jq '.object')"
-                tag_type="$(jq -r .type <<< "$tag_object")"
-                resolved_release_sha="$(jq -r .sha <<< "$tag_object")"
-              done
-              if [ "$tag_type" != 'commit' ]; then
-                echo "::error::Existing release tag $RELEASE_TAG did not resolve to a commit."
-                exit 1
-              fi
-            elif [ "$is_draft" = 'true' ]; then
-              # GitHub may not create refs/tags/<tag> until a draft is
-              # published. Resolve the draft's target commitish through the
-              # commits API in that state; public releases must have the tag.
-              resolved_release_sha="$(gh api \
-                -H 'Accept: application/vnd.github+json' \
-                "repos/${GITHUB_REPOSITORY}/commits/${release_target}" \
-                --jq .sha)"
-            else
-              cat "$tag_ref_error" >&2
-              exit 1
-            fi
-            if [ "$resolved_release_sha" != "$TARGET_SHA" ]; then
-              echo "::error::Existing release $RELEASE_TAG resolves to $resolved_release_sha instead of $TARGET_SHA; refusing to reuse or mutate it."
-              exit 1
-            fi
-            if [ "$is_draft" != "true" ]; then
-              echo "already_public=true" >> "$GITHUB_OUTPUT"
-              echo "::notice::Release $RELEASE_TAG is already public at the expected commit; verifying its assets without replacing them."
-            else
-              existing_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
-              if grep -Fqx 'SHA256SUMS' <<< "$existing_assets"; then
-                # A checksum-finalized draft may already have immutable mirror
-                # objects from a failed later channel. Keep that exact byte set
-                # and verify its manifest below so retries remain idempotent.
-                echo "finalized_draft=true" >> "$GITHUB_OUTPUT"
-                echo "::notice::Retaining checksum-finalized draft assets from the same target."
-              else
-                # An unfinished draft has no immutable identity yet. Replace its
-                # whole expected set instead of combining artifacts from builds.
-                while IFS= read -r existing_name; do
-                  if [ -n "$existing_name" ]; then
-                    gh release delete-asset "$RELEASE_TAG" "$existing_name" --yes
-                  fi
-                done <<< "$existing_assets"
-                source_count=0
-                while IFS= read -r -d '' source; do
-                  source_count=$((source_count + 1))
-                  gh release upload "$RELEASE_TAG" "$source"
-                done < <(find artifacts -type f -print0)
-                if [ "$source_count" -eq 0 ]; then
-                  echo '::error::No release files were downloaded for upload.'
-                  exit 1
-                fi
-              fi
-            fi
-          elif grep -Fq 'release not found' "$release_view_error"; then
-            # prepare verified refs/tags/$RELEASE_TAG at TARGET_SHA, so the
-            # release binds to that tag and GitHub creates no ref. Naming a
-            # target here would rerun the workflows-scope check against the
-            # main tip and fail with HTTP 403 whenever a workflow change
-            # landed on main after the cut.
-            mapfile -d '' release_sources < <(find artifacts -type f -print0)
-            if [ "${#release_sources[@]}" -eq 0 ]; then
-              echo '::error::No release files were downloaded for upload.'
-              exit 1
-            fi
-            gh release create "$RELEASE_TAG" "${release_sources[@]}" --draft --generate-notes
-          else
-            cat "$release_view_error" >&2
-            exit 1
-          fi
-
-      - name: Verify published release assets
-        id: uploaded_assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-          ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
-          FINALIZED_DRAFT: ${{ steps.draft_release.outputs.finalized_draft }}
-          EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir downloaded-assets
-          gh release download "$RELEASE_TAG" --dir downloaded-assets
-          node scripts/release/assert-publish-metadata-policy.mjs downloaded-assets "${{ needs.prepare.outputs.version }}"
-
-          if [ "$ALREADY_PUBLIC" = "true" ] || [ "$FINALIZED_DRAFT" = "true" ]; then
-            node scripts/release/release-checksums.mjs verify downloaded-assets "$RELEASE_VERSION"
-          fi
-
-          source_count=0
-          while IFS= read -r -d '' source; do
-            source_count=$((source_count + 1))
-            name="$(basename "$source")"
-            downloaded="downloaded-assets/$name"
-            if [ ! -f "$downloaded" ]; then
-              echo "::error::Uploaded release asset is missing after download: $name"
-              exit 1
-            fi
-            if [ "$ALREADY_PUBLIC" != "true" ] && [ "$FINALIZED_DRAFT" != "true" ] \
-              && [ "$(sha256sum "$source" | cut -d' ' -f1)" != "$(sha256sum "$downloaded" | cut -d' ' -f1)" ]; then
-              echo "::error::Uploaded release asset hash mismatch: $name"
-              exit 1
-            fi
-          done < <(find artifacts -type f -print0)
-          if [ "$source_count" -eq 0 ]; then
-            echo '::error::No release files were downloaded for verification.'
-            exit 1
-          fi
-
-          if [ "$FINALIZED_DRAFT" = "true" ]; then
-            for downloaded in downloaded-assets/*; do
-              name="$(basename "$downloaded")"
-              case "$name" in
-                # Supplemental assets attach after promotion and are outside
-                # the immutable core set (policy.mjs isSupplementalReleaseAsset).
-                # Only this release's exact expected asset name is exempt.
-                'SHA256SUMS' \
-                  | "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
-                  | "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe.blockmap" \
-                  | "latest-win-arm64.yml" \
-                  | "EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json") continue ;;
-              esac
-              if [ ! -f "artifacts/$name" ]; then
-                echo "::error::Checksum-finalized draft contains an unexpected asset: $name"
-                exit 1
-              fi
-            done
-          fi
-
-          if [ "$ALREADY_PUBLIC" = "true" ]; then
-            echo "::notice::Existing public assets passed presence and updater integrity checks; immutable checksum verification runs at promotion."
-          fi
-
-      - name: Report release gate outcomes
-        if: ${{ always() }}
-        shell: bash
-        env:
-          METADATA_POLICY_OUTCOME: ${{ steps.metadata_policy.outcome }}
-          DRAFT_RELEASE_OUTCOME: ${{ steps.draft_release.outcome }}
-          UPLOADED_ASSETS_OUTCOME: ${{ steps.uploaded_assets.outcome }}
-          ALREADY_PUBLIC: ${{ steps.draft_release.outputs.already_public }}
-        run: |
-          {
-            echo '## GitHub release gate outcomes'
-            echo
-            echo '| Actual gate | Outcome |'
-            echo '| --- | --- |'
-            echo "| Updater metadata path policy | $METADATA_POLICY_OUTCOME |"
-            echo "| Draft release creation/upload | $DRAFT_RELEASE_OUTCOME |"
-            echo "| Published asset presence and integrity | $UPLOADED_ASSETS_OUTCOME |"
-            echo "| Existing public release reused | ${ALREADY_PUBLIC:-false} |"
-            echo '| Public promotion | deferred until required distribution channels complete |'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  chain:
-    name: Publish verified release chain
-    needs:
-      - prepare
-      - publish
     permissions:
       attestations: write
       contents: write
       id-token: write
-    uses: ./.github/workflows/publish-chain.yml
-    with:
-      tag: ${{ needs.prepare.outputs.tag }}
-      workflow_sha: ${{ needs.prepare.outputs.workflow_sha }}
-      drill: false
-    secrets: inherit
-
-  dispatch_supplemental:
-    name: Dispatch supplemental release
-    needs:
-      - prepare
-      - chain
-    if: ${{ !cancelled() && needs.chain.result == 'success' }}
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    outputs:
-      run_url: ${{ steps.dispatch.outputs.run_url }}
-
     steps:
-      - name: Dispatch supplemental workflow
-        id: dispatch
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.gate.outputs.target_sha }}
+          persist-credentials: false
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: 'false'
+      - name: Download package matrix
+        if: ${{ needs.package.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: dist-*
+          path: artifacts
+          merge-multiple: true
+      - name: Flatten final package set
+        if: ${{ needs.package.result == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir final-assets
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            test ! -e "final-assets/$name" || { echo "::error::Duplicate asset $name"; exit 1; }
+            cp "$file" "final-assets/$name"
+          done < <(find artifacts -type f -print0)
+          rm -rf artifacts
+          mv final-assets artifacts
+      - name: Validate final updater artifacts
+        if: ${{ needs.package.result == 'success' }}
+        env:
+          EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
+        run: node scripts/release/assert-final-release-assets.mjs artifacts "${{ needs.gate.outputs.version }}" "$EVB_RELEASE_HAS_MAC_SIGNING"
+      - name: Create or reuse draft release and upload immutable assets
+        if: ${{ needs.package.result == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          WORKFLOW_REF: ${{ github.ref_name }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          WORKFLOW_SHA: ${{ needs.prepare.outputs.workflow_sha }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          DRILL: ${{ needs.gate.outputs.drill }}
+          TARGET_SHA: ${{ needs.gate.outputs.target_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          gh workflow run release-supplemental.yml \
-            --ref "$WORKFLOW_REF" \
-            -f tag="$TAG" \
-            -f workflow_sha="$WORKFLOW_SHA"
-
-          run_url=''
-          for _ in $(seq 1 12); do
-            run_url="$(gh run list \
-              --workflow release-supplemental.yml \
-              --limit 20 \
-              --json url,displayTitle,createdAt \
-             | jq -r --arg tag "$TAG" --arg started "$dispatch_started_at" '[.[] | select(.createdAt >= $started and (.displayTitle | contains($tag)))] | sort_by(.createdAt) | last | .url // empty' \
-               || true)"
-            if [ -n "$run_url" ]; then
-              break
+          if release_state="$(gh release view "$TAG" --json isDraft 2>/dev/null)"; then
+            if [ "$(jq -r .isDraft <<< "$release_state")" != true ]; then
+              echo '::error::Refusing to edit an existing public release.'
+              exit 1
             fi
-            sleep 5
-          done
-          if [ -z "$run_url" ]; then
-            echo "::error::The supplemental workflow was dispatched but its run did not become visible."
-            exit 1
-          fi
-          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
-
-  release_complete:
-    name: Release complete
-    needs:
-      - prepare
-      - publish
-      - chain
-      - dispatch_supplemental
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Write release summary
-        env:
-          TAG: ${{ needs.prepare.outputs.tag }}
-          PUBLIC_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.tag }}
-          MIRROR_CHANNEL: evb-viewer/channels/stable.json
-          SUPPLEMENTAL_RUN_URL: ${{ needs.dispatch_supplemental.outputs.run_url }}
-          PUBLISH_RESULT: ${{ needs.publish.result }}
-          CHAIN_RESULT: ${{ needs.chain.result }}
-          DISPATCH_RESULT: ${{ needs.dispatch_supplemental.result }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo '## Release complete'
-            echo
-            echo "- Tag: \`$TAG\`"
-            echo "- Public release: $PUBLIC_URL"
-            echo "- Mirror channel: \`$MIRROR_CHANNEL\`"
-            if [ -n "${SUPPLEMENTAL_RUN_URL:-}" ]; then
-              echo "- Supplemental workflow: $SUPPLEMENTAL_RUN_URL"
+          else
+            args=("$TAG" --draft --generate-notes)
+            if [ "$DRILL" = true ]; then
+              args+=(--prerelease --target "$TARGET_SHA")
             else
-              echo '- Supplemental workflow: not dispatched'
+              args+=(--verify-tag)
             fi
-            echo
-            echo '| Job | Result |'
-            echo '| --- | --- |'
-            echo "| Draft publication | $PUBLISH_RESULT |"
-            echo "| Publish chain | $CHAIN_RESULT |"
-            echo "| Supplemental dispatch | $DISPATCH_RESULT |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$PUBLISH_RESULT" != 'success' ] || [ "$CHAIN_RESULT" != 'success' ] || [ "$DISPATCH_RESULT" != 'success' ]; then
-            echo '::error::The release workflow did not complete every required publication step.'
+            gh release create "${args[@]}"
+          fi
+          for asset in artifacts/*; do
+            if [ "$DRILL" = true ]; then
+              node scripts/release/ensure-github-release-assets.mjs "$TAG" "$asset" --drill
+            else
+              node scripts/release/ensure-github-release-assets.mjs "$TAG" "$asset"
+            fi
+          done
+      - name: Generate and upload checksums
+        if: ${{ needs.package.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node scripts/release/release-checksums.mjs generate artifacts
+          if [ "${{ needs.gate.outputs.drill }}" = true ]; then node scripts/release/ensure-github-release-assets.mjs "$TAG" artifacts/SHA256SUMS --drill; else node scripts/release/ensure-github-release-assets.mjs "$TAG" artifacts/SHA256SUMS; fi
+          node scripts/release/release-checksums.mjs verify artifacts "${{ needs.gate.outputs.version }}"
+      - name: Attest final release assets
+        if: ${{ needs.package.result == 'success' }}
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/*
+      - name: Stage and activate mirror transaction
+        if: ${{ needs.package.result == 'success' }}
+        env:
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+          MIRROR_RELEASE_PREFIX: ${{ needs.gate.outputs.drill == 'true' && format('evb-viewer/drill/{0}/releases/', github.run_id) || '' }}
+          MIRROR_CHANNEL_KEY: ${{ needs.gate.outputs.drill == 'true' && format('evb-viewer/drill/{0}/channels/stable.json', github.run_id) || '' }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          DRILL: ${{ needs.gate.outputs.drill }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MIRROR_S3_ENDPOINT" ] || [ -z "$MIRROR_S3_BUCKET" ] || [ -z "$MIRROR_S3_ACCESS_KEY_ID" ] || [ -z "$MIRROR_S3_SECRET_KEY" ]; then
+            if [ "$DRILL" = true ]; then
+              echo '::notice::Isolated mirror transaction skipped because release environment S3 credentials are unavailable to this branch.'
+              exit 0
+            fi
+            echo '::error::Public release mirror credentials are missing.'
             exit 1
           fi
+          if [ "$DRILL" = true ]; then
+            aws s3api get-object --endpoint-url "$MIRROR_S3_ENDPOINT" --bucket "$MIRROR_S3_BUCKET" --key evb-viewer/channels/stable.json "$RUNNER_TEMP/stable-channel-before.json" >/dev/null
+            sha256sum "$RUNNER_TEMP/stable-channel-before.json"
+          fi
+          args=(artifacts "$TAG" --transaction)
+          if [ "$DRILL" = true ]; then args+=(--drill); fi
+          node scripts/release/publish-release-mirror.mjs "${args[@]}"
+      - name: Promote real release draft
+        if: ${{ needs.package.result == 'success' && needs.gate.outputs.drill != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false
+      - name: Verify drill stable channel is untouched and clean up
+        if: ${{ always() && needs.gate.outputs.drill == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+          MIRROR_RELEASE_PREFIX: ${{ format('evb-viewer/drill/{0}/releases/', github.run_id) }}
+          MIRROR_CLEANUP_PREFIX: ${{ format('evb-viewer/drill/{0}/', github.run_id) }}
+          MIRROR_CHANNEL_KEY: ${{ format('evb-viewer/drill/{0}/channels/stable.json', github.run_id) }}
+        shell: bash
+        run: |
+          status=0
+          if [ -f "$RUNNER_TEMP/stable-channel-before.json" ]; then
+            aws s3api get-object --endpoint-url "$MIRROR_S3_ENDPOINT" --bucket "$MIRROR_S3_BUCKET" --key evb-viewer/channels/stable.json "$RUNNER_TEMP/stable-channel-after.json" >/dev/null || status=$?
+            if [ "$status" -eq 0 ] && ! cmp -s "$RUNNER_TEMP/stable-channel-before.json" "$RUNNER_TEMP/stable-channel-after.json"; then
+              echo '::error::Dry run changed the stable mirror channel.'
+              status=1
+            fi
+          else
+            echo '::notice::Stable mirror channel comparison skipped because branch-restricted S3 credentials were unavailable.'
+          fi
+          gh release delete "$TAG" --yes || true
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/$TAG" || true
+          if [ -n "$MIRROR_S3_ACCESS_KEY_ID" ]; then
+            node scripts/release/publish-release-mirror.mjs cleanup "$MIRROR_CLEANUP_PREFIX" || status=$?
+          fi
+          exit "$status"

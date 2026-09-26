@@ -15,7 +15,7 @@ The Electron app is configured to package:
 The GitHub release workflow builds:
 
 - macOS arm64
-- Windows x64 and arm64 (arm64 in the supplemental workflow)
+- Windows x64 and arm64 (both required before the release is promoted)
 - Linux x64 and arm64
 
 Microsoft Store AppX packages are built only when `store-appx.yml` is
