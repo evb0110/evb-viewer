@@ -112,6 +112,7 @@ import {
     parseRequestId,
     requireJobId,
     type TJobId,
+    type TRequestId,
 } from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -737,19 +738,6 @@ export function subscribeDjvuProgress(context: IDjvuOperationContext) {
 export function getDjvuOutputJobState(context: IDjvuOperationContext, jobId: TJobId) {
     const snapshot = djvuJobs.get(jobId, {sender: context.sender});
     return snapshot ? projectDjvuJob(snapshot) : null;
-}
-
-export function subscribeDjvuOutputJob(context: IDjvuOperationContext, jobId: TJobId) {
-    const unsubscribe = djvuJobs.subscribe(jobId, {sender: context.sender}, (snapshot) => {
-        safeSendToWindow(
-            BrowserWindow.fromWebContents(context.sender),
-            DJVU_PLATFORM_FEATURE.eventChannels.onProgress,
-            snapshot.progress,
-        );
-    });
-    return unsubscribe
-        ? getDjvuOutputJobState(context, jobId)
-        : null;
 }
 
 async function embedPdfBookmarks(
@@ -1410,13 +1398,15 @@ export function startDurableDjvuOpenJob(
     context: IDjvuOperationContext,
     jobId: TJobId,
     path: TOpenPath,
+    requestId: TRequestId,
     run: (signal: AbortSignal) => Promise<IDjvuOpenResult>,
 ) {
-    return startDjvuJob(context, {
+    const handle = startDjvuJob(context, {
         jobId,
         workingCopyPath: path,
         initialProgress: {
             jobId,
+            requestId,
             documentRef: requireDocumentRef(path),
             phase: 'loading',
             percent: 0,
@@ -1427,16 +1417,24 @@ export function startDurableDjvuOpenJob(
             jobId,
         }),
     });
-}
-
-export async function awaitDurableDjvuOpenJob(context: IDjvuOperationContext, jobId: TJobId) {
-    const result = await awaitDjvuJob(context, jobId, 'open');
-    const value = result as IDjvuOpenResult;
-    const snapshot = djvuJobs.get(jobId, {sender: context.sender});
-    if (value.success && snapshot?.progress.documentRef) {
-        adoptDjvuViewingPath(context, snapshot.progress.documentRef);
-    }
-    return value;
+    void awaitDjvuJob(context, jobId, 'open').then((result) => {
+        const value = result as IDjvuOpenResult;
+        const snapshot = djvuJobs.get(jobId, {sender: context.sender});
+        if (value.success && snapshot?.progress.documentRef) {
+            adoptDjvuViewingPath(context, snapshot.progress.documentRef);
+        }
+        safeSendToWindow(
+            BrowserWindow.fromWebContents(context.sender),
+            DJVU_PLATFORM_FEATURE.eventChannels.onOpenComplete,
+            {
+                ...value,
+                requestId,
+            },
+        );
+    }, (error: unknown) => {
+        logger.warn(`[${jobId}] DjVu open result was not delivered: ${getErrorMessage(error)}`);
+    });
+    return handle;
 }
 
 export async function handleDjvuCancel(

@@ -609,6 +609,7 @@ function decodeSuccessResult(value: unknown): Record<PropertyKey, unknown> & {su
 function decodeOpenResult(value: unknown) {
     const result = decodeSuccessResult(value);
     const jobId = decodeOptionalJobId(result.jobId, 'jobId');
+    const requestId = decodeOptionalRequestId(result.requestId, 'requestId');
     const error = decodeOptionalResultString(result.error, 'error');
     const pageCount = decodeOptionalPositiveInteger(result.pageCount, 'pageCount');
     const pageSourceInfo = result.pageSourceInfo === undefined
@@ -619,6 +620,7 @@ function decodeOpenResult(value: unknown) {
         ...(pageCount === undefined ? {} : {pageCount}),
         ...(pageSourceInfo === undefined ? {} : {pageSourceInfo}),
         ...(jobId === undefined ? {} : {jobId}),
+        ...(requestId === undefined ? {} : {requestId}),
         ...(error === undefined ? {} : {error}),
     };
 }
@@ -1242,13 +1244,6 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
                 requestId,
             ],
         }),
-        awaitOpenJob: defineDjvuMethod({
-            name: 'awaitOpenJob',
-            channel: 'djvu:open:await',
-            args: jobArgs,
-            result: openResult,
-            timeout: true,
-        }),
         releaseViewingPath: defineDjvuMethod({
             name: 'releaseViewingPath',
             channel: 'djvu:releaseViewingPath',
@@ -1297,12 +1292,6 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
         getJobState: defineDjvuMethod({
             name: 'getJobState',
             channel: 'djvu:job:getState',
-            args: jobArgs,
-            result: jobStateResult,
-        }),
-        subscribeJob: defineDjvuMethod({
-            name: 'subscribeJob',
-            channel: 'djvu:job:subscribe',
             args: jobArgs,
             result: jobStateResult,
         }),
@@ -1466,6 +1455,13 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'djvu:convert:complete',
             payload: convertResult,
             browser: {method: 'onConvertComplete'},
+            lazy: 'forwarded',
+        },
+        onOpenComplete: {
+            kind: 'event',
+            channel: 'djvu:open:complete',
+            payload: openResult,
+            browser: {method: 'onOpenComplete'},
             lazy: 'forwarded',
         },
         onTextSearchProgress: {

@@ -38,7 +38,6 @@ const mocks = vi.hoisted(() => ({
     handleDjvuCancel: vi.fn(),
     handleDjvuOpenForViewing: vi.fn(),
     getDjvuOutputJobState: vi.fn(),
-    subscribeDjvuOutputJob: vi.fn(),
     subscribeDjvuProgress: vi.fn(),
     cancelConversion: vi.fn(),
     isAllowedDjvuViewingPath: vi.fn(),
@@ -83,7 +82,6 @@ vi.mock('@electron/features/djvu/main/pdfExport', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
     handleDjvuCancel: mocks.handleDjvuCancel,
     getDjvuOutputJobState: mocks.getDjvuOutputJobState,
-    subscribeDjvuOutputJob: mocks.subscribeDjvuOutputJob,
     subscribeDjvuProgress: mocks.subscribeDjvuProgress,
 }));
 vi.mock('@electron/features/djvu/main/viewing', () => ({

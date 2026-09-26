@@ -1,10 +1,7 @@
 import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { parseDocumentRef } from '@contracts/documentRef';
-import {
-    createRequestId,
-    type TJobId,
-} from '@contracts/shared';
+import { createRequestId } from '@contracts/shared';
 import {
     decodeFailureReceipt,
     isExpectedOutcome,
@@ -15,6 +12,7 @@ import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import type {
     IDjvuConvertResult,
     IDjvuJobStartHandle,
+    IDjvuOpenResult,
     IDjvuProgress,
     IDjvuPageSize,
     TDjvuPdfExportStrategy,
@@ -138,8 +136,7 @@ function classifyDjvuConversionExpectedOutcome(error: unknown): ExpectedOutcome 
     return undefined;
 }
 
-/** A conversion that reports no progress for this long is canceled. */
-const DJVU_CONVERT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1_000;
+const DJVU_JOB_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1_000;
 
 const DJVU_PROJECTION_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
     annotations: false,
@@ -234,9 +231,9 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     const sourceError = ref<string | null>(null);
     const openingPath = ref<TDocumentRef | null>(null);
     const sourceSizeBytes = ref<number | null>(null);
-    const activeViewingJobId = ref<TJobId | null>(null);
 
     let openDjvuGeneration = 0;
+    let activeViewingRun: IJobRun<IDjvuOpenResult, {canceled: boolean}> | null = null;
     let activeConversion: IJobRun<IDjvuConvertResult, {canceled: boolean}> | null = null;
     let activeProjectionSession: IDocumentProjectionSession | null = null;
 
@@ -245,7 +242,6 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     }
 
     function resetViewingProgressState() {
-        activeViewingJobId.value = null;
         isLoadingPages.value = false;
         loadingProgress.value = {
             current: 0,
@@ -265,18 +261,14 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         }
     }
 
-    async function cancelJobWhenAdmitted(jobId: TJobId) {
-        try {
-            await getDjvuCapability().cancel(jobId);
-        } catch (error) {
-            logSuppressedError(`Failed to cancel stale DjVu job ${jobId}`, error);
-        }
-    }
-
     function invalidatePendingDjvuOpen() {
         openDjvuGeneration += 1;
         openingPath.value = null;
+        const viewing = activeViewingRun;
+        activeViewingRun = null;
+        void viewing?.cancel().catch((error: unknown) => logSuppressedError('Failed to cancel DjVu open', error));
         resetViewingProgressState();
+        return openDjvuGeneration;
     }
 
     function clearSourceError() {
@@ -393,8 +385,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         if (djvuPath === null) {
             throw new TypeError('DjVu path must be a valid document reference');
         }
-        const generation = ++openDjvuGeneration;
-        const djvu = getDjvuCapability();
+        const generation = invalidatePendingDjvuOpen();
         const previousDjvuPath = djvuSourcePath.value;
         showBanner.value = true;
         clearSourceError();
@@ -409,39 +400,37 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             djvuPath,
             previousDjvuPath,
         });
+        let run: IJobRun<IDjvuOpenResult, {canceled: boolean}> | null = null;
         try {
-            const openHandle = await djvu.startOpenForViewing(
-                djvuPath,
-                createRequestId('djvu-open'),
-            );
-            BrowserLogger.info('djvu-open-generation', 'Native job admitted', {
-                generation,
-                djvuPath,
-                jobId: openHandle.jobId,
-                current: isCurrentDjvuOpen(generation, djvuPath),
+            const djvu = getDjvuCapability();
+            const requestId = createRequestId('djvu-open');
+            let admission: Promise<IDjvuJobStartHandle> | null = null;
+            run = runJob<IDjvuProgress, IDjvuOpenResult, {canceled: boolean}>({
+                onProgress: djvu.onProgress,
+                onComplete: djvu.onOpenComplete,
+                cancel: async () => admission
+                    ? djvu.cancel((await admission).jobId)
+                    : {canceled: false},
+            }, {
+                requestId,
+                inactivityTimeoutMs: DJVU_JOB_INACTIVITY_TIMEOUT_MS,
+                releaseLateResult: (result) => {
+                    if (result.success) {
+                        void releaseStaleViewingPath(generation, djvuPath);
+                    }
+                },
+                start: async () => {
+                    admission = djvu.startOpenForViewing(djvuPath, requestId);
+                    await admission;
+                },
             });
-            if (!isCurrentDjvuOpen(generation, djvuPath)) {
-                BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
-                    reason: 'stale-after-admission',
-                    generation,
-                    currentGeneration: openDjvuGeneration,
-                    djvuPath,
-                    openingPath: openingPath.value,
-                });
-                await cancelJobWhenAdmitted(openHandle.jobId);
-                await releaseStaleViewingPath(generation, djvuPath);
-                return false;
-            }
-            activeViewingJobId.value = openHandle.jobId;
-            await djvu.subscribeJob(openHandle.jobId);
-            const result = await djvu.awaitOpenJob(openHandle.jobId);
+            activeViewingRun = run;
+            const result = await run.result;
             BrowserLogger.info('djvu-open-generation', 'Native result received', {
                 generation,
                 djvuPath,
-                jobId: openHandle.jobId,
+                jobId: result.jobId ?? null,
                 success: result.success,
-                pageCount: result.pageCount ?? null,
-                current: isCurrentDjvuOpen(generation, djvuPath),
             });
             if (!isCurrentDjvuOpen(generation, djvuPath)) {
                 BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
@@ -457,10 +446,6 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             if (!result.success) {
                 BrowserLogger.error('djvu', 'Open failed', result.error, {code: 'RENDERER_DJVU_OPERATION_FAILED'});
                 throw new Error(result.error ?? t('errors.djvu.open'));
-            }
-
-            if (result.jobId) {
-                activeViewingJobId.value = result.jobId;
             }
 
             // The native open result is the candidate acceptance boundary.
@@ -558,6 +543,9 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             });
             return true;
         } catch (e) {
+            if (e instanceof JobCanceledError) {
+                return false;
+            }
             if (!isCurrentDjvuOpen(generation, djvuPath)) {
                 await releaseStaleViewingPath(generation, djvuPath);
                 return false;
@@ -565,6 +553,9 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             resetViewingProgressState();
             throw e;
         } finally {
+            if (activeViewingRun === run) {
+                activeViewingRun = null;
+            }
             if (isCurrentDjvuOpen(generation, djvuPath)) {
                 openingPath.value = null;
             }
@@ -591,7 +582,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
                 : {canceled: false},
         }, {
             requestId,
-            inactivityTimeoutMs: DJVU_CONVERT_INACTIVITY_TIMEOUT_MS,
+            inactivityTimeoutMs: DJVU_JOB_INACTIVITY_TIMEOUT_MS,
             onProgress: (progress: IDjvuProgress) => {
                 conversionState.value = {
                     isConverting: true,
@@ -797,23 +788,26 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     }
 
     async function cancelActiveJobs() {
+        const viewing = activeViewingRun;
+        activeViewingRun = null;
         const conversion = activeConversion;
         activeConversion = null;
         resetConversionState();
-        const viewingJobId = activeViewingJobId.value;
         BrowserLogger.info('djvu', 'Cancelling active jobs', {
-            viewingJobId,
+            viewing: viewing !== null,
             conversion: conversion !== null,
         });
-        if (!conversion && !viewingJobId) {
+        if (!viewing && !conversion) {
             return false;
         }
 
         await Promise.all([
+            viewing?.cancel().catch((cancelError: unknown) => {
+                logSuppressedError('Failed to cancel DjVu open', cancelError);
+            }),
             conversion?.cancel().catch((cancelError: unknown) => {
                 logSuppressedError('Failed to cancel DjVu conversion', cancelError);
             }),
-            viewingJobId && cancelJobWhenAdmitted(viewingJobId),
         ]);
         resetViewingProgressState();
         return true;

@@ -4,7 +4,10 @@ import {PDFDocument} from 'pdf-lib';
 import {browserDjvuCapability} from '@app/platform/browser-api/browserDjvuCapability';
 import {browserDurableDjvuJobs} from '@app/platform/browser-api/browserDurableDjvuJobs';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import type {IDjvuConvertResult} from '@contracts/electronApiDjvu';
+import type {
+    IDjvuConvertResult,
+    IDjvuOpenResult,
+} from '@contracts/electronApiDjvu';
 import {requireRequestId} from '@contracts/shared';
 
 async function runBrowserDjvuFinalizationAcceptance() {
@@ -34,12 +37,21 @@ async function runBrowserDjvuFinalizationAcceptance() {
         },
     );
 
+    let stopOpenCompletion = () => {};
     try {
+        const openRequestId = requireRequestId('browser-djvu-open-finalization');
+        const openCompletion = new Promise<IDjvuOpenResult>((resolve) => {
+            stopOpenCompletion = browserDjvuCapability.onOpenComplete((result) => {
+                if (result.requestId === openRequestId) {
+                    resolve(result);
+                }
+            });
+        });
         const openHandle = await browserDjvuCapability.startOpenForViewing(
             sourcePath,
-            requireRequestId('browser-djvu-open-finalization'),
+            openRequestId,
         );
-        const openResult = await browserDjvuCapability.awaitOpenJob(openHandle.jobId);
+        const openResult = await openCompletion;
         const openTerminalState = browserDurableDjvuJobs.getState(openHandle.jobId);
         if (!openResult.success) {
             throw new Error(`Browser DjVu open did not succeed: ${openResult.error ?? 'unknown error'}`);
@@ -82,6 +94,7 @@ async function runBrowserDjvuFinalizationAcceptance() {
             reopenedPageCount: reopenedPdf.getPageCount(),
         };
     } finally {
+        stopOpenCompletion();
         browserDurableDjvuJobs.clearForTests();
         await browserDjvuCapability.releaseViewingPath(sourcePath).catch(() => undefined);
         await browserDocumentStore.remove(outputPath).catch(() => undefined);

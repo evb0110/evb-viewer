@@ -14,7 +14,6 @@ import {
 } from '@electron/features/djvu/main/metadata';
 import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
-    awaitDurableDjvuOpenJob,
     handleDjvuCancel,
     handleDjvuPrintPath,
     startDurableDjvuConvertJob,
@@ -564,16 +563,13 @@ export function handleDjvuStartOpenForViewingOperation(
         context,
         jobId,
         path,
+        requestId,
         signal => handleDjvuOpenForViewing(context, path, signal, false),
     );
     return Promise.resolve({
         jobId,
         requestId,
     });
-}
-
-export function handleDjvuAwaitOpenJobOperation(context: IDjvuOperationContext, jobId: TJobId) {
-    return awaitDurableDjvuOpenJob(context, jobId);
 }
 
 export function handleDjvuReleaseViewingPath(

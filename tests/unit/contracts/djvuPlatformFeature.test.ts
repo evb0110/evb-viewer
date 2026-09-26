@@ -33,13 +33,11 @@ describe('DjVu platform feature', () => {
     it('preserves channels, timeouts, menu shape, and registry replay policy', () => {
         expect(channels).toEqual({
             startOpenForViewing: 'djvu:open:start',
-            awaitOpenJob: 'djvu:open:await',
             releaseViewingPath: 'djvu:releaseViewingPath',
             startConvertToPdf: 'djvu:convert:start',
             printDjvuPath: 'djvu:printDjvuPath',
             cancel: 'djvu:cancel',
             getJobState: 'djvu:job:getState',
-            subscribeJob: 'djvu:job:subscribe',
             cancelPagePreview: 'djvu:cancelPagePreview',
             searchText: 'djvu:text:search',
             cancelTextSearch: 'djvu:text:cancel',
@@ -56,6 +54,7 @@ describe('DjVu platform feature', () => {
         expect(eventChannels).toEqual({
             onProgress: 'djvu:progress',
             onConvertComplete: 'djvu:convert:complete',
+            onOpenComplete: 'djvu:open:complete',
             onTextSearchProgress: 'djvu:text:progress',
             onMenuConvertToPdf: 'menu:convertToPdf',
         });

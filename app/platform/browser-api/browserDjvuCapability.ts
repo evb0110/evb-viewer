@@ -74,19 +74,26 @@ async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuO
     }
 }
 
+const openCompleteListeners = new Set<(result: IDjvuOpenResult) => void>();
 const convertCompleteListeners = new Set<(result: IDjvuConvertResult) => void>();
 
 export const browserDjvuCapability = {
     startOpenForViewing(djvuPath, requestId) {
         const jobId = createJobId('djvu-open');
-        return Promise.resolve(browserDurableDjvuJobs.startOpen(
+        const handle = browserDurableDjvuJobs.startOpen(
             jobId,
             requestId,
             () => openBrowserDjvuForViewing(djvuPath),
-        ));
-    },
-    awaitOpenJob(jobId) {
-        return browserDurableDjvuJobs.awaitOpen(jobId);
+        );
+        void browserDurableDjvuJobs.awaitOpen(jobId).then((result) => {
+            for (const listener of openCompleteListeners) {
+                listener({
+                    ...result,
+                    requestId,
+                });
+            }
+        });
+        return Promise.resolve(handle);
     },
     releaseViewingPath(djvuPath) {
         if (isBrowserDocumentRef(djvuPath)) releaseBrowserDjvuViewingWorker(djvuPath);
@@ -128,9 +135,6 @@ export const browserDjvuCapability = {
         return Promise.resolve(cancelBrowserDjvuConversion(jobId));
     },
     getJobState(jobId) {
-        return Promise.resolve(browserDurableDjvuJobs.getState(jobId));
-    },
-    subscribeJob(jobId) {
         return Promise.resolve(browserDurableDjvuJobs.getState(jobId));
     },
     getInfo: getBrowserDjvuInfo,
@@ -189,6 +193,10 @@ export const browserDjvuCapability = {
         }
     },
     onProgress: onBrowserDjvuConversionProgress,
+    onOpenComplete(listener) {
+        openCompleteListeners.add(listener);
+        return () => openCompleteListeners.delete(listener);
+    },
     onConvertComplete(listener) {
         convertCompleteListeners.add(listener);
         return () => {

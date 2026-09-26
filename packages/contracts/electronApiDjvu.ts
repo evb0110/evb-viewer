@@ -326,6 +326,7 @@ export interface IDjvuOpenResult {
     readonly pageCount?: number;
     readonly pageSourceInfo?: IDjvuPageSourceInfo;
     readonly jobId?: TJobId;
+    readonly requestId?: TRequestId;
     readonly error?: string;
 }
 

@@ -308,9 +308,10 @@ describe('feature IPC codec maps', () => {
             sourceSize: 28_000_000,
             sourceModifiedAt: 1_720_000_000_000,
         });
-        expect(djvuCodec(DJVU_CHANNELS.awaitOpenJob).decodeResult({
+        expect(DJVU_PLATFORM_FEATURE.events.onOpenComplete.payload.decode({
             success: true,
             pageCount: 431,
+            requestId: 'djvu-open-finalized',
             pageSourceInfo: {
                 pageCount: 431,
                 pageNumber: 1,
@@ -324,6 +325,7 @@ describe('feature IPC codec maps', () => {
             },
         })).toMatchObject({
             success: true,
+            requestId: 'djvu-open-finalized',
             pageSourceInfo: {
                 sourceSize: 28_000_000,
                 sourceModifiedAt: 1_720_000_000_000,
@@ -546,7 +548,7 @@ describe('feature IPC codec maps', () => {
         'djvu-open',
         'djvu-print',
     ] as const)('decodes %s document-output job state', (operation) => {
-        expect(djvuCodec(DJVU_CHANNELS.subscribeJob).decodeResult({
+        expect(djvuCodec(DJVU_CHANNELS.getJobState).decodeResult({
             jobId: `${operation}-job`,
             operation,
             status: 'queued',
