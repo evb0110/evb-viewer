@@ -1,0 +1,21 @@
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_5c785f27cd43d2::t_f393832a5f93b1 15,27
+  s_5c785f27cd43d2::t_b007cd44ae6181 6187-6188,6220-6262,6266,6269,6273-6294
+  s_5c785f27cd43d2::t_caafc6e6ece063 22-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "138060a757a051edb2bf21772622980652a13139",
+  "prompts": {},
+  "sessions": {
+    "s_5c785f27cd43d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0dd10-5cee-7d32-ad96-3bdaa220b023",
+        "model": "gpt-6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
