@@ -576,7 +576,7 @@ useDocumentWorkspacePageSessionRestore({
 const {
     scheduleStartupOpenVisualReady,
     dispatchStartupOpenVisualReady,
-} = useWorkspaceStartupReadiness({documentViewerRef});
+} = useWorkspaceStartupReadiness(documentViewerRef);
 const {
     documentOpenAccepted,
     documentOpenSettled,

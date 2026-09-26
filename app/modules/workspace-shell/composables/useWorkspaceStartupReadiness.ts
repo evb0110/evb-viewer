@@ -1,14 +1,13 @@
 import type { Ref } from 'vue';
-import { delay } from 'es-toolkit/promise';
+import {
+    tryOnScopeDispose,
+    until,
+} from '@vueuse/core';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { tryOnScopeDispose } from '@vueuse/core';
 
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
 const STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS = 15_000;
-const STARTUP_OPEN_VIEWER_REF_POLL_MS = 50;
-
-interface IWorkspaceStartupReadinessOptions {documentViewerRef: Ref<IDocumentViewerExpose | null>;}
 
 function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
     if (typeof window === 'undefined') {
@@ -21,91 +20,49 @@ function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
     }}));
 }
 
-function createStartupTimeout(timeoutMs: number) {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const promise = new Promise<'timeout'>((resolve) => {
-        timeoutId = setTimeout(() => {
-            timeoutId = null;
-            resolve('timeout');
-        }, timeoutMs);
+/**
+ * Tells the startup overlay when the first opened document has settled in the
+ * viewer, or that it gave up after the startup budget.
+ */
+export const useWorkspaceStartupReadiness = (documentViewerRef: Ref<IDocumentViewerExpose | null>) => {
+    let latestRequest: symbol | null = null;
+    tryOnScopeDispose(() => {
+        latestRequest = null;
     });
 
-    return {
-        promise,
-        cancel: () => {
-            if (timeoutId !== null) {
-                clearTimeout(timeoutId);
-                timeoutId = null;
-            }
-        },
-    };
-}
-
-export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadinessOptions) => {
-    const { documentViewerRef } = options;
-    let startupOpenVisualReadyToken = 0;
-    const lifecycle: { disposed: boolean } = { disposed: false };
-
-    function scheduleStartupOpenVisualReady(reason: string) {
-        if (lifecycle.disposed.valueOf()) {
-            return;
+    async function waitForViewerSettled(signal: AbortSignal) {
+        const viewer = await until(documentViewerRef).toMatch(
+            candidate => typeof candidate?.waitForViewerLoadSettled === 'function',
+            {timeout: STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS},
+        );
+        if (!viewer?.waitForViewerLoadSettled || signal.aborted) {
+            return false;
         }
-        const token = ++startupOpenVisualReadyToken;
-        void (async () => {
-            const startedAt = Date.now();
-            let timedOut = false;
-
-            try {
-                while (Date.now() - startedAt < STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS) {
-                    if (lifecycle.disposed.valueOf() || token !== startupOpenVisualReadyToken) {
-                        return;
-                    }
-
-                    await nextTick();
-                    const viewer = documentViewerRef.value;
-                    const waitForViewerLoadSettled = viewer?.waitForViewerLoadSettled;
-                    if (typeof waitForViewerLoadSettled === 'function') {
-                        const remainingMs = Math.max(0, STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS - (Date.now() - startedAt));
-                        const timeout = createStartupTimeout(remainingMs);
-                        let settleTimedOut = false;
-                        try {
-                            settleTimedOut = await Promise.race([
-                                waitForViewerLoadSettled.call(viewer).then(() => false),
-                                timeout.promise.then(() => true),
-                            ]);
-                        } finally {
-                            timeout.cancel();
-                        }
-
-                        if (settleTimedOut) {
-                            timedOut = true;
-                        }
-                        break;
-                    }
-
-                    await delay(STARTUP_OPEN_VIEWER_REF_POLL_MS);
-                }
-
-                if (!documentViewerRef.value?.waitForViewerLoadSettled) {
-                    timedOut = true;
-                }
-            } catch (error) {
-                timedOut = true;
-                BrowserLogger.diagnostic('loader', 'Startup visual readiness wait failed', error);
-            }
-
-            if (lifecycle.disposed.valueOf() || token !== startupOpenVisualReadyToken) {
-                return;
-            }
-
-            dispatchStartupOpenVisualReady(reason, timedOut);
-        })();
+        await viewer.waitForViewerLoadSettled();
+        return true;
     }
 
-    tryOnScopeDispose(() => {
-        lifecycle.disposed = true;
-        startupOpenVisualReadyToken += 1;
-    });
+    function scheduleStartupOpenVisualReady(reason: string) {
+        const request = Symbol(reason);
+        latestRequest = request;
+        const timeout = AbortSignal.timeout(STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS);
+        const timedOut = new Promise<false>((resolve) => {
+            timeout.addEventListener('abort', () => resolve(false), {once: true});
+        });
+        void Promise.race([
+            waitForViewerSettled(timeout),
+            timedOut,
+        ])
+            .catch((error: unknown) => {
+                BrowserLogger.diagnostic('loader', 'Startup visual readiness wait failed', error);
+                return false;
+            })
+            .then((settled) => {
+                if (latestRequest === request) {
+                    dispatchStartupOpenVisualReady(reason, !settled);
+                }
+            });
+    }
 
     return {
         scheduleStartupOpenVisualReady,
