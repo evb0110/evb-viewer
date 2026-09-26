@@ -40,12 +40,8 @@ describe('shell platform feature schemas', () => {
             .toThrow('expected an undefined IPC result');
     });
 
-    it('keeps its generated fixture valid', () => {
-        const [fixture] = SHELL_PLATFORM_FEATURE.fixtureMethods;
-        expect(fixture?.descriptor.path).toEqual([
-            'shell',
-            'openExternal',
-        ]);
-        expect(() => codec.decodeResult(fixture?.example())).not.toThrow();
+    it('does not store an example factory in the production descriptor', () => {
+        expect(SHELL_PLATFORM_FEATURE.fixtureMethods).toEqual([]);
+        expect(codec.decodeResult(undefined)).toBeUndefined();
     });
 });

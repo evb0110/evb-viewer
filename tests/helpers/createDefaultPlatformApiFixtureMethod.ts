@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
 import { cast } from '@tests/helpers/cast';
 
 export interface IPlatformApiFixtureEventMethod<TPayload = unknown> {
@@ -91,10 +92,42 @@ type TPlatformApiFixtureEventFunction = (
     callback: (payload: unknown) => void,
 ) => () => void;
 
+const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
+    'host.getResourceProfile': {
+        logicalCpus: 8,
+        totalRamBytes: 16 * 1024 ** 3,
+        safeMode: false,
+        detectedTier: 'high',
+        performanceMode: 'auto',
+        tier: 'high',
+    },
+    'host.getEnvironment': {
+        platform: 'linux',
+        osScaleFactor: 1,
+    },
+    'host.getZenModeState': {
+        active: false,
+        supported: true,
+    },
+    'host.setZenMode': {
+        active: false,
+        supported: true,
+    },
+    'host.writeBugReportBundle': {
+        directoryName: '1970-01-01T00-00-00.000Z',
+        screenshotWritten: false,
+        written: false,
+    },
+    'settings.get': DEFAULT_SETTINGS,
+    'settings.getRecoveryNotice': null,
+    'settings.save': undefined,
+    'shell.openExternal': undefined,
+};
+
 function createAsyncDefault(path: string) {
     if (path === 'updates.getState') {
         return vi.fn(async () => ({
-            phase: 'unsupported',
+            phase: 'idle',
             origin: 'auto',
             version: null,
             percent: null,
@@ -102,7 +135,10 @@ function createAsyncDefault(path: string) {
         }));
     }
     if (path === 'updates.check' || path === 'updates.download' || path === 'updates.install') {
-        return vi.fn(async () => ({started: false}));
+        return vi.fn(async () => ({started: true}));
+    }
+    if (path === 'updates.defer' || path === 'updates.skipVersion') {
+        return vi.fn(async () => undefined);
     }
     if (path.endsWith('.get')) {
         return vi.fn(async () => ({}));
@@ -200,6 +236,12 @@ export function createDefaultPlatformApiFixtureMethod(
             : vi.fn(() => example());
     }
     const path = descriptor.path.join('.');
+    if (Object.hasOwn(FEATURE_RESULTS, path)) {
+        const result = () => structuredClone(FEATURE_RESULTS[path]);
+        return descriptor.kind === 'async'
+            ? vi.fn(async () => result())
+            : vi.fn(result);
+    }
     if (descriptor.kind === 'sync') {
         if (
             path.endsWith('.getMemoryInfo')

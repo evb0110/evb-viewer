@@ -1,151 +1,68 @@
-import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import {
     defineForwardedPlatformEvent,
     defineForwardedPlatformMethod,
     definePlatformFeature,
-    runtimeSchema as s,
     type TFeatureCapability,
 } from '@contracts/platformFeature';
-import {
-    isFiniteNumber,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import * as v from 'valibot';
 
-export type THostPlatform = 'darwin' | 'win32' | 'linux';
 const HOST_OS_SCALE_FACTOR_MAX = 8;
+const hostEnvironmentSchema = v.object({
+    platform: v.picklist([
+        'darwin',
+        'win32',
+        'linux',
+    ], 'invalid host environment'),
+    osScaleFactor: v.pipe(
+        v.number('invalid host environment'),
+        v.finite('invalid host environment'),
+        v.check(value => value > 0 && value <= HOST_OS_SCALE_FACTOR_MAX, 'invalid host environment'),
+    ),
+}, 'invalid host environment');
 
-export interface IHostEnvironmentSnapshot {
-    readonly platform: THostPlatform;
-    readonly osScaleFactor: number;
-}
+export type IHostEnvironmentSnapshot = v.InferOutput<typeof hostEnvironmentSchema>;
+export type THostPlatform = IHostEnvironmentSnapshot['platform'];
 
 export function decodeHostEnvironmentSnapshot(value: unknown): IHostEnvironmentSnapshot | null {
-    if (
-        !isRecord(value)
-        || (value.platform !== 'darwin' && value.platform !== 'win32' && value.platform !== 'linux')
-        || !isFiniteNumber(value.osScaleFactor)
-        || value.osScaleFactor <= 0
-        || value.osScaleFactor > HOST_OS_SCALE_FACTOR_MAX
-    ) {
-        return null;
-    }
-    return {
-        platform: value.platform,
-        osScaleFactor: value.osScaleFactor,
-    };
+    const result = v.safeParse(hostEnvironmentSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
-export interface IHostZenModeState {
-    readonly active: boolean;
-    readonly supported: boolean;
-}
-
-function decodeHostZenModeState(value: unknown): IHostZenModeState {
-    if (!isRecord(value) || typeof value.active !== 'boolean' || typeof value.supported !== 'boolean') {
-        throw new Error('invalid host zen mode state');
-    }
-    return {
-        active: value.active,
-        supported: value.supported,
-    };
-}
-
-const resourceProfile = s.trustedDirect<IHostResourceProfileSnapshot | null>(() => ({
-    logicalCpus: 8,
-    totalRamBytes: 16 * 1024 ** 3,
-    safeMode: false,
-    detectedTier: 'high',
-    performanceMode: 'auto',
-    tier: 'high',
-}));
-const environment = s.fromNullableDecoder<IHostEnvironmentSnapshot>(
-    decodeHostEnvironmentSnapshot,
-    'host environment',
-    () => ({
-        platform: 'linux',
-        osScaleFactor: 1,
-    }),
-);
-const zenMode = s.fromParser<IHostZenModeState>(decodeHostZenModeState, () => ({
-    active: false,
-    supported: true,
-}));
+const hostZenModeStateSchema = v.object({
+    active: v.boolean('invalid host zen mode state'),
+    supported: v.boolean('invalid host zen mode state'),
+}, 'invalid host zen mode state');
+export type IHostZenModeState = v.InferOutput<typeof hostZenModeStateSchema>;
 
 /** Serialized bug report. Content free by construction; see the writer. */
-export interface IHostBugReportBundle {
-    readonly reportJson: string;
-    /**
-     * The open document's source path. Never written: the main process reads
-     * the file's bytes, records their hash, and discards the path, so a bundle
-     * identifies the document without naming it.
-     */
-    readonly sourcePath: string;
-}
+export type IHostBugReportBundle = v.InferOutput<typeof hostBugReportBundleSchema>;
+/** Timestamp directory the bundle landed in, never a full path. */
+export type IHostBugReportWriteResult = v.InferOutput<typeof hostBugReportWriteResultSchema>;
 
-export interface IHostBugReportWriteResult {
-    /** Timestamp directory the bundle landed in, never a full path. */
-    readonly directoryName: string;
-    readonly screenshotWritten: boolean;
-    readonly written: boolean;
-}
-
-/**
- * A bug report is a development aid, so the payload stays small on purpose.
- * Counted in UTF-16 code units, which is what `String.length` measures; the
- * byte size of the written file is at most four times this.
- */
+/** Counted in UTF-16 code units, which is what `String.length` measures. */
 const HOST_BUG_REPORT_MAX_JSON_CHARS = 256 * 1024;
 /** Longer than any path a filesystem accepts, so a real one always fits. */
 const HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS = 4_096;
+const hostBugReportBundleSchema = v.object({
+    reportJson: v.pipe(
+        v.string('invalid host bug report bundle'),
+        v.minLength(1, 'invalid host bug report bundle'),
+        v.maxLength(HOST_BUG_REPORT_MAX_JSON_CHARS, 'invalid host bug report bundle'),
+    ),
+    sourcePath: v.pipe(
+        v.string('invalid host bug report bundle'),
+        v.maxLength(HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS, 'invalid host bug report bundle'),
+    ),
+}, 'invalid host bug report bundle');
+const hostBugReportWriteResultSchema = v.object({
+    directoryName: v.string('invalid host bug report write result'),
+    screenshotWritten: v.boolean('invalid host bug report write result'),
+    written: v.boolean('invalid host bug report write result'),
+}, 'invalid host bug report write result');
 
-function decodeHostBugReportBundle(value: unknown): IHostBugReportBundle {
-    if (
-        !isRecord(value)
-        || typeof value.reportJson !== 'string'
-        || value.reportJson.length === 0
-        || value.reportJson.length > HOST_BUG_REPORT_MAX_JSON_CHARS
-        || typeof value.sourcePath !== 'string'
-        || value.sourcePath.length > HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS
-    ) {
-        throw new Error('invalid host bug report bundle');
-    }
-    return {
-        reportJson: value.reportJson,
-        sourcePath: value.sourcePath,
-    };
-}
-
-function decodeHostBugReportWriteResult(value: unknown): IHostBugReportWriteResult {
-    if (
-        !isRecord(value)
-        || typeof value.directoryName !== 'string'
-        || typeof value.screenshotWritten !== 'boolean'
-        || typeof value.written !== 'boolean'
-    ) {
-        throw new Error('invalid host bug report write result');
-    }
-    return {
-        directoryName: value.directoryName,
-        screenshotWritten: value.screenshotWritten,
-        written: value.written,
-    };
-}
-
-const bugReportBundle = s.fromParser<IHostBugReportBundle>(
-    decodeHostBugReportBundle,
-    () => ({
-        reportJson: '{}',
-        sourcePath: '',
-    }),
-);
-const bugReportWriteResult = s.fromParser<IHostBugReportWriteResult>(
-    decodeHostBugReportWriteResult,
-    () => ({
-        directoryName: '1970-01-01T00-00-00.000Z',
-        screenshotWritten: false,
-        written: false,
-    }),
-);
+const resourceProfileSchema = v.custom<IHostResourceProfileSnapshot | null>(() => true);
+const noArgs = v.strictTuple([]);
 
 export const HOST_PLATFORM_FEATURE = definePlatformFeature({
     path: ['host'],
@@ -156,37 +73,37 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
     methods: {
         getResourceProfile: {
             kind: 'sync',
-            args: s.tuple([]),
-            result: resourceProfile,
+            args: noArgs,
+            result: resourceProfileSchema,
             browser: {method: 'getResourceProfile'},
             lazy: 'direct',
         },
         getEnvironment: defineForwardedPlatformMethod({
             name: 'getEnvironment',
             channel: 'host:getEnvironment',
-            args: s.tuple([]),
-            result: environment,
+            args: noArgs,
+            result: hostEnvironmentSchema,
             main: 'snapshotHostEnvironmentForWindow',
         }),
         getZenModeState: defineForwardedPlatformMethod({
             name: 'getZenModeState',
             channel: 'host:getZenModeState',
-            args: s.tuple([]),
-            result: zenMode,
+            args: noArgs,
+            result: hostZenModeStateSchema,
             main: 'snapshotHostZenModeForWindow',
         }),
         setZenMode: defineForwardedPlatformMethod({
             name: 'setZenMode',
             channel: 'host:setZenMode',
-            args: s.tuple([s.boolean()]),
-            result: zenMode,
+            args: v.strictTuple([v.boolean('expected a boolean IPC result')]),
+            result: hostZenModeStateSchema,
             main: 'setHostZenModeForWindow',
         }),
         writeBugReportBundle: defineForwardedPlatformMethod({
             name: 'writeBugReportBundle',
             channel: 'host:writeBugReportBundle',
-            args: s.tuple([bugReportBundle]),
-            result: bugReportWriteResult,
+            args: v.strictTuple([hostBugReportBundleSchema]),
+            result: hostBugReportWriteResultSchema,
             main: 'writeHostBugReportBundleForWindow',
         }),
     },
@@ -194,22 +111,18 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
         onEnvironmentChange: defineForwardedPlatformEvent({
             name: 'onEnvironmentChange',
             channel: 'host:environmentChanged',
-            payload: environment,
+            payload: hostEnvironmentSchema,
         }),
         onZenModeChange: defineForwardedPlatformEvent({
             name: 'onZenModeChange',
             channel: 'host:zenModeChanged',
-            payload: zenMode,
+            payload: hostZenModeStateSchema,
         }),
-        // The browser process owns a wheel scroll sequence, including its
-        // inertial tail, so only it knows when one is live. A renderer can
-        // merely infer that from packet timing, and a busy main thread both
-        // stretches the gaps between packets and delays the timer that would
-        // notice the end.
+        // The browser process owns a wheel scroll sequence, including its inertial tail.
         onWheelScrollSequenceChange: defineForwardedPlatformEvent({
             name: 'onWheelScrollSequenceChange',
             channel: 'host:wheelScrollSequenceChanged',
-            payload: s.oneOf([
+            payload: v.picklist([
                 'begin',
                 'end',
             ]),
@@ -218,3 +131,4 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
 });
 
 export type IHostCapability = TFeatureCapability<typeof HOST_PLATFORM_FEATURE>;
+export type {IHostResourceProfileSnapshot};

@@ -23,14 +23,27 @@ export interface IValidatedRegistrarCase {
     validArgs: unknown[];
 }
 
+const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
+    'host:setZenMode': [true],
+    'host:writeBugReportBundle': [{
+        reportJson: '{}',
+        sourcePath: '',
+    }],
+    'settings:save': [{theme: 'dark'}],
+    'shell:openExternal': ['https://example.test/'],
+    'updates:skipVersion': ['1.2.3'],
+};
+
 export function createFeatureRegistrarCases(feature: TAnyDefinedPlatformFeature): IValidatedRegistrarCase[] {
     const methodCases = Object.values(feature.methods).flatMap((spec) => {
         if (spec.kind === 'sync' || 'local' in spec) {
             return [];
         }
+        const validArgs = schemaArgsExamples[spec.channel]
+            ?? ('example' in spec.ipc.args ? spec.ipc.args.example() : []);
         return [{
             channel: spec.channel,
-            validArgs: spec.ipc.args.example(),
+            validArgs,
         }];
     });
     const subscriptionCases = Object.values(feature.events).flatMap((spec) => (

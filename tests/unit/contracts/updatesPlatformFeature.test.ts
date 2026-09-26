@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import {
+    decodeAppUpdateStatus,
+    UPDATES_PLATFORM_FEATURE,
+} from '@contracts/updatesPlatformFeature';
 
 describe('updates platform feature schemas', () => {
     const channels = UPDATES_PLATFORM_FEATURE.invokeChannels;
@@ -38,7 +41,7 @@ describe('updates platform feature schemas', () => {
         expect(codecs[channels.download]!.decodeResult({started: false})).toEqual({started: false});
         expect(codecs[channels.defer]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.skipVersion]!.decodeArgs(['2.0.0'])).toEqual(['2.0.0']);
-        expect(UPDATES_PLATFORM_FEATURE.events.onStatus.payload.decode(validStatus)).toEqual(validStatus);
+        expect(decodeAppUpdateStatus(validStatus)).toEqual(validStatus);
     });
 
     it('rejects malformed update arguments, results, and events', () => {
@@ -50,9 +53,9 @@ describe('updates platform feature schemas', () => {
             percent: 101,
         }))
             .toThrow('invalid app update status');
-        expect(() => UPDATES_PLATFORM_FEATURE.events.onStatus.payload.decode({
+        expect(decodeAppUpdateStatus({
             ...validStatus,
             phase: 'future',
-        })).toThrow('invalid app update status');
+        })).toBeNull();
     });
 });

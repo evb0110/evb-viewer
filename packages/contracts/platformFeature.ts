@@ -4,6 +4,7 @@ import type {
     IPlatformApiDescriptor,
     IPlatformMethodDescriptor, TPlatformBackend, 
 } from '@contracts/platformDescriptorTypes';
+import * as v from 'valibot';
 
 export interface IRuntimeSchema<T> {
     decode: (value: unknown) => T;
@@ -14,7 +15,12 @@ export interface IRuntimeSchema<T> {
 
 export type TInferSchema<T> = T extends {decode: (...args: never[]) => unknown}
     ? ReturnType<T['decode']>
-    : never;
+    : T extends v.BaseSchema<unknown, infer TOutput, v.BaseIssue<unknown>>
+        ? TOutput
+        : never;
+export type TPlatformFeatureSchema<TOutput = unknown> =
+    | IRuntimeSchema<TOutput>
+    | v.GenericSchema<unknown, TOutput>;
 type TSchemaPrimitive = string | number | boolean | null;
 type TSchemaValue = ReturnType<JSON['parse']>;
 type TSchemaObject = Readonly<Record<string, IRuntimeSchema<TSchemaValue>>>;
@@ -421,6 +427,46 @@ export const runtimeSchema = {
     trustedDirect,
 };
 
+function isRuntimeSchema<T>(schema: TPlatformFeatureSchema<T>): schema is IRuntimeSchema<T> {
+    return 'decode' in schema && typeof schema.decode === 'function';
+}
+
+function assertFeatureTupleArity<T>(schema: TPlatformFeatureSchema<T>, value: unknown) {
+    if (isRuntimeSchema(schema) || schema.type !== 'strict_tuple' || !('items' in schema)) {
+        return;
+    }
+    const items: unknown = schema.items;
+    if (!Array.isArray(items)) {
+        return;
+    }
+    const tupleItems: readonly unknown[] = items;
+    const expected = tupleItems.length;
+    const received = Array.isArray(value) ? value.length : 0;
+    if (!Array.isArray(value) || received !== expected) {
+        throw new Error(`expected ${expected} arguments, received ${received}`);
+    }
+}
+
+function parseFeatureSchema<T>(schema: TPlatformFeatureSchema<T>, value: unknown): T {
+    if (isRuntimeSchema(schema)) {
+        return schema.decode(value);
+    }
+    assertFeatureTupleArity(schema, value);
+    return v.parse(schema, value, {abortEarly: true});
+}
+
+function encodeFeatureSchema<T>(schema: TPlatformFeatureSchema<T>, value: unknown): T {
+    if (isRuntimeSchema(schema)) {
+        return schema.encode(value as T) as T;
+    }
+    assertFeatureTupleArity(schema, value);
+    return v.parse(schema, value, {abortEarly: true});
+}
+
+function getFeatureSchemaExample(schema: TPlatformFeatureSchema): (() => unknown) | undefined {
+    return isRuntimeSchema(schema) ? schema.example : undefined;
+}
+
 export function argsSchema<TArgs extends unknown[]>(
     decode: (args: readonly unknown[]) => TArgs,
     example: () => TArgs,
@@ -443,8 +489,8 @@ export function resultSchema<TResult>(
 type TForwardedPlatformMethod<
     TName extends string,
     TChannel extends string,
-    TArgs extends IRuntimeSchema<unknown[]>,
-    TResult extends IRuntimeSchema<unknown>,
+    TArgs extends TPlatformFeatureSchema<unknown[]>,
+    TResult extends TPlatformFeatureSchema,
     TMain extends string,
     TOptional extends boolean | undefined,
 > = {
@@ -465,8 +511,8 @@ type TForwardedPlatformMethod<
 interface IForwardedPlatformMethodDefinition {
     name: string;
     channel: string;
-    args: IRuntimeSchema<unknown[]>;
-    result: IRuntimeSchema<unknown>;
+    args: TPlatformFeatureSchema<unknown[]>;
+    result: TPlatformFeatureSchema;
     main: string;
     optionalWhenImplemented?: boolean;
 }
@@ -475,8 +521,8 @@ interface IWideForwardedPlatformMethod {
     kind: 'async';
     channel: string;
     ipc: {
-        args: IRuntimeSchema<unknown[]>;
-        result: IRuntimeSchema<unknown>;
+        args: TPlatformFeatureSchema<unknown[]>;
+        result: TPlatformFeatureSchema;
     };
     main: {
         method: string;
@@ -490,8 +536,8 @@ interface IWideForwardedPlatformMethod {
 export function defineForwardedPlatformMethod<
     const TName extends string,
     const TChannel extends string,
-    const TArgs extends IRuntimeSchema<unknown[]>,
-    const TResult extends IRuntimeSchema<unknown>,
+    const TArgs extends TPlatformFeatureSchema<unknown[]>,
+    const TResult extends TPlatformFeatureSchema,
     const TMain extends string,
     const TOptional extends boolean | undefined = undefined,
 >(definition: {
@@ -524,7 +570,7 @@ export function defineForwardedPlatformMethod(definition: IForwardedPlatformMeth
 export function defineForwardedPlatformEvent<
     const TName extends string,
     const TChannel extends string,
-    const TPayload extends IRuntimeSchema<unknown>,
+    const TPayload extends TPlatformFeatureSchema,
 >(definition: {
     name: TName;
     channel: TChannel;
@@ -540,8 +586,8 @@ export function defineForwardedPlatformEvent<
 }
 
 export interface IPlatformIpcMethodSpec<
-    TArgs extends IRuntimeSchema<unknown[]> = IRuntimeSchema<unknown[]>,
-    TResult extends IRuntimeSchema<unknown> = IRuntimeSchema<unknown>,
+    TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
+    TResult extends TPlatformFeatureSchema = TPlatformFeatureSchema,
 > {
     kind: 'async' | 'void';
     channel: string;
@@ -562,8 +608,8 @@ export interface IPlatformIpcMethodSpec<
 }
 
 export interface IPlatformSyncMethodSpec<
-    TArgs extends IRuntimeSchema<unknown[]> = IRuntimeSchema<unknown[]>,
-    TResult extends IRuntimeSchema<unknown> = IRuntimeSchema<unknown>,
+    TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
+    TResult extends TPlatformFeatureSchema = TPlatformFeatureSchema,
 > {
     kind: 'sync';
     args: TArgs;
@@ -575,8 +621,8 @@ export interface IPlatformSyncMethodSpec<
 }
 
 export interface IPlatformLocalMethodSpec<
-    TArgs extends IRuntimeSchema<unknown[]> = IRuntimeSchema<unknown[]>,
-    TResult extends IRuntimeSchema<unknown> = IRuntimeSchema<unknown>,
+    TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
+    TResult extends TPlatformFeatureSchema = TPlatformFeatureSchema,
 > {
     kind: 'async' | 'void';
     local: {
@@ -594,7 +640,9 @@ export type TPlatformMethodSpec =
     | IPlatformLocalMethodSpec
     | IPlatformSyncMethodSpec;
 
-export interface IPlatformEventSpec<TPayload extends IRuntimeSchema<TSchemaValue> = IRuntimeSchema<TSchemaValue>> {
+export interface IPlatformEventSpec<
+    TPayload extends TPlatformFeatureSchema<TSchemaValue> = TPlatformFeatureSchema<TSchemaValue>,
+> {
     kind: 'event';
     channel: string;
     payload: TPayload;
@@ -820,7 +868,7 @@ export function definePlatformFeature(
             lazy: 'forwarded' | 'direct';
         },
         required: Record<TPlatformBackend, boolean>,
-        example: () => unknown,
+        example?: () => unknown,
         optionalWhenImplemented = false,
     ) => {
         const descriptor: IPlatformMethodDescriptor = {
@@ -834,10 +882,12 @@ export function definePlatformFeature(
             browserLazy: spec.lazy,
         };
         methods.push(descriptor);
-        fixtureMethods.push({
-            descriptor,
-            example,
-        });
+        if (example) {
+            fixtureMethods.push({
+                descriptor,
+                example,
+            });
+        }
     };
     for (const [
         name,
@@ -848,27 +898,27 @@ export function definePlatformFeature(
                 ...definition.required,
                 ...spec.required,
             }, spec.kind === 'sync'
-                ? spec.result.example
-                : spec.local.result.example, spec.optionalWhenImplemented);
+                ? getFeatureSchemaExample(spec.result)
+                : getFeatureSchemaExample(spec.local.result), spec.optionalWhenImplemented);
             continue;
         }
         addChannel(spec.channel);
         invokeChannels[name] = spec.channel;
         ipcCodecs[spec.channel] = {
             encodeArgs: value => {
-                const encoded = spec.ipc.args.encode(value);
+                const encoded = encodeFeatureSchema(spec.ipc.args, value);
                 if (!isUnknownArray(encoded)) {
                     return fail(`Platform feature argument encoder returned a non-array: ${spec.channel}`);
                 }
                 return encoded;
             },
-            decodeArgs: value => spec.ipc.args.decode(value),
-            decodeResult: spec.ipc.result.decode,
+            decodeArgs: value => parseFeatureSchema(spec.ipc.args, value),
+            decodeResult: value => parseFeatureSchema(spec.ipc.result, value),
         };
         addDescriptor(name, spec, {
             ...definition.required,
             ...spec.required,
-        }, spec.ipc.result.example, spec.optionalWhenImplemented);
+        }, getFeatureSchemaExample(spec.ipc.result), spec.optionalWhenImplemented);
     }
     for (const [
         name,
@@ -879,7 +929,7 @@ export function definePlatformFeature(
         addDescriptor(name, spec, {
             ...definition.required,
             ...spec.required,
-        }, () => () => undefined, spec.optionalWhenImplemented);
+        }, undefined, spec.optionalWhenImplemented);
         if (spec.subscription) {
             addChannel(spec.subscription.channel);
             invokeChannels[spec.subscription.main.method] = spec.subscription.channel;

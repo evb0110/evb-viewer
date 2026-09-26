@@ -13,75 +13,100 @@ import {
 import {
     defineForwardedPlatformMethod,
     definePlatformFeature,
-    runtimeSchema as s,
     type TFeatureCapability,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
-import { isRecord } from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
-type TVoidResult = ReturnType<() => void>;
-
-function decodeSettingsPatch(value: unknown): TSettingsSavePatch {
-    if (!isRecord(value)) {
-        throw new Error('settings must be an object');
-    }
-    for (const key of Object.keys(value)) {
-        if (!isSettingsSaveKey(key)) {
-            throw new Error(`invalid settings field: ${key}`);
+const invalidSettingsField = (field: string) => `invalid settings field: ${field}`;
+const invalidSettingsResultField = (field: string) => `invalid settings result field: ${field}`;
+const settingsPatchSchema = v.pipe(
+    v.unknown(),
+    v.transform(input => ({
+        input,
+        normalized: sanitizeSettings({
+            ...DEFAULT_SETTINGS,
+            ...(isRecord(input) ? input : {}),
+        }),
+    })),
+    v.rawCheck(({
+        dataset, addIssue,
+    }) => {
+        if (!dataset.typed) {
+            return;
         }
-    }
-    const normalized = sanitizeSettings({
-        ...DEFAULT_SETTINGS,
-        ...value,
-    });
-    for (const [
-        key,
-        candidate,
-    ] of Object.entries(value)) {
-        if (!isSettingsSaveKey(key) || normalized[key] !== candidate) {
-            throw new Error(`invalid settings field: ${key}`);
+        const {
+            input, normalized,
+        } = dataset.value;
+        if (!isRecord(input)) {
+            addIssue({message: 'settings must be an object'});
+            return;
         }
-    }
-    return value;
-}
-
-function decodeSettingsResult(value: unknown) {
-    if (!isRecord(value)) {
-        throw new Error('invalid settings result');
-    }
-    const normalized = sanitizeSettings(value);
-    const allowedKeys = new Set(Object.keys(normalized));
-    for (const key of Object.keys(value)) {
-        if (!allowedKeys.has(key)) {
-            throw new Error(`invalid settings result field: ${key}`);
+        for (const key of Object.keys(input)) {
+            if (!isSettingsSaveKey(key)) {
+                addIssue({message: invalidSettingsField(key)});
+                return;
+            }
+            if (normalized[key] !== input[key]) {
+                addIssue({message: invalidSettingsField(key)});
+                return;
+            }
         }
-    }
-    for (const [
-        key,
-        candidate,
-    ] of Object.entries(normalized)) {
-        if (value[key] !== candidate) {
-            throw new Error(`invalid settings result field: ${key}`);
+    }),
+    v.transform(({input}) => input as TSettingsSavePatch),
+);
+const settingsResultSchema = v.pipe(
+    v.unknown(),
+    v.transform(input => ({
+        input,
+        normalized: sanitizeSettings(input),
+    })),
+    v.rawCheck(({
+        dataset, addIssue,
+    }) => {
+        if (!dataset.typed) {
+            return;
         }
-    }
-    return normalized;
-}
-
-const settingsPatch = s.fromParser(decodeSettingsPatch, (): TSettingsSavePatch => ({theme: 'dark'}));
-const settingsResult = s.fromParser(decodeSettingsResult, () => DEFAULT_SETTINGS);
-function parseSettingsRecoveryNotice(value: unknown) {
+        const {
+            input, normalized,
+        } = dataset.value;
+        if (!isRecord(input)) {
+            addIssue({message: 'invalid settings result'});
+            return;
+        }
+        const allowedKeys = new Set(Object.keys(normalized));
+        for (const key of Object.keys(input)) {
+            if (!allowedKeys.has(key)) {
+                addIssue({message: invalidSettingsResultField(key)});
+                return;
+            }
+        }
+        for (const [
+            key,
+            candidate,
+        ] of Object.entries(normalized)) {
+            if (input[key] !== candidate) {
+                addIssue({message: invalidSettingsResultField(key)});
+                return;
+            }
+        }
+    }),
+    v.transform(({normalized}) => normalized),
+);
+const settingsRecoveryNoticeSchema = v.nullable(v.pipe(v.unknown(), v.transform(value => {
     const notice = decodeSettingsRecoveryNotice(value);
     if (!notice) {
         throw new Error('invalid settings recovery notice');
     }
     return notice;
-}
+})));
+const voidResult = v.pipe(
+    v.undefined('expected an undefined IPC result'),
+    v.transform((): void => undefined),
+);
 
-const settingsRecoveryNotice = s.nullable(s.fromParser(
-    parseSettingsRecoveryNotice,
-    () => ({reason: 'corrupt' as const}),
-));
-const voidResult = s.declared<TVoidResult>()(s.undefined());
+export type TSettingsSavePatchSchema = v.InferOutput<typeof settingsPatchSchema>;
 
 export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
     path: ['settings'],
@@ -94,8 +119,8 @@ export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
             kind: 'async',
             channel: 'settings:get',
             ipc: {
-                args: s.tuple([]),
-                result: settingsResult,
+                args: v.strictTuple([]),
+                result: settingsResultSchema,
             },
             main: {
                 method: 'get',
@@ -108,8 +133,8 @@ export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
             kind: 'async',
             channel: 'settings:getRecoveryNotice',
             ipc: {
-                args: s.tuple([]),
-                result: settingsRecoveryNotice,
+                args: v.strictTuple([]),
+                result: settingsRecoveryNoticeSchema,
             },
             main: {
                 method: 'getRecoveryNotice',
@@ -121,7 +146,7 @@ export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
         save: defineForwardedPlatformMethod({
             name: 'save',
             channel: 'settings:save',
-            args: s.tuple([settingsPatch]),
+            args: v.strictTuple([settingsPatchSchema]),
             result: voidResult,
             main: 'save',
         }),

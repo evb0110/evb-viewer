@@ -601,8 +601,7 @@ describe('createElectronApi', () => {
         expect(ipcRenderer.send).toHaveBeenCalledTimes(1);
     });
 
-    it('decodes agent renderer request events before invoking callbacks', async () => {
-        const warningSpy = silenceExpectedDecodedEventWarnings();
+    it('forwards main-originated agent request events unchanged', async () => {
         const {
             api,
             listeners,
@@ -618,24 +617,24 @@ describe('createElectronApi', () => {
             throw new Error('Expected agent request listeners to be registered');
         }
 
-        snapshotListener({}, {
+        const invalidSnapshot = {
             requestId: '',
             windowId: 1,
-        });
-        snapshotListener({}, {
+        };
+        const rawSnapshot = {
             requestId: ' snapshot-1 ',
             windowId: 12,
             lastSeenRevision: 3,
-        });
-        commandListener({}, {
+        };
+        const invalidCommand = {
             requestId: 'command-bad',
             windowId: 12,
             command: {
                 name: 'go_to_page',
                 arguments: {page: '2'},
             },
-        });
-        commandListener({}, {
+        };
+        const rawCommand = {
             requestId: ' command-1 ',
             windowId: 12,
             command: {
@@ -647,46 +646,29 @@ describe('createElectronApi', () => {
                     dryRun: true,
                 },
             },
-        });
+        };
+        snapshotListener({}, invalidSnapshot);
+        snapshotListener({}, rawSnapshot);
+        commandListener({}, invalidCommand);
+        commandListener({}, rawCommand);
 
-        expect(snapshotCallback).toHaveBeenCalledOnce();
-        expect(snapshotCallback).toHaveBeenCalledWith({
-            requestId: 'snapshot-1',
-            windowId: 12,
-            lastSeenRevision: 3,
-        });
-        expect(commandCallback).toHaveBeenCalledOnce();
-        expect(commandCallback).toHaveBeenCalledWith({
-            requestId: 'command-1',
-            windowId: 12,
-            command: {
-                name: 'run_action',
-                arguments: {
-                    id: 'ui.close_popups',
-                    tabId: 'tab-1',
-                    input: {ok: true},
-                    dryRun: true,
-                },
-            },
-        });
-        expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${agentEventChannels.onWorkspaceSnapshotRequest}`,
-            expect.objectContaining({ requestId: '' }),
-        );
-        expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${agentEventChannels.onCommandRequest}`,
-            expect.objectContaining({ requestId: 'command-bad' }),
-        );
+        expect(snapshotCallback.mock.calls).toEqual([
+            [invalidSnapshot],
+            [rawSnapshot],
+        ]);
+        expect(commandCallback.mock.calls).toEqual([
+            [invalidCommand],
+            [rawCommand],
+        ]);
     });
 
-    it('decodes assistant events before invoking callbacks', async () => {
+    it('forwards main-originated assistant events unchanged', async () => {
         const binding = {
             scopeFingerprint: 'codex:document-1',
             sessionKey: 'codex:document-1',
             turnGeneration: 1,
             windowId: 1,
         };
-        const warningSpy = silenceExpectedDecodedEventWarnings();
         const {
             api,
             listeners,
@@ -699,45 +681,36 @@ describe('createElectronApi', () => {
             throw new Error('Expected assistant event listener to be registered');
         }
 
-        listener({}, {
+        const stateEvent = {
             type: 'state',
             state: {
                 status: {provider: 'codex'},
                 messages: [],
             },
-        });
-        listener({}, {
+        };
+        const deltaEvent = {
             type: 'message-delta',
             messageId: ' message-1 ',
             delta: 'hello',
             binding,
-        });
-        listener({}, {
+        };
+        const progressEvent = {
             type: 'turn-progress',
             progress: 'Still working',
             binding,
-        });
+        };
+        listener({}, stateEvent);
+        listener({}, deltaEvent);
+        listener({}, progressEvent);
 
-        expect(callback).toHaveBeenCalledTimes(2);
-        expect(callback).toHaveBeenNthCalledWith(1, {
-            type: 'message-delta',
-            messageId: 'message-1',
-            delta: 'hello',
-            binding,
-        });
-        expect(callback).toHaveBeenNthCalledWith(2, {
-            type: 'turn-progress',
-            progress: 'Still working',
-            binding,
-        });
-        expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${agentEventChannels.onAssistantEvent}`,
-            expect.objectContaining({ type: 'state' }),
-        );
+        expect(callback.mock.calls).toEqual([
+            [stateEvent],
+            [deltaEvent],
+            [progressEvent],
+        ]);
     });
 
-    it('decodes incoming tab transfers before invoking callbacks', async () => {
-        const warningSpy = silenceExpectedDecodedEventWarnings();
+    it('forwards main-originated tab transfers unchanged', async () => {
         const {
             api,
             ipcRenderer,
@@ -751,7 +724,7 @@ describe('createElectronApi', () => {
             throw new Error('Expected incoming tab transfer listener to be registered');
         }
 
-        listener({}, {
+        const invalidTransfer = {
             transferId: 'transfer-bad',
             sourceWindowId: 1,
             targetWindowId: 2,
@@ -762,8 +735,8 @@ describe('createElectronApi', () => {
                 isDjvu: false,
             },
             payload: { kind: 'unsupported' },
-        });
-        listener({}, {
+        };
+        const rawTransfer = {
             transferId: ' transfer-1 ',
             sourceWindowId: 1,
             targetWindowId: 2,
@@ -781,38 +754,18 @@ describe('createElectronApi', () => {
                 isDirty: true,
                 currentPage: 2,
             },
-        });
+        };
+        listener({}, invalidTransfer);
+        listener({}, rawTransfer);
         unsubscribe();
 
-        expect(callback).toHaveBeenCalledOnce();
-        expect(callback).toHaveBeenCalledWith({
-            transferId: 'transfer-1',
-            sourceWindowId: 1,
-            targetWindowId: 2,
-            tab: {
-                fileName: 'doc.pdf',
-                originalPath: '/tmp/doc.pdf',
-                isDirty: false,
-                isDjvu: false,
-            },
-            payload: {
-                kind: 'pdfSnapshot',
-                fileName: 'doc.pdf',
-                originalPath: '/tmp/doc.pdf',
-                snapshotPath: '/tmp/doc.snapshot.pdf',
-                isDirty: true,
-                currentPage: 2,
-            },
-        });
+        expect(callback.mock.calls).toEqual([
+            [invalidTransfer],
+            [rawTransfer],
+        ]);
         expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
             WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer,
             listener,
-        );
-        expect(warningSpy).toHaveBeenCalledWith(
-            `Dropped invalid decoded IPC event payload for ${
-                WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer
-            }`,
-            expect.objectContaining({ transferId: 'transfer-bad' }),
         );
     });
 
@@ -888,16 +841,49 @@ describe('createElectronApi', () => {
         });
         unsubscribers.forEach(unsubscribe => unsubscribe());
 
-        expect(updateCallback).toHaveBeenCalledOnce();
-        expect(environmentCallback).toHaveBeenCalledOnce();
-        expect(actionCallback).toHaveBeenCalledWith({
+        expect(updateCallback).toHaveBeenNthCalledWith(1, {
+            phase: 'future-phase',
+            origin: 'manual',
+            version: null,
+            percent: null,
+            message: null,
+        });
+        expect(updateCallback).toHaveBeenNthCalledWith(2, {
+            phase: 'downloaded',
+            origin: 'auto',
+            version: '2.0.0',
+            percent: 100,
+            message: null,
+        });
+        expect(environmentCallback).toHaveBeenNthCalledWith(1, {
+            platform: 'freebsd',
+            osScaleFactor: 1,
+        });
+        expect(environmentCallback).toHaveBeenNthCalledWith(2, {
+            platform: 'darwin',
+            osScaleFactor: 2,
+        });
+        expect(actionCallback).toHaveBeenNthCalledWith(1, {
+            kind: 'move-tab-to-window',
+            targetWindowId: -1,
+        });
+        expect(actionCallback).toHaveBeenNthCalledWith(2, {
             kind: 'move-tab-to-window',
             targetWindowId: 3,
-            tabId: 'tab-1',
+            tabId: ' tab-1 ',
         });
         expect(ipcRenderer.removeListener).toHaveBeenCalledTimes(3);
-        await expect(api.updates.getState()).rejects.toThrow('Invalid IPC response for updates:getState');
-        await expect(api.host.getEnvironment()).rejects.toThrow('Invalid IPC response for host:getEnvironment');
+        await expect(api.updates.getState()).resolves.toEqual({
+            phase: 'future-phase',
+            origin: 'manual',
+            version: null,
+            percent: null,
+            message: null,
+        });
+        await expect(api.host.getEnvironment()).resolves.toEqual({
+            platform: 'linux',
+            osScaleFactor: 0,
+        });
     });
 
     it('awaits renderer file-open authorization before single-file direct open', async () => {

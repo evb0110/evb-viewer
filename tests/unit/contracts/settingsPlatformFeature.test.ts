@@ -57,14 +57,8 @@ describe('settings platform feature schemas', () => {
         })).toThrow('invalid settings result field: version');
     });
 
-    it('keeps fixture examples valid at both boundaries', () => {
-        for (const {
-            descriptor,
-            example,
-        } of SETTINGS_PLATFORM_FEATURE.fixtureMethods) {
-            const methodName = descriptor.path.at(-1);
-            const channel = channels[methodName as keyof typeof channels];
-            expect(() => codecs[channel]!.decodeResult(example())).not.toThrow();
-        }
+    it('leaves result fixtures in tests instead of the production descriptor', () => {
+        expect(SETTINGS_PLATFORM_FEATURE.fixtureMethods).toEqual([]);
+        expect(codecs[channels.get]!.decodeResult(DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS);
     });
 });

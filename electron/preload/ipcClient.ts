@@ -4,10 +4,7 @@ import type {
     IpcRendererEvent,
 } from 'electron';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
-import type {
-    IIpcInvokeSpec,
-    TIpcCodecMap,
-} from '@contracts/ipcMain';
+import type {IIpcInvokeSpec} from '@contracts/ipcMain';
 import type {
     TAnyDefinedPlatformFeature,
     TFeatureCapability,
@@ -168,35 +165,15 @@ export async function invokeWithChannelContext<TResult>(
     }
 }
 
-export function createCodecIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
+export function createIpcInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'>,
-    codecs: TIpcCodecMap<TMap>,
     options?: IIpcInvokerOptions<Extract<keyof TMap, string>>,
 ) {
     return async function invoke<TChannel extends Extract<keyof TMap, string>>(
         channel: TChannel,
         ...args: TMap[TChannel]['args']
     ) {
-        let encodedArgs: TMap[TChannel]['args'];
-        try {
-            encodedArgs = codecs[channel].encodeArgs?.(args) ?? args;
-        } catch (error) {
-            const details = error instanceof Error ? `: ${getErrorMessage(error)}` : '';
-            throw new PlatformIpcInvokeError(
-                channel,
-                new Error(`Invalid IPC request for ${channel}${details}`),
-            );
-        }
-        const result: unknown = await invokeWithChannelContext<unknown>(ipcRenderer, channel, encodedArgs, options);
-        try {
-            return codecs[channel].decodeResult(result);
-        } catch (error) {
-            const details = error instanceof Error ? `: ${getErrorMessage(error)}` : '';
-            throw new PlatformIpcInvokeError(
-                channel,
-                new Error(`Invalid IPC response for ${channel}${details}`),
-            );
-        }
+        return invokeWithChannelContext<TMap[TChannel]['result']>(ipcRenderer, channel, args, options);
     };
 }
 
@@ -315,9 +292,8 @@ export function createPlatformFeaturePreloadClient<
                     spec.ipc.timeoutMs,
                 ]]),
     );
-    const invoke = createCodecIpcInvoker(
+    const invoke = createIpcInvoker<Record<string, IIpcInvokeSpec>>(
         ipcRenderer,
-        feature.ipcCodecs,
         {invokeTimeoutMsByChannel},
     );
     const eventSubscriber = createTypedIpcEventSubscriber<Record<string, unknown>>(ipcRenderer);
@@ -353,9 +329,8 @@ export function createPlatformFeaturePreloadClient<
         spec,
     ] of Object.entries(feature.events)) {
         client[name] = (callback: (payload: unknown) => void) => {
-            const unsubscribe = eventSubscriber.onDecodedPayload(
+            const unsubscribe = eventSubscriber.onPayloadUnchecked(
                 spec.channel,
-                value => spec.payload.decode(value),
                 callback,
             );
             const subscription = spec.subscription;

@@ -6,13 +6,12 @@ import {
     vi,
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
-import type { TIpcCodecMap } from '@contracts/ipcMain';
 import {
     CORE_IPC_SEND_CHANNELS, IPC_INVOKE_REQUEST_ID_FIELD,
 } from '@electron/platform-ipc/coreContract';
 import {
     IpcInvokeTimeoutError,
-    createCodecIpcInvoker,
+    createIpcInvoker,
     createTypedIpcEventSubscriber,
 } from '@electron/preload/ipcClient';
 
@@ -27,18 +26,7 @@ interface ITestInvokeMap {
     };
 }
 
-const codecs = {
-    'native:slow': {
-        decodeArgs: value => [String(value[0])],
-        decodeResult: String,
-    },
-    'regular:slow': {
-        decodeArgs: () => [],
-        decodeResult: String,
-    },
-} satisfies TIpcCodecMap<ITestInvokeMap>;
-
-describe('createCodecIpcInvoker timeout policy', () => {
+describe('createIpcInvoker timeout policy', () => {
     afterEach(() => {
         vi.useRealTimers();
     });
@@ -49,7 +37,7 @@ describe('createCodecIpcInvoker timeout policy', () => {
             invoke: vi.fn(() => new Promise(() => {})),
             send: vi.fn(),
         };
-        const invoke = createCodecIpcInvoker<ITestInvokeMap>(ipcRenderer, codecs, {invokeTimeoutMsByChannel: {'native:slow': 250}});
+        const invoke = createIpcInvoker<ITestInvokeMap>(ipcRenderer, {invokeTimeoutMsByChannel: {'native:slow': 250}});
 
         const pending = invoke('native:slow', 'payload');
         const assertion = expect(pending).rejects.toBeInstanceOf(IpcInvokeTimeoutError);
@@ -73,7 +61,7 @@ describe('createCodecIpcInvoker timeout policy', () => {
             invoke: vi.fn(() => new Promise(() => {})),
             send: vi.fn(),
         };
-        const invoke = createCodecIpcInvoker<ITestInvokeMap>(ipcRenderer, codecs);
+        const invoke = createIpcInvoker<ITestInvokeMap>(ipcRenderer);
         const rejected = vi.fn();
 
         void invoke('regular:slow').catch(rejected);
@@ -82,6 +70,17 @@ describe('createCodecIpcInvoker timeout policy', () => {
 
         expect(rejected).not.toHaveBeenCalled();
         expect(ipcRenderer.invoke).toHaveBeenCalledWith('regular:slow');
+    });
+
+    it('passes invoke results through without decoding', async () => {
+        const result = {invalidForAnySchema: true};
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'> = {
+            invoke: vi.fn(async () => result),
+            send: vi.fn(),
+        };
+        const invoke = createIpcInvoker<ITestInvokeMap>(ipcRenderer);
+
+        await expect(invoke('regular:slow')).resolves.toBe(result);
     });
 });
 

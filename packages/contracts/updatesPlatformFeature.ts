@@ -4,29 +4,15 @@ import type {
 } from '@contracts/electronApiCommon';
 import {
     definePlatformFeature,
-    runtimeSchema as s,
     type TFeatureCapability,
     type TFeatureEventMap,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
-import {
-    isFiniteNumber,
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
-export type TAppUpdateCheckOrigin = 'auto' | 'manual';
-export type TAppUpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'no-update' | 'error' | 'unsupported';
-
-export interface IAppUpdateStatus {
-    phase: TAppUpdatePhase;
-    origin: TAppUpdateCheckOrigin;
-    version: string | null;
-    percent: number | null;
-    message: string | null;
-}
-
-const APP_UPDATE_PHASES = [
+const APP_UPDATE_VERSION_MAX_LENGTH = 128;
+const APP_UPDATE_MESSAGE_MAX_LENGTH = 4_096;
+const appUpdatePhaseSchema = v.picklist([
     'idle',
     'checking',
     'available',
@@ -35,63 +21,43 @@ const APP_UPDATE_PHASES = [
     'no-update',
     'error',
     'unsupported',
-] as const satisfies readonly TAppUpdatePhase[];
-const APP_UPDATE_VERSION_MAX_LENGTH = 128;
-const APP_UPDATE_MESSAGE_MAX_LENGTH = 4_096;
+], 'invalid app update status');
+const appUpdateStatusSchema = v.object({
+    phase: appUpdatePhaseSchema,
+    origin: v.picklist([
+        'auto',
+        'manual',
+    ], 'invalid app update status'),
+    version: v.nullable(v.pipe(
+        v.string('invalid app update status'),
+        v.maxLength(APP_UPDATE_VERSION_MAX_LENGTH, 'invalid app update status'),
+    )),
+    percent: v.nullable(v.pipe(
+        v.number('invalid app update status'),
+        v.finite('invalid app update status'),
+        v.minValue(0, 'invalid app update status'),
+        v.maxValue(100, 'invalid app update status'),
+    )),
+    message: v.nullable(v.pipe(
+        v.string('invalid app update status'),
+        v.maxLength(APP_UPDATE_MESSAGE_MAX_LENGTH, 'invalid app update status'),
+    )),
+}, 'invalid app update status');
+export type IAppUpdateStatus = v.InferOutput<typeof appUpdateStatusSchema>;
+export type TAppUpdateCheckOrigin = IAppUpdateStatus['origin'];
+export type TAppUpdatePhase = IAppUpdateStatus['phase'];
 
 export function decodeAppUpdateStatus(value: unknown): IAppUpdateStatus | null {
-    if (
-        !isRecord(value)
-        || typeof value.phase !== 'string'
-        || !isOneOf(APP_UPDATE_PHASES, value.phase)
-        || (value.origin !== 'auto' && value.origin !== 'manual')
-        || (value.version !== null && (
-            typeof value.version !== 'string'
-            || value.version.length > APP_UPDATE_VERSION_MAX_LENGTH
-        ))
-        || (value.message !== null && (
-            typeof value.message !== 'string'
-            || value.message.length > APP_UPDATE_MESSAGE_MAX_LENGTH
-        ))
-        || (value.percent !== null && (
-            !isFiniteNumber(value.percent)
-            || value.percent < 0
-            || value.percent > 100
-        ))
-    ) {
-        return null;
-    }
-
-    return {
-        phase: value.phase,
-        origin: value.origin,
-        version: value.version,
-        percent: value.percent,
-        message: value.message,
-    };
+    const result = v.safeParse(appUpdateStatusSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
-function decodeStartedResult(value: unknown) {
-    if (!isRecord(value) || typeof value.started !== 'boolean') {
-        throw new Error('expected a started result');
-    }
-    return {started: value.started};
-}
-
-type TVoidResult = ReturnType<() => void>;
-
-const noArgs = s.tuple([]);
-const updateStatus = s.declared<IAppUpdateStatus>()(
-    s.fromNullableDecoder(decodeAppUpdateStatus, 'app update status', () => ({
-        phase: 'idle',
-        origin: 'auto',
-        version: null,
-        percent: null,
-        message: null,
-    })),
+const noArgs = v.strictTuple([]);
+const startedResult = v.object({started: v.boolean('expected a started result')}, 'expected a started result');
+const voidResult = v.pipe(
+    v.undefined('expected an undefined IPC result'),
+    v.transform((): void => undefined),
 );
-const startedResult = s.fromParser(decodeStartedResult, () => ({started: true}));
-const voidResult = s.declared<TVoidResult>()(s.undefined());
 const browserUnsupported = {
     unsupported: 'omitted',
     reason: 'requires-native-backend',
@@ -110,7 +76,7 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'updates:getState',
             ipc: {
                 args: noArgs,
-                result: updateStatus,
+                result: appUpdateStatusSchema,
             },
             main: {
                 method: 'getUpdateStatus',
@@ -179,7 +145,7 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
             kind: 'async',
             channel: 'updates:skipVersion',
             ipc: {
-                args: s.tuple([s.string('1.2.3')]),
+                args: v.strictTuple([v.string('expected a string')]),
                 result: voidResult,
             },
             main: {
@@ -193,7 +159,7 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
     events: {onStatus: {
         kind: 'event',
         channel: 'updates:status',
-        payload: updateStatus,
+        payload: appUpdateStatusSchema,
         browser: browserUnsupported,
         lazy: 'forwarded',
     }},

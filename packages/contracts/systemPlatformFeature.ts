@@ -1,17 +1,16 @@
 import {
     definePlatformFeature,
-    runtimeSchema as s,
     type TFeatureCapability,
 } from '@contracts/platformFeature';
 import type {TRequestId} from '@contracts/shared';
+import * as v from 'valibot';
 
-export interface ISystemMemoryInfo {
-    availableBytes: number;
-    totalBytes: number;
-    freeBytes: number;
-}
-
-const memoryInfo = s.trustedDirect<ISystemMemoryInfo | null>(() => null);
+const memoryInfo = v.nullable(v.object({
+    availableBytes: v.pipe(v.number(), v.finite()),
+    totalBytes: v.pipe(v.number(), v.finite()),
+    freeBytes: v.pipe(v.number(), v.finite()),
+}));
+export type ISystemMemoryInfo = Exclude<v.InferOutput<typeof memoryInfo>, null>;
 
 export const SYSTEM_PLATFORM_FEATURE = definePlatformFeature({
     path: ['system'],
@@ -21,7 +20,7 @@ export const SYSTEM_PLATFORM_FEATURE = definePlatformFeature({
     },
     methods: {getMemoryInfo: {
         kind: 'sync',
-        args: s.tuple([]),
+        args: v.strictTuple([]),
         result: memoryInfo,
         browser: {method: 'getMemoryInfo'},
         lazy: 'direct',
