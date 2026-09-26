@@ -726,8 +726,14 @@ jobs:
             exit 1
           fi
           if [ "$DRILL" = true ]; then
-            aws s3api get-object --endpoint-url "$MIRROR_S3_ENDPOINT" --bucket "$MIRROR_S3_BUCKET" --key evb-viewer/channels/stable.json "$RUNNER_TEMP/stable-channel-before.json" >/dev/null
-            sha256sum "$RUNNER_TEMP/stable-channel-before.json"
+            if aws s3api get-object --endpoint-url "$MIRROR_S3_ENDPOINT" --bucket "$MIRROR_S3_BUCKET" --key evb-viewer/channels/stable.json "$RUNNER_TEMP/stable-channel-before.json" >/dev/null 2>"$RUNNER_TEMP/stable-channel-error.log"; then
+              sha256sum "$RUNNER_TEMP/stable-channel-before.json"
+            elif grep -q 'NoSuchKey' "$RUNNER_TEMP/stable-channel-error.log"; then
+              touch "$RUNNER_TEMP/stable-channel-before.missing"
+            else
+              cat "$RUNNER_TEMP/stable-channel-error.log" >&2
+              exit 1
+            fi
           fi
           args=(artifacts "$TAG" --transaction)
           if [ "$DRILL" = true ]; then args+=(--drill); fi
@@ -756,13 +762,23 @@ jobs:
         run: |
           status=0
           if [ -f "$RUNNER_TEMP/stable-channel-before.json" ]; then
-            aws s3api get-object --endpoint-url "$MIRROR_S3_ENDPOINT" --bucket "$MIRROR_S3_BUCKET" --key evb-viewer/channels/stable.json "$RUNNER_TEMP/stable-channel-after.json" >/dev/null || status=$?
-            if [ "$status" -eq 0 ] && ! cmp -s "$RUNNER_TEMP/stable-channel-before.json" "$RUNNER_TEMP/stable-channel-after.json"; then
+            if ! aws s3api get-object --endpoint-url "$MIRROR_S3_ENDPOINT" --bucket "$MIRROR_S3_BUCKET" --key evb-viewer/channels/stable.json "$RUNNER_TEMP/stable-channel-after.json" >/dev/null; then
+              echo '::error::Dry run removed the stable mirror channel.'
+              status=1
+            elif ! cmp -s "$RUNNER_TEMP/stable-channel-before.json" "$RUNNER_TEMP/stable-channel-after.json"; then
               echo '::error::Dry run changed the stable mirror channel.'
               status=1
             fi
+          elif [ -f "$RUNNER_TEMP/stable-channel-before.missing" ]; then
+            if aws s3api get-object --endpoint-url "$MIRROR_S3_ENDPOINT" --bucket "$MIRROR_S3_BUCKET" --key evb-viewer/channels/stable.json "$RUNNER_TEMP/stable-channel-after.json" >/dev/null 2>"$RUNNER_TEMP/stable-channel-error.log"; then
+              echo '::error::Dry run created the stable mirror channel.'
+              status=1
+            elif ! grep -q 'NoSuchKey' "$RUNNER_TEMP/stable-channel-error.log"; then
+              cat "$RUNNER_TEMP/stable-channel-error.log" >&2
+              status=1
+            fi
           else
-            echo '::notice::Stable mirror channel comparison skipped because branch-restricted S3 credentials were unavailable.'
+            echo '::notice::Stable mirror channel comparison skipped because S3 credentials were unavailable.'
           fi
           gh release delete "$TAG" --yes || true
           gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/$TAG" || true
