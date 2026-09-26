@@ -12,10 +12,7 @@ import {
     dirname,
     join,
 } from 'node:path';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -29,7 +26,6 @@ import {
 import {
     assertPathMatchesSaveWitnessSnapshot,
     capturePathSaveWitness,
-    type IOriginalPathSaveJournalSnapshot,
     OriginalPathSaveConflictError,
 } from '@electron/file-access/originalPathSaveWitness';
 import {
@@ -39,19 +35,35 @@ import {
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
+import * as v from 'valibot';
 
 const log = createLogger('workingCopyJournal');
 
 export type TWorkingCopyContentBackupMode = 'copy-on-write' | 'hard-link' | 'append';
 
 /** The original file a save publishes in the same transition. */
-export interface IWorkingCopyJournalOriginal {
-    path: string;
-    backupPath: string;
-    state: 'prepared' | 'published';
-    preparedSnapshot?: IOriginalPathSaveJournalSnapshot;
-    publishedSnapshot?: IOriginalPathSaveJournalSnapshot;
-}
+const snapshotSchema = v.object({
+    ctimeNs: v.string(),
+    deviceId: v.string(),
+    inode: v.string(),
+    linkCount: v.string(),
+    mtimeNs: v.string(),
+    sampleSha256: v.string(),
+    size: v.string(),
+});
+
+const originalSchema = v.object({
+    path: v.string(),
+    backupPath: v.string(),
+    state: v.picklist([
+        'prepared',
+        'published',
+    ]),
+    preparedSnapshot: v.optional(snapshotSchema),
+    publishedSnapshot: v.optional(snapshotSchema),
+});
+
+export type IWorkingCopyJournalOriginal = v.InferOutput<typeof originalSchema>;
 
 /**
  * One write-ahead record per working-copy directory. `prepare` backs up the
@@ -59,80 +71,39 @@ export interface IWorkingCopyJournalOriginal {
  * revision is the commit point: a journal whose next revision is already in
  * the manifest is finished, any other journal is rolled back.
  */
-export interface IWorkingCopyJournal {
-    version: 1;
-    workingCopyPath: string;
-    nextRevisionToken: TDocumentRevisionToken;
-    backupPath: string;
-    backupMode: 'copy' | 'append-hard-link';
-    previousLength?: number;
-    original?: IWorkingCopyJournalOriginal;
-}
+const journalRecordSchema = v.object({
+    version: v.literal(1),
+    workingCopyPath: v.string(),
+    nextRevisionToken: v.pipe(v.string(), v.check(value => parseDocumentRevisionToken(value) !== null), v.transform(value => parseDocumentRevisionToken(value)!)),
+    backupPath: v.string(),
+    backupMode: v.picklist([
+        'copy',
+        'append-hard-link',
+    ]),
+    previousLength: v.optional(v.unknown()),
+    original: v.optional(originalSchema),
+});
+// Copy-mode journals historically ignore an irrelevant previousLength field; the mode-dependent omission is a semantic normalization.
+const journalSchema = v.pipe(
+    journalRecordSchema,
+    v.check(value => value.backupMode !== 'append-hard-link'
+        || typeof value.previousLength === 'number' && Number.isSafeInteger(value.previousLength) && value.previousLength >= 0),
+    v.transform(({
+        previousLength, ...journal
+    }) => ({
+        ...journal,
+        ...(journal.backupMode === 'append-hard-link' ? {previousLength: previousLength as number} : {}),
+    })),
+);
 
-const SNAPSHOT_FIELDS = [
-    'ctimeNs',
-    'deviceId',
-    'inode',
-    'linkCount',
-    'mtimeNs',
-    'sampleSha256',
-    'size',
-] as const;
-
-function isSnapshot(value: unknown): value is IOriginalPathSaveJournalSnapshot {
-    return isRecord(value) && SNAPSHOT_FIELDS.every(name => typeof value[name] === 'string');
-}
-
-function parseOriginal(value: unknown): IWorkingCopyJournalOriginal | null {
-    if (
-        !isRecord(value)
-        || typeof value.path !== 'string'
-        || typeof value.backupPath !== 'string'
-        || (value.state !== 'prepared' && value.state !== 'published')
-        || (value.preparedSnapshot !== undefined && !isSnapshot(value.preparedSnapshot))
-        || (value.publishedSnapshot !== undefined && !isSnapshot(value.publishedSnapshot))
-    ) {
-        return null;
-    }
-    return {
-        path: value.path,
-        backupPath: value.backupPath,
-        state: value.state,
-        ...(value.preparedSnapshot === undefined ? {} : {preparedSnapshot: value.preparedSnapshot}),
-        ...(value.publishedSnapshot === undefined ? {} : {publishedSnapshot: value.publishedSnapshot}),
-    };
-}
+export type IWorkingCopyJournal = v.InferOutput<typeof journalSchema>;
 
 function parseJournal(value: unknown, workingCopyPath: string): IWorkingCopyJournal | null {
-    if (
-        !isRecord(value)
-        || value.version !== 1
-        || value.workingCopyPath !== workingCopyPath
-        || typeof value.backupPath !== 'string'
-        || (value.backupMode !== 'copy' && value.backupMode !== 'append-hard-link')
-    ) {
+    const result = v.safeParse(journalSchema, value, {abortEarly: true});
+    if (!result.success || result.output.workingCopyPath !== workingCopyPath) {
         return null;
     }
-    const nextRevisionToken = parseDocumentRevisionToken(value.nextRevisionToken);
-    const {previousLength} = value;
-    const hasPreviousLength = typeof previousLength === 'number' && Number.isSafeInteger(previousLength) && previousLength >= 0;
-    const original = value.original === undefined ? undefined : parseOriginal(value.original);
-    if (
-        nextRevisionToken === null
-        || (value.backupMode === 'append-hard-link' && !hasPreviousLength)
-        || original === null
-    ) {
-        return null;
-    }
-    return {
-        version: 1,
-        workingCopyPath,
-        nextRevisionToken,
-        backupPath: value.backupPath,
-        backupMode: value.backupMode,
-        ...(value.backupMode === 'append-hard-link' ? {previousLength: previousLength as number} : {}),
-        ...(original === undefined ? {} : {original}),
-    };
+    return result.output;
 }
 
 async function readJournal(workingCopyPath: string) {

@@ -27,6 +27,7 @@ import {
     readWorkingCopySyncRequired,
     updateWorkingCopyManifest,
     writeWorkingCopyManifestRevision,
+    type TWorkingCopyRevision,
 } from '@electron/file-access/workingCopyManifest';
 import {
     getWorkingCopyBackingEntry,
@@ -59,7 +60,7 @@ const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void
 const workingCopySyncRequired = new Map<string, string>();
 interface IProvisionalWorkingCopyRevision {
     durabilityPromise?: Promise<unknown>;
-    revision: IDocumentRevisionInfo;
+    revision: TWorkingCopyRevision;
 }
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
 const runContentTransitionSerially = createKeyedSerialQueue();
@@ -228,7 +229,7 @@ function createRevision(
     workingCopyPath: string,
     contentRevision: number,
     senderId?: number,
-): IDocumentRevisionInfo {
+): TWorkingCopyRevision {
     return {
         version: 1,
         documentRef: requireDocumentRef(workingCopyPath),

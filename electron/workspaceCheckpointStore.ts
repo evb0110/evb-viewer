@@ -15,18 +15,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
-    decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
     type IWorkspaceCheckpointAnnotationRecovery,
+    workspaceCheckpointRecordSchema,
 } from '@contracts/workspaceCheckpoint';
 import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import { writeJsonAtomic } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
@@ -39,11 +36,8 @@ import {
     setWorkingCopyOriginalPath,
     releaseWorkingCopyRecovery,
     transitionWorkingCopyBackingState,
-    type TWorkingCopyBackingState,
     type IWorkingCopyAdmissionSnapshot,
-    type IWorkingCopyOriginalFileExpectation,
     type TWorkingCopyBackingErrorCode,
-    type TWorkingCopyRole,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
 import {
@@ -52,59 +46,127 @@ import {
 } from '@electron/file-access/openPathCapabilities';
 import {touchScanCleanupGeneratedOutput} from '@electron/features/scan-cleanup/public/generatedOutputs';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import * as v from 'valibot';
 
 const log = createLogger('workspace-checkpoint-store');
 
-interface IStoredLazyWorkingCopy {
-    admissionSnapshot: {
-        mtimeNs: string;
-        size: string;
-    };
-    originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
-    originalPath: string;
-    registrationId: number;
-    role: TWorkingCopyRole;
-    sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
-    workingCopyRef: string;
-}
-
-interface IStoredWorkspaceCheckpoint {
-    version: 1;
-    ownerRecoveryId: string;
-    ownerWebContentsId: number;
-    claimedByRecoveryId?: string;
-    claimedByWebContentsId?: number;
-    checkpoint: IWorkspaceCheckpoint;
-    lazyWorkingCopies?: IStoredLazyWorkingCopy[];
-    workingCopies?: IStoredWorkingCopy[];
-    sourceProvenance?: IStoredSourceProvenance[];
-}
-
-interface IStoredWorkspaceJournal {
-    version: 2;
-    records: IStoredWorkspaceCheckpoint[];
-}
-
-interface IStoredWorkingCopy {
-    admissionSnapshot?: {
-        mtimeNs: string;
-        size: string;
-    };
-    backingState: TWorkingCopyBackingState;
-    originalFileExpectation?: IWorkingCopyOriginalFileExpectation;
-    originalPath: string;
-    registrationId: number;
-    role: TWorkingCopyRole;
-    sourceBackingErrorCode?: TWorkingCopyBackingErrorCode;
-    workingCopyRef: string;
-}
-
-interface IStoredSourceProvenance {
-    kind: 'open-grant' | 'working-copy';
-    ownerWebContentsId: number;
-    sourceRef: string;
-    workingCopyRef?: string;
-}
+const BACKING_ERROR_CODES = [
+    'SOURCE_BACKING_CHANGED',
+    'SOURCE_BACKING_UNAVAILABLE',
+    'WORKING_COPY_MATERIALIZATION_CANCELLED',
+    'WORKING_COPY_MATERIALIZATION_FAILED',
+    'WORKING_COPY_MATERIALIZATION_NO_SPACE',
+    'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED',
+    'WORKING_COPY_REGISTRATION_CHANGED',
+] as const satisfies readonly TWorkingCopyBackingErrorCode[];
+const backingErrorCodeSchema = v.picklist(BACKING_ERROR_CODES);
+const safeIntegerSchema = v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)));
+const decimalStringSchema = v.pipe(v.string(), v.regex(/^\d+$/u));
+const canonicalDecimalStringSchema = v.pipe(v.string(), v.regex(/^(?:0|[1-9]\d*)$/u));
+const admissionSnapshotSchema = v.object({
+    mtimeNs: decimalStringSchema,
+    size: decimalStringSchema,
+});
+const originalFileExpectationSchema = v.pipe(v.object({
+    contentFingerprint: v.optional(v.string()),
+    ctimeNs: v.optional(canonicalDecimalStringSchema),
+    deviceId: v.optional(canonicalDecimalStringSchema),
+    inode: v.optional(canonicalDecimalStringSchema),
+    mtimeNs: v.optional(canonicalDecimalStringSchema),
+    mtimeMs: v.pipe(v.number(), v.finite()),
+    size: v.pipe(safeIntegerSchema, v.minValue(0)),
+}), v.transform(value => ({
+    ...(value.contentFingerprint === undefined ? {} : {contentFingerprint: value.contentFingerprint}),
+    ...(value.ctimeNs === undefined ? {} : {ctimeNs: value.ctimeNs}),
+    ...(value.deviceId === undefined ? {} : {deviceId: value.deviceId}),
+    ...(value.inode === undefined ? {} : {inode: value.inode}),
+    ...(value.mtimeNs === undefined ? {} : {mtimeNs: value.mtimeNs}),
+    mtimeMs: value.mtimeMs,
+    size: value.size,
+})));
+const lazyWorkingCopySchema = v.object({
+    admissionSnapshot: admissionSnapshotSchema,
+    originalFileExpectation: v.optional(originalFileExpectationSchema),
+    originalPath: v.pipe(v.string(), v.minLength(1)),
+    registrationId: safeIntegerSchema,
+    role: v.picklist([
+        'current',
+        'snapshot',
+    ]),
+    sourceBackingErrorCode: v.optional(backingErrorCodeSchema),
+    workingCopyRef: v.pipe(v.string(), v.minLength(1)),
+});
+const workingCopySchema = v.object({
+    admissionSnapshot: v.optional(admissionSnapshotSchema),
+    backingState: v.picklist([
+        'cloned',
+        'eager',
+        'lazy-original',
+        'materializing',
+        'materialized',
+    ]),
+    originalFileExpectation: v.optional(originalFileExpectationSchema),
+    originalPath: v.pipe(v.string(), v.minLength(1)),
+    registrationId: safeIntegerSchema,
+    role: v.picklist([
+        'current',
+        'snapshot',
+    ]),
+    sourceBackingErrorCode: v.optional(backingErrorCodeSchema),
+    workingCopyRef: v.pipe(v.string(), v.minLength(1)),
+});
+const sourceProvenanceSchema = v.pipe(v.object({
+    kind: v.picklist([
+        'open-grant',
+        'working-copy',
+    ]),
+    ownerWebContentsId: safeIntegerSchema,
+    sourceRef: v.pipe(v.string(), v.minLength(1)),
+    workingCopyRef: v.optional(v.pipe(v.string(), v.minLength(1))),
+}), v.check(value => value.kind !== 'working-copy' || value.workingCopyRef !== undefined));
+const recoveryOwnerIdSchema = v.pipe(v.string(), v.minLength(1));
+// Old records derive missing recovery identities from WebContents IDs and omit empty optional collections.
+const storedCheckpointSchema = v.pipe(v.object({
+    version: v.literal(1),
+    ownerRecoveryId: v.optional(recoveryOwnerIdSchema),
+    ownerWebContentsId: safeIntegerSchema,
+    claimedByRecoveryId: v.optional(recoveryOwnerIdSchema),
+    claimedByWebContentsId: v.optional(safeIntegerSchema),
+    checkpoint: workspaceCheckpointRecordSchema,
+    lazyWorkingCopies: v.optional(v.array(lazyWorkingCopySchema)),
+    workingCopies: v.optional(v.array(workingCopySchema)),
+    sourceProvenance: v.optional(v.array(sourceProvenanceSchema)),
+}), v.transform(value => ({
+    version: 1 as const,
+    ownerRecoveryId: value.ownerRecoveryId ?? `legacy:webContents:${String(value.ownerWebContentsId)}`,
+    ownerWebContentsId: value.ownerWebContentsId,
+    ...(value.claimedByRecoveryId === undefined
+        ? value.claimedByWebContentsId === undefined ? {} : {claimedByRecoveryId: `legacy:webContents:${String(value.claimedByWebContentsId)}`}
+        : {claimedByRecoveryId: value.claimedByRecoveryId}),
+    ...(value.claimedByWebContentsId === undefined ? {} : {claimedByWebContentsId: value.claimedByWebContentsId}),
+    checkpoint: value.checkpoint,
+    ...(value.lazyWorkingCopies?.length ? {lazyWorkingCopies: value.lazyWorkingCopies} : {}),
+    ...(value.workingCopies?.length ? {workingCopies: value.workingCopies} : {}),
+    ...(value.sourceProvenance?.length ? {sourceProvenance: value.sourceProvenance} : {}),
+})));
+type IStoredWorkspaceCheckpoint = v.InferOutput<typeof storedCheckpointSchema>;
+type IStoredLazyWorkingCopy = NonNullable<IStoredWorkspaceCheckpoint['lazyWorkingCopies']>[number];
+type IStoredWorkingCopy = NonNullable<IStoredWorkspaceCheckpoint['workingCopies']>[number];
+type IStoredSourceProvenance = NonNullable<IStoredWorkspaceCheckpoint['sourceProvenance']>[number];
+const storedJournalSchema = v.union([
+    v.pipe(v.object({
+        version: v.literal(2),
+        records: v.array(storedCheckpointSchema),
+    }), v.transform(value => ({
+        version: 2 as const,
+        records: value.records,
+    }))),
+    v.pipe(storedCheckpointSchema, v.transform(record => ({
+        version: 2 as const,
+        records: [record],
+    }))),
+]);
+type IStoredWorkspaceJournal = v.InferOutput<typeof storedJournalSchema>;
 
 const WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS = 500;
 
@@ -156,30 +218,31 @@ function getAnnotationRecoveryPath(artifactId: string) {
 }
 
 
-interface IAnnotationRecoveryArtifact {
-    ref: IWorkspaceCheckpointAnnotationRecovery;
-    payload: unknown;
-}
+const annotationRecoveryArtifactSchema = v.pipe(v.object({
+    version: v.literal(1),
+    ref: v.object({
+        artifactId: v.pipe(v.string(), v.regex(/^[a-zA-Z0-9_-]{1,128}$/u)),
+        documentInstanceId: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
+        workingCopyRef: v.nullable(v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null), v.transform(value => parseDocumentRef(value)!))),
+        workingByteRevision: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
+        annotationMutationGeneration: v.pipe(safeIntegerSchema, v.minValue(0)),
+    }),
+    payload: v.unknown(),
+}), v.check(value => value.payload !== undefined));
+type IAnnotationRecoveryArtifact = v.InferOutput<typeof annotationRecoveryArtifactSchema>;
 
-interface IStoredAnnotationRecoveryArtifact extends IAnnotationRecoveryArtifact {version: 1;}
-
-async function writeAnnotationRecoveryArtifact(
-    ref: IWorkspaceCheckpointAnnotationRecovery,
-    payload: unknown,
-) {
+async function writeAnnotationRecoveryArtifact(artifact: IAnnotationRecoveryArtifact) {
+    const {ref} = artifact;
     const path = getAnnotationRecoveryPath(ref.artifactId);
     await mkdir(getAnnotationRecoveryDirectory(), {recursive: true});
-    await writeJsonAtomic(path, {
-        version: 1,
-        ref,
-        payload,
-    });
+    await writeJsonAtomic(path, artifact);
 }
 
 async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotationRecovery) {
     const raw = await readFile(getAnnotationRecoveryPath(ref.artifactId), 'utf-8');
-    const artifact = JSON.parse(raw) as Partial<IStoredAnnotationRecoveryArtifact>;
-    if (artifact.version !== 1 || !artifact.ref || artifact.payload === undefined
+    const parsed = v.safeParse(annotationRecoveryArtifactSchema, JSON.parse(raw), {abortEarly: true});
+    const artifact = parsed.success ? parsed.output : null;
+    if (!artifact
         || artifact.ref.artifactId !== ref.artifactId
         || artifact.ref.documentInstanceId !== ref.documentInstanceId
         || artifact.ref.workingByteRevision !== ref.workingByteRevision
@@ -211,267 +274,14 @@ async function removeAnnotationRecoveryArtifacts(checkpoint: IWorkspaceCheckpoin
 // ended, the claims its identity still holds came from the ended load, so the
 // new load takes that session over instead of finding it held. A repeated
 // claim within one load keeps its claim, so a checkpoint is delivered once.
-const BACKING_ERROR_CODES = new Set<TWorkingCopyBackingErrorCode>([
-    'SOURCE_BACKING_CHANGED',
-    'SOURCE_BACKING_UNAVAILABLE',
-    'WORKING_COPY_MATERIALIZATION_CANCELLED',
-    'WORKING_COPY_MATERIALIZATION_FAILED',
-    'WORKING_COPY_MATERIALIZATION_NO_SPACE',
-    'WORKING_COPY_MATERIALIZATION_VERIFICATION_FAILED',
-    'WORKING_COPY_REGISTRATION_CHANGED',
-]);
-
-function decodeOriginalFileExpectation(value: unknown): IWorkingCopyOriginalFileExpectation | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (
-        !isRecord(value)
-        || typeof value.mtimeMs !== 'number'
-        || !Number.isFinite(value.mtimeMs)
-        || typeof value.size !== 'number'
-        || !Number.isSafeInteger(value.size)
-        || value.size < 0
-        || (
-            value.contentFingerprint !== undefined
-            && typeof value.contentFingerprint !== 'string'
-        )
-        || [
-            value.ctimeNs,
-            value.deviceId,
-            value.inode,
-            value.mtimeNs,
-        ].some(field => field !== undefined && (
-            typeof field !== 'string'
-            || !/^(?:0|[1-9]\d*)$/u.test(field)
-        ))
-    ) {
-        return undefined;
-    }
-    return {
-        ...(value.contentFingerprint === undefined ? {} : {contentFingerprint: value.contentFingerprint}),
-        ...(value.ctimeNs === undefined ? {} : {ctimeNs: value.ctimeNs as string}),
-        ...(value.deviceId === undefined ? {} : {deviceId: value.deviceId as string}),
-        ...(value.inode === undefined ? {} : {inode: value.inode as string}),
-        ...(value.mtimeNs === undefined ? {} : {mtimeNs: value.mtimeNs as string}),
-        mtimeMs: value.mtimeMs,
-        size: value.size,
-    };
-}
-
-function decodeLazyWorkingCopy(value: unknown): IStoredLazyWorkingCopy | null {
-    if (
-        !isRecord(value)
-        || !isRecord(value.admissionSnapshot)
-        || typeof value.admissionSnapshot.mtimeNs !== 'string'
-        || !/^\d+$/.test(value.admissionSnapshot.mtimeNs)
-        || typeof value.admissionSnapshot.size !== 'string'
-        || !/^\d+$/.test(value.admissionSnapshot.size)
-        || typeof value.originalPath !== 'string'
-        || !value.originalPath
-        || !Number.isSafeInteger(value.registrationId)
-        || (value.role !== 'current' && value.role !== 'snapshot')
-        || typeof value.workingCopyRef !== 'string'
-        || !value.workingCopyRef
-        || (
-            value.sourceBackingErrorCode !== undefined
-            && (
-                typeof value.sourceBackingErrorCode !== 'string'
-                || !BACKING_ERROR_CODES.has(value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode)
-            )
-        )
-    ) {
-        return null;
-    }
-    const originalFileExpectation = decodeOriginalFileExpectation(value.originalFileExpectation);
-    if (value.originalFileExpectation !== undefined && !originalFileExpectation) {
-        return null;
-    }
-    return {
-        admissionSnapshot: {
-            mtimeNs: value.admissionSnapshot.mtimeNs,
-            size: value.admissionSnapshot.size,
-        },
-        ...(originalFileExpectation ? {originalFileExpectation} : {}),
-        originalPath: value.originalPath,
-        registrationId: value.registrationId as number,
-        role: value.role,
-        ...(value.sourceBackingErrorCode === undefined
-            ? {}
-            : {sourceBackingErrorCode: value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode}),
-        workingCopyRef: value.workingCopyRef,
-    };
-}
-
-function decodeWorkingCopy(value: unknown): IStoredWorkingCopy | null {
-    if (
-        !isRecord(value)
-        || (value.admissionSnapshot !== undefined && (
-            !isRecord(value.admissionSnapshot)
-            || typeof value.admissionSnapshot.mtimeNs !== 'string'
-            || !/^\d+$/.test(value.admissionSnapshot.mtimeNs)
-            || typeof value.admissionSnapshot.size !== 'string'
-            || !/^\d+$/.test(value.admissionSnapshot.size)
-        ))
-        || typeof value.originalPath !== 'string'
-        || !value.originalPath
-        || !Number.isSafeInteger(value.registrationId)
-        || (
-            value.backingState !== 'cloned'
-            && value.backingState !== 'eager'
-            && value.backingState !== 'lazy-original'
-            && value.backingState !== 'materializing'
-            && value.backingState !== 'materialized'
-        )
-        || (value.role !== 'current' && value.role !== 'snapshot')
-        || typeof value.workingCopyRef !== 'string'
-        || !value.workingCopyRef
-        || (
-            value.sourceBackingErrorCode !== undefined
-            && (
-                typeof value.sourceBackingErrorCode !== 'string'
-                || !BACKING_ERROR_CODES.has(value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode)
-            )
-        )
-    ) {
-        return null;
-    }
-    const originalFileExpectation = decodeOriginalFileExpectation(value.originalFileExpectation);
-    if (value.originalFileExpectation !== undefined && !originalFileExpectation) {
-        return null;
-    }
-    return {
-        ...(value.admissionSnapshot === undefined ? {} : {admissionSnapshot: {
-            mtimeNs: value.admissionSnapshot.mtimeNs as string,
-            size: value.admissionSnapshot.size as string,
-        }}),
-        backingState: value.backingState,
-        ...(originalFileExpectation ? {originalFileExpectation} : {}),
-        originalPath: value.originalPath,
-        registrationId: value.registrationId as number,
-        role: value.role,
-        ...(value.sourceBackingErrorCode === undefined
-            ? {}
-            : {sourceBackingErrorCode: value.sourceBackingErrorCode as TWorkingCopyBackingErrorCode}),
-        workingCopyRef: value.workingCopyRef,
-    };
-}
-
 function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | null {
-    if (
-        !isRecord(value)
-        || value.version !== 1
-        || !Number.isSafeInteger(value.ownerWebContentsId)
-        || (
-            value.ownerRecoveryId !== undefined
-            && !isRecoveryOwnerId(value.ownerRecoveryId)
-        )
-        || (
-            value.claimedByWebContentsId !== undefined
-            && !Number.isSafeInteger(value.claimedByWebContentsId)
-        )
-        || (
-            value.claimedByRecoveryId !== undefined
-            && !isRecoveryOwnerId(value.claimedByRecoveryId)
-        )
-    ) {
-        return null;
-    }
-    const ownerWebContentsId = value.ownerWebContentsId as number;
-    const ownerRecoveryId = value.ownerRecoveryId ?? getLegacyRecoveryOwnerId(ownerWebContentsId);
-    const claimedByWebContentsId = value.claimedByWebContentsId as number | undefined;
-    const claimedByRecoveryId = value.claimedByRecoveryId
-        ?? (claimedByWebContentsId === undefined ? undefined : getLegacyRecoveryOwnerId(claimedByWebContentsId));
-    const checkpoint = decodeWorkspaceCheckpoint(value.checkpoint);
-    if (!checkpoint) {
-        return null;
-    }
-    const lazyWorkingCopies: IStoredLazyWorkingCopy[] = [];
-    if (value.lazyWorkingCopies !== undefined) {
-        if (!Array.isArray(value.lazyWorkingCopies)) {
-            return null;
-        }
-        for (const candidate of value.lazyWorkingCopies) {
-            const decoded = decodeLazyWorkingCopy(candidate);
-            if (!decoded) {
-                return null;
-            }
-            lazyWorkingCopies.push(decoded);
-        }
-    }
-    const workingCopies: IStoredWorkingCopy[] = [];
-    if (value.workingCopies !== undefined) {
-        if (!Array.isArray(value.workingCopies)) {
-            return null;
-        }
-        for (const candidate of value.workingCopies) {
-            const decoded = decodeWorkingCopy(candidate);
-            if (!decoded) {
-                return null;
-            }
-            workingCopies.push(decoded);
-        }
-    }
-    const sourceProvenance: IStoredSourceProvenance[] = [];
-    if (value.sourceProvenance !== undefined) {
-        if (!Array.isArray(value.sourceProvenance)) {
-            return null;
-        }
-        for (const candidate of value.sourceProvenance) {
-            if (
-                !isRecord(candidate)
-                || (candidate.kind !== 'open-grant' && candidate.kind !== 'working-copy')
-                || !Number.isSafeInteger(candidate.ownerWebContentsId)
-                || typeof candidate.sourceRef !== 'string'
-                || !candidate.sourceRef
-                || (
-                    candidate.workingCopyRef !== undefined
-                    && (typeof candidate.workingCopyRef !== 'string' || !candidate.workingCopyRef)
-                )
-                || (candidate.kind === 'working-copy' && candidate.workingCopyRef === undefined)
-            ) {
-                return null;
-            }
-            sourceProvenance.push({
-                kind: candidate.kind,
-                ownerWebContentsId: candidate.ownerWebContentsId as number,
-                sourceRef: candidate.sourceRef,
-                ...(candidate.workingCopyRef === undefined ? {} : {workingCopyRef: candidate.workingCopyRef}),
-            });
-        }
-    }
-    return {
-        version: 1,
-        ownerRecoveryId,
-        ownerWebContentsId,
-        ...(claimedByRecoveryId === undefined
-            ? {}
-            : {claimedByRecoveryId}),
-        ...(claimedByWebContentsId === undefined
-            ? {}
-            : {claimedByWebContentsId}),
-        checkpoint,
-        ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
-        ...(workingCopies.length === 0 ? {} : {workingCopies}),
-        ...(sourceProvenance.length === 0 ? {} : {sourceProvenance}),
-    };
+    const result = v.safeParse(storedCheckpointSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function decodeStoredJournal(value: unknown): IStoredWorkspaceJournal | null {
-    if (isRecord(value) && value.version === 2 && Array.isArray(value.records)) {
-        const records = value.records.map(decodeStoredCheckpoint);
-        return records.every((record): record is IStoredWorkspaceCheckpoint => record !== null)
-            ? {
-                version: 2,
-                records,
-            }
-            : null;
-    }
-    const legacy = decodeStoredCheckpoint(value);
-    return legacy ? {
-        version: 2,
-        records: [legacy],
-    } : null;
+    const result = v.safeParse(storedJournalSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function collectLazyWorkingCopies(
@@ -793,10 +603,6 @@ function getLegacyRecoveryOwnerId(ownerWebContentsId: number) {
     return `legacy:webContents:${ownerWebContentsId}`;
 }
 
-function isRecoveryOwnerId(value: unknown): value is string {
-    return typeof value === 'string' && value.length > 0;
-}
-
 function getWorkspaceRecoveryOwnerId(
     ownerWebContentsId: number,
     owner?: number | WebContents,
@@ -997,7 +803,7 @@ async function commitSave(save: IPendingSave) {
             const previous = durableRecords.get(save.stored.ownerRecoveryId);
             // Artifacts go first, so the record never names a missing one.
             await Promise.all(save.artifacts.map(artifact => (
-                writeAnnotationRecoveryArtifact(artifact.ref, artifact.payload)
+                writeAnnotationRecoveryArtifact(artifact)
             )));
             try {
                 await writeRecord(save.stored);
@@ -1096,6 +902,7 @@ function admitAnnotationRecovery(checkpoint: IWorkspaceCheckpoint) {
                 annotationMutationGeneration: capture.annotationMutationGeneration,
             };
             artifacts.push({
+                version: 1,
                 ref,
                 payload: capture.payload,
             });

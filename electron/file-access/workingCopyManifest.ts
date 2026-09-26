@@ -6,14 +6,11 @@ import {
     readFile,
     rm,
 } from 'fs/promises';
-import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {parseDocumentRef} from '@contracts/documentRef';
-import {
-    isRecord,
-    isErrnoException,
-} from '@contracts/runtimeGuards';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {parseEpochMs} from '@contracts/timestamps';
+import * as v from 'valibot';
 import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
@@ -24,82 +21,47 @@ const log = createLogger('working-copy-manifest');
 const runManifestUpdate = createKeyedSerialQueue();
 
 /** A save wrote its target but could not refresh the working copy from it. */
-export interface IWorkingCopySyncRequired {
-    reason: string;
-    originalPath?: string;
-    ownerWebContentsId?: number;
-}
+const documentRefSchema = v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null), v.transform(value => parseDocumentRef(value)!));
+const revisionSchema = v.object({
+    version: v.literal(1),
+    documentRef: documentRefSchema,
+    authority: v.literal('electron-working-copy'),
+    token: v.pipe(v.string(), v.check(value => parseDocumentRevisionToken(value) !== null), v.transform(value => parseDocumentRevisionToken(value)!)),
+    contentRevision: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(1)),
+    mintedAt: v.pipe(v.number(), v.check(value => parseEpochMs(value) !== null), v.minValue(1), v.transform(value => parseEpochMs(value)!)),
+});
+export type TWorkingCopyRevision = v.InferOutput<typeof revisionSchema>;
+// Invalid optional sync metadata has historically been ignored while the required reason remains recoverable.
+const syncRequiredSchema = v.pipe(v.object({
+    reason: v.pipe(v.string(), v.check(value => value.trim() !== '')),
+    originalPath: v.optional(v.unknown()),
+    ownerWebContentsId: v.optional(v.unknown()),
+}), v.transform(({
+    reason, originalPath, ownerWebContentsId,
+}) => ({
+    reason,
+    ...(typeof originalPath === 'string' && originalPath.trim() !== '' ? {originalPath} : {}),
+    ...(typeof ownerWebContentsId === 'number' && Number.isSafeInteger(ownerWebContentsId) && ownerWebContentsId >= 0
+        ? {ownerWebContentsId}
+        : {}),
+})));
+const workingCopyManifestSchema = v.object({
+    version: v.literal(1),
+    revision: revisionSchema,
+    syncRequired: v.optional(syncRequiredSchema),
+});
 
-export interface IWorkingCopyManifest {
-    version: 1;
-    revision: IDocumentRevisionInfo;
-    syncRequired?: IWorkingCopySyncRequired;
-}
+export type IWorkingCopySyncRequired = v.InferOutput<typeof syncRequiredSchema>;
+export type IWorkingCopyManifest = v.InferOutput<typeof workingCopyManifestSchema>;
 
-function parseRevision(value: unknown): IDocumentRevisionInfo | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const token = parseDocumentRevisionToken(value.token);
-    const documentRef = parseDocumentRef(value.documentRef);
-    const mintedAt = parseEpochMs(value.mintedAt);
-    const {contentRevision} = value;
-    if (
-        value.version !== 1
-        || value.authority !== 'electron-working-copy'
-        || token === null
-        || documentRef === null
-        || typeof contentRevision !== 'number'
-        || !Number.isSafeInteger(contentRevision)
-        || contentRevision < 1
-        || mintedAt === null
-        || mintedAt <= 0
-    ) {
-        return null;
-    }
-    return {
-        version: 1,
-        documentRef,
-        authority: 'electron-working-copy',
-        token,
-        contentRevision,
-        mintedAt,
-    };
-}
-
-function parseSyncRequired(value: unknown): IWorkingCopySyncRequired | null {
-    if (!isRecord(value) || typeof value.reason !== 'string' || value.reason.trim() === '') {
-        return null;
-    }
-    const {
-        originalPath, ownerWebContentsId,
-    } = value;
-    return {
-        reason: value.reason,
-        ...(typeof originalPath === 'string' && originalPath.trim() !== '' ? {originalPath} : {}),
-        ...(typeof ownerWebContentsId === 'number' && Number.isSafeInteger(ownerWebContentsId) && ownerWebContentsId >= 0
-            ? {ownerWebContentsId}
-            : {}),
-    };
+function parseRevision(value: unknown): TWorkingCopyRevision | null {
+    const result = v.safeParse(revisionSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function parseManifest(value: unknown): IWorkingCopyManifest | null {
-    if (!isRecord(value) || value.version !== 1) {
-        return null;
-    }
-    const revision = parseRevision(value.revision);
-    if (revision === null) {
-        return null;
-    }
-    const syncRequired = value.syncRequired === undefined ? undefined : parseSyncRequired(value.syncRequired);
-    if (syncRequired === null) {
-        return null;
-    }
-    return {
-        version: 1,
-        revision,
-        ...(syncRequired === undefined ? {} : {syncRequired}),
-    };
+    const result = v.safeParse(workingCopyManifestSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 /**
@@ -119,7 +81,7 @@ async function importLegacyRevision(workingCopyPath: string) {
         `${workingCopyPath}.evb-content-transition.json`,
         `${workingCopyPath}.evb-two-target-transition.json`,
     ].some(path => existsSync(path));
-    let revision: IDocumentRevisionInfo | null = null;
+    let revision: TWorkingCopyRevision | null = null;
     if (!interrupted) {
         try {
             revision = parseRevision(JSON.parse(await readFile(legacyPath, 'utf8')));
@@ -211,7 +173,7 @@ export function updateWorkingCopyManifest(
 
 export function writeWorkingCopyManifestRevision(
     workingCopyPath: string,
-    revision: IDocumentRevisionInfo,
+    revision: TWorkingCopyRevision,
     options: Parameters<typeof writeJsonAtomic>[2] = {},
 ) {
     return updateWorkingCopyManifest(workingCopyPath, current => ({

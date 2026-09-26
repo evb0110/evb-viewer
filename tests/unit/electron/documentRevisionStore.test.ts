@@ -10,6 +10,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from 'fs';
@@ -115,6 +116,39 @@ describe('documentRevisionStore', () => {
                 token: changed.token,
                 contentRevision: 2,
             });
+    });
+
+    it('strips unknown fields from a persisted working-copy manifest', async () => {
+        const workingPath = join(tempRoot, 'pdf-work-manifest-shape', 'document.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(workingPath, 'pdf');
+        const {
+            writeWorkingCopyManifestRevision, readWorkingCopyManifest,
+        } = await import('@electron/file-access/workingCopyManifest');
+        const revision = {
+            version: 1 as const,
+            documentRef: requireDocumentRef(workingPath),
+            authority: 'electron-working-copy' as const,
+            token: requireDocumentRevisionToken('drt1:test:1:shape'),
+            contentRevision: 1,
+            mintedAt: requireEpochMs(123),
+        };
+        await writeWorkingCopyManifestRevision(workingPath, revision);
+        const manifestPath = join(dirname(workingPath), 'manifest.json');
+        const persisted = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        writeFileSync(manifestPath, JSON.stringify({
+            ...persisted,
+            ignored: true,
+            revision: {
+                ...persisted.revision,
+                ignored: true,
+            },
+        }));
+
+        await expect(readWorkingCopyManifest(workingPath)).resolves.toEqual({
+            version: 1,
+            revision,
+        });
     });
 
     it('refreshes the original expectation when another managed hard link keeps the old inode alive', async () => {
@@ -408,6 +442,13 @@ describe('workingCopyJournal crash recovery', () => {
     it('puts back the previous bytes when the next revision was never published', async () => {
         const workingCopyPath = await setup('drt1:test:1:current');
         await prepareWorkingCopyTransition(workingCopyPath, NEXT);
+        const journalPath = join(root, 'journal.json');
+        const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+        await writeFile(journalPath, JSON.stringify({
+            ...journal,
+            previousLength: 'ignored for a copy',
+            ignored: true,
+        }));
         await writeFile(workingCopyPath, 'revision-2');
 
         await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);

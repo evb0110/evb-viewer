@@ -40,6 +40,20 @@ describe('decodeWorkspaceCheckpoint', () => {
         expect(decodeWorkspaceCheckpoint(createCheckpoint())).toEqual(createCheckpoint());
     });
 
+    it('strips unrecognized fields from the parsed checkpoint output', () => {
+        const checkpoint = createCheckpoint();
+        const candidate = {
+            ...checkpoint,
+            ignored: true,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                ignored: true,
+            })),
+        };
+
+        expect(decodeWorkspaceCheckpoint(candidate)).toEqual(checkpoint);
+    });
+
     it.each([
         [
             false,
