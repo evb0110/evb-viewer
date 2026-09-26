@@ -188,10 +188,12 @@ export async function handleDjvuOpenForViewing(
         };
     } catch (error) {
         const message = getErrorMessage(error);
-        logger.error(`DjVu open failed: ${message}`, {
-            code: 'MAIN_DJVU_VIEWING_FAILED',
-            cause: error,
-        });
+        if (!signal?.aborted) {
+            logger.error(`DjVu open failed: ${message}`, {
+                code: 'MAIN_DJVU_VIEWING_FAILED',
+                cause: error,
+            });
+        }
         return {
             success: false,
             error: message,
