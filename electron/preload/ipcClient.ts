@@ -318,9 +318,20 @@ export function createPlatformFeaturePreloadClient<
             continue;
         }
         client[name] = (...publicArgs: unknown[]) => {
-            const wireArgs = spec.client?.mapArgs
+            let wireArgs = spec.client?.mapArgs
                 ? spec.client.mapArgs(...publicArgs as never[])
                 : publicArgs;
+            if ('decode' in spec.ipc.args) {
+                try {
+                    wireArgs = feature.ipcCodecs[spec.channel]?.encodeArgs?.(wireArgs) ?? wireArgs;
+                } catch (error) {
+                    const details = error instanceof Error ? `: ${getErrorMessage(error)}` : '';
+                    throw new PlatformIpcInvokeError(
+                        spec.channel,
+                        new Error(`Invalid IPC request for ${spec.channel}${details}`),
+                    );
+                }
+            }
             return invoke(spec.channel, ...wireArgs);
         };
     }

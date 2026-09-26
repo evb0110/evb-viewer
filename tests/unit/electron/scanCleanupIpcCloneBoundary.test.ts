@@ -194,7 +194,7 @@ const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
 };
 
 describe('scan-cleanup IPC structured-clone contract', () => {
-    it('encodes every preload request and decodes every response into structured-cloneable data', async () => {
+    it('encodes legacy requests for structured clone and forwards main responses', async () => {
         const reactiveOptions = reactive(structuredClone(plainOptions));
         const documentPriorByPage = reactive(new Map([[
             2,
@@ -230,7 +230,7 @@ describe('scan-cleanup IPC structured-clone contract', () => {
             SCAN_CLEANUP_PLATFORM_FEATURE,
         );
 
-        const decodedResponses = await Promise.all([
+        const forwardedResponses = await Promise.all([
             client.preview({
                 ...owner,
                 requestId: requireRequestId('clone-boundary-preview'),
@@ -290,8 +290,9 @@ describe('scan-cleanup IPC structured-clone contract', () => {
             options: plainOptions,
             visible: true,
         });
-        for (const decoded of decodedResponses) {
-            expect(() => structuredClone(decoded)).not.toThrow();
+        for (const response of forwardedResponses) {
+            expect(() => structuredClone(response)).not.toThrow();
         }
+        expect(forwardedResponses[0]).toEqual(responses[SCAN_CLEANUP_CHANNELS.preview]);
     });
 });
