@@ -1,0 +1,9 @@
+packages/i18n-app/messages/ru.ts
+  ai_agent 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5ccc67edf845ee274697118d316bd428072f46ff",
+  "prompts": {}
+}
