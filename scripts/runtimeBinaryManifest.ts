@@ -55,8 +55,8 @@ const RUNTIME_ARCHIVES = {
     },
     'qpdf-linux-arm64': {
         releaseName: 'runtime-binaries-v2',
-        archiveBytes: 1397022,
-        archiveSha256: '10355e009b44387e712bc577d47af70396f1ac0771a35fc3e00685b4e481929c',
+        archiveBytes: 1397021,
+        archiveSha256: '4a34454a29526e77d388a3af26dbaaad3c30569f1edf968b2c3e9ddded7a0a05',
     },
     'qpdf-darwin-arm64': {
         archiveBytes: 5097153,
@@ -65,7 +65,7 @@ const RUNTIME_ARCHIVES = {
     'qpdf-linux-x64': {
         releaseName: 'runtime-binaries-v2',
         archiveBytes: 1479305,
-        archiveSha256: '6ac9bb703d5240fc1f3582b088f6ebdc652c565f4e9b0f66da35d40171b8ff1c',
+        archiveSha256: '51fed57410899a653137cff8a90ee6528bc319f9d7e0d6bed80fa92626c53cb6',
     },
     'qpdf-win32-x64': {
         archiveBytes: 3205447,
@@ -80,33 +80,33 @@ const RUNTIME_ARCHIVES = {
         // Tesseract 5.5.3 built from the pinned source tarballs.
         releaseName: 'runtime-binaries-v2',
         assetName: 'tesseract-darwin-arm64-5.5.3',
-        archiveBytes: 3302588,
-        archiveSha256: '5c0083aafd1b00e9c432251e961512eb3a9efa0d2e4e9b465a96f2773cab94f3',
+        archiveBytes: 3302585,
+        archiveSha256: '7e3cd77ecccc3b24d026a549786fe90d1c8fc0cc3cfc5bf12646cc9ea5963549',
     },
     'tesseract-linux-x64': {
         // Versioned so the v1 runtime-binaries asset stays byte-identical.
         releaseName: 'runtime-binaries-v2',
         assetName: 'tesseract-linux-x64-5.5.3',
         archiveBytes: 4098923,
-        archiveSha256: '2854ed939528208a9e5ceaf2a4eed3a0bd6a5a7d6e493e4ff30338fc4bbbb192',
+        archiveSha256: '7fcbfd727051a018b3b3e127fc4d33533491a763f6563f0b924b5afabf3278b9',
     },
     'tesseract-linux-arm64': {
         releaseName: 'runtime-binaries-v2',
         assetName: 'tesseract-linux-arm64-5.5.3',
-        archiveBytes: 3963817,
-        archiveSha256: '0a240c51ec1bc016b2eb3409ba6534acf3b5afeaa60482ad03a36fcf1cb87519',
+        archiveBytes: 3963819,
+        archiveSha256: 'c8743bdf5c1ad590264cd01681322f7dbe6e9b0192cd2643ad8cbb5080c4044d',
     },
     'tesseract-win32-x64': {
         releaseName: 'runtime-binaries-v2',
         assetName: 'tesseract-win32-x64-5.5.3',
-        archiveBytes: 2833675,
-        archiveSha256: '72a8f91a5e136deba14d2da35494cc49ffd526d0b17e582c03b060014fa108dc',
+        archiveBytes: 2833681,
+        archiveSha256: '44bb7800a56433fb19cbf287d5a9251bb6bf0ed6f11578946202cda811dbd2a0',
     },
     'tesseract-win32-arm64': {
         releaseName: 'runtime-binaries-v2',
         assetName: 'tesseract-win32-arm64-5.5.3',
-        archiveBytes: 2399912,
-        archiveSha256: 'dc716e3902c7577de2fee6ade4522f97beb70ae4cb4d62e2a78181bd5b6190f2',
+        archiveBytes: 2399910,
+        archiveSha256: 'a557170f424385adb316ddb5d405a4d6e3f6944e2f412b7ce3c1fe01febd5bfa',
     },
     'tesseract-tessdata': {
         archiveBytes: 258006852,
@@ -163,5 +163,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: 'a169d6bf6bb48a8ca490ca254ff8e5aca669abc291b5982fd222e2f329d75f15',
+    manifestSha256: '7bf4d618e145acd1988e0f51c1ea8ce91fdc90c9e326536cb9ed9f8603a73486',
 };
