@@ -368,11 +368,10 @@ export function createDocumentPageSourcePresentation(options: {
         state.error = null;
         state.failurePresentation = null;
         state.retryCount = 0;
-        const committed = commitReady(pageNumber, state);
-        if (committed && initialOpen) {
+        if (commitReady(pageNumber, state) && initialOpen) {
             options.emit('initial-visual-ready', {pageNumber});
         }
-        return committed;
+        options.scheduleRender();
     }
     async function renderPage(pageNumber: number) {
         const activeSource = options.readSource();
