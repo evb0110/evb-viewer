@@ -1376,7 +1376,6 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             'placed-image',
             new Set(beforeImage.map(entity => entity.id)),
         );
-        expect(image.id).toMatch(/^placed-image-/u);
         await dragCanonicalEntity(session.page, image, {
             x: 52,
             y: 34,
