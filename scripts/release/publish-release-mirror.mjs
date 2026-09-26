@@ -25,7 +25,6 @@ import {
     S3Client,
     UploadPartCommand,
 } from '@aws-sdk/client-s3';
-import {isSupplementalReleaseAsset} from './policy.mjs';
 import {hashFile} from './release-hash.mjs';
 import {
     DRILL_TAG_PATTERN,
@@ -107,13 +106,8 @@ export async function publishReleaseMirror({
         client,
     } = createMirrorClient(environment, providedClient);
 
-    const releaseVersion = releaseTag.slice(1);
     const artifactNames = (await readdir(artifactDirectory))
         .filter(name => !name.startsWith('.'))
-        // Supplemental channels attach after promotion and stay outside the
-        // immutable core mirror. Filtering here keeps same-tag repair runs
-        // byte-identical after those assets already exist on GitHub.
-        .filter(name => !isSupplementalReleaseAsset(name, releaseVersion))
         .sort((left, right) => left.localeCompare(right));
 
     if (artifactNames.length === 0) {
@@ -246,80 +240,6 @@ export async function publishReleaseMirror({
         assets,
         manifest,
         prunedTags,
-    };
-}
-
-// Supplemental installers are built and attached after promotion, so they can
-// never join the immutable manifest or the channel body a repair run has to
-// reproduce byte for byte. They are mirrored as ordinary objects under the
-// release prefix instead, and a client learns they are there by asking for
-// them: a missing object answers 404 and costs the caller nothing.
-/** @param {IPublishSupplementalMirrorOptions} options @returns {Promise<{assets: IMirrorAsset[], skipped: boolean}>} */
-export async function publishSupplementalMirrorAssets({
-    drill = false,
-    files,
-    releaseTag,
-    environment = process.env,
-    client: providedClient,
-    uploadRetryDelayMs = 5_000,
-    partBytes = MULTIPART_PART_BYTES,
-}) {
-    if (!releaseTag || !files || files.length === 0) {
-        throw new Error('Usage: publish-release-mirror.mjs supplemental <release-tag> <file...>');
-    }
-    const mirrorPaths = resolveMirrorPaths(environment, {drill});
-    const releaseTagPattern = drill ? DRILL_TAG_PATTERN : RELEASE_TAG_PATTERN;
-    if (!releaseTagPattern.test(releaseTag)) {
-        throw new Error(`Invalid release tag: ${releaseTag}`);
-    }
-
-    const releaseVersion = releaseTag.slice(1);
-    for (const filePath of files) {
-        const name = basename(filePath);
-        if (!isSupplementalReleaseAsset(name, releaseVersion)) {
-            throw new Error(`Refusing to mirror ${name} outside the immutable core manifest of ${releaseTag}`);
-        }
-    }
-
-    const {
-        bucket,
-        client,
-    } = createMirrorClient(environment, providedClient);
-    const tagPrefix = `${mirrorPaths.releasePrefix}${releaseTag}/`;
-
-    // The mirror keeps only the retained window. Without the core manifest the
-    // tag was never mirrored or has already been pruned, and a lone
-    // supplemental object would be unreachable weight in the bucket.
-    if (!await objectExists(client, bucket, `${tagPrefix}manifest.json`)) {
-        console.log(`No core mirror manifest for ${releaseTag}; leaving its supplemental assets on GitHub only.`);
-        return {
-            assets: [],
-            skipped: true,
-        };
-    }
-
-    const assets = [];
-    for (const filePath of files) {
-        const name = basename(filePath);
-        const fileStat = await stat(filePath);
-        if (!fileStat.isFile()) {
-            throw new Error(`Supplemental mirror asset is not a file: ${filePath}`);
-        }
-
-        assets.push(await mirrorImmutableAsset(client, bucket, `${tagPrefix}${name}`, {
-            filePath,
-            name,
-            size: fileStat.size,
-        }, {
-            partBytes,
-            retryDelayMs: uploadRetryDelayMs,
-        }));
-    }
-
-    console.log(`Mirrored ${assets.length} supplemental asset${assets.length === 1 ? '' : 's'} for ${releaseTag}`);
-    return {
-        assets,
-        skipped: false,
     };
 }
 
@@ -755,7 +675,7 @@ async function sendPart(client, createCommand, {
 // repeated for the same upload id, and a stalled verification read is read
 // again. On 2026-09-11 every stall restarted the whole artifact: the core
 // mirror stage ran out of its 40-minute budget on 12 assets, and after parts
-// alone were covered, a 184 MB supplemental asset still restarted twice from
+// alone were covered, a 184 MB asset still restarted twice from
 // its completion and verification calls.
 /** @template T @param {() => Promise<T>} action @param {{label: string, retryDelayMs: number, verb: string}} parameters @returns {Promise<T>} */
 async function retryTransient(action, {
@@ -1372,22 +1292,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         } else if (result === 'missing') {
             process.exitCode = 4;
         }
-    } else if (args[0] === 'supplemental') {
-        const [
-            ,
-            releaseTag,
-            ...rest
-        ] = args;
-        const files = rest.filter(argument => argument !== '--drill');
-        const unknownMode = files.find(argument => argument.startsWith('--'));
-        if (unknownMode) {
-            throw new Error(`Unknown supplemental mirror mode: ${unknownMode}`);
-        }
-        await publishSupplementalMirrorAssets({
-            drill: rest.includes('--drill'),
-            files,
-            releaseTag,
-        });
     } else {
         const [
             artifactDirectory,

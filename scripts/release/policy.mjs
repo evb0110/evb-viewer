@@ -1,41 +1,3 @@
-// The supplemental Windows ARM64 channel attaches to the GitHub release after
-// promotion, per the critical-path rule in docs/contributing/releasing.md. Their
-// assets are therefore intentionally absent from the immutable SHA256SUMS
-// core set, and release verification must tolerate them on repair reruns.
-// With a release version the exemption is the exact expected asset name;
-// the pattern fallback exists only for callers without version context.
-const SUPPLEMENTAL_RELEASE_ASSET_PATTERNS = [
-    /^EVB-Viewer-.+-arm64-setup\.exe$/u,
-    /^EVB-Viewer-.+-arm64-setup\.exe\.blockmap$/u,
-    /^latest-win-arm64\.yml$/u,
-    /^EVB-Viewer-.+-win-arm64-provenance\.json$/u,
-];
-
-/** @typedef {{arch: string, expectsUpdaterMetadata: boolean, isPrimaryHostTarget: boolean, platform: 'mac' | 'linux' | 'win'}} IReleaseTarget */
-/** @typedef {{args: string[], command: string}} IGateCommand */
-/** @typedef {(metadataFileName: string) => string} TReadMetadata */
-
-/** @param {string} version @returns {string[]} */
-export function getSupplementalReleaseAssetNames(version) {
-    return [
-        `EVB-Viewer-${version}-arm64-setup.exe`,
-        `EVB-Viewer-${version}-arm64-setup.exe.blockmap`,
-        'latest-win-arm64.yml',
-        `EVB-Viewer-${version}-win-arm64-provenance.json`,
-    ];
-}
-
-/** @param {string} fileName @param {string | undefined} version @returns {boolean} */
-export function isSupplementalReleaseAsset(fileName, version) {
-    if (version !== undefined) {
-        if (typeof version !== 'string' || version.trim() === '') {
-            throw new Error('Supplemental asset policy requires a non-empty release version when one is supplied');
-        }
-        return getSupplementalReleaseAssetNames(version).includes(fileName);
-    }
-    return SUPPLEMENTAL_RELEASE_ASSET_PATTERNS.some(pattern => pattern.test(fileName));
-}
-
 export function hasDeveloperIdSigningCredentials(env = process.env) {
     return Boolean(env.CSC_LINK && env.CSC_KEY_PASSWORD);
 }
@@ -786,3 +748,6 @@ export function getReleaseCiEnv(baseEnv = process.env) {
 export function getReleaseAutomationEnv(baseEnv = process.env) {
     return createReleaseVerificationEnvs(baseEnv).releaseAutomationEnv;
 }
+/** @typedef {{arch: string, expectsUpdaterMetadata: boolean, isPrimaryHostTarget: boolean, platform: 'mac' | 'linux' | 'win'}} IReleaseTarget */
+/** @typedef {{args: string[], command: string}} IGateCommand */
+/** @typedef {(metadataFileName: string) => string} TReadMetadata */

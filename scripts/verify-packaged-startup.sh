@@ -104,7 +104,7 @@ node --import tsx scripts/release/runPackagedAutomation.ts \
   --disable-setuid-sandbox &
 runner_pid=$!
 
-main_log="$log_dir/main.log"
+app_log="$log_dir/app.ndjson"
 window_log="$log_dir/window.log"
 ready_marker="$(pnpm exec tsx scripts/release/printPackagedStartupReadyMarker.ts)"
 
@@ -113,7 +113,7 @@ deadline=$((SECONDS + timeout_secs))
 ready=0
 while [ "$SECONDS" -lt "$deadline" ]; do
   renderer_ready=0
-  if [ -f "$main_log" ] && grep -F -q "$ready_marker" "$main_log"; then
+  if [ -f "$app_log" ] && grep -F -q "$ready_marker" "$app_log"; then
     renderer_ready=1
   fi
 
@@ -131,8 +131,8 @@ done
 
 if [ "$ready" -ne 1 ]; then
   echo "Error: Packaged app failed startup verification"
-  echo "--- main.log ---"
-  cat "$main_log" 2>/dev/null || true
+  echo "--- app.ndjson ---"
+  cat "$app_log" 2>/dev/null || true
   echo "--- window.log ---"
   cat "$window_log" 2>/dev/null || true
   exit 1
