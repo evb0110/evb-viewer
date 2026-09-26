@@ -9,6 +9,10 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
 import {waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
+    observeRendererErrors,
+    readRuntimeErrorReportDetails,
+} from '@tests/e2e/electron/helpers/rendererErrorObservation';
+import {
     clickVisibleToolbarButton,
     goToPageViaToolbar,
     getToolbarCurrentPage,
@@ -150,6 +154,81 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
     let secondFixturePath = '';
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-inactive-pdf-tabs-${Date.now()}`});
+
+    it('reopens a PDF tab after changing the app language in Settings', async () => {
+        const session = sessionFixture.getSession();
+        await setTabMemoryPolicyForE2E(session.page, 'aggressive');
+        const pdfPath = await createMultiPageTextFixturePdf(`tab-reopen-language-${Date.now()}.pdf`, 1);
+        await openPdfInApp(session.page, pdfPath);
+        await waitForPdfLoaded(session.page);
+
+        const documentTabId = await session.page.$eval(
+            '.tab-list .tab.is-active[data-tab-id]',
+            element => (element as HTMLElement).dataset.tabId,
+        );
+        expect(documentTabId).toBeTruthy();
+        const errorObserver = await observeRendererErrors(session.page);
+        try {
+            const clickVisible = async (selector: string, text: string | null = null) => {
+                const point = await session.page.evaluate((targetSelector: string, targetText: string | null) => {
+                    const target = Array.from(document.querySelectorAll<HTMLElement>(targetSelector)).find((element) => {
+                        const rect = element.getBoundingClientRect();
+                        const style = window.getComputedStyle(element);
+                        return rect.width > 2
+                            && rect.height > 2
+                            && style.display !== 'none'
+                            && style.visibility !== 'hidden'
+                            && (targetText === null || element.innerText.trim() === targetText);
+                    });
+                    const rect = target?.getBoundingClientRect();
+                    return rect
+                        ? {
+                            x: rect.x + rect.width / 2,
+                            y: rect.y + rect.height / 2,
+                        }
+                        : null;
+                }, selector, text);
+                expect(point, `Visible ${selector}${text ? ` with text ${text}` : ''}`).toBeTruthy();
+                await session.page.mouse.click(point!.x, point!.y);
+            };
+
+            await clickVisible('button[aria-label="Settings"]');
+            await session.page.waitForSelector('.settings-section');
+            await clickVisible('.settings-section button', 'English');
+            await clickVisible('[role="option"]', 'Русский');
+            await session.page.waitForFunction(() => document.documentElement.lang.startsWith('ru'));
+            await clickVisible(`.tab-list .tab[data-tab-id="${documentTabId!}"]`);
+
+            const renderedAgain = await session.page.waitForFunction(() => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const rect = host?.getBoundingClientRect();
+                const style = host ? window.getComputedStyle(host) : null;
+                const page = host?.querySelector<HTMLElement>('.page_container--rendered');
+                const pageRect = page?.getBoundingClientRect();
+                const text = host?.querySelector<HTMLElement>('.textLayer')?.innerText ?? '';
+                return Boolean(
+                    host
+                    && rect && rect.width > 100 && rect.height > 100
+                    && style?.display !== 'none' && style?.visibility !== 'hidden'
+                    && page && pageRect && pageRect.width > 100 && pageRect.height > 100
+                    && text.includes('E2E Multi Page Fixture 1/1'),
+                );
+            }, {timeout: 15_000}).then(() => true).catch(() => false);
+            const report = await errorObserver.collect();
+            const runtimeReports = await readRuntimeErrorReportDetails(session.page);
+            const activeTabLabel = await session.page.$eval(
+                '.tab-list .tab.is-active',
+                element => (element as HTMLElement).getAttribute('aria-label') ?? '',
+            );
+            expect(renderedAgain, `PDF did not render again after tab activation. Errors: ${JSON.stringify(report)}`).toBe(true);
+            expect(runtimeReports, `Runtime error report shown: ${JSON.stringify(runtimeReports)}`).toHaveLength(0);
+            expect(activeTabLabel).toContain(pdfPath.split(/[\\/]/).pop() ?? '');
+            expect(report.pageErrors).toHaveLength(0);
+            expect(report.unhandledRejections).toHaveLength(0);
+        } finally {
+            errorObserver.dispose();
+        }
+    });
 
     it('releases rendered page resources from hidden PDF tabs and restores them on activation', async () => {
         const session = sessionFixture.getSession();

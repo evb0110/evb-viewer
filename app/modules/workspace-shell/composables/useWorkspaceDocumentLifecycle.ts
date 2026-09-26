@@ -193,36 +193,37 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
 
     // A tab that owns a document it has not loaded here (a restored session,
     // a cold tab, a transferred tab) opens it when shown.
+    function openOwnedDocumentWhenShown() {
+        const current = snapshot.value;
+        const path = current.identity.originalPath;
+        if (
+            !options.isShown()
+            || current.phase !== 'presented'
+            || !path
+            || hasDocument.value
+            || (current.dirty && current.recoveryWorkingCopyPath)
+        ) {
+            return;
+        }
+        void runOpen({
+            kind: 'restore',
+            target: {
+                fileName: current.identity.fileName,
+                originalPath: path,
+                isDjvu: current.identity.isDjvu,
+            },
+        }, () => options.openPath(path));
+    }
     watch(
         [
             options.isShown,
             snapshot,
         ],
-        ([
-            shown,
-            current,
-        ]) => {
-            const path = current.identity.originalPath;
-            if (
-                !shown
-                || current.phase !== 'presented'
-                || !path
-                || hasDocument.value
-                || (current.dirty && current.recoveryWorkingCopyPath)
-            ) {
-                return;
-            }
-            void runOpen({
-                kind: 'restore',
-                target: {
-                    fileName: current.identity.fileName,
-                    originalPath: path,
-                    isDjvu: current.identity.isDjvu,
-                },
-            }, () => options.openPath(path));
-        },
-        {immediate: true},
+        openOwnedDocumentWhenShown,
     );
+    // The open runs through the workspace, which is complete only once it has
+    // mounted; a tab shown at mount opens from here, not during setup.
+    onMounted(openOwnedDocumentWhenShown);
 
     // Closing ends the document's visual generation; Start re-arms from the
     // empty surface instead of inheriting the closed document's frame.
