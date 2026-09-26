@@ -4139,7 +4139,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             const layer = host?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
             return {
                 activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
-                editorCount: host?.querySelectorAll('[data-annotation-kind="text-box"]').length ?? 0,
+                editorCount: layer?.querySelectorAll('[data-annotation-kind="text-box"]').length ?? 0,
                 layerClassName: layer?.className ?? null,
             };
         });
