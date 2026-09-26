@@ -73,7 +73,9 @@ export function buildWorkspaceCheckpoint(
             const workspace = session?.mountedWorkspace.value ?? null;
             const documentRefs = readWorkspaceDocumentRefs(workspace, snapshot.tabId);
             const workingByteRevision = session?.snapshot.value.identity.revisionInfo?.token ?? null;
-            const capturedAnnotationRecovery = workspace?.captureCanonicalAnnotationRecovery?.() ?? null;
+            const capturedAnnotationRecovery = snapshot.isDirty
+                ? workspace?.captureCanonicalAnnotationRecovery?.() ?? null
+                : null;
             const annotationRecovery = capturedAnnotationRecovery && workingByteRevision
                 ? capturedAnnotationRecovery
                 : null;
