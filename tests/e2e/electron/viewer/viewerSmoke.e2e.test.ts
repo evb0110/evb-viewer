@@ -1764,7 +1764,12 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(initialPreviewState.skeletonWidth).toBeGreaterThan(0);
         expect(initialPreviewState.skeletonHeight).toBeGreaterThan(0);
 
-        const readPreviewGeometry = () => {
+        const readPreviewGeometry = (minimumMarginInsets?: {
+            left: number;
+            top: number;
+            right: number;
+            bottom: number;
+        }) => {
             const paper = document.querySelector<HTMLElement>('.preview-result-layer .uniform-canvas');
             const raster = paper?.querySelector<HTMLElement>('.placed-image');
             const content = paper?.querySelector<HTMLElement>('.content-overlay');
@@ -1793,24 +1798,34 @@ describe('Electron E2E - Viewer Smoke', () => {
                 && inner.top >= outer.top - 1
                 && inner.right <= outer.right + 1
                 && inner.bottom <= outer.bottom + 1;
+            const marginInsets = {
+                left: paperBounds.width > 0
+                    ? (marginBoundaryBounds.left - paperBounds.left) / paperBounds.width
+                    : 0,
+                top: paperBounds.height > 0
+                    ? (marginBoundaryBounds.top - paperBounds.top) / paperBounds.height
+                    : 0,
+                right: paperBounds.width > 0
+                    ? (paperBounds.right - marginBoundaryBounds.right) / paperBounds.width
+                    : 0,
+                bottom: paperBounds.height > 0
+                    ? (paperBounds.bottom - marginBoundaryBounds.bottom) / paperBounds.height
+                    : 0,
+            };
+            const contained = within(rasterBounds, paperBounds)
+                && within(contentBounds, paperBounds)
+                && within(marginBoundaryBounds, paperBounds);
+            if (!contained || (minimumMarginInsets !== undefined && (
+                marginInsets.left <= minimumMarginInsets.left + 0.05
+                || marginInsets.top <= minimumMarginInsets.top + 0.05
+                || marginInsets.right <= minimumMarginInsets.right + 0.05
+                || marginInsets.bottom <= minimumMarginInsets.bottom + 0.05
+            ))) {
+                return null;
+            }
             return {
-                contained: within(rasterBounds, paperBounds)
-                    && within(contentBounds, paperBounds)
-                    && within(marginBoundaryBounds, paperBounds),
-                marginInsets: {
-                    left: paperBounds.width > 0
-                        ? (marginBoundaryBounds.left - paperBounds.left) / paperBounds.width
-                        : 0,
-                    top: paperBounds.height > 0
-                        ? (marginBoundaryBounds.top - paperBounds.top) / paperBounds.height
-                        : 0,
-                    right: paperBounds.width > 0
-                        ? (paperBounds.right - marginBoundaryBounds.right) / paperBounds.width
-                        : 0,
-                    bottom: paperBounds.height > 0
-                        ? (paperBounds.bottom - marginBoundaryBounds.bottom) / paperBounds.height
-                        : 0,
-                },
+                contained,
+                marginInsets,
             };
         };
         const previewText = await session.page.evaluate(() => document.body.innerText);
@@ -1870,55 +1885,16 @@ describe('Electron E2E - Viewer Smoke', () => {
         await session.page.click('input[data-margin-side="topMm"]', {count: 3});
         await session.page.type('input[data-margin-side="topMm"]', '25');
         await session.page.keyboard.press('Enter');
-        await waitForFunctionInPage(session.page, (baselineMarginInsets: {
-            left: number;
-            top: number;
-            right: number;
-            bottom: number;
-        }) => {
-            const paper = document.querySelector<HTMLElement>('.uniform-canvas');
-            const raster = paper?.querySelector<HTMLElement>('.placed-image');
-            const content = paper?.querySelector<HTMLElement>('.content-overlay');
-            const marginBoundary = paper?.querySelector<HTMLElement>('.margin-boundary-overlay');
-            if (!paper || !raster || !content || !marginBoundary) {
-                return false;
-            }
-            const paperBounds = paper.getBoundingClientRect();
-            const rasterBounds = raster.getBoundingClientRect();
-            const contentBounds = content.getBoundingClientRect();
-            const marginBoundaryBounds = marginBoundary.getBoundingClientRect();
-            const within = (inner: DOMRect, outer: DOMRect) => inner.left >= outer.left - 1
-                && inner.top >= outer.top - 1
-                && inner.right <= outer.right + 1
-                && inner.bottom <= outer.bottom + 1;
-            const marginInsets = {
-                left: paperBounds.width > 0
-                    ? (marginBoundaryBounds.left - paperBounds.left) / paperBounds.width
-                    : 0,
-                top: paperBounds.height > 0
-                    ? (marginBoundaryBounds.top - paperBounds.top) / paperBounds.height
-                    : 0,
-                right: paperBounds.width > 0
-                    ? (paperBounds.right - marginBoundaryBounds.right) / paperBounds.width
-                    : 0,
-                bottom: paperBounds.height > 0
-                    ? (paperBounds.bottom - marginBoundaryBounds.bottom) / paperBounds.height
-                    : 0,
-            };
-            return within(rasterBounds, paperBounds)
-                && within(contentBounds, paperBounds)
-                && within(marginBoundaryBounds, paperBounds)
-                && marginInsets.left > baselineMarginInsets.left + 0.05
-                && marginInsets.top > baselineMarginInsets.top + 0.05
-                && marginInsets.right > baselineMarginInsets.right + 0.05
-                && marginInsets.bottom > baselineMarginInsets.bottom + 0.05;
-        }, {timeout: 60_000}, baselineGeometry?.marginInsets ?? {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        });
-        const sweptGeometry = await session.page.evaluate(readPreviewGeometry);
+        const sweptGeometryHandle = await waitForFunctionInPage(
+            session.page,
+            readPreviewGeometry,
+            {timeout: 60_000},
+            baselineGeometry.marginInsets,
+        );
+        const sweptGeometry = await sweptGeometryHandle.jsonValue() as NonNullable<
+            ReturnType<typeof readPreviewGeometry>
+        >;
+        await sweptGeometryHandle.dispose();
         expect(sweptGeometry?.contained).toBe(true);
 
         const railGutter = await session.page.evaluate(() => {
