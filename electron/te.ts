@@ -1,9 +1,9 @@
 import {
     DEFAULT_LOCALE,
-    LOCALE_CODES,
     formatTranslationLeaf,
     getNestedTranslationLeaf,
     normalizeTranslationParams,
+    resolveLocale,
     type TLocale,
     type TLocaleMessagesShapeFrom,
 } from '@i18n-core';
@@ -39,12 +39,6 @@ const localeMessagePromises = new Map<TLocale, Promise<TMainLocaleMessages>>();
 let activeLocale: TLocale = DEFAULT_LOCALE;
 let activeMessages: TMainLocaleMessages = en;
 let localeRequestGeneration = 0;
-
-function resolveLocale(locale: string): TLocale {
-    return LOCALE_CODES.includes(locale as TLocale)
-        ? locale as TLocale
-        : DEFAULT_LOCALE;
-}
 
 function loadLocaleMessages(locale: TLocale) {
     if (locale === DEFAULT_LOCALE) {
