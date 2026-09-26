@@ -131,6 +131,8 @@ jobs:
       - name: Require exact-SHA push CI verdict
         if: ${{ inputs.dry_run != true }}
         env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.resolve.outputs.target_sha }}
         run: node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"
       - name: Report dry-run gate bypass
