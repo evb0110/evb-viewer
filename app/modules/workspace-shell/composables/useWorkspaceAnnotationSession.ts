@@ -14,6 +14,8 @@ import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/work
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import type { AnnotationId } from '@app/modules/pdf-viewer/public';
 
+const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
+
 interface IWorkspaceAnnotationSessionOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerAnnotationSessionPort | null>;
     pdfDocument: Ref<IPdfDocument | null>;
@@ -160,9 +162,32 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         hasOpenAnnotationNotes.value = count > 0;
     }, { immediate: true });
 
-    const hasPendingTabChanges = computed(() => (
-        annotationDirty.value
-        || hasAnnotationChanges()
+    // Canonical annotation storage is framework-agnostic. The sidebar
+    // projection is the reactive invalidation edge; the viewer stays the
+    // source of truth.
+    const pendingEmbeddedAnnotationDeleteCount = computed(() => {
+        void annotationComments.value;
+        return pdfViewerRef.value?.getDeletedPersistedCanonicalAnnotationCount?.() ?? 0;
+    });
+    // Thumbnails filter deleted annotations by their durable PDF identities.
+    const thumbnailHiddenAnnotationIds = computed<string[]>(() => {
+        void annotationComments.value;
+        return pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [];
+    });
+    const hasUnsavedAnnotationChanges = computed(() => {
+        void annotationComments.value;
+        return annotationDirty.value
+            || annotationEditorState.value.hasPendingFreeTextDraft === true
+            || hasAnnotationChanges()
+            || pendingEmbeddedAnnotationDeleteCount.value > 0;
+    });
+    const hasOpenEmptyEditorNote = computed(() => annotationNoteWindows.value.some(note => (
+        note.source === 'editor'
+        && note.hasNote
+        && note.draftText.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '').trim().length === 0
+    )));
+    const appAnnotationUndoDepth = computed(() => (
+        pendingEmbeddedAnnotationDeleteCount.value + (hasOpenEmptyEditorNote.value ? 1 : 0)
     ));
     const selectedAnnotations = computed(() => pdfViewerRef.value?.selectedAnnotations ?? []);
     const selectedTextBox = computed(() => (
@@ -184,7 +209,10 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         showAnnotationContextMenu,
         clearAnnotationChanges,
         hasAnnotationChanges,
-        hasPendingAnnotationChanges: hasPendingTabChanges,
+        hasUnsavedAnnotationChanges,
+        pendingEmbeddedAnnotationDeleteCount,
+        thumbnailHiddenAnnotationIds,
+        appAnnotationUndoDepth,
         selectedAnnotations,
         selectedTextBox,
         annotationTool,

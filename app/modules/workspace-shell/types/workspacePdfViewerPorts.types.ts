@@ -63,7 +63,11 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
 
 export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
     'updateAnnotationComment'
->, Pick<IPdfViewerAnnotationCommandExpose, 'getDeletedCanonicalAnnotationIds' | 'focusSelectedAnnotation'> {}
+>, Pick<IPdfViewerAnnotationCommandExpose,
+    'getDeletedCanonicalAnnotationIds'
+    | 'getDeletedPersistedCanonicalAnnotationCount'
+    | 'focusSelectedAnnotation'
+    > {}
 
 export interface IWorkspacePdfViewerAgentAnnotationNotePort extends
     Pick<IPdfViewerAnnotationCommentExpose,

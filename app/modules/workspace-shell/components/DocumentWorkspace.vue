@@ -42,7 +42,7 @@
                 @update:fit-mode="fitMode = $event"
                 @update:view-mode="viewMode = $event"
                 @update:ocr-running="isOcrRunning = $event"
-                @open-file="documentControls.handleOpenFileFromUi"
+                @open-file="fileOps.handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @open-scan-cleanup="openScanCleanup"
                 @save="handleToolbarSave"
@@ -167,9 +167,9 @@
                     @annotation-properties="pdfViewerRef?.updateSelectedAnnotationProperties?.($event)"
                     @update:selected-thumbnail-pages="handleSelectedThumbnailPagesUpdate"
                     @update:selected-page-selection="setSelectedPageSelection"
-                    @annotation-focus-comment="annotationSession.handleAnnotationFocusComment"
-                    @annotation-open-note="annotationSession.handleOpenAnnotationNote"
-                    @annotation-delete-comment="annotationSession.handleDeleteAnnotationComment"
+                    @annotation-focus-comment="annotationActions.handleAnnotationFocusComment"
+                    @annotation-open-note="annotationActions.handleOpenAnnotationNote"
+                    @annotation-delete-comment="annotationActions.handleDeleteAnnotationComment"
                     @annotation-retry-enrichment="requestAnnotationEnrichment"
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
@@ -181,7 +181,7 @@
                     @page-delete="handlePageDelete"
                     @page-reorder="handlePageReorder"
                     @page-move="handlePageMove"
-                    @page-file-drop="documentControls.handlePageFileDrop"
+                    @page-file-drop="pageOps.handlePageFileDrop"
                 />
                 <DocumentSourceSidebar
                     v-else-if="surfaceMode === 'reader'"
@@ -283,27 +283,27 @@
             @minimize-note="minimizeAnnotationNote"
             @return-note-focus="annotationSession.focusAnnotationNote"
             @restore-note="restoreAnnotationNote"
-            @delete-annotation="annotationSession.handleDeleteAnnotationById"
+            @delete-annotation="annotationActions.handleDeleteAnnotationById"
             @focus-note="bringAnnotationNoteToFront"
-            @context-open-note="annotationSession.openContextMenuNote"
-            @context-copy-text="annotationSession.copyContextMenuNoteText"
-            @context-copy-selection-text="annotationSession.copyContextMenuSelectionText"
-            @context-delete="annotationSession.deleteContextMenuComment"
-            @context-update-color="annotationSession.handleContextTextMarkupColorUpdate"
-            @context-markup="annotationSession.createContextMenuMarkup"
-            @context-create-free-note="annotationSession.createContextMenuFreeNote"
-            @context-create-selection-note="annotationSession.createContextMenuSelectionNote"
-            @context-insert-image-from-file="annotationSession.insertContextMenuImageFromFile"
-            @context-paste-image-from-clipboard="annotationSession.pasteContextMenuImageFromClipboard"
-            @page-delete="documentControls.handlePageContextMenuDelete"
-            @page-extract="documentControls.handlePageContextMenuExtract"
-            @page-export="documentControls.handlePageContextMenuExport"
-            @page-rotate-cw="documentControls.handlePageContextMenuRotateCw"
-            @page-rotate-ccw="documentControls.handlePageContextMenuRotateCcw"
-            @page-insert-before="documentControls.handlePageContextMenuInsertBefore"
-            @page-insert-after="documentControls.handlePageContextMenuInsertAfter"
-            @page-select-all="documentControls.handlePageContextMenuSelectAll"
-            @page-invert-selection="documentControls.handlePageContextMenuInvertSelection"
+            @context-open-note="annotationActions.openContextMenuNote"
+            @context-copy-text="annotationActions.copyContextMenuNoteText"
+            @context-copy-selection-text="annotationActions.copyContextMenuSelectionText"
+            @context-delete="annotationActions.deleteContextMenuComment"
+            @context-update-color="annotationActions.handleContextTextMarkupColorUpdate"
+            @context-markup="annotationActions.createContextMenuMarkup"
+            @context-create-free-note="annotationActions.createContextMenuFreeNote"
+            @context-create-selection-note="annotationActions.createContextMenuSelectionNote"
+            @context-insert-image-from-file="annotationActions.insertContextMenuImageFromFile"
+            @context-paste-image-from-clipboard="annotationActions.pasteContextMenuImageFromClipboard"
+            @page-delete="pageOps.handlePageContextMenuDelete"
+            @page-extract="pageOps.handlePageContextMenuExtract"
+            @page-export="pageOps.handlePageContextMenuExport"
+            @page-rotate-cw="pageOps.handlePageContextMenuRotateCw"
+            @page-rotate-ccw="pageOps.handlePageContextMenuRotateCcw"
+            @page-insert-before="pageOps.handlePageContextMenuInsertBefore"
+            @page-insert-after="pageOps.handlePageContextMenuInsertAfter"
+            @page-select-all="pageOps.handlePageContextMenuSelectAll"
+            @page-invert-selection="pageOps.handlePageContextMenuInvertSelection"
         />
         <DjvuConversionOverlay
             :is-converting="conversionState.isConverting"
@@ -369,7 +369,7 @@ import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
-import { createWorkspaceExposeFromOwners } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
+import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
@@ -392,7 +392,11 @@ import {
     type IOcrPopupAgentExpose,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import { useWorkspaceStartupReadiness } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
-import { useWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
+import {
+    createDocumentContext,
+    provideDocumentContext,
+} from '@app/modules/workspace-shell/documentContext';
+import { ZOOM } from '@app/constants/pdfLayout';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
@@ -535,50 +539,47 @@ const pendingDocumentPath = computed(() => (
     isOpeningDocument.value ? openingTransaction.value?.target?.originalPath ?? null : null
 ));
 const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
-const isActiveRef = computed({
-    get: () => isActive,
-    set: () => {},
-});
+const isActiveRef = computed(() => isActive);
 const preserveInitialStateForFirstSource = documentSession.snapshot.value.phase === 'presented'
     && documentSession.toolbarSnapshot.value.initialVisualReady;
-const documentSourceCapabilities = ref({
-    annotations: false,
-    directImageExport: false,
-    outline: false,
-    pageEdits: false,
-    search: false,
-    text: false,
-});
-const orchestration = useWorkspaceOrchestration({
+const context = createDocumentContext({
     tabId,
     isActive: isActiveRef,
     initialViewState,
     preserveInitialStateForFirstSource,
-    documentSession,
+    controller: documentSession,
     openSurface: documentOpenSurface,
     pendingDocumentPath,
     pendingDocumentSize: computed(() => (
         documentOpenSurface.snapshot.value.openingPageGeometry?.size ?? null
     )),
-    sourceCapabilities: documentSourceCapabilities,
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
-    emit,
+    emitOpenInNewTab: result => emit('open-in-new-tab', result),
+    emitOpenSettings: () => emit('open-settings'),
 });
+provideDocumentContext(context);
 const {
-    failureSurface,
-    documentDriver,
-    fileLifecycle,
-    viewerShell,
-    annotationSession,
-    documentControls,
+    file: fileLifecycle,
+    driver: documentDriver,
+    view: viewerShell,
+    search: searchSidebar,
+    annotations: annotationSession,
+    annotationActions,
+    pageOps,
+    fileOps,
+    statusBar,
     exportWorkflow,
-    pageContextMenuControls,
-    interactionControls,
-    metadata,
-    viewNavigation,
-    saveWorkflow,
-    printWorkflow,
-} = orchestration;
+    metadata: {
+        pageLabelState, bookmarkState,
+    },
+    navigation,
+    history,
+    save,
+    print: printWorkflow,
+    crop,
+    splitPayload,
+    docxExport,
+} = context;
 const {
     activeDocumentDriver,
     mountedDocumentDriver,
@@ -640,6 +641,8 @@ const {
     continuousScroll,
     showSidebar,
     sidebarTab,
+} = viewerShell;
+const {
     searchQuery,
     submittedSearchQuery,
     searchOptions,
@@ -666,7 +669,7 @@ const {
     startSidebarResize,
     setSidebarContainerWidth,
     cleanupSidebarResizeListeners,
-} = viewerShell;
+} = searchSidebar;
 const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
     const viewer = pdfViewerRef.value;
     if (!viewer?.pageMetrics || !viewer.ensurePageMetricsInRange) {
@@ -734,12 +737,14 @@ const {
     pageLabelsDirty,
     pageLabelsResolved,
     handlePageLabelRangesUpdate,
+} = pageLabelState;
+const {
     bookmarkEditMode,
     bookmarkItems,
     bookmarksDirty,
-    bookmarkNavigationIntentVersion,
     handleBookmarksChange,
-} = metadata;
+} = bookmarkState;
+const {bookmarkNavigationIntentVersion} = context;
 const {
     annotationContextMenu,
     annotationContextMenuStyle,
@@ -776,22 +781,21 @@ const {
     pageContextMenu,
     pageContextMenuStyle,
     showPageContextMenu,
-} = pageContextMenuControls;
+} = context.pageContextMenu;
 const {
     handleSave,
     handleRepairSave,
-    handleOptimizePdfForInteraction: handleOptimizePdfForInteractionDirect,
     handleOptimizePdfAsCopy,
-    handleSaveAs: handleSaveAsDirect,
-    handleExportDocx: handleExportDocxDirect,
-    cancelDocxExport: cancelDocxExportDirect,
-    handleOcrComplete,
-    docxExportError,
     isAnySaving,
-    isExportingDocx,
     canSave,
-    isHistoryBusy,
-} = saveWorkflow;
+} = save;
+const {
+    error: docxExportError,
+    isExporting: isExportingDocx,
+    cancel: cancelDocxExportDirect,
+} = docxExport;
+const {handleOcrComplete} = context;
+const {isHistoryBusy} = history;
 const {
     handlePrint,
     handlePrintCurrentPage,
@@ -811,16 +815,17 @@ const {
     canRedo,
     handleUndo,
     handleRedo,
+} = history;
+const {
     handleFitMode,
     enableDragMode,
     handleGoToPage,
-} = viewNavigation;
+} = navigation;
 const handleGoToResult = createWorkspacePdfSearchResultNavigation({
     results,
     select: selectPdfSearchResult,
 });
 const {
-    handleCaptureRegion,
     handleCrop,
     cropDialogOpen,
     cropDialogLoading,
@@ -829,13 +834,27 @@ const {
     cropDialogCurrentBox,
     cropDialogPageNumber,
     cropDialogRotation,
-    handleZoomIn,
-    handleZoomOut,
-    handleActualSize,
+} = crop;
+const {
+    handleCaptureRegion,
     handleDropdownOpen: handleDropdownOpenDirect,
+} = context;
+const {
     captureSplitPayload,
     restoreSplitPayload,
-} = interactionControls;
+} = splitPayload;
+const {
+    setCustomZoomFromDisplay,
+    resolveDisplayZoom,
+} = context.viewerDefaults;
+const handleZoomIn = () => setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
+const handleZoomOut = () => {
+    const displayZoom = resolveDisplayZoom();
+    if (displayZoom > ZOOM.MIN) {
+        setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
+    }
+};
+const handleActualSize = () => setCustomZoomFromDisplay(1);
 const {
     statusFilePath,
     statusFileSizeLabel,
@@ -850,6 +869,8 @@ const {
     statusSaveDotAriaLabel,
     handleStatusSaveClick,
     handleStatusShowInFolderClick,
+} = statusBar;
+const {
     isPageOperationInProgress,
     pageOperationPresentation,
     pageOpBatchProgress,
@@ -857,7 +878,7 @@ const {
     pageOperationCancelState,
     canCancelPageOperation,
     cancelActivePageOperation,
-} = documentControls;
+} = pageOps;
 const {
     hasQueuedSplitRestore,
     isExternallyRestoring,
@@ -990,10 +1011,9 @@ const {
     activeViewerProps,
     activeViewerListeners,
     bindActiveViewerRef,
-} = documentDriver.bindView({
+} = context.bindDocumentView({
     documentSourceCurrentResultIndex: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.currentResultIndex.value : -1),
     documentSourceSearchResults: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.results.value : []),
-    isInteractionActive: isActiveRef,
     mountPresentation: isDocumentViewerPresentationMounted,
     isRenderActive: isDocumentViewerRenderActive,
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
@@ -1070,7 +1090,7 @@ const {
 } = useDocumentWorkspaceOptimizeDialog({
     canOptimizePdf: canOptimizePdfForDisplay,
     handleOptimizePdfAsCopy,
-    getLastFailurePresentation: failureSurface.getLastFailurePresentation,
+    getLastFailurePresentation: context.failure.getLastFailurePresentation,
     onOptimizeSuccess: () => {
         toast.add({
             color: 'success',
@@ -1093,15 +1113,15 @@ const {
     currentPage,
     documentViewerRef,
     ensureProjection: ensureDjvuPdfProjection,
-    saveAs: handleSaveAsDirect,
-    saveAsThroughDriver: orchestration.saveWorkflow.handleSaveAs,
-    exportDocx: handleExportDocxDirect,
+    saveAs: save.handleSaveAs,
+    saveAsThroughDriver: save.handleSaveAs,
+    exportDocx: docxExport.handleExportDocx,
     isExportingDocx,
     cancelExportDocx: cancelDocxExportDirect,
     handleDropdownOpen: handleDropdownOpenDirect,
-    insertImageFromFile: annotationSession.handleInsertImageFromFile,
-    pasteImageFromClipboard: annotationSession.handlePasteImageFromClipboard,
-    createQuickNote: annotationSession.handleQuickNoteAction,
+    insertImageFromFile: annotationActions.insertImageFromFile,
+    pasteImageFromClipboard: annotationActions.pasteImageFromClipboard,
+    createQuickNote: annotationActions.handleQuickNoteAction,
 });
 
 const {
@@ -1142,8 +1162,8 @@ const {
     handleFitMode,
     handleAnnotationToolChange,
     enableDragMode,
-    handleRemoveCrop: documentControls.handleRemoveCrop,
-    handleCropPages: documentControls.handleCropPages,
+    handleRemoveCrop: pageOps.handleRemoveCrop,
+    handleCropPages: pageOps.handleCropPages,
     workingCopyPath,
     isAnySaving,
     isHistoryBusy,
@@ -1175,7 +1195,7 @@ const {
     handleRotateCcw,
     handleRotateCw,
 } = useDocumentWorkspacePageOperationHandlers({
-    documentControls,
+    documentControls: pageOps,
     handleExportImages,
     selectedThumbnailPages,
     selectedPageSelection,
@@ -1271,11 +1291,11 @@ const {
     documentIdentity: fileLifecycle.documentRevisionInfo,
     fitMode,
     handleActualSize,
-    handleAnnotationFocusComment: annotationSession.handleAnnotationFocusComment,
+    handleAnnotationFocusComment: annotationActions.handleAnnotationFocusComment,
     handleAnnotationToolChange,
     handleBookmarksChange,
-    updateTextMarkupColorWithHistory: annotationSession.updateTextMarkupColorWithHistory,
-    handleDeleteAnnotationComment: annotationSession.handleDeleteAnnotationComment,
+    updateTextMarkupColorWithHistory: annotationActions.updateTextMarkupColorWithHistory,
+    handleDeleteAnnotationComment: annotationActions.handleDeleteAnnotationComment,
     handleDropdownOpen: (dropdown, isOpen) => {
         handleDropdownOpen(dropdown, isOpen);
     },
@@ -1284,14 +1304,14 @@ const {
     handleExportMultiPageTiff,
     handleFitMode,
     handleGoToPage,
-    handleOpenAnnotationNote: annotationSession.handleOpenAnnotationNote,
-    handleOpenFileFromUi: documentControls.handleOpenFileFromUi,
+    handleOpenAnnotationNote: annotationActions.handleOpenAnnotationNote,
+    handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
     handleRepairSave,
-    handleOptimizePdfForInteraction: handleOptimizePdfForInteractionDirect,
+    handleOptimizePdfForInteraction: save.handleOptimizePdfForInteraction,
     handleUndo,
     handleRedo,
     handlePageLabelRangesUpdate,
-    handlePageRotate: documentControls.handlePageRotate,
+    handlePageRotate: pageOps.handlePageRotate,
     handlePrint,
     handlePrintCurrentPage,
     handleQuickNoteAction,
@@ -1313,11 +1333,11 @@ const {
     pageLabelModel,
     pageLabelsResolved,
     pageLabelsDirty,
-    pageOpsDelete: documentControls.pageOpsDelete,
-    pageOpsExtract: documentControls.pageOpsExtract,
-    pageOpsInsert: documentControls.pageOpsInsert,
-    handleCropPages: documentControls.handleCropPages,
-    handleRemoveCrop: documentControls.handleRemoveCrop,
+    pageOpsDelete: pageOps.pageOpsDelete,
+    pageOpsExtract: pageOps.pageOpsExtract,
+    pageOpsInsert: pageOps.pageOpsInsert,
+    handleCropPages: pageOps.handleCropPages,
+    handleRemoveCrop: pageOps.handleRemoveCrop,
     pdfViewerRef,
     selectedPageSelection,
     selectedThumbnailPages,
@@ -1334,8 +1354,7 @@ const {
     workingCopyPath,
     zoom,
 });
-const workspaceExpose = createWorkspaceExposeFromOwners({
-    orchestration,
+const workspaceExpose = createWorkspaceExpose(context, {
     ensurePdfProjectionForEdit: ensureEditProjection,
     handlePageDelete,
     handlePageReorder,
@@ -1370,15 +1389,15 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     isDjvuMode,
     djvuSourcePath,
     documentRevisionInfo: fileLifecycle.documentRevisionInfo,
-    isDirty: orchestration.saveWorkflow.hasPendingUnsavedChanges,
+    isDirty: save.hasPendingUnsavedChanges,
     openBatchProgress,
     documentOpenSettled,
     documentOpenAccepted,
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
     readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentSession.viewState.value),
-    openPath: path => documentControls.handleOpenFileDirectWithPersist(path),
-    closeFailedDocument: () => documentControls.handleCloseFileFromUi({persist: false}),
+    openPath: path => fileOps.handleOpenFileDirectWithPersist(path),
+    closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
     hasWorkingCopy: () => workingCopyPath.value !== null,
     goToPage: handleGoToPage,
     formatBatchLabel: values => t('tabs.preparingBatch', values),

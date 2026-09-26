@@ -7,6 +7,7 @@ import type * as WorkspaceOrchestration from '@app/modules/workspace-shell/types
 import type { TPageAnnotationActionsPdfViewer } from '@app/modules/workspace-shell/composables/pageAnnotationActionsPdfViewer';
 import type {
     IAnnotationCommentSummary,
+    IAnnotationModifiedPayload,
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
@@ -16,6 +17,7 @@ import { withOpenedAnnotationNoteCreationTimestamp } from '@app/modules/workspac
 import { pickPageAnnotationImageFile } from '@app/modules/workspace-shell/annotations/pickPageAnnotationImageFile';
 import { readPageAnnotationImageFileFromClipboard } from '@app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard';
 import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
+import { deleteAnnotationById } from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
 
 interface IPageAnnotationActionsDeps {
     pdfViewerRef: Ref<TPageAnnotationActionsPdfViewer | null>;
@@ -59,7 +61,8 @@ interface IPageAnnotationActionsDeps {
     invalidateThumbnailPages?: (pages: number[]) => void;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     getAnnotationCommentsStatusSnapshot?: () => TAnnotationCommentsStatus;
-
+    discardAnnotationNote?: (annotationId: string) => Promise<void>;
+    handleAnnotationModified?: (payload?: IAnnotationModifiedPayload) => void;
 }
 
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
@@ -612,7 +615,28 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         setAnnotationNoteWindowError,
     });
 
+    function handleDeleteAnnotationById(annotationId: string) {
+        const requested = deleteAnnotationById(
+            deps.getAnnotationCommentsSnapshot?.() ?? [],
+            annotationId,
+            handleDeleteAnnotationComment,
+            () => deps.discardAnnotationNote?.(annotationId),
+        );
+        if (!requested) {
+            setAnnotationNoteWindowError(annotationId, t('errors.annotation.delete'));
+        }
+    }
+
+    function handleAnnotationModified(payload?: IAnnotationModifiedPayload) {
+        deps.handleAnnotationModified?.(payload);
+        invalidateThumbnailPages?.([deps.currentPage.value]);
+    }
+
     return {
+        handleDeleteAnnotationById,
+        handleAnnotationModified,
+        insertImageFromFile: () => insertImageFromFileAt(deps.currentPage.value, 0.5, 0.5),
+        pasteImageFromClipboard: () => pasteImageFromClipboardAt(deps.currentPage.value, 0.5, 0.5),
         handleCommentSelection,
         handleQuickNoteAction,
         handleAnnotationFocusComment,

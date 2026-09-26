@@ -353,6 +353,11 @@ export const useWorkspaceFileLifecycleController = (
     }
 
     const hasPdf = computed(() => !!pdfSrc.value);
+    const documentKey = computed(() => (
+        documentRevisionInfo.value?.documentRef
+        ?? originalPath.value
+        ?? workingCopyPath.value
+    ));
 
     return {
         pdfSrc,
@@ -432,6 +437,7 @@ export const useWorkspaceFileLifecycleController = (
         closeFileWithViewerLifecycle,
 
         hasPdf,
+        documentKey,
         initFromStorage,
     };
 };
