@@ -21,7 +21,6 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
-import {PDFDocument} from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunProcessIdentity';
@@ -702,7 +701,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         }
     }, E2E_TIMEOUT_MS);
 
-    it('refuses to overwrite a PDF another program replaced while it was open', async () => {
+    it('refuses to overwrite a PDF another program replaced after changing one byte', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-external-replace-${Date.now()}.pdf`, 2);
         session = await startElectronE2ESession(`e2e-save-external-replace-${Date.now()}`, {
             clean: true,
@@ -719,9 +718,19 @@ describe('Electron E2E - save pipeline diagnostics', () => {
 
         // Another program edits the same document and saves it the way editors
         // usually do: write a sibling, then rename it into place.
-        const externalDocument = await PDFDocument.load(await readFile(pdfPath), {updateMetadata: false});
-        externalDocument.setTitle('Edited in another program');
-        const externalBytes = Buffer.from(await externalDocument.save({useObjectStreams: false}));
+        const externalBytes = Buffer.from(await readFile(pdfPath));
+        const binaryCommentStart = externalBytes.indexOf(Buffer.from([
+            0x25,
+            0x81,
+        ]));
+        if (binaryCommentStart < 0) {
+            throw new Error('The PDF fixture has no binary comment byte to change');
+        }
+        const originalCommentByte = externalBytes[binaryCommentStart + 1];
+        if (originalCommentByte === undefined) {
+            throw new Error('The PDF binary comment is incomplete');
+        }
+        externalBytes[binaryCommentStart + 1] = originalCommentByte ^ 1;
         const stagedExternalPath = `${pdfPath}.external`;
         await writeFile(stagedExternalPath, externalBytes);
         await rename(stagedExternalPath, pdfPath);
