@@ -968,7 +968,7 @@ describe('release policy', () => {
             'scripts/generateBuildArtifacts.ts',
             'scripts/generateElectronBuilderResources.ts',
             'scripts/nativeResourceManifest.ts',
-            'scripts/nativeResourceManifestCli.ts',
+            'scripts/runNativeResourceManifestCli.ts',
             'scripts/release/**',
             'scripts/verify-packaged-native-tools.sh',
             'scripts/verify-packaged-startup.sh',

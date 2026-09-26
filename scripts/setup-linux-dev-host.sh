@@ -89,8 +89,8 @@ node scripts/ci-install-dependencies.mjs --frozen-lockfile
 echo "Installing Playwright Chromium..."
 pnpm exec playwright install chromium
 
-echo "Bundling Linux native document tools..."
-bash scripts/bundle-tools-linux.sh
+echo "Fetching pinned Linux native document tools..."
+pnpm run fetch:runtime-binaries
 
 echo "Running strict dev-environment preflight..."
 pnpm run check:dev-env -- --strict

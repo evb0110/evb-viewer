@@ -2,7 +2,6 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import {
     computeRuntimeBinaryManifestSha256,
@@ -13,11 +12,8 @@ import {
     RUNTIME_BINARY_MANIFEST_ENTRIES,
     TESSDATA_RUNTIME_DATA_ENTRY,
 } from '@scripts/runtimeBinaryManifest';
-import {
-    assertAllowedRuntimeBinaryDownloadRedirect,
-    runRuntimeBinaryArchiveCli,
-} from '@scripts/runRuntimeBinaryArchiveCli';
-import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchiveMembers';
+import {assertAllowedRuntimeBinaryDownloadRedirect} from '@scripts/fetchRuntimeBinaries';
+import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchivePaths';
 
 const firstRuntimeEntry = RUNTIME_BINARY_MANIFEST.entries[0];
 if (!firstRuntimeEntry) throw new Error('Runtime manifest test requires one binary entry.');
@@ -78,26 +74,6 @@ describe('runtime binary manifest', () => {
         expect(() => validateRuntimeBinaryArchivePaths(['qpdf/linux-x64/../../escape'])).toThrow(
             'safe relative path',
         );
-    });
-
-    it('dispatches member verification for every runtime family', async () => {
-        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-        await runRuntimeBinaryArchiveCli([
-            'verify-members',
-            'tesseract',
-            'tesseract-linux-x64.tar.gz',
-        ], () => [
-            'tesseract/linux-x64/',
-            'tesseract/linux-x64/bin/tesseract',
-        ]);
-        expect(log).toHaveBeenCalledWith(JSON.stringify({
-            family: 'tesseract',
-            members: [
-                'tesseract/linux-x64/',
-                'tesseract/linux-x64/bin/tesseract',
-            ],
-        }));
-        log.mockRestore();
     });
 
     it('keeps redirects constrained to GitHub release assets', () => {

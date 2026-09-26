@@ -91,6 +91,6 @@ rustup toolchain install 1.89.0 --profile minimal
 rustup target add wasm32-unknown-unknown
 node scripts/ci-install-dependencies.mjs --frozen-lockfile
 pnpm exec playwright install chromium
-bash scripts/bundle-tools-linux.sh
+pnpm run fetch:runtime-binaries
 pnpm run check:dev-env -- --strict
 ```

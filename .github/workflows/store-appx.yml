@@ -52,15 +52,11 @@ jobs:
         uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          windows-bundle-cache-key: store-win-native-tools-${{ matrix.arch }}
-          needs-msys2: ${{ matrix.arch == 'arm64' }}
           rust-targets: ${{ matrix.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
 
-      - name: Bundle native tools
+      - name: Fetch pinned native tools
         shell: bash
-        env:
-          WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
-        run: TARGET_ARCH=${{ matrix.arch }} bash scripts/bundle-tools-windows.sh
+        run: node --import tsx scripts/fetchRuntimeBinaries.ts --target win32-${{ matrix.arch }}
 
       - name: Build (Nuxt + Electron)
         env:

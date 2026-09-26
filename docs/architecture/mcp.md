@@ -500,7 +500,7 @@ Standard gates:
 
 ```bash
 pnpm lint && pnpm typecheck
-pnpm run check:resources:matrix
+pnpm run fetch:runtime-binaries
 scripts/verify-packaged-native-tools.sh mac arm64
 pnpm run release:verify
 ```

@@ -272,9 +272,7 @@ console.log(executablePath);
         addCheck({
             detail: missingNativeResources.length === 0 ? hostTag : `${hostTag}: missing ${missingNativeResources.join(', ')}`,
             name: 'Bundled native document tools',
-            remedy: process.platform === 'linux'
-                ? 'Run bash scripts/bundle-tools-linux.sh.'
-                : 'Run the platform bundling scripts documented in the release workflow.',
+            remedy: 'Run pnpm run fetch:runtime-binaries for this host target.',
             required: true,
             status: missingNativeResources.length === 0 ? 'ok' : 'missing',
         });

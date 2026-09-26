@@ -70,7 +70,7 @@ export function createAllGatesValidationStages({cold = false} = {}) {
             priority: 95,
             weight: 4,
         }),
-        // build.strict, native.resource-matrix, electron.bundle-integrity and
+        // build.strict, electron.bundle-integrity and
         // electron.blocking-smoke are deliberately absent. They are the strict
         // build and its dependents, and hosted CI proves the same contracts on
         // the platform releases ship from. Locally they dominated the run,

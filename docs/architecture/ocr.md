@@ -56,8 +56,9 @@ supply the geometry needed to place selectable text over the original page.
 
 ## Engine
 
-Every platform bundles Tesseract 5. Linux builds 5.5.3 from the pinned source in
-`scripts/bundle-tools-linux.sh` and publishes it as a pinned runtime archive.
+Every shipped platform builds Tesseract 5.5.3 and Leptonica 1.82.0 from
+checksum-pinned source in the manually dispatched runtime-binaries workflow.
+Each resulting archive is pinned in `scripts/runtimeBinaryManifest.ts`.
 The packaged-tool smoke check rejects a 4.x engine, because the Poor scan profile
 passes `thresholding_method`, which 4.x does not know. When Tesseract rejects a
 parameter it still exits successfully, so the pipeline reports each rejected

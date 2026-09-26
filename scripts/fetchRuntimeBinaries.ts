@@ -23,21 +23,25 @@ import {
 import {
     NATIVE_RESOURCE_PLATFORM_ARCHES,
     parseNativeResourcePlatformArch,
+    type TNativeToolResourceFamilyId,
     type TNativeResourcePlatformArch,
 } from '@scripts/nativeResourceManifest';
 import {RUNTIME_BINARY_MANIFEST} from '@scripts/runtimeBinaryManifest';
-import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchiveMembers';
-import {fetchRuntimeBinaryArchiveResponseBody} from '@scripts/runRuntimeBinaryArchiveCli';
+import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchivePaths';
 import {
     TESSERACT_PDF_FONT_RESOURCE_SEGMENTS,
     TESSERACT_PDF_FONT_SHA256,
 } from '@scripts/tesseractPdfFont';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS = 3;
+const RUNTIME_BINARY_DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
+const GITHUB_RELEASE_ORIGIN = 'https://github.com';
+const GITHUB_RELEASE_ASSET_ORIGIN = 'https://release-assets.githubusercontent.com';
 
 function usage() {
     return [
-        'Usage: node --import tsx scripts/fetchRuntimeBinaries.ts [--target <platform-arch>] [--cache <directory>] [--if-published]',
+        'Usage: node --import tsx scripts/fetchRuntimeBinaries.ts [--target <platform-arch>] [--cache <directory>] [--family <family>]... [--tessdata-only] [--if-published]',
         '',
         `Targets: ${NATIVE_RESOURCE_PLATFORM_ARCHES.join(', ')}`,
         '',
@@ -80,6 +84,76 @@ async function runtimeArchiveTransport(url: string, env: NodeJS.ProcessEnv) {
         return handle.createReadStream();
     }
     return fetchRuntimeBinaryArchiveResponseBody(mappedUrl);
+}
+
+async function cancelResponseBody(response: Response | null) {
+    if (response?.body === null || response?.body === undefined) return;
+    await response.body.cancel().catch(() => undefined);
+}
+
+export function assertAllowedRuntimeBinaryDownloadRedirect(fromUrl: string, toUrl: string) {
+    const from = new URL(fromUrl);
+    const to = new URL(toUrl, from);
+    const allowed = to.protocol === 'https:'
+        && to.username === ''
+        && to.password === ''
+        && (
+            from.origin === GITHUB_RELEASE_ORIGIN && to.origin === GITHUB_RELEASE_ASSET_ORIGIN
+            || from.origin === GITHUB_RELEASE_ASSET_ORIGIN && to.origin === GITHUB_RELEASE_ASSET_ORIGIN
+        );
+    if (!allowed) {
+        throw new Error(`Runtime archive redirect to untrusted origin ${to.origin} was rejected.`);
+    }
+    return to.href;
+}
+
+export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), RUNTIME_BINARY_DOWNLOAD_TIMEOUT_MS);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let readerCompleted = false;
+    try {
+        let currentUrl = url;
+        let response: Response | null = null;
+        for (
+            let redirectCount = 0;
+            redirectCount <= MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS;
+            redirectCount += 1
+        ) {
+            response = await fetch(currentUrl, {
+                redirect: 'manual',
+                signal: abortController.signal,
+            });
+            if (response.status < 300 || response.status >= 400) break;
+            const location = response.headers.get('location');
+            if (!location || redirectCount === MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS) {
+                await cancelResponseBody(response);
+                throw new Error('Runtime archive download exceeded the trusted redirect limit.');
+            }
+            await cancelResponseBody(response);
+            currentUrl = assertAllowedRuntimeBinaryDownloadRedirect(currentUrl, location);
+        }
+
+        if (!response?.ok || response.body === null) {
+            await cancelResponseBody(response);
+            throw new Error(`Runtime archive download failed with HTTP status ${response?.status ?? 'unknown'}.`);
+        }
+        reader = response.body.getReader();
+        for (;;) {
+            const {
+                done, value,
+            } = await reader.read();
+            if (done) {
+                readerCompleted = true;
+                return;
+            }
+            yield value;
+        }
+    } finally {
+        if (reader && !readerCompleted) await reader.cancel().catch(() => undefined);
+        reader?.releaseLock();
+        clearTimeout(timeout);
+    }
 }
 
 function archiveMembers(archivePath: string) {
@@ -152,75 +226,123 @@ export async function fetchRuntimeBinaries({
     env = process.env,
     projectRoot = repositoryRoot,
     targetTag = hostTarget(),
+    familyIds,
+    dataOnly = false,
+    skipUnpublished = false,
     transport = (url: string) => runtimeArchiveTransport(url, env),
 }: {
     cacheDirectory?: string;
     env?: NodeJS.ProcessEnv;
     projectRoot?: string;
     targetTag?: string;
+    familyIds?: readonly TNativeToolResourceFamilyId[];
+    dataOnly?: boolean;
+    skipUnpublished?: boolean;
     transport?: TRuntimeBinaryArchiveTransport;
 } = {}) {
     validateRuntimeBinaryManifest(RUNTIME_BINARY_MANIFEST);
     const target = parseNativeResourcePlatformArch(targetTag);
-    const entries = RUNTIME_BINARY_MANIFEST.entries.filter(entry => entry.target.platformArch === target.platformArch);
+    const requestedFamilies = familyIds ? new Set(familyIds) : null;
+    if (requestedFamilies?.size === 0) throw new Error('At least one runtime family is required.');
+    const entries = dataOnly ? [] : RUNTIME_BINARY_MANIFEST.entries.filter(entry => (
+        entry.target.platformArch === target.platformArch
+        && (!requestedFamilies || requestedFamilies.has(entry.familyId))
+    ));
     console.log(`Fetching verified runtime archives for ${target.platformArch}.`);
-    for (const entry of entries) {
-        const result = await fetchVerifiedRuntimeArchive({
-            cacheDirectory,
-            familyId: entry.familyId,
-            manifest: RUNTIME_BINARY_MANIFEST,
-            target,
-            transport,
-        });
-        await stageArchive(projectRoot, result.archivePath, `${entry.familyId}/${target.platformArch}`);
-        console.log(`  ${entry.familyId}: verified ${entry.archiveSha256}`);
+    if (!dataOnly) {
+        const allFamilies = new Set(RUNTIME_BINARY_MANIFEST.entries.map(entry => entry.familyId));
+        const requiredFamilies = requestedFamilies ?? allFamilies;
+        const availableFamilies = new Set(entries.map(entry => entry.familyId));
+        const missingFamilies = [...requiredFamilies].filter(family => !availableFamilies.has(family));
+        if (missingFamilies.length > 0) {
+            if (skipUnpublished) {
+                console.log(`No published ${target.platformArch} archives for: ${missingFamilies.join(', ')}.`);
+                return null;
+            }
+            throw new Error(`Runtime manifest has no ${target.platformArch} archives for: ${missingFamilies.join(', ')}.`);
+        }
+        for (const entry of entries) {
+            try {
+                const result = await fetchVerifiedRuntimeArchive({
+                    cacheDirectory,
+                    familyId: entry.familyId,
+                    manifest: RUNTIME_BINARY_MANIFEST,
+                    target,
+                    transport,
+                });
+                await stageArchive(projectRoot, result.archivePath, `${entry.familyId}/${target.platformArch}`);
+                console.log(`  ${entry.familyId}: verified ${entry.archiveSha256}`);
+            } catch (error) {
+                if (skipUnpublished && error instanceof Error && error.message.includes('HTTP status 404')) {
+                    console.log(`No published ${target.platformArch} archive for ${entry.familyId}.`);
+                    return null;
+                }
+                throw error;
+            }
+        }
     }
 
-    for (const dataEntry of RUNTIME_BINARY_MANIFEST.dataEntries ?? []) {
-        const result = await fetchVerifiedRuntimeDataArchive({
-            cacheDirectory,
-            dataEntry,
-            manifest: RUNTIME_BINARY_MANIFEST,
-            transport,
-        });
-        const pdfFont = await readVerifiedTesseractPdfFont(projectRoot);
-        await stageArchive(projectRoot, result.archivePath, dataEntry.resourceRoot);
-        await writeFile(pdfFont.path, pdfFont.bytes);
-        console.log(`  ${dataEntry.resourceRoot}: verified ${dataEntry.archiveSha256}`);
-    }
-
-    const requiredFamilies = new Set(RUNTIME_BINARY_MANIFEST.entries.map(entry => entry.familyId));
-    const publishedFamilies = new Set(entries.map(entry => entry.familyId));
-    const missingFamilies = [...requiredFamilies].filter(family => !publishedFamilies.has(family));
-    if (missingFamilies.length > 0) {
-        console.log(`No published ${target.platformArch} archives for: ${missingFamilies.join(', ')}.`);
-        return null;
+    if (!requestedFamilies || dataOnly) {
+        for (const dataEntry of RUNTIME_BINARY_MANIFEST.dataEntries ?? []) {
+            try {
+                const result = await fetchVerifiedRuntimeDataArchive({
+                    cacheDirectory,
+                    dataEntry,
+                    manifest: RUNTIME_BINARY_MANIFEST,
+                    transport,
+                });
+                const pdfFont = await readVerifiedTesseractPdfFont(projectRoot);
+                await stageArchive(projectRoot, result.archivePath, dataEntry.resourceRoot);
+                await writeFile(pdfFont.path, pdfFont.bytes);
+                console.log(`  ${dataEntry.resourceRoot}: verified ${dataEntry.archiveSha256}`);
+            } catch (error) {
+                if (skipUnpublished && error instanceof Error && error.message.includes('HTTP status 404')) {
+                    console.log(`No published runtime data archive for ${dataEntry.resourceRoot}.`);
+                    return null;
+                }
+                throw error;
+            }
+        }
     }
 
     return {
-        dataEntries: RUNTIME_BINARY_MANIFEST.dataEntries?.length ?? 0,
+        dataEntries: requestedFamilies && !dataOnly ? 0 : RUNTIME_BINARY_MANIFEST.dataEntries?.length ?? 0,
         entries: entries.length,
         manifestSha256: RUNTIME_BINARY_MANIFEST.manifestSha256,
         target: target.platformArch,
     };
 }
 
-const UNPUBLISHED_TARGET_EXIT_CODE = 3;
+const RUNTIME_FAMILIES = [
+    'tesseract',
+    'poppler',
+    'qpdf',
+    'djvulibre',
+] as const;
 
 function parseArguments(argv: readonly string[]) {
     let targetTag: string | undefined;
     let cacheDirectory: string | undefined;
     let ifPublished = false;
+    let dataOnly = false;
+    const familyIds: TNativeToolResourceFamilyId[] = [];
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
-        if (argument === '--target' || argument === '--cache') {
+        if (argument === '--target' || argument === '--cache' || argument === '--family') {
             const value = argv[index + 1];
             if (!value) throw new Error(usage());
             if (argument === '--target') targetTag = value;
-            else cacheDirectory = value;
+            else if (argument === '--cache') cacheDirectory = value;
+            else {
+                const familyId = RUNTIME_FAMILIES.find(candidate => candidate === value);
+                if (!familyId) throw new Error(usage());
+                familyIds.push(familyId);
+            }
             index += 1;
         } else if (argument === '--if-published') {
             ifPublished = true;
+        } else if (argument === '--tessdata-only') {
+            dataOnly = true;
         } else if (argument === '--help') {
             console.log(usage());
             return null;
@@ -228,8 +350,11 @@ function parseArguments(argv: readonly string[]) {
             throw new Error(usage());
         }
     }
+    if (dataOnly && familyIds.length > 0) throw new Error(usage());
     return {
         cacheDirectory,
+        dataOnly,
+        familyIds: familyIds.length > 0 ? familyIds : undefined,
         ifPublished,
         targetTag,
     };
@@ -244,13 +369,12 @@ if (isDirectCliRun) {
         if (options) {
             const result = await fetchRuntimeBinaries({
                 ...(options.cacheDirectory === undefined ? {} : {cacheDirectory: options.cacheDirectory}),
+                ...(options.familyIds === undefined ? {} : {familyIds: options.familyIds}),
+                dataOnly: options.dataOnly,
+                skipUnpublished: options.ifPublished,
                 ...(options.targetTag === undefined ? {} : {targetTag: options.targetTag}),
             });
-            if (!result) {
-                console.log('Published runtime archives are incomplete for this target; the platform bundler builds the runtime tools from source.');
-                // Bundlers read this exit code as "build from source instead".
-                if (!options.ifPublished) process.exitCode = UNPUBLISHED_TARGET_EXIT_CODE;
-            }
+            if (!result && !options.ifPublished) process.exitCode = 1;
         }
     } catch (error) {
         console.error(`Runtime binary fetch failed: ${getErrorMessage(error)}`);

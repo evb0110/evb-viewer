@@ -102,10 +102,7 @@ jobs:
         uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          windows-bundle-cache-key: win-native-tools-${{ inputs.arch }}
-          needs-msys2: ${{ inputs.platform == 'win' && inputs.arch == 'arm64' }}
           rust-targets: ${{ inputs.platform == 'win' && inputs.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
-          brew-formulae: ${{ inputs.platform == 'mac' && 'tesseract poppler qpdf djvulibre' || '' }}
           needs-system-fpm: ${{ inputs.platform == 'linux' }}
 
       - name: Test Windows PDF append sharing
@@ -115,45 +112,16 @@ jobs:
           cargo test --manifest-path native/Cargo.toml --package evb-pdf-page-ops
           --locked windows_in_place_append_succeeds_when_delete_sharing_is_denied
 
-      - name: Bundle native tools (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          bash scripts/bundle-tesseract-macos.sh
-          bash scripts/bundle-pdf-tools-macos.sh
-          bash scripts/bundle-djvu-macos.sh
-
-      # Linux: install via apt and bundle with patchelf
-      - name: Bundle native tools (Linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 20
-        run: |
-          # The packaging container has no Node, so the verified fetch runs on the runner.
-          # Exit code 3 means at least one runtime family needs a source build.
-          fetch_status=0
-          node --import tsx scripts/fetchRuntimeBinaries.ts || fetch_status=$?
-          if [ "$fetch_status" -eq 0 ]; then
-            exit 0
-          elif [ "$fetch_status" -ne 3 ]; then
-            exit "$fetch_status"
-          fi
-          docker run --rm \
-            --env EVB_RUNTIME_BINARIES_FROM_SOURCE=1 \
-            --env EVB_HOST_GID="$(id -g)" \
-            --env EVB_HOST_UID="$(id -u)" \
-            --volume "$PWD:/workspace" \
-            --workdir /workspace \
-            ubuntu@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc \
-            bash -c \
-              'status=0; bash scripts/bundle-tools-linux.sh || status=$?; chown -R "$EVB_HOST_UID:$EVB_HOST_GID" resources; exit "$status"'
-
-      # Windows: x64 downloads pre-built release ZIPs; arm64 uses MSYS2 clangarm64
-      # on the native ARM64 runner, allowing the packaged sidecar smoke to execute.
-      - name: Bundle native tools (Windows)
-        if: runner.os == 'Windows'
+      - name: Fetch pinned native tools
         shell: bash
-        env:
-          WIN_BUNDLE_CACHE_DIR: ${{ runner.temp }}/win-bundle-cache
-        run: TARGET_ARCH="$EVB_RELEASE_TARGET_ARCH" bash scripts/bundle-tools-windows.sh
+        run: |
+          case "$EVB_RELEASE_TARGET_PLATFORM" in
+            mac) platform=darwin ;;
+            win) platform=win32 ;;
+            linux) platform=linux ;;
+            *) echo "Unsupported platform: $EVB_RELEASE_TARGET_PLATFORM" >&2; exit 1 ;;
+          esac
+          node --import tsx scripts/fetchRuntimeBinaries.ts --target "$platform-$EVB_RELEASE_TARGET_ARCH"
 
       - name: Build (Nuxt + Electron)
         env:

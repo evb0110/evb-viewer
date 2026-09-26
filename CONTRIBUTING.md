@@ -103,7 +103,7 @@ For a change to native tool packaging or resource selection, the resource check
 can exercise that boundary:
 
 ```bash
-pnpm run check:resources:matrix
+pnpm run fetch:runtime-binaries
 ```
 
 For a change that needs packaged-tool proof, use the existing build or hosted CI:

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared relocation policy for Homebrew-backed macOS native-tool bundles.
+# Shared relocation policy for macOS native-tool bundles.
 # Callers seed their tool-specific binaries and primary dylibs, then invoke
 # macos_bundle_dylib_closure to copy, rewrite, and verify every non-system dylib.
 

@@ -18,7 +18,7 @@ platform_arch="$RELEASE_PLATFORM_ARCH"
 
 release_entries_file="$(mktemp)"
 trap 'rm -f "$release_entries_file"' EXIT
-if ! node --import tsx scripts/nativeResourceManifestCli.ts packaged-entries "$platform_arch" > "$release_entries_file"; then
+if ! node --import tsx scripts/runNativeResourceManifestCli.ts packaged-entries "$platform_arch" > "$release_entries_file"; then
   echo "Error: Unable to load packaged release targets"
   exit 1
 fi
@@ -603,8 +603,6 @@ fi
 
 if [ "$platform" = "win" ]; then
   script_dir="$(cd "$(dirname "$0")" && pwd)"
-  node "$script_dir/release/windows-tesseract-payload-policy.mjs" \
-    "$(dirname "$(packaged_entry_path tesseract)")"
   windows_pe_files="$(mktemp)"
   trap 'rm -f "$windows_pe_files"' EXIT
   find_tool_files "$platform_arch" "bin" | grep -Ei '\.(exe|dll)$' > "$windows_pe_files" || true

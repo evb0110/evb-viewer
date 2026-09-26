@@ -65,11 +65,9 @@ docs/       Project-specific implementation and release notes
 pnpm install
 ```
 
-On Linux, also run `bash scripts/bundle-tools-linux.sh` before starting desktop
-development. Linux Tesseract builds from pinned source because the published
-archive predates the OCR options used by the app. The script installs its build
-prerequisites through `sudo`. The complete Linux host setup is
-`bash scripts/setup-linux-dev-host.sh`; it already runs this bundling step.
+The install prepare step fetches the pinned native tools for the host. Run
+`pnpm run fetch:runtime-binaries` to refresh them. The complete Linux host setup
+is `bash scripts/setup-linux-dev-host.sh`; it already fetches these archives.
 
 ### Root App Commands
 
@@ -158,8 +156,8 @@ pnpm lint
 pnpm typecheck
 pnpm run test:unit
 
-# Native-resource sanity check
-pnpm run check:resources:matrix
+# Refresh pinned native-resource archives for this host
+pnpm run fetch:runtime-binaries
 
 # Host-side release verification
 pnpm run release:verify

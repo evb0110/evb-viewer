@@ -1,9 +1,8 @@
 name: Setup release environment
 description: >-
   Single owner for release and build runner provisioning: pnpm plus pinned
-  Node, dependency install with retries, the Windows script shell and
-  native-tool cache, MSYS2 for Windows ARM64 bundling, Rust targets, and
-  per-OS system packages. Workflows that build or verify release artifacts
+  Node, dependency install with retries, Rust targets, and per-OS system
+  packages. Workflows that build or verify release artifacts
   use this action instead of copy-pasting provisioning steps, so a lane can
   no longer drift by missing one ambient dependency.
 
@@ -17,16 +16,6 @@ inputs:
   verify-electron:
     description: Verify the installed Electron executable after installing dependencies.
     default: 'true'
-  windows-bundle-cache-key:
-    description: >-
-      Cache key prefix for the Windows native-tool archive cache (for example
-      win-native-tools-x64). Empty skips the cache step. The bundling script
-      and its runtime manifest verify every archive against its SHA256 pin
-      whether it comes from the cache or a fallback download.
-    default: ''
-  needs-msys2:
-    description: Install MSYS2 (CLANGARM64) and export a verified MSYS2_ROOT for Windows ARM64 bundling.
-    default: 'false'
   rust-targets:
     description: Space-separated rustup targets to add.
     default: ''
@@ -45,9 +34,6 @@ inputs:
       electron-builder's downloaded fpm binary is unreliable (x86-only on
       arm64, download failures on x64).
     default: 'false'
-  brew-formulae:
-    description: Space-separated Homebrew formulae (macOS only).
-    default: ''
 
 runs:
   using: composite
@@ -69,26 +55,11 @@ runs:
       shell: pwsh
       run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
 
-    - name: Cache Windows native tool archives
-      if: runner.os == 'Windows' && inputs.windows-bundle-cache-key != ''
-      # A cache-service failure falls through to pinned-checksum downloads
-      # inside bundle-tools-windows.sh, which annotates every fallback.
-      continue-on-error: true
-      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
-      with:
-        path: ${{ runner.temp }}/win-bundle-cache
-        key: ${{ inputs.windows-bundle-cache-key }}-${{ hashFiles('scripts/bundle-tools-windows.sh', 'scripts/runtimeBinaryManifest.ts') }}
-        # Bundler logic changes must not discard already verified archives for
-        # the same platform and pinned tool versions. The script verifies
-        # every restored archive before using it.
-        restore-keys: |
-          ${{ inputs.windows-bundle-cache-key }}-
-
     - name: Cache runtime binary archives
       uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
       with:
         path: .cache/runtime-binaries
-        key: runtime-binaries-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/runtimeBinaryManifest.ts') }}
+        key: runtime-binaries-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/runtimeBinaryManifest.ts') }}
 
     - name: Install dependencies
       if: inputs.install-dependencies == 'true'
@@ -99,39 +70,6 @@ runs:
       if: inputs.install-dependencies == 'true' && inputs.verify-electron == 'true'
       shell: bash
       run: pnpm run check:electron:install
-
-    # Windows ARM64 images do not consistently include MSYS2. Install the
-    # toolchain explicitly and publish its actual path for the Git Bash
-    # bundler instead of depending on runner-image contents.
-    - name: Setup MSYS2 for Windows ARM64 bundling
-      if: inputs.needs-msys2 == 'true'
-      id: setup-msys2
-      uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
-      with:
-        msystem: CLANGARM64
-        update: false
-        cache: true
-
-    - name: Export and verify MSYS2 root
-      if: inputs.needs-msys2 == 'true'
-      shell: bash
-      env:
-        MSYS2_LOCATION: ${{ steps.setup-msys2.outputs.msys2-location }}
-      run: |
-        set -euo pipefail
-        msys2_root="$(cygpath -u "$MSYS2_LOCATION")"
-        echo "MSYS2_ROOT=$msys2_root" >> "$GITHUB_ENV"
-        # Git Bash does not reliably expose the executable bit for native
-        # Windows .exe files. Presence plus an actual invocation is the
-        # portable fail-closed check for the installed MSYS2 tools.
-        for tool in pacman.exe zstd.exe tar.exe; do
-          tool_path="$msys2_root/usr/bin/$tool"
-          if [ ! -f "$tool_path" ]; then
-            echo "::error::MSYS2 ARM64 bundle tool not found at $tool_path"
-            exit 1
-          fi
-          "$tool_path" --version
-        done
 
     - name: Install Rust targets
       if: inputs.rust-targets != ''
@@ -160,9 +98,3 @@ runs:
       run: |
         scripts/ci/apt-install.sh ruby-dev build-essential
         sudo gem install fpm -v 1.15.1
-
-    - name: Install Homebrew formulae
-      if: runner.os == 'macOS' && inputs.brew-formulae != ''
-      shell: bash
-      run: |
-        brew install ${{ inputs.brew-formulae }}

@@ -13,19 +13,6 @@ case "$ARCH" in
   *)       echo "Error: Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-# Fetch the published archives for this target. Exit code 3 means at least
-# one family needs the source build below.
-# EVB_RUNTIME_BINARIES_FROM_SOURCE=1 skips the fetch to rebuild the archives.
-if [ "${EVB_RUNTIME_BINARIES_FROM_SOURCE:-0}" != 1 ]; then
-  fetch_status=0
-  node --import tsx "$SCRIPT_DIR/fetchRuntimeBinaries.ts" --target "$PLATFORM_ARCH" || fetch_status=$?
-  if [ "$fetch_status" -eq 0 ]; then
-    exit 0
-  elif [ "$fetch_status" -ne 3 ]; then
-    exit "$fetch_status"
-  fi
-fi
-
 echo "=========================================="
 echo "Bundling native tools for $PLATFORM_ARCH"
 echo "=========================================="
@@ -73,13 +60,17 @@ echo "Installing tools via apt..."
 bash "$SCRIPT_DIR/ci/select-apt-mirrors.sh"
 run_apt_with_timeout "$APT_TIMEOUT_UPDATE_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" update -qq
 run_apt_with_timeout "$APT_TIMEOUT_INSTALL_SECONDS" apt-get "${APT_RETRY_FLAGS[@]}" install -y -qq \
-  libleptonica-dev \
   poppler-utils \
   djvulibre-bin \
   build-essential \
   cmake \
   curl \
+  libgif-dev \
   libjpeg-turbo8-dev \
+  libpng-dev \
+  libtiff-dev \
+  libwebp-dev \
+  libopenjp2-7-dev \
   zlib1g-dev \
   pkg-config \
   ca-certificates \
@@ -196,15 +187,28 @@ echo "=========================================="
 
 TESSERACT_VERSION="5.5.3"
 TESSERACT_SHA256="9218e62793116d42a9f6d14cd9348518b27f382096eea3d0f2d1a24616bb5884"
-mkdir -p "$PROJECT_ROOT/.devkit/tmp"
-TESSERACT_BUILD_DIR="$(mktemp -d "$PROJECT_ROOT/.devkit/tmp/tesseract-linux-XXXXXX")"
+LEPTONICA_VERSION="1.82.0"
+LEPTONICA_SHA256="40fa9ac1e815b91e0fa73f0737e60c9eec433a95fa123f95f2573dd3127dd669"
+TESSERACT_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/tesseract-linux-XXXXXX")"
 trap 'rm -rf -- "$TESSERACT_BUILD_DIR"' EXIT
 curl -fsSL -o "$TESSERACT_BUILD_DIR/tesseract.tar.gz" \
   "https://github.com/tesseract-ocr/tesseract/archive/refs/tags/$TESSERACT_VERSION.tar.gz"
 echo "$TESSERACT_SHA256  $TESSERACT_BUILD_DIR/tesseract.tar.gz" | sha256sum -c -
+curl -fsSL -o "$TESSERACT_BUILD_DIR/leptonica.tar.gz" \
+  "https://github.com/DanBloomberg/leptonica/archive/refs/tags/$LEPTONICA_VERSION.tar.gz"
+echo "$LEPTONICA_SHA256  $TESSERACT_BUILD_DIR/leptonica.tar.gz" | sha256sum -c -
 tar -xzf "$TESSERACT_BUILD_DIR/tesseract.tar.gz" -C "$TESSERACT_BUILD_DIR"
+tar -xzf "$TESSERACT_BUILD_DIR/leptonica.tar.gz" -C "$TESSERACT_BUILD_DIR"
+cmake -S "$TESSERACT_BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$TESSERACT_BUILD_DIR/leptonica-build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="$TESSERACT_BUILD_DIR/leptonica-install" \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DBUILD_PROG=OFF
+cmake --build "$TESSERACT_BUILD_DIR/leptonica-build" --parallel "$(nproc)"
+cmake --install "$TESSERACT_BUILD_DIR/leptonica-build"
 cmake -S "$TESSERACT_BUILD_DIR/tesseract-$TESSERACT_VERSION" -B "$TESSERACT_BUILD_DIR/build" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$TESSERACT_BUILD_DIR/leptonica-install" \
   -DBUILD_TRAINING_TOOLS=OFF \
   -DBUILD_TESTS=OFF \
   -DDISABLE_ARCHIVE=ON \
@@ -263,7 +267,7 @@ echo "=========================================="
 # use qpdf 11 JSON v2 options, so build a pinned release against this glibc.
 QPDF_VERSION="11.9.1"
 QPDF_SHA256="2ba4d248f9567a27c146b9772ef5dc93bd9622317978455ffe91b259340d13d1"
-QPDF_BUILD_DIR="$(mktemp -d /tmp/evb-qpdf-linux-XXXXXX)"
+QPDF_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/evb-qpdf-linux-XXXXXX")"
 curl -fsSL -o "$QPDF_BUILD_DIR/qpdf.tar.gz" \
   "https://github.com/qpdf/qpdf/releases/download/v$QPDF_VERSION/qpdf-$QPDF_VERSION.tar.gz"
 echo "$QPDF_SHA256  $QPDF_BUILD_DIR/qpdf.tar.gz" | sha256sum -c -

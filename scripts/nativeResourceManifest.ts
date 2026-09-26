@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
 import {TESSERACT_PDF_FONT_FILE_NAME} from '@scripts/tesseractPdfFont';
 
@@ -81,13 +80,6 @@ export interface IGeneratedNativeToolResource {
     crateName: string;
     familyId: TGeneratedNativeToolResourceFamilyId;
     stagingName: string;
-}
-
-export interface INativeSourceMatrixCheckEntry {
-    kind: 'required';
-    label: string;
-    path: string;
-    type: TNativeResourcePathType;
 }
 
 export const NATIVE_RESOURCE_PLATFORM_ARCHES = [
@@ -367,27 +359,4 @@ export function parseNativeResourcePlatformArch(tag: string): INativeResourceTar
         platform,
         platformArch: `${platform}-${arch}`,
     };
-}
-
-export function getNativeSourceMatrixCheckEntries(tag: string): INativeSourceMatrixCheckEntry[] {
-    const target = parseNativeResourcePlatformArch(tag);
-    return NATIVE_TOOL_RESOURCE_FAMILIES.flatMap(family => (
-        family.packagedEntries.flatMap((entry): INativeSourceMatrixCheckEntry[] => {
-            if (entry.platforms && !entry.platforms.includes(target.platform)) {
-                return [];
-            }
-            const relativePath = entry.pathSegments
-                .map(segment => segment.replaceAll('{exeSuffix}', target.exeSuffix));
-            return [{
-                kind: 'required',
-                label: entry.label.endsWith(' binary') ? entry.id : entry.label,
-                path: path.posix.join(
-                    ...family.sourceRootSegments,
-                    target.platformArch,
-                    ...relativePath,
-                ),
-                type: entry.type,
-            }];
-        })
-    ));
 }

@@ -182,8 +182,11 @@ jobs:
           verify-electron: 'true'
           wasm: 'true'
 
+      - name: Fetch pinned native tools
+        run: node --import tsx scripts/fetchRuntimeBinaries.ts --target darwin-arm64
+
       - name: Install PDF test tools
-        run: brew install imagemagick poppler qpdf
+        run: brew install imagemagick
 
       - name: Electron E2E ${{ matrix.lane }}
         run: pnpm run test:e2e "${{ matrix.lane }}" --reporter verbose
