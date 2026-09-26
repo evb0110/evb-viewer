@@ -1,0 +1,22 @@
+app/platform/browser-api/settleBrowserWorkerResult.ts
+  s_c7a22ed355bd4e::t_65a72d48da3eaa 6,42-43,45-46,54-69
+app/utils/browserSettingsPersistence.ts
+  s_c7a22ed355bd4e::t_8addf604f6c81f 2,30-48,65-67,77
+  s_c7a22ed355bd4e::t_fcdcdc590a02f7 55-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "01c2c1d2f5a510e8433b89cdd1e36467853a7e6e",
+  "prompts": {},
+  "sessions": {
+    "s_c7a22ed355bd4e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0de54-9a7b-72a2-9a65-4c5ec8930593",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
