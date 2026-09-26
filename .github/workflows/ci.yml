@@ -454,7 +454,6 @@ jobs:
           runtime_run_id="$(gh run list \
             --workflow runtime-binaries.yml \
             --branch "$GITHUB_REF_NAME" \
-            --commit "$GITHUB_SHA" \
             --json databaseId,status,conclusion \
             --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
           if [ -n "$runtime_run_id" ]; then
