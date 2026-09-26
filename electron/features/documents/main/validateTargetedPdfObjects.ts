@@ -30,7 +30,7 @@ export async function validateTargetedPdfObjects(
             pdfPath,
         ], {
             timeoutMs: 60_000,
-            maxStdoutBytes: 256 * 1024,
+            maxStdoutBytes: 1024 * 1024,
             maxStderrBytes: 256 * 1024,
         });
         const output = result.stdout.trim();
