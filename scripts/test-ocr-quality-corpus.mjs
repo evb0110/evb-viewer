@@ -1117,6 +1117,10 @@ try {
             const productionRunner = await loadProductionRunner();
             const recognitionPresets = {
                 'defaults': productionRunner.DEFAULT_OCR_RECOGNITION_OPTIONS,
+                'balanced-clean': {
+                    ...productionRunner.DEFAULT_OCR_RECOGNITION_OPTIONS,
+                    preprocessingMode: 'clean',
+                },
                 'poor-scan': productionRunner.POOR_SCAN_OCR_RECOGNITION_OPTIONS,
             };
             recognitionOptions = recognitionPresets[recognitionPreset];
