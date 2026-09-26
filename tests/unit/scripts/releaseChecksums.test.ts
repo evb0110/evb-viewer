@@ -73,48 +73,19 @@ describe('release checksum manifest', () => {
         );
     });
 
-    it('tolerates unlisted supplemental assets attached after finalization but verifies listed ones', async () => {
-        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-supplemental-'));
+    it('includes every target asset in the immutable checksum manifest', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-release-checksums-matrix-'));
         await writeFile(join(directory, 'asset.zip'), 'core');
         await generateReleaseChecksums(directory);
-
-        // Supplemental Windows ARM assets attach after promotion, outside
-        // SHA256SUMS.
         await writeFile(join(directory, 'EVB-Viewer-0.1.427-arm64-setup.exe'), 'windows-arm');
-        await writeFile(
-            join(directory, 'EVB-Viewer-0.1.427-win-arm64-provenance.json'),
-            'windows-arm-provenance',
+        await expect(verifyReleaseChecksums(directory)).rejects.toThrow(
+            'missing: EVB-Viewer-0.1.427-arm64-setup.exe; unexpected: (none)',
         );
+        await generateReleaseChecksums(directory);
         await expect(verifyReleaseChecksums(directory)).resolves.toEqual({assetNames: [
             'EVB-Viewer-0.1.427-arm64-setup.exe',
-            'EVB-Viewer-0.1.427-win-arm64-provenance.json',
             'asset.zip',
         ]});
-
-        // With the release version pinned, only that release's exact asset
-        // name is exempt from the manifest.
-        await expect(verifyReleaseChecksums(directory, {releaseVersion: '0.1.427'}))
-            .resolves.toEqual({assetNames: [
-                'EVB-Viewer-0.1.427-arm64-setup.exe',
-                'EVB-Viewer-0.1.427-win-arm64-provenance.json',
-                'asset.zip',
-            ]});
-        await expect(verifyReleaseChecksums(directory, {releaseVersion: '0.1.428'}))
-            .rejects.toThrow(
-                'missing: EVB-Viewer-0.1.427-arm64-setup.exe, '
-                + 'EVB-Viewer-0.1.427-win-arm64-provenance.json; unexpected: (none)',
-            );
-
-        // A supplemental asset that made it into the manifest is still
-        // hash-verified like any other listed asset.
-        await writeFile(join(directory, 'SHA256SUMS'), [
-            `${sha256('core')}  asset.zip`,
-            `${sha256('not-windows-arm')}  EVB-Viewer-0.1.427-arm64-setup.exe`,
-            '',
-        ].join('\n'));
-        await expect(verifyReleaseChecksums(directory)).rejects.toThrow(
-            'Checksum mismatch for release asset: EVB-Viewer-0.1.427-arm64-setup.exe',
-        );
     });
 
     it('rejects duplicate, traversing, ambiguous, and malformed manifest basenames', () => {

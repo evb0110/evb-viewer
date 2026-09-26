@@ -16,13 +16,11 @@ import {
     join,
 } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { isSupplementalReleaseAsset } from './policy.mjs';
 
 const CHECKSUM_FILENAME = 'SHA256SUMS';
 const CHECKSUM_LINE_PATTERN = /^([a-f0-9]{64}) {2}(.+)$/u;
 
 /** @typedef {{name: string, sha256: string}} IChecksumEntry */
-/** @typedef {{releaseVersion?: string | undefined}} IVerifyReleaseChecksumsOptions */
 
 /** @param {string} artifactDirectory @returns {Promise<{assetNames: string[], checksumPath: string, contents: string}>} */
 export async function generateReleaseChecksums(artifactDirectory) {
@@ -50,8 +48,8 @@ export async function generateReleaseChecksums(artifactDirectory) {
     };
 }
 
-/** @param {string} artifactDirectory @param {IVerifyReleaseChecksumsOptions} [options] @returns {Promise<{assetNames: string[]}>} */
-export async function verifyReleaseChecksums(artifactDirectory, {releaseVersion} = {}) {
+/** @param {string} artifactDirectory @returns {Promise<{assetNames: string[]}>} */
+export async function verifyReleaseChecksums(artifactDirectory) {
     const assetNames = await releaseAssetNames(artifactDirectory);
     const checksumPath = join(artifactDirectory, CHECKSUM_FILENAME);
     const checksumStat = await lstat(checksumPath);
@@ -61,13 +59,7 @@ export async function verifyReleaseChecksums(artifactDirectory, {releaseVersion}
     const listedAssets = parseChecksumManifest(await readFile(checksumPath, 'utf8'));
     const actualSet = new Set(assetNames);
     const listedSet = new Set(listedAssets.map(asset => asset.name));
-    // Supplemental assets attach after SHA256SUMS is finalized, so an
-    // unlisted supplemental asset is expected on repair reruns. A listed one
-    // still gets full hash verification below. With a release version only
-    // the exact expected supplemental asset names are exempt.
-    const missing = assetNames.filter(
-        name => !listedSet.has(name) && !isSupplementalReleaseAsset(name, releaseVersion),
-    );
+    const missing = assetNames.filter(name => !listedSet.has(name));
     const unexpected = listedAssets.map(asset => asset.name).filter(name => !actualSet.has(name));
     if (missing.length > 0 || unexpected.length > 0) {
         throw new Error(
@@ -195,13 +187,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const [
         command,
         artifactDirectory,
-        releaseVersion,
         ...extraArguments
     ] = process.argv.slice(2);
     if (
         !artifactDirectory
         || extraArguments.length > 0
-        || (releaseVersion !== undefined && command !== 'verify')
         || (command !== 'generate' && command !== 'verify')
     ) {
         throw new Error(
@@ -211,6 +201,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (command === 'generate') {
         await generateReleaseChecksums(artifactDirectory);
     } else {
-        await verifyReleaseChecksums(artifactDirectory, {releaseVersion});
+        await verifyReleaseChecksums(artifactDirectory);
     }
 }

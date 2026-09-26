@@ -10,7 +10,6 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
-    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -25,12 +24,15 @@ import {
 type TReleaseArch = 'arm64' | 'x64';
 type TReleasePlatform = 'linux' | 'mac' | 'win';
 type TReleaseEnv = Record<string, string>;
+interface IMacUpdaterFileInfo {
+    sha512: string;
+    size: number;
+}
 type TRunCommand = (
     command: string,
     args: string[],
     options: IRunCommandOptions,
 ) => unknown;
-type TSleepFn = (duration: number) => Promise<void>;
 
 interface IReleaseTarget {
     arch: string;
@@ -178,22 +180,6 @@ interface IReleasePackageModule {
     ) => string[];
 }
 
-interface IAssertBuildArtifactsOptions {
-    arch: TReleaseArch;
-    artifactNames: string[];
-    env?: TReleaseEnv;
-    platform: TReleasePlatform;
-    readArtifactInfo?: (artifactName: string) => IMacUpdaterFileInfo;
-    readMetadataText: (fileName: string) => string;
-}
-
-interface IAssertBuildArtifactsModule { assertBuildArtifacts: (options: IAssertBuildArtifactsOptions) => boolean; }
-
-interface IMacUpdaterFileInfo {
-    sha512: string;
-    size: number;
-}
-
 interface IMacDmgNotarizationModule {
     assertMacUpdaterMetadataHashes: (options: {
         artifactNames: string[];
@@ -233,83 +219,6 @@ interface IMacDmgNotarizationModule {
     ) => string;
 }
 
-interface IReleaseSharedModule {
-    PUBLICATION_POLICY_SCRIPT: string;
-    getPublicationPolicyCheckArgs: (beforeSha: string, headSha: string) => string[];
-    assertGitHubCliReady: (
-        workflowName: string,
-        options: {
-            delayMs: number;
-            runCommand: TRunCommand;
-            sleepFn: TSleepFn;
-            stderr: { write: (message: string) => void };
-        },
-    ) => Promise<void>;
-    assertTagAbsent: (
-        tag: string,
-        remote: string,
-        options: {
-            delayMs: number;
-            runCommand: TRunCommand;
-            sleepFn: TSleepFn;
-            stderr: { write: (message: string) => void };
-        },
-    ) => Promise<void>;
-    filterIgnoredFiles: (files: string[], ignoredRoots: string[]) => string[];
-    isTransientGitHubAuthError: (error: unknown) => boolean;
-    isTransientRemoteGitError: (error: unknown) => boolean;
-}
-
-interface ICutReleaseArgs {
-    artifactEvidence?: 'advisory' | 'mandatory';
-    level: string | null;
-    requiredCommits: string[];
-    resume: boolean;
-}
-
-interface IUpstream {
-    branch: string;
-    remote: string;
-}
-
-interface IPublishDependencies {
-    dispatchWorkflow?: (options: unknown) => void;
-    printHandoff?: (options: unknown) => Promise<void>;
-    pushReleaseTag?: (options: unknown, dependencies?: unknown) => void;
-    runCommand?: (command: string, args: string[], options?: unknown) => string;
-}
-
-interface ICutReleaseModule {
-    getReleaseWorkflowDispatchArgs: (options: {
-        branch: string;
-        tag: string;
-        targetSha: string;
-    }) => string[];
-    parseCutReleaseArgs: (argv: string[]) => ICutReleaseArgs;
-    publishReleaseCommit: (
-        options: {
-            parentSha: string;
-            tag: string;
-            targetSha: string;
-            upstream: IUpstream;
-        },
-        dependencies: IPublishDependencies,
-    ) => Promise<string>;
-}
-
-interface IReleaseArtifactsDispatchOptions {
-    branch: string;
-    targetSha: string;
-}
-
-interface IReleaseArtifactsModule {
-    getReleaseArtifactsWorkflowDispatchArgs: (options: IReleaseArtifactsDispatchOptions) => string[];
-    publishReleaseArtifactsCommit: (
-        options: {upstream: IUpstream},
-        dependencies: IPublishDependencies,
-    ) => Promise<string>;
-}
-
 function getPackageScripts(): Record<string, string> {
     const packageJson = JSON.parse(
         readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
@@ -327,8 +236,6 @@ const {
     getLocalReleaseTargets,
     getReleaseAutomationEnv,
     getRequiredArtifactPatterns,
-    getSupplementalReleaseAssetNames,
-    isSupplementalReleaseAsset,
     parseUpdaterMetadataFileUrls,
     shouldVerifyPackagedStartup,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/policy.mjs')).href) as IReleasePolicyModule;
@@ -348,7 +255,6 @@ const {
     getLocalReleaseBuildCommand,
     getPackagingArgs,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/verify-local-package.mjs')).href) as IReleasePackageModule;
-const { assertBuildArtifacts } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-build-artifacts.mjs')).href) as IAssertBuildArtifactsModule;
 const {
     assertMacUpdaterMetadataHashes,
     computeArtifactFileInfo,
@@ -357,24 +263,8 @@ const {
     parseMacUpdaterFileEntries,
     updateMacUpdaterMetadataArtifactInfo,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/notarize-macos-dmgs.mjs')).href) as IMacDmgNotarizationModule;
-const {
-    PUBLICATION_POLICY_SCRIPT,
-    assertGitHubCliReady,
-    assertTagAbsent,
-    filterIgnoredFiles,
-    getPublicationPolicyCheckArgs,
-    isTransientGitHubAuthError,
-    isTransientRemoteGitError,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href) as IReleaseSharedModule;
-const {
-    getReleaseWorkflowDispatchArgs,
-    parseCutReleaseArgs,
-    publishReleaseCommit,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/cut-release.mjs')).href) as ICutReleaseModule;
-const {
-    getReleaseArtifactsWorkflowDispatchArgs,
-    publishReleaseArtifactsCommit,
-} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/build-artifacts.mjs')).href) as IReleaseArtifactsModule;
+const {filterIgnoredFiles} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href);
+
 
 function writeExecutable(filePath: string, lines: string[]): void {
     writeFileSync(filePath, `${lines.join('\n')}\n`);
@@ -460,32 +350,6 @@ describe('release policy', () => {
         expect(() => accessSync(executable, constants.X_OK)).not.toThrow();
     });
 
-    it('classifies only supplemental channel assets as outside the immutable core set', () => {
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64.zip')).toBe(false);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe')).toBe(true);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-win-arm64-provenance.json')).toBe(true);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64.zip')).toBe(false);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-x64-setup.exe')).toBe(false);
-        expect(isSupplementalReleaseAsset('SHA256SUMS')).toBe(false);
-
-        // With a release version, only that release's exact asset name is
-        // supplemental; other versions stop being exempt, and an explicitly
-        // supplied empty version is a caller bug, not a pattern fallback.
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe', '0.1.427')).toBe(true);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.427-win-arm64-provenance.json', '0.1.427')).toBe(true);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-arm64-setup.exe', '0.1.427')).toBe(false);
-        expect(isSupplementalReleaseAsset('EVB-Viewer-0.1.426-win-arm64-provenance.json', '0.1.427'))
-            .toBe(false);
-        expect(getSupplementalReleaseAssetNames('0.1.427')).toEqual([
-            'EVB-Viewer-0.1.427-arm64-setup.exe',
-            'EVB-Viewer-0.1.427-arm64-setup.exe.blockmap',
-            'latest-win-arm64.yml',
-            'EVB-Viewer-0.1.427-win-arm64-provenance.json',
-        ]);
-        expect(() => isSupplementalReleaseAsset('EVB-Viewer-0.1.427-arm64-setup.exe', ''))
-            .toThrow('non-empty release version');
-    });
-
     it('derives local release targets from host platform and arch', () => {
         expect(getLocalReleaseTargets({
             arch: 'arm64',
@@ -526,42 +390,6 @@ describe('release policy', () => {
         expect(expectsUpdaterMetadata(macTarget, { EVB_RELEASE_HAS_MAC_SIGNING: 'true' })).toBe(true);
         expect(shouldVerifyPackagedStartup(macTarget, unsignedEnv)).toBe(false);
         expect(shouldVerifyPackagedStartup(macTarget, signedEnv)).toBe(true);
-    });
-
-    it.each([
-        'x64',
-        'arm64',
-    ] as const)('publishes a matching unsigned Windows %s feed', (arch) => {
-        const target = getLocalReleaseTargets({
-            platform: 'win32',
-            arch,
-        })[0]!;
-        expect(expectsUpdaterMetadata(target, {})).toBe(true);
-        const installer = `EVB-Viewer-0.1.0-${arch}-setup.exe`;
-        const metadata = `latest-win-${arch}.yml`;
-        const artifactNames = [
-            installer,
-            `${installer}.blockmap`,
-            metadata,
-        ];
-        expect(assertBuildArtifacts({
-            arch,
-            platform: 'win',
-            env: {},
-            artifactNames,
-            readMetadataText: () => `version: 0.1.0\npath: ${installer}\nfiles:\n  - url: ${installer}\n`,
-        })).toBe(true);
-        const otherInstaller = `EVB-Viewer-0.1.0-${arch === 'x64' ? 'arm64' : 'x64'}-setup.exe`;
-        expect(() => assertBuildArtifacts({
-            arch,
-            platform: 'win',
-            env: {},
-            artifactNames: [
-                otherInstaller,
-                metadata,
-            ],
-            readMetadataText: () => `path: ${otherInstaller}\nfiles:\n  - url: ${otherInstaller}\n`,
-        })).toThrow('must reference its matching installer');
     });
 
     it('provides a release automation env that stays in CI mode', () => {
@@ -991,453 +819,19 @@ describe('release policy', () => {
         ]));
     });
 
-    // Every release entry point runs with HUSKY=0, and the release commit carries
-    // `[skip ci]`, so this scan — run as part of the same command before push — is
-    // the only publication gate: neither the pre-push hook nor the CI publication policy
-    // job sees these pushes.
-    describe('release publication gate', () => {
-        const upstream = {
-            branch: 'main',
-            remote: 'origin',
-        };
-
-        function createRunCommandRecorder(failingCommand?: string, {
-            lsRemoteError,
-            lsRemoteOutput = 'beforesha\trefs/heads/main\n',
-            missingLocalOids = [],
-        }: {
-            lsRemoteError?: string;
-            lsRemoteOutput?: string;
-            missingLocalOids?: string[];
-        } = {}) {
-            const calls: Array<{
-                args: string[];
-                command: string;
-            }> = [];
-
-            return {
-                calls,
-                runCommand(command: string, args: string[]) {
-                    calls.push({
-                        args,
-                        command,
-                    });
-                    if (command === failingCommand) {
-                        throw new Error('a local-only artifact was found');
-                    }
-                    if (command === 'git' && args[0] === 'ls-remote') {
-                        if (lsRemoteError != null) {
-                            throw new Error(lsRemoteError);
-                        }
-                        return lsRemoteOutput;
-                    }
-                    // `git rev-parse --verify --quiet <oid>^{commit}` exits non-zero
-                    // when the object is absent from this checkout.
-                    if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--verify') {
-                        const oid = String(args.at(-1)).replace('^{commit}', '');
-                        if (missingLocalOids.includes(oid)) {
-                            throw new Error(`fatal: ${oid} is not a valid object name`);
-                        }
-                        return oid;
-                    }
-                    if (command === 'git' && args[0] === 'rev-parse') {
-                        return 'headsha';
-                    }
-                    return '';
-                },
-            };
-        }
-
-        // The artifact canary pushes the operator's branch tip, so it scans
-        // the whole upstream-before..HEAD range. The release cutter is tested
-        // separately below: it publishes one version-only commit by tag.
-        const publishers = [[
-            'release:artifacts',
-            async (dependencies: IPublishDependencies) => await publishReleaseArtifactsCommit(
-                {upstream},
-                dependencies,
-            ),
-            [['dispatch']],
-        ]] as const;
-
-        function publish(
-            publisher: (dependencies: IPublishDependencies) => Promise<string>,
-            failingCommand?: string,
-            recorderOptions?: Parameters<typeof createRunCommandRecorder>[1],
-        ) {
-            const recorder = createRunCommandRecorder(failingCommand, recorderOptions);
-
-            return {
-                calls: recorder.calls,
-                result: publisher({
-                    // Recorded like a command so the ordering assertion covers the
-                    // workflow dispatch too.
-                    dispatchWorkflow: () => recorder.calls.push({
-                        args: [],
-                        command: 'dispatch',
-                    }),
-                    printHandoff: async () => undefined,
-                    pushReleaseTag: () => recorder.calls.push({
-                        args: [],
-                        command: 'tag',
-                    }),
-                    runCommand: recorder.runCommand,
-                }),
-            };
-        }
-
-        it('release:cut scans exactly the release commit over its parent before tagging and dispatching', async () => {
-            const recorder = createRunCommandRecorder();
-
-            await expect(publishReleaseCommit({
-                parentSha: 'parentsha',
-                tag: 'v1.2.3',
-                targetSha: 'releasesha',
-                upstream,
-            }, {
-                dispatchWorkflow: () => recorder.calls.push({
-                    args: [],
-                    command: 'dispatch',
-                }),
-                printHandoff: async () => undefined,
-                pushReleaseTag: () => recorder.calls.push({
-                    args: [],
-                    command: 'tag',
-                }),
-                runCommand: recorder.runCommand,
-            })).resolves.toBe('releasesha');
-
-            expect(recorder.calls.map(({command}) => command)).toEqual([
-                'node',
-                'tag',
-                'dispatch',
-            ]);
-            expect(recorder.calls[0]?.args).toEqual(getPublicationPolicyCheckArgs('parentsha', 'releasesha'));
-        });
-
-        it('release:cut propagates a failing scan and never tags or dispatches', async () => {
-            const recorder = createRunCommandRecorder('node');
-
-            await expect(publishReleaseCommit({
-                parentSha: 'parentsha',
-                tag: 'v1.2.3',
-                targetSha: 'releasesha',
-                upstream,
-            }, {
-                dispatchWorkflow: () => recorder.calls.push({
-                    args: [],
-                    command: 'dispatch',
-                }),
-                printHandoff: async () => undefined,
-                pushReleaseTag: () => recorder.calls.push({
-                    args: [],
-                    command: 'tag',
-                }),
-                runCommand: recorder.runCommand,
-            })).rejects.toThrow('a local-only artifact was found');
-
-            expect(recorder.calls.map(({command}) => command)).toEqual(['node']);
-        });
-
-        it.each(publishers)('%s scans the upstream-before SHA through HEAD before pushing', async (
-            _label,
-            publisher,
-            afterPush,
-        ) => {
-            const {
-                calls,
-                result,
-            } = publish(publisher);
-
-            await expect(result).resolves.toBe('headsha');
-            expect(calls.map(({
-                args,
-                command,
-            }) => [
-                command,
-                ...args.slice(0, 2),
-            ])).toEqual([
-                [
-                    'git',
-                    'rev-parse',
-                    'HEAD',
-                ],
-                [
-                    'git',
-                    'ls-remote',
-                    'origin',
-                ],
-                [
-                    'git',
-                    'rev-parse',
-                    '--verify',
-                ],
-                [
-                    'node',
-                    PUBLICATION_POLICY_SCRIPT,
-                    '--pushed-range',
-                ],
-                [
-                    'git',
-                    'push',
-                    'origin',
-                ],
-                ...afterPush,
-            ]);
-            expect(calls[2]?.args.at(-1)).toBe('beforesha^{commit}');
-            expect(calls[3]?.args).toEqual(getPublicationPolicyCheckArgs('beforesha', 'headsha'));
-            // The scanned script has to be the real checker, resolved from the
-            // module rather than from the caller's working directory.
-            expect(PUBLICATION_POLICY_SCRIPT)
-                .toBe(resolve(process.cwd(), 'scripts/check-publication-policy.mjs'));
-            expect(existsSync(PUBLICATION_POLICY_SCRIPT)).toBe(true);
-        });
-
-        // A stale checkout cannot exclude the advertised upstream tip from the
-        // scan, so the scan would widen to the head's whole history and report
-        // every artifact any historical commit ever touched. That reads as a
-        // policy failure when the real remedy is `git fetch`, so publishing has
-        // to stop before the scan and say so.
-        it.each(publishers)('%s fails closed when the advertised upstream tip is missing locally', async (
-            _label,
-            publisher,
-        ) => {
-            const {
-                calls,
-                result,
-            } = publish(publisher, undefined, {missingLocalOids: ['beforesha']});
-
-            await expect(result).rejects.toThrow(
-                /origin\/main is at beforesha, which is missing from this checkout.*git fetch origin main/su,
-            );
-            expect(calls.some(({command}) => command === 'node')).toBe(false);
-            expect(calls.some(({
-                args,
-                command,
-            }) => command === 'git' && args[0] === 'push')).toBe(false);
-            expect(calls.some(({command}) => command === 'dispatch')).toBe(false);
-            // Fetching is the operator's call: the gate must not move refs itself.
-            expect(calls.some(({
-                args,
-                command,
-            }) => command === 'git' && [
-                'fetch',
-                'remote',
-                'update-ref',
-            ].includes(String(args[0])))).toBe(false);
-        });
-
-        it.each(publishers)('%s scans the advertised range when the upstream tip is present locally', async (
-            _label,
-            publisher,
-        ) => {
-            const {
-                calls,
-                result,
-            } = publish(publisher);
-
-            await expect(result).resolves.toBe('headsha');
-            expect(calls.find(({command}) => command === 'node')?.args)
-                .toEqual(getPublicationPolicyCheckArgs('beforesha', 'headsha'));
-        });
-
-        // A branch the remote does not have yet advertises nothing; the empty
-        // before SHA keeps the checker's full-history scan for a new branch.
-        it.each(publishers)('%s scans the full history when the upstream advertises nothing', async (
-            _label,
-            publisher,
-        ) => {
-            const {
-                calls,
-                result,
-            } = publish(publisher, undefined, {lsRemoteOutput: ''});
-
-            await expect(result).resolves.toBe('headsha');
-            expect(calls.find(({command}) => command === 'node')?.args)
-                .toEqual(getPublicationPolicyCheckArgs('', 'headsha'));
-            // Nothing to look up locally, so no presence probe is issued.
-            expect(calls.some(({
-                args,
-                command,
-            }) => command === 'git' && args[1] === '--verify')).toBe(false);
-        });
-
-        it.each(publishers)('%s aborts when the remote advertisement cannot be read', async (
-            _label,
-            publisher,
-        ) => {
-            const {
-                calls,
-                result,
-            } = publish(publisher, undefined, {lsRemoteError: 'fatal: Could not resolve host: github.com'});
-
-            await expect(result).rejects.toThrow('Could not resolve host');
-            expect(calls.some(({command}) => command === 'node')).toBe(false);
-            expect(calls.some(({
-                args,
-                command,
-            }) => command === 'git' && args[0] === 'push')).toBe(false);
-            expect(calls.some(({command}) => command === 'dispatch')).toBe(false);
-        });
-
-        it.each(publishers)('%s propagates a failing scan and never pushes or dispatches', async (
-            _label,
-            publisher,
-        ) => {
-            const {
-                calls,
-                result,
-            } = publish(publisher, 'node');
-
-            await expect(result).rejects.toThrow('a local-only artifact was found');
-            expect(calls.some(({
-                args,
-                command,
-            }) => command === 'git' && args[0] === 'push')).toBe(false);
-            expect(calls.some(({command}) => command === 'dispatch')).toBe(false);
-        });
-
-        // The runtime tests above prove that the publishers scan before pushing.
-        // What they cannot observe is a *second* push written elsewhere in
-        // scripts/release/, which would publish without a scan. Every `git push`
-        // in these scripts spells the subcommand as a string literal in the
-        // argument array whatever the surrounding formatting, so count those:
-        // exactly two, both in the module that owns the scanned publisher. The
-        // second is the release tag push, which the cutter reaches only after
-        // scanning the one commit that tag makes public.
-        it('routes every release push through the scanned publisher', () => {
-            const releaseDirectory = resolve(process.cwd(), 'scripts/release');
-            const sources = new Map(readdirSync(releaseDirectory)
-                .filter(fileName => fileName.endsWith('.mjs'))
-                .map(fileName => [
-                    fileName,
-                    readFileSync(join(releaseDirectory, fileName), 'utf8'),
-                ]));
-
-            expect(sources.size).toBeGreaterThan(1);
-            expect([...sources]
-                .map(([
-                    fileName,
-                    source,
-                ]) => ({
-                    fileName,
-                    pushes: source.match(/(['"])push\1/gu)?.length ?? 0,
-                }))
-                .filter(({pushes}) => pushes > 0)).toEqual([
-                {
-                    fileName: 'shared.mjs',
-                    pushes: 2,
-                },
-                {
-                    fileName: 'wait-for-exact-sha-ci.mjs',
-                    pushes: 1,
-                },
-            ]);
-
-            // Both release entry-point modules reach that publisher instead of
-            // pushing themselves.
-            for (const fileName of [
-                'cut-release.mjs',
-                'build-artifacts.mjs',
-            ]) {
-                expect(sources.get(fileName), fileName).toMatch(/\bpushReleaseBranch\b/u);
-            }
-        });
-    });
-
-    it('supports release resume without requiring a new version bump level', () => {
-        expect(parseCutReleaseArgs(['patch'])).toEqual({
-            artifactEvidence: undefined,
-            level: 'patch',
-            requiredCommits: [],
-            resume: false,
-        });
-        expect(parseCutReleaseArgs(['--resume'])).toEqual({
-            artifactEvidence: undefined,
-            level: null,
-            requiredCommits: [],
-            resume: true,
-        });
-        expect(() => parseCutReleaseArgs([
-            'patch',
-            '--resume',
-        ])).toThrow('does not accept a release level');
-        expect(parseCutReleaseArgs([
-            'patch',
-            '--require-commit',
-            'fix/release-candidate',
-            '--require-commit=abc123',
-            '--artifact-evidence=advisory',
-        ])).toEqual({
-            artifactEvidence: 'advisory',
-            level: 'patch',
-            requiredCommits: [
-                'fix/release-candidate',
-                'abc123',
-            ],
-            resume: false,
-        });
-        expect(() => parseCutReleaseArgs(['--full-verify'])).toThrow('Unknown release option');
-    });
-
-    it('dispatches release and artifact workflows with exact target refs', () => {
-        expect(getReleaseWorkflowDispatchArgs({
-            branch: 'main',
-            tag: 'v1.2.3',
-            targetSha: 'abc123',
-        })).toEqual([
-            'workflow',
-            'run',
-            'release.yml',
-            '--ref',
-            'main',
-            '--field',
-            'tag=v1.2.3',
-            '--field',
-            'target_ref=abc123',
-        ]);
-        expect(getReleaseArtifactsWorkflowDispatchArgs({
-            branch: 'main',
-            targetSha: 'abc123',
-        })).toEqual([
-            'workflow',
-            'run',
-            'release-artifacts.yml',
-            '--ref',
-            'main',
-            '--field',
-            'target_ref=abc123',
-        ]);
-    });
-
-    it('reports release promotion gates by their actual verified outcomes', () => {
+    it('uses the unified tag-triggered five-target release workflow', () => {
         const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
-        expect(workflow).toContain('Report release gate outcomes');
-        expect(workflow).toContain('Updater metadata path policy');
-        expect(workflow).toContain('Published asset presence and integrity');
-        expect(workflow).toContain('Public promotion | deferred until required distribution channels complete');
-        expect(workflow).toContain('steps.uploaded_assets.outcome');
-    });
-
-    it('reuses immutable public assets before the extracted publish chain', () => {
-        const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
-        const publishJobStart = workflow.indexOf('\n  publish:\n');
-        expect(publishJobStart).toBeGreaterThanOrEqual(0);
-        const chainJobStart = workflow.indexOf('\n  chain:\n');
-        expect(chainJobStart).toBeGreaterThan(publishJobStart);
-        const publishJob = workflow.slice(publishJobStart, chainJobStart);
-
-        expect(workflow).toContain('release view "$RELEASE_TAG" --json isDraft,targetCommitish');
-        expect(workflow).toContain('git/ref/tags/${RELEASE_TAG}');
-        expect(workflow).toContain('git/tags/${resolved_release_sha}');
-        expect(workflow).toContain('[ "$resolved_release_sha" != "$TARGET_SHA" ]');
-        expect(workflow).toContain('already_public=true');
-        expect(workflow).toContain('Existing public assets passed presence and updater integrity checks');
-        expect(workflow).toContain('Retaining checksum-finalized draft assets from the same target');
-        expect(workflow).toContain('grep -Fq \'release not found\'');
-        expect(publishJob).not.toContain('gh release upload "$RELEASE_TAG" artifacts/* --clobber');
-        expect(workflow).toContain('uses: ./.github/workflows/publish-chain.yml');
-        expect(workflow).toContain('Mirror channel');
+        expect(workflow).toContain('tags: [\'v*\']');
+        expect(workflow).toContain('windows-11-arm');
+        expect(workflow).toContain('name: Validate assets, checksum, mirror, promote');
+        expect(workflow).toContain('wait-for-exact-sha-ci.mjs');
+        expect(workflow).toContain('electron-builder --publish never');
+        expect(workflow).toContain('assert-final-release-assets.mjs');
+        expect(workflow).toContain('attest-build-provenance');
+        expect(workflow).toContain('publish-release-mirror.mjs');
+        expect(workflow).toContain('Promote real release draft');
+        expect(workflow).not.toContain('release-supplemental.yml');
+        expect(workflow).not.toContain('release-artifacts.yml');
     });
 
     it('keeps standalone release verification split into check and package gates', () => {
@@ -1473,92 +867,6 @@ describe('release policy', () => {
             'package.json',
             'app/app.vue',
         ]);
-    });
-
-    it('retries transient remote tag lookup failures during release preflight', async () => {
-        const stderr: string[] = [];
-        const sleeps: number[] = [];
-        let remoteAttempts = 0;
-
-        await assertTagAbsent('v1.2.3', 'origin', {
-            delayMs: 10,
-            runCommand: (_command: string, args: string[]) => {
-                if (args[0] === 'rev-parse') {
-                    throw Object.assign(new Error('unknown revision'), { status: 128 });
-                }
-
-                remoteAttempts += 1;
-                if (remoteAttempts === 1) {
-                    throw Object.assign(new Error('Recv failure: Connection reset by peer'), { status: 128 });
-                }
-
-                throw Object.assign(new Error('not found'), { status: 2 });
-            },
-            sleepFn: async (duration: number) => {
-                sleeps.push(duration);
-            },
-            stderr: { write: (message: string) => stderr.push(message) },
-        });
-
-        expect(remoteAttempts).toBe(2);
-        expect(sleeps).toEqual([10]);
-        expect(stderr.join('')).toContain('Transient remote tag check failure for v1.2.3');
-        expect(isTransientRemoteGitError(new Error('Recv failure: Connection reset by peer'))).toBe(true);
-    });
-
-    it('retries transient GitHub CLI auth keyring failures during release preflight', async () => {
-        const stderr: string[] = [];
-        const sleeps: number[] = [];
-        let attempts = 0;
-
-        await assertGitHubCliReady('Release', {
-            delayMs: 10,
-            runCommand: () => {
-                attempts += 1;
-                if (attempts === 1) {
-                    throw new Error('Timeout trying to log in to github.com account evb0110 (keyring)');
-                }
-                return '';
-            },
-            sleepFn: async (duration: number) => {
-                sleeps.push(duration);
-            },
-            stderr: { write: (message: string) => stderr.push(message) },
-        });
-
-        expect(attempts).toBe(2);
-        expect(sleeps).toEqual([10]);
-        expect(stderr.join('')).toContain('Transient GitHub CLI auth check failure');
-        expect(isTransientGitHubAuthError(new Error('Timeout trying to log in to github.com account evb0110 (keyring)'))).toBe(true);
-    });
-
-    it('accepts an authenticated GraphQL fallback when GitHub REST auth status stays unavailable', async () => {
-        const calls: string[][] = [];
-        const stderr: string[] = [];
-
-        await assertGitHubCliReady('Release', {
-            delayMs: 0,
-            runCommand: (_command: string, args: string[]) => {
-                calls.push(args);
-                if (args[0] === 'auth') {
-                    throw new Error('HTTP 503: 503 Service Unavailable (keyring)');
-                }
-                return 'evb0110';
-            },
-            sleepFn: async () => undefined,
-            stderr: { write: (message: string) => stderr.push(message) },
-        });
-
-        expect(calls.filter(args => args[0] === 'auth')).toHaveLength(3);
-        expect(calls.at(-1)).toEqual([
-            'api',
-            'graphql',
-            '--field',
-            'query=query { viewer { login } }',
-            '--jq',
-            '.data.viewer.login',
-        ]);
-        expect(stderr.join('')).toContain('authenticated GraphQL fallback succeeded');
     });
 
     it('runs release checks under the supplied CI-mode environment', () => {
@@ -1936,55 +1244,5 @@ describe('release policy', () => {
         ]);
     });
 
-    it('validates matrix build artifacts before upload', () => {
-        const macMetadata = [
-            'version: 0.1.0',
-            'path: EVB-Viewer-0.1.0-arm64.zip',
-            'files:',
-            '  - url: EVB-Viewer-0.1.0-arm64.zip',
-            '  - url: EVB-Viewer-0.1.0-arm64.dmg',
-        ].join('\n');
 
-        expect(assertBuildArtifacts({
-            arch: 'arm64',
-            platform: 'mac',
-            env: {
-                EVB_RELEASE_HAS_MAC_SIGNING: 'true',
-                EVB_RELEASE_HAS_WINDOWS_SIGNING: 'false',
-            },
-            artifactNames: [
-                'EVB-Viewer-0.1.0-arm64.dmg',
-                'EVB-Viewer-0.1.0-arm64.dmg.blockmap',
-                'EVB-Viewer-0.1.0-arm64.zip',
-                'EVB-Viewer-0.1.0-arm64.zip.blockmap',
-                'latest-mac.yml',
-            ],
-            readMetadataText: () => macMetadata,
-        })).toBe(true);
-
-        expect(() => assertBuildArtifacts({
-            arch: 'arm64',
-            platform: 'linux',
-            artifactNames: [
-                'EVB Viewer-0.1.0-arm64.AppImage',
-                'EVB Viewer-0.1.0-arm64.deb',
-                'latest-linux.yml',
-            ],
-            readMetadataText: () => 'path: EVB Viewer-0.1.0-arm64.AppImage\n',
-        })).toThrow('latest-linux.yml');
-
-        expect(() => assertBuildArtifacts({
-            arch: 'arm64',
-            platform: 'win',
-            env: {
-                EVB_RELEASE_HAS_MAC_SIGNING: 'false',
-                EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
-            },
-            artifactNames: [
-                'EVB Viewer Setup 0.1.0-arm64.exe',
-                'EVB Viewer Setup 0.1.0-arm64.exe.blockmap',
-            ],
-            readMetadataText: () => '',
-        })).toThrow('Missing updater metadata for win-arm64');
-    });
 });
