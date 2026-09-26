@@ -7,7 +7,27 @@ import {
 } from 'vitest';
 import {normalizePdfNativeMutationSet} from '@pdf-core';
 import {PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
-import {decodePdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
+import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
+import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
+import * as v from 'valibot';
+
+const annotationParseFixtureSchema = v.pipe(
+    v.strictObject({
+        format: v.literal('evb-pdf-annotation-parse'),
+        schemaVersion: v.literal(1),
+        pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        chunkBytes: v.pipe(
+            v.number(),
+            v.safeInteger(),
+            v.minValue(64),
+            v.maxValue(PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
+                `annotation parse fixture chunkBytes must be at most ${PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES}`),
+        ),
+        chunkIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        entries: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
+    }, 'contains unsupported field'),
+    v.check(value => value.entries.length <= PDF_ANNOTATION_PARSE_MAX_ENTRIES),
+);
 
 describe('native interop golden protocol fixtures', () => {
     it('keeps the TS mutation validator aligned with the Rust sidecar fixture', async () => {
@@ -65,7 +85,7 @@ describe('native interop golden protocol fixtures', () => {
     it('keeps the TS parse guards aligned with the Rust sidecar fixture', async () => {
         const fixturePath = resolve(process.cwd(), 'native/protocol-fixtures/pdf-page-ops-parse-annotations.json');
         const source = await readFile(fixturePath, 'utf8');
-        const fixture = decodePdfAnnotationParseProtocolFixture(JSON.parse(source) as unknown);
+        const fixture = v.parse(annotationParseFixtureSchema, JSON.parse(source) as unknown, {abortEarly: true});
 
         expect(fixture.format).toBe('evb-pdf-annotation-parse');
         expect(fixture.schemaVersion).toBe(1);
@@ -136,10 +156,10 @@ describe('native interop golden protocol fixtures', () => {
 
         const withUnknownField = JSON.parse(source) as Record<string, unknown>;
         withUnknownField.unexpected = true;
-        expect(() => decodePdfAnnotationParseProtocolFixture(withUnknownField)).toThrow(/unsupported field/iu);
+        expect(() => v.parse(annotationParseFixtureSchema, withUnknownField, {abortEarly: true})).toThrow(/unsupported field/iu);
 
         const oversizedChunk = JSON.parse(source) as Record<string, unknown>;
         oversizedChunk.chunkBytes = PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES + 1;
-        expect(() => decodePdfAnnotationParseProtocolFixture(oversizedChunk)).toThrow(/chunkBytes/iu);
+        expect(() => v.parse(annotationParseFixtureSchema, oversizedChunk, {abortEarly: true})).toThrow(/chunkBytes/iu);
     });
 });

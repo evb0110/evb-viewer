@@ -4,25 +4,9 @@ import {
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
     PDF_ANNOTATION_SHAPE_TYPES,
 } from '@contracts/annotations';
+import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
+import type {TPageIndex} from '@contracts/pageNumbers';
 import {
-    PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
-    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
-    type IPdfAnnotationForeignEntry,
-    type IPdfAnnotationHighlightEntry,
-    type IPdfAnnotationNoteEntry,
-    type IPdfAnnotationNoteReply,
-    type IPdfAnnotationParseEntry,
-    type IPdfAnnotationParsePoint,
-    type IPdfAnnotationParseOptions,
-    type IPdfAnnotationParseResult,
-    type IPdfAnnotationShapeEntry,
-    type IPdfAnnotationStampEntry,
-    type IPdfAnnotationStampImageReference,
-    type IPdfAnnotationTextBoxEntry,
-} from '@contracts/pdfAnnotationParseTypes';
-import {
-    decodeArgumentArray,
-    decodeSafeIntegerValue,
     documentArgs,
     documentResult,
 } from '@contracts/documentsPlatformFeatureSchemas';
@@ -34,568 +18,322 @@ import {
     parseDocumentRef,
     requireDocumentRef,
 } from '@contracts/documentRef';
-import {requireEpochMs} from '@contracts/timestamps';
-import {
-    decodePdfRevisionOptions as decodeRevisionOptions,
-    decodeRequiredDocumentObject as decodeRequiredObject,
-} from '@contracts/documentsPersistenceSchemas';
 import {isPdfNativeNormalizedRectInsidePageBounds} from '@contracts/nativePdfPageBounds';
-import {isOneOf} from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
-function fail(message: string): never {
-    throw new Error(message);
-}
-
-function rejectUnknownFields(value: Record<string, unknown>, fieldName: string, allowed: readonly string[]) {
-    const unknown = Object.keys(value).find(key => !allowed.includes(key));
-    if (unknown !== undefined) {
-        fail(`${fieldName} contains unsupported field ${unknown}`);
-    }
-}
-
-const fixtureRevisionToken = requireDocumentRevisionToken('drt1:annotation-parse-fixture');
-const fixtureRevisionOptions = {expectedDocumentRevisionToken: fixtureRevisionToken};
 const SHA256_PATTERN = /^[0-9a-f]{64}$/iu;
 
-function decodeStringValue(value: unknown, fieldName: string, allowEmpty = false) {
-    if (typeof value !== 'string' || (!allowEmpty && value.length === 0)) {
-        fail(`${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`);
-    }
-    return value;
+function finiteNumber(fieldName: string, min?: number, max?: number) {
+    const bounds = `${min === undefined ? '' : ` >= ${min}`}${max === undefined ? '' : ` <= ${max}`}`;
+    return v.pipe(
+        v.number(`${fieldName} must be a finite number${bounds}`),
+        v.finite(`${fieldName} must be a finite number${bounds}`),
+        v.check(value => (min === undefined || value >= min) && (max === undefined || value <= max),
+            `${fieldName} must be a finite number${bounds}`),
+    );
 }
 
-function decodeFiniteNumber(value: unknown, fieldName: string, min?: number, max?: number) {
-    if (
-        typeof value !== 'number'
-        || !Number.isFinite(value)
-        || (min !== undefined && value < min)
-        || (max !== undefined && value > max)
-    ) {
-        const lowerBound = min === undefined ? '' : ` >= ${min}`;
-        const upperBound = max === undefined ? '' : ` <= ${max}`;
-        fail(`${fieldName} must be a finite number${lowerBound}${upperBound}`);
-    }
-    return value;
+function nonNegativeInteger(fieldName: string) {
+    return v.pipe(
+        v.number(`${fieldName} must be a non-negative safe integer`),
+        v.safeInteger(`${fieldName} must be a non-negative safe integer`),
+        v.minValue(0, `${fieldName} must be a non-negative safe integer`),
+    );
 }
 
-function decodeOptionalString(value: unknown, fieldName: string) {
-    if (value === undefined || value === null) {
-        return null;
-    }
-    return decodeStringValue(value, fieldName, true);
+function nonEmptyString(fieldName: string, allowEmpty = false) {
+    return v.pipe(
+        v.string(`${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`),
+        v.check(value => allowEmpty || value.length > 0,
+            `${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`),
+    );
 }
 
-function decodeTimestamp(value: unknown, fieldName: string) {
-    if (value === undefined || value === null) {
-        return null;
-    }
-    if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
-        fail(`${fieldName} must be a safe integer timestamp or null`);
-    }
-    return requireEpochMs(value);
+function nullableString(fieldName: string, allowEmpty = true) {
+    return v.optional(v.nullable(nonEmptyString(fieldName, allowEmpty)), null);
 }
 
-function decodeDocumentRef(value: unknown, fieldName: string) {
-    const parsed = parseDocumentRef(value);
-    if (parsed === null) {
-        fail(`${fieldName} must be an absolute document reference`);
-    }
-    return parsed;
+function nullableTimestamp(fieldName: string) {
+    return v.optional(v.nullable(v.pipe(
+        v.number(`${fieldName} must be a safe integer timestamp or null`),
+        v.safeInteger(`${fieldName} must be a safe integer timestamp or null`),
+        v.minValue(0, `${fieldName} must be a safe integer timestamp or null`),
+    )), null);
 }
 
+const pageIndexSchema = v.pipe(nonNegativeInteger('pageIndex'), v.transform(value => value as TPageIndex));
+const documentRefSchema = v.pipe(
+    v.string(),
+    v.check(value => parseDocumentRef(value) !== null, 'must be an absolute document reference'),
+    v.transform(value => parseDocumentRef(value)!),
+);
+const revisionTokenSchema = v.pipe(
+    v.string(),
+    v.check(value => parseDocumentRevisionToken(value) !== null, 'must be a valid document revision token'),
+    v.transform(value => parseDocumentRevisionToken(value)!),
+);
+const parseIdentity = {
+    pageIndex: pageIndexSchema,
+    objectNumber: nonNegativeInteger('objectNumber'),
+    generationNumber: nonNegativeInteger('generationNumber'),
+    name: nonEmptyString('name'),
+    author: nullableString('author'),
+    createdAt: nullableTimestamp('createdAt'),
+    modifiedAt: nullableTimestamp('modifiedAt'),
+};
+const baseRectSchema = v.strictObject({
+    left: finiteNumber('rect.left'),
+    top: finiteNumber('rect.top'),
+    width: finiteNumber('rect.width', 0),
+    height: finiteNumber('rect.height', 0),
+}, 'contains unsupported field');
+const markerRectSchema = v.pipe(
+    baseRectSchema,
+    v.check(isPdfNativeNormalizedRectInsidePageBounds, 'must be inside the normalized page bounds'),
+);
+const positiveRectSchema = v.pipe(
+    baseRectSchema,
+    v.check(rect => rect.width > 0 && rect.height > 0, 'must have positive dimensions'),
+);
+const rgbColorSchema = (fieldName: string) => v.pipe(
+    nonEmptyString(fieldName),
+    v.check(value => /^#[0-9a-f]{6}$/iu.test(value), `${fieldName} must be an 8-bit RGB color`),
+    v.transform(value => value.toLowerCase()),
+);
+const sha256Schema = v.pipe(
+    nonEmptyString('annotation parse stamp.image.sha256'),
+    v.check(value => SHA256_PATTERN.test(value), 'annotation parse stamp.image.sha256 must be a 64-character hexadecimal SHA-256 digest'),
+    v.transform(value => value.toLowerCase()),
+);
+const TEXT_BOX_ROTATIONS = [
+    0,
+    90,
+    180,
+    270,
+] as const;
+const rotationSchema = v.picklist(TEXT_BOX_ROTATIONS,
+    'annotation parse text-box.rotation must be 0, 90, 180, or 270');
+const pointSchema = v.strictObject({
+    x: finiteNumber('point.x'),
+    y: finiteNumber('point.y'),
+}, 'contains unsupported field');
+type TPoint = v.InferOutput<typeof pointSchema>;
+const boundedPointsSchema = v.pipe(
+    v.unknown(),
+    v.check(value => Array.isArray(value) && value.length <= 40_000, 'annotation parse points is too large'),
+    v.array(pointSchema),
+);
+const pointsSchema = v.optional(v.nullable(boundedPointsSchema), null);
+const strokeSchema = v.pipe(
+    v.optional(v.nullable(v.pipe(
+        v.unknown(),
+        v.check(value => Array.isArray(value) && value.length <= 40_000,
+            'annotation parse shape.strokes is too large'),
+        v.array(pointSchema),
+    )), null),
+    v.transform((value): TPoint[] => value ?? []),
+);
 
-function decodeMarkerRect(value: unknown, fieldName: string, preserveUnrotatedBounds = false) {
-    const decoded = decodeRequiredObject(value, fieldName);
-    rejectUnknownFields(decoded, fieldName, [
-        'left',
-        'top',
-        'width',
-        'height',
-    ]);
-    const rect = {
-        left: decodeFiniteNumber(decoded.left, `${fieldName}.left`),
-        top: decodeFiniteNumber(decoded.top, `${fieldName}.top`),
-        width: decodeFiniteNumber(decoded.width, `${fieldName}.width`, 0),
-        height: decodeFiniteNumber(decoded.height, `${fieldName}.height`, 0),
-    };
-    // The native parser validates rotated text/image appearances before returning
-    // their original unrotated dimensions. Their base rectangle need not be
-    // contained in the page, even when every painted corner is inside it.
-    if (preserveUnrotatedBounds && (rect.width <= 0 || rect.height <= 0)) {
-        fail(`${fieldName} must have positive dimensions`);
-    }
-    if (!preserveUnrotatedBounds && !isPdfNativeNormalizedRectInsidePageBounds(rect)) {
-        fail(`${fieldName} must be inside the normalized page bounds`);
-    }
-    return rect;
-}
-
-function decodeRgbColor(value: unknown, fieldName: string) {
-    const color = decodeStringValue(value, fieldName);
-    if (!/^#[0-9a-f]{6}$/iu.test(color)) {
-        fail(`${fieldName} must be an 8-bit RGB color`);
-    }
-    return color.toLowerCase();
-}
-
-function decodeSha256(value: unknown, fieldName: string) {
-    const digest = decodeStringValue(value, fieldName);
-    if (!SHA256_PATTERN.test(digest)) {
-        fail(`${fieldName} must be a 64-character hexadecimal SHA-256 digest`);
-    }
-    return digest.toLowerCase();
-}
-
-function decodeIdentity(value: Record<string, unknown>, fieldName: string) {
-    return {
-        pageIndex: decodeSafeIntegerValue(value.pageIndex, `${fieldName}.pageIndex`) as IPdfAnnotationTextBoxEntry['pageIndex'],
-        objectNumber: decodeSafeIntegerValue(value.objectNumber, `${fieldName}.objectNumber`),
-        generationNumber: decodeSafeIntegerValue(value.generationNumber, `${fieldName}.generationNumber`),
-        name: decodeStringValue(value.name, `${fieldName}.name`),
-        author: decodeOptionalString(value.author, `${fieldName}.author`),
-        createdAt: decodeTimestamp(value.createdAt, `${fieldName}.createdAt`),
-        modifiedAt: decodeTimestamp(value.modifiedAt, `${fieldName}.modifiedAt`),
-    };
-}
-
-function decodeRotation(value: unknown, fieldName: string) {
-    if (typeof value !== 'number' || ![
-        0,
-        90,
-        180,
-        270,
-    ].includes(value)) {
-        fail(`${fieldName} must be 0, 90, 180, or 270`);
-    }
-    return value as 0 | 90 | 180 | 270;
-}
-
-function decodeTextBox(value: Record<string, unknown>): IPdfAnnotationTextBoxEntry {
-    rejectUnknownFields(value, 'annotation parse text-box', [
-        'kind',
-        'pageIndex',
-        'objectNumber',
-        'generationNumber',
-        'name',
-        'author',
-        'createdAt',
-        'modifiedAt',
-        'text',
-        'rect',
-        'rotation',
-        'fontSize',
-        'color',
-    ]);
-    const identity = decodeIdentity(value, 'annotation parse text-box');
-    const rotation = decodeRotation(value.rotation, 'annotation parse text-box.rotation');
-    const rect = decodeMarkerRect(value.rect, 'annotation parse text-box.rect', rotation % 180 !== 0);
-    if (rotation % 180 !== 0) {
+const textBoxSchema = v.pipe(
+    v.strictObject({
+        kind: v.literal('text-box'),
+        ...parseIdentity,
+        text: nonEmptyString('annotation parse text-box.text', true),
+        rect: baseRectSchema,
+        rotation: rotationSchema,
+        fontSize: finiteNumber('annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
+        color: rgbColorSchema('annotation parse text-box.color'),
+    }, 'contains unsupported field'),
+    v.check(({
+        rect, rotation,
+    }) => {
+        if (rotation % 180 === 0) return isPdfNativeNormalizedRectInsidePageBounds(rect);
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
         const availableArea = 4 * Math.min(centerX, 1 - centerX) * Math.min(centerY, 1 - centerY);
-        // Page aspect ratio is available to the native parser, which checks the
-        // exact painted footprint. These aspect-independent necessary bounds
-        // also reject impossible rotated rectangles at the IPC boundary.
-        if (centerX < 0 || centerX > 1 || centerY < 0 || centerY > 1
-            || rect.width * rect.height > availableArea + 1e-7) {
-            fail('annotation parse text-box.rect cannot fit inside the normalized page bounds after rotation');
-        }
-    }
-    return {
-        kind: 'text-box',
-        ...identity,
-        text: decodeStringValue(value.text, 'annotation parse text-box.text', true),
-        rect,
-        rotation,
-        fontSize: decodeFiniteNumber(value.fontSize, 'annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
-        color: decodeRgbColor(value.color, 'annotation parse text-box.color'),
-    };
-}
+        return centerX >= 0 && centerX <= 1 && centerY >= 0 && centerY <= 1
+            && rect.width * rect.height <= availableArea + 1e-7;
+    }, 'annotation parse text-box.rect cannot fit inside the normalized page bounds after rotation'),
+);
+const noteReplySchema = v.strictObject({
+    objectNumber: nonNegativeInteger('annotation parse note.replies.objectNumber'),
+    generationNumber: nonNegativeInteger('annotation parse note.replies.generationNumber'),
+    contents: nonEmptyString('annotation parse note.replies.contents', true),
+    author: nullableString('annotation parse note.replies.author'),
+    createdAt: nullableTimestamp('annotation parse note.replies.createdAt'),
+    modifiedAt: nullableTimestamp('annotation parse note.replies.modifiedAt'),
+}, 'contains unsupported field');
+const noteSchema = v.strictObject({
+    kind: v.literal('note'),
+    ...parseIdentity,
+    recoveryData: v.optional(v.pipe(
+        v.string(),
+        v.check(value => value.length <= 2 * 1024 * 1024 && value.length % 2 === 0 && /^[0-9a-f]+$/u.test(value),
+            'annotation parse note.recoveryData must be a bounded native recovery graph'),
+    )),
+    position: markerRectSchema,
+    contents: nonEmptyString('annotation parse note.contents', true),
+    color: v.optional(v.nullable(rgbColorSchema('annotation parse note.color')), null),
+    open: v.boolean('annotation parse note.open must be a boolean'),
+    replies: v.pipe(
+        v.unknown(),
+        v.check(value => Array.isArray(value) && value.length <= 4_096,
+            'annotation parse note.replies must contain at most 4096 replies'),
+        v.array(noteReplySchema),
+    ),
+}, 'contains unsupported field');
+const highlightSchema = v.strictObject({
+    kind: v.literal('highlight'),
+    ...parseIdentity,
+    subtype: v.picklist(PDF_ANNOTATION_MARKUP_SUBTYPES, 'annotation parse highlight.subtype is unsupported'),
+    quadPoints: v.pipe(
+        v.unknown(),
+        v.check(value => Array.isArray(value) && value.length <= 512,
+            'annotation parse highlight.quadPoints must contain at most 512 rectangles'),
+        v.array(markerRectSchema),
+    ),
+    color: rgbColorSchema('annotation parse highlight.color'),
+    opacity: finiteNumber('annotation parse highlight.opacity', 0, 1),
+    contents: nonEmptyString('annotation parse highlight.contents', true),
+}, 'contains unsupported field');
+const stampImageSchema = v.strictObject({
+    objectNumber: nonNegativeInteger('annotation parse stamp.image.objectNumber'),
+    generationNumber: nonNegativeInteger('annotation parse stamp.image.generationNumber'),
+    byteLength: nonNegativeInteger('annotation parse stamp.image.byteLength'),
+    sha256: sha256Schema,
+}, 'contains unsupported field');
+const stampSchema = v.strictObject({
+    kind: v.literal('stamp'),
+    ...parseIdentity,
+    rect: positiveRectSchema,
+    rotation: finiteNumber('annotation parse stamp.rotation'),
+    image: stampImageSchema,
+}, 'contains unsupported field');
+const optionalShapeEnum = <T extends readonly string[]>(values: T, fieldName: string) => v.pipe(
+    v.optional(v.nullable(v.picklist(values, `annotation parse shape.${fieldName} is unsupported`)), null),
+);
+const shapeSchema = v.strictObject({
+    kind: v.literal('shape'),
+    ...parseIdentity,
+    stableKey: nullableString('annotation parse shape.stableKey'),
+    pdfSubtype: v.picklist(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES, 'annotation parse shape.pdfSubtype is unsupported'),
+    type: v.picklist(PDF_ANNOTATION_SHAPE_TYPES, 'annotation parse shape.type is unsupported'),
+    x: finiteNumber('annotation parse shape.x'),
+    y: finiteNumber('annotation parse shape.y'),
+    width: finiteNumber('annotation parse shape.width', 0),
+    height: finiteNumber('annotation parse shape.height', 0),
+    x2: v.optional(v.nullable(finiteNumber('annotation parse shape.x2')), null),
+    y2: v.optional(v.nullable(finiteNumber('annotation parse shape.y2')), null),
+    color: rgbColorSchema('annotation parse shape.color'),
+    fillColor: v.optional(v.nullable(rgbColorSchema('annotation parse shape.fillColor')), null),
+    opacity: finiteNumber('annotation parse shape.opacity', 0, 1),
+    strokeWidth: finiteNumber('annotation parse shape.strokeWidth', 0),
+    points: pointsSchema,
+    strokes: v.optional(v.nullable(v.pipe(
+        v.unknown(),
+        v.check(value => Array.isArray(value) && value.length <= 4_096,
+            'annotation parse shape.strokes is too large'),
+        v.array(strokeSchema),
+    )), null),
+    lineStartStyle: optionalShapeEnum(PDF_ANNOTATION_LINE_END_STYLES, 'lineStartStyle'),
+    lineEndStyle: optionalShapeEnum(PDF_ANNOTATION_LINE_END_STYLES, 'lineEndStyle'),
+}, 'contains unsupported field');
+const foreignSchema = v.strictObject({
+    kind: v.literal('foreign'),
+    pageIndex: pageIndexSchema,
+    objectNumber: nonNegativeInteger('annotation parse foreign.objectNumber'),
+    generationNumber: nonNegativeInteger('annotation parse foreign.generationNumber'),
+    name: nonEmptyString('annotation parse foreign.name'),
+    subtype: nonEmptyString('annotation parse foreign.subtype'),
+    reason: nonEmptyString('annotation parse foreign.reason'),
+}, 'contains unsupported field');
 
-function decodeReply(value: unknown, index: number): IPdfAnnotationNoteReply {
-    const decoded = decodeRequiredObject(value, `annotation parse note.replies[${index}]`);
-    rejectUnknownFields(decoded, `annotation parse note.replies[${index}]`, [
-        'objectNumber',
-        'generationNumber',
-        'contents',
-        'author',
-        'createdAt',
-        'modifiedAt',
-    ]);
-    return {
-        objectNumber: decodeSafeIntegerValue(decoded.objectNumber, `annotation parse note.replies[${index}].objectNumber`),
-        generationNumber: decodeSafeIntegerValue(decoded.generationNumber, `annotation parse note.replies[${index}].generationNumber`),
-        contents: decodeStringValue(decoded.contents, `annotation parse note.replies[${index}].contents`, true),
-        author: decodeOptionalString(decoded.author, `annotation parse note.replies[${index}].author`),
-        createdAt: decodeTimestamp(decoded.createdAt, `annotation parse note.replies[${index}].createdAt`),
-        modifiedAt: decodeTimestamp(decoded.modifiedAt, `annotation parse note.replies[${index}].modifiedAt`),
-    };
-}
-
-function decodeNote(value: Record<string, unknown>): IPdfAnnotationNoteEntry {
-    rejectUnknownFields(value, 'annotation parse note', [
-        'kind',
-        'pageIndex',
-        'objectNumber',
-        'generationNumber',
-        'name',
-        'author',
-        'createdAt',
-        'modifiedAt',
-        'position',
-        'contents',
-        'color',
-        'open',
-        'replies',
-        'recoveryData',
-    ]);
-    const identity = decodeIdentity(value, 'annotation parse note');
-    if (typeof value.open !== 'boolean') {
-        fail('annotation parse note.open must be a boolean');
-    }
-    if (!Array.isArray(value.replies) || value.replies.length > 4_096) {
-        fail('annotation parse note.replies must contain at most 4096 replies');
-    }
-    if (value.recoveryData !== undefined && (typeof value.recoveryData !== 'string'
-        || value.recoveryData.length > 2 * 1024 * 1024
-        || value.recoveryData.length % 2 !== 0 || !/^[0-9a-f]+$/u.test(value.recoveryData))) {
-        fail('annotation parse note.recoveryData must be a bounded native recovery graph');
-    }
-    return {
-        kind: 'note',
-        ...(value.recoveryData === undefined ? {} : {recoveryData: value.recoveryData}),
-        ...identity,
-        position: decodeMarkerRect(value.position, 'annotation parse note.position'),
-        contents: decodeStringValue(value.contents, 'annotation parse note.contents', true),
-        color: value.color === undefined || value.color === null
-            ? null
-            : decodeRgbColor(value.color, 'annotation parse note.color'),
-        open: value.open,
-        replies: value.replies.map(decodeReply),
-    };
-}
-
-function decodeHighlight(value: Record<string, unknown>): IPdfAnnotationHighlightEntry {
-    rejectUnknownFields(value, 'annotation parse highlight', [
-        'kind',
-        'pageIndex',
-        'objectNumber',
-        'generationNumber',
-        'name',
-        'author',
-        'createdAt',
-        'modifiedAt',
-        'subtype',
-        'quadPoints',
-        'color',
-        'opacity',
-        'contents',
-    ]);
-    const identity = decodeIdentity(value, 'annotation parse highlight');
-    if (!isOneOf(PDF_ANNOTATION_MARKUP_SUBTYPES, value.subtype)) {
-        fail('annotation parse highlight.subtype is unsupported');
-    }
-    if (!Array.isArray(value.quadPoints) || value.quadPoints.length > 512) {
-        fail('annotation parse highlight.quadPoints must contain at most 512 rectangles');
-    }
-    return {
-        kind: 'highlight',
-        ...identity,
-        subtype: value.subtype,
-        quadPoints: value.quadPoints.map((point, index) => decodeMarkerRect(point, `annotation parse highlight.quadPoints[${index}]`)),
-        color: decodeRgbColor(value.color, 'annotation parse highlight.color'),
-        opacity: decodeFiniteNumber(value.opacity, 'annotation parse highlight.opacity', 0, 1),
-        contents: decodeStringValue(value.contents, 'annotation parse highlight.contents', true),
-    };
-}
-
-function decodeStamp(value: Record<string, unknown>): IPdfAnnotationStampEntry {
-    rejectUnknownFields(value, 'annotation parse stamp', [
-        'kind',
-        'pageIndex',
-        'objectNumber',
-        'generationNumber',
-        'name',
-        'author',
-        'createdAt',
-        'modifiedAt',
-        'rect',
-        'rotation',
-        'image',
-    ]);
-    const identity = decodeIdentity(value, 'annotation parse stamp');
-    const image = decodeRequiredObject(value.image, 'annotation parse stamp.image');
-    rejectUnknownFields(image, 'annotation parse stamp.image', [
-        'objectNumber',
-        'generationNumber',
-        'byteLength',
-        'sha256',
-    ]);
-    const imageReference: IPdfAnnotationStampImageReference = {
-        objectNumber: decodeSafeIntegerValue(image.objectNumber, 'annotation parse stamp.image.objectNumber'),
-        generationNumber: decodeSafeIntegerValue(image.generationNumber, 'annotation parse stamp.image.generationNumber'),
-        byteLength: decodeSafeIntegerValue(image.byteLength, 'annotation parse stamp.image.byteLength'),
-        sha256: decodeSha256(image.sha256, 'annotation parse stamp.image.sha256'),
-    };
-    return {
-        kind: 'stamp',
-        ...identity,
-        rect: decodeMarkerRect(value.rect, 'annotation parse stamp.rect', true),
-        rotation: decodeFiniteNumber(value.rotation, 'annotation parse stamp.rotation'),
-        image: imageReference,
-    };
-}
-
-function decodeShape(value: Record<string, unknown>): IPdfAnnotationShapeEntry {
-    rejectUnknownFields(value, 'annotation parse shape', [
-        'kind',
-        'pageIndex',
-        'objectNumber',
-        'generationNumber',
-        'name',
-        'author',
-        'createdAt',
-        'modifiedAt',
-        'stableKey',
-        'pdfSubtype',
-        'type',
-        'x',
-        'y',
-        'width',
-        'height',
-        'x2',
-        'y2',
-        'color',
-        'fillColor',
-        'opacity',
-        'strokeWidth',
-        'points',
-        'strokes',
-        'lineStartStyle',
-        'lineEndStyle',
-    ]);
-    const identity = decodeIdentity(value, 'annotation parse shape');
-    if (!isOneOf(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES, value.pdfSubtype)) {
-        fail('annotation parse shape.pdfSubtype is unsupported');
-    }
-    if (!isOneOf(PDF_ANNOTATION_SHAPE_TYPES, value.type)) {
-        fail('annotation parse shape.type is unsupported');
-    }
-    const decodeOptionalShapeNumber = (fieldName: string) => value[fieldName] === undefined || value[fieldName] === null
-        ? null
-        : decodeFiniteNumber(value[fieldName], `annotation parse shape.${fieldName}`);
-    const points = decodePointsFromValue(value.points, 'annotation parse shape.points');
-    let strokes = null;
-    if (value.strokes !== undefined && value.strokes !== null) {
-        if (!Array.isArray(value.strokes) || value.strokes.length > 4_096) {
-            fail('annotation parse shape.strokes is too large');
-        }
-        strokes = value.strokes.map((stroke, index) => decodePointsFromValue(
-            stroke,
-            `annotation parse shape.strokes[${index}]`,
-        ) ?? []);
-    }
-    const lineStartStyle = decodeOptionalShapeEnum(value.lineStartStyle, PDF_ANNOTATION_LINE_END_STYLES, 'lineStartStyle');
-    const lineEndStyle = decodeOptionalShapeEnum(value.lineEndStyle, PDF_ANNOTATION_LINE_END_STYLES, 'lineEndStyle');
-    return {
-        kind: 'shape',
-        ...identity,
-        pdfSubtype: value.pdfSubtype,
-        type: value.type,
-        x: decodeFiniteNumber(value.x, 'annotation parse shape.x'),
-        y: decodeFiniteNumber(value.y, 'annotation parse shape.y'),
-        width: decodeFiniteNumber(value.width, 'annotation parse shape.width', 0),
-        height: decodeFiniteNumber(value.height, 'annotation parse shape.height', 0),
-        x2: decodeOptionalShapeNumber('x2'),
-        y2: decodeOptionalShapeNumber('y2'),
-        color: decodeRgbColor(value.color, 'annotation parse shape.color'),
-        fillColor: value.fillColor === undefined || value.fillColor === null
-            ? null
-            : decodeRgbColor(value.fillColor, 'annotation parse shape.fillColor'),
-        opacity: decodeFiniteNumber(value.opacity, 'annotation parse shape.opacity', 0, 1),
-        strokeWidth: decodeFiniteNumber(value.strokeWidth, 'annotation parse shape.strokeWidth', 0),
-        points,
-        strokes,
-        lineStartStyle,
-        lineEndStyle,
-        stableKey: decodeOptionalString(value.stableKey, 'annotation parse shape.stableKey'),
-    };
-}
-
-function decodePointsFromValue(value: unknown, fieldName: string): IPdfAnnotationParsePoint[] | null {
-    if (value === undefined || value === null) {
-        return null;
-    }
-    if (!Array.isArray(value) || value.length > 40_000) {
-        fail(`${fieldName} is too large`);
-    }
-    return value.map((point, index) => {
-        const decoded = decodeRequiredObject(point, `${fieldName}[${index}]`);
-        rejectUnknownFields(decoded, `${fieldName}[${index}]`, [
-            'x',
-            'y',
-        ]);
-        return {
-            x: decodeFiniteNumber(decoded.x, `${fieldName}[${index}].x`),
-            y: decodeFiniteNumber(decoded.y, `${fieldName}[${index}].y`),
-        };
-    });
-}
-
-function decodeOptionalShapeEnum<T extends readonly string[]>(value: unknown, allowed: T, fieldName: string) {
-    if (value === undefined || value === null) {
-        return null;
-    }
-    if (!isOneOf(allowed, value)) fail(`annotation parse shape.${fieldName} is unsupported`);
-    return value as T[number];
-}
-
-function decodeForeign(value: Record<string, unknown>): IPdfAnnotationForeignEntry {
-    rejectUnknownFields(value, 'annotation parse foreign', [
-        'kind',
-        'pageIndex',
-        'objectNumber',
-        'generationNumber',
-        'name',
-        'subtype',
-        'reason',
-    ]);
-    return {
-        kind: 'foreign',
-        pageIndex: decodeSafeIntegerValue(value.pageIndex, 'annotation parse foreign.pageIndex') as IPdfAnnotationForeignEntry['pageIndex'],
-        objectNumber: decodeSafeIntegerValue(value.objectNumber, 'annotation parse foreign.objectNumber'),
-        generationNumber: decodeSafeIntegerValue(value.generationNumber, 'annotation parse foreign.generationNumber'),
-        name: decodeStringValue(value.name, 'annotation parse foreign.name'),
-        subtype: decodeStringValue(value.subtype, 'annotation parse foreign.subtype'),
-        reason: decodeStringValue(value.reason, 'annotation parse foreign.reason'),
-    };
-}
-
-export function decodePdfAnnotationParseEntry(value: unknown): IPdfAnnotationParseEntry {
-    const decoded = decodeRequiredObject(value, 'annotation parse entry');
-    switch (decoded.kind) {
-        case 'text-box': return decodeTextBox(decoded);
-        case 'note': return decodeNote(decoded);
-        case 'highlight': return decodeHighlight(decoded);
-        case 'stamp': return decodeStamp(decoded);
-        case 'shape': return decodeShape(decoded);
-        case 'foreign': return decodeForeign(decoded);
-        default: fail('annotation parse entry kind is unsupported');
-    }
-}
-
-export interface IPdfAnnotationParseProtocolFixture {
-    format: 'evb-pdf-annotation-parse';
-    schemaVersion: 1;
-    pageCount: number;
-    chunkBytes: number;
-    chunkIndex: number;
-    entries: IPdfAnnotationParseEntry[];
-}
-
-export function decodePdfAnnotationParseProtocolFixture(value: unknown): IPdfAnnotationParseProtocolFixture {
-    const decoded = decodeRequiredObject(value, 'annotation parse protocol fixture');
-    rejectUnknownFields(decoded, 'annotation parse protocol fixture', [
-        'format',
-        'schemaVersion',
-        'pageCount',
-        'chunkBytes',
-        'chunkIndex',
-        'entries',
-    ]);
-    if (decoded.format !== 'evb-pdf-annotation-parse' || decoded.schemaVersion !== 1) {
-        fail('annotation parse protocol fixture header is unsupported');
-    }
-    if (!Array.isArray(decoded.entries)) {
-        fail('annotation parse protocol fixture entries must be an array');
-    }
-    const chunkBytes = decodeSafeIntegerValue(decoded.chunkBytes, 'annotation parse fixture chunkBytes', 64);
-    if (chunkBytes > PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES) {
-        fail(`annotation parse fixture chunkBytes must be at most ${PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES}`);
-    }
-    return {
-        format: decoded.format,
-        schemaVersion: decoded.schemaVersion,
-        pageCount: decodeSafeIntegerValue(decoded.pageCount, 'annotation parse fixture pageCount'),
-        chunkBytes,
-        chunkIndex: decodeSafeIntegerValue(decoded.chunkIndex, 'annotation parse fixture chunkIndex'),
-        entries: decoded.entries.map(decodePdfAnnotationParseEntry),
-    };
-}
-
-export function decodePdfAnnotationParseResult(value: unknown): IPdfAnnotationParseResult {
-    const decoded = decodeRequiredObject(value, 'annotation parse result');
-    rejectUnknownFields(decoded, 'annotation parse result', [
-        'documentRevisionToken',
-        'pageCount',
-        'entities',
-        'foreign',
-    ]);
-    const documentRevisionToken = typeof decoded.documentRevisionToken === 'string'
-        ? parseDocumentRevisionToken(decoded.documentRevisionToken)
-        : null;
-    if (documentRevisionToken === null) {
-        fail('annotation parse result documentRevisionToken is invalid');
-    }
-    const pageCount = decodeSafeIntegerValue(decoded.pageCount, 'annotation parse result pageCount');
-    if (!Array.isArray(decoded.entities)) {
-        fail('annotation parse result entities must be an array');
-    }
-    if (!Array.isArray(decoded.foreign)) {
-        fail('annotation parse result foreign must be an array');
-    }
-    if (decoded.entities.length + decoded.foreign.length > PDF_ANNOTATION_PARSE_MAX_ENTRIES) {
-        fail(`annotation parse result contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`);
-    }
-    const entities = decoded.entities.map(decodePdfAnnotationParseEntry).map((entry, index) => {
-        if (entry.kind === 'foreign') {
-            fail(`annotation parse result.entities[${index}] must be editable`);
-        }
-        return entry;
-    });
-    const foreign = decoded.foreign.map(decodePdfAnnotationParseEntry).map((entry, index) => {
-        if (entry.kind !== 'foreign') {
-            fail(`annotation parse result.foreign[${index}] must be foreign`);
-        }
-        return entry;
-    });
-    return {
-        documentRevisionToken,
-        pageCount,
-        entities,
-        foreign,
-    };
-}
-
-function decodeParseOptions(value: unknown): IPdfAnnotationParseOptions {
-    const decoded = decodeRevisionOptions(value);
-    if (decoded === undefined) fail('annotation parse options must include expectedDocumentRevisionToken');
-    return {expectedDocumentRevisionToken: decoded.expectedDocumentRevisionToken};
-}
-
-
-const parsePdfAnnotationsArgs = documentArgs<'parsePdfAnnotations'>(
-    value => {
-        const args = decodeArgumentArray(value, 2);
-        return [
-            decodeDocumentRef(args[0], 'path'),
-            decodeParseOptions(args[1]),
-        ];
-    },
-    () => [
-        requireDocumentRef('/tmp/document.pdf'),
-        fixtureRevisionOptions,
-    ],
+export const PDF_ANNOTATION_PARSE_ENTRY_SCHEMA = v.variant('kind', [
+    textBoxSchema,
+    noteSchema,
+    highlightSchema,
+    stampSchema,
+    shapeSchema,
+    foreignSchema,
+]);
+export const PDF_ANNOTATION_PARSE_ENTITY_SCHEMA = v.variant('kind', [
+    textBoxSchema,
+    noteSchema,
+    highlightSchema,
+    stampSchema,
+    shapeSchema,
+]);
+export const PDF_ANNOTATION_PARSE_FOREIGN_SCHEMA = foreignSchema;
+export const PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA = v.pipe(
+    v.unknown(),
+    v.check(value => isRecord(value) && typeof value.expectedDocumentRevisionToken === 'string',
+        'invalid document revision options'),
+    v.object({
+        expectedDocumentRevisionToken: revisionTokenSchema,
+        changedObjectRefs: v.optional(v.pipe(
+            v.unknown(),
+            v.check(value => Array.isArray(value) && value.length <= 128,
+                'invalid changed PDF object references'),
+            v.array(v.pipe(
+                v.string(),
+                v.regex(/^\d+\s+\d+\s+R$/u, 'invalid changed PDF object references'),
+            )),
+        )),
+        workingCopyOnly: v.optional(v.literal(true)),
+    }),
+    v.transform(({expectedDocumentRevisionToken}) => ({expectedDocumentRevisionToken})),
 );
 
+const parseResultShapeSchema = v.strictObject({
+    documentRevisionToken: revisionTokenSchema,
+    pageCount: nonNegativeInteger('annotation parse result pageCount'),
+    entities: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTITY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
+    foreign: v.pipe(v.array(foreignSchema), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
+}, 'contains unsupported field');
+export const PDF_ANNOTATION_PARSE_RESULT_SCHEMA = v.pipe(
+    v.unknown(),
+    v.check(value => isRecord(value)
+        && Array.isArray(value.entities)
+        && Array.isArray(value.foreign)
+        && value.entities.length + value.foreign.length <= PDF_ANNOTATION_PARSE_MAX_ENTRIES,
+    `annotation parse result contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`),
+    parseResultShapeSchema,
+);
+
+export type IPdfAnnotationParseEntry = v.InferOutput<typeof PDF_ANNOTATION_PARSE_ENTRY_SCHEMA>;
+export type TPdfAnnotationParseEntity = v.InferOutput<typeof PDF_ANNOTATION_PARSE_ENTITY_SCHEMA>;
+export type IPdfAnnotationForeignEntry = v.InferOutput<typeof PDF_ANNOTATION_PARSE_FOREIGN_SCHEMA>;
+export type IPdfAnnotationParseResult = v.InferOutput<typeof PDF_ANNOTATION_PARSE_RESULT_SCHEMA>;
+export type IPdfAnnotationParseOptionsWire = v.InferOutput<typeof PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA>;
+export type IPdfAnnotationTextBoxEntry = v.InferOutput<typeof textBoxSchema>;
+export type IPdfAnnotationNoteReply = v.InferOutput<typeof noteReplySchema>;
+export type IPdfAnnotationNoteEntry = v.InferOutput<typeof noteSchema>;
+export type IPdfAnnotationHighlightEntry = v.InferOutput<typeof highlightSchema>;
+export type IPdfAnnotationStampImageReference = v.InferOutput<typeof stampImageSchema>;
+export type IPdfAnnotationStampEntry = v.InferOutput<typeof stampSchema>;
+export type IPdfAnnotationParsePoint = v.InferOutput<typeof pointSchema>;
+export type IPdfAnnotationShapeEntry = v.InferOutput<typeof shapeSchema>;
+
+const fixtureRevisionToken = requireDocumentRevisionToken('drt1:annotation-parse-fixture');
 const pdfAnnotationParseResult = documentResult<'parsePdfAnnotations'>(
-    decodePdfAnnotationParseResult,
+    value => v.parse(PDF_ANNOTATION_PARSE_RESULT_SCHEMA, value, {abortEarly: true}),
     () => ({
         documentRevisionToken: fixtureRevisionToken,
         pageCount: 1,
         entities: [],
         foreign: [],
     }),
+);
+const parsePdfAnnotationsArgs = documentArgs<'parsePdfAnnotations'>(
+    value => v.parse(v.strictTuple([
+        documentRefSchema,
+        PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA,
+    ]), value, {abortEarly: true}),
+    () => [
+        requireDocumentRef('/tmp/document.pdf'),
+        {expectedDocumentRevisionToken: fixtureRevisionToken},
+    ],
 );
 
 export {

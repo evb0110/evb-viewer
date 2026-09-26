@@ -10,15 +10,6 @@ export interface IMarkerRect {
     height: number;
 }
 
-export interface IPdfBox {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
-export interface IPageGeometry {
-    mediaBox: IPdfBox;
-    cropBox: IPdfBox | null;
-    rotation: number;
-}
+export type {
+    IPageGeometry, IPdfBox,
+} from '@contracts/decodePageGeometry';

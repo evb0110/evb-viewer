@@ -4,36 +4,28 @@ import type {
 } from '@contracts/pageNumbers';
 
 import type {
-    IPageIdentityDelta,
-    IPageOpsCancelActiveResult,
-    IPageOpsExtractResult,
-    IPageOpsInsertResult,
     IPageOpsMetadataSnapshot,
     IPageOpsMutationOptions,
-    IPageOpsResult,
     TPageOpsPageSelection,
-    TPageIdentityDeltaPage,
-    TPageIdentityRangeOperation,
     TPageOpsRotationAngle,
+} from '@contracts/electronApiPageOps';
+import {
+    PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA,
+    PAGE_OPS_EXTRACT_RESULT_SCHEMA,
+    PAGE_OPS_INSERT_RESULT_SCHEMA,
+    PAGE_OPS_RESULT_SCHEMA,
 } from '@contracts/electronApiPageOps';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
-import {decodePageGeometry as decodeSharedPageGeometry} from '@contracts/decodePageGeometry';
-import { parseDocumentRef } from '@contracts/documentRef';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import {
-    isDocumentRevisionInfo,
-    parseDocumentRevisionToken,
-    requireDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     normalizeCropMargins,
     parseRequestId,
 } from '@contracts/shared';
 import type {
     ICropMargins,
-    IPageGeometry,
     TRequestId,
 } from '@contracts/shared';
 import {
@@ -57,12 +49,6 @@ const PAGE_LABEL_STYLES = [
     'A',
     'a',
 ] as const;
-const PAGE_IDENTITY_TOUCH_REASONS = [
-    'rotate',
-    'crop',
-    'remove-crop',
-] as const;
-
 type TDeleteArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TDeleteRangesArgs = [string, IPageMoveRangeSegment[], number, IPageOpsMutationOptions | undefined];
 type TExtractArgs = [string, TPageOpsPageSelection];
@@ -83,12 +69,6 @@ type TRotateArgs = [string, TPageOpsPageSelection, number, TPageOpsRotationAngle
 type TCropArgs = [string, TPageOpsPageSelection, number, ICropMargins, IPageOpsMutationOptions | undefined];
 type TRemoveCropArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TGetPageGeometryArgs = [string, number];
-
-function requireArgumentCount(value: unknown, count: number): asserts value is unknown[] {
-    if (!Array.isArray(value) || value.length !== count) {
-        throw new Error(`expected ${count} arguments, received ${Array.isArray(value) ? value.length : 0}`);
-    }
-}
 
 function decodeString(args: unknown[], index: number, fieldName: string) {
     const value = args[index];
@@ -396,285 +376,25 @@ function decodeRotationAngle(args: unknown[], index: number): TPageOpsRotationAn
     return angle;
 }
 
-function decodeRevision(value: unknown): IDocumentRevisionInfo | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (!isDocumentRevisionInfo(value)) {
-        throw new Error('documentRevision must be valid');
-    }
-    return {
-        version: value.version,
-        token: value.token,
-        documentRef: value.documentRef,
-        authority: value.authority,
-        contentRevision: value.contentRevision,
-        mintedAt: value.mintedAt,
-    };
-}
+const pageOpsResult = PAGE_OPS_RESULT_SCHEMA;
+const extractResult = PAGE_OPS_EXTRACT_RESULT_SCHEMA;
+const insertResult = PAGE_OPS_INSERT_RESULT_SCHEMA;
+const cancelActiveResult = PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA;
+const pageGeometry = PAGE_GEOMETRY_SCHEMA;
 
-function decodeOptionalBoolean(value: unknown, fieldName: string) {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (typeof value !== 'boolean') {
-        throw new Error(`${fieldName} must be a boolean`);
-    }
-    return value;
-}
-
-function decodePageIdentityDelta(value: unknown): IPageIdentityDelta | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (!isRecord(value)) {
-        throw new Error('pageIdentityDelta must be an object');
-    }
-    const previousPageCount = decodeSafeInteger(
-        [value.previousPageCount],
-        0,
-        'pageIdentityDelta.previousPageCount',
-    );
-    const pages = value.pages === undefined
-        ? undefined
-        : (() => {
-            if (!Array.isArray(value.pages) || value.pages.length > MAX_COLLECTION_ITEMS) {
-                throw new Error('pageIdentityDelta.pages must be a bounded array');
-            }
-            return value.pages.map((page): TPageIdentityDeltaPage => {
-                if (isRecord(page) && typeof page.insertedId === 'string' && page.insertedId.length > 0) {
-                    return {insertedId: page.insertedId};
-                }
-                if (
-                    isRecord(page)
-                    && typeof page.fromPageNumber === 'number'
-                    && Number.isSafeInteger(page.fromPageNumber)
-                    && page.fromPageNumber >= 1
-                ) {
-                    return {fromPageNumber: page.fromPageNumber};
-                }
-                throw new Error('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
-            });
-        })();
-    const nextPageCount = value.nextPageCount === undefined
-        ? undefined
-        : decodeSafeInteger(
-            [value.nextPageCount],
-            0,
-            'pageIdentityDelta.nextPageCount',
-        );
-    const ranges = value.ranges === undefined
-        ? undefined
-        : (() => {
-            if (!Array.isArray(value.ranges) || value.ranges.length > MAX_COLLECTION_ITEMS) {
-                throw new Error('pageIdentityDelta.ranges must be a bounded array');
-            }
-            return value.ranges.map((range): TPageIdentityRangeOperation => {
-                if (!isRecord(range) || typeof range.kind !== 'string') {
-                    throw new Error('pageIdentityDelta.ranges entries must be valid range operations');
-                }
-                const count = typeof range.count === 'number'
-                    && Number.isSafeInteger(range.count)
-                    && range.count > 0
-                    ? range.count
-                    : null;
-                if (count === null) {
-                    throw new Error('pageIdentityDelta.ranges count must be a positive safe integer');
-                }
-                if (range.kind === 'retain' || range.kind === 'move') {
-                    if (
-                        typeof range.fromPageNumber !== 'number'
-                        || !Number.isSafeInteger(range.fromPageNumber)
-                        || range.fromPageNumber < 1
-                        || typeof range.toPageNumber !== 'number'
-                        || !Number.isSafeInteger(range.toPageNumber)
-                        || range.toPageNumber < 1
-                    ) {
-                        throw new Error('pageIdentityDelta.ranges mappings must contain positive page numbers');
-                    }
-                    return {
-                        kind: range.kind,
-                        fromPageNumber: range.fromPageNumber,
-                        toPageNumber: range.toPageNumber,
-                        count,
-                    };
-                }
-                if (range.kind === 'insert') {
-                    if (
-                        typeof range.toPageNumber !== 'number'
-                        || !Number.isSafeInteger(range.toPageNumber)
-                        || range.toPageNumber < 1
-                        || typeof range.identitySeed !== 'string'
-                        || range.identitySeed.length === 0
-                    ) {
-                        throw new Error('pageIdentityDelta.ranges insert must contain a destination and identity seed');
-                    }
-                    let insertedIds: string[] | undefined;
-                    const rawInsertedIds: unknown = range.insertedIds;
-                    if (rawInsertedIds !== undefined) {
-                        if (
-                            !Array.isArray(rawInsertedIds)
-                            || rawInsertedIds.length !== count
-                            || rawInsertedIds.length > MAX_COLLECTION_ITEMS
-                            || !rawInsertedIds.every(id => typeof id === 'string' && id.length > 0)
-                        ) {
-                            throw new Error('pageIdentityDelta.ranges insertedIds must match the range count');
-                        }
-                        insertedIds = rawInsertedIds.filter(
-                            (id): id is string => typeof id === 'string',
-                        );
-                    }
-                    return {
-                        kind: 'insert',
-                        toPageNumber: range.toPageNumber,
-                        count,
-                        identitySeed: range.identitySeed,
-                        ...(insertedIds === undefined ? {} : {insertedIds}),
-                    };
-                }
-                if (range.kind === 'delete') {
-                    if (
-                        typeof range.fromPageNumber !== 'number'
-                        || !Number.isSafeInteger(range.fromPageNumber)
-                        || range.fromPageNumber < 1
-                    ) {
-                        throw new Error('pageIdentityDelta.ranges delete must contain a positive source page');
-                    }
-                    return {
-                        kind: 'delete',
-                        fromPageNumber: range.fromPageNumber,
-                        count,
-                    };
-                }
-                if (range.kind === 'touch') {
-                    const reason = PAGE_IDENTITY_TOUCH_REASONS.find(candidate => candidate === range.reason);
-                    if (
-                        typeof range.toPageNumber !== 'number'
-                        || !Number.isSafeInteger(range.toPageNumber)
-                        || range.toPageNumber < 1
-                        || reason === undefined
-                    ) {
-                        throw new Error('pageIdentityDelta.ranges touch must contain a destination and reason');
-                    }
-                    return {
-                        kind: 'touch',
-                        toPageNumber: range.toPageNumber,
-                        count,
-                        reason,
-                    };
-                }
-                throw new Error('pageIdentityDelta.ranges entries must be valid range operations');
-            });
-        })();
-    if (pages === undefined && ranges === undefined) {
-        throw new Error('pageIdentityDelta must contain pages or ranges');
-    }
-    return {
-        previousPageCount,
-        ...(pages === undefined ? {} : {pages}),
-        ...(nextPageCount === undefined ? {} : {nextPageCount}),
-        ...(ranges === undefined ? {} : {ranges}),
-    };
-}
-
-function decodePageOpsResult(value: unknown): IPageOpsResult {
-    if (!isRecord(value) || typeof value.success !== 'boolean') {
-        throw new Error('page operation result must include success');
-    }
-    const pageCount = value.pageCount === undefined
-        ? undefined
-        : decodeSafeInteger([value.pageCount], 0, 'pageCount');
-    const canceled = decodeOptionalBoolean(value.canceled, 'canceled');
-    const documentRevision = decodeRevision(value.documentRevision);
-    const pageIdentityDelta = decodePageIdentityDelta(value.pageIdentityDelta);
-    return {
-        success: value.success,
-        ...(canceled === undefined ? {} : {canceled}),
-        ...(pageCount === undefined ? {} : {pageCount}),
-        ...(documentRevision === undefined ? {} : {documentRevision}),
-        ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
-    };
-}
-
-function decodeCancelActiveResult(value: unknown): IPageOpsCancelActiveResult {
-    if (!isRecord(value)) {
-        throw new Error('page operation cancel result must be an object');
-    }
-    return {
-        canceled: decodeSafeInteger([value.canceled], 0, 'canceled'),
-        committing: decodeSafeInteger([value.committing], 0, 'committing'),
-    };
-}
-
-function decodeExtractResult(value: unknown): IPageOpsExtractResult {
-    if (!isRecord(value) || typeof value.success !== 'boolean') {
-        throw new Error('page extraction result must include success');
-    }
-    const canceled = decodeOptionalBoolean(value.canceled, 'canceled');
-    const destPath = value.destPath === undefined
-        ? undefined
-        : parseDocumentRef(value.destPath);
-    if (destPath === null) {
-        throw new Error('destPath must be an absolute document reference');
-    }
-    return {
-        success: value.success,
-        ...(canceled === undefined ? {} : {canceled}),
-        ...(destPath === undefined ? {} : {destPath}),
-    };
-}
-
-function decodeInsertResult(value: unknown): IPageOpsInsertResult {
-    if (!isRecord(value) || typeof value.success !== 'boolean') {
-        throw new Error('page insertion result must include success');
-    }
-    const canceled = decodeOptionalBoolean(value.canceled, 'canceled');
-    const documentRevision = decodeRevision(value.documentRevision);
-    const pageIdentityDelta = decodePageIdentityDelta(value.pageIdentityDelta);
-    return {
-        success: value.success,
-        ...(canceled === undefined ? {} : {canceled}),
-        ...(documentRevision === undefined ? {} : {documentRevision}),
-        ...(pageIdentityDelta === undefined ? {} : {pageIdentityDelta}),
-    };
-}
-
-function decodePageGeometry(value: unknown): IPageGeometry {
-    if (!isRecord(value) || !isFiniteNumber(value.rotation)) {
-        throw new Error('page geometry must contain a finite rotation');
-    }
-    const geometry = decodeSharedPageGeometry(value);
-    if (geometry === null) {
-        throw new Error('page geometry box must contain finite coordinates');
-    }
-    return geometry;
-}
-
-const fixtureOptions = {
-    expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:fixture'),
-    metadataSnapshot: {
-        pageLabels: ['1'],
-        bookmarks: [],
-        untitledBookmarkLabel: 'Untitled',
-    },
-} satisfies IPageOpsMutationOptions;
-const pageOpsResult = v.pipe(v.unknown(), v.transform(decodePageOpsResult));
-const extractResult = v.pipe(v.unknown(), v.transform(decodeExtractResult));
-const insertResult = v.pipe(v.unknown(), v.transform(decodeInsertResult));
-const cancelActiveResult = v.pipe(v.unknown(), v.transform(decodeCancelActiveResult));
-const pageGeometry = v.pipe(v.unknown(), v.transform(decodePageGeometry));
 function args<T extends unknown[]>(
     count: number,
     decode: (value: unknown[]) => T,
-    _example: () => T,
 ) {
     const tuple = Array.from({length: count}, () => v.unknown()) as [v.GenericSchema, ...v.GenericSchema[]];
     return v.pipe(
+        v.unknown(),
+        v.check(
+            value => Array.isArray(value) && value.length === count,
+            issue => `expected ${count} arguments, received ${Array.isArray(issue.input) ? issue.input.length : 0}`,
+        ),
         v.strictTuple(tuple),
-        v.transform(value => {
-            requireArgumentCount(value, count);
-            return decode(value);
-        }),
+        v.transform(value => decode(value)),
     ) as v.GenericSchema<unknown, T>;
 }
 
@@ -724,11 +444,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 decodeMutationOptions(value[3]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                [1],
-                1,
-                fixtureOptions,
             ]),
             pageOpsResult,
             (
@@ -754,15 +469,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                     totalPages,
                     decodeMutationOptions(value[3]),
                 ];
-            }, () => [
-                '/tmp/fixture.pdf',
-                [{
-                    startPage: 1,
-                    endPage: 1,
-                }],
-                2,
-                fixtureOptions,
-            ]),
+            }),
             pageOpsResult,
             (
                 workingCopyPath: string,
@@ -782,9 +489,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             args<TExtractArgs>(2, value => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodePageSelection(value, 1, 'pages'),
-            ], () => [
-                '/tmp/fixture.pdf',
-                [1],
             ]),
             extractResult,
             (workingCopyPath: string, pages: TPageOpsPageSelection): TExtractArgs => [
@@ -799,10 +503,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodeString(value, 0, 'workingCopyPath'),
                 decodePositiveIntegerArray(value, 1, 'newOrder'),
                 decodeMutationOptions(value[2]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                [1],
-                fixtureOptions,
             ]),
             pageOpsResult,
             (
@@ -825,13 +525,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodeSafeInteger(value, 3, 'insertAt'),
                 decodeSafeInteger(value, 4, 'totalPages', 1),
                 decodeMutationOptions(value[5]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                1,
-                1,
-                0,
-                1,
-                fixtureOptions,
             ]),
             pageOpsResult,
             (
@@ -867,16 +560,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                     totalPages,
                     decodeMutationOptions(value[4]),
                 ];
-            }, () => [
-                '/tmp/fixture.pdf',
-                [{
-                    startPage: 1,
-                    endPage: 1,
-                }],
-                0,
-                1,
-                fixtureOptions,
-            ]),
+            }),
             pageOpsResult,
             (
                 workingCopyPath: string,
@@ -900,11 +584,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodeSafeInteger(value, 1, 'totalPages'),
                 decodeSafeInteger(value, 2, 'afterPage'),
                 decodeMutationOptions(value[3]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                1,
-                1,
-                fixtureOptions,
             ]),
             insertResult,
             (
@@ -929,15 +608,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodeStringArray(value, 3, 'sourcePaths'),
                 decodeOptionalRequestId(value, 4, 'requestId'),
                 decodeMutationOptions(value[5]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                1,
-                1,
-                ['/tmp/source.pdf'],
-                parseRequestId('page-ops-fixture') ?? (() => {
-                    throw new Error('invalid fixture request ID');
-                })(),
-                fixtureOptions,
             ]),
             pageOpsResult,
             (
@@ -965,12 +635,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 decodeRotationAngle(value, 3),
                 decodeMutationOptions(value[4]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                [1],
-                1,
-                90,
-                fixtureOptions,
             ]),
             pageOpsResult,
             (
@@ -996,17 +660,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 normalizeCropMargins(value[3]),
                 decodeMutationOptions(value[4]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                [1],
-                1,
-                {
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                },
-                fixtureOptions,
             ]),
             pageOpsResult,
             (
@@ -1031,11 +684,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 decodeMutationOptions(value[3]),
-            ], () => [
-                '/tmp/fixture.pdf',
-                [1],
-                1,
-                fixtureOptions,
             ]),
             pageOpsResult,
             (
@@ -1054,7 +702,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             ...method(
                 'cancelActive',
                 'page-ops:cancel-active',
-                args<TCancelActiveArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')], () => ['/tmp/fixture.pdf']),
+                args<TCancelActiveArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')]),
                 cancelActiveResult,
                 (workingCopyPath: string): TCancelActiveArgs => [workingCopyPath],
             ),
@@ -1076,9 +724,6 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             args<TGetPageGeometryArgs>(2, value => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodeSafeInteger(value, 1, 'pageNumber', 1),
-            ], () => [
-                '/tmp/fixture.pdf',
-                1,
             ]),
             pageGeometry,
             (workingCopyPath: string, pageNumber: TPageNumber): TGetPageGeometryArgs => [
