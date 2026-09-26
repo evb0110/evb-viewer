@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 import type { ChildProcessByStdio } from 'child_process';
 import { isAbsolute } from 'node:path';
+import { tmpdir } from 'node:os';
+import { getAppTempNamespacePathForNamespace } from '@node-runtime/appTempNamespace';
 import { StringDecoder } from 'string_decoder';
 import {
     Readable, type Writable, 
@@ -30,7 +32,6 @@ import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
-import { getAppTempDir } from '@electron/utils/appTempDir';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -317,9 +318,11 @@ export async function runNativeCommand(
     args: string[],
     options: IRunCommandOptions = {},
 ): Promise<IProcessResult> {
-    if (!process.env.EVB_APP_TEMP_NAMESPACE || !isAbsolute(command)) {
+    const appTempNamespace = process.env.EVB_APP_TEMP_NAMESPACE?.trim().toLowerCase();
+    if (!appTempNamespace || !/^[a-z\d][a-z\d-]{0,63}$/u.test(appTempNamespace) || !isAbsolute(command)) {
         return runNativeCommandCore(command, args, options);
     }
+    const namespacePath = getAppTempNamespacePathForNamespace(tmpdir(), appTempNamespace);
     const manifestIndex = args.indexOf('--manifest');
     const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
     let registration: Promise<IManagedProcessRegistration | null> | null = null;
@@ -334,7 +337,7 @@ export async function runNativeCommand(
         const result = await runNativeCommandCore(command, args, {
             ...options,
             onSpawn: pid => {
-                registration = Promise.resolve().then(() => registerManagedProcess(getAppTempDir(), {
+                registration = Promise.resolve().then(() => registerManagedProcess(namespacePath, {
                     pid,
                     binaryPath: command,
                     ...(manifestPath === undefined ? {} : {manifestPath}),
