@@ -245,7 +245,6 @@ export interface IWorkspaceDocumentDriverSource {
 export type TWorkspaceDocumentSaveStrategy = 'pdf-working-copy' | 'djvu-pdf-projection';
 export type TWorkspaceDocumentSaveAction = 'save' | 'save-as';
 export type TWorkspaceDocumentPrintStrategy = 'pdf' | 'djvu-pdf-projection';
-export type TWorkspaceDocumentOpenStrategy = 'pdf-working-copy' | 'djvu-activation';
 
 export interface IWorkspaceDocumentDriverExportTarget {
     sourceKind: TDocumentImageExportSourceKind;
@@ -254,8 +253,6 @@ export interface IWorkspaceDocumentDriverExportTarget {
 }
 
 export interface IWorkspaceDocumentDriverOperations {
-    open: {strategy: TWorkspaceDocumentOpenStrategy};
-    restore: {supportsWorkingCopyRecovery: boolean};
     save: {
         strategy: TWorkspaceDocumentSaveStrategy;
         execute: (action: TWorkspaceDocumentSaveAction) => Promise<boolean>;
@@ -470,8 +467,6 @@ export function createWorkspaceDocumentDriverForAdapter(
                 : {...imageTarget};
             const printPath = isDjvu ? null : sourcePath;
             return {
-                open: {strategy: isDjvu ? 'djvu-activation' : 'pdf-working-copy'},
-                restore: {supportsWorkingCopyRecovery: !isDjvu && adapter.capabilities.pdfDocument},
                 save: {
                     strategy: isDjvu ? 'djvu-pdf-projection' : 'pdf-working-copy',
                     execute: action => {

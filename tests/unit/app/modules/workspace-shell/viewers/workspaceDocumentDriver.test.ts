@@ -172,8 +172,6 @@ describe('WorkspaceDocumentDriver', () => {
                 path: '/managed/source.djvu',
             },
             operations: {
-                open: {strategy: 'djvu-activation'},
-                restore: {supportsWorkingCopyRecovery: false},
                 save: {strategy: 'djvu-pdf-projection'},
                 export: {imageTarget: {
                     sourceKind: 'djvu',
@@ -193,8 +191,6 @@ describe('WorkspaceDocumentDriver', () => {
             workingCopyPath: ref<TDocumentRef | null>(null),
         });
         expect(pdf.operations).toEqual({
-            open: {strategy: 'pdf-working-copy'},
-            restore: {supportsWorkingCopyRecovery: true},
             save: {
                 strategy: 'pdf-working-copy',
                 execute: expect.any(Function),
