@@ -47,6 +47,7 @@ cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-buil
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DGIF_INCLUDE_DIR="$BUILD_DIR/giflib-install/include" \
   -DGIF_LIBRARY="$BUILD_DIR/giflib-install/lib/libgif.a" \
+  -DPNG_PNG_INCLUDE_DIR="$BREW_PREFIX/include/libpng16" \
   -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/leptonica-install" \
   -DBUILD_SHARED_LIBS=OFF \
   -DBUILD_PROG=OFF
