@@ -49,7 +49,7 @@ describe('runtime binary manifest', () => {
     it('binds every archive to the repository release asset and its staged executable', () => {
         for (const entry of RUNTIME_BINARY_MANIFEST.entries) {
             expect(entry.archiveUrl).toMatch(
-                new RegExp(`/${entry.familyId}-${entry.target.platformArch}(?:-\\d+(?:\\.\\d+)*)?\\.tar\\.gz$`, 'u'),
+                new RegExp(`/${entry.familyId}-${entry.target.platformArch}(?:-\\d+(?:\\.\\d+)*(?:-r\\d+)?)?\\.tar\\.gz$`, 'u'),
             );
             expect(entry.executableEntry).toBe(
                 `${entry.familyId}/${entry.target.platformArch}/bin/${entry.executableEntry.split('/').at(-1)}`,
