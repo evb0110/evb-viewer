@@ -6,7 +6,6 @@ import type {
     IIpcCodec,
     IIpcInvokeSpec,
     IIpcMainRegistrar,
-    TIpcCodecMap,
 } from '@contracts/ipcMain';
 import type {
     TAnyDefinedPlatformFeature,
@@ -63,12 +62,11 @@ class IpcArgumentValidationError extends Error {
 
 export interface IIpcInvokeArgumentValidationPolicy {noArgumentChannels?: ReadonlySet<string>;}
 
-export interface IValidatedIpcMainRegistrarOptions<
-    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec} = never,
-> {
+export interface IValidatedIpcMainRegistrarOptions {
     allowedChannels?: ReadonlySet<string>;
     argumentValidation?: IIpcInvokeArgumentValidationPolicy;
-    codecs?: TIpcCodecMap<TMap>;
+    /** Argument decoders by channel; main never re-decodes its own results. */
+    codecs?: Readonly<Record<string, Pick<IIpcCodec<IIpcInvokeSpec>, 'decodeArgs'>>>;
 }
 
 export interface IValidatedIpcMainRegistrar<
@@ -210,11 +208,11 @@ export function createValidatedIpcMainRegistrar<
     TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
 >(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
-    options?: IValidatedIpcMainRegistrarOptions<TMap>,
+    options?: IValidatedIpcMainRegistrarOptions,
 ): IValidatedIpcMainRegistrar<TMap, IpcMainInvokeEvent> & IValidatedIpcChannelClaimRegistrar;
 export function createValidatedIpcMainRegistrar(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
-    options: IValidatedIpcMainRegistrarOptions | IValidatedIpcMainRegistrarOptions<Record<string, IIpcInvokeSpec>> = {},
+    options: IValidatedIpcMainRegistrarOptions = {},
 ): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent> & IValidatedIpcChannelClaimRegistrar {
     assertArgumentValidationPolicyChannelsAreKnown(options);
     const channelClaimer = createChannelClaimer('invoke', registeredInvokeChannels, options.allowedChannels);
@@ -229,8 +227,7 @@ export function createValidatedIpcMainRegistrar(
             ) => TResult | Promise<TResult>,
         ) => {
             assertAllowedChannelRegistration('invoke', channel, options.allowedChannels);
-            const codec = options.codecs?.[channel] as IIpcCodec<IIpcInvokeSpec<TArgs, TResult>> | undefined;
-            const decode = codec?.decodeArgs;
+            const decode = options.codecs?.[channel]?.decodeArgs as ((args: readonly unknown[]) => TArgs) | undefined;
             const hasDecoder = typeof decode === 'function';
             const isExactNoArgumentChannel = !hasDecoder
             && options.argumentValidation?.noArgumentChannels?.has(channel) === true;

@@ -1,6 +1,8 @@
 import type { IpcRenderer } from 'electron';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
-import type {IPdfSerializedCommitCallbacks} from '@contracts/electronApiDocuments';
+import type {
+    IPdfSerializedCommitCallbacks, IPdfCommittedSaveAsResult, 
+} from '@contracts/electronApiDocuments';
 import {requireSessionId} from '@contracts/shared';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
@@ -25,12 +27,9 @@ import {
     type IPdfPersistenceErrorFrame,
 } from '@contracts/documentPersistenceFrames';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
-import {
-    DOCUMENTS_CHANNELS,
-    type IDocumentsInvokeMap,
-} from '@electron/features/documents/contract';
-import {createCodecIpcInvoker} from '@electron/preload/ipcClient';
-import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
+import type { IBeginSerializedPdfPersistenceResult } from '@electron/features/documents/serializedPdfPersistenceContract';
+import { invokeWithChannelContext } from '@electron/preload/ipcClient';
 import {
     assertAbsolutePath,
     assertPdfSerializedSaveOptions,
@@ -475,7 +474,12 @@ async function streamPdfBytesToPersistencePort(
 export function createDocumentsPreloadStreams(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>,
 ) {
-    const invoke = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS, {invokeTimeoutMsByChannel: {[DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: LONG_NATIVE_IPC_TIMEOUT_MS}});
+    const invoke = <TResult>(channel: string, ...args: unknown[]) => invokeWithChannelContext<TResult>(
+        ipcRenderer,
+        channel,
+        args,
+        {invokeTimeoutMsByChannel: {[DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: LONG_NATIVE_IPC_TIMEOUT_MS}},
+    );
     const commitStagedPersistence = async (
         result: ISerializedPdfPersistencePortResult,
         callbacks: IPdfSerializedCommitCallbacks | undefined,
@@ -490,7 +494,7 @@ export function createDocumentsPreloadStreams(
                 staged.stagedOutput.size,
             );
             await callbacks?.assertBeforeCommit?.();
-            return await invoke(
+            return await invoke<IPdfCommittedSaveAsResult>(
                 DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
                 requireSessionId(staged.sessionId),
                 staged.stagedOutput,
@@ -519,7 +523,7 @@ export function createDocumentsPreloadStreams(
                 commitCallbacks,
                 'savePdfData.commitCallbacks',
             );
-            const beginResult = await invoke(
+            const beginResult = await invoke<IBeginSerializedPdfPersistenceResult>(
                 DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
                 checkedPath,
                 checkedData.byteLength,

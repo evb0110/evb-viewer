@@ -64,7 +64,7 @@ export function createValidatedRegistrarHarness<
         handlers.set(channel, handler);
     }) as IIpcMainRegistrar<never, IpcMainInvokeEvent>['handle']};
     const allowedChannels = createChannelSet(options.channels);
-    const registrarOptions: IValidatedIpcMainRegistrarOptions<TMap> = {
+    const registrarOptions: IValidatedIpcMainRegistrarOptions = {
         allowedChannels,
         codecs: options.codecs,
     };

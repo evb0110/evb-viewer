@@ -1,4 +1,3 @@
-import {DOCX_EXPORT_STREAM_CHANNELS} from '@contracts/docxExport';
 import {
     describe,
     expect,
@@ -12,8 +11,6 @@ import {
     DOCUMENT_PDF_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
@@ -49,13 +46,8 @@ const validStagedArtifact = {
     revision: null,
 };
 
-function expectExhaustiveMap(
-    channels: Record<string, string>,
-    codecs: Record<string, unknown>,
-    excludedChannels: readonly string[] = [],
-) {
-    const excluded = new Set(excludedChannels);
-    expect(Object.keys(codecs).sort()).toEqual([...new Set(Object.values(channels).filter(channel => !excluded.has(channel)))].sort());
+function expectExhaustiveMap(channels: Record<string, string>, codecs: Record<string, unknown>) {
+    expect(Object.keys(codecs).sort()).toEqual([...new Set(Object.values(channels))].sort());
 }
 
 describe('feature IPC codec maps', () => {
@@ -63,10 +55,6 @@ describe('feature IPC codec maps', () => {
         for (const feature of PLATFORM_FEATURE_REGISTRY) {
             expectExhaustiveMap(feature.invokeChannels, feature.ipcCodecs);
         }
-        expectExhaustiveMap({
-            ...DOCUMENTS_CHANNELS,
-            ...DOCX_EXPORT_STREAM_CHANNELS,
-        }, DOCUMENTS_IPC_CODECS, [DOCUMENTS_CHANNELS.fileSavePdfDataPort]);
     });
 
     it('keeps scan-cleanup generated-output pruning zero-argument', () => {
@@ -627,10 +615,6 @@ describe('feature IPC codec maps', () => {
             text: 'inspect',
             attachments: Array.from({length: 9}, () => ({})),
         }])).toThrow('assistant attachments exceeds maximum item count (8)');
-
-        expect(() => DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.allowRendererFileOpenBatch].decodeArgs(
-            [Array.from({length: 4_097}, () => ({}))],
-        )).toThrow('requests exceeds maximum item count (4096)');
 
         expect(() => djvuCodec(DJVU_CHANNELS.printDjvuPath).decodeArgs([
             '/tmp/a.djvu',

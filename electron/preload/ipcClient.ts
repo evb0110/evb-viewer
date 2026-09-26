@@ -108,7 +108,7 @@ class PlatformIpcInvokeError extends Error {
     }
 }
 
-async function invokeWithChannelContext<TResult>(
+export async function invokeWithChannelContext<TResult>(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'>,
     channel: string,
     args: unknown[],

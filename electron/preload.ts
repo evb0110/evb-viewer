@@ -15,12 +15,7 @@ import {
     tracePreload,
 } from '@electron/preload/preloadLog';
 import { installStartupOverlayLifecycle } from '@electron/preload/installStartupOverlayLifecycle';
-import {
-    DOCUMENTS_CHANNELS,
-    type IDocumentsInvokeMap,
-} from '@electron/features/documents/contract';
-import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
 import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
 const preloadAlreadyInstalled = markPreloadInstalled();
@@ -54,14 +49,13 @@ contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
 
 if (isRendererAutomationFileOpenHelperEnabled()) {
-    const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
         const path = typeof filePath === 'string' ? filePath : '';
         const automationFileOpenToken = globalThis.crypto.randomUUID();
-        return invokeDocuments(
+        return ipcRenderer.invoke(
             DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
             automationFileOpenToken,
-        ).then(() => invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+        ).then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
             filePath: path,
             token: automationFileOpenToken,
         }));

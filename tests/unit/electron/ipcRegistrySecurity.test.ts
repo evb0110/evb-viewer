@@ -283,7 +283,7 @@ describe('IPC registry sender trust', () => {
     });
 
     it('disposes retained bindings when lazy registration fails after loading', async () => {
-        const {FEATURE_REGISTRATION_DESCRIPTORS} = await import('@electron/platform-ipc/featureRegistrationTable');
+        const {FEATURE_REGISTRATION_DESCRIPTORS} = await import('@electron/platform-ipc/featureRegistrationDescriptors');
         const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
         const scanCleanupDescriptor = FEATURE_REGISTRATION_DESCRIPTORS
             .find(descriptor => descriptor.name === 'scan-cleanup')!;

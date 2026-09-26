@@ -8,7 +8,7 @@ import {
     FEATURE_REGISTRATION_DESCRIPTORS,
     RAW_IPC_HANDLER_DESCRIPTORS,
     type IFeatureRegistrationDescriptor,
-} from '@electron/platform-ipc/featureRegistrationTable';
+} from '@electron/platform-ipc/featureRegistrationDescriptors';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {createFeatureRegistrationRuntime} from '@electron/platform-ipc/registerFeatureIpcAdapters';
 
@@ -17,14 +17,7 @@ describe('main-process feature registration table', () => {
         if (process.env.EVB_REGISTRATION_TYPE_ASSERTIONS === '1') {
             const invalidDescriptor: IFeatureRegistrationDescriptor<{dispose: () => Promise<void>}> = {
                 name: 'invalid-fixture',
-                startOrder: 1,
-                kind: 'platform',
                 create: async () => ({dispose: async () => undefined}),
-                lifecycle: {
-                    create: 'fixture',
-                    ipcRegistration: 'fixture',
-                    shutdown: 'fixture',
-                },
                 // @ts-expect-error A disposer key must be exported by the loader binding.
                 disposeBindingKey: 'missing',
             };
@@ -32,11 +25,8 @@ describe('main-process feature registration table', () => {
         }
     });
 
-    it('enumerates every feature with a unique start order and complete hooks', () => {
-        const names = FEATURE_REGISTRATION_DESCRIPTORS.map(descriptor => descriptor.name);
-        const startOrders = FEATURE_REGISTRATION_DESCRIPTORS.map(descriptor => descriptor.startOrder);
-
-        expect(names).toEqual([
+    it('registers every feature once, documents first', () => {
+        expect(FEATURE_REGISTRATION_DESCRIPTORS.map(descriptor => descriptor.name)).toEqual([
             'documentPicker',
             'documentOpen',
             'documentWorkingCopy',
@@ -45,6 +35,7 @@ describe('main-process feature registration table', () => {
             'documentRecentFiles.recentFiles',
             'documentWindow',
             'documentMenu',
+            'documents-direct',
             'window-tabs',
             'agent',
             'settings',
@@ -57,42 +48,6 @@ describe('main-process feature registration table', () => {
             'scan-cleanup',
             'search',
             'djvu',
-        ]);
-        expect(new Set(startOrders).size).toBe(startOrders.length);
-        expect(startOrders).toEqual([...startOrders].sort((left, right) => left - right));
-        for (const descriptor of FEATURE_REGISTRATION_DESCRIPTORS) {
-            expect(descriptor.lifecycle.create).not.toBe('');
-            expect(descriptor.lifecycle.ipcRegistration).not.toBe('');
-            expect(descriptor.lifecycle.shutdown).not.toBe('');
-        }
-    });
-
-    it('derives shutdown order by reversing the start order', () => {
-        const shutdownNames = [...FEATURE_REGISTRATION_DESCRIPTORS]
-            .sort((left, right) => right.startOrder - left.startOrder)
-            .map(descriptor => descriptor.name);
-
-        expect(shutdownNames).toEqual([
-            'djvu',
-            'search',
-            'scan-cleanup',
-            'ocr',
-            'page-ops',
-            'image-export',
-            'host',
-            'updates',
-            'shell',
-            'settings',
-            'agent',
-            'window-tabs',
-            'documentMenu',
-            'documentWindow',
-            'documentRecentFiles.recentFiles',
-            'documentPdf',
-            'documentFiles',
-            'documentWorkingCopy',
-            'documentOpen',
-            'documentPicker',
         ]);
     });
 

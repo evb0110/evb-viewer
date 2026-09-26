@@ -32,7 +32,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { addRecentInputs } from '@electron/features/documents/main/addRecentInputs.service';
 import {getErrorMessage} from '@electron/utils/error';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
-import type { TOpenFileResult } from '@electron/features/documents/contract';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';

@@ -8,8 +8,7 @@ import {
     type platformDescriptors,
     type IFeatureRegistrationDescriptor,
     FEATURE_REGISTRATION_DESCRIPTORS,
-    registerDocumentFeatureAdapters,
-} from '@electron/platform-ipc/featureRegistrationTable';
+} from '@electron/platform-ipc/featureRegistrationDescriptors';
 
 type TDeferredHandler = (event: Electron.IpcMainInvokeEvent, ...args: never[]) => unknown;
 
@@ -115,7 +114,7 @@ function registerLazyValidatedFeature(
     };
     const registrar = createValidatedIpcMainRegistrar(ipcMain, {
         allowedChannels: createChannelSet(channels),
-        codecs: codecs as never,
+        codecs,
     });
     const dispatch = async (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => {
         await ensureLoaded();
@@ -267,24 +266,12 @@ export function registerFeatureIpcAdapters(
     options: IFeatureIpcAdapterOptions,
 ): IFeatureRegistrationRuntime {
     const registrations: IFeatureRegistrationResult[] = [];
-    let documentsRegistered = false;
     for (const descriptor of FEATURE_REGISTRATION_DESCRIPTORS) {
-        if (descriptor.kind === 'documents') {
-            if (!documentsRegistered) {
-                registerDocumentFeatureAdapters(ipcMain);
-                documentsRegistered = true;
-            }
+        if (descriptor.register) {
+            descriptor.register(ipcMain, options);
             registrations.push({
                 descriptor,
                 dispose: noDispose,
-            });
-            continue;
-        }
-        if (descriptor.kind === 'core') {
-            const dispose = descriptor.register?.(ipcMain, options);
-            registrations.push({
-                descriptor,
-                dispose: dispose ?? noDispose,
             });
             continue;
         }

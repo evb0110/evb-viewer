@@ -69,15 +69,12 @@ describe('validated IPC registrar argument policy', () => {
         const native = createNativeRegistrar();
         const registrar = createValidatedIpcMainRegistrar(native.registrar, {
             allowedChannels: new Set(['test:decoded']),
-            codecs: {'test:decoded': {
-                decodeArgs: (args: readonly unknown[]) => {
-                    if (typeof args[0] !== 'string') {
-                        throw new Error('value must be a string');
-                    }
-                    return [args[0]] as [value: string];
-                },
-                decodeResult: String,
-            }},
+            codecs: {'test:decoded': {decodeArgs: (args: readonly unknown[]) => {
+                if (typeof args[0] !== 'string') {
+                    throw new Error('value must be a string');
+                }
+                return [args[0]] as [value: string];
+            }}},
         });
 
         registrar.handle('test:decoded', (_event, ...args) => String(args[0]));
@@ -96,10 +93,7 @@ describe('validated IPC registrar argument policy', () => {
         const sender = {} as IpcMainInvokeEvent['sender'];
         const registrar = createValidatedIpcMainRegistrar(native.registrar, {
             allowedChannels: new Set(['test:timed']),
-            codecs: {'test:timed': {
-                decodeArgs: () => [],
-                decodeResult: String,
-            }},
+            codecs: {'test:timed': {decodeArgs: () => []}},
         });
         const cancel = vi.fn();
         let releaseHandler: (() => void) | undefined;

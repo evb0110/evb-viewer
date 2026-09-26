@@ -27,7 +27,7 @@ import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import type {
     TOpenBatchProgressOperation,
-    TOpenDocumentDirectBatchProgress,
+    TOpenDocumentDirectBatchProgress, TOpenFileResult, 
 } from '@contracts/electronApiDocuments';
 import type { TRequestId } from '@contracts/shared';
 import { parseRequestId } from '@contracts/shared';
@@ -36,7 +36,6 @@ import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { getDocumentsDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
-import type { TOpenFileResult } from '@electron/features/documents/contract';
 import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
 import {
     errorWithDetails,

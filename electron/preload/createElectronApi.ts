@@ -53,14 +53,9 @@ import {
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
 import {createDocumentsPreloadStreams} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
-import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import {
-    DOCUMENTS_CHANNELS,
-    type IDocumentsInvokeMap,
-} from '@electron/features/documents/contract';
+import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
-    createCodecIpcInvoker,
     createPlatformFeaturePreloadClient,
     createTypedIpcEventSubscriber,
 } from '@electron/preload/ipcClient';
@@ -173,7 +168,7 @@ export function createElectronApi(
     electronWebUtils: typeof webUtils,
     options: ICreateElectronApiOptions = {},
 ): IElectronAPI & {diagnostics: IPreloadDiagnosticsApi;} {
-    const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
+    const invokeDocuments = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args) as Promise<boolean>;
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const documentStreams = createDocumentsPreloadStreams(ipcRenderer);
     const documentOpenFeature = createPlatformFeaturePreloadClient(
