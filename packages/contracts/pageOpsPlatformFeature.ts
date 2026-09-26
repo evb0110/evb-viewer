@@ -38,12 +38,10 @@ import type {
 } from '@contracts/shared';
 import {
     definePlatformFeature,
-    runtimeSchema as s,
-    type IRuntimeSchema,
     type TFeatureCapability,
     type TFeatureInvokeMap,
-    type TInferSchema,
 } from '@contracts/platformFeature';
+import * as v from 'valibot';
 import {
     isFiniteNumber,
     isRecord,
@@ -660,48 +658,32 @@ const fixtureOptions = {
         untitledBookmarkLabel: 'Untitled',
     },
 } satisfies IPageOpsMutationOptions;
-const pageOpsResult = s.fromParser(decodePageOpsResult, () => ({
-    success: true,
-    pageCount: 1,
-}));
-const extractResult = s.fromParser(decodeExtractResult, () => ({
-    success: true,
-    destPath: parseDocumentRef('/tmp/extract.pdf') ?? (() => {
-        throw new Error('invalid fixture document reference');
-    })(),
-}));
-const insertResult = s.fromParser(decodeInsertResult, () => ({success: true}));
-const cancelActiveResult = s.fromParser(decodeCancelActiveResult, () => ({
-    canceled: 1,
-    committing: 0,
-}));
-const pageGeometry = s.fromParser(decodePageGeometry, () => ({
-    mediaBox: {
-        x: 0,
-        y: 0,
-        width: 612,
-        height: 792,
-    },
-    cropBox: null,
-    rotation: 0,
-}));
+const pageOpsResult = v.pipe(v.unknown(), v.transform(decodePageOpsResult));
+const extractResult = v.pipe(v.unknown(), v.transform(decodeExtractResult));
+const insertResult = v.pipe(v.unknown(), v.transform(decodeInsertResult));
+const cancelActiveResult = v.pipe(v.unknown(), v.transform(decodeCancelActiveResult));
+const pageGeometry = v.pipe(v.unknown(), v.transform(decodePageGeometry));
 function args<T extends unknown[]>(
     count: number,
     decode: (value: unknown[]) => T,
-    example: () => T,
+    _example: () => T,
 ) {
-    return s.fromParser((value: unknown) => {
-        requireArgumentCount(value, count);
-        return decode(value);
-    }, example);
+    const tuple = Array.from({length: count}, () => v.unknown()) as [v.GenericSchema, ...v.GenericSchema[]];
+    return v.pipe(
+        v.strictTuple(tuple),
+        v.transform(value => {
+            requireArgumentCount(value, count);
+            return decode(value);
+        }),
+    ) as v.GenericSchema<unknown, T>;
 }
 
 function method<
     const TName extends string,
     const TChannel extends string,
-    TArgs extends IRuntimeSchema<unknown[]>,
-    TResult extends IRuntimeSchema<unknown>,
-    TMapArgs extends (...args: never[]) => TInferSchema<TArgs>,
+    TArgs extends v.GenericSchema<unknown, unknown[]>,
+    TResult extends v.GenericSchema<unknown, unknown>,
+    TMapArgs extends (...args: never[]) => v.InferOutput<TArgs>,
 >(
     name: TName,
     channel: TChannel,

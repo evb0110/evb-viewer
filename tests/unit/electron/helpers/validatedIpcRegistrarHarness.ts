@@ -24,6 +24,99 @@ export interface IValidatedRegistrarCase {
 }
 
 const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
+    'page-ops:delete': [
+        '/tmp/fixture.pdf',
+        [1],
+        1,
+        {
+            expectedDocumentRevisionToken: 'drt1:fixture',
+            metadataSnapshot: {
+                pageLabels: ['1'],
+                bookmarks: [],
+                untitledBookmarkLabel: 'Untitled',
+            },
+        },
+    ],
+    'page-ops:delete-ranges': [
+        '/tmp/fixture.pdf',
+        [{
+            startPage: 1,
+            endPage: 1,
+        }],
+        2,
+        undefined,
+    ],
+    'page-ops:extract': [
+        '/tmp/fixture.pdf',
+        [1],
+    ],
+    'page-ops:reorder': [
+        '/tmp/fixture.pdf',
+        [1],
+        undefined,
+    ],
+    'page-ops:move': [
+        '/tmp/fixture.pdf',
+        1,
+        1,
+        0,
+        1,
+        undefined,
+    ],
+    'page-ops:move-ranges': [
+        '/tmp/fixture.pdf',
+        [{
+            startPage: 1,
+            endPage: 1,
+        }],
+        0,
+        1,
+        undefined,
+    ],
+    'page-ops:insert': [
+        '/tmp/fixture.pdf',
+        1,
+        1,
+        undefined,
+    ],
+    'page-ops:insert-file': [
+        '/tmp/fixture.pdf',
+        1,
+        1,
+        ['/tmp/source.pdf'],
+        'page-ops-fixture',
+        undefined,
+    ],
+    'page-ops:rotate': [
+        '/tmp/fixture.pdf',
+        [1],
+        1,
+        90,
+        undefined,
+    ],
+    'page-ops:crop': [
+        '/tmp/fixture.pdf',
+        [1],
+        1,
+        {
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+        },
+        undefined,
+    ],
+    'page-ops:remove-crop': [
+        '/tmp/fixture.pdf',
+        [1],
+        1,
+        undefined,
+    ],
+    'page-ops:cancel-active': ['/tmp/fixture.pdf'],
+    'page-ops:get-page-geometry': [
+        '/tmp/fixture.pdf',
+        1,
+    ],
     'pdf:search': [{
         pdfPath: '/tmp/search.pdf',
         query: 'needle',
