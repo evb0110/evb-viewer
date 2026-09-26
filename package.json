@@ -116,7 +116,6 @@
     "@vueuse/math": "^14.4.0",
     "agentation-vue3": "^1.0.4",
     "electron-updater": "^6.8.9",
-    "entities": "8.1.0",
     "es-toolkit": "^1.52.0",
     "fast-png": "^8.0.0",
     "h3": "1.15.11",
