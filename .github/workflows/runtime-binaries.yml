@@ -1,0 +1,238 @@
+name: Runtime Binaries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+env:
+  NODE_VERSION: '24.11.1'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    name: Runtime binaries (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: darwin-arm64
+            runner: macos-14
+          - target: win32-x64
+            runner: windows-latest
+          - target: win32-arm64
+            runner: windows-11-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Cache verified runtime archives
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .cache/runtime-binaries
+          key: runtime-binaries-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/runtimeBinaryManifest.ts') }}
+
+      - name: Install workspace dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Prepare worktree temp directory and fetch tessdata
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp
+          export TMPDIR="$PWD/.devkit/tmp"
+          node --import tsx scripts/fetchRuntimeBinaries.ts --tessdata-only
+
+      - name: Fetch unchanged Darwin runtime families
+        if: matrix.target == 'darwin-arm64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          node --import tsx scripts/fetchRuntimeBinaries.ts --target darwin-arm64 \
+            --family poppler --family qpdf --family djvulibre
+
+      - name: Fetch unchanged Windows x64 runtime families
+        if: matrix.target == 'win32-x64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          node --import tsx scripts/fetchRuntimeBinaries.ts --target win32-x64 \
+            --family poppler --family qpdf --family djvulibre
+
+      - name: Download Linux x64 Tesseract baseline
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          archive="$TMPDIR/tesseract-linux-x64-5.5.3-baseline.tar.gz"
+          curl -fsSL \
+            https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-linux-x64-5.5.3.tar.gz \
+            -o "$archive"
+          echo '65f3f9ce37a0cd57adf1df170aade5f2fc4275229cb60e3990d16ae9c2120e7c  '"$archive" | sha256sum -c -
+          test "$(stat -c '%s' "$archive")" = 4472496
+          mkdir -p "$TMPDIR/linux-tesseract-baseline"
+          tar -xzf "$archive" -C "$TMPDIR/linux-tesseract-baseline"
+
+      - name: Download Windows x64 Tesseract baseline
+        if: matrix.target == 'win32-x64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          archive="$TMPDIR/tesseract-win32-x64-5.4.0-baseline.tar.gz"
+          curl -fsSL \
+            https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-win32-x64.tar.gz \
+            -o "$archive"
+          echo 'db15391cd3d6026b1106433adbd7ad0348171b81011f4ddd3b72241b91bfc315  '"$archive" | sha256sum -c -
+          test "$(stat -c '%s' "$archive")" = 56140942
+          mkdir -p "$TMPDIR/windows-tesseract-baseline"
+          tar -xzf "$archive" -C "$TMPDIR/windows-tesseract-baseline"
+
+      - name: Build Linux runtime tools in the pinned Ubuntu image
+        if: startsWith(matrix.target, 'linux-')
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          if [ "${{ matrix.target }}" = linux-x64 ]; then
+            image='ubuntu:22.04@sha256:281c5745f657873d78e5531fc5ba8575f46ab7769b94550ac99543f122679986'
+            platform=linux/amd64
+          else
+            image='ubuntu:22.04@sha256:1cc7bb38a74c0e126716646e47c0b3c5c139547d386d5ff7a64cf3ea316ca523'
+            platform=linux/arm64
+          fi
+          docker run --rm --platform "$platform" \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            --env TMPDIR=/workspace/.devkit/tmp \
+            "$image" bash scripts/bundle-tools-linux.sh
+          sudo chown -R "$(id -u):$(id -g)" resources .devkit/tmp
+
+      - name: Build macOS Tesseract 5.5.3
+        if: matrix.target == 'darwin-arm64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          bash scripts/build-tesseract-macos.sh
+
+      - name: Build Windows Tesseract 5.5.3
+        if: startsWith(matrix.target, 'win32-')
+        shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.target == 'win32-x64' && 'x64' || 'arm64' }}
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          bash scripts/build-tesseract-windows.sh
+
+      - name: Build Windows ARM64 runtime families
+        if: matrix.target == 'win32-arm64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          bash scripts/bundle-win-arm64-runtime-binaries.sh
+
+      - name: Compare Linux Tesseract OCR accuracy
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          node scripts/compareTesseractFixtureAccuracy.mjs \
+            "$TMPDIR/linux-tesseract-baseline/tesseract/linux-x64/bin/tesseract" \
+            "$PWD/resources/tesseract/linux-x64/bin/tesseract" \
+            "$PWD/resources/tesseract/tessdata"
+
+      - name: Compare Windows x64 Tesseract OCR accuracy
+        if: matrix.target == 'win32-x64'
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          node scripts/compareTesseractFixtureAccuracy.mjs \
+            "$TMPDIR/windows-tesseract-baseline/tesseract/win32-x64/bin/tesseract.exe" \
+            "$PWD/resources/tesseract/win32-x64/bin/tesseract.exe" \
+            "$PWD/resources/tesseract/tessdata"
+
+      - name: Pack target archives
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          EVB_RUNTIME_BINARY_ARCHIVE_DIR="$PWD/.devkit/tmp/runtime-archives" \
+            bash scripts/packRuntimeBinaryArchives.sh "${{ matrix.target }}"
+          for family in tesseract poppler qpdf djvulibre; do
+            archive="$(find .devkit/tmp/runtime-archives -maxdepth 1 -type f -name "$family-${{ matrix.target }}*.tar.gz" -print -quit)"
+            test -n "$archive"
+            tar -tzf "$archive" | awk -v root="$family/${{ matrix.target }}/" 'index($0, root) == 1 { found = 1 } END { exit !found }'
+          done
+
+      - name: Verify pinned archives and warm the runtime cache
+        shell: bash
+        run: |
+          export TMPDIR="$PWD/.devkit/tmp"
+          set +e
+          node --import tsx --input-type=module -e '
+            import {createHash} from "node:crypto";
+            import {readFile, stat} from "node:fs/promises";
+            import {join} from "node:path";
+            import {RUNTIME_BINARY_MANIFEST} from "./scripts/runtimeBinaryManifest.ts";
+            const target = process.argv[1];
+            const archiveDirectory = join(process.cwd(), ".devkit/tmp/runtime-archives");
+            const entries = RUNTIME_BINARY_MANIFEST.entries.filter(entry => entry.target.platformArch === target);
+            if (entries.length !== 4) process.exit(42);
+            for (const entry of entries) {
+              const name = new URL(entry.archiveUrl).pathname.split("/").at(-1);
+              const archivePath = join(archiveDirectory, name);
+              let bytes;
+              try { bytes = await readFile(archivePath); } catch { process.exit(42); }
+              const metadata = await stat(archivePath);
+              if (metadata.size !== entry.archiveBytes || createHash("sha256").update(bytes).digest("hex") !== entry.archiveSha256) process.exit(42);
+            }
+          ' "${{ matrix.target }}"
+          status=$?
+          set -e
+          if [ "$status" -eq 42 ]; then
+            echo "Archive hashes are not pinned in runtimeBinaryManifest.ts yet; the target archives are ready for review." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$status" -ne 0 ]; then
+            exit "$status"
+          else
+            archive_base="file://$PWD/.devkit/tmp/runtime-archives"
+            if [ "$RUNNER_OS" = Windows ]; then
+              archive_base="file:///$(cygpath -m "$PWD")/.devkit/tmp/runtime-archives"
+            fi
+            EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL="$archive_base" \
+              node --import tsx scripts/fetchRuntimeBinaries.ts --target "${{ matrix.target }}" \
+                --family tesseract --family poppler --family qpdf --family djvulibre
+          fi
+
+      - name: Summarize archive digests
+        shell: bash
+        run: |
+          echo '### ${{ matrix.target }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat .devkit/tmp/runtime-archives/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload target runtime archives
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: runtime-binaries-${{ matrix.target }}
+          path: .devkit/tmp/runtime-archives/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
