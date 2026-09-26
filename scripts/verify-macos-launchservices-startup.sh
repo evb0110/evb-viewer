@@ -55,7 +55,7 @@ artifact_dir="$artifact_root/$token"
 mkdir -p "$artifact_dir"
 artifact_dir="$(cd "$artifact_dir" && pwd -P)"
 log_dir="$artifact_dir/electron-logs"
-main_log="$log_dir/main.log"
+app_log="$log_dir/app.ndjson"
 window_log="$log_dir/window.log"
 stdout_log="$artifact_dir/stdout.log"
 stderr_log="$artifact_dir/stderr.log"
@@ -78,8 +78,8 @@ capture_diagnostics() {
     > "$artifact_dir/processes.txt" 2>&1 || true
   xattr -lr "$app_path" > "$artifact_dir/quarantine.txt" 2>&1 || true
   {
-    echo "--- main.log ---"
-    tail -n 200 "$main_log" 2>/dev/null || true
+    echo "--- app.ndjson ---"
+    tail -n 200 "$app_log" 2>/dev/null || true
     echo "--- window.log ---"
     tail -n 200 "$window_log" 2>/dev/null || true
     echo "--- stdout.log ---"
@@ -199,7 +199,7 @@ stability_secs=10
 deadline=$((SECONDS + timeout_secs))
 while [ "$SECONDS" -lt "$deadline" ]; do
   if {
-    { [ -f "$main_log" ] && grep -F -q "$ready_marker" "$main_log"; } \
+    { [ -f "$app_log" ] && grep -F -q "$ready_marker" "$app_log"; } \
       || { [ -f "$stdout_log" ] && grep -F -q "$ready_marker" "$stdout_log"; } \
       || { [ -f "$stderr_log" ] && grep -F -q "$ready_marker" "$stderr_log"; }
   } && kill -0 "$app_pid" >/dev/null 2>&1; then
@@ -225,8 +225,8 @@ done
 
 if [ "$ready" -ne 1 ]; then
   echo "Error: Packaged app failed LaunchServices startup verification"
-  echo "--- main.log ---"
-  cat "$main_log" 2>/dev/null || true
+  echo "--- app.ndjson ---"
+  cat "$app_log" 2>/dev/null || true
   echo "--- window.log ---"
   cat "$window_log" 2>/dev/null || true
   echo "--- stdout.log ---"
