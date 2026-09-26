@@ -132,4 +132,22 @@ describe('working-copy PDF decryption', () => {
             });
         expect(runNativeToolCommand.mock.calls[0]?.[1]).not.toContain('--password-file');
     });
+
+    it('preserves the native too-large outcome for the document-open caller', async () => {
+        runNativeToolCommand.mockRejectedValueOnce(Object.assign(
+            new Error('Encrypted PDF exceeds the decrypt size limit'),
+            {code: 'too-large'},
+        ));
+        const sourcePath = join(tempRoot, 'large-encrypted.pdf');
+        const sourceBytes = '%PDF-1.7\n/Encrypt\n';
+        await writeFile(sourcePath, sourceBytes);
+        const {decryptWorkingCopyWithWriter} = await loadDecryptModule();
+
+        await expect(decryptWorkingCopyWithWriter(sourcePath))
+            .rejects.toMatchObject({
+                name: 'PdfDecryptTooLargeError',
+                outcome: 'too-large',
+            });
+        await expect(readFile(sourcePath, 'utf8')).resolves.toBe(sourceBytes);
+    });
 });

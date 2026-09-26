@@ -84,6 +84,15 @@ export class PdfDecryptAttemptError extends Error {
     }
 }
 
+export class PdfDecryptTooLargeError extends Error {
+    readonly outcome = 'too-large' as const;
+
+    constructor(cause: unknown) {
+        super(getErrorMessage(cause), {cause});
+        this.name = 'PdfDecryptTooLargeError';
+    }
+}
+
 function parseOutcomeSidecar(value: unknown): IDecryptOutcomeSidecar {
     const base = v.safeParse(decryptOutcomeBaseSchema, value, {abortEarly: true});
     if (!base.success) {
@@ -98,7 +107,7 @@ function parseOutcomeSidecar(value: unknown): IDecryptOutcomeSidecar {
     return parsed.output;
 }
 
-function failureOutcome(error: unknown): TPdfDecryptFailureOutcome | null {
+function failureOutcome(error: unknown): TPdfDecryptFailureOutcome | 'too-large' | null {
     if (!hasNativeErrorCode(error)) {
         return null;
     }
@@ -107,6 +116,9 @@ function failureOutcome(error: unknown): TPdfDecryptFailureOutcome | null {
     }
     if (error.code === 'unsupported-filter' || error.code === 'encrypted') {
         return 'unsupported-encryption';
+    }
+    if (error.code === 'too-large') {
+        return 'too-large';
     }
     return null;
 }
@@ -166,7 +178,7 @@ export async function decryptWorkingCopyWithWriter(
             });
         } catch (error) {
             const outcome = failureOutcome(error);
-            if (outcome) {
+            if (outcome === 'needs-password' || outcome === 'unsupported-encryption') {
                 return {
                     outcome: outcome === 'unsupported-encryption' ? 'unsupported' : outcome,
                     wasEncrypted: true,
@@ -193,6 +205,9 @@ export async function decryptWorkingCopyWithWriter(
         };
     } catch (error) {
         const outcome = failureOutcome(error);
+        if (outcome === 'too-large') {
+            throw new PdfDecryptTooLargeError(error);
+        }
         if (outcome) {
             throw new PdfDecryptAttemptError(outcome);
         }

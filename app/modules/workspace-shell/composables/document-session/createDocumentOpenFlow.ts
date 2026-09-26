@@ -673,15 +673,11 @@ export function createDocumentOpenFlow(
             state.openBatchProgress.value = null;
             return await finishPdfOpenResult(openRequestId, result, 'batch');
         } catch (e) {
-            if (!isCurrentOpenRequest(openRequestId)) {
-                return {
-                    status: 'failed',
-                    error: e instanceof Error ? e.message : deps.t('errors.file.open'),
-                } satisfies TDocumentOpenOutcome;
+            const message = classifyDocumentOpenError(e, paths.length === 1 ? paths[0] ?? null : null, deps.t);
+            if (isCurrentOpenRequest(openRequestId)) {
+                state.openBatchProgress.value = null;
+                recordOpenFailure(message, e);
             }
-            state.openBatchProgress.value = null;
-            const message = e instanceof Error ? e.message : deps.t('errors.file.open');
-            recordOpenFailure(message, e);
             return {
                 status: 'failed',
                 error: message,

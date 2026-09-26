@@ -41,6 +41,8 @@ import {
     errorWithDetails,
     showOpenDocumentDialogForContext,
 } from '@electron/features/documents/main/documentDialogCommon';
+import {PdfDecryptTooLargeError} from '@electron/file-access/workingCopyDecryption';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import type {
     IDocumentsDialogContext,
     IDocumentsWebContentsContext,
@@ -66,6 +68,16 @@ const folderEntryCollator = new Intl.Collator(undefined, {
     numeric: true,
     sensitivity: 'base',
 });
+
+function createDocumentOpenError(error: unknown) {
+    if (error instanceof PdfDecryptTooLargeError) {
+        return new Error(encodeSerializableErrorEnvelope({
+            code: 'too-large',
+            message: getErrorMessage(error),
+        }));
+    }
+    return errorWithDetails(te('errors.file.open'), error);
+}
 
 function isPathInsideDirectory(directoryPath: string, candidatePath: string) {
     const relativePath = relative(directoryPath, candidatePath);
@@ -192,7 +204,7 @@ async function openDocumentsFromDialog(
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
             cause: err,
         });
-        throw errorWithDetails(te('errors.file.open'), err);
+        throw createDocumentOpenError(err);
     }
 }
 
@@ -235,7 +247,7 @@ export async function handleOpenPdfDirect(
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
             cause: err,
         });
-        throw errorWithDetails(te('errors.file.open'), err);
+        throw createDocumentOpenError(err);
     }
 }
 
@@ -287,7 +299,7 @@ export async function handleOpenPdfDirectBatch(
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
             cause: err,
         });
-        throw errorWithDetails(te('errors.file.open'), err);
+        throw createDocumentOpenError(err);
     }
 }
 
@@ -329,7 +341,7 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
             cause: err,
         });
-        throw errorWithDetails(te('errors.file.open'), err);
+        throw createDocumentOpenError(err);
     }
 
     if (sortedSupportedPaths.length === 0) {
@@ -343,7 +355,7 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
             code: 'MAIN_DOCUMENT_OPEN_FAILED',
             cause: err,
         });
-        throw errorWithDetails(te('errors.file.open'), err);
+        throw createDocumentOpenError(err);
     }
 }
 

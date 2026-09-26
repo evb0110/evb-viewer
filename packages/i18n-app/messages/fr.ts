@@ -1677,6 +1677,7 @@ export default {
             'passwordPromptOpen': 'Ouvrir',
             'passwordPromptIncorrect': 'Ce mot de passe est incorrect. Réessayez.',
             'unsupportedEncryption': 'Ce PDF utilise un chiffrement qu’EVB Viewer ne peut pas ouvrir.',
+            'encryptedTooLarge': 'Ce PDF chiffré dépasse la limite de 512 Mio et ne peut pas être ouvert.',
             'invalid': 'Fichier invalide ou inexistant',
             'emptyPdf': 'Le fichier PDF est vide (0 octet)',
             'noPages': 'Le PDF ne contient aucune page',

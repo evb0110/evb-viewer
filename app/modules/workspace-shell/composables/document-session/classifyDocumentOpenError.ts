@@ -1,5 +1,7 @@
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {isBrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/public';
 import {getDocumentRefBaseName} from '@app/utils/documentRef';
 
@@ -10,6 +12,10 @@ export function classifyDocumentOpenError(
 ) {
     if (isBrowserFilePickerSetupDeniedError(error)) {
         return t('errors.browser.filePickerSetupDenied');
+    }
+    const nativeError = findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA);
+    if (nativeError?.code === 'too-large') {
+        return t('errors.file.encryptedTooLarge');
     }
     const rawMessage = error instanceof Error ? error.message : '';
     if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {

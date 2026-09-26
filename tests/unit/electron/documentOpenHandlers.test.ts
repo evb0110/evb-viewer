@@ -5,6 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 
 const mocks = vi.hoisted(() => ({
     isSupportedOpenPath: vi.fn((path: string) => path.endsWith('.pdf')),
@@ -211,5 +213,27 @@ describe('direct batch open cancellation', () => {
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.isSupportedOpenPath).toHaveBeenNthCalledWith(1, '/tmp/source-folder/linked.pdf');
         expect(mocks.isSupportedOpenPath).toHaveBeenNthCalledWith(2, '/tmp/source-folder/target.txt');
+    });
+
+    it('preserves encrypted PDF size failures across direct and batch IPC opens', async () => {
+        const {PdfDecryptTooLargeError} = await import('@electron/file-access/workingCopyDecryption');
+        const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
+        const context = handlerContext(senderContext(7));
+        const openAttempts = [
+            () => handlers.handleOpenPdfDirect(context, '/tmp/large-encrypted.pdf'),
+            () => handlers.handleOpenPdfDirectBatch(context, ['/tmp/large-encrypted.pdf']),
+        ];
+
+        for (const open of openAttempts) {
+            mocks.openInputPaths.mockRejectedValueOnce(new PdfDecryptTooLargeError(
+                new Error('Encrypted PDF input exceeds the admission ceiling'),
+            ));
+            const error = await open().then(() => null, caught => caught);
+
+            expect(findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)).toEqual({
+                code: 'too-large',
+                message: 'Encrypted PDF input exceeds the admission ceiling',
+            });
+        }
     });
 });

@@ -1666,6 +1666,7 @@ export default {
             'passwordPromptOpen': 'Apri',
             'passwordPromptIncorrect': 'La password non è corretta. Riprova.',
             'unsupportedEncryption': 'Questo PDF usa una crittografia che EVB Viewer non può aprire.',
+            'encryptedTooLarge': 'Questo PDF crittografato supera il limite di 512 MiB e non può essere aperto.',
             'invalid': 'File non valido o inesistente',
             'emptyPdf': 'Il file PDF è vuoto (0 byte)',
             'noPages': 'Il PDF non contiene pagine',

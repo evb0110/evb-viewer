@@ -1666,6 +1666,7 @@ export default {
             'passwordPromptOpen': 'Openen',
             'passwordPromptIncorrect': 'Dat wachtwoord is onjuist. Probeer het opnieuw.',
             'unsupportedEncryption': 'Deze PDF gebruikt versleuteling die EVB Viewer niet kan openen.',
+            'encryptedTooLarge': 'Deze versleutelde pdf overschrijdt de limiet van 512 MiB en kan niet worden geopend.',
             'invalid': 'Ongeldig of niet-bestaand bestand',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
             'noPages': 'De PDF bevat geen pagina’s',
