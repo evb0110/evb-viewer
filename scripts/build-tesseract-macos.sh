@@ -23,6 +23,7 @@ if [ "$(uname -m)" != arm64 ]; then
 fi
 
 brew install gnu-tar jpeg-turbo libpng libtiff webp openjpeg
+OPENJPEG_LIBDIR="$(pkg-config --variable=libdir libopenjp2)"
 curl -fsSL -o "$BUILD_DIR/giflib.tar.gz" \
   "https://sourceforge.net/projects/giflib/files/giflib-$GIFLIB_VERSION.tar.gz/download"
 curl -fsSL -o "$BUILD_DIR/leptonica.tar.gz" \
@@ -42,6 +43,7 @@ cp "$BUILD_DIR/giflib-$GIFLIB_VERSION/gif_lib.h" "$BUILD_DIR/giflib-install/incl
 cp "$BUILD_DIR/giflib-$GIFLIB_VERSION/libgif.a" "$BUILD_DIR/giflib-install/lib/"
 cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-build" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$OPENJPEG_LIBDIR" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DGIF_INCLUDE_DIR="$BUILD_DIR/giflib-install/include" \
   -DGIF_LIBRARY="$BUILD_DIR/giflib-install/lib/libgif.a" \
@@ -52,6 +54,7 @@ cmake --build "$BUILD_DIR/leptonica-build" --parallel "$(sysctl -n hw.logicalcpu
 cmake --install "$BUILD_DIR/leptonica-build"
 cmake -S "$BUILD_DIR/tesseract-$TESSERACT_VERSION" -B "$BUILD_DIR/tesseract-build" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$OPENJPEG_LIBDIR" \
   -DCMAKE_PREFIX_PATH="$BUILD_DIR/leptonica-install" \
   -DLeptonica_DIR="$BUILD_DIR/leptonica-install/lib/cmake/leptonica" \
   -DBUILD_SHARED_LIBS=OFF \

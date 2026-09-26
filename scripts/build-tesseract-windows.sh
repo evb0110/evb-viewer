@@ -23,7 +23,7 @@ trap 'rm -rf -- "$BUILD_DIR"' EXIT
 
 git clone --quiet --filter=blob:none https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
 git -C "$VCPKG_ROOT" checkout --quiet "$VCPKG_COMMIT"
-bootstrap_script="$(cygpath -w "$VCPKG_ROOT/scripts/bootstrap-vcpkg.bat")"
+bootstrap_script="$(cygpath -w "$VCPKG_ROOT/bootstrap-vcpkg.bat")"
 MSYS2_ARG_CONV_EXCL='/c' cmd.exe /c "$bootstrap_script -disableMetrics"
 "$VCPKG_ROOT/vcpkg.exe" install \
   giflib \
