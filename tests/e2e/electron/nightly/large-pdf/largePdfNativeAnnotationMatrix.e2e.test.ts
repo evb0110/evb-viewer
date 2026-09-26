@@ -575,7 +575,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
                 && rect.bottom <= window.innerHeight
                 && viewer !== null
                 && layer !== null
-                && getComputedStyle(layer).pointerEvents !== 'none';
+                && getComputedStyle(entity).pointerEvents !== 'none';
         }, {timeout: 10_000}, input);
     } catch (error) {
         const diagnostics = await page.evaluate((selection: {
