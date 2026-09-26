@@ -135,6 +135,30 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup CI environment
         id: setup
         uses: ./.github/actions/setup-ci-env
@@ -191,6 +215,30 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
         with:
@@ -231,6 +279,30 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
 
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
@@ -281,6 +353,30 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
         with:
@@ -305,6 +401,30 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
 
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
@@ -334,6 +454,30 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
         with:
@@ -354,6 +498,30 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
 
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
@@ -380,6 +548,30 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
         with:
@@ -405,6 +597,30 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
 
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
@@ -438,36 +654,35 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
+
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
           wasm: 'true'
-
-      - name: Fetch pinned native tools
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          mkdir -p .devkit/tmp
-          export TMPDIR="$PWD/.devkit/tmp"
-          runtime_run_id="$(gh run list \
-            --workflow runtime-binaries.yml \
-            --branch "$GITHUB_REF_NAME" \
-            --json databaseId,status,conclusion \
-            --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
-          if [ -n "$runtime_run_id" ]; then
-            mkdir -p .devkit/tmp/runtime-binaries
-            gh run download "$runtime_run_id" \
-              --name runtime-binaries-linux-x64 \
-              --dir .devkit/tmp/runtime-binaries
-            node --import tsx scripts/fetchRuntimeBinaries.ts --tessdata-only
-            EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL="file://$PWD/.devkit/tmp/runtime-binaries" \
-              node --import tsx scripts/fetchRuntimeBinaries.ts --target linux-x64 \
-                --family tesseract --family poppler --family qpdf --family djvulibre
-          else
-            node --import tsx scripts/fetchRuntimeBinaries.ts --target linux-x64
-          fi
 
       - name: Restore staged Electron native binaries
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
@@ -518,6 +733,30 @@ jobs:
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Prepare runtime binary archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_PLATFORM_ARCH: ${{ runner.os == 'Windows' && 'win32-x64' || 'linux-x64' }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp/runtime-binaries
+          runtime_run_id="$(gh run list --workflow runtime-binaries.yml --branch "$GITHUB_REF_NAME" --json databaseId,status,conclusion --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ] && ! gh release view runtime-binaries-v2 >/dev/null 2>&1; then
+            gh run download "$runtime_run_id" --name "runtime-binaries-$TARGET_PLATFORM_ARCH" --dir .devkit/tmp/runtime-binaries
+            curl -fsSL https://github.com/evb0110/evb-viewer/releases/download/runtime-binaries-v1/tesseract-tessdata.tar.gz -o .devkit/tmp/runtime-binaries/tesseract-tessdata.tar.gz
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              archive_base_url="file:///$(cygpath -m "$PWD/.devkit/tmp/runtime-binaries")"
+            else
+              archive_base_url="file://$PWD/.devkit/tmp/runtime-binaries"
+            fi
+            printf 'EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL=%s\n' "$archive_base_url" >> "$GITHUB_ENV"
+          fi
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            printf 'TMPDIR=%s\n' "$(cygpath -w "$PWD/.devkit/tmp")" >> "$GITHUB_ENV"
+          else
+            printf 'TMPDIR=%s\n' "$PWD/.devkit/tmp" >> "$GITHUB_ENV"
+          fi
 
       - name: Setup CI environment
         uses: ./.github/actions/setup-ci-env
