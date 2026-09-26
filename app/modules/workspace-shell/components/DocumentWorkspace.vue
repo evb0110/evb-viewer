@@ -44,7 +44,7 @@
                 @update:ocr-running="isOcrRunning = $event"
                 @open-file="fileOps.handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
-                @open-scan-cleanup="openScanCleanup"
+                @open-scan-cleanup="scanCleanup.openScanCleanup"
                 @save="runToolbarAction(handleSaveWithAutomationEvent)"
                 @repair-save="runToolbarAction(handleRepairSave)"
                 @optimize-pdf-for-interaction="runToolbarAction(openOptimizePdfForInteractionDialog)"
@@ -94,7 +94,7 @@
             @dismiss="djvuDismissBanner"
         />
         <WorkspaceSidebarHost
-            v-show="surfaceMode === 'reader' || !scanCleanupWorkspaceMounted"
+            v-show="surfaceMode === 'reader' || !scanCleanup.workspaceMounted.value"
             :show-sidebar="toolbarShowSidebarForDisplay"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :sidebar-content-width="sidebarWidth"
@@ -208,27 +208,7 @@
                 />
             </div>
         </WorkspaceSidebarHost>
-        <div
-            v-if="surfaceMode === 'scan-cleanup'"
-            class="scan-cleanup-workspace-boundary"
-        >
-            <ScanCleanupWorkspace
-                :source-path="workingCopyPath"
-                :page-source="documentPageSource"
-                :page-source-pending="documentPageSource === null && isLoading"
-                :document-key="documentKey"
-                :document-revision="documentRevisionToken"
-                :source-sha256="scanCleanupSourceSha256"
-                :current-page="currentPage"
-                :total-pages="totalPages"
-                :session-state="scanCleanupSessionState"
-                :toolbar-active="isActive"
-                :can-teleport-toolbar="canTeleportToolbar"
-                @done="closeScanCleanup"
-                @ready="scanCleanupWorkspaceMounted = true"
-                @update:session-state="updateScanCleanupSessionState"
-            />
-        </div>
+        <WorkspaceScanCleanupSurface :can-teleport-toolbar="canTeleportToolbar" />
         <WorkspacePageOpProgressOverlay v-show="surfaceMode === 'reader'" :has-document="toolbarHasPdf" />
         <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
@@ -327,10 +307,8 @@ import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/Wor
 import WorkspaceSaveDialogHost from '@app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue';
 import WorkspaceShell from '@app/modules/workspace-shell/components/layout/WorkspaceShell.vue';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
-import ScanCleanupWorkspaceLoading from '@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue';
+import WorkspaceScanCleanupSurface from '@app/modules/workspace-shell/components/WorkspaceScanCleanupSurface.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
-import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
-import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TPdfViewMode } from '@contracts/shared';
@@ -376,12 +354,6 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-const ScanCleanupWorkspace = defineAsyncComponent({
-    loader: () => import('@app/modules/scan-cleanup/public/workspace')
-        .then(module => module.ScanCleanupWorkspace),
-    loadingComponent: ScanCleanupWorkspaceLoading,
-    delay: 0,
-});
 const documentOpenSurface = createDocumentOpenSurfaceSession();
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
 const physicalToolbarPage = computed(() => (
@@ -426,34 +398,6 @@ const canUseOcr = hasDesktopRuntime;
 const canUseDjvu = true;
 const isOcrRunning = ref(false);
 const ocrPopupRef = ref<IOcrPopupAgentExpose | null>(null);
-const {
-    closeScanCleanup: closeScanCleanupSurface,
-    discardScanCleanupState: discardScanCleanupSurfaceState,
-    openScanCleanup: openScanCleanupSurface,
-    scanCleanupSessionState,
-    surfaceMode,
-    updateScanCleanupSessionState,
-} = useDocumentWorkspaceScanCleanupSurface({
-    closeAllDropdowns: () => closeAllDropdowns(),
-    documentSession,
-    initialViewState,
-    readDocumentKey: () => documentKey.value,
-    readSourceSha256: () => scanCleanupSourceSha256.value,
-});
-const scanCleanupWorkspaceMounted = ref(false);
-function openScanCleanup() {
-    scanCleanupWorkspaceMounted.value = false;
-    openScanCleanupSurface();
-}
-function closeScanCleanup() {
-    scanCleanupWorkspaceMounted.value = false;
-    closeScanCleanupSurface();
-}
-watch(surfaceMode, mode => {
-    if (mode === 'reader') {
-        scanCleanupWorkspaceMounted.value = false;
-    }
-});
 const emit = defineEmits<{
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
@@ -469,9 +413,6 @@ const currentPageTransitionHistory = ref<Array<{
     page: number;
     at: number 
 }>>([]);
-function discardScanCleanupState() {
-    discardScanCleanupSurfaceState();
-}
 const navigationFeedbackPage = ref<number | null>(null);
 const documentSnapshot = computed(() => documentSession.snapshot.value);
 const openingTransaction = computed(() => {
@@ -502,6 +443,10 @@ const context = createDocumentContext({
     emitOpenSettings: () => emit('open-settings'),
 });
 provideDocumentContext(context);
+const {
+    scanCleanup,
+    scanCleanup: {surfaceMode},
+} = context;
 const {
     file: fileLifecycle,
     driver: documentDriver,
@@ -534,7 +479,6 @@ const {
     pdfFailurePresentation,
     workingCopyPath,
     originalPath,
-    documentKey,
     documentRevisionToken,
     notifyPdfInitialVisualReady,
     isDjvuMode,
@@ -552,11 +496,6 @@ const {
     hasPdf,
     initFromStorage,
 } = fileLifecycle;
-const scanCleanupSourceSha256 = useScanCleanupSourceSha256({
-    enabled: computed(() => isActiveRef.value && surfaceMode.value === 'scan-cleanup'),
-    sourcePath: workingCopyPath,
-    documentRevision: documentRevisionToken,
-});
 const {
     pdfViewerRef,
     documentViewerRef,
@@ -909,9 +848,8 @@ const documentSourceSidebar = useDocumentSourceSidebarSession({
 function handleSourceSidebarGoToPage(pageNumber: number, _event?: MouseEvent) {
     handleGoToPage(pageNumber);
 }
-const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
 function handlePageSourceUpdate(source: IDocumentPageSource | null) {
-    documentPageSource.value = source;
+    viewerShell.documentPageSource.value = source;
     documentSourceSidebar.publishSource(source);
 }
 const {
@@ -1244,7 +1182,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
     if (surfaceMode.value === 'scan-cleanup') {
-        discardScanCleanupState();
+        scanCleanup.discardScanCleanupState();
     }
     // A cold tab can unmount in the same render that hides it; capture
     // while the workspace is still live.
@@ -1259,21 +1197,5 @@ defineExpose(workspaceExpose);
     position: relative;
     width: 100%;
     height: 100%;
-}
-
-.scan-cleanup-workspace-boundary {
-    position: absolute;
-    z-index: var(--app-z-local-overlay);
-    inset: 0;
-    display: grid;
-    min-width: 0;
-    min-height: 0;
-}
-
-.scan-cleanup-workspace-boundary :deep(.scan-cleanup-loading-surface),
-.scan-cleanup-workspace-boundary :deep(.scan-cleanup-surface) {
-    min-width: 0;
-    min-height: 0;
-    grid-area: 1 / 1;
 }
 </style>

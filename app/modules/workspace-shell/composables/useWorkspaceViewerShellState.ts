@@ -15,7 +15,10 @@ import type {
     IPdfPageRasterScheduler,
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
-import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
+import type {
+    IDocumentPageSource,
+    TDocumentSidebarTab,
+} from '@app/modules/document-viewer/public';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection,
@@ -131,6 +134,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const totalPages = ref(0);
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const pdfRasterScheduler = shallowRef<IPdfPageRasterScheduler | null>(null);
+    const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
 
     watch(totalPages, (pageCount) => {
         if (selectedPageSelection.value?.pageCount === pageCount) {
@@ -184,6 +188,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         totalPages,
         pdfDocument,
         pdfRasterScheduler,
+        documentPageSource,
         isLoading,
         dragMode,
         continuousScroll,

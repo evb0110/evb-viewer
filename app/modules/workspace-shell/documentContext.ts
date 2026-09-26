@@ -16,6 +16,8 @@ import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composabl
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
+import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
+import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
@@ -215,6 +217,17 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             immediate: true,
         },
     );
+    const scanCleanup = useDocumentWorkspaceScanCleanupSurface({
+        documentSession: controller,
+        closeAllDropdowns: view.closeAllDropdowns,
+        readDocumentKey: () => file.documentKey.value,
+        readSourceSha256: () => scanCleanupSourceSha256.value,
+    });
+    const scanCleanupSourceSha256 = useScanCleanupSourceSha256({
+        enabled: computed(() => isActive.value && scanCleanup.surfaceMode.value === 'scan-cleanup'),
+        sourcePath: workingCopyPath,
+        documentRevision: documentRevisionToken,
+    });
     const pageContextMenu = usePageContextMenu();
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
@@ -978,6 +991,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         metadata,
         bookmarkNavigationIntentVersion,
         pageContextMenu,
+        scanCleanup,
+        scanCleanupSourceSha256,
         annotations,
         annotationActions,
         save,

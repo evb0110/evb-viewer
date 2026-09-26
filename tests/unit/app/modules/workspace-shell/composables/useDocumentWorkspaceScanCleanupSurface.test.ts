@@ -111,24 +111,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         scanCleanupAutoDetectionCanceledDocuments.clear();
     });
 
-    it('owns scan-cleanup transitions when no document session is available', () => {
-        const closeAllDropdowns = vi.fn();
-        const surface = useDocumentWorkspaceScanCleanupSurface({
-            documentSession: null,
-            initialViewState: viewState(),
-            closeAllDropdowns,
-            readDocumentKey: () => null,
-        });
-
-        surface.openScanCleanup();
-        expect(closeAllDropdowns).toHaveBeenCalledOnce();
-        expect(surface.surfaceMode.value).toBe('scan-cleanup');
-
-        surface.closeScanCleanup();
-        expect(surface.surfaceMode.value).toBe('reader');
-        expect(surface.scanCleanupSessionState.value).toBeNull();
-    });
-
     it('reads, writes, and clears the document session view state', () => {
         const {
             applyViewState,
@@ -140,7 +122,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         }}));
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
-            initialViewState: null,
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => '/docs/current.pdf',
         });
@@ -174,7 +155,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
-            initialViewState: null,
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => '/docs/current.pdf',
         });
@@ -199,7 +179,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
-            initialViewState: null,
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => '/docs/current.pdf',
         });
@@ -223,7 +202,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
         const {documentSession} = createSession(identity(), viewState({surfaceMode: 'scan-cleanup'}));
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
-            initialViewState: null,
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => documentKey,
             readSourceSha256: () => sourceSha256,
@@ -250,7 +228,6 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
-            initialViewState: null,
             closeAllDropdowns: vi.fn(),
             readDocumentKey: () => null,
         });
