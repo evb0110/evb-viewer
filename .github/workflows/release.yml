@@ -629,7 +629,6 @@ jobs:
         uses: ./.github/actions/setup-release-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          install-dependencies: 'false'
       - name: Download package matrix
         if: ${{ needs.package.result == 'success' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
