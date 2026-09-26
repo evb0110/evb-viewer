@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'fs';
 import {
-    copyFile,
     link,
     lstat,
     open,
@@ -392,19 +391,6 @@ export async function atomicReplace(
     }
     if (shouldMarkMutationCommitStarted && !shouldDeferMutationCommitStarted) {
         markActiveWorkingCopyMutationCommitStarted();
-    }
-
-    if (
-        process.env.EVB_DOCUMENT_RECOVERY_COPY === '1'
-        && /\.(?:pdf|djvu?|tiff?)$/iu.test(dst)
-        && await pathExists(dst)
-    ) {
-        const recoveryTempPath = `${dst}.evb-recovery.tmp`;
-        const recoveryPath = `${dst}.evb-recovery`;
-        await copyFile(dst, recoveryTempPath);
-        await fsyncPath(recoveryTempPath);
-        await rename(recoveryTempPath, recoveryPath);
-        await fsyncParentDirectory(recoveryPath);
     }
 
     if (process.platform !== 'win32') {
