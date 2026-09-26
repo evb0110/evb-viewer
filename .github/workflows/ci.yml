@@ -445,7 +445,30 @@ jobs:
           wasm: 'true'
 
       - name: Fetch pinned native tools
-        run: node --import tsx scripts/fetchRuntimeBinaries.ts --target linux-x64
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          mkdir -p .devkit/tmp
+          export TMPDIR="$PWD/.devkit/tmp"
+          runtime_run_id="$(gh run list \
+            --workflow runtime-binaries.yml \
+            --branch "$GITHUB_REF_NAME" \
+            --commit "$GITHUB_SHA" \
+            --json databaseId,status,conclusion \
+            --jq '[.[] | select(.status == "completed" and .conclusion == "success")][0].databaseId // empty')"
+          if [ -n "$runtime_run_id" ]; then
+            mkdir -p .devkit/tmp/runtime-binaries
+            gh run download "$runtime_run_id" \
+              --name runtime-binaries-linux-x64 \
+              --dir .devkit/tmp/runtime-binaries
+            node --import tsx scripts/fetchRuntimeBinaries.ts --tessdata-only
+            EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL="file://$PWD/.devkit/tmp/runtime-binaries" \
+              node --import tsx scripts/fetchRuntimeBinaries.ts --target linux-x64 \
+                --family tesseract --family poppler --family qpdf --family djvulibre
+          else
+            node --import tsx scripts/fetchRuntimeBinaries.ts --target linux-x64
+          fi
 
       - name: Restore staged Electron native binaries
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
