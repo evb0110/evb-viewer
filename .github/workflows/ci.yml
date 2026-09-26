@@ -339,6 +339,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Run working-copy save witness unit tests
+        run: >-
+          pnpm exec vitest run --project unit-electron
+          tests/unit/electron/originalPathSaveWitness.test.ts
+          tests/unit/electron/workingCopy.test.ts
+
       - name: Run real Windows filesystem acceptance
         run: pnpm exec vitest run --project native-integration tests/integration/native/windowsAtomicPdfReplacement.test.ts
 
