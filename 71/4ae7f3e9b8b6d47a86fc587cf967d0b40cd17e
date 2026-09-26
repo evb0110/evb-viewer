@@ -1,0 +1,26 @@
+native/pdf-page-ops/src/postconditions.rs
+  s_2a7c7643028d31::t_16d9e2d78de6f1 38
+  s_2a7c7643028d31::t_d2050a0406fdd9 945
+native/pdf-page-ops/src/tests/notes.rs
+  s_2a7c7643028d31::t_414592baca63d7 2516,2518,2570,2572
+native/pdf-page-ops/src/annotations.rs
+  s_2a7c7643028d31::t_d2050a0406fdd9 1415,1430
+native/pdf-page-ops/src/tests/identity_bindings.rs
+  s_2a7c7643028d31::t_414592baca63d7 55,57,87,89,111,113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "714ae7f3e9b8b6d47a86fc587cf967d0b40cd17e",
+  "prompts": {},
+  "sessions": {
+    "s_2a7c7643028d31": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0dfee-ded1-7c33-8902-8fd829a47335",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
