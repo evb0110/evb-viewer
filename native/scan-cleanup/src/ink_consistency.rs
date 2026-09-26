@@ -49,6 +49,7 @@ pub struct PageInkConsistencyContext {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct InkConsistencyDiagnostics {
     pub prior_sample_count: usize,

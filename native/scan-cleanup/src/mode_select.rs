@@ -93,6 +93,7 @@ const MIN_MIXED_OWNERSHIP_OVERLAP_FRACTION: f64 = 0.50;
 const MAX_INDEPENDENT_OUTSIDE_TONE_FRACTION: f64 = 0.12;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum OutputModeRecommendationReason {
     Blank,
@@ -115,6 +116,7 @@ pub struct OutputModeRecommendation {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum OutputModeRule {
     Blank,
@@ -138,6 +140,7 @@ pub enum OutputModeRule {
 /// satisfy an upper-bound gate. Keeping the values in page metadata makes an
 /// Auto decision reproducible instead of exposing only its final label.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct OutputModeDiagnostics {
     pub rule: OutputModeRule,

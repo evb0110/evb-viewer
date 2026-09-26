@@ -32,6 +32,7 @@ use std::{
 };
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PageResultMetadata {
     pub(crate) version: u32,

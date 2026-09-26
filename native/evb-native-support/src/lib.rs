@@ -10,6 +10,7 @@ pub mod wasm_request_allocation;
 pub const MAX_WORKER_THREADS: usize = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Error)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum NativeErrorCode {
     #[error("encrypted")]

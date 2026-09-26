@@ -148,6 +148,8 @@ describe('CLI scan cleanup acceptance evidence', () => {
             leftInkPixels: 31_717,
             rightInkPixels: 20_784,
             outerMarginScore: 1,
+            leftOuterMarginScore: 1,
+            rightOuterMarginScore: 1,
             gutterScore: 1,
             agreementScore: 1,
             foldScore: 0.086,
@@ -179,6 +181,8 @@ describe('CLI scan cleanup acceptance evidence', () => {
             independentGutterGatePassed: true,
             aspectSupportGatePassed: true,
             evidenceAgreementGatePassed: true,
+            outerMarginRecovery: false,
+            outerMarginWeakEdge: null,
             sparseSpreadRecovered: true,
             abstained: false,
             foldBand: {

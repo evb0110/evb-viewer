@@ -22,5 +22,8 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 
 [dev-dependencies]
+evb-native-support = { version = "0.1.0", path = "../evb-native-support", features = ["ts"] }
 jpeg-encoder = "0.7.0"
+scan-primitives = { version = "0.1.0", path = "../scan-primitives", features = ["ts"] }
+ts-rs = "12.0.1"
 zune-jpeg = "0.5.15"

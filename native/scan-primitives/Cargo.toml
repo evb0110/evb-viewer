@@ -11,3 +11,7 @@ workspace = true
 [dependencies]
 rayon.workspace = true
 serde.workspace = true
+ts-rs = { version = "12.0.1", optional = true }
+
+[features]
+ts = ["dep:ts-rs"]

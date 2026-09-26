@@ -1,4 +1,24 @@
 import {NATIVE_ERROR_CODES} from '@contracts/nativeErrors';
+import type {
+    AnalysisOutputMetadata,
+    BinarizationDiagnostics,
+    CleanupMetadata,
+    DewarpOptions,
+    FoldBand,
+    FoldBandUnmeasuredReason,
+    InkConsistencyDiagnostics,
+    LosslessPlacement,
+    OutputModeDiagnostics,
+    PageResultMetadata,
+    PageStageTimings,
+    PdfImagePlacement,
+    PdfPageGeometry,
+    PlacementAnchor,
+    SplitDiagnostics,
+    SpreadBinarizationPlanDecision,
+    TextToneDiagnostics,
+    TextToneRule,
+} from '@contracts/scan-cleanup/nativeWire.generated';
 import type {TPageNumber} from '@contracts/pageNumbers';
 import {
     runtimeSchema,
@@ -14,32 +34,20 @@ import {
 import type {
     IScanCleanupDocumentPrior,
     IScanCleanupManualZones,
-    IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
     TScanCleanupCanvasScope,
     TScanCleanupDespeckleLevel,
-    TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
-    TScanCleanupOutputMode,
-    TScanCleanupOutputModeRecommendationReason,
     TScanCleanupOutputModeSetting,
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
-    TScanCleanupSpreadBinarizationDecision,
-    TScanCleanupTextToneRule,
 } from '@contracts/scan-cleanup/domain';
 import type {
-    IScanCleanupAppliedMargins,
     IScanCleanupMarginsMm,
     IScanCleanupNormalizedRect,
     IScanCleanupNormalizedSplit,
-    IScanCleanupPixelPoint,
-    IScanCleanupPixelPolygon,
     IScanCleanupPixelRect,
-    IScanCleanupPreviewAffine,
-    IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
-import type {IScanCleanupContentDiagnostics} from '@contracts/scan-cleanup/ipc';
 import {
     decodeScanCleanupPageNumber,
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
@@ -51,13 +59,7 @@ export type TNativeScanCleanupOperation = 'analyze' | 'render';
 export type TNativeScanCleanupRenderMode = 'preview' | 'final';
 export type TNativeScanCleanupAnalysisPurpose = 'classification' | 'page-plan';
 
-/**
- * A resolved `ink` placement position for one output: how far down the inner
- * rect the requested margins leave the content's top edge sits, as a fraction
- * of that rect's height. `ink` only moves content vertically — horizontally it
- * is centred exactly like `top-center` — so the anchor carries one axis.
- */
-export interface IScanCleanupPlacementAnchor {yNormalized: number}
+export type IScanCleanupPlacementAnchor = PlacementAnchor;
 
 export interface INativeScanCleanupExperimentalOptionsV3 {
     autoDewarp: boolean;
@@ -137,488 +139,7 @@ export interface INativeScanCleanupOutputV3 {
     tonePreservationAlphaOutputPath?: string;
 }
 
-export interface INativeScanCleanupPdfImagePlacementV3 {
-    xPoints: number;
-    yPoints: number;
-    widthPoints: number;
-    heightPoints: number;
-}
-
-/** The source page's PDF view box, display rotation and raster resolution. */
-export interface INativeScanCleanupPdfPageV3 {
-    xPoints: number;
-    yPoints: number;
-    widthPoints: number;
-    heightPoints: number;
-    rotation: number;
-    sourceDpi: number;
-}
-
-/**
- * Where native places one output of the source page, in PDF points: the
- * window `split-pages` cuts and the transform it applies first, and for a
- * preview the same placement on the preview's pixel canvas.
- */
-export interface INativeScanCleanupPdfPlacementV3 {
-    cropRect: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    };
-    contentTransform?: {
-        scale: number;
-        translateX: number;
-        translateY: number;
-    };
-    contentScaled: boolean;
-    warningEvents?: TScanCleanupWarningEvent[];
-    preview?: {
-        canvasWidthPx: number;
-        canvasHeightPx: number;
-        contentWidthPx: number;
-        contentHeightPx: number;
-        offsetXPx: number;
-        offsetYPx: number;
-        margins: IScanCleanupAppliedMargins;
-        canvasOverflow: boolean;
-    };
-}
-
-export interface INativeScanCleanupDewarpModelV3 {
-    topCurve: IScanCleanupPixelPoint[];
-    bottomCurve: IScanCleanupPixelPoint[];
-    depth: number;
-}
-
-export interface INativeScanCleanupOutputMetadataV3 {
-    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
-    sourcePageIndex?: number;
-    half?: TScanCleanupOutputHalf;
-    sourceRegion?: IScanCleanupPixelRect;
-    cropRect?: IScanCleanupPixelRect;
-    renderRegion?: IScanCleanupPixelRect;
-    inputWidthPx?: number;
-    inputHeightPx?: number;
-    outputWidthPx: number;
-    outputHeightPx: number;
-    intrinsicRasterWidthPx?: number;
-    intrinsicRasterHeightPx?: number;
-    canvasWidthPx: number;
-    canvasHeightPx: number;
-    layoutClassification: TScanCleanupLayoutClassification;
-    layoutConfidence?: number;
-    cutterXPx?: number | null;
-    splitGeometry?: IScanCleanupPixelPolygon[];
-    splitSeam?: IScanCleanupSplitSeamPolyline;
-    splitAbstained?: boolean;
-    detectedSkewDegrees?: number;
-    skewConfidence?: number;
-    skewApplied: boolean;
-    manualSkew?: boolean;
-    bilevelWritten?: boolean;
-    layeredWritten?: boolean;
-    layeredForegroundKind?: 'stencil' | 'soft-alpha' | 'source-mrc';
-    layeredBackgroundDpi?: number;
-    layeredForegroundDpi?: number;
-    trustedMrcBackgroundPreserved?: boolean;
-    trustedSelectionApplied?: boolean;
-    illuminationNormalized?: boolean;
-    textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
-    binarizationMode?: TScanCleanupBinarizationMethod | null;
-    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
-    outputMode?: TScanCleanupOutputMode;
-    despeckleFallback?: boolean;
-    dewarpConfidence?: number | null;
-    dewarpModel?: INativeScanCleanupDewarpModelV3 | null;
-    contentBox?: IScanCleanupPixelRect | null;
-    contentDiagnostics?: IScanCleanupContentDiagnostics;
-    appliedMargins?: IScanCleanupAppliedMargins;
-    softMarginsPx?: [number, number, number, number];
-    uniformCanvas?: boolean;
-    canvasPolicy?: 'intrinsic' | 'strict-maximum';
-    canvasOverflow?: boolean;
-    /** Placement of the compact source page if it is kept instead of this raster. */
-    sourcePdfPlacement?: INativeScanCleanupPdfPlacementV3;
-    inkConsistencyDiagnostics?: INativeScanCleanupInkConsistencyDiagnosticsV3;
-    /**
-     * Unstructured native diagnostics. Every condition the pipeline aggregates
-     * or displays as a decision travels in `warningEvents` instead; artifacts
-     * written before that channel existed still carry those sentences here.
-     */
-    warnings?: string[];
-    warningEvents?: TScanCleanupWarningEvent[];
-    renderDpi?: number;
-    sourceDpi?: number;
-    requestedRenderDpi?: number;
-    rasterScaleLimited?: boolean;
-    resamplePasses?: number;
-    canvasScope?: TScanCleanupCanvasScope;
-    matchedCanvasTargetWidthPx?: number | null;
-    matchedCanvasTargetHeightPx?: number | null;
-    matchedCanvasTargetWidthPoints?: number | null;
-    matchedCanvasTargetHeightPoints?: number | null;
-    matchedCanvasContentWidthPx?: number | null;
-    matchedCanvasContentHeightPx?: number | null;
-    /** True when the transformed optical content, rather than the retained raster rectangle, owns horizontal placement. */
-    matchedCanvasOpticalPlacement?: boolean;
-    matchedCanvasOpticalContentLeftPx?: number | null;
-    matchedCanvasOpticalContentRightPx?: number | null;
-    matchedCanvasIntrinsicOverflowLeftPx?: number;
-    matchedCanvasIntrinsicOverflowRightPx?: number;
-    matchedCanvasIntrinsicOverflowTopPx?: number;
-    /** Canvas-grid columns excluded from the preview/final source window at the fold edge. */
-    foldClipLeftPx?: number;
-    foldClipRightPx?: number;
-    /** Optional source-grid continuous-tone rectangle in PDF user-space points. */
-    pdfImagePlacement?: INativeScanCleanupPdfImagePlacementV3;
-    placementOffsetXPx: number;
-    placementOffsetYPx: number;
-    forwardTransform: IScanCleanupPreviewAffine | null;
-    /** Inverse output-raster to source-raster mapping for affine preprocessing. */
-    inverseTransform?: IScanCleanupPreviewAffine | null;
-    dewarpMapping?: INativeScanCleanupReusableGeometryV3['dewarpMapping'];
-    rotationDegrees: TScanCleanupPageRotation;
-}
-
-export interface INativeScanCleanupInkConsistencyDiagnosticsV3 {
-    priorSampleCount: number;
-    priorSurvivalMedian: number;
-    survivalBefore: number;
-    survivalAfter: number;
-    addedInkPixels: number;
-    applied: boolean;
-}
-
-export type TNativeScanCleanupTextToneRuleV3 = TScanCleanupTextToneRule;
-
-export interface INativeScanCleanupTextToneDiagnosticsV3 {
-    applied: boolean;
-    rule: TNativeScanCleanupTextToneRuleV3;
-    textLineCount: number;
-    textInkPixels: number;
-    pictureFraction: number;
-    outsideMidtoneFraction: number;
-    outsideMidtoneLargestComponentFraction: number;
-    outsideMidtoneLargestComponentWidthFraction: number;
-    outsideMidtoneLargestComponentHeightFraction: number;
-    inkAnchor: number | null;
-    blackPoint: number | null;
-    slope: number | null;
-}
-
-export interface INativeScanCleanupAnalysisOutputV3 {
-    half: TScanCleanupOutputHalf;
-    contentBox?: IScanCleanupPixelRect | null;
-    contentDiagnostics?: IScanCleanupContentDiagnostics;
-    appliedMargins?: IScanCleanupAppliedMargins;
-    textToneDiagnostics?: INativeScanCleanupTextToneDiagnosticsV3;
-    cropRect: IScanCleanupPixelRect;
-    sourceRegion: IScanCleanupPixelRect;
-    inputWidthPx: number;
-    inputHeightPx: number;
-    pdfPlacement?: INativeScanCleanupPdfPlacementV3;
-}
-
-export interface INativeScanCleanupOutputModeDiagnosticsV3 {
-    rule:
-        | 'blank'
-        | 'color-text-with-pictures'
-        | 'color'
-        | 'text-with-pictures'
-        | 'picture'
-        | 'sparse-text'
-        | 'continuous-tone'
-        | 'confident-text'
-        | 'dense-text'
-        | 'strong-single-line-text'
-        | 'spatial-tone'
-        | 'bilevel-fidelity'
-        | 'mixed-ownership-veto'
-        | 'uncertain-fallback';
-    fallbackUsed: boolean;
-    analysisWidth: number;
-    analysisHeight: number;
-    otsuThreshold: number;
-    darkMean: number;
-    lightMean: number;
-    midtoneLower: number;
-    midtoneUpper: number;
-    p01: number;
-    p50: number;
-    p99: number;
-    bimodality: number;
-    midtoneFraction: number;
-    relativeMidtoneFraction: number;
-    modeDistance: number;
-    inkFraction: number;
-    edgeFraction: number;
-    robustLuminanceRange: number;
-    coloredFraction: number;
-    largestColorComponentPixels: number;
-    meanSaturation: number;
-    pictureFraction: number;
-    textLineCount: number;
-    significantColor: boolean;
-    significantPicture: boolean;
-    pictureGateMargin: number;
-    tonalMidtoneGateMargin: number;
-    strongBimodalityGateMargin: number;
-    confidentTextBimodalityMargin: number;
-    confidentTextModeDistanceMargin: number;
-    confidentTextMidtoneMargin: number;
-    denseTextLineMargin: number;
-    denseTextBimodalityMargin: number;
-    denseTextModeDistanceMargin: number;
-    denseTextMidtoneMargin: number;
-    outsideTonalFraction: number;
-    outsideTonalLargestComponentFraction: number;
-    outsideTonalLargestComponentWidthFraction: number;
-    outsideTonalLargestComponentHeightFraction: number;
-    coherentOutsideTonalRegion: boolean;
-    destructiveModeTonalVeto: boolean;
-    /** Analysis-resolution evidence that rejected a contradictory Auto Mixed recommendation. */
-    protectedTextBlockCount?: number;
-    protectedTextBlockPictureOverlapPixels?: number;
-    protectedTextBlockPictureOverlapFraction?: number;
-    mixedOwnershipIndependentPictureEvidence?: boolean;
-    mixedOwnershipVeto?: boolean;
-    sourceDpi: number;
-    analysisDpi: number;
-    calibratedSourceStrokeWidthPx: number;
-    calibratedSourceXHeightPx: number;
-    softEdgeToInkRatio: number;
-    bilevelFidelityVeto: boolean;
-}
-
-/** Gate-level evidence behind the native spread/single decision. */
-export type TNativeScanCleanupFoldBandUnmeasuredReasonV3 =
-    | 'not-applicable'
-    | 'no-fold-evidence'
-    | 'fold-evidence-unquantified'
-    | 'cutter-invalidated'
-    | 'measurement-unavailable';
-
-export type TNativeScanCleanupFoldBandV3 =
-    | {
-        status: 'measured';
-        leftXPx: number;
-        rightXPx: number;
-    }
-    | {
-        status: 'unmeasured';
-        reason: TNativeScanCleanupFoldBandUnmeasuredReasonV3;
-        nominalHalfWidthPx: number;
-    };
-
-export const NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3 = [
-    'not-applicable',
-    'no-fold-evidence',
-    'fold-evidence-unquantified',
-    'cutter-invalidated',
-    'measurement-unavailable',
-] as const satisfies readonly TNativeScanCleanupFoldBandUnmeasuredReasonV3[];
-
-export function isNativeScanCleanupFoldBandV3(value: unknown): value is TNativeScanCleanupFoldBandV3 {
-    if (!isRecord(value)) {
-        return false;
-    }
-    const candidate = value;
-    if (candidate.status === 'measured') {
-        return Object.keys(candidate).every(key => (
-            key === 'status' || key === 'leftXPx' || key === 'rightXPx'
-        ))
-            && typeof candidate.leftXPx === 'number'
-            && Number.isFinite(candidate.leftXPx)
-            && candidate.leftXPx >= 0
-            && typeof candidate.rightXPx === 'number'
-            && Number.isFinite(candidate.rightXPx)
-            && candidate.rightXPx >= candidate.leftXPx;
-    }
-    return candidate.status === 'unmeasured'
-        && Object.keys(candidate).every(key => (
-            key === 'status' || key === 'reason' || key === 'nominalHalfWidthPx'
-        ))
-        && NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3.some(
-            reason => reason === candidate.reason,
-        )
-        && typeof candidate.nominalHalfWidthPx === 'number'
-        && Number.isFinite(candidate.nominalHalfWidthPx)
-        && candidate.nominalHalfWidthPx >= 0;
-}
-
-export interface INativeScanCleanupSplitDiagnosticsV3 {
-    analysisDpi: number;
-    deskewAngleDegrees: number;
-    deskewConfidence: number;
-    cutterSlope: number;
-    leftDeskewAngleDegrees: number;
-    rightDeskewAngleDegrees: number;
-    leftDeskewConfidence: number;
-    rightDeskewConfidence: number;
-    whitespaceX: number;
-    foldX: number;
-    decisionX: number;
-    whitespaceScore: number;
-    bilateralScore: number;
-    leftPageScore: number;
-    rightPageScore: number;
-    leftContentScore: number;
-    rightContentScore: number;
-    leftSurfaceScore: number;
-    rightSurfaceScore: number;
-    leftInkPixels: number;
-    rightInkPixels: number;
-    outerMarginScore: number;
-    /** Optional because persisted protocol-v3 states may predate bilateral margin diagnostics. */
-    leftOuterMarginScore?: number;
-    /** Optional because persisted protocol-v3 states may predate bilateral margin diagnostics. */
-    rightOuterMarginScore?: number;
-    gutterScore: number;
-    agreementScore: number;
-    foldScore: number;
-    gutterDarknessScore: number;
-    softGutterScore: number;
-    softGutterCoverage: number;
-    softGutterContinuity: number;
-    softGutterMeanDepression: number;
-    sparseGutterScore: number;
-    sparseGutterCoverage: number;
-    sparseGutterContinuity: number;
-    sparseGutterMeanDepression: number;
-    aspectRatio: number;
-    aspectSpreadScore: number;
-    aspectSingleScore: number;
-    independentSpreadCues: number;
-    offcutBoundaryScore: number;
-    offcutEmptyScore: number;
-    offcutPopulatedScore: number;
-    offcutWidthScore: number;
-    offcutNoTextRowsScore: number;
-    alternativeProduct: number;
-    evidenceProduct: number;
-    whitespaceGatePassed: boolean;
-    centralPositionGatePassed: boolean;
-    bilateralGatePassed: boolean;
-    outerMarginGatePassed: boolean;
-    gutterGatePassed: boolean;
-    independentGutterGatePassed: boolean;
-    aspectSupportGatePassed: boolean;
-    evidenceAgreementGatePassed: boolean;
-    /** Optional because persisted protocol-v3 states may predate local recovery diagnostics. */
-    outerMarginRecovery?: boolean;
-    /** `null` is emitted by Rust when no edge was recovered. */
-    outerMarginWeakEdge?: 'left' | 'right' | null;
-    sparseSpreadRecovered: boolean;
-    abstained: boolean;
-    foldBand: TNativeScanCleanupFoldBandV3;
-}
-
-export interface INativeScanCleanupPageMetadataV3 {
-    version?: typeof SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION;
-    sourcePageIndex?: number;
-    layoutClassification: TScanCleanupLayoutClassification;
-    layoutConfidence?: number;
-    cutterXPx: number | null;
-    splitSeam?: IScanCleanupSplitSeamPolyline;
-    splitAbstained?: boolean;
-    rotationDegrees: TScanCleanupPageRotation;
-    canvasScope: TScanCleanupCanvasScope;
-    excluded: boolean;
-    blankOutputsSkipped: number;
-    outputCount: number;
-    outputs?: INativeScanCleanupAnalysisOutputV3[];
-    recommendedOutputMode?: TScanCleanupOutputMode;
-    recommendedOutputModeConfidence?: number;
-    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
-    softAlphaForegroundRecommendation?: boolean;
-    outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
-    splitDiagnostics?: INativeScanCleanupSplitDiagnosticsV3;
-    documentPrior?: IScanCleanupDocumentPrior;
-    textAxis?: IScanCleanupTextAxis;
-    tier1Verdict?: TScanCleanupLayoutClassification;
-    reconciled?: boolean;
-    clusterAgreement?: number;
-}
-
-/** Additive geometry returned in page/output metadata by protocol-v3 sidecars. */
-export interface INativeScanCleanupSplitResultGeometryV3 {
-    cutterXPx: number | null;
-    /** Existing straight-cut page polygons. Output metadata always supplies these. */
-    splitGeometry?: IScanCleanupPixelPolygon[];
-    /** Optional diagnostic seam. Current renderers continue to use the straight cutter. */
-    splitSeam?: IScanCleanupSplitSeamPolyline;
-}
-
-export interface INativeScanCleanupBinarizationDiagnosticsV3 {
-    /**
-     * Selected route plus raw measurements from the canonical, at-most-256px
-     * routing raster. These fields do not describe the final working-DPI
-     * threshold raster; a spread plan may select its joint candidate route.
-     */
-    route: TScanCleanupBinarizationMethod;
-    robustContrast: number;
-    illuminationDeviation: number;
-    edgeDensity: number;
-    estimatedStrokeWidthPx: number;
-    darkBorderCoverage: number;
-    otsuAdaptiveAgreement: number;
-    /** The spread-loop decision that supplied the route and threshold scale. */
-    spreadPlan?: INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3;
-}
-
-export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 = TScanCleanupSpreadBinarizationDecision;
-
-export interface INativeScanCleanupSpreadBinarizationPlanDiagnosticsV3 {
-    route: TScanCleanupBinarizationMethod;
-    thresholdAnchor: number;
-    thresholdRadius: number;
-    strokeWidthAnchorPx: number;
-    xHeightAnchorPx: number;
-    documentAnchor: boolean;
-    jointCandidateRoute: TScanCleanupBinarizationMethod;
-    leftCandidateRoute: TScanCleanupBinarizationMethod;
-    rightCandidateRoute: TScanCleanupBinarizationMethod;
-    decision: TNativeScanCleanupSpreadBinarizationPlanDecisionV3;
-}
-
-export interface INativeScanCleanupContentSideConfidenceV3 {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-}
-
-/** Optional diagnostics written by render metadata. */
-export interface INativeScanCleanupRenderDiagnosticsV3 {
-    cutterXPx?: number | null;
-    splitGeometry?: IScanCleanupPixelPolygon[];
-    splitSeam?: IScanCleanupSplitSeamPolyline;
-    detectedSkewDegrees?: number;
-    skewConfidence?: number;
-    skewApplied?: boolean;
-    manualSkew?: boolean;
-    layoutConfidence?: number;
-    /** Additive split detector abstention signal when supplied by the native implementation. */
-    splitAbstained?: boolean;
-    binarizationMode?: TScanCleanupBinarizationMethod | null;
-    binarizationDiagnostics?: INativeScanCleanupBinarizationDiagnosticsV3 | null;
-    despeckleFallback?: boolean;
-    dewarpConfidence?: number | null;
-    contentDiagnostics?: {sideConfidence: INativeScanCleanupContentSideConfidenceV3};
-}
-
-/** Optional diagnostics written beside each analyzed page. */
-export interface INativeScanCleanupPageDiagnosticsV3 {
-    cutterXPx?: number | null;
-    splitGeometry?: IScanCleanupPixelPolygon[];
-    splitSeam?: IScanCleanupSplitSeamPolyline;
-    layoutConfidence?: number;
-    splitAbstained?: boolean;
-    tier1Verdict?: TScanCleanupLayoutClassification;
-    reconciled?: boolean;
-    clusterAgreement?: number;
-}
+export type INativeScanCleanupPdfPageV3 = PdfPageGeometry;
 
 export interface INativeScanCleanupDetailRenderPlanV3 {
     /** Trusted metadata from the completed 150-DPI base preview. */
@@ -637,20 +158,6 @@ export interface INativeScanCleanupDetailRenderPlanV3 {
     renderRegion: IScanCleanupPixelRect;
     /** Geometry/processing apron rendered before trimming to renderRegion. */
     sampledRegion: IScanCleanupPixelRect;
-}
-
-/** Native-only inverse geometry persisted beside a preview output for detail reuse. */
-export interface INativeScanCleanupReusableGeometryV3 {
-    inverseTransform?: IScanCleanupPreviewAffine;
-    dewarpMapping?: {
-        columns: number;
-        rows: number;
-        outputOrigin: IScanCleanupPixelPoint;
-        outputWidth: number;
-        outputHeight: number;
-        outputToSource: IScanCleanupPixelPoint[];
-        sourceToOutput: IScanCleanupPixelPoint[];
-    } | null;
 }
 
 export interface INativeScanCleanupPageV3 {
@@ -725,6 +232,60 @@ export interface INativeScanCleanupManifestV3 {
     stagedInputPeakPixels?: number;
     pages: INativeScanCleanupPageV3[];
 }
+
+export type INativeScanCleanupPdfImagePlacementV3 = PdfImagePlacement;
+export type INativeScanCleanupPdfPlacementV3 = LosslessPlacement;
+export type INativeScanCleanupDewarpModelV3 = DewarpOptions;
+export type INativeScanCleanupOutputMetadataV3 = CleanupMetadata;
+export type INativeScanCleanupInkConsistencyDiagnosticsV3 = InkConsistencyDiagnostics;
+export type INativeScanCleanupTextToneDiagnosticsV3 = TextToneDiagnostics;
+export type INativeScanCleanupAnalysisOutputV3 = AnalysisOutputMetadata;
+export type INativeScanCleanupOutputModeDiagnosticsV3 = OutputModeDiagnostics;
+export type TNativeScanCleanupFoldBandV3 = FoldBand;
+export type TNativeScanCleanupTextToneRuleV3 = TextToneRule;
+export type TNativeScanCleanupSpreadBinarizationPlanDecisionV3 = SpreadBinarizationPlanDecision;
+/** Native-only inverse geometry persisted beside a preview output for detail reuse. */
+export type INativeScanCleanupReusableGeometryV3 = Pick<CleanupMetadata, 'inverseTransform' | 'dewarpMapping'>;
+
+export const NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3 = [
+    'not-applicable',
+    'no-fold-evidence',
+    'fold-evidence-unquantified',
+    'cutter-invalidated',
+    'measurement-unavailable',
+] as const satisfies readonly FoldBandUnmeasuredReason[];
+
+export function isNativeScanCleanupFoldBandV3(value: unknown): value is FoldBand {
+    if (!isRecord(value)) {
+        return false;
+    }
+    const candidate = value;
+    if (candidate.status === 'measured') {
+        return Object.keys(candidate).every(key => (
+            key === 'status' || key === 'leftXPx' || key === 'rightXPx'
+        ))
+            && typeof candidate.leftXPx === 'number'
+            && Number.isFinite(candidate.leftXPx)
+            && candidate.leftXPx >= 0
+            && typeof candidate.rightXPx === 'number'
+            && Number.isFinite(candidate.rightXPx)
+            && candidate.rightXPx >= candidate.leftXPx;
+    }
+    return candidate.status === 'unmeasured'
+        && Object.keys(candidate).every(key => (
+            key === 'status' || key === 'reason' || key === 'nominalHalfWidthPx'
+        ))
+        && NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3.some(
+            reason => reason === candidate.reason,
+        )
+        && typeof candidate.nominalHalfWidthPx === 'number'
+        && Number.isFinite(candidate.nominalHalfWidthPx)
+        && candidate.nominalHalfWidthPx >= 0;
+}
+
+export type INativeScanCleanupSplitDiagnosticsV3 = SplitDiagnostics;
+export type INativeScanCleanupPageMetadataV3 = PageResultMetadata;
+export type INativeScanCleanupBinarizationDiagnosticsV3 = BinarizationDiagnostics;
 
 const s = runtimeSchema;
 const pageNumber = s.fromParser<TPageNumber>(
@@ -850,11 +411,11 @@ const outputModeDiagnostics = s.object({
     outsideTonalLargestComponentHeightFraction: s.number(),
     coherentOutsideTonalRegion: s.boolean(),
     destructiveModeTonalVeto: s.boolean(),
-    protectedTextBlockCount: s.optional(nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics')),
-    protectedTextBlockPictureOverlapPixels: s.optional(nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics')),
-    protectedTextBlockPictureOverlapFraction: s.optional(s.number()),
-    mixedOwnershipIndependentPictureEvidence: s.optional(s.boolean()),
-    mixedOwnershipVeto: s.optional(s.boolean()),
+    protectedTextBlockCount: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+    protectedTextBlockPictureOverlapPixels: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+    protectedTextBlockPictureOverlapFraction: s.number(),
+    mixedOwnershipIndependentPictureEvidence: s.boolean(),
+    mixedOwnershipVeto: s.boolean(),
     sourceDpi: s.number({min: 0}),
     analysisDpi: s.number({min: 0}),
     calibratedSourceStrokeWidthPx: s.number({min: 0}),
@@ -1273,6 +834,10 @@ const _warningEventCodesMatchCatalog: TSameCodes<
     TScanCleanupWarningEventCode,
     TScanCleanupWarningEvent['code']
 > = true;
+// The stdout validators must accept exactly the shapes the sidecar declares.
+type TSameShape<TLeft, TRight> = [TLeft] extends [TRight] ? [TRight] extends [TLeft] ? true : never : never;
+const _outputModeDiagnosticsMatchNative: TSameShape<TInferSchema<typeof outputModeDiagnostics>, OutputModeDiagnostics> = true;
+const _stageTimingsMatchNative: TSameShape<TInferSchema<typeof pageStageTimings>, PageStageTimings> = true;
 
 export const NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA = s.fromParser((value: unknown) => {
     if (!isRecord(value) || value.version !== SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION) {

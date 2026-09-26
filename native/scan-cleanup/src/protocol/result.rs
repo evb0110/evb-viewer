@@ -3,6 +3,7 @@ use evb_native_support::{NativeErrorCode, NativeErrorEnvelope};
 use serde::Serialize;
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum ResultPayload {
     Success {
@@ -18,6 +19,7 @@ pub enum ResultPayload {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ResultEnvelope {
     pub version: u32,
     #[serde(rename = "type")]

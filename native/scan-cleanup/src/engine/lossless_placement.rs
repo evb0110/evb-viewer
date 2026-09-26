@@ -25,6 +25,7 @@ const GRID_TOLERANCE_PX: f64 = 1.0;
 /// The source page's view box in PDF user space, its display rotation, and the
 /// resolution of its raster, which is the grid margins are fitted on.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PdfPageGeometry {
     pub x_points: f64,
@@ -36,6 +37,7 @@ pub struct PdfPageGeometry {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PdfRect {
     pub x: f64,
@@ -45,6 +47,7 @@ pub struct PdfRect {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContentTransform {
     pub scale: f64,
@@ -54,6 +57,7 @@ pub struct ContentTransform {
 
 /// Where one lossless output lands on the preview's pixel canvas.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewPlacement {
     pub canvas_width_px: usize,
@@ -69,6 +73,7 @@ pub struct PreviewPlacement {
 /// The window `split-pages` cuts from the source page and the transform it
 /// applies first, plus the conditions the placement had to report.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LosslessPlacement {
     pub crop_rect: PdfRect,
@@ -863,7 +868,8 @@ mod tests {
 
     #[test]
     fn places_ink_at_its_anchor_within_the_free_space() {
-        let ink = |anchor| alignment_offset(100.0, 200.0, PageAlignment::Ink, Some((anchor, 100.0)));
+        let ink =
+            |anchor| alignment_offset(100.0, 200.0, PageAlignment::Ink, Some((anchor, 100.0)));
         assert_eq!(ink(0.25), (50.0, 75.0));
         assert_eq!(ink(1.0), (50.0, 200.0));
         assert_eq!(ink(0.0), (50.0, 0.0));

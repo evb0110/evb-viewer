@@ -57,8 +57,6 @@ export function decodeSplitDiagnostics(value: unknown): TSplitDiagnostics {
         'offcutNoTextRowsScore',
         'alternativeProduct',
         'evidenceProduct',
-    ] as const;
-    const optionalNumberKeys = [
         'leftOuterMarginScore',
         'rightOuterMarginScore',
     ] as const;
@@ -73,16 +71,13 @@ export function decodeSplitDiagnostics(value: unknown): TSplitDiagnostics {
         'evidenceAgreementGatePassed',
         'sparseSpreadRecovered',
         'abstained',
+        'outerMarginRecovery',
     ] as const;
-    const optionalBooleanKeys = ['outerMarginRecovery'] as const;
-    const optionalStringKeys = ['outerMarginWeakEdge'] as const;
     const allowed = new Set<string>([
         ...integerKeys,
         ...numberKeys,
-        ...optionalNumberKeys,
         ...booleanKeys,
-        ...optionalBooleanKeys,
-        ...optionalStringKeys,
+        'outerMarginWeakEdge',
         'foldBand',
     ]);
     const isValid = (
@@ -98,20 +93,10 @@ export function decodeSplitDiagnostics(value: unknown): TSplitDiagnostics {
             typeof subject[key] === 'number'
             && Number.isFinite(subject[key])
         ))
-        && optionalNumberKeys.every(key => (
-            subject[key] === undefined
-            || (typeof subject[key] === 'number' && Number.isFinite(subject[key]))
-        ))
         && booleanKeys.every(key => typeof subject[key] === 'boolean')
-        && optionalBooleanKeys.every(key => (
-            subject[key] === undefined || typeof subject[key] === 'boolean'
-        ))
-        && optionalStringKeys.every(key => (
-            subject[key] === undefined
-            || subject[key] === null
-            || subject[key] === 'left'
-            || subject[key] === 'right'
-        ))
+        && (subject.outerMarginWeakEdge === null
+            || subject.outerMarginWeakEdge === 'left'
+            || subject.outerMarginWeakEdge === 'right')
         && isNativeScanCleanupFoldBandV3(subject.foldBand);
     if (!isValid(candidate)) {
         throw new Error('invalid scan-cleanup split diagnostics');

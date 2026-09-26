@@ -156,6 +156,7 @@ fn curve_for_ink_anchor(ink_anchor: u8) -> (f64, f64) {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum TextToneRule {
     Applied,
@@ -166,6 +167,7 @@ pub enum TextToneRule {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TextToneDiagnostics {
     pub applied: bool,

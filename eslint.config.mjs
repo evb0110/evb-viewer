@@ -58,6 +58,7 @@ const projectConfig = withNuxt(
         'nuxt.config.ts',
         'landing/nuxt.config.ts',
         'eslint.shared.mjs',
+        'packages/contracts/scan-cleanup/nativeWire.generated.ts',
     ]},
     {
         plugins: {

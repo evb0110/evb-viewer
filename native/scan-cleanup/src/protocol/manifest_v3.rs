@@ -37,12 +37,14 @@ const fn default_raster_window() -> usize {
 /// cutter and page polygons remain the rendering contract; consumers that do
 /// not know about this additive field continue to cut at `cutterXPx`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SplitSeamPolyline {
     pub points: Vec<Point>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ContentSideConfidence {
     pub left: f64,
@@ -52,6 +54,7 @@ pub struct ContentSideConfidence {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ContentDiagnosticRect {
     pub x_px: usize,
@@ -61,6 +64,7 @@ pub struct ContentDiagnosticRect {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ContentTextMaskSummary {
     pub analysis_width_px: usize,
@@ -72,6 +76,7 @@ pub struct ContentTextMaskSummary {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum ContentTrimSide {
     Left,
@@ -81,6 +86,7 @@ pub enum ContentTrimSide {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ContentBlockEvidence {
     pub bounds: ContentDiagnosticRect,
@@ -92,6 +98,7 @@ pub struct ContentBlockEvidence {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ContentAcceptedTrim {
     pub side: ContentTrimSide,
@@ -104,6 +111,7 @@ pub struct ContentAcceptedTrim {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ContentDiagnostics {
     pub side_confidence: ContentSideConfidence,
@@ -120,6 +128,7 @@ pub struct ContentDiagnostics {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum Operation {
     Analyze,
@@ -127,6 +136,7 @@ pub enum Operation {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum AnalysisPurpose {
     /// Retained for direct native `--manifest` callers. The Electron app
@@ -137,6 +147,7 @@ pub enum AnalysisPurpose {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum RenderMode {
     Preview,
@@ -146,6 +157,7 @@ pub enum RenderMode {
 pub use crate::domain::geometry::CanvasScope;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 /// The one rectangle and pixel grid every matched output of this document is
 /// normalized onto. The owning process measures it from the source page
@@ -178,6 +190,7 @@ impl DocumentCanvas {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PageOutput {
     pub output_path: PathBuf,
@@ -197,6 +210,7 @@ pub struct PageOutput {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct DetailPixelRect {
     pub x_px: f64,
@@ -212,6 +226,7 @@ impl DetailPixelRect {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct DetailRenderPlan {
     pub base_metadata_path: PathBuf,
@@ -230,6 +245,7 @@ pub struct DetailRenderPlan {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
     pub input_path: PathBuf,
@@ -264,6 +280,7 @@ pub struct Page {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestV3 {
     pub version: u32,

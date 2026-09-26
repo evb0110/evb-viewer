@@ -172,7 +172,7 @@ function splitDiagnostics(): INativeScanCleanupSplitDiagnosticsV3 {
 }
 
 describe('scan-cleanup split diagnostic IPC compatibility', () => {
-    it('round-trips optional outer-margin recovery fields and accepts legacy state', () => {
+    it('round-trips outer-margin recovery fields and rejects malformed ones', () => {
         const diagnostics = {
             ...splitDiagnostics(),
             leftOuterMarginScore: 0.004,
@@ -203,15 +203,6 @@ describe('scan-cleanup split diagnostic IPC compatibility', () => {
         const decoded = decodeScanCleanupDetectionJobState(makeState(diagnostics));
         expect(decoded?.results[0]?.splitDiagnostics).toEqual(diagnostics);
 
-        const {
-            leftOuterMarginScore: _leftOuterMarginScore,
-            rightOuterMarginScore: _rightOuterMarginScore,
-            outerMarginRecovery: _outerMarginRecovery,
-            outerMarginWeakEdge: _outerMarginWeakEdge,
-            ...legacyDiagnostics
-        } = diagnostics;
-        const legacyDecoded = decodeScanCleanupDetectionJobState(makeState(legacyDiagnostics));
-        expect(legacyDecoded?.results[0]?.splitDiagnostics).toEqual(legacyDiagnostics);
         expect(() => decodeScanCleanupDetectionJobState(makeState({
             ...diagnostics,
             leftOuterMarginScore: 'weak' as never,

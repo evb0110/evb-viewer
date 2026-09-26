@@ -29,6 +29,7 @@ fn is_zero(value: &f64) -> bool {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PageStageTimings {
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -142,6 +143,7 @@ impl AddAssign for PageStageTimings {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum ProgressStage {
     Started,
@@ -160,6 +162,7 @@ pub enum ProgressStage {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub stage: ProgressStage,
@@ -174,6 +177,7 @@ pub struct Progress {
         skip_serializing_if = "Option::is_none",
         serialize_with = "serialize_output_paths"
     )]
+    #[cfg_attr(test, ts(as = "Option<Vec<String>>"))]
     pub output_paths: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub classification: Option<LayoutClassification>,
@@ -235,6 +239,7 @@ impl Progress {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ProgressEnvelope {
     pub version: u32,
     #[serde(rename = "type")]

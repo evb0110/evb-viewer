@@ -92,6 +92,7 @@ mod region_preparation;
 mod region_rendering;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct DewarpMappingGrid {
     pub columns: usize,
@@ -104,6 +105,7 @@ pub struct DewarpMappingGrid {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PdfImagePlacement {
     pub x_points: f64,
@@ -116,6 +118,7 @@ pub struct PdfImagePlacement {
 /// works on the canvas pixel grid; the lossless path measures the same
 /// conditions in PDF points.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum WarningExtentUnit {
     Px,
@@ -127,6 +130,7 @@ pub enum WarningExtentUnit {
 /// prefixes belong to the shared TypeScript formatter, so an event carries only
 /// the parameters that sentence needs and never any user-facing text.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(
     tag = "code",
     rename_all = "kebab-case",
@@ -140,8 +144,10 @@ pub enum CleanupWarningEvent {
         inner_width: f64,
         inner_height: f64,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(test, ts(optional))]
         document_canvas_width: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(test, ts(optional))]
         document_canvas_height: Option<f64>,
     },
     MatchedCanvasMarginsReduced,
@@ -152,8 +158,10 @@ pub enum CleanupWarningEvent {
         document_canvas_width: f64,
         document_canvas_height: f64,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(test, ts(optional))]
         paper_width: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(test, ts(optional))]
         paper_height: Option<f64>,
     },
     MatchedCanvasOpticalCenteringFallback,
@@ -236,6 +244,7 @@ fn quantize_decimal_with_ties(value: f64, decimals: u32, ties_to_even: bool) -> 
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupMetadata {
     pub version: u32,
@@ -254,11 +263,14 @@ pub struct CleanupMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split_seam: Option<crate::protocol::manifest_v3::SplitSeamPolyline>,
     #[serde(with = "pixel_rect_serde")]
+    #[cfg_attr(test, ts(as = "pixel_rect_serde::PixelRect"))]
     pub source_region: Rect,
     #[serde(with = "optional_pixel_rect_serde")]
+    #[cfg_attr(test, ts(as = "Option<pixel_rect_serde::PixelRect>"))]
     pub content_box: Option<Rect>,
     /// Applied crop in deskewed/dewarped page-region coordinates.
     #[serde(with = "pixel_rect_serde")]
+    #[cfg_attr(test, ts(as = "pixel_rect_serde::PixelRect"))]
     pub crop_rect: Rect,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_diagnostics: Option<ContentDiagnostics>,
@@ -413,6 +425,7 @@ pub struct CleanupMetadata {
         skip_serializing_if = "Option::is_none",
         with = "optional_pixel_rect_serde"
     )]
+    #[cfg_attr(test, ts(as = "Option<pixel_rect_serde::PixelRect>", optional))]
     pub render_region: Option<Rect>,
     #[serde(rename = "canvasWidthPx")]
     pub canvas_width: usize,
@@ -442,6 +455,7 @@ fn is_zero_usize(value: &usize) -> bool {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum MatchedCanvasPolicy {
     #[default]
@@ -450,6 +464,7 @@ pub enum MatchedCanvasPolicy {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum LayeredForegroundKind {
     Stencil,
@@ -1009,18 +1024,22 @@ pub struct PageClassificationResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AnalysisOutputMetadata {
     pub half: PageHalf,
     #[serde(with = "pixel_rect_serde")]
+    #[cfg_attr(test, ts(as = "pixel_rect_serde::PixelRect"))]
     pub source_region: Rect,
     #[serde(with = "optional_pixel_rect_serde")]
+    #[cfg_attr(test, ts(as = "Option<pixel_rect_serde::PixelRect>"))]
     pub content_box: Option<Rect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_diagnostics: Option<ContentDiagnostics>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_tone_diagnostics: Option<TextToneDiagnostics>,
     #[serde(with = "pixel_rect_serde")]
+    #[cfg_attr(test, ts(as = "pixel_rect_serde::PixelRect"))]
     pub crop_rect: Rect,
     pub applied_margins: AppliedMargins,
     #[serde(rename = "inputWidthPx")]
@@ -1037,8 +1056,9 @@ mod pixel_rect_serde {
     use super::*;
 
     #[derive(Deserialize, Serialize)]
+    #[cfg_attr(test, derive(ts_rs::TS))]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    struct PixelRect {
+    pub(crate) struct PixelRect {
         x_px: f64,
         y_px: f64,
         width_px: f64,

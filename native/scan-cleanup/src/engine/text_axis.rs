@@ -5,6 +5,7 @@ const MIN_AXIS_CONFIDENCE: f64 = 0.25;
 const MIN_SUPPORTED_LINES: usize = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TextAxisHint {
     pub sideways: bool,

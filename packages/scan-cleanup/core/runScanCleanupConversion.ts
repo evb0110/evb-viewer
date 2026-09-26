@@ -3099,7 +3099,7 @@ export async function runScanCleanupConversion(
                         ?? documentDpi,
                         // The engine reports the mode it actually rendered with,
                         // which is the only authority once `auto` resolves natively.
-                        resolvedOutputMode: metadata.outputMode
+                        resolvedOutputMode: (metadata.outputMode === 'auto' ? undefined : metadata.outputMode)
                         ?? resolvePageOutputMode(pageNumber)
                         ?? 'color',
                         metadata,
@@ -3534,12 +3534,8 @@ export async function runScanCleanupConversion(
                     renderGeometry: {
                         canvasHeightPx: output.metadata.canvasHeightPx,
                         canvasWidthPx: output.metadata.canvasWidthPx,
-                        ...(output.metadata.cropRect === undefined
-                            ? {}
-                            : {cropRect: output.metadata.cropRect}),
-                        ...(output.metadata.dewarpMapping === undefined
-                            ? {}
-                            : {dewarpMapping: output.metadata.dewarpMapping}),
+                        cropRect: output.metadata.cropRect,
+                        dewarpMapping: output.metadata.dewarpMapping,
                         ...(output.metadata.foldClipLeftPx === undefined
                             ? {}
                             : {foldClipLeftPx: output.metadata.foldClipLeftPx}),
@@ -3548,24 +3544,16 @@ export async function runScanCleanupConversion(
                             : {foldClipRightPx: output.metadata.foldClipRightPx}),
                         dewarped: output.metadata.dewarpMapping != null,
                         forwardTransform: output.metadata.forwardTransform,
-                        ...(output.metadata.inputHeightPx === undefined
-                            ? {}
-                            : {inputHeightPx: output.metadata.inputHeightPx}),
-                        ...(output.metadata.inputWidthPx === undefined
-                            ? {}
-                            : {inputWidthPx: output.metadata.inputWidthPx}),
+                        inputHeightPx: output.metadata.inputHeightPx,
+                        inputWidthPx: output.metadata.inputWidthPx,
                         ...(output.metadata.intrinsicRasterHeightPx === undefined
                             ? {}
                             : {intrinsicRasterHeightPx: output.metadata.intrinsicRasterHeightPx}),
                         ...(output.metadata.intrinsicRasterWidthPx === undefined
                             ? {}
                             : {intrinsicRasterWidthPx: output.metadata.intrinsicRasterWidthPx}),
-                        ...(output.metadata.matchedCanvasContentHeightPx === undefined
-                            ? {}
-                            : {matchedCanvasContentHeightPx: output.metadata.matchedCanvasContentHeightPx}),
-                        ...(output.metadata.matchedCanvasContentWidthPx === undefined
-                            ? {}
-                            : {matchedCanvasContentWidthPx: output.metadata.matchedCanvasContentWidthPx}),
+                        matchedCanvasContentHeightPx: output.metadata.matchedCanvasContentHeightPx,
+                        matchedCanvasContentWidthPx: output.metadata.matchedCanvasContentWidthPx,
                         ...(output.metadata.matchedCanvasIntrinsicOverflowLeftPx === undefined
                             ? {}
                             : {matchedCanvasIntrinsicOverflowLeftPx: output.metadata.matchedCanvasIntrinsicOverflowLeftPx}),
@@ -3579,9 +3567,7 @@ export async function runScanCleanupConversion(
                         outputWidthPx: output.metadata.outputWidthPx,
                         placementOffsetXPx: output.metadata.placementOffsetXPx,
                         placementOffsetYPx: output.metadata.placementOffsetYPx,
-                        ...(output.metadata.sourceRegion === undefined
-                            ? {}
-                            : {sourceRegion: output.metadata.sourceRegion}),
+                        sourceRegion: output.metadata.sourceRegion,
                     },
                     ...(streamBytesByOutput.get(output) === undefined
                         ? {}

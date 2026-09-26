@@ -53,13 +53,7 @@ export class InvalidScanCleanupNativeArtifactError extends Error {
     }
 }
 
-export interface INativeScanCleanupPageArtifactMetadataV3 extends INativeScanCleanupPageMetadataV3 {
-    sourcePageIndex?: number;
-    outputs?: INativeScanCleanupAnalysisOutputV3[];
-    tier1Verdict?: INativeScanCleanupPageMetadataV3['layoutClassification'];
-    reconciled?: boolean;
-    clusterAgreement?: number;
-}
+export type INativeScanCleanupPageArtifactMetadataV3 = INativeScanCleanupPageMetadataV3;
 
 export type TNativeScanCleanupPreviewPageArtifactMetadataV3 = IScanCleanupPreviewPageMetadata
     & Omit<INativeScanCleanupPageArtifactMetadataV3, 'outputs'>

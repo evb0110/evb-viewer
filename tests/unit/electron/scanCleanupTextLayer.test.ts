@@ -58,7 +58,7 @@ function output(
             ]},
             rotationDegrees: 0,
             ...overrides,
-        },
+        } as IRenderedCleanupOutputPage['metadata'],
     };
 }
 

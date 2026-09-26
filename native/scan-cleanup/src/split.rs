@@ -59,6 +59,7 @@ const FOLD_SUPPORT_PIXEL_CONTRAST: f64 = 24.0;
 const FOLD_SUPPORT_MAX_ROW_HEIGHT_FRACTION: f64 = 0.05;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum LayoutClassification {
     SingleUncutPage,
@@ -67,6 +68,7 @@ pub enum LayoutClassification {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum OuterMarginSide {
     Left,
@@ -74,6 +76,7 @@ pub enum OuterMarginSide {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClusterDimensions {
     #[serde(rename = "widthPx")]
@@ -83,6 +86,7 @@ pub struct ClusterDimensions {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentPrior {
     pub dominant_layout: LayoutClassification,
@@ -167,6 +171,7 @@ pub struct LayoutDecision {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum FoldBandUnmeasuredReason {
     NotApplicable,
@@ -177,6 +182,7 @@ pub enum FoldBandUnmeasuredReason {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(
     tag = "status",
     rename_all = "kebab-case",
@@ -274,6 +280,7 @@ impl FoldBand {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SplitDiagnostics {
     pub fold_band: FoldBand,

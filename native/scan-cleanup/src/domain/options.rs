@@ -23,6 +23,7 @@ fn default_max_dimension() -> u32 {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum BinarizationMode {
     Otsu,
@@ -33,6 +34,7 @@ pub enum BinarizationMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum DespeckleLevel {
     Off,
@@ -43,6 +45,7 @@ pub enum DespeckleLevel {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum LayoutMode {
     #[default]
@@ -57,6 +60,7 @@ pub enum LayoutMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(type = "0 | 90 | 180 | 270"))]
 pub enum OrthogonalRotation {
     #[default]
     None,
@@ -120,6 +124,7 @@ impl<'de> Deserialize<'de> for OrthogonalRotation {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum OutputMode {
     #[default]
@@ -169,6 +174,7 @@ impl From<ResolvedOutputMode> for OutputMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum PageAlignment {
     TopLeft,
@@ -205,6 +211,7 @@ impl PageAlignment {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ManualContentBoxes {
     pub full: Option<NormalizedRect>,
@@ -219,6 +226,7 @@ impl ManualContentBoxes {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct AutomaticSkewDegrees {
     pub full: Option<f64>,
@@ -233,6 +241,7 @@ impl AutomaticSkewDegrees {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NormalizedSplit {
     #[serde(rename = "xNormalized")]
@@ -242,6 +251,7 @@ pub struct NormalizedSplit {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NormalizedRect {
     #[serde(rename = "xNormalized")]
@@ -257,6 +267,7 @@ pub struct NormalizedRect {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NormalizedZonePoint {
     #[serde(rename = "xNormalized")]
@@ -266,6 +277,7 @@ pub struct NormalizedZonePoint {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NormalizedZonePolygon {
     pub points: Vec<NormalizedZonePoint>,
@@ -382,6 +394,7 @@ impl NormalizedZonePolygon {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum PictureZoneLayer {
     Eraser1,
@@ -391,6 +404,7 @@ pub enum PictureZoneLayer {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PictureZone {
     pub polygon: NormalizedZonePolygon,
@@ -402,6 +416,7 @@ pub struct PictureZone {
 /// ERASER1 (force binary), PAINTER2 (force picture), then ERASER3 and fill
 /// zones (force binary). Array order therefore cannot change layer priority.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ManualZones {
     pub picture: Vec<PictureZone>,
@@ -409,6 +424,7 @@ pub struct ManualZones {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlacementOverrides {
     pub full: Option<PageAlignment>,
@@ -422,12 +438,14 @@ pub struct PlacementOverrides {
 /// caller owns the measurement and any document-wide clustering behind it;
 /// native only places what it is told.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlacementAnchor {
     pub y_normalized: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlacementAnchors {
     pub full: Option<PlacementAnchor>,
@@ -442,6 +460,7 @@ impl PlacementAnchors {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DewarpOptions {
     /// Directrix points use source-rotated page coordinates: after the page's
@@ -453,6 +472,7 @@ pub struct DewarpOptions {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct MarginsMm {
     pub left_mm: f64,
@@ -479,6 +499,7 @@ impl MarginsMm {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExperimentalOptions {
     pub auto_dewarp: bool,
@@ -487,6 +508,7 @@ pub struct ExperimentalOptions {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedTextToneDiagnostics {
     pub full: Option<TextToneDiagnostics>,
@@ -509,6 +531,7 @@ impl ResolvedTextToneDiagnostics {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CleanupOptions {
     pub dpi: f64,

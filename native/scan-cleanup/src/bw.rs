@@ -1028,6 +1028,7 @@ fn trace_line_stroke_budget(interventions: &LineStrokeBudgetInterventions) {
 /// sample. These values intentionally describe the decision basis rather than
 /// the working-resolution raster that receives the selected threshold.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct BinarizationDiagnostics {
     pub route: BinarizationMode,
@@ -1042,6 +1043,7 @@ pub struct BinarizationDiagnostics {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SpreadBinarizationPlanDiagnostics {
     pub route: BinarizationMode,
@@ -1057,6 +1059,7 @@ pub struct SpreadBinarizationPlanDiagnostics {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum SpreadBinarizationPlanDecision {
     SharedJoint,

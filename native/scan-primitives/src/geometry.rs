@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Floating-point point in pixel-center coordinates; integer pixels are centered at `(x + .5, y + .5)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -22,12 +23,14 @@ pub struct Line {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Polygon {
     pub points: Vec<Point>,
 }
 
 /// Row-major affine mapping whose final row is `[0, 0, 1]`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Affine {
     pub matrix: [[f64; 3]; 3],
 }
