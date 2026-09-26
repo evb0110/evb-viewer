@@ -32,7 +32,7 @@ import {
     DOCUMENT_WORKSPACE_AGENT_ACTION_IDS,
     DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS,
     DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS,
-    useDocumentWorkspaceAgent,
+    createDocumentWorkspaceAgent,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import type {
     IUseDocumentWorkspaceAgentOptions,
@@ -239,13 +239,13 @@ function createAgentOptions(
     };
 }
 
-describe('useDocumentWorkspaceAgent', () => {
+describe('createDocumentWorkspaceAgent', () => {
     it('keeps explicit note placement actions armed across repeated calls', async () => {
         const annotationTool = ref<TAnnotationTool>('select');
         const handleQuickNoteAction = vi.fn(async () => {
             annotationTool.value = annotationTool.value === 'note' ? 'select' : 'note';
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             annotationTool,
             handleQuickNoteAction,
         }));
@@ -277,7 +277,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('validates action id and required input before reporting a dry-run would run', async () => {
         const showSidebar = ref(false);
         const sidebarTab = ref<'annotations' | 'bookmarks' | 'thumbnails' | 'search'>('annotations');
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             showSidebar,
             sidebarTab,
         }));
@@ -311,7 +311,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('does not create phantom view state when the active viewer lacks a capability', async () => {
         const continuousScroll = ref(false);
         const viewMode = ref<TPdfViewMode>('single');
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             continuousScroll,
             viewMode,
             viewerCapabilities: ref(createDefaultWorkspaceViewerCapabilities()),
@@ -335,7 +335,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const abortController = new AbortController();
         abortController.abort();
         const assertCurrentDocument = vi.fn();
-        const agent = useDocumentWorkspaceAgent(createAgentOptions());
+        const agent = createDocumentWorkspaceAgent(createAgentOptions());
 
         await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'bookmarks'}, {}, {
             signal: abortController.signal,
@@ -353,7 +353,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const waitForDocumentOpenSettled = vi.fn(async () => {
             documentIdentity.value = createDocumentIdentity('revision-2', 2);
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             documentIdentity,
             handleBookmarksChange,
             waitForDocumentOpenSettled,
@@ -376,7 +376,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('preserves execution semantics for a representative handler', async () => {
         const showSidebar = ref(false);
         const sidebarTab = ref<'annotations' | 'bookmarks' | 'thumbnails' | 'search'>('annotations');
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             showSidebar,
             sidebarTab,
         }));
@@ -396,7 +396,7 @@ describe('useDocumentWorkspaceAgent', () => {
     });
 
     it('returns structured-cloneable page-label mutation results', async () => {
-        const agent = useDocumentWorkspaceAgent(createAgentOptions());
+        const agent = createDocumentWorkspaceAgent(createAgentOptions());
 
         const result = await agent.runAgentAction('page_labels.apply_plan', {ranges: [{
             startPage: 1,
@@ -417,7 +417,7 @@ describe('useDocumentWorkspaceAgent', () => {
     });
 
     it('reports when page-label metadata is missing from the viewer controls', async () => {
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             pageLabelRanges: ref([
                 {
                     startPage: 1,
@@ -467,7 +467,7 @@ describe('useDocumentWorkspaceAgent', () => {
                 startNumber: 1,
             },
         ];
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             pageLabelRanges: ref(ranges),
             pageLabelModel: ref(createPageLabelModel(273, ranges)),
             pageLabels: ref(null),
@@ -522,7 +522,7 @@ describe('useDocumentWorkspaceAgent', () => {
                 startNumber: 1,
             },
         ];
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             pageLabelRanges: ref(currentRanges),
             pageLabelModel: ref(createPageLabelModel(273, oldRanges)),
             pageLabels: ref(null),
@@ -566,7 +566,7 @@ describe('useDocumentWorkspaceAgent', () => {
                 startNumber: 1,
             },
         ];
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             pageLabelRanges: ref(ranges),
             pageLabelModel: ref(createPageLabelModel(3, ranges)),
             pageLabels: ref(null),
@@ -589,7 +589,7 @@ describe('useDocumentWorkspaceAgent', () => {
             bookmarkItems.value = bookmarks;
         });
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
             totalPages,
@@ -618,7 +618,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
             totalPages: ref(20),
@@ -659,7 +659,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
             totalPages: ref(20),
@@ -706,7 +706,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
             totalPages: ref(20),
@@ -739,7 +739,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -774,7 +774,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -825,7 +825,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -862,7 +862,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -920,7 +920,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -962,7 +962,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -988,7 +988,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -1061,7 +1061,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             handleBookmarksChange,
         }));
@@ -1131,7 +1131,7 @@ describe('useDocumentWorkspaceAgent', () => {
             canSave.value = false;
             return true;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             bookmarkItems,
             bookmarksDirty,
             canSave,
@@ -1156,7 +1156,7 @@ describe('useDocumentWorkspaceAgent', () => {
 
     it('does not serialize the document when file.save has no pending changes', async () => {
         const handleSave = vi.fn(async () => true);
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             canSave: ref(false),
             handleSave,
             workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
@@ -1177,7 +1177,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('reports new pending changes without treating an earlier successful save as failed', async () => {
         const canSave = ref(true);
         const handleSave = vi.fn(async () => true);
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             canSave,
             handleSave,
         }));
@@ -1195,7 +1195,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('runs repair-save and optimize-for-interaction through semantic file actions', async () => {
         const handleRepairSave = vi.fn(async () => true);
         const handleOptimizePdfForInteraction = vi.fn(async () => true);
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             handleRepairSave,
             handleOptimizePdfForInteraction,
             workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
@@ -1221,7 +1221,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('runs structured crop and remove-crop page operations', async () => {
         const handleCropPages = vi.fn(async () => true);
         const handleRemoveCrop = vi.fn(async () => true);
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             handleCropPages,
             handleRemoveCrop,
             totalPages: ref(4),
@@ -1280,7 +1280,7 @@ describe('useDocumentWorkspaceAgent', () => {
             canUndo.value = true;
             canRedo.value = false;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             canUndo,
             canRedo,
             handleUndo,
@@ -1302,7 +1302,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const comment = createAnnotationComment();
         const updateTextMarkupColorWithHistory = vi.fn(() => true);
         const rawViewerColorUpdate = vi.fn(() => true);
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             annotationComments: ref([comment]),
             updateTextMarkupColorWithHistory,
             pdfViewerRef: ref(createAgentViewerPort({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
@@ -1341,7 +1341,7 @@ describe('useDocumentWorkspaceAgent', () => {
             // retrying on `created: false` mints a duplicate.
             pendingEditor: true,
         }));
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText}))}));
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText}))}));
 
         await expect(agent.runAgentAction('annotation.create_text_markup', {
             pageNumber: 2,
@@ -1373,7 +1373,7 @@ describe('useDocumentWorkspaceAgent', () => {
         }) => {
             historyCommands.push(command);
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             annotationComments: ref([comment]),
             pdfViewerRef: ref(createAgentViewerPort({
                 updateAnnotationComment,
@@ -1416,7 +1416,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('passes an exact compact selection to page-operation actions', async () => {
         const selection = createRangePageSelection(1_000_000, 2, 100_002);
         const pageOpsDelete = vi.fn(async () => undefined);
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             totalPages: ref(1_000_000),
             selectedThumbnailPages: ref([]),
             selectedPageSelection: ref(selection),
@@ -1443,7 +1443,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const openConvertDialog = vi.fn(() => {
             showConvertDialog.value = true;
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             handlePageRotate,
             isDjvuMode: ref(true),
             openConvertDialog,

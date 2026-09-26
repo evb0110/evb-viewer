@@ -17,7 +17,7 @@ import type {
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
 import type {IWorkspacePdfViewerAgentPort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import {useDocumentWorkspaceAgent} from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
+import {createDocumentWorkspaceAgent} from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import type {
     IUseDocumentWorkspaceAgentOptions,
     TWorkspaceAgentFitMode,
@@ -120,7 +120,7 @@ function createAgentOptions(
     };
 }
 
-describe('useDocumentWorkspaceAgent', () => {
+describe('createDocumentWorkspaceAgent', () => {
     it('passes OCR quality profile through the OCR start action', async () => {
         const runOcrForAgent = vi.fn(async () => ({ok: true}));
         const handleDropdownOpen = vi.fn();
@@ -129,7 +129,7 @@ describe('useDocumentWorkspaceAgent', () => {
             cancelOcrForAgent: vi.fn(async () => ({ok: true})),
             getAgentOcrSnapshot: vi.fn(() => ({})),
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             handleDropdownOpen,
             ocrPopupRef,
         }));
@@ -164,7 +164,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('keeps a contract-requested OCR run in the background', async () => {
         const runOcrForAgent = vi.fn(async () => ({ok: true}));
         const handleDropdownOpen = vi.fn();
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({
             handleDropdownOpen,
             ocrPopupRef: ref({
                 runOcrForAgent,
@@ -192,7 +192,7 @@ describe('useDocumentWorkspaceAgent', () => {
             cancelOcrForAgent: vi.fn(async () => ({ok: true})),
             getAgentOcrSnapshot: vi.fn(() => ({})),
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef}));
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef}));
 
         await agent.runAgentAction('ocr.start', {
             qualityProfile: 'stock',
@@ -205,7 +205,7 @@ describe('useDocumentWorkspaceAgent', () => {
     });
 
     it('reports a structured failure when OCR is not mounted', async () => {
-        const agent = useDocumentWorkspaceAgent(createAgentOptions());
+        const agent = createDocumentWorkspaceAgent(createAgentOptions());
 
         await expect(agent.runAgentAction('ocr.start', {languages: ['eng']})).resolves.toMatchObject({
             ok: false,
@@ -217,7 +217,7 @@ describe('useDocumentWorkspaceAgent', () => {
 
     it('passes a multi-language OCR request to the popup', async () => {
         const runOcrForAgent = vi.fn(async () => ({ok: true}));
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef: ref({
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef: ref({
             runOcrForAgent,
             cancelOcrForAgent: vi.fn(async () => ({ok: true})),
             getAgentOcrSnapshot: vi.fn(() => ({})),
@@ -252,7 +252,7 @@ describe('useDocumentWorkspaceAgent', () => {
             cancelOcrForAgent,
             getAgentOcrSnapshot: vi.fn(() => ({})),
         });
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef}));
+        const agent = createDocumentWorkspaceAgent(createAgentOptions({ocrPopupRef}));
 
         await expect(agent.runAgentAction('ocr.cancel', {})).resolves.toMatchObject({
             ok: false,

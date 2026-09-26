@@ -1,11 +1,17 @@
+import type { Ref } from 'vue';
 import type { TAnnotationTool } from '@app/types/annotations';
 import { isAgentRecord } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import type {
     IAgentOcrRunOptions,
     IUseDocumentWorkspaceAgentOptions,
+    IOcrPopupAgentExpose,
     TWorkspaceAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
-import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
+import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
+import {
+    createDefaultWorkspaceViewerCapabilities,
+    type IWorkspaceAgentCommandContext,
+} from '@app/types/workspaceExpose';
 import { createDocumentAgentAnnotations } from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotations';
 import { createDocumentAgentAnnotationNoteActions } from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotationNoteActions';
 import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
@@ -118,7 +124,7 @@ export const DOCUMENT_WORKSPACE_AGENT_ACTION_IDS = [
     ...DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS,
 ] as const;
 
-export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOptions) => {
+export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOptions) => {
     const {
         annotationComments,
         annotationCommentsStatus,
@@ -1111,4 +1117,39 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
         runAgentAction,
         readAgentResource,
     };
+};
+
+export const useDocumentWorkspaceAgent = (
+    context: TDocumentContext,
+    ocrPopupRef: Ref<IOcrPopupAgentExpose | null>,
+    waitForDocumentOpenSettled: () => Promise<void>,
+) => {
+    const { t } = useTypedI18n();
+    const viewerCapabilities = computed(() => (
+        context.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()
+    ));
+
+    return createDocumentWorkspaceAgent({
+        ...context.annotations,
+        ...context.metadata.bookmarkState,
+        ...context.metadata.pageLabelState,
+        ...context.save,
+        ...context.history,
+        ...context.view,
+        ...context.file,
+        ...context.viewerDefaults,
+        ...context.annotationActions,
+        ...context.djvuProjection,
+        ...context.exportWorkflow,
+        ...context.navigation,
+        ...context.fileOps,
+        ...context.pageOps,
+        ...context.print,
+        documentIdentity: context.file.documentRevisionInfo,
+        viewerCapabilities,
+        ocrPopupRef,
+        tabId: context.tabId,
+        t,
+        waitForDocumentOpenSettled,
+    });
 };
