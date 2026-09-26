@@ -21,7 +21,7 @@ if (!firstRuntimeEntry) throw new Error('Runtime manifest test requires one bina
 describe('runtime binary manifest', () => {
     it('covers every tracked runtime family on every currently packed target', () => {
         expect(validateRuntimeBinaryManifest(RUNTIME_BINARY_MANIFEST)).toBe(RUNTIME_BINARY_MANIFEST);
-        expect(RUNTIME_BINARY_MANIFEST_ENTRIES).toHaveLength(12);
+        expect(RUNTIME_BINARY_MANIFEST_ENTRIES).toHaveLength(20);
         expect(new Set(RUNTIME_BINARY_MANIFEST_ENTRIES.map(entry => entry.familyId))).toEqual(
             new Set([
                 'tesseract',
@@ -34,7 +34,9 @@ describe('runtime binary manifest', () => {
             new Set([
                 'darwin-arm64',
                 'linux-x64',
+                'linux-arm64',
                 'win32-x64',
+                'win32-arm64',
             ]),
         );
         expect(RUNTIME_BINARY_MANIFEST.dataEntries).toEqual([TESSDATA_RUNTIME_DATA_ENTRY]);
