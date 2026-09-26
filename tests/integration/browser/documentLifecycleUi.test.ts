@@ -83,6 +83,12 @@ async function waitForOpenFileReady(page: Page) {
     }, undefined, {timeout: 30_000});
 }
 
+// One-shot waitForEvent listeners otherwise toggle Playwright's chooser
+// interception off and on between opens, and a quick second open can race it.
+function keepFileChooserInterceptionEnabled(page: Page) {
+    page.on('filechooser', () => {});
+}
+
 async function stopServer() {
     const server = devServer;
     devServer = null;
@@ -149,6 +155,7 @@ describe('browser document lifecycle UI', () => {
             });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
 
             const validChooserPromise = page.waitForEvent('filechooser');
             await page.getByRole('button', {
@@ -214,6 +221,7 @@ describe('browser document lifecycle UI', () => {
             });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
 
             const chooserPromise = page.waitForEvent('filechooser');
             await page.getByRole('button', {
@@ -309,6 +317,7 @@ describe('browser document lifecycle UI', () => {
             });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
             await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
 
             let openCount = 0;
             const openWithFile = async (filePath: string) => {
