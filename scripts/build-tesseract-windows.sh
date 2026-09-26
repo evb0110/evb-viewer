@@ -45,7 +45,7 @@ tar -xzf "$BUILD_DIR/leptonica.tar.gz" -C "$BUILD_DIR"
 tar -xzf "$BUILD_DIR/tesseract.tar.gz" -C "$BUILD_DIR"
 
 cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-build" \
-  -G "Visual Studio 17 2022" \
+  -G "Visual Studio 18 2026" \
   -A "$vs_arch" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
@@ -57,7 +57,7 @@ cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-buil
 cmake --build "$BUILD_DIR/leptonica-build" --config Release --parallel
 cmake --install "$BUILD_DIR/leptonica-build" --config Release
 cmake -S "$BUILD_DIR/tesseract-$TESSERACT_VERSION" -B "$BUILD_DIR/tesseract-build" \
-  -G "Visual Studio 17 2022" \
+  -G "Visual Studio 18 2026" \
   -A "$vs_arch" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$BUILD_DIR/leptonica-install" \
