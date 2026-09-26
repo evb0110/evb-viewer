@@ -4,12 +4,11 @@ import {
     it,
 } from 'vitest';
 import {readFileSync} from 'node:fs';
-import {join} from 'node:path';
-import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {
-    resolveDjvuFixturePath,
-    selectFixtureDescribe,
-} from '@tests/e2e/electron/helpers/fixtures';
+    join,
+    resolve,
+} from 'node:path';
+import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
@@ -17,17 +16,12 @@ import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorOb
 import {triggerOpenPathInApp} from '@tests/e2e/electron/helpers/viewerCore';
 
 const DJVU_OPEN_TIMEOUT_MS = 90_000;
-const djvuFixture = resolveDjvuFixturePath();
-const runOrSkip = selectFixtureDescribe(describe, djvuFixture);
+const djvuFixturePath = resolve('tests/fixtures/electron/djvu-fixtures/djvu-open-cancellation-5010-pages.djvu');
 
-runOrSkip('Electron E2E - DjVu Open Cancellation', () => {
+describe('Electron E2E - DjVu Open Cancellation', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-open-cancellation-${Date.now()}`});
 
-    it('cancels a recent DjVu open without showing an error', async () => {
-        if (!djvuFixture.path) {
-            throw new Error(djvuFixture.reason);
-        }
-
+    it('cancels an opening DjVu without showing an error', async () => {
         const session = sessionFixture.getSession();
         const observer = await observeRendererErrors(session.page);
         try {
@@ -50,7 +44,7 @@ runOrSkip('Electron E2E - DjVu Open Cancellation', () => {
                         '.document-viewer-chassis__opening-page, .document-source-viewer__skeleton, [data-document-page-visual="skeleton"]',
                     ) ?? []).some(visible);
             }, {timeout: DJVU_OPEN_TIMEOUT_MS});
-            await triggerOpenPathInApp(session.page, djvuFixture.path, DJVU_OPEN_TIMEOUT_MS);
+            await triggerOpenPathInApp(session.page, djvuFixturePath, DJVU_OPEN_TIMEOUT_MS);
             await openingSurface;
             await session.page.click('.tab-list .tab.is-active .tab-close');
 
