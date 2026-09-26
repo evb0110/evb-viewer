@@ -49,6 +49,7 @@ cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-buil
   -A "$vs_arch" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DSW_BUILD=OFF \
   -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/leptonica-install" \
   -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
   -DVCPKG_TARGET_TRIPLET="$triplet" \
