@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => {
         rm: vi.fn(async () => undefined),
         spawn: vi.fn(),
         terminateDetachedChildProcess: vi.fn(async () => true),
-        assertNativeToolBuild: vi.fn(async () => undefined),
         warn: vi.fn(),
         writeFile: vi.fn(async () => undefined),
     };
@@ -25,9 +24,15 @@ const mocks = vi.hoisted(() => {
 class MockProcess extends EventEmitter {
     readonly pid = 12345;
 
-    readonly stdout = Object.assign(new EventEmitter(), {destroy: vi.fn()});
+    readonly stdout = Object.assign(new EventEmitter(), {
+        destroy: vi.fn(),
+        unpipe: vi.fn(),
+    });
 
-    readonly stderr = Object.assign(new EventEmitter(), {destroy: vi.fn()});
+    readonly stderr = Object.assign(new EventEmitter(), {
+        destroy: vi.fn(),
+        unpipe: vi.fn(),
+    });
 
     readonly kill = vi.fn();
 }
@@ -41,7 +46,6 @@ vi.mock('fs/promises', () => ({
     writeFile: mocks.writeFile,
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: () => '/native/evb-pdf-image-combine'}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({assertNativeToolBuild: mocks.assertNativeToolBuild}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: object) => ({
         ...options,
@@ -461,11 +465,4 @@ describe('native PDF image combiner output validation', () => {
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/output.pdf', { force: true });
     });
 
-    it('rejects before spawning when the binary was built from other sources', async () => {
-        mocks.assertNativeToolBuild.mockRejectedValueOnce(new Error('built from other native sources'));
-        const { tryCreatePdfWithNativeImageCombiner } = await import('@electron/image/tryCreatePdfWithNativeImageCombiner');
-
-        await expect(tryCreatePdfWithNativeImageCombiner(['/tmp/input.png'])).rejects.toThrow('built from other native sources');
-        expect(mocks.spawn).not.toHaveBeenCalled();
-    });
 });

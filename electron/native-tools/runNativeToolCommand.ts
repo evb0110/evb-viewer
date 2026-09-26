@@ -15,6 +15,8 @@ export interface IRunNativeToolCommandOptions {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
+    timeoutResetsOnStdout?: boolean;
+    longLived?: boolean;
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
     rejectOnStdoutTruncation?: boolean;
@@ -23,7 +25,11 @@ export interface IRunNativeToolCommandOptions {
     cancelGroup?: string;
     commandLabel?: string;
     onStdout?: (chunk: string) => void;
+    onStderr?: (chunk: string) => void;
     onSpawn?: (pid: number) => void;
+    onClose?: () => void;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
+    terminationGraceMs?: number;
     stdin?: AsyncIterable<string>;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }

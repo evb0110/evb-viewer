@@ -874,7 +874,6 @@ export function createScanCleanupService(
                                     ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),
                                     tempDir: getAppTempDir(),
                                     scratchDir: scratchPath,
-                                    sidecarRegistryRoot: getAppTempDir(),
                                 },
                                 runtimePolicy,
                                 job.signal,

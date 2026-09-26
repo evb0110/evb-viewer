@@ -79,7 +79,7 @@ export interface IRunInitSequenceOptions {
     broadcastUpdateStatus(status: IAppUpdateStatus): void;
     cleanupStaleWorkingCopyDirectories(): Promise<{removedDirectories: number}>;
     cleanupStaleAppTempNamespaces?: () => Promise<number>;
-    reapOrphanedScanCleanupSidecars?: () => Promise<unknown>;
+    reapOrphanedManagedNativeProcesses?: () => Promise<unknown>;
     createWindow(options?: {
         showStartupPlaceholder?: boolean;
         waitForInitialRendererReady?: boolean;
@@ -399,7 +399,7 @@ function createPostRendererReadyMaintenanceRunner(
     const {
         cleanupStaleWorkingCopyDirectories,
         cleanupStaleAppTempNamespaces,
-        reapOrphanedScanCleanupSidecars,
+        reapOrphanedManagedNativeProcesses,
         logger,
         sweepStaleDefaultAppTempPdfs,
         sweepStalePdfAnnotationParseArtifacts,
@@ -422,10 +422,10 @@ function createPostRendererReadyMaintenanceRunner(
                 },
             }]
             : []),
-        ...(reapOrphanedScanCleanupSidecars
+        ...(reapOrphanedManagedNativeProcesses
             ? [{
-                label: 'orphaned scan-cleanup sidecars',
-                run: reapOrphanedScanCleanupSidecars,
+                label: 'orphaned managed native processes',
+                run: reapOrphanedManagedNativeProcesses,
             }]
             : []),
         {

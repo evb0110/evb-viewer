@@ -18,7 +18,6 @@ import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
     terminateDetachedChildProcess: vi.fn(async (_proc: unknown, _graceMs: number): Promise<boolean> => false),
-    assertNativeToolBuild: vi.fn(async () => {}),
 }));
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
@@ -26,8 +25,6 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({assertNativeToolBuild: mocks.assertNativeToolBuild}));
-
 class MockSidecarProcess extends EventEmitter {
     readonly stdout = new PassThrough();
 
@@ -75,18 +72,11 @@ describe('scan cleanup sidecar abort window', () => {
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
     });
 
-    // Native command admission resolves its waiters synchronously, so a run
-    // that is canceled in the same tick as the release that admitted it reaches
-    // the spawn with an already-aborted signal. The listener the sidecar
-    // attaches after the spawn never replays that abort, so the terminate has
-    // to be re-checked once the process exists.
-    it('terminates a sidecar whose run was canceled while it waited for a native command slot', async () => {
+    it('does not spawn a sidecar canceled while waiting for a native command slot', async () => {
         vi.stubEnv('EVB_NATIVE_COMMAND_MAX_CONCURRENCY', '1');
         vi.resetModules();
         const { acquireNativeCommandAdmission } = await import('@electron/native-tools/runNativeCommand');
         const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
-        const child = new MockSidecarProcess();
-        mocks.spawn.mockReturnValue(child);
         const releaseOccupant = await acquireNativeCommandAdmission();
         const controller = new AbortController();
 
@@ -97,7 +87,6 @@ describe('scan cleanup sidecar abort window', () => {
             vi.fn<TWorkerLog>(),
             () => {},
         );
-        const rejected = expect(run).rejects.toMatchObject({name: 'AbortError'});
         for (let attempt = 0; attempt < 10; attempt += 1) {
             await new Promise(resolve => {
                 setImmediate(resolve);
@@ -107,11 +96,9 @@ describe('scan cleanup sidecar abort window', () => {
 
         releaseOccupant();
         controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
-        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-
-        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
-        child.emit('close', null, 'SIGKILL');
-        await rejected;
+        await expect(run).rejects.toMatchObject({name: 'AbortError'});
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        expect(mocks.terminateDetachedChildProcess).not.toHaveBeenCalled();
     });
     // The worker turns an unproven stop into a quarantine of the source working
     // copy, so what this adapter reports about its process tree decides whether

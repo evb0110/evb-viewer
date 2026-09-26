@@ -104,6 +104,31 @@ describe('runNativeCommand', () => {
         });
     });
 
+    it('streams long-lived stdout without retaining it and reports close', async () => {
+        const proc = new MockNativeProcess();
+        const chunks: string[] = [];
+        const onClose = vi.fn();
+        mocks.spawn.mockReturnValue(proc);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+
+        const resultPromise = runNativeCommand('/bin/tool', [], {
+            longLived: true,
+            maxStdoutBytes: 3,
+            onStdout: chunk => chunks.push(chunk),
+            onClose,
+        });
+        proc.stdout.emit('data', Buffer.from('streamed output'));
+        proc.emit('close', 0, null);
+
+        await expect(resultPromise).resolves.toEqual({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+        expect(chunks.join('')).toBe('streamed output');
+        expect(onClose).toHaveBeenCalledOnce();
+    });
+
     it('reports the spawned process before it can finish', async () => {
         const proc = new MockNativeProcess();
         const onSpawn = vi.fn();
@@ -428,18 +453,22 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const log = vi.fn();
+        const onTerminationProof = vi.fn();
         const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
         const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
 
         const rejection = runNativeCommand('/bin/tool', [], {
             log,
             timeoutMs: 10,
+            onTerminationProof,
         }).catch((error: unknown) => error);
         await vi.advanceTimersByTimeAsync(10);
 
         const error = await rejection;
         expect((error as Error).message).toBe('/bin/tool timed out after 10ms');
         expect(getUnprovenNativeTerminationDetail(error)).toBeUndefined();
+        expect(onTerminationProof).toHaveBeenCalledOnce();
+        await expect(onTerminationProof.mock.calls[0]![0]).resolves.toBe(true);
         expect(log).not.toHaveBeenCalledWith('warn', expect.stringContaining('did not confirm process-tree'));
     });
 
@@ -508,20 +537,13 @@ describe('runNativeCommand', () => {
         expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
     });
 
-    it('marks a rejection whose child closed before any termination result existed', async () => {
-        // The close handler falls back to a resolved value when the termination
-        // request has not recorded one yet. That fallback is an absence of
-        // evidence, so it has to read as "not proven dead": a fallback that said
-        // `true` would hand the working-copy owner permission to delete bytes on
-        // the strength of nothing at all. Emitting 'close' from inside the
-        // termination call is what reaches the fallback, because it runs before
-        // the promise is assigned.
+    it('waits for termination proof when the child closes before the proof settles', async () => {
+        let proveTermination!: (terminated: boolean) => void;
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        mocks.terminateDetachedChildProcess.mockImplementation(async () => {
-            proc.emit('close', null, 'SIGTERM');
-            return true;
-        });
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(resolve => {
+            proveTermination = resolve;
+        }));
         const controller = new AbortController();
         const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
         const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
@@ -529,9 +551,12 @@ describe('runNativeCommand', () => {
         const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal})
             .catch((error: unknown) => error);
         controller.abort();
+        await Promise.resolve();
+        proc.emit('close', null, 'SIGTERM');
+        proveTermination(true);
 
         const error = await rejection;
-        expect(getUnprovenNativeTerminationDetail(error)).toContain('was not proven dead');
+        expect(getUnprovenNativeTerminationDetail(error)).toBeUndefined();
     });
 
     it('streams output chunks and cancels named command groups', async () => {

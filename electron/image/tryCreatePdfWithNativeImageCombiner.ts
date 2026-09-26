@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import {
     mkdtemp,
     open,
@@ -15,7 +14,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import { assertNativeToolBuild } from '@electron/native-tools/runNativeToolCommand';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
@@ -24,10 +23,6 @@ import {
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
 } from '@electron/utils/nativeTerminationProof';
-import {
-    createDetachedChildProcessSpawnOptions,
-    terminateDetachedChildProcess,
-} from '@electron/utils/nativeChildProcess';
 import { readJpegExifOrientation } from '@electron/image/imageDpi';
 import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
 import {
@@ -66,28 +61,6 @@ interface INativePdfImageCombineOptions {
 }
 
 type TNativeProgressPayload = INativePdfImageCombineProgress & {type: 'progress';};
-type TNativePdfImageCombineTermination =
-    | {
-        kind: 'resolve';
-        ok: boolean;
-    }
-    | {
-        kind: 'reject';
-        error: Error;
-    };
-
-interface INativePdfImageCombineTerminationRequest {
-    completion: TNativePdfImageCombineTermination;
-    childPid: number | null;
-}
-
-type TNativePdfImageCombineTerminationOutcome =
-    | {proven: true;}
-    | {
-        proven: false;
-        cause?: unknown;
-    };
-
 type TNativePdfImageCombineRetainCleanup = (
     proof: Promise<boolean>,
     childPid: number | null,
@@ -699,292 +672,129 @@ async function runNativePdfImageCombine(
         ...(maxPages ? {EVB_PDF_COMBINE_MAX_PAGES: maxPages} : {}),
     };
 
-    await assertNativeToolBuild(binaryPath);
-    if (options?.signal?.aborted) {
-        throw abortErrorFromSignal(options.signal);
-    }
+    let stdoutBuffer = '';
+    let stderr = '';
+    let childPid: number | null = null;
+    const handleProgressLine = (line: string) => {
+        if (!line.trim() || !options?.onProgress) {
+            return;
+        }
+        try {
+            const payload = parseProgressPayload(JSON.parse(line));
+            if (payload) {
+                options.onProgress({
+                    processed: payload.processed,
+                    total: payload.total,
+                    percent: payload.percent,
+                    elapsedMs: payload.elapsedMs,
+                    estimatedRemainingMs: payload.estimatedRemainingMs,
+                });
+            }
+        } catch {
+            return;
+        }
+    };
 
-    return new Promise<boolean>((resolve, reject) => {
-        const proc = spawn(binaryPath, args, createDetachedChildProcessSpawnOptions({
+    try {
+        await runNativeToolCommand(binaryPath, args, {
             env,
-            shell: false,
-            windowsHide: true,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-        }));
-
-        let settled = false;
-        let stdoutBuffer = '';
-        let stderr = '';
-        let abortHandler: (() => void) | null = null;
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-        let forceSettleHandle: ReturnType<typeof setTimeout> | null = null;
-        let pendingTermination: INativePdfImageCombineTerminationRequest | null = null;
-
-        const cleanup = () => {
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
+            ...(options?.signal === undefined ? {} : {signal: options.signal}),
+            timeoutMs: NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS,
+            maxStderrBytes: 8_192,
+            longLived: true,
+            commandLabel: 'Native image PDF combine',
+            terminationGraceMs: 1_000,
+            onSpawn: pid => {
+                childPid = pid;
+            },
+            onTerminationProof: proof => {
+                const identityBoundProof = childPid === null ? proof.then(() => false) : proof;
+                retainCleanupUntilTerminationProof?.(identityBoundProof, childPid, outputPath);
+                options?.onTerminationProof?.(identityBoundProof);
+            },
+            onStdout: chunk => {
+                stdoutBuffer += chunk;
+                if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {
+                    throw new Error(
+                        'native stdout line exceeded ' + String(NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) + ' bytes',
+                    );
+                }
+                let lineBreak = stdoutBuffer.indexOf('\n');
+                while (lineBreak >= 0) {
+                    const line = stdoutBuffer.slice(0, lineBreak);
+                    stdoutBuffer = stdoutBuffer.slice(lineBreak + 1);
+                    handleProgressLine(line);
+                    lineBreak = stdoutBuffer.indexOf('\n');
+                }
+            },
+            onStderr: chunk => {
+                stderr = (stderr + chunk).slice(-8_192);
+            },
+            log: (_level, message) => {
+                if (message.includes('timed out')) {
+                    logger.warn('Native image PDF combine timed out after '
+                        + String(NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS) + 'ms');
+                }
+            },
+        });
+        if (stdoutBuffer) {
+            handleProgressLine(stdoutBuffer);
+        }
+        return true;
+    } catch (cause) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        const reportedUnprovenDetail = getUnprovenNativeTerminationDetail(error)
+            ?? (childPid === null && error.message.includes('spawned without a valid process id')
+                ? 'native image combine child identity was not usable; process tree termination was not proven'
+                : undefined);
+        const unprovenDetail = reportedUnprovenDetail === undefined
+            ? undefined
+            : childPid === null
+                ? 'native image combine child identity was not usable; process tree termination was not proven'
+                : reportedUnprovenDetail;
+        if (unprovenDetail !== undefined) {
+            const failure = new Error(
+                'Native image PDF combine termination was not proven: ' + unprovenDetail,
+                {cause: error},
+            );
+            if (error.name === 'AbortError') {
+                failure.name = 'AbortError';
             }
-            if (forceSettleHandle) {
-                clearTimeout(forceSettleHandle);
-                forceSettleHandle = null;
-            }
-            if (abortHandler) {
-                options?.signal?.removeEventListener('abort', abortHandler);
-                abortHandler = null;
-            }
-        };
+            throw markUnprovenNativeTermination(failure, unprovenDetail);
+        }
+        if (error.name === 'AbortError') {
+            throw error;
+        }
 
-        const finish = (ok: boolean) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            cleanup();
-            resolve(ok);
-        };
+        const rawExitCode = (error as {exitCode?: unknown}).exitCode;
+        const exitCode = typeof rawExitCode === 'number' ? String(rawExitCode) : '<unknown>';
+        const nativeError = decodeSerializableErrorEnvelope(
+            stderr.trim(),
+            isNativeErrorEnvelope,
+            {allowBareJsonString: true},
+        );
+        if (nativeError?.code === 'too-large') {
+            throw new SerializableError(nativeError);
+        }
 
-        const fail = (error: Error) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            cleanup();
-            reject(error);
-        };
-
-        const createFailure = (detail: string, cause?: unknown) => createNativeFallbackTestError(
+        const detail = error.message.includes('timed out')
+            ? 'native process timed out after ' + String(NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS) + 'ms'
+            : error.message.includes('stdout line exceeded')
+                ? 'native stdout line exceeded ' + String(NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) + ' bytes'
+                : error.message.includes('failed to start')
+                    ? 'native process failed to start'
+                    : 'native process exited with code ' + exitCode + (stderr.trim() ? ': ' + stderr.trim() : '');
+        const failure = createNativeFallbackTestError(
             NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
             'Native image PDF combine',
             detail,
-            cause,
+            error,
         );
-
-        const finishFailure = (detail: string, cause?: unknown) => {
-            const failure = createFailure(detail, cause);
-            if (failure) {
-                fail(failure);
-                return;
-            }
-            finish(false);
-        };
-
-        const requestFailureTermination = (detail: string, cause?: unknown) => {
-            const failure = createFailure(detail, cause);
-            requestTermination(failure
-                ? {
-                    kind: 'reject',
-                    error: failure,
-                }
-                : {
-                    kind: 'resolve',
-                    ok: false,
-                });
-        };
-
-        const getChildPid = () => {
-            const childPid = proc.pid;
-            return typeof childPid === 'number'
-                && Number.isSafeInteger(childPid)
-                && childPid > 0
-                ? childPid
-                : null;
-        };
-
-        const createUnprovenTerminationFailure = (
-            completion: TNativePdfImageCombineTermination,
-            detail: string,
-            cause?: unknown,
-        ) => {
-            const completionCause = completion.kind === 'reject'
-                ? completion.error
-                : cause;
-            const failure = new Error(
-                `Native image PDF combine termination was not proven: ${detail}`,
-                completionCause === undefined ? undefined : {cause: completionCause},
-            );
-            if (completion.kind === 'reject' && completion.error.name === 'AbortError') {
-                failure.name = 'AbortError';
-            }
-            return markUnprovenNativeTermination(failure, detail);
-        };
-
-        const settleAfterTermination = (
-            request: INativePdfImageCombineTerminationRequest,
-            outcome: TNativePdfImageCombineTerminationOutcome,
-        ) => {
-            if (pendingTermination !== request || settled) {
-                return;
-            }
-            pendingTermination = null;
-            if (!outcome.proven) {
-                const detail = request.childPid === null
-                    ? 'native image combine child identity was not usable; process tree termination was not proven'
-                    : `native image combine process tree (pid=${String(request.childPid)}) was not proven dead`;
-                fail(createUnprovenTerminationFailure(
-                    request.completion,
-                    detail,
-                    outcome.cause,
-                ));
-                return;
-            }
-            if (request.completion.kind === 'reject') {
-                fail(request.completion.error);
-                return;
-            }
-            finish(request.completion.ok);
-        };
-
-        const requestTermination = (completion: TNativePdfImageCombineTermination) => {
-            if (settled || pendingTermination) {
-                return;
-            }
-            const childPid = getChildPid();
-            const request: INativePdfImageCombineTerminationRequest = {
-                completion,
-                childPid,
-            };
-            pendingTermination = request;
-            proc.stdout?.removeAllListeners('data');
-            proc.stderr?.removeAllListeners('data');
-            proc.stdout?.destroy?.();
-            proc.stderr?.destroy?.();
-            const terminationOutcome = Promise.resolve()
-                .then(() => terminateDetachedChildProcess(proc, 1_000))
-                .then<TNativePdfImageCombineTerminationOutcome, TNativePdfImageCombineTerminationOutcome>(
-                    terminated => childPid !== null && terminated === true
-                        ? {proven: true}
-                        : {
-                            proven: false,
-                            cause: childPid === null
-                                ? new Error('Native image combine child identity was not usable')
-                                : undefined,
-                        },
-                    (error: unknown) => ({
-                        proven: false,
-                        cause: error,
-                    }),
-                );
-            const terminationProof = terminationOutcome.then(outcome => outcome.proven);
-            retainCleanupUntilTerminationProof?.(terminationProof, childPid, outputPath);
-            options?.onTerminationProof?.(terminationProof);
-            void terminationOutcome.then(outcome => settleAfterTermination(request, outcome));
-            forceSettleHandle = setTimeout(() => {
-                if (pendingTermination !== request || settled) {
-                    return;
-                }
-                pendingTermination = null;
-                const detail = childPid === null
-                    ? 'native image combine child identity was not usable; process tree termination was not proven'
-                    : `native image combine process tree (pid=${String(childPid)}) was not proven dead within 3000ms`;
-                fail(createUnprovenTerminationFailure(
-                    completion,
-                    detail,
-                ));
-            }, 3_000);
-            forceSettleHandle.unref?.();
-        };
-
-        const handleProgressLine = (line: string) => {
-            if (!line.trim() || !options?.onProgress) {
-                return;
-            }
-            try {
-                const payload = parseProgressPayload(JSON.parse(line));
-                if (payload) {
-                    options.onProgress({
-                        processed: payload.processed,
-                        total: payload.total,
-                        percent: payload.percent,
-                        elapsedMs: payload.elapsedMs,
-                        estimatedRemainingMs: payload.estimatedRemainingMs,
-                    });
-                }
-            } catch {
-                return;
-            }
-        };
-
-        timeoutHandle = setTimeout(() => {
-            logger.warn(`Native image PDF combine timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
-            requestFailureTermination(`native process timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
-        }, NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS);
-        timeoutHandle.unref?.();
-
-        if (options?.signal) {
-            abortHandler = () => {
-                requestTermination({
-                    kind: 'reject',
-                    error: abortErrorFromSignal(options.signal!),
-                });
-            };
-            options.signal.addEventListener('abort', abortHandler, { once: true });
-            if (options.signal.aborted) {
-                abortHandler();
-            }
+        if (failure) {
+            throw failure;
         }
-
-        proc.stdout?.on('data', (data: Buffer) => {
-            stdoutBuffer += data.toString('utf8');
-            if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {
-                logger.warn(`Native image PDF combine stdout line exceeded ${NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES} bytes`);
-                requestFailureTermination(
-                    `native stdout line exceeded ${NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES} bytes`,
-                );
-                return;
-            }
-            let lineBreak = stdoutBuffer.indexOf('\n');
-            while (lineBreak >= 0) {
-                const line = stdoutBuffer.slice(0, lineBreak);
-                stdoutBuffer = stdoutBuffer.slice(lineBreak + 1);
-                handleProgressLine(line);
-                lineBreak = stdoutBuffer.indexOf('\n');
-            }
-        });
-
-        proc.stderr?.on('data', (data: Buffer) => {
-            stderr = `${stderr}${data.toString('utf8')}`.slice(-8_192);
-        });
-
-        proc.on('error', (error) => {
-            if (settled || pendingTermination) {
-                return;
-            }
-            logger.warn(`Native image PDF combine failed to start: ${getErrorMessage(error)}`);
-            finishFailure('native process failed to start', error);
-        });
-
-        proc.on('close', (code) => {
-            if (settled || pendingTermination) {
-                return;
-            }
-            if (stdoutBuffer) {
-                handleProgressLine(stdoutBuffer);
-                stdoutBuffer = '';
-            }
-            if (code !== 0) {
-                const exitCode = code ?? '<unknown>';
-                const detail = stderr.trim();
-                logger.debug(`Native image PDF combine exited with code ${exitCode}${detail ? `: ${detail}` : ''}`);
-                const nativeError = decodeSerializableErrorEnvelope(
-                    detail,
-                    isNativeErrorEnvelope,
-                    {allowBareJsonString: true},
-                );
-                if (nativeError?.code === 'too-large') {
-                    fail(new SerializableError(nativeError));
-                    return;
-                }
-                finishFailure(`native process exited with code ${exitCode}${detail ? `: ${detail}` : ''}`);
-                return;
-            }
-            finish(true);
-        });
-    });
+        return false;
+    }
 }
 
 function normalizeMaxPagesForEnv(value: number | undefined) {

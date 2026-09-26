@@ -1,10 +1,12 @@
-import {execFile} from 'node:child_process';
-import {promisify} from 'node:util';
+import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import type { IRunNativeToolCommandOptions } from '@electron/native-tools/runNativeToolCommand';
+import type { IProcessResult } from '@electron/native-tools/processResult';
 
-const execFileAsync = promisify(execFile);
-const TARGETED_OBJECT_MAX_BUFFER = 1024 * 1024;
-
-type TExecFile = typeof execFileAsync;
+type TRunNativeToolCommand = (
+    command: string,
+    args: string[],
+    options?: IRunNativeToolCommandOptions,
+) => Promise<IProcessResult>;
 
 function qpdfObjectArgument(ref: string) {
     const match = /^(\d+) (\d+) R$/u.exec(ref);
@@ -20,16 +22,16 @@ export async function validateTargetedPdfObjects(
     pdfPath: string,
     validationBinary: string,
     changedObjectRefs: readonly string[],
-    run: TExecFile = execFileAsync,
+    run: TRunNativeToolCommand = runNativeToolCommand,
 ) {
     for (const ref of changedObjectRefs) {
         const result = await run(validationBinary, [
             qpdfObjectArgument(ref),
             pdfPath,
         ], {
-            timeout: 60_000,
-            maxBuffer: TARGETED_OBJECT_MAX_BUFFER,
-            windowsHide: true,
+            timeoutMs: 60_000,
+            maxStdoutBytes: 256 * 1024,
+            maxStderrBytes: 256 * 1024,
         });
         const output = result.stdout.trim();
         if (!output || output === 'null') {

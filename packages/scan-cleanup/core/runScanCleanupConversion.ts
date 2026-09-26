@@ -2861,9 +2861,6 @@ export async function runScanCleanupConversion(
                         reportNativeProgress,
                         {
                             allowedPathRoot: scratch,
-                            ...(paths.sidecarRegistryRoot === undefined
-                                ? {}
-                                : {sidecarRegistryRoot: paths.sidecarRegistryRoot}),
                             onRecoveryPending: retainScratchUntilRecovery,
                         },
                     ),

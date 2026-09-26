@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import type { ChildProcessByStdio } from 'child_process';
+import { isAbsolute } from 'node:path';
 import { StringDecoder } from 'string_decoder';
 import {
     Readable, type Writable, 
@@ -22,9 +23,14 @@ import { getErrorMessage } from '@electron/utils/error';
 import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
+    registerManagedProcess,
+    type IManagedProcessRegistration,
+} from '@electron/native-tools/managedProcessRegistry';
+import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
+import { getAppTempDir } from '@electron/utils/appTempDir';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -38,6 +44,8 @@ export interface IRunCommandOptions {
     timeoutMs?: number;
     /** Restart the timeout on every stdout chunk, for tools that stream progress. */
     timeoutResetsOnStdout?: boolean;
+    /** Stream stdout without retaining a second copy of long-running output. */
+    longLived?: boolean;
     maxStdoutBytes?: number;
     maxStderrBytes?: number;
     allowedExitCodes?: number[];
@@ -53,6 +61,8 @@ export interface IRunCommandOptions {
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
     onSpawn?: (pid: number) => void;
+    onClose?: () => void;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
     /** Written to the child's stdin with backpressure, then closed. */
     stdin?: AsyncIterable<string>;
     terminationGraceMs?: number;
@@ -231,13 +241,15 @@ function createCommandRunContext(command: string, args: string[], options: IRunC
     };
 }
 
-function createBoundedOutputCapture(maxStdoutBytes: number, maxStderrBytes: number) {
+function createBoundedOutputCapture(maxStdoutBytes: number, maxStderrBytes: number, captureStdout = true) {
     const stdout = createTextChunkAccumulator(maxStdoutBytes);
     const stderr = createTextChunkAccumulator(maxStderrBytes);
 
     return {
         appendStdout(data: Buffer) {
-            stdout.append(data);
+            if (captureStdout) {
+                stdout.append(data);
+            }
         },
         appendStderr(data: Buffer) {
             stderr.append(data);
@@ -305,6 +317,56 @@ export async function runNativeCommand(
     args: string[],
     options: IRunCommandOptions = {},
 ): Promise<IProcessResult> {
+    if (!process.env.EVB_APP_TEMP_NAMESPACE || !isAbsolute(command)) {
+        return runNativeCommandCore(command, args, options);
+    }
+    const manifestIndex = args.indexOf('--manifest');
+    const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
+    let registration: Promise<IManagedProcessRegistration | null> | null = null;
+    let childClosed = false;
+    let unregistration: Promise<void> | null = null;
+    const unregister = () => {
+        if (registration === null) return Promise.resolve();
+        unregistration ??= registration.then(child => child?.unregister()).then(() => undefined);
+        return unregistration;
+    };
+    try {
+        const result = await runNativeCommandCore(command, args, {
+            ...options,
+            onSpawn: pid => {
+                registration = Promise.resolve().then(() => registerManagedProcess(getAppTempDir(), {
+                    pid,
+                    binaryPath: command,
+                    ...(manifestPath === undefined ? {} : {manifestPath}),
+                })).catch(error => {
+                    options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
+                    return null;
+                });
+                options.onSpawn?.(pid);
+            },
+            onClose: () => {
+                childClosed = true;
+                void unregister().catch(error => {
+                    options.log?.('warn', `Could not remove managed process pid record: ${getErrorMessage(error)}`);
+                });
+                options.onClose?.();
+            },
+        });
+        await Promise.resolve(registration);
+        if (childClosed) await unregister();
+        return result;
+    } catch (error) {
+        await Promise.resolve(registration);
+        if (childClosed) await unregister();
+        throw error;
+    }
+}
+
+async function runNativeCommandCore(
+    command: string,
+    args: string[],
+    options: IRunCommandOptions,
+): Promise<IProcessResult> {
     const admission = acquireNativeCommandAdmission(options.signal);
     const releaseAdmission = typeof admission === 'function'
         ? admission
@@ -314,6 +376,7 @@ export async function runNativeCommand(
         env,
         timeoutMs = DEFAULT_NATIVE_COMMAND_TIMEOUT_MS,
         timeoutResetsOnStdout = false,
+        longLived = false,
         maxStdoutBytes = DEFAULT_MAX_STDOUT_BYTES,
         maxStderrBytes = DEFAULT_MAX_STDERR_BYTES,
         allowedExitCodes = [0],
@@ -329,6 +392,8 @@ export async function runNativeCommand(
         onStdout,
         onStderr,
         onSpawn,
+        onClose,
+        onTerminationProof,
         stdin,
         terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
     } = options;
@@ -360,7 +425,7 @@ export async function runNativeCommand(
         }
 
         const context = createCommandRunContext(command, args, contextOptions);
-        const output = createBoundedOutputCapture(maxStdoutBytes, maxStderrBytes);
+        const output = createBoundedOutputCapture(maxStdoutBytes, maxStderrBytes, !longLived);
         const stdoutDecoder = new StringDecoder('utf8');
         const stderrDecoder = new StringDecoder('utf8');
         let timeoutHandle: NodeJS.Timeout | null = null;
@@ -379,7 +444,17 @@ export async function runNativeCommand(
         let stderrDataHandler: ((data: Buffer) => void) | null = null;
         let processErrorHandler: ((error: Error) => void) | null = null;
         let processCloseHandler: ((code: number | null, closeSignal: NodeJS.Signals | null) => void) | null = null;
+        let closeCallbackCalled = false;
         const ignoreLateProcessError = () => undefined;
+        const notifyClose = () => {
+            if (closeCallbackCalled) return;
+            closeCallbackCalled = true;
+            try {
+                onClose?.();
+            } catch (error) {
+                log?.('warn', `${context.displayName} close handler failed: ${getErrorMessage(error)}`);
+            }
+        };
 
         const cleanupProcessOutput = (targetProc: TNativeProcess, destroyStreams: boolean) => {
             if (stdoutDataHandler) {
@@ -410,6 +485,9 @@ export async function runNativeCommand(
             }
             if (processCloseHandler) {
                 proc.removeListener('close', processCloseHandler);
+                if (pendingTerminationError && onClose && !closeCallbackCalled) {
+                    proc.once('close', notifyClose);
+                }
                 processCloseHandler = null;
             }
             proc.on('error', ignoreLateProcessError);
@@ -437,10 +515,17 @@ export async function runNativeCommand(
             }
 
             cleanupProcessOutput(targetProc, true);
-            terminationPromise = terminateNativeProcessBestEffort(targetProc, terminationGraceMs).then(
+            terminationPromise = Promise.resolve().then(() => (
+                terminateNativeProcessBestEffort(targetProc, terminationGraceMs)
+            )).then(
                 terminated => terminated,
                 () => false,
             );
+            try {
+                onTerminationProof?.(terminationPromise);
+            } catch (terminationHookError) {
+                log?.('warn', `${context.displayName} termination handler failed: ${getErrorMessage(terminationHookError)}`);
+            }
             void terminationPromise.then((terminated) => {
                 if (pendingTerminationError !== error) {
                     return;
@@ -652,6 +737,7 @@ export async function runNativeCommand(
 
         processCloseHandler = (code, closeSignal) => {
             if (pendingTerminationError) {
+                notifyClose();
                 const terminationError = pendingTerminationError;
                 // `close` means this child's stdio is done, which does not
                 // prove the detached group it leads went with it; the
@@ -670,6 +756,7 @@ export async function runNativeCommand(
 
             appendDecodedStdout(stdoutDecoder.end());
             appendDecodedStderr(stderrDecoder.end());
+            notifyClose();
             if (getPendingTerminationError()) {
                 return;
             }

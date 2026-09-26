@@ -139,7 +139,7 @@ import {
     initializeAppTempNamespace,
 } from '@electron/utils/appTempDir';
 import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCleanup';
-import {reapOrphanedScanCleanupSidecars} from '@electron/features/scan-cleanup/public/sidecarProcessRegistry';
+import {reapOrphanedManagedProcesses} from '@electron/native-tools/managedProcessRegistry';
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
@@ -827,7 +827,7 @@ void runInitSequence({
     updateRecentFilesMenu,
     shouldResetRendererReadyOnNavigation,
     shutdownCoordinator,
-    reapOrphanedScanCleanupSidecars: () => reapOrphanedScanCleanupSidecars(getAppTempDir(), {log: (level, message) => logger[level](message)}),
+    reapOrphanedManagedNativeProcesses: () => reapOrphanedManagedProcesses(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleDefaultAppTempPdfs,
     sweepStalePdfAnnotationParseArtifacts,
     sweepStalePdfEmbeddedShapeIndexArtifacts,

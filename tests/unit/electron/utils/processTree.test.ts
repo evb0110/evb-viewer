@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events';
 import {
     afterEach,
     describe,
@@ -198,28 +197,33 @@ describe('terminateProcessTree (win32 taskkill)', () => {
         vi.restoreAllMocks();
     });
 
-    it('bounds stuck taskkill helpers and trusts the confirmed target exit', async () => {
-        vi.useFakeTimers();
+    it('uses a timed execFile for taskkill and trusts the confirmed target exit', async () => {
         const pid = makeTestPid(5151);
-        const helpers: Array<EventEmitter & {kill: ReturnType<typeof vi.fn>}> = [];
-        const spawnSpy = vi.spyOn(processTreeRuntime, 'spawn').mockImplementation((command, args) => {
-            const child = new EventEmitter() as EventEmitter & {kill: ReturnType<typeof vi.fn>};
-            child.kill = vi.fn();
-            helpers.push(child);
+        let alive = true;
+        const execFileSpy = vi.spyOn(processTreeRuntime, 'execFile').mockImplementation(((command, args, options) => {
+            const argumentList = args ?? [];
             expect(command).toBe('taskkill');
-            expect(args).toEqual(expect.arrayContaining([
+            expect(argumentList).toEqual(expect.arrayContaining([
                 '/PID',
                 String(pid),
                 '/T',
             ]));
-            return child as never;
-        });
+            expect(options).toMatchObject({
+                timeout: 50,
+                windowsHide: true,
+            });
+            if (argumentList.includes('/F')) {
+                alive = false;
+                return Promise.resolve({
+                    stdout: '',
+                    stderr: '',
+                }) as never;
+            }
+            return Promise.reject(new Error('taskkill timed out')) as never;
+        }));
         vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
-            if (targetPid === pid && signal === 0) {
-                if (helpers.filter(helper => helper.kill.mock.calls.length > 0).length >= 2) {
-                    throw new Error('ESRCH');
-                }
-                return true;
+            if (targetPid === pid && signal === 0 && !alive) {
+                throw new Error('ESRCH');
             }
             return true;
         }) as typeof processTreeRuntime.kill);
@@ -230,30 +234,20 @@ describe('terminateProcessTree (win32 taskkill)', () => {
             taskkillTimeoutMs: 50,
         });
 
-        await vi.advanceTimersByTimeAsync(50);
-        await Promise.resolve();
-        await vi.advanceTimersByTimeAsync(50);
         await expect(terminatePromise).resolves.toBe(true);
 
-        expect(spawnSpy).toHaveBeenCalledTimes(2);
-        expect(spawnSpy.mock.calls[0]?.[1]).not.toContain('/F');
-        expect(spawnSpy.mock.calls[1]?.[1]).toContain('/F');
-        expect(helpers[0]?.kill).toHaveBeenCalledTimes(1);
-        expect(helpers[1]?.kill).toHaveBeenCalledTimes(1);
+        expect(execFileSpy).toHaveBeenCalledTimes(2);
+        expect(execFileSpy.mock.calls[0]?.[1]).not.toContain('/F');
+        expect(execFileSpy.mock.calls[1]?.[1]).toContain('/F');
     });
 
     it('accepts confirmed process exit when taskkill loses the exit race', async () => {
         const pid = makeTestPid(5252);
         let alive = true;
-        vi.spyOn(processTreeRuntime, 'spawn').mockImplementation(() => {
-            const child = new EventEmitter() as EventEmitter & {kill: ReturnType<typeof vi.fn>};
-            child.kill = vi.fn();
-            queueMicrotask(() => {
-                alive = false;
-                child.emit('close', 1);
-            });
-            return child as never;
-        });
+        vi.spyOn(processTreeRuntime, 'execFile').mockImplementation((() => {
+            alive = false;
+            return Promise.reject(new Error('taskkill lost the exit race')) as never;
+        }));
         vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
             if (targetPid === pid && signal === 0 && !alive) {
                 throw new Error('ESRCH');

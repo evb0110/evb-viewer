@@ -381,12 +381,7 @@ export async function runLosslessScanCleanup(
                     }
                 }
                 emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
-            }, {
-                allowedPathRoot: scratch,
-                ...(paths.sidecarRegistryRoot === undefined
-                    ? {}
-                    : {sidecarRegistryRoot: paths.sidecarRegistryRoot}),
-            });
+            }, {allowedPathRoot: scratch});
             emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
         } finally {
             // Metadata is decoded below before this batch is discarded. The

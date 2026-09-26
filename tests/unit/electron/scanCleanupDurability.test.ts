@@ -24,13 +24,13 @@ import {
     sweepStaleScanCleanupScratchDirs,
 } from '@evb/scan-cleanup/core/scratchCleanup';
 import {
-    getScanCleanupSidecarRegistryDirectory,
-    registerScanCleanupSidecar,
-    reapOrphanedScanCleanupSidecars,
-    SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX,
-    type IScanCleanupProcessIdentity,
-    type IScanCleanupSidecarRegistryEntry,
-} from '@electron/features/scan-cleanup/public/sidecarProcessRegistry';
+    getManagedProcessRegistryDirectory,
+    registerManagedProcess,
+    reapOrphanedManagedProcesses,
+    MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX,
+    type IManagedProcessIdentity,
+    type IManagedProcessRegistryEntry,
+} from '@electron/native-tools/managedProcessRegistry';
 
 const temporaryDirectories: string[] = [];
 
@@ -184,9 +184,9 @@ describe('scan-cleanup durability', () => {
 
     it('reaps only an orphan whose executable, manifest, and process start identity match', async () => {
         const namespacePath = await createTemporaryDirectory();
-        const registryDirectory = getScanCleanupSidecarRegistryDirectory(namespacePath);
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
         await mkdir(registryDirectory);
-        const entry: IScanCleanupSidecarRegistryEntry = {
+        const entry: IManagedProcessRegistryEntry = {
             version: 1,
             pid: 4242,
             ownerPid: 4241,
@@ -197,10 +197,10 @@ describe('scan-cleanup durability', () => {
         };
         const entryPath = join(
             registryDirectory,
-            `${SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX}test.json`,
+            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}test.json`,
         );
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
-        const identity = (pid: number): IScanCleanupProcessIdentity => ({
+        const identity = (pid: number): IManagedProcessIdentity => ({
             executablePath: pid === 4242 ? '/native/evb-scan-cleanup' : '/electron',
             arguments: pid === 4242
                 ? [
@@ -214,7 +214,7 @@ describe('scan-cleanup durability', () => {
         const terminate = vi.fn(async () => true);
         const readIdentity = vi.fn(async (pid: number) => identity(pid));
 
-        await expect(reapOrphanedScanCleanupSidecars(namespacePath, {
+        await expect(reapOrphanedManagedProcesses(namespacePath, {
             isProcessAlive: pid => pid === 4242,
             readProcessIdentity: readIdentity,
             terminateProcessTree: terminate,
@@ -223,6 +223,42 @@ describe('scan-cleanup durability', () => {
 
         expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: true}));
         expect(readIdentity).not.toHaveBeenCalledWith(4241);
+        await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('reaps a managed tool by executable path and process start identity', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
+        await mkdir(registryDirectory);
+        const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}tesseract.json`);
+        const entry: IManagedProcessRegistryEntry = {
+            version: 1,
+            pid: 4242,
+            ownerPid: 4241,
+            binaryPath: '/native/tesseract',
+            processStartTime: 'child-start',
+            ownerStartTime: 'owner-start',
+        };
+        await writeFile(entryPath, JSON.stringify(entry), 'utf8');
+        const terminate = vi.fn(async () => true);
+
+        await expect(reapOrphanedManagedProcesses(namespacePath, {
+            isProcessAlive: pid => pid === 4242,
+            readProcessIdentity: async pid => ({
+                executablePath: pid === 4242 ? '/native/tesseract' : '/electron',
+                arguments: pid === 4242
+                    ? [
+                        '/native/tesseract',
+                        '/tmp/page.png',
+                    ]
+                    : ['electron'],
+                startTime: pid === 4242 ? 'child-start' : 'owner-start',
+            }),
+            terminateProcessTree: terminate,
+            platform: 'linux',
+        })).resolves.toBe(1);
+
+        expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: true}));
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
@@ -241,9 +277,9 @@ describe('scan-cleanup durability', () => {
         ],
     ] as const)('retains an orphan marker when the live process identity mismatches by %s', async (_label, change) => {
         const namespacePath = await createTemporaryDirectory();
-        const registryDirectory = getScanCleanupSidecarRegistryDirectory(namespacePath);
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
         await mkdir(registryDirectory);
-        const entry: IScanCleanupSidecarRegistryEntry = {
+        const entry: IManagedProcessRegistryEntry = {
             version: 1,
             pid: 4242,
             ownerPid: 4241,
@@ -255,12 +291,12 @@ describe('scan-cleanup durability', () => {
         };
         const entryPath = join(
             registryDirectory,
-            `${SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX}${_label.replaceAll(' ', '-')}.json`,
+            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${_label.replaceAll(' ', '-')}.json`,
         );
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
         const terminate = vi.fn(async () => true);
 
-        await expect(reapOrphanedScanCleanupSidecars(namespacePath, {
+        await expect(reapOrphanedManagedProcesses(namespacePath, {
             isProcessAlive: pid => pid === 4242,
             readProcessIdentity: async () => ({
                 executablePath: '/native/evb-scan-cleanup',
@@ -281,23 +317,25 @@ describe('scan-cleanup durability', () => {
 
     it('removes a sidecar marker when its owner closes it normally', async () => {
         const namespacePath = await createTemporaryDirectory();
-        const registration = await registerScanCleanupSidecar(namespacePath, {
+        const manifestPath = join(namespacePath, 'manifest.json');
+        const registration = await registerManagedProcess(namespacePath, {
             pid: process.pid,
             binaryPath: process.execPath,
-            manifestPath: join(namespacePath, 'manifest.json'),
+            manifestPath,
         });
 
+        await expect(readFile(registration.entryPath, 'utf8')).resolves.toContain(`"manifestPath":"${manifestPath}"`);
         await expect(access(registration.entryPath)).resolves.toBeUndefined();
         await registration.unregister();
         await expect(access(registration.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
-        await expect(access(getScanCleanupSidecarRegistryDirectory(namespacePath))).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(getManagedProcessRegistryDirectory(namespacePath))).rejects.toMatchObject({code: 'ENOENT'});
     });
 
     it('leaves a marker for a live owning worker and never signals its sidecar', async () => {
         const namespacePath = await createTemporaryDirectory();
-        const registryDirectory = getScanCleanupSidecarRegistryDirectory(namespacePath);
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
         await mkdir(registryDirectory);
-        const entry: IScanCleanupSidecarRegistryEntry = {
+        const entry: IManagedProcessRegistryEntry = {
             version: 1,
             pid: 4242,
             ownerPid: 4241,
@@ -308,12 +346,12 @@ describe('scan-cleanup durability', () => {
         };
         const entryPath = join(
             registryDirectory,
-            `${SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX}live.json`,
+            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}live.json`,
         );
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
         const terminate = vi.fn(async () => true);
 
-        await expect(reapOrphanedScanCleanupSidecars(namespacePath, {
+        await expect(reapOrphanedManagedProcesses(namespacePath, {
             isProcessAlive: () => true,
             readProcessIdentity: async () => ({
                 executablePath: '/electron',

@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { promisify } from 'node:util';
 import { clamp } from 'es-toolkit/math';
 import { delay } from 'es-toolkit/promise';
 
@@ -15,17 +15,28 @@ const DEFAULT_TASKKILL_TIMEOUT_MS = 2_000;
 
 interface IProcessTreeRuntime {
     delay: typeof delay;
+    execFile: (
+        file: string,
+        args: string[],
+        options: {
+            timeout: number;
+            windowsHide: true;
+            maxBuffer: number;
+        },
+    ) => Promise<unknown>;
     kill: typeof process.kill;
     now: () => number;
-    spawn: typeof spawn;
 }
 
 // Keep runtime hooks narrow so tests can avoid mocking global process state.
 export const processTreeRuntime = {
     delay,
+    execFile: async (file, args, options) => {
+        const {execFile} = await import('node:child_process');
+        return promisify(execFile)(file, args, options);
+    },
     kill: process.kill.bind(process),
     now: () => Date.now(),
-    spawn,
 } satisfies IProcessTreeRuntime;
 
 function isPidAlive(pid: number) {
@@ -103,53 +114,25 @@ function sendPosixSignal(
     }
 }
 
-function killTaskkillHelper(child: ReturnType<typeof spawn>) {
-    try {
-        child.kill();
-    } catch {
-        // taskkill may have already exited.
-    }
-}
-
 async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
-    return new Promise<boolean>((resolve) => {
-        let settled = false;
-        let timeoutHandle: NodeJS.Timeout | null = null;
-        const settle = (succeeded: boolean) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
-            }
-            resolve(succeeded);
-        };
-        const args = [
-            '/PID',
-            String(pid),
-            '/T',
-        ];
-        if (force) {
-            args.push('/F');
-        }
-
-        const child = processTreeRuntime.spawn('taskkill', args, {
-            shell: false,
+    const args = [
+        '/PID',
+        String(pid),
+        '/T',
+    ];
+    if (force) {
+        args.push('/F');
+    }
+    try {
+        await processTreeRuntime.execFile('taskkill', args, {
+            timeout: Math.max(1, timeoutMs),
             windowsHide: true,
-            stdio: 'ignore',
+            maxBuffer: 16 * 1024,
         });
-
-        timeoutHandle = setTimeout(() => {
-            killTaskkillHelper(child);
-            settle(false);
-        }, Math.max(0, timeoutMs));
-        timeoutHandle.unref();
-
-        child.once('error', () => settle(false));
-        child.once('close', exitCode => settle(exitCode === 0));
-    });
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export async function terminateProcessTree(

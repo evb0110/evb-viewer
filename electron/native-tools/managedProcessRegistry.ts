@@ -15,36 +15,37 @@ import {
 import {promisify} from 'node:util';
 import {terminateProcessTree} from '@electron/utils/processTree';
 
-export const SCAN_CLEANUP_SIDECAR_REGISTRY_DIRECTORY = '.evb-scan-cleanup-sidecars';
-export const SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX = 'sidecar-';
-const SCAN_CLEANUP_SIDECAR_REGISTRY_VERSION = 1;
-const SCAN_CLEANUP_SIDECAR_REAP_GRACE_MS = 1_500;
+// Keep the marker path stable so newer builds can reap children recorded by older builds.
+export const MANAGED_PROCESS_REGISTRY_DIRECTORY = '.evb-scan-cleanup-sidecars';
+export const MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX = 'sidecar-';
+const MANAGED_PROCESS_REGISTRY_VERSION = 1;
+const MANAGED_PROCESS_REAP_GRACE_MS = 1_500;
 
-export interface IScanCleanupProcessIdentity {
+export interface IManagedProcessIdentity {
     executablePath: string;
     arguments: readonly string[];
     startTime: string;
 }
 
-export interface IScanCleanupSidecarRegistryEntry {
+export interface IManagedProcessRegistryEntry {
     version: 1;
     pid: number;
     ownerPid: number;
     binaryPath: string;
-    manifestPath: string;
+    manifestPath?: string;
     processStartTime?: string;
     ownerStartTime?: string;
 }
 
-export interface IScanCleanupSidecarRegistration {
+export interface IManagedProcessRegistration {
     entryPath: string;
     unregister: () => Promise<void>;
 }
 
-export interface IScanCleanupSidecarRecoveryOptions {
+export interface IManagedProcessRecoveryOptions {
     log?: (level: 'debug' | 'warn', message: string) => void;
     isProcessAlive?: (pid: number) => boolean;
-    readProcessIdentity?: (pid: number) => Promise<IScanCleanupProcessIdentity | null>;
+    readProcessIdentity?: (pid: number) => Promise<IManagedProcessIdentity | null>;
     terminateProcessTree?: typeof terminateProcessTree;
     platform?: NodeJS.Platform;
 }
@@ -57,9 +58,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-function parseEntry(value: unknown): IScanCleanupSidecarRegistryEntry | null {
+function parseEntry(value: unknown): IManagedProcessRegistryEntry | null {
     if (!isRecord(value)
-        || value.version !== SCAN_CLEANUP_SIDECAR_REGISTRY_VERSION
+        || value.version !== MANAGED_PROCESS_REGISTRY_VERSION
         || typeof value.pid !== 'number'
         || !Number.isSafeInteger(value.pid)
         || value.pid <= 0
@@ -68,8 +69,8 @@ function parseEntry(value: unknown): IScanCleanupSidecarRegistryEntry | null {
         || value.ownerPid <= 0
         || typeof value.binaryPath !== 'string'
         || value.binaryPath.length === 0
-        || typeof value.manifestPath !== 'string'
-        || value.manifestPath.length === 0
+        || (value.manifestPath !== undefined && (typeof value.manifestPath !== 'string' || value.manifestPath.length === 0))
+        || (value.manifestPath === undefined && typeof value.processStartTime !== 'string')
         || (value.processStartTime !== undefined && typeof value.processStartTime !== 'string')
         || (value.ownerStartTime !== undefined && typeof value.ownerStartTime !== 'string')) {
         return null;
@@ -79,7 +80,7 @@ function parseEntry(value: unknown): IScanCleanupSidecarRegistryEntry | null {
         pid: value.pid,
         ownerPid: value.ownerPid,
         binaryPath: value.binaryPath,
-        manifestPath: value.manifestPath,
+        ...(value.manifestPath === undefined ? {} : {manifestPath: value.manifestPath}),
         ...(value.processStartTime === undefined ? {} : {processStartTime: value.processStartTime}),
         ...(value.ownerStartTime === undefined ? {} : {ownerStartTime: value.ownerStartTime}),
     };
@@ -125,7 +126,7 @@ async function execFileForIdentity(
     return promisify(execFile)(file, [...argumentsList], options);
 }
 
-async function readLinuxProcessIdentity(pid: number): Promise<IScanCleanupProcessIdentity | null> {
+async function readLinuxProcessIdentity(pid: number): Promise<IManagedProcessIdentity | null> {
     try {
         const [
             commandLine,
@@ -151,7 +152,7 @@ async function readLinuxProcessIdentity(pid: number): Promise<IScanCleanupProces
     }
 }
 
-async function readMacProcessIdentity(pid: number): Promise<IScanCleanupProcessIdentity | null> {
+async function readMacProcessIdentity(pid: number): Promise<IManagedProcessIdentity | null> {
     try {
         const [
             {stdout: startTimeOutput},
@@ -192,7 +193,7 @@ async function readMacProcessIdentity(pid: number): Promise<IScanCleanupProcessI
     }
 }
 
-async function readWindowsProcessIdentity(pid: number): Promise<IScanCleanupProcessIdentity | null> {
+async function readWindowsProcessIdentity(pid: number): Promise<IManagedProcessIdentity | null> {
     const command = [
         `$process = Get-Process -Id ${String(pid)} -ErrorAction Stop`,
         `$native = Get-CimInstance Win32_Process -Filter "ProcessId = ${String(pid)}" -ErrorAction Stop`,
@@ -246,7 +247,7 @@ async function readProcessIdentity(pid: number, platform: NodeJS.Platform) {
     return null;
 }
 
-let ownerIdentityPromise: Promise<IScanCleanupProcessIdentity | null> | null = null;
+let ownerIdentityPromise: Promise<IManagedProcessIdentity | null> | null = null;
 
 function getOwnerIdentity() {
     ownerIdentityPromise ??= readProcessIdentity(process.pid, process.platform);
@@ -268,46 +269,50 @@ function normalizeIdentityPath(path: string, platform: NodeJS.Platform) {
 }
 
 function processIdentityMatches(
-    entry: IScanCleanupSidecarRegistryEntry,
-    identity: IScanCleanupProcessIdentity,
+    entry: IManagedProcessRegistryEntry,
+    identity: IManagedProcessIdentity,
     platform: NodeJS.Platform,
 ) {
     const manifestIndex = identity.arguments.indexOf('--manifest');
     return normalizeIdentityPath(identity.executablePath, platform) === normalizeIdentityPath(entry.binaryPath, platform)
-        && manifestIndex >= 0
-        && identity.arguments[manifestIndex + 1] !== undefined
-        && normalizeIdentityPath(identity.arguments[manifestIndex + 1]!, platform)
-            === normalizeIdentityPath(entry.manifestPath, platform)
-        && (entry.processStartTime === undefined || entry.processStartTime === identity.startTime);
+        && (entry.processStartTime === undefined || entry.processStartTime === identity.startTime)
+        && (entry.manifestPath === undefined
+            || (manifestIndex >= 0
+                && identity.arguments[manifestIndex + 1] !== undefined
+                && normalizeIdentityPath(identity.arguments[manifestIndex + 1]!, platform)
+                    === normalizeIdentityPath(entry.manifestPath, platform)));
 }
 
-export function getScanCleanupSidecarRegistryDirectory(namespacePath: string) {
-    return join(namespacePath, SCAN_CLEANUP_SIDECAR_REGISTRY_DIRECTORY);
+export function getManagedProcessRegistryDirectory(namespacePath: string) {
+    return join(namespacePath, MANAGED_PROCESS_REGISTRY_DIRECTORY);
 }
 
-export async function registerScanCleanupSidecar(
+export async function registerManagedProcess(
     namespacePath: string,
     input: {
         pid: number;
         binaryPath: string;
-        manifestPath: string;
+        manifestPath?: string;
     },
-): Promise<IScanCleanupSidecarRegistration> {
-    const registryDirectory = getScanCleanupSidecarRegistryDirectory(namespacePath);
+): Promise<IManagedProcessRegistration> {
+    const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
     await mkdir(registryDirectory, {recursive: true});
     const entryPath = join(
         registryDirectory,
-        `${SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX}${randomUUID()}.json`,
+        `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${randomUUID()}.json`,
     );
     const processIdentity = await readProcessIdentity(input.pid, process.platform);
     const ownerIdentity = await getOwnerIdentity();
-    const entry: IScanCleanupSidecarRegistryEntry = {
+    if (processIdentity === null) {
+        throw new Error(`Could not prove identity for managed process pid ${String(input.pid)}`);
+    }
+    const entry: IManagedProcessRegistryEntry = {
         version: 1,
         pid: input.pid,
         ownerPid: process.pid,
         binaryPath: resolve(input.binaryPath),
-        manifestPath: resolve(input.manifestPath),
-        ...(processIdentity === null ? {} : {processStartTime: processIdentity.startTime}),
+        ...(input.manifestPath === undefined ? {} : {manifestPath: resolve(input.manifestPath)}),
+        processStartTime: processIdentity.startTime,
         ...(ownerIdentity === null ? {} : {ownerStartTime: ownerIdentity.startTime}),
     };
     await writeFile(entryPath, `${JSON.stringify(entry)}\n`, {
@@ -335,18 +340,18 @@ async function readRegistryEntries(registryDirectory: string) {
         if (isNotFound(error)) {
             return [] as Array<{
                 entryPath: string;
-                entry: IScanCleanupSidecarRegistryEntry
+                entry: IManagedProcessRegistryEntry
             }>;
         }
         throw error;
     }
     const entries: Array<{
         entryPath: string;
-        entry: IScanCleanupSidecarRegistryEntry
+        entry: IManagedProcessRegistryEntry
     }> = [];
     for (const directoryEntry of directoryEntries) {
         if (!directoryEntry.isFile()
-            || !directoryEntry.name.startsWith(SCAN_CLEANUP_SIDECAR_REGISTRY_ENTRY_PREFIX)
+            || !directoryEntry.name.startsWith(MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX)
             || !directoryEntry.name.endsWith('.json')) {
             continue;
         }
@@ -381,11 +386,11 @@ async function removeEmptyRegistryDirectory(registryDirectory: string) {
     await rmdir(registryDirectory).catch(() => undefined);
 }
 
-export async function reapOrphanedScanCleanupSidecars(
+export async function reapOrphanedManagedProcesses(
     namespacePath: string,
-    options: IScanCleanupSidecarRecoveryOptions = {},
+    options: IManagedProcessRecoveryOptions = {},
 ) {
-    const registryDirectory = getScanCleanupSidecarRegistryDirectory(namespacePath);
+    const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
     const log = options.log ?? (() => undefined);
     const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
     const platform = options.platform ?? process.platform;
@@ -408,7 +413,7 @@ export async function reapOrphanedScanCleanupSidecars(
             continue;
         }
         if (ownerIsAlive && ownerIdentity === null) {
-            log('warn', `Skipped scan-cleanup sidecar pid ${String(entry.pid)} because its live owner identity could not be proven`);
+            log('warn', `Skipped managed process pid ${String(entry.pid)} because its live owner identity could not be proven`);
             continue;
         }
         if (ownerIsAlive && ownerIdentity?.startTime === entry.ownerStartTime) {
@@ -420,11 +425,11 @@ export async function reapOrphanedScanCleanupSidecars(
         }
         const processIdentity = await readIdentity(entry.pid);
         if (processIdentity === null || !processIdentityMatches(entry, processIdentity, platform)) {
-            log('warn', `Skipped scan-cleanup sidecar pid ${String(entry.pid)} because its identity could not be proven`);
+            log('warn', `Skipped managed process pid ${String(entry.pid)} because its identity could not be proven`);
             continue;
         }
         const terminated = await terminate(entry.pid, {
-            graceMs: SCAN_CLEANUP_SIDECAR_REAP_GRACE_MS,
+            graceMs: MANAGED_PROCESS_REAP_GRACE_MS,
             isTargetAlive: () => isProcessAlive(entry.pid),
             platform,
             preferProcessGroup: platform !== 'win32',
@@ -432,9 +437,9 @@ export async function reapOrphanedScanCleanupSidecars(
         if (terminated || !isProcessAlive(entry.pid)) {
             await unlink(entryPath).catch(() => undefined);
             reapedCount += 1;
-            log('debug', `Reaped orphaned scan-cleanup sidecar pid ${String(entry.pid)}`);
+            log('debug', `Reaped orphaned managed process pid ${String(entry.pid)}`);
         } else {
-            log('warn', `Could not reap orphaned scan-cleanup sidecar pid ${String(entry.pid)}`);
+            log('warn', `Could not reap orphaned managed process pid ${String(entry.pid)}`);
         }
     }
     await removeEmptyRegistryDirectory(registryDirectory);

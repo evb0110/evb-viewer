@@ -1,5 +1,5 @@
-import {spawn} from 'child_process';
 import {constants as fsConstants} from 'fs';
+import {PassThrough} from 'node:stream';
 import {
     access,
     lstat,
@@ -21,22 +21,13 @@ import type {
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TWorkerLog} from '@electron/features/ocr/publicNative';
-import {
-    createDetachedChildProcessSpawnOptions,
-    terminateDetachedChildProcess,
-} from '@electron/utils/nativeChildProcess';
-import {
-    registerScanCleanupSidecar,
-    type IScanCleanupSidecarRegistration,
-} from '@electron/features/scan-cleanup/public/sidecarProcessRegistry';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {
     decodeNativeScanCleanupEnvelope,
     parseNativeScanCleanupStderr,
 } from '@electron/features/scan-cleanup/native/protocolCodec';
-import {assertNativeToolBuild} from '@electron/native-tools/runNativeToolCommand';
-import {acquireNativeCommandAdmission} from '@electron/native-tools/runNativeCommand';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
 
 export class NativeScanCleanupError extends Error {
@@ -55,8 +46,6 @@ interface IRunScanCleanupSidecarOptions {
      * widen the boundary it is checked against.
      */
     allowedPathRoot?: string;
-    /** Durable namespace root used to recover a child after its worker dies. */
-    sidecarRegistryRoot?: string;
     /**
      * Receives a promise that settles after deferred publication recovery
      * completes. The manifest owner retains its scratch until it succeeds.
@@ -267,22 +256,14 @@ export async function runScanCleanupSidecar(
     options: IRunScanCleanupSidecarOptions = {},
 ) {
     if (signal.aborted) throw abortErrorFromSignal(signal);
-    await assertNativeToolBuild(binaryPath);
-    // The sidecar fans out over Rayon, so it is admitted through the same gate
-    // as pdftoppm and qpdf instead of spawning beside them unaccounted.
-    const releaseAdmission = await acquireNativeCommandAdmission(signal);
-    try {
-        await streamScanCleanupSidecar(
-            binaryPath,
-            manifestPath,
-            signal,
-            log,
-            onProgress,
-            options,
-        );
-    } finally {
-        releaseAdmission();
-    }
+    await streamScanCleanupSidecar(
+        binaryPath,
+        manifestPath,
+        signal,
+        log,
+        onProgress,
+        options,
+    );
 }
 
 async function streamScanCleanupSidecar(
@@ -293,7 +274,7 @@ async function streamScanCleanupSidecar(
     onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void,
     options: IRunScanCleanupSidecarOptions,
 ) {
-    const child = spawn(binaryPath, [
+    const args = [
         '--manifest',
         manifestPath,
         ...(options.allowedPathRoot === undefined
@@ -302,105 +283,27 @@ async function streamScanCleanupSidecar(
                 '--allowed-path-root',
                 options.allowedPathRoot,
             ]),
-    ], createDetachedChildProcessSpawnOptions({stdio: [
-        'ignore',
-        'pipe',
-        'pipe',
-    ]}));
-    let childClosed = false;
-    let runDeferredRecovery: (() => void) | null = null;
-    let sidecarRegistration: IScanCleanupSidecarRegistration | null = null;
-    let sidecarUnregistration: Promise<void> | null = null;
-    const unregisterSidecar = () => {
-        if (sidecarRegistration === null) {
-            return Promise.resolve();
-        }
-        sidecarUnregistration ??= sidecarRegistration.unregister().catch(error => {
-            log('warn', `Could not remove scan-cleanup sidecar pid record: ${String(error)}`);
-        });
-        return sidecarUnregistration;
-    };
-    child.once('close', () => {
-        childClosed = true;
-        runDeferredRecovery?.();
-        void unregisterSidecar();
-    });
-    if (options.sidecarRegistryRoot !== undefined && child.pid !== undefined) {
-        try {
-            sidecarRegistration = await registerScanCleanupSidecar(options.sidecarRegistryRoot, {
-                pid: child.pid,
-                binaryPath,
-                manifestPath,
-            });
-            if (childClosed) {
-                await unregisterSidecar();
-            }
-        } catch (error) {
-            log('warn', `Could not record scan-cleanup sidecar pid ${String(child.pid)}: ${String(error)}`);
-        }
-    }
-    if (options.priority === 'background' && child.pid !== undefined) {
-        try {
-            setPriority(child.pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
-        } catch (error) {
-            // Priority is an optimisation, not a correctness boundary. Some
-            // sandboxed and hardened runtimes reject it; admission control and
-            // cancellation still keep the process bounded there.
-            log('debug', `Could not lower scan cleanup detection priority: ${String(error)}`);
-        }
-    }
+    ];
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
     const startedAt = performance.now();
+    let childClosed = false;
+    let childPid: number | null = null;
+    let terminationConfirmed = false;
+    let terminationAttempted = false;
+    let stderrTail = '';
     let terminalResult = null as 'success' | 'failure' | null;
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
-    let terminationPromise: Promise<boolean> | null = null;
-    let settleFatal: (() => void) | null = null;
-    // Analyze emits a provisional page-analyzed frame and then a terminal
-    // page-complete frame for the same page. Keep only the terminal timing
-    // payload, with last-write-wins for any repeated terminal frame, so the
-    // diagnostic totals represent each page once and use reconciled timings.
+    let aborting = false;
+    const processAbort = new AbortController();
     const terminalPageTimings = new Map<number, TNativeScanCleanupPageStageTimingsV3>();
     let terminalUnkeyedTimings = null as TNativeScanCleanupPageStageTimingsV3 | null;
-    // The fallback timer bounds how long this adapter waits, not whether the
-    // tree died. It resolves `false`, which every caller below turns into an
-    // error the working-copy owner can see, so a bound that expires quarantines
-    // the source bytes instead of authorising their deletion.
-    const terminateForFatalError = () => {
-        void ensureDeferredRecovery();
-        if (terminationPromise !== null) {
-            return terminationPromise;
-        }
-        const treeTermination = terminateDetachedChildProcess(
-            child,
-            SCAN_CLEANUP_TERMINATION_GRACE_MS,
-        ).catch(() => false);
-        terminationPromise = new Promise<boolean>(resolve => {
-            let settled = false;
-            const settle = (terminated: boolean) => {
-                if (settled) {
-                    return;
-                }
-                settled = true;
-                clearTimeout(fallbackHandle);
-                resolve(terminated);
-            };
-            const fallbackHandle = setTimeout(() => settle(false), SCAN_CLEANUP_TERMINATION_FALLBACK_MS);
-            fallbackHandle.unref();
-            void treeTermination.then(terminated => settle(terminated === true));
-        });
-        return terminationPromise;
-    };
-    const describeUnprovenTermination = () => (
-        `evb-scan-cleanup process tree (pid=${String(child.pid)}) was not proven dead within `
-        + `${SCAN_CLEANUP_TERMINATION_FALLBACK_MS}ms of termination; its inputs may still be open`
-    );
-    const withTerminationProof = <T>(error: T, terminated: boolean) => (
-        terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
-    );
     let publicationReplayPromise: Promise<boolean> | null = null;
     let deferredRecoveryPromise: Promise<boolean> | null = null;
     let resolveDeferredRecovery: ((recovered: boolean) => void) | null = null;
     let deferredRecoverySettled = false;
+
     const settleDeferredRecovery = (recovered: boolean) => {
         if (deferredRecoverySettled) return;
         deferredRecoverySettled = true;
@@ -414,11 +317,10 @@ async function streamScanCleanupSidecar(
             const recoveryCallback = options.onRecoveryPending?.(deferredRecoveryPromise);
             if (recoveryCallback !== undefined) {
                 void recoveryCallback.catch(error => {
-                    log('warn', `Deferred scan-cleanup recovery owner failed: ${String(error)}`);
+                    log('warn', 'Deferred scan-cleanup recovery owner failed: ' + String(error));
                 });
             }
         }
-        runDeferredRecovery?.();
         return deferredRecoveryPromise;
     };
     const replayPublicationJournal = async (terminationConfirmed = false): Promise<boolean> => {
@@ -429,11 +331,11 @@ async function streamScanCleanupSidecar(
         publicationReplayPromise ??= (async () => {
             try {
                 if (await replayScanCleanupPublicationJournal(manifestPath)) {
-                    log('warn', `Recovered staged scan-cleanup destinations from ${basename(manifestPath)}`);
+                    log('warn', 'Recovered staged scan-cleanup destinations from ' + basename(manifestPath));
                 }
                 return true;
             } catch (error) {
-                log('warn', `Could not recover staged scan-cleanup destinations: ${String(error)}`);
+                log('warn', 'Could not recover staged scan-cleanup destinations: ' + String(error));
                 return false;
             }
         })();
@@ -441,35 +343,20 @@ async function streamScanCleanupSidecar(
         settleDeferredRecovery(recovered);
         return recovered;
     };
-    runDeferredRecovery = () => {
-        if (deferredRecoveryPromise === null || !childClosed) return;
-        void replayPublicationJournal(true);
-    };
-    if (childClosed) runDeferredRecovery();
-    const fatalSettlement = new Promise<never>((_resolve, reject) => {
-        settleFatal = () => {
-            void terminateForFatalError().then(async (terminated) => {
-                if (!terminated) {
-                    log('warn', describeUnprovenTermination());
-                }
-                await replayPublicationJournal(terminated);
-                if (protocolError !== null) {
-                    reject(withTerminationProof(protocolError, terminated));
-                    return;
-                }
-                reject(withTerminationProof(abortErrorFromSignal(signal), terminated));
-            });
-        };
-    });
+    const describeUnprovenTermination = () => (
+        'evb-scan-cleanup process tree (pid=' + String(childPid) + ') was not proven dead within '
+        + String(SCAN_CLEANUP_TERMINATION_FALLBACK_MS) + 'ms of termination; its inputs may still be open'
+    );
+    const withTerminationProof = (error: Error, terminated: boolean) => (
+        terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
+    );
     const protocol = createScanCleanupSidecarProtocolHandler({
-        stdout: child.stdout,
-        stderr: child.stderr,
+        stdout,
+        stderr,
         onProtocolError: error => {
             protocolError = error;
-            // A fatal decoder/schema/progress-consumer failure means stdout can no
-            // longer be consumed safely. Stop the whole detached tree immediately;
-            // the recorded protocol error remains the terminal authority.
-            settleFatal?.();
+            void ensureDeferredRecovery();
+            processAbort.abort();
         },
         log,
     });
@@ -488,11 +375,6 @@ async function streamScanCleanupSidecar(
                         terminalPageTimings.set(nativeProgress.pageNumber, nativeProgress.stageTimings);
                     }
                 }
-                // The decoded frame travels unchanged. Detection, raster
-                // conversion, lossless conversion, and preview each map it onto
-                // the stage and percentage their own run presents; a second
-                // stage model here labelled analyze completion `rendering` for
-                // consumers that never asked for it.
                 onProgress(nativeProgress);
                 return;
             }
@@ -504,104 +386,110 @@ async function streamScanCleanupSidecar(
             protocol.failProtocol(error, line);
         }
     });
-    // A protocol failure or a timeout both end with the tree being stopped, and
-    // both report whether that stop was proven so the caller inherits the same
-    // quarantine decision an abort would have produced.
-    const settleTerminalFailure = async () => {
-        const terminal = protocolError ?? timeoutError;
-        if (terminal === null) {
-            return;
-        }
-        const terminated = await terminateForFatalError();
-        if (!terminated) {
-            log('warn', describeUnprovenTermination());
-        }
-        await replayPublicationJournal(terminated);
-        throw withTerminationProof(terminal, terminated);
-    };
-    let aborting = false as boolean;
     const handleAbort = () => {
         aborting = true;
-        // AbortSignal is the transport boundary. This native adapter first asks
-        // the detached process tree to exit, then force-kills after its grace period.
-        settleFatal?.();
+        void ensureDeferredRecovery();
+        processAbort.abort();
     };
     signal.addEventListener('abort', handleAbort, {once: true});
     if (signal.aborted) handleAbort();
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    let timeoutError: NativeScanCleanupError | null = null;
+
     try {
-        let result: {
-            code: number | null;
-            signal: NodeJS.Signals | null
-        };
-        try {
-            result = await Promise.race([
-                new Promise<{
-                    code: number | null;
-                    signal: NodeJS.Signals | null;
-                }>((resolve, reject) => {
-                    child.once('error', reject);
-                    // `exit` can precede the final stdout read. `close` is the
-                    // observation boundary because it follows stdio shutdown.
-                    child.once('close', (code, exitSignal) => resolve({
-                        code,
-                        signal: exitSignal,
-                    }));
-                }),
-                new Promise<never>((_resolve, reject) => {
-                    const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS);
-                    timeoutHandle = setTimeout(() => {
-                        timeoutError = new NativeScanCleanupError(
-                            'native-failure',
-                            `evb-scan-cleanup timed out after ${timeoutMs}ms`,
-                        );
-                        void terminateForFatalError().then(terminated => (
-                            reject(withTerminationProof(timeoutError, terminated))
-                        ));
-                    }, timeoutMs);
-                    timeoutHandle.unref();
-                }),
-                fatalSettlement,
-            ]);
-        } catch (error) {
-            await settleTerminalFailure();
-            throw error;
+        await runNativeToolCommand(binaryPath, args, {
+            signal: processAbort.signal,
+            timeoutMs: Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS),
+            maxStderrBytes: 64 * 1024,
+            longLived: true,
+            commandLabel: 'evb-scan-cleanup',
+            terminationGraceMs: SCAN_CLEANUP_TERMINATION_GRACE_MS,
+            onSpawn: pid => {
+                childPid = pid;
+                if (options.priority === 'background') {
+                    try {
+                        setPriority(pid, osConstants.priority.PRIORITY_BELOW_NORMAL);
+                    } catch (error) {
+                        log('debug', 'Could not lower scan cleanup detection priority: ' + String(error));
+                    }
+                }
+            },
+            onStdout: chunk => {
+                stdout.write(chunk);
+            },
+            onStderr: chunk => {
+                stderr.write(chunk);
+                stderrTail = (stderrTail + chunk).slice(-64 * 1024);
+            },
+            onClose: () => {
+                childClosed = true;
+                stdout.end();
+                stderr.end();
+                if (deferredRecoveryPromise !== null) {
+                    void replayPublicationJournal(true);
+                }
+            },
+            onTerminationProof: proof => {
+                terminationAttempted = true;
+                void proof.then(terminated => {
+                    terminationConfirmed = terminated;
+                    if (terminated) {
+                        void replayPublicationJournal(true);
+                    }
+                });
+            },
+            log,
+        });
+    } catch (cause) {
+        const terminated = terminationConfirmed || (!terminationAttempted && childClosed);
+        if (protocolError !== null) {
+            if (!terminated) log('warn', describeUnprovenTermination());
+            await replayPublicationJournal(terminated);
+            throw withTerminationProof(protocolError, terminated);
         }
-        await settleTerminalFailure();
         if (aborting || signal.aborted) {
-            // A signal that arrives while the child is still being observed goes
-            // through the same termination proof as every other stop path.
-            const terminated = await terminateForFatalError();
-            if (!terminated) {
-                log('warn', describeUnprovenTermination());
-            }
+            if (!terminated) log('warn', describeUnprovenTermination());
             await replayPublicationJournal(terminated);
             throw withTerminationProof(abortErrorFromSignal(signal), terminated);
         }
-        if (nativeFailure !== null) await replayPublicationJournal();
-        throwIfError(nativeFailure);
-        if (result.code !== 0) {
-            await replayPublicationJournal();
-            const envelope = parseNativeScanCleanupStderr(protocol.stderr);
-            if (envelope) throw new NativeScanCleanupError(envelope.code, envelope.message);
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        if (error.message.includes('timed out')) {
+            const timeout = new NativeScanCleanupError(
+                'native-failure',
+                'evb-scan-cleanup timed out after '
+                    + String(Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS))
+                    + 'ms',
+            );
+            if (!terminated) log('warn', describeUnprovenTermination());
+            await replayPublicationJournal(terminated);
+            throw withTerminationProof(timeout, terminated);
+        }
+        if (!terminationAttempted && childClosed && nativeFailure !== null) {
+            await replayPublicationJournal(true);
+            throwIfError(nativeFailure);
+        }
+        await replayPublicationJournal(terminated);
+        const envelope = parseNativeScanCleanupStderr(stderrTail);
+        if (envelope) {
+            throw withTerminationProof(new NativeScanCleanupError(envelope.code, envelope.message), terminated);
+        }
+        const exitCode = (error as {exitCode?: number | null}).exitCode;
+        const exitSignal = (error as {closeSignal?: NodeJS.Signals | null}).closeSignal;
+        if (exitCode !== undefined) {
             throw new NativeScanCleanupError(
                 'native-failure',
-                `evb-scan-cleanup exited unsuccessfully (code=${String(result.code)}, signal=${String(result.signal)})`,
+                'evb-scan-cleanup exited unsuccessfully (code=' + String(exitCode)
+                    + ', signal=' + String(exitSignal ?? null) + ')',
             );
         }
-        if (terminalResult !== 'success') {
-            await replayPublicationJournal();
-            throw new NativeScanCleanupError('native-failure', 'evb-scan-cleanup returned no terminal result envelope');
-        }
+        throw error;
     } finally {
-        if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
         signal.removeEventListener('abort', handleAbort);
+        stdout.end();
+        stderr.end();
         protocol.lines.close();
-        if (childClosed) {
-            await unregisterSidecar();
-        } else if (sidecarRegistration !== null) {
-            log('warn', `Retaining scan-cleanup sidecar pid record until close is observed: ${String(child.pid)}`);
+        if (childClosed || terminationConfirmed) {
+            await replayPublicationJournal(true);
+        } else if (deferredRecoveryPromise !== null) {
+            log('warn', 'Retaining scan-cleanup publication journal until the sidecar stops');
         }
         const stageTotalsMs: TScanCleanupStageTotalsMs = {
             decode: 0,
@@ -620,11 +508,18 @@ async function streamScanCleanupSidecar(
             addStageTimings(stageTotalsMs, terminalUnkeyedTimings);
         }
         log('debug', [
-            `evb-scan-cleanup timings ${basename(manifestPath)}:`,
-            `wall=${formatSeconds(performance.now() - startedAt)}`,
-            `timedPages=${terminalPageTimings.size + Number(terminalUnkeyedTimings !== null)}`,
+            'evb-scan-cleanup timings ' + basename(manifestPath) + ':',
+            'wall=' + formatSeconds(performance.now() - startedAt),
+            'timedPages=' + String(terminalPageTimings.size + Number(terminalUnkeyedTimings !== null)),
             ...describeStageTotals(stageTotalsMs),
         ].join(' '));
+    }
+
+    if (nativeFailure !== null) await replayPublicationJournal();
+    throwIfError(nativeFailure);
+    if (terminalResult !== 'success') {
+        await replayPublicationJournal();
+        throw new NativeScanCleanupError('native-failure', 'evb-scan-cleanup returned no terminal result envelope');
     }
 }
 

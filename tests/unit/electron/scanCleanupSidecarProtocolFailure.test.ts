@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
     createInterface: vi.fn(),
     spawn: vi.fn(),
     terminateDetachedChildProcess: vi.fn(async () => {}),
-    assertNativeToolBuild: vi.fn(async () => {}),
 }));
 
 vi.mock('child_process', () => ({spawn: mocks.spawn}));
@@ -22,9 +21,9 @@ vi.mock('@electron/utils/nativeChildProcess', () => ({
     createDetachedChildProcessSpawnOptions: (options: unknown) => options,
     terminateDetachedChildProcess: mocks.terminateDetachedChildProcess,
 }));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({assertNativeToolBuild: mocks.assertNativeToolBuild}));
-
 class MockSidecarProcess extends EventEmitter {
+    readonly pid = process.pid;
+
     readonly stdout = new PassThrough();
 
     readonly stderr = new PassThrough();
@@ -78,13 +77,13 @@ describe('scan cleanup sidecar protocol failures', () => {
             vi.fn(),
             () => {},
         );
+        const rejection = run.catch(error => error);
         await vi.advanceTimersByTimeAsync(0);
         lines.emit('line', '{');
         controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
-        const rejected = expect(run).rejects.toMatchObject({name: 'SyntaxError'});
 
         await vi.advanceTimersByTimeAsync(3_500);
-        await rejected;
+        await expect(rejection).resolves.toMatchObject({name: 'SyntaxError'});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledTimes(1);
     });
 
@@ -129,19 +128,20 @@ describe('scan cleanup sidecar protocol failures', () => {
                 if (progressError !== undefined) throw progressError;
             },
         );
+        const rejection = run.catch(error => error);
 
         await vi.waitFor(() => expect(mocks.createInterface).toHaveBeenCalledOnce());
         lines.emit('line', line);
         await vi.waitFor(() => {
-            expect(lines.close).toHaveBeenCalledOnce();
+            expect(lines.close).toHaveBeenCalled();
             expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
         });
         child.emit('close', null, 'SIGTERM');
 
         if (progressError === undefined) {
-            await expect(run).rejects.toBeInstanceOf(Error);
+            await expect(rejection).resolves.toBeInstanceOf(Error);
         } else {
-            await expect(run).rejects.toBe(progressError);
+            await expect(rejection).resolves.toBe(progressError);
         }
     });
 

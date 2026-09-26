@@ -400,8 +400,6 @@ export type TScanCleanupRunSidecar = (
     options?: {
         priority?: 'background';
         allowedPathRoot: string;
-        /** Durable namespace root used to recover a child after its worker dies. */
-        sidecarRegistryRoot?: string;
         /**
          * Receives a promise that settles after deferred publication recovery
          * completes. Callers owning the manifest scratch must retain it until
@@ -462,8 +460,6 @@ export interface IScanCleanupWorkerPaths {
     tempDir: string;
     /** Main-owned scratch for one conversion run. */
     scratchDir?: string;
-    /** Namespace root holding durable native sidecar registrations. */
-    sidecarRegistryRoot?: string;
 }
 
 /** Provenance inputs computed by an xlarge coordinator and reused by its children. */
