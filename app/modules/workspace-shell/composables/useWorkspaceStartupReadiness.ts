@@ -25,17 +25,19 @@ function dispatchStartupOpenVisualReady(reason: string, timedOut = false) {
  * viewer, or that it gave up after the startup budget.
  */
 export const useWorkspaceStartupReadiness = (documentViewerRef: Ref<IDocumentViewerExpose | null>) => {
-    let latestRequest: symbol | null = null;
+    const latestRequest = shallowRef<symbol | null>(null);
     tryOnScopeDispose(() => {
-        latestRequest = null;
+        latestRequest.value = null;
     });
 
-    async function waitForViewerSettled(signal: AbortSignal) {
-        const viewer = await until(documentViewerRef).toMatch(
-            candidate => typeof candidate?.waitForViewerLoadSettled === 'function',
-            {timeout: STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS},
-        );
-        if (!viewer?.waitForViewerLoadSettled || signal.aborted) {
+    // A newer open supersedes the wait at once instead of leaving it to the timeout.
+    async function waitForViewerSettled(request: symbol) {
+        await until(() => (
+            latestRequest.value !== request
+            || typeof documentViewerRef.value?.waitForViewerLoadSettled === 'function'
+        )).toBe(true);
+        const viewer = documentViewerRef.value;
+        if (latestRequest.value !== request || !viewer?.waitForViewerLoadSettled) {
             return false;
         }
         await viewer.waitForViewerLoadSettled();
@@ -44,13 +46,13 @@ export const useWorkspaceStartupReadiness = (documentViewerRef: Ref<IDocumentVie
 
     function scheduleStartupOpenVisualReady(reason: string) {
         const request = Symbol(reason);
-        latestRequest = request;
+        latestRequest.value = request;
         const timeout = AbortSignal.timeout(STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS);
         const timedOut = new Promise<false>((resolve) => {
             timeout.addEventListener('abort', () => resolve(false), {once: true});
         });
         void Promise.race([
-            waitForViewerSettled(timeout),
+            waitForViewerSettled(request),
             timedOut,
         ])
             .catch((error: unknown) => {
@@ -58,7 +60,7 @@ export const useWorkspaceStartupReadiness = (documentViewerRef: Ref<IDocumentVie
                 return false;
             })
             .then((settled) => {
-                if (latestRequest === request) {
+                if (latestRequest.value === request) {
                     dispatchStartupOpenVisualReady(reason, !settled);
                 }
             });
