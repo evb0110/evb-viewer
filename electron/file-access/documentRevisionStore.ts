@@ -186,7 +186,6 @@ async function refreshOriginalExpectationAfterManagedLinkedDetach(
             || originalStat.ctimeNs === fence.ctimeNs
             || originalStat.mtimeNs !== fence.mtimeNs
             || originalStat.size !== fence.size
-            || originalStat.nlink !== fence.linkCount - 1n
             || workingCopyStillUsesOriginal
         ) {
             return;

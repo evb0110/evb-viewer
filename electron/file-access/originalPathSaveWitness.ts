@@ -13,7 +13,9 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {isErrnoException} from '@contracts/runtimeGuards';
+import {createLogger} from '@electron/utils/createLogger';
 
+const log = createLogger('original-path-save-witness');
 const SAVE_WITNESS_SAMPLE_BYTES = 64 * 1024;
 // Windows does not expose a portable change-time signal that survives every
 // same-size in-place rewrite. Hash small files fully, while keeping large
@@ -62,20 +64,30 @@ function expectationMatchesStat(
     expected: IWorkingCopyOriginalFileExpectation,
     actual: BigIntStats,
 ) {
-    const matches = {
-        ctime: expected.ctimeNs === undefined || actual.ctimeNs.toString() === expected.ctimeNs,
-        device: expected.deviceId === undefined || actual.dev.toString() === expected.deviceId,
-        file: actual.isFile(),
-        inode: expected.inode === undefined || actual.ino.toString() === expected.inode,
-        mtime: expected.mtimeNs === undefined || actual.mtimeNs.toString() === expected.mtimeNs,
-        size: actual.size === BigInt(expected.size),
-    };
-    if (Object.values(matches).includes(false)) {
+    if (getExpectationStatMismatches(expected, actual).length > 0) {
         return false;
     }
 
     return expected.mtimeNs !== undefined
         || Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) < 1;
+}
+
+function getExpectationStatMismatches(
+    expected: IWorkingCopyOriginalFileExpectation,
+    actual: BigIntStats,
+) {
+    return [
+        expected.ctimeNs !== undefined && actual.ctimeNs.toString() !== expected.ctimeNs ? 'ctimeNs' : null,
+        expected.deviceId !== undefined && actual.dev.toString() !== expected.deviceId ? 'deviceId' : null,
+        !actual.isFile() ? 'fileType' : null,
+        expected.inode !== undefined && actual.ino.toString() !== expected.inode ? 'inode' : null,
+        expected.mtimeNs !== undefined && actual.mtimeNs.toString() !== expected.mtimeNs ? 'mtimeNs' : null,
+        actual.size !== BigInt(expected.size) ? 'size' : null,
+        expected.mtimeNs === undefined
+            && Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) >= 1
+            ? 'mtimeMs'
+            : null,
+    ].filter((field): field is string => field !== null);
 }
 
 function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectation) {
@@ -503,6 +515,20 @@ export async function captureOriginalPathSaveWitness(
                     handleStat,
                 );
                 if (!restored) {
+                    log.debug('Original save witness rejected a changed file expectation', {
+                        fields: getExpectationStatMismatches(expected, handleStat),
+                        originalPath,
+                        expected,
+                        actual: {
+                            ctimeNs: handleStat.ctimeNs.toString(),
+                            deviceId: handleStat.dev.toString(),
+                            inode: handleStat.ino.toString(),
+                            linkCount: handleStat.nlink.toString(),
+                            mtimeNs: handleStat.mtimeNs.toString(),
+                            size: handleStat.size.toString(),
+                        },
+                        workingPath,
+                    });
                     await handle.close().catch(() => undefined);
                     return null;
                 }

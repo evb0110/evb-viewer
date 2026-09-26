@@ -20,10 +20,13 @@ import {
 import { tmpdir } from 'os';
 import {
     appendFile,
+    link,
     mkdtemp,
     readFile,
     readdir,
+    rename,
     rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import type * as NodeCrypto from 'node:crypto';
@@ -112,6 +115,35 @@ describe('documentRevisionStore', () => {
                 token: changed.token,
                 contentRevision: 2,
             });
+    });
+
+    it('refreshes the original expectation when another managed hard link keeps the old inode alive', async () => {
+        const originalPath = join(tempRoot, 'linked-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-linked', 'original.pdf');
+        const additionalLinkPath = join(tempRoot, 'additional-managed-link.pdf');
+        const replacementPath = join(tempRoot, 'replacement.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, 'original-content');
+        await link(originalPath, workingPath);
+
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {
+            ensureWorkingCopyRevision, transitionWorkingCopyContentRevision,
+        } = await import(
+            '@electron/file-access/documentRevisionStore'
+        );
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {backingState: 'materialized'});
+        await ensureWorkingCopyRevision(workingPath, 7);
+
+        await writeFile(replacementPath, 'rotated-working-content');
+        await transitionWorkingCopyContentRevision(workingPath, 'page-ops', async () => {
+            await link(originalPath, additionalLinkPath);
+            await rename(replacementPath, workingPath);
+        }, 7);
+
+        expect((await stat(originalPath, {bigint: true})).nlink).toBe(2n);
+        await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.not.toBeNull();
     });
 
     it('removes orphaned transition backups when opening a mapped working copy', async () => {
