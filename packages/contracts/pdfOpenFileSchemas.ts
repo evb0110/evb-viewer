@@ -1,61 +1,51 @@
+import {
+    parseDocumentRef, type TDocumentRef,
+} from '@contracts/documentRef';
 import type {TOpenFileResult} from '@contracts/electronApiDocuments';
-import {parseDocumentRef} from '@contracts/documentRef';
-import {fail} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import {runtimeSchema as s} from '@contracts/platformFeature';
-import {isRecord} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
+
+const documentRefSchema = v.custom<TDocumentRef>(value => parseDocumentRef(value) !== null);
+
+export const openFileResultSchema = v.nullable(v.variant('kind', [
+    v.object({
+        kind: v.literal('pdf'),
+        workingPath: documentRefSchema,
+        originalPath: documentRefSchema,
+        isGenerated: v.optional(v.boolean()),
+        recoveryDirtyBaseline: v.optional(v.boolean()),
+        wasEncrypted: v.optional(v.literal(true)),
+    }),
+    v.object({
+        kind: v.literal('djvu'),
+        workingPath: v.literal(''),
+        originalPath: documentRefSchema,
+    }),
+    v.object({
+        kind: v.literal('pdf-needs-password'),
+        originalPath: documentRefSchema,
+    }),
+    v.object({
+        kind: v.literal('pdf-unsupported-encryption'),
+        originalPath: documentRefSchema,
+    }),
+]));
 
 export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
-    if (value === null) {
-        return null;
+    const result = v.safeParse(openFileResultSchema, value, {abortEarly: true});
+    if (!result.success) {
+        const kind = typeof value === 'object' && value !== null && 'kind' in value
+            ? value.kind
+            : undefined;
+        throw new Error(kind === 'pdf-needs-password' || kind === 'pdf-unsupported-encryption'
+            ? 'invalid encrypted PDF open-file result'
+            : kind === 'djvu'
+                ? 'invalid DjVu open-file result'
+                : kind === 'pdf'
+                    ? 'invalid PDF open-file result'
+                    : 'invalid open-file result');
     }
-    if (!isRecord(value) || (
-        value.kind !== 'pdf'
-        && value.kind !== 'djvu'
-        && value.kind !== 'pdf-needs-password'
-        && value.kind !== 'pdf-unsupported-encryption'
-    )) {
-        fail('invalid open-file result');
-    }
-    if (value.kind === 'pdf-needs-password' || value.kind === 'pdf-unsupported-encryption') {
-        const originalPath = parseDocumentRef(value.originalPath);
-        if (originalPath === null) {
-            fail('invalid encrypted PDF open-file result');
-        }
-        return {
-            kind: value.kind,
-            originalPath,
-        };
-    }
-    if (value.kind === 'djvu') {
-        const originalPath = parseDocumentRef(value.originalPath);
-        if (value.workingPath !== '' || originalPath === null) {
-            fail('invalid DjVu open-file result');
-        }
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath,
-        };
-    }
-    const workingPath = parseDocumentRef(value.workingPath);
-    const originalPath = parseDocumentRef(value.originalPath);
-    if (
-        workingPath === null
-        || originalPath === null
-        || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
-        || (value.recoveryDirtyBaseline !== undefined && typeof value.recoveryDirtyBaseline !== 'boolean')
-        || (value.wasEncrypted !== undefined && value.wasEncrypted !== true)
-    ) {
-        fail('invalid PDF open-file result');
-    }
-    return {
-        kind: 'pdf',
-        workingPath,
-        originalPath,
-        ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
-        ...(value.recoveryDirtyBaseline === undefined ? {} : {recoveryDirtyBaseline: value.recoveryDirtyBaseline}),
-        ...(value.wasEncrypted === true ? {wasEncrypted: true as const} : {}),
-    };
+    return result.output as TOpenFileResult | null;
 }
 
-export const openFileResult = s.fromParser<TOpenFileResult | null>(decodeOpenFileResult, () => null);
+export const openFileResult = s.fromParser(decodeOpenFileResult, () => null);
