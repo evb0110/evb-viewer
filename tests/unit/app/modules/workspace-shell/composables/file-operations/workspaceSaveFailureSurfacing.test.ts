@@ -589,10 +589,8 @@ describe('workspace save failure surfacing', () => {
         _label,
         changeDocument,
     ) => {
-        // The note-failure path completes the save before it knows whether it
-        // still owns the document, and that completion clears the pending
-        // shape adoption. It is harmless only because the flag is armed later,
-        // inside plan execution, which this abort never reaches.
+        // A note persistence failure happens before save execution and must
+        // leave the document state untouched.
         const { deps } = createDeps({
             annotationDirty: ref(true),
             annotationNoteWindowsCount: ref(1),
@@ -605,8 +603,6 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(deps.preparePersistedShapeStateForSave).not.toHaveBeenCalled();
-        expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
     });
 
     it('keeps the failure when only the document revision moves', async () => {

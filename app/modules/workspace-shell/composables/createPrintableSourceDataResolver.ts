@@ -45,7 +45,6 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
         const printTransaction = await deps.pdfViewerRef.value?.runSaveTransaction({
             mode: 'print',
             forceWriterSave: true,
-            requiresManagedShapeBaseline: true,
             includeManagedShapes: true,
             rewriteShapeState: true,
             source: deps.source,

@@ -29,7 +29,6 @@ export interface ISaveCompletionPolicy {
     markAnnotationStateSaved: boolean;
     markBookmarksStateSaved: boolean;
     markPageLabelsStateSaved: boolean;
-    markShapeStateSaved: boolean;
     preserveLivePdfjsSession: boolean;
     resetAnnotationStorage: boolean;
 }
@@ -67,12 +66,6 @@ export type TWorkspaceSaveExecutionResult =
         serializedChanges: boolean;
         reloadWaiter: IPostSaveReloadWaiter | null;
         completion: ISaveCompletionPolicy;
-        /**
-         * The token this save's shape priming returned. Only it may declare the
-         * shape layer clean, so a document replaced mid-save cannot inherit the
-         * previous document's save.
-         */
-        preparedShapeState?: unknown;
         annotationMaterializationBaseline?: unknown;
         commitAnnotationSave?: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => void;
     }
@@ -169,7 +162,6 @@ export function workingCopySaveResult(
             markAnnotationStateSaved: false,
             markBookmarksStateSaved: false,
             markPageLabelsStateSaved: false,
-            markShapeStateSaved: false,
             preserveLivePdfjsSession: false,
             resetAnnotationStorage: false,
             ...completion,

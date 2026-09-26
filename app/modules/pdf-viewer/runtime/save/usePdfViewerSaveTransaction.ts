@@ -67,7 +67,6 @@ interface IUsePdfViewerSaveTransactionOptions {
     getAllShapes?: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
-    ensureManagedShapeBaselineReady?: () => Promise<boolean>;
     prepareAnnotationSave?: () => {
         plan?: ISerializationPlan;
         verify(bytes: Uint8Array): Promise<void>;
@@ -250,22 +249,6 @@ export const usePdfViewerSaveTransaction = (
             }
         }
         let request = {...initialRequest};
-        if (
-            request.requiresManagedShapeBaseline === true
-            || request.includeManagedShapes === true
-            || request.rewriteShapeState === true
-            || request.forceRewrite === true
-        ) {
-            // An unscanned shape layer cannot be rewritten without discarding the
-            // managed shapes this session never saw, so the save stays additive.
-            if (await options.ensureManagedShapeBaselineReady?.() === false) {
-                request = {
-                    ...request,
-                    rewriteShapeState: false,
-                };
-            }
-            assertSaveTargetCurrent();
-        }
         const measurePreparationStep = async <T>(phase: string, operation: () => Promise<T> | T) => {
             return measureOperationPhase(async () => operation(), durationMs => {
                 if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {

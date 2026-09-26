@@ -2281,6 +2281,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
 
         await saveViaWindowHandle(page);
         await waitForShapeCount(page, 1);
+        expect(await getToolbarSaveDebugState(page)).toMatchObject({activeTabDirty: false});
         let annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
         expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
@@ -2373,6 +2374,12 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
             x: 0.34,
             y: 0.6,
         })).toBe(false);
+
+        await page.click('.editor-pane.is-active .tab.is-active .tab-close');
+        await expect.poll(async () => (
+            await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])
+        ).originalPath, {timeout: 10_000}).toBeNull();
+        expect(await page.$('[role="dialog"]')).toBeNull();
     });
 
     it('keeps drawing undo and redo coherent after saving the new shape', async () => {

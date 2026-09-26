@@ -171,15 +171,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         shapes: {
             hasChanges: () => hasViewerShapeChanges(deps.pdfViewerRef.value),
             hasManagedShapes: () => (deps.pdfViewerRef.value?.getAllShapes().length ?? 0) > 0,
-            markSaved: prepared => deps.pdfViewerRef.value?.markSavedShapeState?.(prepared),
-            preparePersistedState: data => (
-                deps.pdfViewerRef.value?.preparePersistedManagedShapesForSave?.(data)
-                ?? Promise.resolve(null)
-            ),
-            restorePreparedState: snapshot => (
-                deps.pdfViewerRef.value?.restorePreparedManagedShapesAfterFailedSave?.(snapshot)
-                ?? Promise.resolve()
-            ),
         },
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,

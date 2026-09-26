@@ -283,7 +283,6 @@ async function executeNativeMutationSave(
                 ...result,
                 completion: {
                     ...result.completion,
-                    markShapeStateSaved: false,
                     preserveLivePdfjsSession: !result.persisted.didSaveAs,
                 },
             };
@@ -381,32 +380,6 @@ async function executeNativeMutationSave(
         }
         persisted = saveAsPersisted;
     }
-    let preparedShapeStateSnapshot: unknown = null;
-    let canMarkShapeStateSaved = !projection.hasShapeMutations;
-    if (projection.hasShapeMutations) {
-        try {
-            if (nativePathBacked) {
-                preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.() ?? null;
-            } else {
-                const savedBytes = await timedSavePhase(
-                    'read-native-shape-saved-bytes',
-                    deps.pdf.getSourceData,
-                );
-                if (savedBytes) {
-                    preparedShapeStateSnapshot = await deps.shapes.preparePersistedState?.(savedBytes) ?? null;
-                }
-            }
-            canMarkShapeStateSaved = Boolean(preparedShapeStateSnapshot);
-        } catch {
-            // Native persistence has already committed. Keep shapes dirty when
-            // the saved bytes cannot be reread or prepared for reconciliation.
-            preparedShapeStateSnapshot = null;
-            canMarkShapeStateSaved = false;
-        }
-    }
-    if (projection.hasShapeMutations && canMarkShapeStateSaved) {
-        deps.shapes.markSaved?.(preparedShapeStateSnapshot);
-    }
     saveTransaction.commitAnnotationSave?.(
         persisted.materializedIdentityBindings ?? materializedIdentityBindings,
     );
@@ -424,8 +397,6 @@ async function executeNativeMutationSave(
         );
         saveTransaction.replaceFromDocument(parsed);
     }
-    const preparedShapeState = preparedShapeStateSnapshot;
-    preparedShapeStateSnapshot = null;
     // A layer may be marked clean only if this save carried its edits. The
     // projection is the record of what was actually written, so the same
     // predicate decides both that and whether a token that moved during the
@@ -446,7 +417,6 @@ async function executeNativeMutationSave(
         persisted,
         serializedChanges: true,
         reloadWaiter: null,
-        ...(preparedShapeState === null ? {} : {preparedShapeState}),
         completion: {
             markAnnotationStateSaved: annotationEditsWritten,
             markBookmarksStateSaved: bookmarkEditsWritten,
@@ -454,7 +424,6 @@ async function executeNativeMutationSave(
             allowAnnotationSaveStateRefresh: annotationEditsWritten,
             allowBookmarksSaveStateRefresh: bookmarkEditsWritten,
             allowPageLabelsSaveStateRefresh: pageLabelEditsWritten,
-            markShapeStateSaved: canMarkShapeStateSaved,
             preserveLivePdfjsSession: !persisted.didSaveAs,
             resetAnnotationStorage: true,
         },
@@ -534,7 +503,6 @@ async function executeNativeRepairSave(
             allowAnnotationSaveStateRefresh: false,
             allowBookmarksSaveStateRefresh: false,
             allowPageLabelsSaveStateRefresh: false,
-            markShapeStateSaved: false,
             preserveLivePdfjsSession: false,
             resetAnnotationStorage: true,
         },
@@ -610,12 +578,12 @@ async function completeWorkspaceSave(
 
     const baseline = getCompletionBaseline(plan, result, deps);
     if (!result.reloadWaiter) {
-        completeSuccessfulSaveState(baseline, result.completion, deps, result.preparedShapeState);
+        completeSuccessfulSaveState(baseline, result.completion, deps);
     } else {
         await result.reloadWaiter.promise.catch((error) => {
             BrowserLogger.warn('workspace', 'Saved PDF but failed to restore the reloaded view', error);
         }).finally(() => {
-            completeSuccessfulSaveState(baseline, result.completion, deps, result.preparedShapeState);
+            completeSuccessfulSaveState(baseline, result.completion, deps);
         });
     }
     if (result.persisted.outPath) {

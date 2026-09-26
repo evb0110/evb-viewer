@@ -137,12 +137,6 @@ export interface IPdfViewerCropExpose {
     isCropSelecting: boolean;
 }
 
-export interface IPdfViewerShapePersistenceExpose {
-    ensureManagedShapeBaselineReady?: () => Promise<boolean>;
-    preparePersistedManagedShapesForSave?: (data?: Uint8Array) => Promise<unknown>;
-    restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
-}
-
 export interface IPdfViewerSaveExpose {
     runSaveTransaction: (
         request: IPdfViewerSaveTransactionRequest,
@@ -240,8 +234,6 @@ export interface IPdfViewerAnnotationCommentExpose {
 
 export interface IPdfViewerShapeExpose {
     getAllShapes: () => IShapeAnnotation[];
-    /** `prepared` is the token this save's shape priming returned, if any. */
-    markSavedShapeState?: (prepared?: unknown) => void;
     getDeletedEmbeddedShapeAnnotationIds: () => string[];
     getDeletedEmbeddedShapeStableKeys?: () => string[];
     clearShapes: () => void;
@@ -273,7 +265,6 @@ export interface IPdfViewerExpose extends
     IPdfViewerLoadExpose,
     IPdfViewerRegionCaptureExpose,
     IPdfViewerCropExpose,
-    IPdfViewerShapePersistenceExpose,
     IPdfViewerSaveExpose,
     IPdfViewerBrowserPrintExpose,
     IPdfViewerAnnotationCommandExpose,

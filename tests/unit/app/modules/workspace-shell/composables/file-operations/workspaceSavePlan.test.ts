@@ -278,7 +278,6 @@ describe('workspaceSavePlan', () => {
         expect(runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
             mode: 'snapshot',
             saveFlowMode: 'save',
-            requiresManagedShapeBaseline: true,
         }));
         expect(recoveryMocks.consumeNativePdfMutationProjection).toHaveBeenCalledWith(expect.objectContaining({
             operation: 'clone',

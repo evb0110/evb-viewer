@@ -266,9 +266,6 @@ export interface IWorkspaceSaveDependencies {
     shapes: {
         hasChanges: () => boolean;
         hasManagedShapes: () => boolean;
-        markSaved?: (prepared?: unknown) => void;
-        preparePersistedState?: (data?: Uint8Array) => Promise<unknown>;
-        restorePreparedState?: (snapshot: unknown) => Promise<void> | void;
     };
     persistence: {
         validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;
@@ -400,7 +397,6 @@ export function buildSaveTransactionRequest(
         documentStructure,
         source: {getSourcePdfData: deps.pdf.getSourceData},
         workingPath: requiresNativePathBackedSave(plan) ? plan.target.expectedWorkingPath : null,
-        requiresManagedShapeBaseline: true,
     };
 }
 
@@ -452,7 +448,6 @@ export interface IWorkspaceSaveCompletionDependencies {
         markBookmarksSaved: () => void;
         getBookmarksSaveStateToken?: () => unknown;
     };
-    shapes: {markSaved?: (prepared?: unknown) => void;};
 }
 
 export function getCompletionBaseline(
@@ -483,7 +478,6 @@ export function completeSuccessfulSaveState(
     baseline: IWorkspaceSaveBaseline,
     policy: ISaveCompletionPolicy,
     deps: IWorkspaceSaveCompletionDependencies,
-    preparedShapeState?: unknown,
 ) {
     const annotationUnchanged = !deps.annotations.getSaveStateToken
         || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
@@ -506,12 +500,6 @@ export function completeSuccessfulSaveState(
         deps.metadata.markBookmarksSaved();
     }
 
-    if (policy.markShapeStateSaved) {
-        // The prepared token names the store and save frontier this save primed.
-        // Passing it makes the clean mark refusable when a replacement store
-        // now owns the viewer.
-        deps.shapes.markSaved?.(preparedShapeState);
-    }
 }
 
 export function getNativeSaveTransactionOptions(
@@ -663,7 +651,6 @@ export function createRecoverySnapshotBytes(
             forceRewrite: deps.metadata.pageLabelsDirty.value
                 || deps.metadata.bookmarksDirty.value
                 || shapeStateDirty,
-            requiresManagedShapeBaseline: true,
             dirtyState: {
                 annotationDirty: deps.annotations.dirty.value,
                 hasAnnotationChanges: deps.annotations.hasChanges(),

@@ -93,9 +93,6 @@ type TFileOperationsSaveControllerTestDeps =
         getDeletedEmbeddedShapeStableKeys?: () => string[];
         getMarkupSubtypeOverrides?: () => Map<string, TMarkupSubtype> | undefined;
         getMarkupSubtypeHints?: () => IMarkupSubtypeHint[] | undefined;
-        markShapeStateSaved?: IWorkspaceSaveDependencies['shapes']['markSaved'];
-        preparePersistedShapeStateForSave?: IWorkspaceSaveDependencies['shapes']['preparePersistedState'];
-        restorePreparedPersistedShapeState?: IWorkspaceSaveDependencies['shapes']['restorePreparedState'];
         loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
         preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
         runWithDocumentOperationLease?: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>;
@@ -211,13 +208,6 @@ function createSaveDependencies(
         shapes: {
             hasChanges: () => deps.hasShapeChanges?.() ?? false,
             hasManagedShapes: () => deps.hasManagedShapes?.() ?? false,
-            ...(deps.markShapeStateSaved ? {markSaved: deps.markShapeStateSaved} : {}),
-            ...(deps.preparePersistedShapeStateForSave
-                ? {preparePersistedState: deps.preparePersistedShapeStateForSave}
-                : {}),
-            ...(deps.restorePreparedPersistedShapeState
-                ? {restorePreparedState: deps.restorePreparedPersistedShapeState}
-                : {}),
         },
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
@@ -402,11 +392,8 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         captureCanonicalPendingAnnotationDeletes: vi.fn(() => null),
         annotationNoteWindowsCount: ref(0),
         loadRecentFiles: vi.fn(),
-        markShapeStateSaved: vi.fn(),
         // Priming succeeds by default: the production call returns a save
         // preparation token, and only that token lets a save mark shapes clean.
-        preparePersistedShapeStateForSave: vi.fn(async () => ({prepared: true})),
-        restorePreparedPersistedShapeState: vi.fn(async () => undefined),
         adoptPersistedShapeStateForNextReload: vi.fn(),
         clearPendingPersistedShapeStateForNextReload: vi.fn(),
         ...overrides,
@@ -445,7 +432,6 @@ export function expectWorkspaceSaveNotMarked(deps: ReturnType<typeof createDeps>
     expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
     expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
-    expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
 }
 
 export function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotation {

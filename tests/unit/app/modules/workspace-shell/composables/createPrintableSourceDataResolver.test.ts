@@ -152,7 +152,6 @@ describe('createPrintableSourceDataResolver', () => {
 
         const result = await runSaveTransaction({
             mode: 'snapshot',
-            requiresManagedShapeBaseline: true,
             source: {getSourcePdfData},
         });
 
@@ -215,7 +214,6 @@ describe('createPrintableSourceDataResolver', () => {
         expect(runSaveTransaction).toHaveBeenCalledWith({
             mode: 'print',
             forceWriterSave: true,
-            requiresManagedShapeBaseline: true,
             includeManagedShapes: true,
             rewriteShapeState: true,
             source: {
@@ -558,7 +556,6 @@ describe('createPrintableSourceDataResolver', () => {
         expect(runTransaction.mock.calls[1]?.[0]).toMatchObject({
             mode: 'print',
             forceWriterSave: true,
-            requiresManagedShapeBaseline: true,
         });
         // The print owns a post-acknowledgement frontier of its own.
         const printTransaction = await runTransaction.mock.results[1]?.value;

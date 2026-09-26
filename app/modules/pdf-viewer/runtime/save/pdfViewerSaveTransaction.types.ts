@@ -167,7 +167,6 @@ export interface IPdfViewerSaveTransactionRequest {
     forceWriterSave?: boolean;
     includeManagedShapes?: boolean;
     rewriteShapeState?: boolean;
-    requiresManagedShapeBaseline?: boolean;
     /** Persistence services validate the working-copy target outside this transaction. */
     workingPath?: TDocumentRef | null;
     markupSubtypeOverrides?: Map<string, TMarkupSubtype> | undefined;

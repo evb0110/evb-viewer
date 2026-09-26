@@ -163,7 +163,6 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 mode: 'snapshot',
                 saveFlowMode: 'save',
                 forceWriterSave: false,
-                requiresManagedShapeBaseline: true,
                 ...(workingCopyPath ? {workingPath: workingCopyPath} : {}),
                 ...(options.getNativeSaveTransactionOptions?.() ?? {}),
                 source: {getSourcePdfData: async () => {

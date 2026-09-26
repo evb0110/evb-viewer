@@ -179,11 +179,6 @@ export const usePdfViewerPublicApiController = (
         commitPdfEditorsForSave: annotationSession.commitPdfEditorsForSave,
         runSaveTransaction: annotationSession.runSaveTransaction,
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
-        markSavedShapeState: (_prepared?: unknown) => {
-            // Saving changes the clean shape baseline but must not collapse the
-            // app-managed undo/redo stack; re-emit so toolbar state stays current.
-            annotationSession.appAnnotationHistory.emitCombinedState();
-        },
         highlightSelection: annotationRuntime.highlightComposable.highlightSelection,
         commentSelection: annotationRuntime.highlightComposable.commentSelection,
         createTextMarkupFromText: async (target) => {
