@@ -20,7 +20,7 @@ VCPKG_COMMIT="11ace808cc8a3a941f386e33726b992b22ba9e5a"
 VCPKG_ROOT="$BUILD_DIR/vcpkg"
 TESSERACT_DIR="$PROJECT_ROOT/resources/tesseract/$target"
 VCPKG_LIB_DIR="$(cygpath -m "$VCPKG_ROOT/installed/$triplet/lib")"
-WEBP_LIBRARIES="$VCPKG_LIB_DIR/libwebp.lib;$VCPKG_LIB_DIR/sharpyuv.lib"
+WEBP_LIBRARIES="$VCPKG_LIB_DIR/libwebp.lib;$VCPKG_LIB_DIR/libsharpyuv.lib"
 trap 'rm -rf -- "$BUILD_DIR"' EXIT
 
 git clone --quiet --filter=blob:none https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
