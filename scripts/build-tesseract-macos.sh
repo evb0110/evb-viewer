@@ -43,11 +43,11 @@ cp "$BUILD_DIR/giflib-$GIFLIB_VERSION/gif_lib.h" "$BUILD_DIR/giflib-install/incl
 cp "$BUILD_DIR/giflib-$GIFLIB_VERSION/libgif.a" "$BUILD_DIR/giflib-install/lib/"
 cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-build" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_FLAGS="-I$BREW_PREFIX/include/libpng16" \
   -DCMAKE_EXE_LINKER_FLAGS="-L$OPENJPEG_LIBDIR" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DGIF_INCLUDE_DIR="$BUILD_DIR/giflib-install/include" \
   -DGIF_LIBRARY="$BUILD_DIR/giflib-install/lib/libgif.a" \
-  -DPNG_PNG_INCLUDE_DIR="$BREW_PREFIX/include/libpng16" \
   -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/leptonica-install" \
   -DBUILD_SHARED_LIBS=OFF \
   -DBUILD_PROG=OFF
