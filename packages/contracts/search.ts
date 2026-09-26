@@ -1,16 +1,12 @@
-import {
-    parsePageNumber,
-    type TPageNumber,
-} from '@contracts/pageNumbers';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import {parsePageNumber} from '@contracts/pageNumbers';
 import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
-    isOcrWord,
-    type IOcrWord,
+    parseRequestId,
     requireRequestId,
+    type IOcrWord,
     type TRequestId,
 } from '@contracts/shared';
 import {
@@ -26,6 +22,7 @@ import {
     isEpochMs,
     type TEpochMs,
 } from '@contracts/timestamps';
+import * as v from 'valibot';
 
 /** Shared user-visible search limits. Keep every runtime on these values. */
 export const SEARCH_RESULT_LIMIT = 500;
@@ -41,14 +38,6 @@ export const SEARCH_MAX_NORMALIZED_PAGE_TEXT_BYTES = 8 * 1024 * 1024;
 export const PDF_SEARCH_MIN_QUERY_LENGTH = 1;
 export const DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH = 2;
 
-export interface IPdfSearchExcerpt {
-    readonly prefix: boolean;
-    readonly suffix: boolean;
-    readonly before: string;
-    readonly match: string;
-    readonly after: string;
-}
-
 export type TPdfSearchUtf16Offset = number;
 
 export interface IPdfSearchUtf16Range {
@@ -56,130 +45,175 @@ export interface IPdfSearchUtf16Range {
     endOffset: TPdfSearchUtf16Offset;
 }
 
-export interface IPdfSearchResult {
-    readonly pageNumber: TPageNumber;
-    readonly pageMatchIndex: number;
-    readonly matchIndex: number;
-    readonly startOffset: TPdfSearchUtf16Offset;
-    readonly endOffset: TPdfSearchUtf16Offset;
-    readonly excerpt: IPdfSearchExcerpt;
-    readonly words?: readonly IOcrWord[];
-    readonly pageWidth?: number;
-    readonly pageHeight?: number;
-    readonly rotation?: TOcrIndexRotation;
-}
+const SEARCH_RESPONSE_ERROR = 'invalid search response';
 
-export interface IPdfSearchResponse {
-    readonly results: readonly IPdfSearchResult[];
-    readonly truncated: boolean;
-    readonly canceled?: boolean;
-}
+const safeNonNegativeInteger = v.pipe(
+    v.number(SEARCH_RESPONSE_ERROR),
+    v.check(value => Number.isSafeInteger(value) && value >= 0, SEARCH_RESPONSE_ERROR),
+);
 
-function decodeSearchExcerpt(value: unknown): IPdfSearchExcerpt | null {
-    if (
-        !isRecord(value)
-        || typeof value.prefix !== 'boolean'
-        || typeof value.suffix !== 'boolean'
-        || typeof value.before !== 'string'
-        || typeof value.match !== 'string'
-        || typeof value.after !== 'string'
-    ) {
-        return null;
-    }
-    return {
-        prefix: value.prefix,
-        suffix: value.suffix,
-        before: value.before,
-        match: value.match,
-        after: value.after,
-    };
-}
+const searchPageNumberSchema = v.pipe(
+    v.number(SEARCH_RESPONSE_ERROR),
+    v.check(value => parsePageNumber(value) !== null, SEARCH_RESPONSE_ERROR),
+    v.transform(value => parsePageNumber(value)!),
+);
 
-function decodeSearchResult(value: unknown, pageCount?: number): IPdfSearchResult | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const pageNumber = typeof value.pageNumber === 'number'
-        ? parsePageNumber(value.pageNumber, pageCount)
-        : null;
-    const excerpt = decodeSearchExcerpt(value.excerpt);
-    const isNonNegativeInteger = (candidate: unknown): candidate is number => (
-        typeof candidate === 'number'
-        && Number.isSafeInteger(candidate)
-        && candidate >= 0
-    );
-    if (
-        pageNumber === null
-        || !isNonNegativeInteger(value.pageMatchIndex)
-        || !isNonNegativeInteger(value.matchIndex)
-        || !isNonNegativeInteger(value.startOffset)
-        || !isNonNegativeInteger(value.endOffset)
-        || value.endOffset < value.startOffset
-        || excerpt === null
-        || (value.words !== undefined && (!Array.isArray(value.words) || !value.words.every(isOcrWord)))
-        || (value.pageWidth !== undefined && (typeof value.pageWidth !== 'number' || !Number.isFinite(value.pageWidth) || value.pageWidth <= 0))
-        || (value.pageHeight !== undefined && (typeof value.pageHeight !== 'number' || !Number.isFinite(value.pageHeight) || value.pageHeight <= 0))
-        || (value.rotation !== undefined && value.rotation !== 0 && value.rotation !== 90 && value.rotation !== 180 && value.rotation !== 270)
-    ) {
-        return null;
-    }
-    return {
-        pageNumber,
+const searchExcerptSchema = v.object({
+    prefix: v.boolean(SEARCH_RESPONSE_ERROR),
+    suffix: v.boolean(SEARCH_RESPONSE_ERROR),
+    before: v.string(SEARCH_RESPONSE_ERROR),
+    match: v.string(SEARCH_RESPONSE_ERROR),
+    after: v.string(SEARCH_RESPONSE_ERROR),
+}, SEARCH_RESPONSE_ERROR);
+export type IPdfSearchExcerpt = v.InferOutput<typeof searchExcerptSchema>;
+
+const searchWordSchema = v.pipe(
+    v.looseObject({
+        text: v.string(SEARCH_RESPONSE_ERROR),
+        x: v.pipe(v.number(SEARCH_RESPONSE_ERROR), v.finite(SEARCH_RESPONSE_ERROR)),
+        y: v.pipe(v.number(SEARCH_RESPONSE_ERROR), v.finite(SEARCH_RESPONSE_ERROR)),
+        width: v.pipe(v.number(SEARCH_RESPONSE_ERROR), v.finite(SEARCH_RESPONSE_ERROR)),
+        height: v.pipe(v.number(SEARCH_RESPONSE_ERROR), v.finite(SEARCH_RESPONSE_ERROR)),
+    }, SEARCH_RESPONSE_ERROR),
+    v.transform(word => word as IOcrWord),
+);
+
+const positiveFiniteNumber = v.pipe(
+    v.number(SEARCH_RESPONSE_ERROR),
+    v.finite(SEARCH_RESPONSE_ERROR),
+    v.check(value => value > 0, SEARCH_RESPONSE_ERROR),
+);
+
+export const pdfSearchResultSchema = v.pipe(
+    v.object({
+        pageNumber: searchPageNumberSchema,
+        pageMatchIndex: safeNonNegativeInteger,
+        matchIndex: safeNonNegativeInteger,
+        startOffset: safeNonNegativeInteger,
+        endOffset: safeNonNegativeInteger,
+        excerpt: searchExcerptSchema,
+        words: v.optional(v.array(searchWordSchema, SEARCH_RESPONSE_ERROR)),
+        pageWidth: v.optional(positiveFiniteNumber),
+        pageHeight: v.optional(positiveFiniteNumber),
+        rotation: v.optional(v.picklist([
+            0,
+            90,
+            180,
+            270,
+        ], SEARCH_RESPONSE_ERROR)),
+    }, SEARCH_RESPONSE_ERROR),
+    v.check(value => value.endOffset >= value.startOffset, SEARCH_RESPONSE_ERROR),
+    v.transform(value => ({
+        pageNumber: value.pageNumber,
         pageMatchIndex: value.pageMatchIndex,
         matchIndex: value.matchIndex,
         startOffset: value.startOffset,
         endOffset: value.endOffset,
-        excerpt,
+        excerpt: value.excerpt,
         ...(value.words === undefined ? {} : {words: value.words}),
         ...(value.pageWidth === undefined ? {} : {pageWidth: value.pageWidth}),
         ...(value.pageHeight === undefined ? {} : {pageHeight: value.pageHeight}),
         ...(value.rotation === undefined ? {} : {rotation: value.rotation}),
-    };
-}
+    })),
+);
+export type IPdfSearchResult = v.InferOutput<typeof pdfSearchResultSchema>;
 
-function decodeSearchResponse(value: unknown, pageCount?: number): IPdfSearchResponse | null {
-    if (
-        !isRecord(value)
-        || !Array.isArray(value.results)
-        || value.results.length > SEARCH_RESULT_LIMIT
-        || typeof value.truncated !== 'boolean'
-        || (value.canceled !== undefined && typeof value.canceled !== 'boolean')
-    ) {
-        return null;
-    }
-    const results: IPdfSearchResult[] = [];
-    for (const result of value.results) {
-        const decoded = decodeSearchResult(result, pageCount);
-        if (decoded === null) {
-            return null;
-        }
-        results.push(decoded);
-    }
-    return {
-        results,
+export const pdfSearchResponseSchema = v.pipe(
+    v.object({
+        results: v.pipe(
+            v.array(pdfSearchResultSchema, SEARCH_RESPONSE_ERROR),
+            v.maxLength(SEARCH_RESULT_LIMIT, SEARCH_RESPONSE_ERROR),
+        ),
+        truncated: v.boolean(SEARCH_RESPONSE_ERROR),
+        canceled: v.optional(v.boolean(SEARCH_RESPONSE_ERROR)),
+    }, SEARCH_RESPONSE_ERROR),
+    v.transform(value => ({
+        results: value.results,
         truncated: value.truncated,
         ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
-    };
+    })),
+);
+export type IPdfSearchResponse = v.InferOutput<typeof pdfSearchResponseSchema>;
+
+function decodeExcerpt(value: unknown): IPdfSearchExcerpt | null {
+    const result = v.safeParse(searchExcerptSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
-/** The sole runtime decoder for search results crossing worker, IPC, or native boundaries. */
+function decodeResult(value: unknown, pageCount?: number): IPdfSearchResult | null {
+    const result = v.safeParse(pdfSearchResultSchema, value, {abortEarly: true});
+    return result.success && parsePageNumber(result.output.pageNumber, pageCount) !== null
+        ? result.output
+        : null;
+}
+
+function decodeResponse(value: unknown, pageCount?: number): IPdfSearchResponse | null {
+    const result = v.safeParse(pdfSearchResponseSchema, value, {abortEarly: true});
+    return result.success
+        && result.output.results.every(item => parsePageNumber(item.pageNumber, pageCount) !== null)
+        ? result.output
+        : null;
+}
+
+/** The shared search result shape used at worker and native-process boundaries. */
 export const SEARCH_WIRE_CODEC = {
-    decodeExcerpt: decodeSearchExcerpt,
-    decodeResult: decodeSearchResult,
-    decodeResponse: decodeSearchResponse,
+    decodeExcerpt,
+    decodeResult,
+    decodeResponse,
+    decodeProgress,
 } as const;
 
-export interface IPdfSearchProgress {
-    readonly requestId: TRequestId;
-    readonly processed: number;
-    readonly total: number;
-    readonly results?: readonly IPdfSearchResult[];
-    readonly resultsStartIndex?: number;
-    readonly truncated?: boolean;
-    readonly canceled?: boolean;
-    readonly status?: 'running' | 'success' | 'canceled' | 'failed';
-    readonly error?: string;
+const searchRequestIdSchema = v.pipe(
+    v.string('invalid search progress'),
+    v.check(value => parseRequestId(value) !== null, 'invalid search progress'),
+    v.transform(value => parseRequestId(value)!),
+);
+const finiteNumber = v.pipe(v.number('invalid search progress'), v.finite('invalid search progress'));
+const searchProgressInputSchema = v.pipe(v.object({
+    requestId: searchRequestIdSchema,
+    processed: finiteNumber,
+    total: finiteNumber,
+    results: v.optional(v.array(pdfSearchResultSchema, 'invalid search progress')),
+    resultsStartIndex: v.optional(v.unknown()),
+    truncated: v.optional(v.boolean('invalid search progress')),
+    canceled: v.optional(v.boolean('invalid search progress')),
+    status: v.optional(v.picklist([
+        'running',
+        'success',
+        'canceled',
+        'failed',
+    ], 'invalid search progress')),
+    error: v.optional(v.string('invalid search progress')),
+}, 'invalid search progress'), v.check(progress => (
+    progress.results === undefined
+    || progress.resultsStartIndex === undefined
+    || typeof progress.resultsStartIndex === 'number'
+        && Number.isSafeInteger(progress.resultsStartIndex)
+        && progress.resultsStartIndex >= 0
+), 'invalid search progress'));
+export const pdfSearchProgressSchema = v.pipe(
+    searchProgressInputSchema,
+    v.transform(progress => ({
+        requestId: progress.requestId,
+        processed: progress.processed,
+        total: progress.total,
+        ...(progress.results === undefined ? {} : {results: progress.results}),
+        ...(progress.results === undefined || typeof progress.resultsStartIndex !== 'number'
+            ? {}
+            : {resultsStartIndex: progress.resultsStartIndex}),
+        ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
+        ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
+        ...(progress.status === undefined ? {} : {status: progress.status}),
+        ...(progress.error === undefined ? {} : {error: progress.error}),
+    })),
+);
+export type IPdfSearchProgress = v.InferOutput<typeof pdfSearchProgressSchema>;
+
+function decodeProgress(value: unknown): IPdfSearchProgress | null {
+    const result = v.safeParse(pdfSearchProgressSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
+
 
 export type TSearchErrorCode =
     | 'SEARCH_INVALID_PAYLOAD'
@@ -398,16 +432,7 @@ function normalizeOptionalSearchDocumentRevision(raw: unknown) {
     return documentRevision;
 }
 
-export interface INormalizedPdfSearchRequest extends IPdfSearchRequestOptions {
-    pdfPath: TDocumentRef;
-    query: string;
-}
-
-export interface INormalizedPdfSearchWarmIndexRequest extends IPdfSearchRequestOptions {pdfPath: TDocumentRef;}
-
-export function normalizePdfSearchRequestPayload(
-    raw: unknown,
-): INormalizedPdfSearchRequest {
+function normalizePdfSearchRequest(raw: unknown) {
     if (!isRecord(raw)) {
         throw new Error('Invalid search request payload');
     }
@@ -435,9 +460,7 @@ export function normalizePdfSearchRequestPayload(
     };
 }
 
-export function normalizePdfSearchWarmIndexPayload(
-    raw: unknown,
-): INormalizedPdfSearchWarmIndexRequest {
+function normalizePdfSearchWarmIndexRequest(raw: unknown) {
     if (!isRecord(raw)) {
         throw new Error('Invalid warm-index payload');
     }
@@ -452,4 +475,39 @@ export function normalizePdfSearchWarmIndexPayload(
         ...(requestId === undefined ? {} : {requestId}),
         ...(documentRevision === undefined ? {} : {documentRevision}),
     };
+}
+
+const searchRequestInputSchema = v.object({
+    pdfPath: v.unknown(),
+    query: v.unknown(),
+    requestId: v.optional(v.unknown()),
+    pageCount: v.optional(v.unknown()),
+    documentRevision: v.optional(v.unknown()),
+    matchCase: v.optional(v.unknown()),
+    wholeWord: v.optional(v.unknown()),
+    useRegex: v.optional(v.unknown()),
+}, 'Invalid search request payload');
+export const pdfSearchRequestSchema = v.pipe(
+    searchRequestInputSchema,
+    v.transform(value => normalizePdfSearchRequest(value)),
+);
+export const pdfSearchWarmIndexRequestSchema = v.pipe(
+    v.object({
+        pdfPath: v.unknown(),
+        requestId: v.optional(v.unknown()),
+        pageCount: v.optional(v.unknown()),
+        documentRevision: v.optional(v.unknown()),
+    }, 'Invalid warm-index payload'),
+    v.transform(value => normalizePdfSearchWarmIndexRequest(value)),
+);
+
+export type INormalizedPdfSearchRequest = v.InferOutput<typeof pdfSearchRequestSchema>;
+export type INormalizedPdfSearchWarmIndexRequest = v.InferOutput<typeof pdfSearchWarmIndexRequestSchema>;
+
+export function normalizePdfSearchRequestPayload(raw: unknown): INormalizedPdfSearchRequest {
+    return v.parse(pdfSearchRequestSchema, raw, {abortEarly: true});
+}
+
+export function normalizePdfSearchWarmIndexPayload(raw: unknown): INormalizedPdfSearchWarmIndexRequest {
+    return v.parse(pdfSearchWarmIndexRequestSchema, raw, {abortEarly: true});
 }

@@ -66,7 +66,7 @@ describe('createElectronPlatformApiFixture', () => {
         expect(api.diagnostics.onDebugLog).toEqual(expect.any(Function));
     });
 
-    it('uses migrated schema examples for Search defaults', async () => {
+    it('uses test fixtures for Search defaults', async () => {
         const api = createElectronPlatformApiFixture();
         await expect(api.search.run('/tmp/example.pdf', 'needle'))
             .resolves.toEqual({

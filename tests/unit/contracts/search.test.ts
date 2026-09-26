@@ -50,6 +50,39 @@ describe('contracts search compatibility exports', () => {
         };
 
         expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse(response)).toEqual(response);
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResponse({
+            ...response,
+            ignored: true,
+            results: [{
+                ...response.results[0],
+                ignored: true,
+                excerpt: {
+                    ...response.results[0]!.excerpt,
+                    ignored: true,
+                },
+                words: [{
+                    text: 'foo',
+                    x: 1,
+                    y: 2,
+                    width: 3,
+                    height: 4,
+                    ignored: true,
+                }],
+            }],
+        })).toEqual({
+            ...response,
+            results: [{
+                ...response.results[0],
+                words: [{
+                    text: 'foo',
+                    x: 1,
+                    y: 2,
+                    width: 3,
+                    height: 4,
+                    ignored: true,
+                }],
+            }],
+        });
         expect(contractsSearch.SEARCH_WIRE_CODEC.decodeResult({
             ...response.results[0],
             startOffset: Number.NaN,
@@ -188,19 +221,18 @@ describe('Search platform feature schemas', () => {
             truncated: false,
         };
         expect(codecs[channels.run]!.decodeResult(response)).toEqual(response);
-        const progressSchema = SEARCH_PLATFORM_FEATURE.events.onProgress.payload;
         const progress = {
             requestId: 'request-1',
             processed: 1,
             total: 2,
             status: 'running' as const,
         };
-        expect(progressSchema.decode(progress)).toEqual(progress);
-        expect(() => progressSchema.decode({
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress(progress)).toEqual(progress);
+        expect(contractsSearch.SEARCH_WIRE_CODEC.decodeProgress({
             requestId: 'request-1',
             processed: '1',
             total: 2,
-        })).toThrow('invalid search progress');
+        })).toBeNull();
     });
 });
 

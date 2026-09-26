@@ -93,6 +93,28 @@ type TPlatformApiFixtureEventFunction = (
 ) => () => void;
 
 const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
+    'search.run': {
+        results: [],
+        truncated: false,
+    },
+    'search.warmIndex': true,
+    'search.cancel': {canceled: false},
+    'search.resetCache': true,
+    'windowTabs.transfer': {
+        transferId: 'transfer-1',
+        success: true,
+        targetWindowId: 2,
+    },
+    'windowTabs.transferAck': true,
+    'windowTabs.listTargetWindows': [],
+    'windowTabs.closeCurrentWindow': false,
+    'windowTabs.claimPendingExternalOpenPaths': [],
+    'windowTabs.acknowledgePendingExternalOpenPaths': undefined,
+    'windowTabs.saveWorkspaceCheckpoint': undefined,
+    'windowTabs.discardWorkspaceCheckpoint': '1',
+    'windowTabs.resumeWorkspaceCheckpoint': undefined,
+    'windowTabs.claimWorkspaceCheckpoint': null,
+    'windowTabs.acknowledgeWorkspaceCheckpoint': undefined,
     'host.getResourceProfile': {
         logicalCpus: 8,
         totalRamBytes: 16 * 1024 ** 3,

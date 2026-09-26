@@ -24,6 +24,46 @@ export interface IValidatedRegistrarCase {
 }
 
 const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
+    'pdf:search': [{
+        pdfPath: '/tmp/search.pdf',
+        query: 'needle',
+    }],
+    'pdf:search:warmIndex': [{pdfPath: '/tmp/search.pdf'}],
+    'pdf:search:cancel': ['search-fixture'],
+    'tabs:transfer': [{
+        target: {
+            kind: 'window',
+            windowId: 2,
+        },
+        tab: {
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            isDirty: false,
+            isDjvu: false,
+        },
+        payload: {
+            kind: 'pdfSnapshot',
+            fileName: 'sample.pdf',
+            originalPath: '/tmp/sample.pdf',
+            snapshotPath: '/tmp/snapshot.pdf',
+            isDirty: false,
+        },
+    }],
+    'tabs:transferAck': [{
+        transferId: 'transfer-1',
+        success: true,
+    }],
+    'app:acknowledgePendingExternalOpenPaths': [['/tmp/sample.pdf']],
+    'workspace:checkpointSave': [{
+        version: 1,
+        capturedAt: 1,
+        activePaneId: null,
+        activeTabId: null,
+        layout: null,
+        panes: [],
+        tabs: [],
+    }],
+    'workspace:checkpointResume': ['7'],
     'host:setZenMode': [true],
     'host:writeBugReportBundle': [{
         reportJson: '{}',

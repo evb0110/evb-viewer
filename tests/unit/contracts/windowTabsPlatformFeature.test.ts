@@ -5,9 +5,42 @@ import {
 } from 'vitest';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import type {IWindowTabTransferRequest} from '@contracts/windowTabs';
+import {requireEpochMs} from '@contracts/timestamps';
+import {
+    decodeWindowTabIncomingTransfer,
+    decodeWindowTabPaneDirection,
+} from '@contracts/windowTabsValidation';
 
-const [transferRequest] = WINDOW_TABS_PLATFORM_FEATURE.methods.transfer.ipc.args.example();
-const checkpoint = WINDOW_TABS_PLATFORM_FEATURE.methods.saveWorkspaceCheckpoint.ipc.args.example()[0];
+const transferRequest: IWindowTabTransferRequest = {
+    target: {
+        kind: 'window',
+        windowId: 2,
+    },
+    tab: {
+        fileName: 'sample.pdf',
+        originalPath: requireDocumentRef('/tmp/sample.pdf'),
+        isDirty: false,
+        isDjvu: false,
+    },
+    payload: {
+        kind: 'pdfSnapshot',
+        fileName: 'sample.pdf',
+        originalPath: requireDocumentRef('/tmp/sample.pdf'),
+        snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
+        isDirty: false,
+    },
+};
+const checkpoint: IWorkspaceCheckpoint = {
+    version: 1,
+    capturedAt: requireEpochMs(1),
+    activePaneId: null,
+    activeTabId: null,
+    layout: null,
+    panes: [],
+    tabs: [],
+};
 const transferResult = {
     transferId: 'transfer-1',
     success: true,
@@ -105,14 +138,14 @@ describe('window tabs platform feature schemas', () => {
             transferId: 'transfer-ordinary',
             payload: ordinaryDirtyPayload,
         };
-        expect(WINDOW_TABS_PLATFORM_FEATURE.events.onIncomingTransfer.payload.decode(generatedIncoming).payload)
+        expect(decodeWindowTabIncomingTransfer(generatedIncoming)?.payload)
             .toEqual(generatedPayload);
-        expect(WINDOW_TABS_PLATFORM_FEATURE.events.onIncomingTransfer.payload.decode(ordinaryIncoming).payload)
+        expect(decodeWindowTabIncomingTransfer(ordinaryIncoming)?.payload)
             .toEqual(ordinaryDirtyPayload);
     });
 
     it('decodes event payloads and rejects malformed boundary values', () => {
-        expect(WINDOW_TABS_PLATFORM_FEATURE.events.onMenuSplitEditor.payload.decode('right')).toBe('right');
+        expect(decodeWindowTabPaneDirection('right')).toBe('right');
         expect(() => codecs[channels.transferAck]!.decodeArgs([{
             transferId: '',
             success: true,
@@ -123,7 +156,6 @@ describe('window tabs platform feature schemas', () => {
         }])).toThrow('invalid window tab target windows');
         expect(() => codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([null]))
             .toThrow('invalid workspace checkpoint');
-        expect(() => WINDOW_TABS_PLATFORM_FEATURE.events.onMenuSplitEditor.payload.decode('diagonal'))
-            .toThrow('invalid pane direction');
+        expect(decodeWindowTabPaneDirection('diagonal')).toBeNull();
     });
 });

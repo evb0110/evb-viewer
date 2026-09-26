@@ -1,82 +1,41 @@
-import type { TPaneDirection } from '@contracts/editorPanes';
 import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import type {
-    IWindowTabIncomingTransfer,
-    IWindowTabTargetWindow,
-    IWindowTabTransferAck,
-    IWindowTabTransferRequest,
-    IWindowTabTransferResult,
-    TWindowTabsAction,
-} from '@contracts/windowTabs';
-import {
-    decodeWindowTabIncomingTransfer,
-    decodeWindowTabTargetWindows,
-    decodeWindowTabTransferAck,
-    decodeWindowTabTransferRequest,
-    decodeWindowTabTransferResult,
-    decodeWindowTabsAction,
+    windowTabDocumentRefSchema,
+    windowTabIncomingTransferSchema,
+    windowTabPaneDirectionSchema,
+    windowTabTargetWindowsSchema,
+    windowTabTransferAckSchema,
+    windowTabTransferRequestSchema,
+    windowTabTransferResultSchema,
+    windowTabsActionSchema,
 } from '@contracts/windowTabsValidation';
-import {
-    decodeWorkspaceCheckpoint,
-    type IWorkspaceCheckpoint,
-} from '@contracts/workspaceCheckpoint';
 import {
     defineForwardedPlatformEvent,
     defineForwardedPlatformMethod,
     definePlatformFeature,
-    runtimeSchema as s,
     type TFeatureCapability,
     type TFeatureEventMap,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
-import {requireEpochMs} from '@contracts/timestamps';
-
-type TVoidResult = ReturnType<() => void>;
-
-const noArgs = s.tuple([]);
-const voidResult = s.declared<TVoidResult>()(s.undefined());
-const checkpointDiscardToken = s.fromParser<string>((value) => {
-    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-        throw new Error('invalid workspace checkpoint discard token');
-    }
-    return value;
-}, () => '1');
-const requireDocumentRef = (value: string): TDocumentRef => {
-    const parsed = parseDocumentRef(value);
-    if (parsed === null) {
-        throw new TypeError('invalid document reference');
-    }
-    return parsed;
-};
-const documentRef = s.branded(
-    s.string('/tmp/document.pdf'),
-    (value): value is TDocumentRef => parseDocumentRef(value) !== null,
-    'invalid document reference',
-);
-const paneDirection = s.fromParser<TPaneDirection>((value) => {
-    if (value !== 'left' && value !== 'right' && value !== 'up' && value !== 'down') {
-        throw new Error('invalid pane direction');
-    }
-    return value;
-}, () => 'right');
-const checkpointExample = (): IWorkspaceCheckpoint => ({
-    version: 1,
-    capturedAt: requireEpochMs(1),
-    activePaneId: null,
-    activeTabId: null,
-    layout: null,
-    panes: [],
-    tabs: [],
-});
-const workspaceCheckpoint = s.fromNullableDecoder(
+import {
     decodeWorkspaceCheckpoint,
-    'workspace checkpoint',
-    checkpointExample,
+    type IWorkspaceCheckpoint,
+} from '@contracts/workspaceCheckpoint';
+import * as v from 'valibot';
+
+const noArgs = v.strictTuple([]);
+const voidResult = v.pipe(v.undefined('expected an undefined IPC result'), v.transform((): void => undefined));
+const checkpointDiscardToken = v.pipe(
+    v.string('invalid workspace checkpoint discard token'),
+    v.regex(/^\d+$/u, 'invalid workspace checkpoint discard token'),
 );
-const nullableWorkspaceCheckpoint = s.fromParser<IWorkspaceCheckpoint | null>((value) => {
+const workspaceCheckpoint = v.pipe(v.unknown(), v.transform((value) => {
+    const decoded = decodeWorkspaceCheckpoint(value);
+    if (!decoded) {
+        throw new Error('invalid workspace checkpoint');
+    }
+    return decoded;
+}));
+const nullableWorkspaceCheckpoint = v.pipe(v.unknown(), v.transform((value): IWorkspaceCheckpoint | null => {
     if (value === null) {
         return null;
     }
@@ -85,72 +44,7 @@ const nullableWorkspaceCheckpoint = s.fromParser<IWorkspaceCheckpoint | null>((v
         throw new Error('invalid workspace checkpoint');
     }
     return decoded;
-}, checkpointExample);
-const transferRequestExample = (): IWindowTabTransferRequest => ({
-    target: {
-        kind: 'window',
-        windowId: 2,
-    },
-    tab: {
-        fileName: 'sample.pdf',
-        originalPath: requireDocumentRef('/tmp/sample.pdf'),
-        isDirty: false,
-        isDjvu: false,
-    },
-    payload: {
-        kind: 'pdfSnapshot',
-        fileName: 'sample.pdf',
-        originalPath: requireDocumentRef('/tmp/sample.pdf'),
-        snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
-        isDirty: false,
-    },
-});
-const transferRequest = s.fromNullableDecoder(
-    decodeWindowTabTransferRequest,
-    'window tab transfer request',
-    transferRequestExample,
-);
-const transferAck = s.fromNullableDecoder<IWindowTabTransferAck>(
-    decodeWindowTabTransferAck,
-    'window tab transfer acknowledgement',
-    () => ({
-        transferId: 'transfer-1',
-        success: true,
-    }),
-);
-const transferResult = s.fromNullableDecoder<IWindowTabTransferResult>(
-    decodeWindowTabTransferResult,
-    'window tab transfer result',
-    () => ({
-        transferId: 'transfer-1',
-        success: true,
-        targetWindowId: 2,
-    }),
-);
-const targetWindows = s.fromNullableDecoder<IWindowTabTargetWindow[]>(
-    decodeWindowTabTargetWindows,
-    'window tab target windows',
-    () => [{
-        windowId: 2,
-        label: 'Window 2',
-    }],
-);
-const incomingTransfer = s.fromNullableDecoder<IWindowTabIncomingTransfer>(
-    decodeWindowTabIncomingTransfer,
-    'window tab incoming transfer',
-    () => ({
-        transferId: 'transfer-1',
-        sourceWindowId: 1,
-        targetWindowId: 2,
-        tab: transferRequestExample().tab,
-        payload: transferRequestExample().payload,
-    }),
-);
-const windowTabsAction = s.fromNullableDecoder<TWindowTabsAction>(
-    decodeWindowTabsAction,
-    'window tabs action',
-    () => ({kind: 'close-tab'}),
-);
+}));
 
 export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
     path: ['windowTabs'],
@@ -163,49 +57,49 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
         transfer: defineForwardedPlatformMethod({
             name: 'transfer',
             channel: 'tabs:transfer',
-            args: s.tuple([transferRequest]),
-            result: transferResult,
+            args: v.strictTuple([windowTabTransferRequestSchema]),
+            result: windowTabTransferResultSchema,
             main: 'requestWindowTabTransfer',
         }),
         transferAck: defineForwardedPlatformMethod({
             name: 'transferAck',
             channel: 'tabs:transferAck',
-            args: s.tuple([transferAck]),
-            result: s.boolean(),
+            args: v.strictTuple([windowTabTransferAckSchema]),
+            result: v.boolean(),
             main: 'acknowledgeWindowTabTransfer',
         }),
         listTargetWindows: defineForwardedPlatformMethod({
             name: 'listTargetWindows',
             channel: 'tabs:listTargets',
             args: noArgs,
-            result: targetWindows,
+            result: windowTabTargetWindowsSchema,
             main: 'listWindowTabTargets',
         }),
         closeCurrentWindow: defineForwardedPlatformMethod({
             name: 'closeCurrentWindow',
             channel: 'window:closeCurrent',
             args: noArgs,
-            result: s.boolean(),
+            result: v.boolean(),
             main: 'closeCurrentWindow',
         }),
         claimPendingExternalOpenPaths: defineForwardedPlatformMethod({
             name: 'claimPendingExternalOpenPaths',
             channel: 'app:claimPendingExternalOpenPaths',
             args: noArgs,
-            result: s.array(documentRef),
+            result: v.array(windowTabDocumentRefSchema),
             main: 'claimPendingExternalOpenPaths',
         }),
         acknowledgePendingExternalOpenPaths: defineForwardedPlatformMethod({
             name: 'acknowledgePendingExternalOpenPaths',
             channel: 'app:acknowledgePendingExternalOpenPaths',
-            args: s.tuple([s.array(documentRef)]),
+            args: v.strictTuple([v.array(windowTabDocumentRefSchema)]),
             result: voidResult,
             main: 'acknowledgePendingExternalOpenPaths',
         }),
         saveWorkspaceCheckpoint: defineForwardedPlatformMethod({
             name: 'saveWorkspaceCheckpoint',
             channel: 'workspace:checkpointSave',
-            args: s.tuple([workspaceCheckpoint]),
+            args: v.strictTuple([workspaceCheckpoint]),
             result: voidResult,
             main: 'saveWorkspaceCheckpoint',
         }),
@@ -219,7 +113,7 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
         resumeWorkspaceCheckpoint: defineForwardedPlatformMethod({
             name: 'resumeWorkspaceCheckpoint',
             channel: 'workspace:checkpointResume',
-            args: s.tuple([checkpointDiscardToken]),
+            args: v.strictTuple([checkpointDiscardToken]),
             result: voidResult,
             main: 'resumeWorkspaceCheckpoint',
         }),
@@ -242,42 +136,42 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
         onIncomingTransfer: defineForwardedPlatformEvent({
             name: 'onIncomingTransfer',
             channel: 'tabs:incomingTransfer',
-            payload: incomingTransfer,
+            payload: windowTabIncomingTransferSchema,
         }),
         onWindowAction: defineForwardedPlatformEvent({
             name: 'onWindowAction',
             channel: 'menu:windowTabsAction',
-            payload: windowTabsAction,
+            payload: windowTabsActionSchema,
         }),
         onMenuNewTab: defineForwardedPlatformEvent({
             name: 'onMenuNewTab',
             channel: 'menu:newTab',
-            payload: s.undefined(),
+            payload: v.undefined(),
         }),
         onMenuCloseTab: defineForwardedPlatformEvent({
             name: 'onMenuCloseTab',
             channel: 'menu:closeTab',
-            payload: s.undefined(),
+            payload: v.undefined(),
         }),
         onMenuSplitEditor: defineForwardedPlatformEvent({
             name: 'onMenuSplitEditor',
             channel: 'menu:splitEditor',
-            payload: paneDirection,
+            payload: windowTabPaneDirectionSchema,
         }),
         onMenuFocusEditorPane: defineForwardedPlatformEvent({
             name: 'onMenuFocusEditorPane',
             channel: 'menu:focusEditorPane',
-            payload: paneDirection,
+            payload: windowTabPaneDirectionSchema,
         }),
         onMenuMoveTabToPane: defineForwardedPlatformEvent({
             name: 'onMenuMoveTabToPane',
             channel: 'menu:moveTabToPane',
-            payload: paneDirection,
+            payload: windowTabPaneDirectionSchema,
         }),
         onMenuCopyTabToPane: defineForwardedPlatformEvent({
             name: 'onMenuCopyTabToPane',
             channel: 'menu:copyTabToPane',
-            payload: paneDirection,
+            payload: windowTabPaneDirectionSchema,
         }),
     },
 });
