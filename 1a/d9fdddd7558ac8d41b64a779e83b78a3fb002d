@@ -1,0 +1,96 @@
+app/utils/platform.ts
+  s_db22e43df1fd03::t_92b83c2d89c5c7 1
+CONTRIBUTING.md
+  s_db22e43df1fd03::t_511a95e41036b9 56-58
+scripts/run-build-strict.mjs
+  s_db22e43df1fd03::t_803cdc2c8c44e6 3-5,70-73,86-111,268-269
+  s_db22e43df1fd03::t_4ee29d6c271701 8
+  s_db22e43df1fd03::t_095eb1c371cb3a 74-85
+docs/contributing/web-build.md
+  s_db22e43df1fd03::t_045af1f0c19f30 13-14,41,43-46
+packages/contracts/electronApi.ts
+  s_db22e43df1fd03::t_92b83c2d89c5c7 1
+.dependency-cruiser.cjs
+  s_db22e43df1fd03::t_28a4987ef8737f 1-4,6-8,10-12
+  s_db22e43df1fd03::t_459e599f73e947 5,9
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_db22e43df1fd03::t_c7150efea864b4 1
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_db22e43df1fd03::t_c7150efea864b4 274
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_db22e43df1fd03::t_c7150efea864b4 1
+ARCHITECTURE.md
+  s_db22e43df1fd03::t_511a95e41036b9 126-128,138-139,141-142
+app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts
+  s_db22e43df1fd03::t_c7150efea864b4 1
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_db22e43df1fd03::t_c7150efea864b4 5
+app/modules/workspace-shell/composables/useMetadataSession.ts
+  s_db22e43df1fd03::t_c7150efea864b4 1
+app/platform/browserPlatformApi.ts
+  s_db22e43df1fd03::t_92b83c2d89c5c7 1
+app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport.ts
+  s_db22e43df1fd03::t_c7150efea864b4 12
+scripts/release/verify-local-package.mjs
+  s_db22e43df1fd03::t_4ee29d6c271701 28,202
+scripts/run-all-gates.mjs
+  s_db22e43df1fd03::t_62bc6f5f52ed78 32-33,35
+eslint.config.mjs
+  s_db22e43df1fd03::t_7d06fd5f479b07 102,113
+  s_db22e43df1fd03::t_e7b18d2e230f6d 7,174,184
+  s_db22e43df1fd03::t_bf453c31ad5e2e 127-134,146-153
+  s_db22e43df1fd03::t_3b550e50c3f054 78-88,98,104,109-112,114
+  s_db22e43df1fd03::t_96ee37fa40b4ff 90-92
+  s_db22e43df1fd03::t_191825f2a443fe 96-97
+  s_db22e43df1fd03::t_858699d9d1e84e 179
+  s_db22e43df1fd03::t_51ffc2f337e9fd 67
+  s_db22e43df1fd03::t_3556f3a599062c 176-178,180-181,185-187,249-255
+  s_db22e43df1fd03::t_f0549d4347f2a8 95,99-100
+  s_db22e43df1fd03::t_a22e48ae64bd5c 117
+  s_db22e43df1fd03::t_876ca192972eed 217
+  s_db22e43df1fd03::t_747ae711509826 271-282
+  s_db22e43df1fd03::t_fa3a95a03f36b5 1,24-66,68-77,89,93-94,101,103,105-108
+docs/contributing/release-guardrails.md
+  s_db22e43df1fd03::t_57694947dfb132 16
+docs/contributing/local-gates.md
+  s_db22e43df1fd03::t_e20c6811395b3b 6-13,130-132,136-138
+app/modules/document-viewer/source/createPdfPageSource.ts
+  s_db22e43df1fd03::t_79ed06bd90e3c6 5
+package.json
+  s_db22e43df1fd03::t_2d834870d05751 57,60
+  s_db22e43df1fd03::t_05a2339d2de3be 50-51,102
+  s_db22e43df1fd03::t_a0b2f89190c05e 30,32-37,52
+  s_db22e43df1fd03::t_971b65df2bbd52 49
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_db22e43df1fd03::t_c7150efea864b4 437
+docs/contributing/development.md
+  s_db22e43df1fd03::t_5fec3b1b258d6e 156-159,199-200,203
+scripts/test-electron-e2e-headless.sh
+  s_db22e43df1fd03::t_c44ba460e59442 46,49
+.husky/pre-push
+  s_db22e43df1fd03::t_2c86e23f68a32b 24-26
+  s_db22e43df1fd03::t_55f06e11468d4b 9,13-23,27-31
+eslint-plugin-custom.mjs
+  s_db22e43df1fd03::t_61c12a2e91ec3f 1017
+  s_db22e43df1fd03::t_9158bdb9a594ae 758-777,786-792,798-804,810-818,823-828,830-840,853-877,882-889,892-893,901-905,913-914,919-922,927-928,933-934,939-944,952-954,962-971,976-984,991-992,997-999,1004-1008,1022-1024,1030-1032,1034
+  s_db22e43df1fd03::t_8961170760003b 793
+  s_db22e43df1fd03::t_853bedad139165 794-797,805-809,819-822,841-852,878-881,897-900,915-918,923-926,929-932,935-938,945-951,955-961,972-975,985-990,993-996,1000-1003,1019-1021,1027-1029
+  s_db22e43df1fd03::t_095eb1c371cb3a 778-785,908-911,1009-1016
+  s_db22e43df1fd03::t_17fda6025b3617 829,890-891,894-896,906-907,912,1018,1025-1026
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1ad9fdddd7558ac8d41b64a779e83b78a3fb002d",
+  "prompts": {},
+  "sessions": {
+    "s_db22e43df1fd03": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0dcf8-14ae-7c00-b631-e7719a24126f",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
