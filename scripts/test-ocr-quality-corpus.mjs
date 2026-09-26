@@ -262,27 +262,27 @@ async function runProductionOcrQualityDocument({
     });
 }
 
-async function collectCatalogPageText(sourcePdfPath) {
-    const catalogRoot = `${sourcePdfPath}.ocr`;
+async function collectCheckpointPageText(tempDirectory) {
+    const checkpointRoot = join(tempDirectory, 'ocr-checkpoints');
     const pageFiles = [];
     async function visit(directory) {
         for (const entry of await readdir(directory, {withFileTypes: true})) {
             const path = join(directory, entry.name);
             if (entry.isDirectory()) {
                 await visit(path);
-            } else if (/[\\/]pages[\\/]\d+[\\/]p\d+\.json$/u.test(path)) {
+            } else if (/[/\\]page-\d+\.json$/u.test(path)) {
                 pageFiles.push(path);
             }
         }
     }
-    await visit(catalogRoot);
+    await visit(checkpointRoot);
     const pages = new Map();
     for (const pageFile of pageFiles) {
-        const match = /^p(\d+)\.json$/u.exec(basename(pageFile));
+        const match = /^page-(\d+)\.json$/u.exec(basename(pageFile));
         if (!match) continue;
         const pageNumber = Number(match[1]);
-        const artifact = JSON.parse(await readFile(pageFile, 'utf8'));
-        pages.set(pageNumber, artifact.text ?? '');
+        const checkpoint = JSON.parse(await readFile(pageFile, 'utf8'));
+        pages.set(pageNumber, checkpoint.pageData?.text ?? '');
     }
     return pages;
 }
@@ -969,7 +969,7 @@ async function runCleanLanguageBenchmark({
     if (!workerResult.success) {
         throw new Error(`MLOCR-02 production PDF OCR failed: ${workerResult.errors.join('; ')}`);
     }
-    const rawPages = await collectCatalogPageText(sourcePdfPath);
+    const rawPages = await collectCheckpointPageText(workerTempDirectory);
     const pdfjsPages = await extractPdfjsPageText(workerResult.pdfPath);
     const popplerPages = await extractPopplerPageText(workerResult.pdfPath);
     const languages = scoreCleanLanguageSamples(fixture.manifest, rawPages, pdfjsPages, popplerPages);

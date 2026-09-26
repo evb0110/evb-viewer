@@ -31,7 +31,6 @@ import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLangua
 import {
     applyAgentOcrOptionsToSettings,
     cloneOcrSettingsSnapshot,
-    normalizeSelectedOcrLanguages,
     resolveOcrPageSegmentationModeFromSelectValue,
     resolveOcrPageSegmentationSelectValue,
     resolveQualityProfileSettings,
@@ -441,7 +440,8 @@ export const useOcrPopupPresenter = ({
             };
         },
     });
-    const hasSelectedAvailableLanguage = computed(() => settings.value.selectedLanguages.length > 0
+    const hasSavedMultipleLanguages = computed(() => settings.value.selectedLanguages.length > 1);
+    const hasSelectedAvailableLanguage = computed(() => settings.value.selectedLanguages.length === 1
         && settings.value.selectedLanguages.every(code => availableLanguageCodes.value.has(code)));
     const hasSelectedLanguageDownload = computed(() => {
         const stateByCode = new Map<string, IOcrLanguage['modelState']>(availableLanguages.value.map(language => [
@@ -505,12 +505,15 @@ export const useOcrPopupPresenter = ({
     const resultStatusText = computed(() => (
         hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
     ));
-    const selectedLanguagesModel = computed<TOcrLanguageCode[]>({
-        get: () => settings.value.selectedLanguages.filter(isAvailableOcrLanguageCode),
-        set: (selectedLanguages) => {
+    const selectedLanguageModel = computed<TOcrLanguageCode | undefined>({
+        get: () => settings.value.selectedLanguages.length === 1
+            && isAvailableOcrLanguageCode(settings.value.selectedLanguages[0])
+            ? settings.value.selectedLanguages[0]
+            : undefined,
+        set: (selectedLanguage) => {
             settings.value = {
                 ...settings.value,
-                selectedLanguages: normalizeSelectedOcrLanguages(selectedLanguages),
+                selectedLanguages: selectedLanguage ? [selectedLanguage] : [],
             };
         },
     });
@@ -920,12 +923,13 @@ export const useOcrPopupPresenter = ({
         languagePickerItems,
         languagePickerGroups,
         languageInventoryState,
+        hasSavedMultipleLanguages,
         hasSelectedLanguageDownload,
         showLanguageSearch,
         hasLanguageDownloadFailure,
         supersessionChoiceModel,
         replaceOnlyEvbModel,
-        selectedLanguagesModel,
+        selectedLanguageModel,
         pageSegmentationModeSelectValue,
         handleCopyLogs,
         handleRunOcr,

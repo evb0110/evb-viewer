@@ -333,7 +333,7 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it('preserves multiple selected languages and runs them together', async () => {
+    it('preserves saved multilingual settings until the user chooses one language', async () => {
         const harness = createPresenterHarness();
         harness.ocr.settings.value = {
             ...harness.ocr.settings.value,
@@ -349,21 +349,20 @@ describe('useOcrPopupPresenter', () => {
 
         try {
             await nextTick();
-            expect(harness.presenter.selectedLanguagesModel.value).toEqual([
+            expect(harness.presenter.hasSavedMultipleLanguages.value).toBe(true);
+            expect(harness.presenter.selectedLanguageModel.value).toBeUndefined();
+            expect(harness.ocr.settings.value.selectedLanguages).toEqual([
                 'eng',
                 'rus',
             ]);
-            expect(harness.presenter.canRunOcr.value).toBe(true);
+            expect(harness.presenter.canRunOcr.value).toBe(false);
             expect(harness.presenter.languagePickerItems.value.filter(item => item.group === 'selected'))
                 .toHaveLength(2);
 
-            await expect(harness.presenter.runOcrForAgent({open: false})).resolves.toMatchObject({ok: true});
-            expect(harness.ocr.runOcr).toHaveBeenCalledTimes(1);
-
-            harness.presenter.selectedLanguagesModel.value = ['rus'];
+            harness.presenter.selectedLanguageModel.value = 'rus';
             expect(harness.ocr.settings.value.selectedLanguages).toEqual(['rus']);
-            harness.presenter.selectedLanguagesModel.value = [];
-            expect(harness.presenter.canRunOcr.value).toBe(false);
+            expect(harness.presenter.hasSavedMultipleLanguages.value).toBe(false);
+            expect(harness.presenter.canRunOcr.value).toBe(true);
         } finally {
             stopHarness(harness.scope);
         }

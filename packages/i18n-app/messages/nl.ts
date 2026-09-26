@@ -894,6 +894,7 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Herkenningstalen of codes zoeken',
+            'chooseOneLanguage': 'Deze opgeslagen instellingen bevatten meerdere talen. Kies één taal voordat je OCR start.',
             'inventoryLoading': 'Beschikbaarheid van taalgegevens controleren...',
             'inventoryUnavailable': 'De beschikbaarheid van taalgegevens is onbekend. Probeer het opnieuw voordat u OCR start.',
             'downloadAndStart': 'Downloaden en OCR starten',

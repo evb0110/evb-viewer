@@ -894,6 +894,7 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Erkennungssprachen oder Codes suchen',
+            'chooseOneLanguage': 'In den gespeicherten Einstellungen sind mehrere Sprachen ausgewählt. Wählen Sie vor dem Start der OCR eine Sprache aus.',
             'inventoryLoading': 'Verfügbarkeit der Sprachdaten wird geprüft ...',
             'inventoryUnavailable': 'Die Verfügbarkeit der Sprachdaten ist unbekannt. Versuchen Sie es vor dem OCR-Start erneut.',
             'downloadAndStart': 'Herunterladen und OCR starten',

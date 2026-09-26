@@ -370,7 +370,7 @@ export default {
             },
         },
         'settingHelpAria': 'О параметре «{setting}»',
-        'languages': 'Языки распознавания',
+        'languages': 'Язык распознавания',
         'languageModelState': {
             'ready': 'Установлен',
             'missing': 'Нужно скачать',
@@ -380,6 +380,7 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Поиск по названию или коду',
+            'chooseOneLanguage': 'В сохранённых настройках выбрано несколько языков. Перед запуском OCR выберите один язык.',
             'inventoryLoading': 'Проверка доступности языковых данных...',
             'inventoryUnavailable': 'Не удалось проверить языковые данные. Повторите попытку перед запуском OCR.',
             'downloadAndStart': 'Скачать и запустить OCR',

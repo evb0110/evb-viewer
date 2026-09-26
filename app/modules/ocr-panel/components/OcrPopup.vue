@@ -252,6 +252,13 @@
                                 class="language-search"
                             />
                         </div>
+                        <p
+                            v-if="hasSavedMultipleLanguages"
+                            class="language-inventory-status"
+                            role="status"
+                        >
+                            {{ t('ocr.languagePicker.chooseOneLanguage') }}
+                        </p>
                         <div class="language-picker-list app-scrollbar app-scroll-region--balanced">
                             <p
                                 v-if="languageInventoryState === 'loading'"
@@ -279,10 +286,10 @@
                                     >
                                         {{ t(`ocr.languagePicker.groups.${group.key}`, undefined) }}
                                     </p>
-                                    <UCheckboxGroup
+                                    <URadioGroup
                                         v-if="group.items.length > 0"
-                                        v-model="selectedLanguagesModel"
-                                        name="ocrLanguages"
+                                        v-bind="selectedLanguageModel === undefined ? {} : { modelValue: selectedLanguageModel }"
+                                        name="ocrLanguage"
                                         :legend="t(`ocr.languagePicker.groups.${group.key}`, undefined)"
                                         :items="group.items"
                                         value-key="value"
@@ -291,6 +298,7 @@
                                         orientation="horizontal"
                                         indicator="hidden"
                                         :ui="languageChipGroupUi"
+                                        @update:model-value="selectedLanguageModel = $event"
                                     >
                                         <template #label="{ item }">
                                             <span class="chip-name">{{ item.label }}</span>
@@ -309,7 +317,7 @@
                                                 {{ t(getLanguageModelStateLabelKey(item.modelState), undefined) }}
                                             </span>
                                         </template>
-                                    </UCheckboxGroup>
+                                    </URadioGroup>
                                 </template>
                             </template>
                             <p v-else class="language-empty">
@@ -589,12 +597,13 @@ const {
     languagePickerItems,
     languagePickerGroups,
     languageInventoryState,
+    hasSavedMultipleLanguages,
     hasSelectedLanguageDownload,
     showLanguageSearch,
     hasLanguageDownloadFailure,
     supersessionChoiceModel,
     replaceOnlyEvbModel,
-    selectedLanguagesModel,
+    selectedLanguageModel,
     pageSegmentationModeSelectValue,
     handleCopyLogs,
     handleRunOcr,

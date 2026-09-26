@@ -459,6 +459,25 @@ function asSearchablePdfPageSelection(
     };
 }
 
+function requireSingleOcrLanguage(selection: TOcrSearchablePdfPages) {
+    const selectedLanguages = new Set<string>();
+    const addLanguages = (languages: readonly string[]) => {
+        for (const language of languages) {
+            selectedLanguages.add(language);
+            if (selectedLanguages.size > 1) {
+                throw new OcrPayloadValidationError('OCR recognition accepts one language per request');
+            }
+        }
+    };
+    if (Array.isArray(selection)) {
+        for (const page of selection) addLanguages(page.languages);
+    } else if (selection.kind === 'pages') {
+        for (const page of selection.pages) addLanguages(page.languages);
+    } else {
+        addLanguages(selection.languages);
+    }
+}
+
 export function validateCreateSearchablePdfPayload(
     sourcePdfPathPayload: unknown,
     pagesPayload: unknown,
@@ -466,6 +485,7 @@ export function validateCreateSearchablePdfPayload(
     renderDpiOrOptionsPayload?: unknown,
 ): IOcrCreateSearchablePdfPayload {
     const pages = asSearchablePdfPageSelection(pagesPayload, 'pages');
+    requireSingleOcrLanguage(pages);
     return {
         sourcePdfPath: asString(sourcePdfPathPayload, 'sourcePdfPath', 4_096),
         pages,

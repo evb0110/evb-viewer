@@ -368,7 +368,7 @@ export default {
             },
         },
         'settingHelpAria': 'About {setting}',
-        'languages': 'Recognition languages',
+        'languages': 'Recognition language',
         'languageModelState': {
             'ready': 'Installed',
             'missing': 'Needs download',
@@ -378,6 +378,7 @@ export default {
         },
         'languagePicker': {
             'searchPlaceholder': 'Search by name or code',
+            'chooseOneLanguage': 'These saved settings include multiple languages. Choose one language before starting OCR.',
             'inventoryLoading': 'Checking language data availability...',
             'inventoryUnavailable': 'Language data could not be checked. Try again before starting OCR.',
             'downloadAndStart': 'Download and start OCR',

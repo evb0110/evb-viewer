@@ -112,6 +112,46 @@ afterEach(async () => {
 });
 
 describe('OCR supersession page selection', () => {
+    it('accepts one request language and rejects multiple languages across pages', () => {
+        expect(validateCreateSearchablePdfPayload(
+            '/tmp/source.pdf',
+            {
+                kind: 'all',
+                pageCount: 2,
+                languages: ['eng'],
+            },
+            'single-language',
+        ).pages).toMatchObject({languages: ['eng']});
+
+        expect(() => validateCreateSearchablePdfPayload(
+            '/tmp/source.pdf',
+            {
+                kind: 'all',
+                pageCount: 2,
+                languages: [
+                    'eng',
+                    'rus',
+                ],
+            },
+            'multiple-languages',
+        )).toThrow('OCR recognition accepts one language per request');
+
+        expect(() => validateCreateSearchablePdfPayload(
+            '/tmp/source.pdf',
+            [
+                {
+                    pageNumber: 1,
+                    languages: ['eng'],
+                },
+                {
+                    pageNumber: 2,
+                    languages: ['rus'],
+                },
+            ],
+            'per-page-languages',
+        )).toThrow('OCR recognition accepts one language per request');
+    });
+
     it('keeps million-page selections scalar and expands only bounded worker batches', () => {
         for (const pageCount of [
             100_001,
