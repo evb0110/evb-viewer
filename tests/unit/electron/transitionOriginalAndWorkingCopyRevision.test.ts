@@ -9,10 +9,8 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
-import {execFile} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {promisify} from 'node:util';
 import type * as WorkingCopyManifestModule from '@electron/file-access/workingCopyManifest';
 import type * as WorkingCopyJournalModule from '@electron/file-access/workingCopyJournal';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -30,7 +28,6 @@ import {
 } from 'vitest';
 
 let tempRoot = '';
-const execFileAsync = promisify(execFile);
 
 function deferred() {
     let resolve!: () => void;
@@ -252,8 +249,6 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             stagedPath,
             workingCopyPath,
         } = await prepare('old-original', 'old-working');
-        const externalPath = join(tempRoot, 'external.pdf');
-        await writeFile(externalPath, 'external-original');
         const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
         const {
             captureOriginalPathSaveWitness,
@@ -273,7 +268,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
             ),
             afterWorkingCopySync: async () => {
-                await rename(externalPath, originalPath);
+                await writeFile(originalPath, 'external-original');
                 throw new Error('post-sync failure');
             },
         })).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
@@ -698,12 +693,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         });
 
         await publicationPaused.promise;
-        await execFileAsync(process.execPath, [
-            '-e',
-            'const fs = require(\'node:fs/promises\'); const [target, bytes] = process.argv.slice(1); const replacement = `${target}.external`; fs.writeFile(replacement, bytes).then(() => fs.rename(replacement, target));',
-            originalPath,
-            externalBytes,
-        ]);
+        await writeFile(originalPath, externalBytes);
         releasePublication.resolve();
 
         await expect(transition).resolves.toBeNull();

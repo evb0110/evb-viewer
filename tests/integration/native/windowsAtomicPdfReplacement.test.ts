@@ -162,7 +162,7 @@ describe.skipIf(process.platform !== 'win32')('Windows atomic PDF replacement', 
         const oldBytes = await makePdf('old Windows fixture');
         await writeFile(destinationPath, oldBytes);
         await writeFile(sourcePath, await makePdf('new Windows fixture'));
-        const reader = execFile('pwsh.exe', [
+        const reader = execFile('powershell.exe', [
             '-NoProfile',
             '-NonInteractive',
             '-ExecutionPolicy',

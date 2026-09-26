@@ -12,7 +12,8 @@ import {
     join,
 } from 'node:path';
 import {
-    readFile, rename, stat, utimes,
+    appendFile,
+    readFile, rename, stat,
 } from 'node:fs/promises';
 import {
     afterEach,
@@ -646,14 +647,36 @@ describe('Project 8 recovered close decisions', () => {
     it('failed Save leaves the recovered document dirty and checkpointable', async () => {
         const recovered = await createRecoveredSession('failed-save');
         session = recovered.session;
-        await utimes(recovered.pdfPath, new Date(), new Date(Date.now() + 2_000));
-        const saveResult = await callWorkspaceCommand<boolean>(session.page, 'handleSave');
-        expect(saveResult).toEqual({
-            called: true,
-            value: false,
+        await appendFile(recovered.pdfPath, Buffer.from('\n% external edit\n'));
+        const externalBytes = await readFile(recovered.pdfPath);
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+        const saveButtonPoint = await session.page.evaluate(() => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-primary'))
+                .find((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return !candidate.disabled
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && rect.width > 8
+                        && rect.height > 8;
+                });
+            if (!button) return null;
+            const rect = button.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        if (!saveButtonPoint) throw new Error('The visible Save button is not enabled');
+        await session.page.mouse.click(saveButtonPoint.x, saveButtonPoint.y);
+        await session.page.waitForSelector('[aria-label="Last save failed"]', {
+            timeout: 60_000,
+            visible: true,
         });
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
         expect(session.page.isClosed()).toBe(false);
+        await expect(readFile(recovered.pdfPath)).resolves.toEqual(externalBytes);
         const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean;};}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
         expect((await readPdfPageSnapshots(recovered.workingCopyPath))[0]?.rotation).toBe(90);

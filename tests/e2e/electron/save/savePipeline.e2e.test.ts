@@ -243,11 +243,7 @@ async function clickEnabledSaveButton(page: Page) {
 
 async function saveFromWorkspace(page: Page, path: string) {
     const afterEventId = await getLatestAutomationEventId(page);
-    const result = await callWorkspaceCommand<boolean>(page, 'handleSave');
-    expect(result).toEqual({
-        called: true,
-        value: true,
-    });
+    await clickEnabledSaveButton(page);
     await waitForAutomationEvent(page, 'save-committed', {
         afterEventId,
         path,
@@ -577,13 +573,50 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             `save-as-refused-source-${Date.now()}.pdf`,
             2,
         );
-        const readOnlyDirectory = join(dirname(sourcePath), `save-as-refused-read-only-${Date.now()}`);
-        await mkdir(readOnlyDirectory, {recursive: true});
-        await chmod(readOnlyDirectory, 0o555);
-        onTestFinished(() => chmod(readOnlyDirectory, 0o755).catch(() => undefined));
+        const refusalDirectory = join(dirname(sourcePath), `save-as-refused-${Date.now()}`);
+        const destinationPath = join(refusalDirectory, 'refused.pdf');
+        await mkdir(refusalDirectory, {recursive: true});
+        let heldFileReadyPath: string | null = null;
+        let heldFileError: unknown = null;
+        let heldFileDone: Promise<void> | null = null;
+        const releaseHeldFile = async () => {
+            if (heldFileReadyPath === null) return;
+            const readyPath = heldFileReadyPath;
+            heldFileReadyPath = null;
+            await writeFile(`${readyPath}.release`, 'release').catch(() => undefined);
+            await heldFileDone;
+            if (heldFileError) throw heldFileError;
+        };
+        if (process.platform === 'win32') {
+            const refusedBytes = await readFile(sourcePath);
+            await writeFile(destinationPath, refusedBytes);
+            const readyPath = join(refusalDirectory, 'refused.ready');
+            heldFileReadyPath = readyPath;
+            heldFileDone = execFileAsync('powershell.exe', [
+                '-NoProfile',
+                '-NonInteractive',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-File',
+                join(process.cwd(), 'tests', 'integration', 'native', 'hold-file-handle.ps1'),
+                '-Path',
+                destinationPath,
+                '-DurationSeconds',
+                '120',
+                '-ReadyFile',
+                readyPath,
+            ], {windowsHide: true}).then(() => undefined, error => {
+                heldFileError = error;
+            });
+            onTestFinished(releaseHeldFile);
+            await expect.poll(() => existsSync(readyPath), {timeout: SAVE_TIMEOUT_MS}).toBe(true);
+        } else {
+            await chmod(refusalDirectory, 0o555);
+            onTestFinished(() => chmod(refusalDirectory, 0o755).catch(() => undefined));
+        }
         session = await startElectronE2ESession(`e2e-save-as-refused-${Date.now()}`, {
             clean: true,
-            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: `${readOnlyDirectory}/refused.pdf`},
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
             initialOpenPaths: [sourcePath],
         });
         await waitForOpenedPdf(session.page, sourcePath);
@@ -611,10 +644,50 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                 characterData: true,
             });
         });
-        await expect(callWorkspaceCommand<boolean>(session.page, 'handleSaveAs')).resolves.toEqual({
-            called: true,
-            value: false,
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: SAVE_TIMEOUT_MS});
+        const saveAsTriggerPoint = await session.page.evaluate(() => {
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-trigger'))
+                .find((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return !candidate.disabled
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && rect.width > 8
+                        && rect.height > 8;
+                });
+            if (!button) return null;
+            const rect = button.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
         });
+        if (!saveAsTriggerPoint) throw new Error('The visible Save options button is not enabled');
+        await session.page.mouse.click(saveAsTriggerPoint.x, saveAsTriggerPoint.y);
+        await session.page.waitForSelector('.save-split-menu', {visible: true});
+        const saveAsMenuItemPoint = await session.page.evaluate(() => {
+            const item = Array.from(document.querySelectorAll<HTMLElement>('.save-split-item'))
+                .find((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return candidate.textContent?.trim().startsWith('Save As') === true
+                        && !candidate.hasAttribute('disabled')
+                        && candidate.getAttribute('aria-disabled') !== 'true'
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && rect.width > 8
+                        && rect.height > 8;
+                });
+            if (!item) return null;
+            const rect = item.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        if (!saveAsMenuItemPoint) throw new Error('The visible Save As menu item is not enabled');
+        await session.page.mouse.click(saveAsMenuItemPoint.x, saveAsMenuItemPoint.y);
         // The refusal is told once, as a save failure in the user's language
         // (contract I4). The document is still open and intact, so it must not
         // also carry the raw IPC text as an open failure (#837).
@@ -622,6 +695,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             (Reflect.get(window, '__refusedSaveAsNotifications') as string[])
                 .some(text => text.includes('Failed to save file'))
         ), {timeout: SAVE_TIMEOUT_MS});
+        await releaseHeldFile();
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: SAVE_TIMEOUT_MS});
         expect((await session.page.evaluate(() => (
             Reflect.get(window, '__refusedSaveAsNotifications') as string[]
@@ -629,7 +703,10 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(await session.page.evaluate(() => (
             document.querySelector('[data-testid="workspace-document-pdf-error"]')?.textContent ?? null
         ))).toBeNull();
-        expect(existsSync(`${readOnlyDirectory}/refused.pdf`)).toBe(false);
+        expect(existsSync(destinationPath)).toBe(process.platform === 'win32');
+        if (process.platform === 'win32') {
+            await expect(readFile(destinationPath)).resolves.toEqual(await readFile(sourcePath));
+        }
     }, E2E_TIMEOUT_MS);
 
     it('refuses to overwrite a PDF another program replaced while it was open', async () => {
@@ -960,16 +1037,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await installReceiptProbe(session.page, true);
         await createDirtyStickyNote(session.page);
 
-        const savePromise = callWorkspaceCommand<boolean>(session.page, 'handleSave').then(
-            value => ({
-                error: null,
-                value,
-            }),
-            error => ({
-                error,
-                value: null,
-            }),
-        );
+        await clickEnabledSaveButton(session.page);
         let receiptProbeError: unknown = null;
         try {
             const stagedArtifact = await waitForStagedArtifact(session.page);
@@ -989,19 +1057,14 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await session.page.evaluate(
             () => (window as TSaveReceiptProbeWindow).__resumeSaveReceiptCommit?.(),
         );
-        const saveOutcome = await savePromise;
-        if (saveOutcome.error) {
-            throw saveOutcome.error;
-        }
         if (receiptProbeError) {
             throw receiptProbeError;
         }
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: SAVE_TIMEOUT_MS});
-
-        if (saveOutcome.value?.called !== true) {
-            throw new Error('The active workspace has no handleSave command, so this scenario never saved');
-        }
-        expect(saveOutcome.value.value).toBe(false);
+        await session.page.waitForSelector('[aria-label="Last save failed"]', {
+            timeout: SAVE_TIMEOUT_MS,
+            visible: true,
+        });
         const probe = await session.page.evaluate(
             () => (window as TSaveReceiptProbeWindow).__saveReceiptProbe ?? null,
         );
