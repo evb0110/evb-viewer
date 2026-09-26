@@ -3599,21 +3599,36 @@ describe('Scan cleanup components', () => {
         }
     });
 
-    it('zooms a 150-DPI preview around the wheel cursor', async () => {
+    it.each([
+        {
+            x: 120,
+            y: 90,
+        },
+        {
+            x: 400,
+            y: 200,
+        },
+        {
+            x: 470,
+            y: 330,
+        },
+    ])('keeps the source point under wheel cursor at ($x, $y)', async ({
+        x, y,
+    }) => {
         const harness = mountPreviewZoomHarness();
         expect(harness.host.querySelector('.preview-zoom-value')?.getAttribute('aria-label'))
             .toBe('Zoom Fit, toggle fit and 100%');
         const wheel = previewZoomWheel({
             bubbles: true,
             cancelable: true,
-            clientX: 400,
-            clientY: 200,
+            clientX: x,
+            clientY: y,
             deltaY: -240,
             metaKey: true,
         });
         Object.defineProperties(wheel, {
-            clientX: {value: 400},
-            clientY: {value: 200},
+            clientX: {value: x},
+            clientY: {value: y},
         });
 
         harness.surface.dispatchEvent(wheel);
@@ -3622,19 +3637,34 @@ describe('Scan cleanup components', () => {
         expect(wheel.defaultPrevented).toBe(true);
         expect(harness.surface.dataset.previewZoomMode).toBe('custom');
         expect(Number(harness.surface.dataset.previewZoomPercent)).toBeGreaterThan(50);
-        expect(harness.stage.style.transform).toMatch(/translate3d\(-\d/);
-        expect(Number(harness.stage.style.transform.match(/scale\(([\d.]+)/u)?.[1])).toBeGreaterThan(1);
+        const transform = harness.stage.style.transform.match(/translate3d\(([-\d.]+)px, ([-\d.]+)px.*scale\(([\d.]+)/u);
+        expect(transform).not.toBeNull();
+        const [
+            , translateX,
+            translateY,
+            scale,
+        ] = transform!;
+        const centerX = 250;
+        const centerY = 200;
+        const project = (tx: number, ty: number) => ({
+            x: centerX + (x - centerX) * Number(scale) + tx,
+            y: centerY + (y - centerY) * Number(scale) + ty,
+        });
+        const actual = project(Number(translateX), Number(translateY));
+        const epsilon = 1e-6;
+        expect(Math.abs(actual.x - x)).toBeLessThanOrEqual(epsilon);
+        expect(Math.abs(actual.y - y)).toBeLessThanOrEqual(epsilon);
         const zoomPastActualSize = previewZoomWheel({
             bubbles: true,
             cancelable: true,
-            clientX: 400,
-            clientY: 200,
+            clientX: x,
+            clientY: y,
             deltaY: -400,
             metaKey: true,
         });
         Object.defineProperties(zoomPastActualSize, {
-            clientX: {value: 400},
-            clientY: {value: 200},
+            clientX: {value: x},
+            clientY: {value: y},
         });
         harness.surface.dispatchEvent(zoomPastActualSize);
         await nextTick();
