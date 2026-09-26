@@ -1,8 +1,8 @@
 import {
+    afterAll,
     describe,
     expect,
     it,
-    onTestFinished,
 } from 'vitest';
 import {
     constants,
@@ -72,6 +72,7 @@ const PLACED_IMAGE_PAGE_INDEX = PLACED_IMAGE_PAGE_NUMBER - 1;
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
 const fixture = resolveLargePdfFixtureAvailability();
 const exactFixtureExpectation = resolveExactPdfFixtureExpectation();
+const exactFixtureArtifactDirectories: string[] = [];
 const largePdfDescribe = selectFixtureDescribe(describe, fixture);
 const execFileAsync = promisify(execFile);
 const PLACED_IMAGE_JPEG = Buffer.from(
@@ -129,16 +130,13 @@ function qpdfObjectContainsText(value: string, text: string) {
 
 function copyExactFixture(sourcePath: string) {
     const artifactDirectory = mkdtempSync(join(dirname(sourcePath), '.evb-issue-192-matrix-'));
+    exactFixtureArtifactDirectories.push(artifactDirectory);
     const targetPath = join(artifactDirectory, 'canonical-annotation-matrix.pdf');
     try {
         copyFileSync(sourcePath, targetPath, constants.COPYFILE_FICLONE);
     } catch {
         copyFileSync(sourcePath, targetPath);
     }
-    onTestFinished(() => rmSync(artifactDirectory, {
-        force: true,
-        recursive: true,
-    }));
     return realpathSync(targetPath);
 }
 
@@ -1051,6 +1049,15 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         sessionName: () => `e2e-issue-192-canonical-matrix-${Date.now()}`,
         timeoutMs: MATRIX_TIMEOUT_MS,
     });
+    afterAll(async () => {
+        await sessionFixture.stop();
+        for (const artifactDirectory of exactFixtureArtifactDirectories) {
+            rmSync(artifactDirectory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 
     it('creates, updates, deletes, recreates, saves, and hard-reopens canonical annotations', async () => {
         let session = sessionFixture.getSession();
@@ -1061,7 +1068,6 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
         expect(sourceIdentity.pages).toBe(882);
         const documentPath = copyExactFixture(fixture.path);
-
         await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
@@ -1354,6 +1360,15 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
         expect(sourceIdentity.pages).toBe(882);
         const documentPath = copyExactFixture(fixture.path);
+        const hardRestartAndReopen = async () => {
+            session = await sessionFixture.restart({
+                clean: false,
+                hard: true,
+            });
+            await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
+            await waitForViewerInteractive(session.page, MATRIX_TIMEOUT_MS);
+        };
 
         await openPdfInApp(session.page, documentPath, MATRIX_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, MATRIX_TIMEOUT_MS);
@@ -1364,7 +1379,6 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         const initialIndex = await readPdfAnnotationIndex(documentPath);
         const imagePath = join(dirname(initialWorkingCopyPath), `issue-192-placed-image-${process.pid}.jpg`);
         writeFileSync(imagePath, PLACED_IMAGE_JPEG);
-        onTestFinished(() => rmSync(imagePath, {force: true}));
         await installManagedJpegClipboard(session.page, imagePath);
 
         const beforeImage = await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER);
@@ -1404,7 +1418,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         expect(stampObject).toContain('/Subtype /Stamp');
         await assertAnnotationStoreClean(session.page);
 
-        session = await hardRestartAfterSave(sessionFixture, session, documentPath);
+        await hardRestartAndReopen();
         await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         let reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
@@ -1429,7 +1443,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         ))).toHaveLength(1);
         await assertAnnotationStoreClean(session.page);
 
-        session = await hardRestartAfterSave(sessionFixture, session, documentPath);
+        await hardRestartAndReopen();
         await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         reopenedImage = (await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
@@ -1447,7 +1461,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         expect(deletedIndex.entries.filter(entry => entry.name === stampEntry.name)).toHaveLength(0);
         await assertAnnotationStoreClean(session.page);
 
-        session = await hardRestartAfterSave(sessionFixture, session, documentPath);
+        await hardRestartAndReopen();
         await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         expect((await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))

@@ -1,4 +1,5 @@
 import {
+    afterAll,
     describe,
     expect,
     it,
@@ -2789,6 +2790,16 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         sessionName: () => `e2e-large-pdf-${Date.now()}`,
         timeoutMs: LARGE_PDF_TIMEOUT_MS,
     });
+    const fixtureDirectories: string[] = [];
+    afterAll(async () => {
+        await sessionFixture.stop();
+        for (const directory of fixtureDirectories) {
+            rmSync(directory, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 
     it.runIf(runImportedTextPopupScenario)('imports a Text annotation with its Popup and preserves it through a clean save and hard restart', async () => {
         const session = sessionFixture.getSession();
@@ -4240,10 +4251,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
 
         const artifactRoot = process.env[LARGE_PDF_ARTIFACT_ROOT_ENV]?.trim() || tmpdir();
         const restartArtifactDir = mkdtempSync(join(artifactRoot, '.evb-large-pdf-freetext-delete-'));
-        onTestFinished(() => rmSync(restartArtifactDir, {
-            force: true,
-            recursive: true,
-        }));
+        fixtureDirectories.push(restartArtifactDir);
         const fixturePath = join(restartArtifactDir, 'saved.pdf');
         try {
             copyFileSync(fixtureSourcePath, fixturePath, constants.COPYFILE_FICLONE);
