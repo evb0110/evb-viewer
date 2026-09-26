@@ -1,5 +1,3 @@
-import { validateElectronPlatformApi } from '@app/platform/validatePlatformApi';
-
 type TElectronPlatformApi = NonNullable<Window['electronAPI']>;
 
 function getElectronWindow(): Window | null {
@@ -16,12 +14,4 @@ export function getRawElectronPlatformApi(): TElectronPlatformApi | undefined {
 
 export function hasElectronPlatformBridge() {
     return getRawElectronPlatformApi() !== undefined;
-}
-
-export function getValidatedElectronPlatformApi(): TElectronPlatformApi | null {
-    const electronApi = getRawElectronPlatformApi();
-    if (electronApi === undefined) {
-        return null;
-    }
-    return validateElectronPlatformApi(electronApi).ok ? electronApi : null;
 }

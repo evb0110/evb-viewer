@@ -68,55 +68,29 @@ describe('platform runtime detection', () => {
         vi.doUnmock('@app/platform/browserPlatformApi');
     });
 
-    it('loads the browser platform fallback lazily when a browser capability is used', async () => {
+    it('serves the browser platform only after it is loaded once', async () => {
         vi.resetModules();
         let browserPlatformImportCount = 0;
         const openExternal = vi.fn().mockResolvedValue(undefined);
-        vi.doMock('@app/platform/validatePlatformApi', () => ({
-            PlatformContractError: class PlatformContractError extends Error {
-                readonly failures: unknown[];
-
-                constructor(message: string, failures: unknown[]) {
-                    super(message);
-                    this.name = 'PlatformContractError';
-                    this.failures = failures;
-                }
-            },
-            validateBrowserPlatformApi: vi.fn(() => ({
-                ok: true,
-                failures: [],
-            })),
-            validateElectronPlatformApi: vi.fn(() => ({
-                ok: false,
-                failures: [],
-            })),
-        }));
         vi.doMock('@app/platform/browserPlatformApi', () => {
             browserPlatformImportCount += 1;
             return { browserPlatformApi: { shell: { openExternal } } };
         });
         vi.stubGlobal('window', {});
 
-        const { getPlatformAPI } = await import('@app/utils/platform');
+        const {
+            getPlatformAPI,
+            loadBrowserPlatformApi,
+        } = await import('@app/utils/platform');
 
-        expect(browserPlatformImportCount).toBe(0);
+        expect(() => getPlatformAPI()).toThrow('before the browser-platform plugin loaded it');
+        await loadBrowserPlatformApi();
+        await loadBrowserPlatformApi();
         await getPlatformAPI().shell.openExternal('https://example.com');
         expect(browserPlatformImportCount).toBe(1);
         expect(openExternal).toHaveBeenCalledWith('https://example.com');
 
         vi.unstubAllGlobals();
         vi.doUnmock('@app/platform/browserPlatformApi');
-        vi.doUnmock('@app/platform/validatePlatformApi');
-    });
-
-    it('does not treat lazy browser capabilities as thenables', async () => {
-        vi.resetModules();
-        vi.stubGlobal('window', {});
-
-        const { getPlatformAPI } = await import('@app/utils/platform');
-
-        await expect(Promise.resolve(getPlatformAPI().host)).resolves.toBe(getPlatformAPI().host);
-
-        vi.unstubAllGlobals();
     });
 });

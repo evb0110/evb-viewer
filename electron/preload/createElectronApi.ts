@@ -3,7 +3,6 @@ import type {
     webUtils,
 } from 'electron';
 import type { IElectronAPI } from '@contracts/electronApi';
-import { ELECTRON_PLATFORM_MANIFEST } from '@contracts/platformManifest';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsOpenCapability,
@@ -487,7 +486,6 @@ export function createElectronApi(
         DOCUMENT_PDF_PLATFORM_FEATURE,
     ) satisfies IDocumentsPdfCapability;
     const api = {
-        manifest: ELECTRON_PLATFORM_MANIFEST,
         documentPicker,
         documentOpen,
         documentWorkingCopy,

@@ -1,5 +1,4 @@
 import type { IPlatformApi } from '@contracts/platformApi';
-import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
 import type { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
 import type {
@@ -56,7 +55,6 @@ const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
 } } satisfies TFeatureBrowserBindings<typeof SHELL_PLATFORM_FEATURE>;
 
 export const browserPlatformApi = {
-    manifest: BROWSER_PLATFORM_MANIFEST,
     documentPicker: browserDocumentCapabilities.documentPicker,
     documentOpen: browserDocumentCapabilities.documentOpen,
     documentWorkingCopy: browserDocumentCapabilities.documentWorkingCopy,

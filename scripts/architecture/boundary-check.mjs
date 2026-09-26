@@ -278,13 +278,10 @@ const PUBLIC_ONLY_INTERNAL_ENTRYPOINTS = [
 
 const PLATFORM_API_AGGREGATE_COMPOSITION_FILES = new Set(`
 app/platform/browserPlatformApi.ts
-app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
-app/platform/lazyBrowserPlatformApi.ts
 app/utils/platform.ts
 `.trim().split('\n'));
 
 const PLATFORM_API_AGGREGATE_TYPE_BOUNDARY_FILES = new Set(`
-app/platform/browserPlatformPathDescriptors.ts
 app/types/electron.d.ts
 packages/contracts/electronApi.ts
 `.trim().split('\n'));

@@ -9,16 +9,16 @@ import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
 import {SYSTEM_PLATFORM_FEATURE} from '@contracts/systemPlatformFeature';
 import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
 import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
-import type {TPlatformBackend} from '@contracts/platformManifest';
-import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
-import {SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
-import {SHELL_PLATFORM_FEATURE} from '@contracts/shellPlatformFeature';
 import type {
+    TPlatformBackend,
     TPlatformMethodKind,
     IPlatformMethodDescriptor,
     IPlatformCapabilityDescriptor,
     IPlatformApiDescriptor,
 } from '@contracts/platformDescriptorTypes';
+import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
+import {SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
+import {SHELL_PLATFORM_FEATURE} from '@contracts/shellPlatformFeature';
 
 export type {
     TPlatformMethodKind,

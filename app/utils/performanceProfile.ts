@@ -1,5 +1,4 @@
-import { getSystemCapability } from '@app/utils/getSystemCapability';
-import { getHostCapability } from '@app/utils/getHostCapability';
+import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import { readBrowserPerformanceModeSnapshot } from '@app/utils/browserSettingsPersistence';
 import {
     HOST_TIER_HIGH_RAM_MIN_GIB,
@@ -59,7 +58,8 @@ export interface IPerformanceProfile {
 let cachedPerformanceProfile: IPerformanceProfile | null = null;
 
 function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
-    const resourceProfile = getHostCapability().getResourceProfile();
+    // Only the desktop host reports hardware; the hosted build reads navigator.
+    const resourceProfile = getRawElectronPlatformApi()?.host.getResourceProfile() ?? null;
     if (resourceProfile) {
         return {
             hardwareConcurrency: resourceProfile.logicalCpus,
@@ -83,7 +83,7 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
     if (typeof runtimeNavigator.hardwareConcurrency === 'number') {
         environment.hardwareConcurrency = runtimeNavigator.hardwareConcurrency;
     }
-    const memoryInfo = getSystemCapability().getMemoryInfo();
+    const memoryInfo = getRawElectronPlatformApi()?.system.getMemoryInfo() ?? null;
     if (typeof memoryInfo?.totalBytes === 'number') {
         environment.totalMemoryBytes = memoryInfo.totalBytes;
     }

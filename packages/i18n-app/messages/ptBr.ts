@@ -1771,7 +1771,6 @@ export default {
             'description': 'O aplicativo encontrou um erro inesperado e pode não funcionar corretamente até ser recarregado.',
             'startupTitle': 'Falha ao iniciar o aplicativo',
             'startupDescription': 'O aplicativo não conseguiu concluir a inicialização. Recarregue e tente novamente.',
-            'electronPlatformContract': 'A ponte da área de trabalho está desatualizada ou incompatível. Reinicie o aplicativo para carregar o contrato de preload atual.',
             'reload': 'Recarregar aplicativo',
             'copy': 'Copiar detalhes',
             'errorId': 'ID do erro',

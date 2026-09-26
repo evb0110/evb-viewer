@@ -718,7 +718,6 @@ describe('validation gate policy', () => {
         const stageIds = plan.map(stage => stage.id);
 
         expect(stageIds).toEqual(expect.arrayContaining([
-            'static.platform-report',
             'static.web-deploy-source',
             'test.coverage',
             'native.resource-matrix',

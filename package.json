@@ -102,7 +102,6 @@
     "check:production-dependency-audit": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts",
     "check:production-dependency-audit:production-only": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts --production-only",
     "check:static:assets": "node scripts/check-web-deploy-source.mjs",
-    "check:static:reports": "pnpm exec tsx scripts/reportPlatformManifestConsumers.ts",
     "check:build-artifacts:hygiene": "node scripts/check-build-artifacts-hygiene.mjs",
     "check:architecture": "node scripts/architecture/boundary-check.mjs --scope=all && pnpm exec eslint app electron packages scripts server tests eslint-plugin-custom.mjs vitest.config.ts vitest.shared.config.ts --max-warnings=0 --report-unused-disable-directives",
     "preversion": "pnpm run check:resources:matrix",

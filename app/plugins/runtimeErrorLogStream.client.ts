@@ -11,7 +11,7 @@ import {
     waitForPreferredDesktopPlatformBridge,
 } from '@app/utils/platform';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
-import {getValidatedElectronPlatformApi} from '@app/utils/electronPlatformBridge';
+import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {captureFailureForPresentation} from '@app/utils/failureReporter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
@@ -150,7 +150,7 @@ export default defineNuxtPlugin((nuxtApp) => {
                 }
 
                 if (isElectronUserAgent()) {
-                    const diagnostics = getValidatedElectronPlatformApi()?.diagnostics;
+                    const diagnostics = getRawElectronPlatformApi()?.diagnostics;
                     if (!diagnostics) {
                         throw new Error('Electron diagnostics capability is unavailable');
                     }

@@ -5,7 +5,7 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import { isBrowserDocumentRef } from '@app/platform/browserDocumentStore';
-import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import type { IPagePreviewSource } from '@app/modules/document-viewer/public';
 
@@ -19,7 +19,7 @@ function getNativeDjvuSearchCapability(documentRef: TDocumentRef) {
     if (isBrowserDocumentRef(documentRef)) {
         return null;
     }
-    const djvu = getValidatedElectronPlatformApi()?.djvu;
+    const djvu = getRawElectronPlatformApi()?.djvu;
     if (
         typeof djvu?.searchText !== 'function'
         || typeof djvu.cancelTextSearch !== 'function'

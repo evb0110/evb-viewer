@@ -1760,7 +1760,6 @@ export default {
             'description': 'Die App ist auf einen unerwarteten Fehler gestoßen und funktioniert möglicherweise erst nach einem Neuladen wieder korrekt.',
             'startupTitle': 'App-Start fehlgeschlagen',
             'startupDescription': 'Die App konnte nicht vollständig gestartet werden. Laden Sie sie neu und versuchen Sie es erneut.',
-            'electronPlatformContract': 'Die Desktop-Bridge ist veraltet oder inkompatibel. Starten Sie die App neu, um den aktuellen Preload-Vertrag zu laden.',
             'reload': 'App neu laden',
             'copy': 'Details kopieren',
             'errorId': 'Fehler-ID',

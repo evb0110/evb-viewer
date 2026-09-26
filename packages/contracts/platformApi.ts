@@ -21,27 +21,19 @@ import type { IShellCapability } from '@contracts/shellPlatformFeature';
 import type { ISystemCapability } from '@contracts/systemPlatformFeature';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
-import type { IPlatformRuntimeManifest } from '@contracts/platformManifest';
 export type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
 export type { IAgentCapability } from '@contracts/agentPlatformFeature';
 export type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 export type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 export type { IScanCleanupCapability } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 export type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
-export type * from '@contracts/platformManifest';
 export type * from '@contracts/platformApiDescriptor';
-export {
-    BROWSER_PLATFORM_MANIFEST,
-    ELECTRON_PLATFORM_MANIFEST,
-    PLATFORM_CONTRACT_VERSION,
-} from '@contracts/platformManifest';
 export {
     getPlatformMethodDescriptor,
     PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApiDescriptor';
 
 export interface IPlatformApi {
-    manifest: IPlatformRuntimeManifest;
     documentPicker: IDocumentsPickerCapability;
     documentOpen: IDocumentsOpenCapability;
     documentWorkingCopy: IDocumentsWorkingCopyCapability;

@@ -2,7 +2,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateElectronBuilderResources } from '@scripts/generateElectronBuilderResources';
 import { generateReleaseTargetManifest } from '@scripts/generateReleaseTargetManifest';
-import { generatePlatformApiArtifacts } from '@scripts/platform-api/generatePlatformApiArtifacts';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -17,15 +16,12 @@ export async function generateBuildArtifacts({
         return false;
     }
     const isVercelBuild = env.VERCEL === '1' || env.NOW_BUILDER === '1';
-    const changed = await Promise.all([
-        ...isVercelBuild
-            ? []
-            : [
-                generateElectronBuilderResources({projectRoot: targetRoot}),
-                generateReleaseTargetManifest({projectRoot: targetRoot}),
-            ],
-        generatePlatformApiArtifacts({projectRoot: targetRoot}),
-    ]);
+    const changed = await Promise.all([...isVercelBuild
+        ? []
+        : [
+            generateElectronBuilderResources({projectRoot: targetRoot}),
+            generateReleaseTargetManifest({projectRoot: targetRoot}),
+        ]]);
     return changed.some(Boolean);
 }
 

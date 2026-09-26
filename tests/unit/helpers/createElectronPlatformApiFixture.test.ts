@@ -7,10 +7,7 @@ import {
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { IPdfSearchProgress } from '@contracts/search';
 import { requireRequestId } from '@contracts/shared';
-import {
-    BROWSER_PLATFORM_MANIFEST,
-    PLATFORM_API_DESCRIPTOR,
-} from '@contracts/platformApi';
+import {PLATFORM_API_DESCRIPTOR} from '@contracts/platformApi';
 import {
     createDefaultPlatformApiFixtureMethod,
     createPlatformApiFixtureOperation,
@@ -220,7 +217,6 @@ describe('createElectronPlatformApiFixture', () => {
     it('keeps required override members typed while allowing optional capability omission', () => {
         const browserApi = createPlatformApiFixture({
             backend: 'browser',
-            manifest: BROWSER_PLATFORM_MANIFEST,
             overrides: {scanCleanup: {getSettings: undefined}},
         });
         const api = createElectronPlatformApiFixture({diagnostics: {startupPolicy: {mode: 'granted'}}});

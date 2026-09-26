@@ -6,12 +6,6 @@ import {
     vi,
 } from 'vitest';
 import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
-import { browserPlatformApi } from '@app/platform/browserPlatformApi';
-import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserPlatformApi';
-import {
-    browserPlatformPathDescriptorList,
-    directBrowserPlatformMemberPaths,
-} from '@app/platform/browserPlatformPathDescriptors';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 function formatPath(path: readonly string[]) {
@@ -81,16 +75,6 @@ describe('platform API contract parity', () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.unstubAllGlobals();
-    });
-
-    it('keeps browser and lazy browser callable surfaces aligned with generated browser descriptors', () => {
-        const browserPaths = [
-            ...browserPlatformPathDescriptorList.map(descriptor => descriptor.path),
-            ...directBrowserPlatformMemberPaths,
-        ];
-
-        expectCallablePathParity(browserPlatformApi, browserPaths);
-        expectCallablePathParity(lazyBrowserPlatformApi, browserPaths);
     });
 
     it('keeps the Electron fixture descriptor-complete', () => {

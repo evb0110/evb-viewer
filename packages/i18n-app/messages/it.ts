@@ -1760,7 +1760,6 @@ export default {
             'description': 'L’app ha riscontrato un errore imprevisto e potrebbe non funzionare correttamente finché non viene ricaricata.',
             'startupTitle': 'Avvio dell’app non riuscito',
             'startupDescription': 'L’app non è riuscita a completare l’avvio. Ricaricala e riprova.',
-            'electronPlatformContract': 'Il bridge desktop è obsoleto o incompatibile. Riavvia l’app per caricare il contratto preload corrente.',
             'reload': 'Ricarica app',
             'copy': 'Copia dettagli',
             'errorId': 'ID errore',

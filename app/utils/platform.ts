@@ -1,19 +1,24 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import { delay } from 'es-toolkit/promise';
-import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserPlatformApi';
-import {
-    PlatformContractError,
-    validateBrowserPlatformApi,
-    validateElectronPlatformApi,
-} from '@app/platform/validatePlatformApi';
 import {
     getRawElectronPlatformApi,
-    getValidatedElectronPlatformApi,
     hasElectronPlatformBridge,
 } from '@app/utils/electronPlatformBridge';
 
+let browserPlatformApi: IPlatformApi | null = null;
+
+export async function loadBrowserPlatformApi() {
+    browserPlatformApi ??= (await import('@app/platform/browserPlatformApi')).browserPlatformApi;
+    return browserPlatformApi;
+}
+
+/** Installs a browser platform implementation directly, for component tests. */
+export function setBrowserPlatformApi(platformApi: IPlatformApi | null) {
+    browserPlatformApi = platformApi;
+}
+
 export function hasElectronAPI() {
-    return getValidatedElectronPlatformApi() !== null;
+    return hasElectronPlatformBridge();
 }
 
 export function isDesktopPlatformActive(electronApiAvailable = hasElectronAPI()) {
@@ -102,26 +107,10 @@ export async function waitForPreferredDesktopPlatformBridge({
     };
 }
 
-function createPlatformContractError(result: ReturnType<typeof validateElectronPlatformApi>) {
-    return new PlatformContractError(
-        result.failures.map(failure => failure.message).join(' '),
-        result.failures,
-    );
-}
-
 export function getPlatformAPI(): IPlatformApi {
-    const electronApi = getRawElectronPlatformApi();
-    if (electronApi) {
-        const result = validateElectronPlatformApi(electronApi);
-        if (!result.ok) {
-            throw createPlatformContractError(result);
-        }
-        return electronApi;
+    const platformApi = getRawElectronPlatformApi() ?? browserPlatformApi;
+    if (!platformApi) {
+        throw new Error('The browser platform API is used before the browser-platform plugin loaded it');
     }
-
-    const browserResult = validateBrowserPlatformApi(lazyBrowserPlatformApi);
-    if (!browserResult.ok) {
-        throw createPlatformContractError(browserResult);
-    }
-    return lazyBrowserPlatformApi;
+    return platformApi;
 }

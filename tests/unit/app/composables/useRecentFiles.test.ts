@@ -11,7 +11,6 @@ import {
     effectScope,
     ref,
 } from 'vue';
-import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -44,7 +43,6 @@ const electronPlatformApi = createElectronPlatformApiFixture({
 });
 const browserPlatformApi = createPlatformApiFixture({
     backend: 'browser',
-    manifest: BROWSER_PLATFORM_MANIFEST,
     overrides: {documentRecentFiles: {recentFiles: {get: browserRecentFilesGet}}},
 });
 

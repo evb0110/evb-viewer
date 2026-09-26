@@ -128,15 +128,6 @@ const validationStageInputPaths = {
         'package.json',
         'pnpm-lock.yaml',
     ],
-    'static-platform': [
-        'app',
-        'electron',
-        'packages',
-        'scripts/reportPlatformManifestConsumers.ts',
-        'package.json',
-        'pnpm-lock.yaml',
-        'tsconfig*.json',
-    ],
     typecheck: [
         'app',
         'electron',
@@ -909,10 +900,6 @@ export function getValidationPlan({
 
     return [
         ...fullStages,
-        pnpmRunStage('static.platform-report', 'check:static:reports', {
-            cacheable: true,
-            inputScope: 'static-platform',
-        }),
         pnpmRunStage('static.web-deploy-source', 'check:static:assets', {
             args: [
                 'run',
@@ -1209,12 +1196,6 @@ function inferValidationTools(stageDefinition) {
             'pnpm',
             'nuxt',
             'rustc',
-            'tsx',
-        ];
-    }
-    if (stageDefinition.inputScope === 'static-platform') {
-        return [
-            'pnpm',
             'tsx',
         ];
     }

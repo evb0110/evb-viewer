@@ -1,4 +1,4 @@
-import type { TPlatformBackend } from '@contracts/platformManifest';
+export type TPlatformBackend = 'electron' | 'browser';
 
 export type TPlatformMethodKind = 'async' | 'event' | 'sync' | 'void';
 export type TBrowserPlatformLazyMode = 'forwarded' | 'direct';

@@ -5,7 +5,12 @@ import type {
 import EN_MESSAGE_SCHEMA from '@i18n-app/messages/en';
 import {flattenObject} from 'es-toolkit/object';
 import {ref} from 'vue';
-import {vi} from 'vitest';
+import {
+    beforeEach,
+    vi,
+} from 'vitest';
+import { setBrowserPlatformApi } from '@app/utils/platform';
+import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 
 const EN_TRANSLATION_KEYS = new Set(
     Object.entries(flattenObject(EN_MESSAGE_SCHEMA))
@@ -43,3 +48,9 @@ vi.stubGlobal('useRuntimeConfig', () => ({public: {
 }}));
 
 vi.stubGlobal('useRoute', () => ({path: '/'}));
+
+// The hosted app installs its platform implementation before any page mounts;
+// component tests start from an inert browser fixture the same way.
+beforeEach(() => {
+    setBrowserPlatformApi(createPlatformApiFixture({backend: 'browser'}));
+});

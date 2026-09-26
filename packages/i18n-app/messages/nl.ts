@@ -1760,7 +1760,6 @@ export default {
             'description': 'De app kreeg een onverwachte fout en werkt mogelijk pas weer goed nadat deze opnieuw is geladen.',
             'startupTitle': 'Starten van de app mislukt',
             'startupDescription': 'De app kon niet volledig opstarten. Laad opnieuw en probeer het nog eens.',
-            'electronPlatformContract': 'De desktopbridge is verouderd of incompatibel. Start de app opnieuw om het huidige preload-contract te laden.',
             'reload': 'App opnieuw laden',
             'copy': 'Details kopiëren',
             'errorId': 'Fout-ID',

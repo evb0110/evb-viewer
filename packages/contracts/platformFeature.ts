@@ -2,9 +2,8 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import type {TBrand} from '@contracts/brand';
 import type {
     IPlatformApiDescriptor,
-    IPlatformMethodDescriptor,
+    IPlatformMethodDescriptor, TPlatformBackend, 
 } from '@contracts/platformDescriptorTypes';
-import type { TPlatformBackend } from '@contracts/platformManifest';
 
 export interface IRuntimeSchema<T> {
     decode: (value: unknown) => T;

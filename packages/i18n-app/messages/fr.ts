@@ -1771,7 +1771,6 @@ export default {
             'description': 'L’application a rencontré une erreur inattendue et peut ne pas fonctionner correctement tant qu’elle n’est pas rechargée.',
             'startupTitle': 'Le démarrage de l’application a échoué',
             'startupDescription': 'L’application n’a pas pu terminer son démarrage. Rechargez-la puis réessayez.',
-            'electronPlatformContract': 'Le pont de bureau est obsolète ou incompatible. Redémarrez l’application pour charger le contrat preload actuel.',
             'reload': 'Recharger l’application',
             'copy': 'Copier les détails',
             'errorId': 'ID d’erreur',

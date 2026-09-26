@@ -6,10 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
-import {
-    BROWSER_PLATFORM_MANIFEST,
-    type IPlatformApi,
-} from '@contracts/platformApi';
+import type {IPlatformApi} from '@contracts/platformApi';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 
@@ -17,7 +14,6 @@ const browserLoggerErrorMock = vi.hoisted(() => vi.fn());
 
 const browserPlatformApi = createPlatformApiFixture({
     backend: 'browser',
-    manifest: BROWSER_PLATFORM_MANIFEST,
     overrides: {updates: undefined},
 });
 let platformApi: IPlatformApi = createElectronPlatformApiFixture();

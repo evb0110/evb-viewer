@@ -1,8 +1,5 @@
-import type {
-    IPlatformApi,
-    IPlatformRuntimeManifest,
-    TPlatformBackend,
-} from '@contracts/platformApi';
+import type { IPlatformApi } from '@contracts/platformApi';
+import type { TPlatformBackend } from '@contracts/platformDescriptorTypes';
 import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
 import {
     PLATFORM_FEATURE_REGISTRY,
@@ -30,7 +27,6 @@ export type TPlatformApiFixtureOverrides = TDeepPartial<IPlatformApi>;
 
 export interface ICreatePlatformApiFixtureOptions<TOverrides extends TPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides> {
     backend: TPlatformBackend;
-    manifest: IPlatformRuntimeManifest;
     overrides?: TOverrides;
 }
 
@@ -60,24 +56,6 @@ function readPath(root: unknown, path: readonly string[]) {
     return value;
 }
 
-function cloneValue<T>(value: T): T {
-    if (Array.isArray(value)) {
-        return value.map(item => cloneValue(item)) as T;
-    }
-    if (isRecord(value) && typeof value !== 'function') {
-        return Object.fromEntries(
-            Object.entries(value).map(([
-                key,
-                child,
-            ]) => [
-                key,
-                cloneValue(child),
-            ]),
-        ) as T;
-    }
-    return value;
-}
-
 function deepMerge(
     target: Record<string, unknown>,
     overrides: unknown,
@@ -99,8 +77,8 @@ function deepMerge(
     return target;
 }
 
-function createBasePlatformApiFixture(manifest: IPlatformRuntimeManifest) {
-    const api: Record<string, unknown> = {manifest: cloneValue(manifest)};
+function createBasePlatformApiFixture() {
+    const api: Record<string, unknown> = {};
     const methods: readonly IPlatformMethodDescriptor[] = PLATFORM_API_DESCRIPTOR.methods;
     const migratedExamples = new Map(
         PLATFORM_FEATURE_REGISTRY.flatMap(feature =>
@@ -137,11 +115,11 @@ function assertPlatformApiFixture(
 }
 
 export function createPlatformApiFixture<TOverrides extends TPlatformApiFixtureOverrides = TPlatformApiFixtureOverrides>({
-    manifest,
+    backend,
     overrides = {} as TOverrides,
 }: ICreatePlatformApiFixtureOptions<TOverrides>): IPlatformApi & TOverrides {
-    const api = createBasePlatformApiFixture(manifest);
+    const api = createBasePlatformApiFixture();
     deepMerge(api, overrides);
-    assertPlatformApiFixture(api, manifest.backend);
+    assertPlatformApiFixture(api, backend);
     return api as IPlatformApi & TOverrides;
 }

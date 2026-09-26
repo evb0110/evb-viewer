@@ -1,4 +1,3 @@
-import { ELECTRON_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import type { IElectronAPI } from '@contracts/electronApi';
 import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';
 import {
@@ -22,7 +21,6 @@ export function createElectronPlatformApiFixture<TOverrides extends TElectronPla
     Reflect.deleteProperty(platformOverrides, 'diagnostics');
     const platformApi = createPlatformApiFixture({
         backend: 'electron',
-        manifest: ELECTRON_PLATFORM_MANIFEST,
         overrides: platformOverrides,
     });
     if (platformApi.updates === undefined) {

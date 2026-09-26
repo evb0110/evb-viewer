@@ -466,9 +466,7 @@ describe('dependency graph', () => {
         })).toEqual(aggregatePlatformApiViolation('app/modules/workspace-shell/menu/registerTabsMenuBindings.ts'));
 
         for (const source of [
-            'app/platform/browserPlatformPathDescriptors.ts',
             'app/platform/browserPlatformApi.ts',
-            'app/platform/lazyBrowserPlatformApi.ts',
             'app/types/electron.d.ts',
             'app/utils/platform.ts',
             'packages/contracts/electronApi.ts',

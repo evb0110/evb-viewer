@@ -17,7 +17,7 @@ import {
     type IDjvuWorker,
 } from '@app/platform/browser-api/djvujsLoader';
 import type { IPagePreviewOutlineItem } from '@app/modules/document-viewer/public';
-import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
@@ -133,7 +133,7 @@ async function readBrowserDocumentBytes(
 }
 
 function getDesktopDocumentsCapability(path: TDocumentRef) {
-    const platform = getValidatedElectronPlatformApi();
+    const platform = getRawElectronPlatformApi();
     if (!platform) {
         throw nativeDjvuCapabilityError(
             'djvu-read',
@@ -149,7 +149,7 @@ function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
         return null;
     }
 
-    const platform = getValidatedElectronPlatformApi();
+    const platform = getRawElectronPlatformApi();
     if (!platform) {
         throw nativeDjvuCapabilityError(
             'djvu-preview',

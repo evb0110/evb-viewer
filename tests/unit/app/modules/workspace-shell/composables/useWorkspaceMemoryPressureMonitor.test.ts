@@ -47,6 +47,10 @@ const platformApi = createElectronPlatformApiFixture({
     })) as never},
 });
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
+vi.mock('@app/utils/electronPlatformBridge', () => ({
+    getRawElectronPlatformApi: () => platformApi,
+    hasElectronPlatformBridge: () => true,
+}));
 vi.mock('@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController', () => (
     {workspaceSurfaceBudgetController: {
         getSnapshot: mocks.getSnapshot,

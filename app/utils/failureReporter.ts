@@ -16,7 +16,10 @@ import {
 } from '@contracts/diagnostics/scrubSentryEvent';
 import { createEpochMs } from '@contracts/timestamps';
 import { isRecord } from '@contracts/runtimeGuards';
-import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import {
+    getRawElectronPlatformApi,
+    hasElectronPlatformBridge,
+} from '@app/utils/electronPlatformBridge';
 import { safeGetLocalStorageItem } from '@app/utils/localStorage';
 import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
@@ -54,14 +57,14 @@ let sdkLoad: Promise<void> | null = null;
 let suppressionDepth = 0;
 
 function isElectronRenderer() {
-    return getValidatedElectronPlatformApi() !== null;
+    return hasElectronPlatformBridge();
 }
 
 function readStartupPreference(): TClientDiagnosticsPreference {
     if (typeof window === 'undefined') {
         return 'unknown';
     }
-    const startupPolicy = getValidatedElectronPlatformApi()?.diagnostics.startupPolicy;
+    const startupPolicy = getRawElectronPlatformApi()?.diagnostics.startupPolicy;
     if (startupPolicy) {
         return startupPolicy.mode;
     }
