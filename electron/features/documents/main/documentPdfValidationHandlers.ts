@@ -10,7 +10,8 @@ import {
     validatePdfFileForOpening,
     validatePdfFileForSave,
 } from '@electron/features/documents/main/pdfConformance';
-import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
+import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
+import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
@@ -20,10 +21,14 @@ async function readResolvedPdf<T>(
     read: (physicalPath: string) => Promise<T>,
 ) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
-    const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
-    return originalBackedRead
-        ? originalBackedRead.read(read)
-        : read(resolvedPath);
+    if (!getWorkingCopyBackingEntry(resolvedPath, context.senderId)) {
+        return read(resolvedPath);
+    }
+    return runWithWorkingCopyReadBacking<T>(
+        resolvedPath,
+        physicalPath => read(physicalPath),
+        context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId},
+    );
 }
 
 export async function handleAnalyzePdfConformance(

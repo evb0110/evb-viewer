@@ -1864,9 +1864,8 @@ async function readBoundedOrdinaryFreeTextMatches(
     expectedText: string,
     expectedName?: string,
     expectedPageIndex?: number,
-    indexPath = filePath,
 ) {
-    const index = await readPdfAnnotationIndex(indexPath);
+    const index = await readPdfAnnotationIndex(filePath);
     const candidates = index.entries.filter(entry => (
         entry.subtype === 'FreeText'
         && (expectedPageIndex === undefined || entry.pageIndex === expectedPageIndex)
@@ -4291,8 +4290,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             })}`);
         }
         expect(realpathSync(String(firstSaveEvent.detail.path))).toBe(fixtureRealPath);
-        const firstSaveIdentity = await readDocumentSaveIdentity(freshSession.page);
-
         let savedState: IOrdinaryFreeTextLiveState;
         try {
             savedState = await waitForOrdinaryFreeTextState(
@@ -4327,7 +4324,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             text,
             undefined,
             undefined,
-            firstSaveIdentity.workingCopyPath,
         );
         expect(firstPersistedMatches, JSON.stringify({
             savedState,
@@ -4352,7 +4348,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(reopenedProcesses.rootPid).not.toBe(firstRestartProcesses.rootPid);
         await waitForRestoredDocument(reopenedSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(reopenedSession.page);
-        const reopenedSaveIdentity = await readDocumentSaveIdentity(reopenedSession.page);
         await setupScrollToPage(reopenedSession.page, targetPageNumber);
         await openAnnotationsTab(reopenedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         let restoredState: IOrdinaryFreeTextLiveState;
@@ -4452,7 +4447,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             text,
             persistedName,
             targetPageIndex,
-            reopenedSaveIdentity.workingCopyPath,
         );
         expect(beforeDeleteSaveMatches, JSON.stringify({
             beforeDeleteSaveMatches,
@@ -4488,7 +4482,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             text,
             persistedName,
             targetPageIndex,
-            reopenedSaveIdentity.workingCopyPath,
         );
         expect(deletedPersistedMatches, JSON.stringify({
             deletedPersistedMatches,
@@ -4507,7 +4500,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(finalProcesses.rootPid).not.toBe(secondRestartProcesses.rootPid);
         await waitForRestoredDocument(finalSession.page, fixtureRealPath);
         await expectCleanAnnotationHydration(finalSession.page);
-        const finalSaveIdentity = await readDocumentSaveIdentity(finalSession.page);
         await setupScrollToPage(finalSession.page, targetPageNumber);
         await openAnnotationsTab(finalSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         const finalState = await waitForOrdinaryFreeTextState(
@@ -4530,7 +4522,6 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             text,
             persistedName,
             targetPageIndex,
-            finalSaveIdentity.workingCopyPath,
         );
         expect(finalPersistedMatches, JSON.stringify({
             finalPersistedMatches,

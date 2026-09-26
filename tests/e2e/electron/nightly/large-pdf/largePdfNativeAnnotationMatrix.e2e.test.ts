@@ -1068,7 +1068,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await setupScrollToPage(session.page, MATRIX_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const initialIndex = await readPdfAnnotationIndex(initialWorkingCopyPath);
+        const initialIndex = await readPdfAnnotationIndex(documentPath);
         const initialShapes = await readShapeIndex(session.page, initialWorkingCopyPath);
 
         const beforeNote = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
@@ -1218,7 +1218,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         );
         const firstSavedPath = await readWorkingCopyPath(session.page);
         expect(firstSavedPath).toBe(initialWorkingCopyPath);
-        const firstIndex = await readPdfAnnotationIndex(firstSavedPath);
+        const firstIndex = await readPdfAnnotationIndex(documentPath);
         const firstShapes = await readShapeIndex(session.page, firstSavedPath);
         for (const [
             subtype,
@@ -1323,7 +1323,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             'issue 192 canonical annotation update delete recreate save',
         );
         const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const secondIndex = await readPdfAnnotationIndex(secondWorkingCopyPath);
+        const secondIndex = await readPdfAnnotationIndex(documentPath);
         const secondShapes = await readShapeIndex(session.page, secondWorkingCopyPath);
         expect(countAnnotationSubtype(secondIndex.entries, 'Text')).toBe(countAnnotationSubtype(firstIndex.entries, 'Text'));
         expect(countAnnotationSubtype(secondIndex.entries, 'FreeText')).toBe(countAnnotationSubtype(firstIndex.entries, 'FreeText'));
@@ -1361,7 +1361,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         const initialWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const initialIndex = await readPdfAnnotationIndex(initialWorkingCopyPath);
+        const initialIndex = await readPdfAnnotationIndex(documentPath);
         const imagePath = join(dirname(initialWorkingCopyPath), `issue-192-placed-image-${process.pid}.jpg`);
         writeFileSync(imagePath, PLACED_IMAGE_JPEG);
         onTestFinished(() => rmSync(imagePath, {force: true}));
@@ -1393,7 +1393,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         );
         const firstSavedPath = await readWorkingCopyPath(session.page);
         expect(firstSavedPath).toBe(initialWorkingCopyPath);
-        const firstIndex = await readPdfAnnotationIndex(firstSavedPath);
+        const firstIndex = await readPdfAnnotationIndex(documentPath);
         const addedStamps = diffAnnotationEntries(initialIndex.entries, firstIndex.entries)
             .filter(entry => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp');
         expect(addedStamps).toHaveLength(1);
@@ -1423,8 +1423,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image update save',
         );
-        const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const secondIndex = await readPdfAnnotationIndex(secondWorkingCopyPath);
+        const secondIndex = await readPdfAnnotationIndex(documentPath);
         expect(secondIndex.entries.filter(entry => (
             entry.pageIndex === PLACED_IMAGE_PAGE_INDEX
             && entry.subtype === 'Stamp'
@@ -1446,8 +1445,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image delete save',
         );
-        const deletedWorkingCopyPath = await readWorkingCopyPath(session.page);
-        const deletedIndex = await readPdfAnnotationIndex(deletedWorkingCopyPath);
+        const deletedIndex = await readPdfAnnotationIndex(documentPath);
         expect(deletedIndex.entries.filter(entry => entry.name === stampEntry.name)).toHaveLength(0);
         await assertAnnotationStoreClean(session.page);
 

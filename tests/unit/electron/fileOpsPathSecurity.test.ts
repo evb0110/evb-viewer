@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
     resolveAllowedWritePath: vi.fn<(path: string) => Promise<string | null>>(),
     analyzePdfConformanceFile: vi.fn(),
     validatePdfFile: vi.fn(),
+    runWithWorkingCopyReadBacking: vi.fn(),
     consumeAllowedDocxWritePath: vi.fn<(path: string, senderId: number) => boolean>(),
     findWorkingCopyPathByOriginalPath: vi.fn<(path: string, senderId?: number) => string | null>(),
     getWorkingCopyBackingEntry: vi.fn(),
@@ -104,6 +105,7 @@ vi.mock('@electron/features/documents/main/pdfConformance', () => ({
 }));
 vi.mock('@electron/file-access/docxExportPaths', () => ({consumeAllowedDocxWritePath: mocks.consumeAllowedDocxWritePath}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({ensureWorkingCopyDirectory: mocks.ensureWorkingCopyDirectory}));
+vi.mock('@electron/file-access/runWithWorkingCopyReadBacking', () => ({runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args)}));
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     captureWorkingCopyAdmissionSnapshot: mocks.captureWorkingCopyAdmissionSnapshot,
@@ -220,6 +222,14 @@ describe('fileOps path security', () => {
         mocks.consumeAllowedDocxWritePath.mockReturnValue(true);
         mocks.findWorkingCopyPathByOriginalPath.mockReturnValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(null);
+        mocks.runWithWorkingCopyReadBacking.mockImplementation(async (
+            logicalPath: string,
+            read: (physicalPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<unknown>,
+            options: {ownerWebContentsId?: number},
+        ) => {
+            const entry = mocks.getWorkingCopyBackingEntry(logicalPath, options.ownerWebContentsId);
+            return read(entry?.originalPath ?? logicalPath, async () => undefined);
+        });
         mocks.getWorkingCopyOriginalPath.mockReturnValue(null);
         mocks.captureWorkingCopyAdmissionSnapshot.mockResolvedValue({
             size: 123n,
@@ -1461,7 +1471,7 @@ describe('fileOps path security', () => {
         const result = await handleValidatePdfPath(readContext, '/tmp/electron-test/lazy.pdf');
 
         expect(mocks.validatePdfFile).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf');
-        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.runWithWorkingCopyReadBacking).toHaveBeenCalled();
         expect(result).toEqual({
             isValid: true,
             tool: 'qpdf',
@@ -1481,7 +1491,7 @@ describe('fileOps path security', () => {
             '/Users/alice/Documents/file.pdf',
             {markerEvidence: 'full'},
         );
-        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.runWithWorkingCopyReadBacking).toHaveBeenCalled();
     });
 
     it('rejects invalid DOCX write payloads before consuming the approved path', async () => {
