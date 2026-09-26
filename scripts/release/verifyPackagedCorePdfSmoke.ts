@@ -108,8 +108,7 @@ async function assertNoPageOperationResidue(workingCopyPath: string) {
         name.startsWith(`.${fileName}.evb-tmp-`)
         || name.startsWith(`.${fileName}.bak-`)
         || name.startsWith(`.${fileName}.`) && name.endsWith('.tmp')
-        || name.startsWith(`${fileName}.evb-content-`) && name.endsWith('.bak')
-        || name === `${fileName}.evb-content-transition.json`
+        || name.startsWith('journal')
     ));
     if (residue.length > 0) {
         throw new Error(`Packaged smoke page operation left transaction residue: ${residue.join(', ')}`);

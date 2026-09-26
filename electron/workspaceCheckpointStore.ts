@@ -10,7 +10,6 @@ import {
     rename,
     rm,
     mkdir,
-    writeFile,
 } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,10 +27,7 @@ import {
     isErrnoException,
     isRecord,
 } from '@contracts/runtimeGuards';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import { writeJsonAtomic } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import {
@@ -173,18 +169,11 @@ async function writeAnnotationRecoveryArtifact(
 ) {
     const path = getAnnotationRecoveryPath(ref.artifactId);
     await mkdir(getAnnotationRecoveryDirectory(), {recursive: true});
-    const tempPath = makeSiblingTempPath(path);
-    try {
-        await writeFile(tempPath, JSON.stringify({
-            version: 1,
-            ref,
-            payload,
-        }), 'utf-8');
-        await atomicReplace(tempPath, path);
-    } catch (error) {
-        await rm(tempPath, {force: true}).catch(() => undefined);
-        throw error;
-    }
+    await writeJsonAtomic(path, {
+        version: 1,
+        ref,
+        payload,
+    });
 }
 
 async function readAnnotationRecoveryArtifact(ref: IWorkspaceCheckpointAnnotationRecovery) {
@@ -876,20 +865,9 @@ async function quarantineCorruptWorkspaceCheckpoint(path: string, reason: string
     }
 }
 
-async function writeJsonAtomically(path: string, value: unknown) {
-    const tempPath = makeSiblingTempPath(path);
-    try {
-        await writeFile(tempPath, JSON.stringify(value, null, 2), 'utf-8');
-        await atomicReplace(tempPath, path);
-    } catch (error) {
-        await rm(tempPath, {force: true}).catch(() => undefined);
-        throw error;
-    }
-}
-
 async function writeRecord(record: IStoredWorkspaceCheckpoint) {
     await mkdir(getRecordDirectory(), {recursive: true});
-    await writeJsonAtomically(getRecordPath(record.ownerRecoveryId), record);
+    await writeJsonAtomic(getRecordPath(record.ownerRecoveryId), record);
     durableRecords.set(record.ownerRecoveryId, record);
 }
 

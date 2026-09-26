@@ -1,8 +1,4 @@
 import { stat } from 'fs/promises';
-import {
-    basename,
-    dirname,
-} from 'path';
 import type {
     IPdfNativePageGeometry,
     IPdfNativePageSizesExactOptions,
@@ -41,7 +37,7 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
+import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
 import {
@@ -492,7 +488,7 @@ function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) 
         return false;
     }
     const normalizedPath = filePath.trim();
-    return isWorkingCopyDirectoryName(basename(dirname(normalizedPath)))
+    return isWorkingCopyDocumentPath(normalizedPath)
         && getWorkingCopyBackingEntry(normalizedPath, senderId) === null;
 }
 

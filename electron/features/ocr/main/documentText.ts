@@ -13,7 +13,7 @@ import {
     streamPdfPageTexts,
     type IPageText,
 } from '@electron/features/search/public';
-import { assertWorkingCopyRevisionSidecarCurrent } from '@electron/file-access/documentRevisionSidecar';
+import { assertWorkingCopyRevisionCurrent } from '@electron/file-access/documentRevisionStore';
 
 // The PDF text layer is the document's only text; OCR writes into it.
 
@@ -70,7 +70,7 @@ export async function readDocumentTextSnapshot(
     pageCount: number | undefined,
     signal?: AbortSignal,
 ): Promise<IDocumentTextSnapshot> {
-    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision);
     const pageTexts = await readPages(pdfPath, pageCount === undefined ? {} : {lastPage: pageCount}, signal);
     const pages = toTextPages(pageTexts, MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH);
     return {
@@ -97,7 +97,7 @@ export async function readDocumentTextWindow(
     if (window.firstPage < 1 || lastPage - window.firstPage + 1 > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES) {
         throw new RangeError(`Document text windows hold 1-${MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES} pages`);
     }
-    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, documentRevision);
+    await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision);
     const pages = toTextPages(
         await readPages(pdfPath, {
             firstPage: window.firstPage,

@@ -4,9 +4,13 @@ import type {TDocumentRevisionChangeReason} from '@contracts/documentRevision';
 import {
     copyFileAtomic,
     linkOrCopyFileDurably,
-    writeFileAtomic,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
+import {
+    completeWorkingCopyTransition,
+    recordWorkingCopyJournalOriginal,
+    type IWorkingCopyJournal,
+} from '@electron/file-access/workingCopyJournal';
 import {withOriginalPathMutationLock} from '@electron/features/documents/main/withOriginalPathMutationLock';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
@@ -14,14 +18,6 @@ import {
     OriginalPathSaveConflictError,
     type IOriginalPathSaveWitness,
 } from '@electron/file-access/originalPathSaveWitness';
-
-function journalPath(workingCopyPath: string) {
-    return `${workingCopyPath}.evb-two-target-transition.json`;
-}
-
-async function writeJournal(path: string, value: unknown) {
-    await writeFileAtomic(path, Buffer.from(JSON.stringify(value), 'utf8'));
-}
 
 async function measureTransitionPhase<T>(
     phase: string,
@@ -64,6 +60,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         let committed = false as boolean;
         let shouldRestoreOriginal = false as boolean;
         let originalRestoredByRollback = false as boolean;
+        let journal = null as IWorkingCopyJournal | null;
         try {
             try {
                 await measureTransitionPhase('transition-backup-original', input.onPhase, () =>
@@ -78,18 +75,16 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             const event = await transitionWorkingCopyContentRevision(
                 input.workingCopyPath,
                 input.reason,
-                async nextRevision => {
-                    const record = {
-                        version: 1,
+                async (_nextRevision, transitionJournal) => {
+                    journal = transitionJournal;
+                    const original = {
+                        path: input.originalPath,
+                        backupPath: originalBackupPath,
                         state: 'prepared',
-                        workingCopyPath: input.workingCopyPath,
-                        originalPath: input.originalPath,
-                        originalBackupPath,
-                        nextRevisionToken: nextRevision.token,
-                        ...(witness === null ? {} : {preparedOriginalSnapshot: witness.getSnapshotForJournal()}),
+                        ...(witness === null ? {} : {preparedSnapshot: witness.getSnapshotForJournal()}),
                     } as const;
                     await measureTransitionPhase('transition-journal-prepared', input.onPhase, () =>
-                        writeJournal(journalPath(input.workingCopyPath), record));
+                        recordWorkingCopyJournalOriginal(transitionJournal, original));
                     await measureTransitionPhase(
                         'transition-rebase-original-witness-after-working-backup',
                         input.onPhase,
@@ -103,11 +98,11 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         input.onPhase,
                         async () => witness?.rebaseAfterPublish(),
                     );
-                    await measureTransitionPhase('transition-journal-original-committed', input.onPhase, () =>
-                        writeJournal(journalPath(input.workingCopyPath), {
-                            ...record,
-                            state: 'original-committed',
-                            ...(witness === null ? {} : {publishedOriginalSnapshot: witness.getSnapshotForJournal()}),
+                    await measureTransitionPhase('transition-journal-original-published', input.onPhase, () =>
+                        recordWorkingCopyJournalOriginal(transitionJournal, {
+                            ...original,
+                            state: 'published',
+                            ...(witness === null ? {} : {publishedSnapshot: witness.getSnapshotForJournal()}),
                         }));
                     await measureTransitionPhase('transition-sync-working-copy', input.onPhase, () =>
                         copyFileAtomic(input.originalPath, input.workingCopyPath, {
@@ -138,10 +133,6 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             );
             committed = true;
             shouldRestoreOriginal = false;
-            await measureTransitionPhase('transition-cleanup', input.onPhase, () => Promise.all([
-                rm(originalBackupPath, {force: true}),
-                rm(journalPath(input.workingCopyPath), {force: true}),
-            ])).catch(() => undefined);
             return event;
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError) {
@@ -168,10 +159,9 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 } finally {
                     try {
                         if (!committed && originalRestored) {
-                            await Promise.all([
-                                rm(originalBackupPath, {force: true}),
-                                rm(journalPath(input.workingCopyPath), {force: true}),
-                            ]);
+                            await (journal
+                                ? completeWorkingCopyTransition(journal)
+                                : rm(originalBackupPath, {force: true}));
                         }
                     } finally {
                         await witness?.close();

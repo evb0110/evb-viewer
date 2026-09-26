@@ -10,7 +10,6 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
-    readFileSync,
     rmSync,
     writeFileSync,
 } from 'fs';
@@ -19,12 +18,25 @@ import {
     join,
 } from 'path';
 import { tmpdir } from 'os';
+import {
+    appendFile,
+    mkdtemp,
+    readFile,
+    readdir,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
 import type * as NodeCrypto from 'node:crypto';
 import type * as FsPromises from 'fs/promises';
-import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
+import {
+    prepareWorkingCopyTransition,
+    recordWorkingCopyJournalOriginal,
+    recoverWorkingCopyTransition,
+} from '@electron/file-access/workingCopyJournal';
+import {writeWorkingCopyManifestRevision} from '@electron/file-access/workingCopyManifest';
 
 let tempRoot = '';
 
@@ -64,16 +76,13 @@ describe('documentRevisionStore', () => {
             assertWorkingCopyRevisionCurrent,
             ensureWorkingCopyRevision,
             isWorkingCopyRevisionCurrent,
-            markWorkingCopyRevisionChanged,
+            markWorkingCopyContentChanged,
         } = await import('@electron/file-access/documentRevisionStore');
-        const {
-            readWorkingCopyRevisionSidecar,
-            writeWorkingCopyRevisionSidecar,
-        } = await import('@electron/file-access/documentRevisionSidecar');
+        const {readWorkingCopyRevision} = await import('@electron/file-access/workingCopyManifest');
         await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
         const revision = await ensureWorkingCopyRevision(workingPath, 7);
-        const persisted = await readWorkingCopyRevisionSidecar(workingPath);
+        const persisted = await readWorkingCopyRevision(workingPath);
 
         expect(revision).toMatchObject({
             version: 1,
@@ -84,7 +93,7 @@ describe('documentRevisionStore', () => {
         expect(revision.token).toMatch(/^drt1:1:1:/u);
         expect(persisted?.token).toBe(revision.token);
 
-        const changed = await markWorkingCopyRevisionChanged(workingPath, 'write', 7);
+        const changed = await markWorkingCopyContentChanged(workingPath, 'write', 7);
 
         expect(changed.previousToken).toBe(revision.token);
         expect(changed.contentRevision).toBe(2);
@@ -94,11 +103,6 @@ describe('documentRevisionStore', () => {
             .rejects
             .toMatchObject({code: 'STALE_REVISION'});
 
-        await writeWorkingCopyRevisionSidecar(workingPath, {
-            sidecarVersion: 1,
-            ...changed,
-            updatedAt: changed.mintedAt,
-        });
         vi.resetModules();
         const { getWorkingCopyRevision } = await import('@electron/file-access/documentRevisionStore');
 
@@ -129,67 +133,6 @@ describe('documentRevisionStore', () => {
 
         expect(existsSync(orphanedBackupPath)).toBe(false);
         expect(existsSync(unrelatedPath)).toBe(true);
-    });
-
-    it('keeps fresh revision fsync off the open path and fences the first mutation on durability', async () => {
-        let provisionalSidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar | null = null;
-        let releaseDurableWrite: (() => void) | undefined;
-        const durableWriteGate = new Promise<void>((resolve) => {
-            releaseDurableWrite = resolve;
-        });
-        const provisionalWrite = vi.fn(async (
-            _path: string,
-            sidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar,
-        ) => {
-            provisionalSidecar = sidecar;
-        });
-        const durableWrite = vi.fn(async () => durableWriteGate);
-        const stageCommit = vi.fn();
-        vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
-            const actual = await importOriginal<typeof DocumentRevisionSidecarModule>();
-            return {
-                ...actual,
-                clearWorkingCopyRevisionSidecarCommit: vi.fn(),
-                readWorkingCopyRevisionSidecar: vi.fn(async () => provisionalSidecar),
-                stageWorkingCopyRevisionSidecarCommit: stageCommit,
-                writeProvisionalWorkingCopyRevisionSidecar: provisionalWrite,
-                writeWorkingCopyRevisionSidecar: durableWrite,
-            };
-        });
-        try {
-            const originalPath = join(tempRoot, 'fresh-original.pdf');
-            const workingPath = join(tempRoot, 'pdf-work-fresh', 'fresh.pdf');
-            mkdirSync(dirname(workingPath), {recursive: true});
-            writeFileSync(originalPath, new Uint8Array([1]));
-            writeFileSync(workingPath, new Uint8Array([2]));
-            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-            const {
-                initializeFreshWorkingCopyRevision,
-                markWorkingCopyRevisionChanged,
-            } = await import('@electron/file-access/documentRevisionStore');
-            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-
-            const initial = await initializeFreshWorkingCopyRevision(workingPath, 7);
-            expect(provisionalWrite).toHaveBeenCalledOnce();
-            expect(durableWrite).not.toHaveBeenCalled();
-
-            const mutation = markWorkingCopyRevisionChanged(workingPath, 'write', 7);
-            await vi.waitFor(() => expect(durableWrite).toHaveBeenCalledOnce());
-            expect(durableWrite).toHaveBeenCalledWith(
-                workingPath,
-                provisionalSidecar,
-                {markMutationCommitStarted: false},
-            );
-            expect(stageCommit).not.toHaveBeenCalled();
-            releaseDurableWrite?.();
-            const changed = await mutation;
-
-            expect(stageCommit).toHaveBeenCalledOnce();
-            expect(changed.previousToken).toBe(initial.token);
-            expect(changed.contentRevision).toBe(2);
-        } finally {
-            vi.doUnmock('@electron/file-access/documentRevisionSidecar');
-        }
     });
 
     it('publishes a transition revision only after its commit succeeds', async () => {
@@ -307,107 +250,7 @@ describe('documentRevisionStore', () => {
         await expect(isWorkingCopyRevisionCurrent(workingPath, revision.token)).resolves.toBe(false);
     });
 
-    it('reconciles a pending revision sidecar journal after module reload', async () => {
-        const originalPath = join(tempRoot, 'journal-original.pdf');
-        const workingPath = join(tempRoot, 'pdf-work-journal', 'journal-original.pdf');
-        mkdirSync(dirname(workingPath), {recursive: true});
-        writeFileSync(originalPath, new Uint8Array([1]));
-        writeFileSync(workingPath, new Uint8Array([2]));
-
-        const { setWorkingCopyOriginalPath } = await import('@electron/file-access/workingCopyStore');
-        const { ensureWorkingCopyRevision } = await import('@electron/file-access/documentRevisionStore');
-        const {
-            readWorkingCopyRevisionJournalEntries,
-            readWorkingCopyRevisionSidecar,
-            stageWorkingCopyRevisionSidecarCommit,
-        } = await import('@electron/file-access/documentRevisionSidecar');
-        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-
-        const revision = await ensureWorkingCopyRevision(workingPath, 7);
-        const nextSidecar = {
-            sidecarVersion: 1 as const,
-            version: 1 as const,
-            documentRef: requireDocumentRef(workingPath),
-            authority: 'electron-working-copy' as const,
-            token: requireDocumentRevisionToken('drt1:journal:2:pending'),
-            contentRevision: revision.contentRevision + 1,
-            mintedAt: requireEpochMs(Date.now()),
-            updatedAt: requireEpochMs(Date.now()),
-        };
-        stageWorkingCopyRevisionSidecarCommit(workingPath, nextSidecar, 'save-sync');
-
-        expect(readWorkingCopyRevisionJournalEntries(workingPath))
-            .toEqual([expect.objectContaining({
-                kind: 'revision-sidecar-commit',
-                sidecar: expect.objectContaining({token: nextSidecar.token}),
-            })]);
-
-        vi.resetModules();
-        const { getWorkingCopyRevision } = await import('@electron/file-access/documentRevisionStore');
-        const {
-            readWorkingCopyRevisionJournalEntries: readReloadedJournalEntries,
-            readWorkingCopyRevisionSidecar: readReloadedRevisionSidecar,
-        } = await import('@electron/file-access/documentRevisionSidecar');
-
-        await expect(getWorkingCopyRevision(workingPath, 7))
-            .resolves
-            .toMatchObject({
-                token: nextSidecar.token,
-                contentRevision: nextSidecar.contentRevision,
-            });
-        await expect(readReloadedRevisionSidecar(workingPath))
-            .resolves
-            .toMatchObject({
-                token: nextSidecar.token,
-                contentRevision: nextSidecar.contentRevision,
-            });
-        expect(readReloadedJournalEntries(workingPath)
-            .some(entry => entry.kind === 'revision-sidecar-commit')).toBe(false);
-        await expect(readWorkingCopyRevisionSidecar(workingPath))
-            .resolves
-            .toMatchObject({token: nextSidecar.token});
-    });
-
-    it('recovers a corrupt revision sidecar from its pending journal', async () => {
-        const originalPath = join(tempRoot, 'journal-corrupt-revision-original.pdf');
-        const workingPath = join(tempRoot, 'pdf-work-journal-corrupt-revision', 'journal-corrupt-revision.pdf');
-        mkdirSync(dirname(workingPath), {recursive: true});
-        writeFileSync(originalPath, new Uint8Array([1]));
-        writeFileSync(workingPath, new Uint8Array([2]));
-
-        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-        const {
-            readWorkingCopyRevisionJournalEntries,
-            stageWorkingCopyRevisionSidecarCommit,
-        } = await import('@electron/file-access/documentRevisionSidecar');
-        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-
-        await ensureWorkingCopyRevision(workingPath, 7);
-        const recoveredSidecar = {
-            sidecarVersion: 1 as const,
-            version: 1 as const,
-            documentRef: requireDocumentRef(workingPath),
-            authority: 'electron-working-copy' as const,
-            token: requireDocumentRevisionToken('drt1:journal:2:recovered'),
-            contentRevision: 2,
-            mintedAt: requireEpochMs(Date.now()),
-            updatedAt: requireEpochMs(Date.now()),
-        };
-        stageWorkingCopyRevisionSidecarCommit(workingPath, recoveredSidecar, 'save-sync');
-        writeFileSync(`${workingPath}.evb-revision.json`, '{corrupt revision');
-
-        vi.resetModules();
-        const {ensureWorkingCopyRevision: ensureReloadedWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-        const recovered = await ensureReloadedWorkingCopyRevision(workingPath, 7);
-
-        expect(recovered.token).toBe(recoveredSidecar.token);
-        expect(recovered.contentRevision).toBe(2);
-        expect(readWorkingCopyRevisionJournalEntries(workingPath))
-            .not.toEqual(expect.arrayContaining([expect.objectContaining({kind: 'revision-sidecar-commit'})]));
-    });
-
-    it('mints a fresh revision when a corrupt sidecar has no pending journal', async () => {
+    it('mints a fresh revision when the manifest is corrupt', async () => {
         const originalPath = join(tempRoot, 'no-journal-corrupt-revision-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-no-journal-corrupt-revision', 'no-journal-corrupt-revision.pdf');
         mkdirSync(dirname(workingPath), {recursive: true});
@@ -419,21 +262,21 @@ describe('documentRevisionStore', () => {
         await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
         const initial = await ensureWorkingCopyRevision(workingPath, 7);
-        writeFileSync(`${workingPath}.evb-revision.json`, '{corrupt revision');
+        writeFileSync(join(dirname(workingPath), 'manifest.json'), '{corrupt revision');
 
         const recovered = await ensureWorkingCopyRevision(workingPath, 7);
         expect(recovered.contentRevision).toBe(1);
         expect(recovered.token).not.toBe(initial.token);
     });
 
-    it('fails closed when the revision sidecar cannot be read', async () => {
+    it('fails closed when the manifest cannot be read', async () => {
         vi.doMock('fs/promises', async importOriginal => {
             const actual = await importOriginal<typeof FsPromises>();
             return {
                 ...actual,
                 readFile: vi.fn(async (...args: Parameters<typeof actual.readFile>) => {
                     const [path] = args;
-                    if (String(path).endsWith('.evb-revision.json')) {
+                    if (String(path).endsWith('manifest.json')) {
                         throw Object.assign(new Error('access denied'), {code: 'EACCES'});
                     }
                     return actual.readFile(...args);
@@ -450,141 +293,151 @@ describe('documentRevisionStore', () => {
             const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
             const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
             await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-            writeFileSync(`${workingPath}.evb-revision.json`, JSON.stringify({
-                sidecarVersion: 1,
+            writeFileSync(join(dirname(workingPath), 'manifest.json'), JSON.stringify({
                 version: 1,
-                documentRef: requireDocumentRef(workingPath),
-                authority: 'electron-working-copy',
-                token: requireDocumentRevisionToken('drt1:inaccessible:1:revision'),
-                contentRevision: 1,
-                mintedAt: requireEpochMs(Date.now()),
-                updatedAt: requireEpochMs(Date.now()),
+                revision: {
+                    version: 1,
+                    documentRef: requireDocumentRef(workingPath),
+                    authority: 'electron-working-copy',
+                    token: requireDocumentRevisionToken('drt1:inaccessible:1:revision'),
+                    contentRevision: 1,
+                    mintedAt: requireEpochMs(Date.now()),
+                },
             }));
 
             await expect(ensureWorkingCopyRevision(workingPath, 7))
                 .rejects
                 .toMatchObject({code: 'EACCES'});
-            expect(existsSync(`${workingPath}.evb-revision.json`)).toBe(true);
+            expect(existsSync(join(dirname(workingPath), 'manifest.json'))).toBe(true);
         } finally {
             vi.doUnmock('fs/promises');
         }
     });
 
-    it('does not replay stale revision journal entries over a newer sidecar', async () => {
-        const originalPath = join(tempRoot, 'journal-stale-original.pdf');
-        const workingPath = join(tempRoot, 'pdf-work-journal-stale', 'journal-stale-original.pdf');
+
+    it('keeps the revision of a working copy written in the old layout', async () => {
+        const originalPath = join(tempRoot, 'legacy-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-legacy', 'document.pdf');
         mkdirSync(dirname(workingPath), {recursive: true});
         writeFileSync(originalPath, new Uint8Array([1]));
         writeFileSync(workingPath, new Uint8Array([2]));
-
-        const { setWorkingCopyOriginalPath } = await import('@electron/file-access/workingCopyStore');
-        const {
-            readWorkingCopyRevisionJournalEntries,
-            readWorkingCopyRevisionSidecar,
-            stageWorkingCopyRevisionSidecarCommit,
-            writeWorkingCopyRevisionSidecar,
-        } = await import('@electron/file-access/documentRevisionSidecar');
-        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
-        const newerSidecar = {
-            sidecarVersion: 1 as const,
-            version: 1 as const,
+        const token = requireDocumentRevisionToken('drt1:legacy:3:revision');
+        writeFileSync(`${workingPath}.evb-revision.json`, JSON.stringify({
+            sidecarVersion: 1,
+            version: 1,
             documentRef: requireDocumentRef(workingPath),
-            authority: 'electron-working-copy' as const,
-            token: requireDocumentRevisionToken('drt1:journal:3:current'),
+            authority: 'electron-working-copy',
+            token,
             contentRevision: 3,
             mintedAt: requireEpochMs(Date.now()),
             updatedAt: requireEpochMs(Date.now()),
-        };
-        const staleSidecar = {
-            ...newerSidecar,
-            token: requireDocumentRevisionToken('drt1:journal:2:stale'),
-            contentRevision: 2,
-        };
-        await writeWorkingCopyRevisionSidecar(workingPath, newerSidecar);
-        stageWorkingCopyRevisionSidecarCommit(workingPath, staleSidecar, 'save-sync');
-
-        await expect(readWorkingCopyRevisionSidecar(workingPath))
-            .resolves
-            .toMatchObject({
-                token: newerSidecar.token,
-                contentRevision: newerSidecar.contentRevision,
-            });
-        expect(readWorkingCopyRevisionJournalEntries(workingPath)
-            .some(entry => entry.kind === 'revision-sidecar-commit')).toBe(false);
-    });
-
-    it('fails closed for unreadable journal data and retries after the evidence is repaired', async () => {
-        const workingPath = join(tempRoot, 'pdf-work-journal-invalid', 'journal-invalid.pdf');
-        mkdirSync(dirname(workingPath), {recursive: true});
-        writeFileSync(workingPath, new Uint8Array([2]));
-        const journalPath = `${workingPath}.evb-revision-journal.json`;
-        const invalidJournal = '{"journalVersion":1,"entries":[{' ;
-        writeFileSync(journalPath, invalidJournal);
-
-        const {
-            assertWorkingCopyMutationAllowed,
-            hasWorkingCopySyncRequired,
-            isWorkingCopyRevisionCurrent,
-        } = await import('@electron/file-access/documentRevisionStore');
-        const {
-            readWorkingCopyRevisionJournalEntries,
-            readWorkingCopyRevisionSidecar,
-        } = await import('@electron/file-access/documentRevisionSidecar');
-
-        expect(() => readWorkingCopyRevisionJournalEntries(workingPath)).toThrow(/invalid/u);
-        expect(readFileSync(journalPath, 'utf8')).toBe(invalidJournal);
-        await expect(readWorkingCopyRevisionSidecar(workingPath)).rejects.toThrow(/invalid/u);
-        await expect(isWorkingCopyRevisionCurrent(workingPath, requireDocumentRevisionToken('drt1:journal:1:current')))
-            .resolves
-            .toBe(false);
-        expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow(/recovery journal/u);
-        expect(hasWorkingCopySyncRequired(workingPath)).toBe(true);
-
-        const now = Date.now();
-        writeFileSync(journalPath, JSON.stringify({
-            journalVersion: 1,
-            updatedAt: now,
-            entries: [{
-                kind: 'working-copy-sync-required',
-                id: 'sync-required:repaired',
-                reason: 'copy-back failed',
-                targetWriteCommitted: true,
-                createdAt: now,
-                updatedAt: now,
-            }],
         }));
-        expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow('copy-back failed');
-    });
 
-    it('rejects unknown journal versions and retains sync-required entries past seven days', async () => {
-        const workingPath = join(tempRoot, 'pdf-work-journal-retention', 'journal-retention.pdf');
-        mkdirSync(dirname(workingPath), {recursive: true});
-        writeFileSync(workingPath, new Uint8Array([2]));
-        const journalPath = `${workingPath}.evb-revision-journal.json`;
-        const unknownJournal = JSON.stringify({
-            journalVersion: 99,
-            entries: [],
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+
+        await expect(ensureWorkingCopyRevision(workingPath, 7)).resolves.toMatchObject({
+            token,
+            contentRevision: 3,
         });
-        writeFileSync(journalPath, unknownJournal);
+        expect(existsSync(`${workingPath}.evb-revision.json`)).toBe(false);
+        expect(existsSync(join(dirname(workingPath), 'manifest.json'))).toBe(true);
+    });
+});
 
-        const {readWorkingCopyRevisionJournalEntries} = await import('@electron/file-access/documentRevisionSidecar');
-        expect(() => readWorkingCopyRevisionJournalEntries(workingPath)).toThrow(/invalid/u);
-        expect(readFileSync(journalPath, 'utf8')).toBe(unknownJournal);
+const NEXT = requireDocumentRevisionToken('drt1:test:2:next');
 
-        const {assertWorkingCopyMutationAllowed} = await import('@electron/file-access/documentRevisionStore');
-        const updatedAt = Date.now() - (8 * 24 * 60 * 60 * 1000);
-        writeFileSync(journalPath, JSON.stringify({
-            journalVersion: 1,
-            updatedAt,
-            entries: [{
-                kind: 'working-copy-sync-required',
-                id: 'sync-required:old',
-                reason: 'old copy-back failure',
-                targetWriteCommitted: true,
-                createdAt: updatedAt,
-                updatedAt,
-            }],
-        }));
-        expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow('old copy-back failure');
+describe('workingCopyJournal crash recovery', () => {
+    let root = '';
+
+    afterEach(async () => {
+        await rm(root, {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    async function setup(publishedToken: string) {
+        root = await mkdtemp(join(tmpdir(), 'evb-working-copy-journal-'));
+        const workingCopyPath = join(root, 'document.pdf');
+        await writeFile(workingCopyPath, 'revision-1');
+        await writeWorkingCopyManifestRevision(workingCopyPath, {
+            version: 1,
+            documentRef: requireDocumentRef(workingCopyPath),
+            authority: 'electron-working-copy',
+            token: requireDocumentRevisionToken(publishedToken),
+            contentRevision: 1,
+            mintedAt: requireEpochMs(1),
+        });
+        return workingCopyPath;
+    }
+
+    it('puts back the previous bytes when the next revision was never published', async () => {
+        const workingCopyPath = await setup('drt1:test:1:current');
+        await prepareWorkingCopyTransition(workingCopyPath, NEXT);
+        await writeFile(workingCopyPath, 'revision-2');
+
+        await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
+        await expect(readdir(root)).resolves.toEqual([
+            'document.pdf',
+            'manifest.json',
+        ]);
+    });
+
+    it('keeps the new bytes once the manifest names the next revision', async () => {
+        const workingCopyPath = await setup(NEXT);
+        await prepareWorkingCopyTransition(workingCopyPath, NEXT);
+        await writeFile(workingCopyPath, 'revision-2');
+
+        await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-2');
+        await expect(readdir(root)).resolves.toEqual([
+            'document.pdf',
+            'manifest.json',
+        ]);
+    });
+
+    it('cuts an in-place append back to its previous length', async () => {
+        const workingCopyPath = await setup('drt1:test:1:current');
+        await prepareWorkingCopyTransition(workingCopyPath, NEXT, undefined, 'append');
+        await appendFile(workingCopyPath, '-appended');
+
+        await recoverWorkingCopyTransition(workingCopyPath);
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
+    });
+
+    it('restores a published original together with the working copy', async () => {
+        const workingCopyPath = await setup('drt1:test:1:current');
+        const originalPath = join(root, 'original.pdf');
+        const originalBackupPath = join(root, 'original.pdf.evb-transition-test.bak');
+        await writeFile(originalPath, 'saved-2');
+        await writeFile(originalBackupPath, 'saved-1');
+        const journal = await prepareWorkingCopyTransition(workingCopyPath, NEXT);
+        await recordWorkingCopyJournalOriginal(journal, {
+            path: originalPath,
+            backupPath: originalBackupPath,
+            state: 'published',
+        });
+        await writeFile(workingCopyPath, 'revision-2');
+
+        await recoverWorkingCopyTransition(workingCopyPath);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-1');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
+        await expect(readdir(root)).resolves.toEqual([
+            'document.pdf',
+            'manifest.json',
+            'original.pdf',
+        ]);
+    });
+
+    it('leaves a truncated journal and the document untouched', async () => {
+        const workingCopyPath = await setup('drt1:test:1:current');
+        await writeFile(join(root, 'journal.json'), '{"version":1');
+
+        await expect(recoverWorkingCopyTransition(workingCopyPath)).rejects.toThrow('Working-copy journal is invalid');
+        await expect(readFile(join(root, 'journal.json'), 'utf8')).resolves.toBe('{"version":1');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
     });
 });

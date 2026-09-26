@@ -3,6 +3,7 @@ import {
     link,
     mkdtemp,
     readFile,
+    readdir,
     rename,
     rm,
     stat,
@@ -12,8 +13,8 @@ import {execFile} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
-import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
-import type * as WorkingCopyContentTransitionJournalModule from '@electron/file-access/workingCopyContentTransitionJournal';
+import type * as WorkingCopyManifestModule from '@electron/file-access/workingCopyManifest';
+import type * as WorkingCopyJournalModule from '@electron/file-access/workingCopyJournal';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -155,9 +156,9 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         expect(phases.indexOf('transition-sync-working-copy-fsync-file')).toBeGreaterThan(-1);
         expect(phases.indexOf('transition-sync-working-copy-fsync-directory')).toBeGreaterThan(-1);
         expect(phases.indexOf('transition-sync-working-copy-fsync-file'))
-            .toBeLessThan(phases.indexOf('revision-write-sidecar'));
+            .toBeLessThan(phases.indexOf('revision-write-manifest'));
         expect(phases.indexOf('transition-sync-working-copy-fsync-directory'))
-            .toBeLessThan(phases.indexOf('revision-write-sidecar'));
+            .toBeLessThan(phases.indexOf('revision-write-manifest'));
         await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(true);
 
         await appendFile(originalPath, '-external-change');
@@ -334,20 +335,18 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
     });
 
-    it('restores every durable record when revision sidecar publication fails', async () => {
-        vi.doMock('@electron/file-access/documentRevisionSidecar', async (importOriginal) => {
-            const actual = await importOriginal<typeof DocumentRevisionSidecarModule>();
+    it('restores every durable record when manifest publication fails', async () => {
+        vi.doMock('@electron/file-access/workingCopyManifest', async (importOriginal) => {
+            const actual = await importOriginal<typeof WorkingCopyManifestModule>();
             return {
                 ...actual,
-                writeWorkingCopyRevisionSidecar: vi.fn(async (
-                    workingCopyPath: string,
-                    sidecar: DocumentRevisionSidecarModule.IWorkingCopyRevisionSidecar,
-                    options?: {markMutationCommitStarted?: boolean},
+                writeWorkingCopyManifestRevision: vi.fn(async (
+                    ...args: Parameters<typeof actual.writeWorkingCopyManifestRevision>
                 ) => {
-                    if (sidecar.contentRevision === 2) {
-                        throw new Error('sidecar publication failed');
+                    if (args[1].contentRevision === 2) {
+                        throw new Error('manifest publication failed');
                     }
-                    return actual.writeWorkingCopyRevisionSidecar(workingCopyPath, sidecar, options);
+                    return actual.writeWorkingCopyManifestRevision(...args);
                 }),
             };
         });
@@ -357,8 +356,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 stagedPath,
                 workingCopyPath,
             } = await prepare('old-original', 'old-working');
-            const sidecarPath = `${workingCopyPath}.evb-revision.json`;
-            const oldSidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as {token: string};
+            const manifestPath = join(tempRoot, 'manifest.json');
+            const oldManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {revision: {token: string}};
             const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
             const {originalPathSaveBaseMatches} = await import('@electron/file-access/originalPathSaveWitness');
             const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
@@ -376,28 +375,27 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 afterOriginalRestore: async () => {
                     expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
                 },
-            })).rejects.toThrow('sidecar publication failed');
+            })).rejects.toThrow('manifest publication failed');
 
             await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
             await expect(originalPathSaveBaseMatches(workingCopyPath, originalPath, 7)).resolves.toBe(true);
-            const restoredSidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as {token: string};
-            expect(restoredSidecar.token).toBe(oldSidecar.token);
-            await expect(readFile(`${workingCopyPath}.evb-revision-journal.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
-            await expect(readFile(`${workingCopyPath}.evb-content-transition.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
-            await expect(readFile(`${workingCopyPath}.evb-two-target-transition.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+            const restoredManifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {revision: {token: string}};
+            expect(restoredManifest.revision.token).toBe(oldManifest.revision.token);
+            await expect(readFile(join(tempRoot, 'journal.json'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+            expect((await readdir(tempRoot)).filter(name => name.endsWith('.bak'))).toEqual([]);
         } finally {
-            vi.doUnmock('@electron/file-access/documentRevisionSidecar');
+            vi.doUnmock('@electron/file-access/workingCopyManifest');
         }
     });
 
-    it('keeps a published revision when content-journal cleanup fails', async () => {
-        vi.doMock('@electron/file-access/workingCopyContentTransitionJournal', async (importOriginal) => {
-            const actual = await importOriginal<typeof WorkingCopyContentTransitionJournalModule>();
+    it('keeps a published revision when journal cleanup fails', async () => {
+        vi.doMock('@electron/file-access/workingCopyJournal', async (importOriginal) => {
+            const actual = await importOriginal<typeof WorkingCopyJournalModule>();
             return {
                 ...actual,
-                completeWorkingCopyContentTransition: vi.fn(async () => {
-                    throw new Error('content journal cleanup failed');
+                completeWorkingCopyTransition: vi.fn(async () => {
+                    throw new Error('journal cleanup failed');
                 }),
             };
         });
@@ -419,13 +417,14 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             await expect(readFile(prepared.originalPath, 'utf8')).resolves.toBe('new-committed-pdf');
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
         } finally {
-            vi.doUnmock('@electron/file-access/workingCopyContentTransitionJournal');
+            vi.doUnmock('@electron/file-access/workingCopyJournal');
         }
 
         vi.resetModules();
         const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
         await expect(ensureWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({contentRevision: 2});
-        await expect(readFile(`${workingCopyPath}.evb-content-transition.json`, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(readFile(join(tempRoot, 'journal.json'), 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+        expect((await readdir(tempRoot)).filter(name => name.endsWith('.bak'))).toEqual([]);
     });
 
     it('publishes a second witnessed save when the original and working copy share an inode', async () => {

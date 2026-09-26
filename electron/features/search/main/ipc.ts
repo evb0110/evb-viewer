@@ -9,6 +9,7 @@ import type {
 import { validateSearchQuery } from '@pdf-core';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
+import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
     createSearchService,
@@ -18,12 +19,8 @@ import {
 import { getSearchIndexPath } from '@electron/features/search/searchIndex';
 import { streamPdfPageTexts } from '@electron/features/search/pdfPageTexts';
 
-function isWorkingCopyPathCandidate(pdfPath: string) {
-    return /(?:^|[/\\])pdf-work-[^/\\]+[/\\]/u.test(pdfPath);
-}
-
 export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number) {
-    if (isWorkingCopyPathCandidate(pdfPath)) {
+    if (isWorkingCopyDocumentPath(pdfPath)) {
         const directResolvedPath = await resolveAllowedReadPath(pdfPath);
         if (directResolvedPath) {
             return directResolvedPath;
@@ -39,7 +36,7 @@ export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRe
     return {
         indexPath: getSearchIndexPath(pdfPath),
         documentRevision,
-        ...(isWorkingCopyPathCandidate(pdfPath) ? {workingCopyPath: pdfPath} : {}),
+        ...(isWorkingCopyDocumentPath(pdfPath) ? {workingCopyPath: pdfPath} : {}),
         readPages: (signal: AbortSignal) => streamPdfPageTexts(pdfPath, {signal}),
     };
 }
@@ -51,7 +48,7 @@ function senderIdOf(context: ISearchSenderContext) {
 }
 
 function knownWorkingCopyPath(pdfPath: string, senderId: number) {
-    return isWorkingCopyPathCandidate(pdfPath) ? pdfPath : findWorkingCopyPathByOriginalPath(pdfPath, senderId);
+    return isWorkingCopyDocumentPath(pdfPath) ? pdfPath : findWorkingCopyPathByOriginalPath(pdfPath, senderId);
 }
 
 async function resolvePdfSearchDocument(

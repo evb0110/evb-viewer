@@ -15,6 +15,7 @@ import {
     stat,
 } from 'fs/promises';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import { createKeyedSerialQueue } from '@electron/utils/createKeyedSerialQueue';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
 export type TWorkingCopyBackingState =
@@ -132,26 +133,11 @@ function stripWindowsExtendedLengthPrefix(filePath: string) {
     return filePath;
 }
 
-async function runWithWorkingCopyRegistrationTransition<T>(
+function runWithWorkingCopyRegistrationTransition<T>(
     workingPath: string,
     operation: () => Promise<T> | T,
 ) {
-    const previousTransition = workingCopyRegistrationTransitions.get(workingPath) ?? Promise.resolve();
-    let releaseTransition!: () => void;
-    const transitionGate = new Promise<void>((resolveTransition) => {
-        releaseTransition = resolveTransition;
-    });
-    const transitionTail = previousTransition.then(() => transitionGate);
-    workingCopyRegistrationTransitions.set(workingPath, transitionTail);
-    await previousTransition;
-    try {
-        return await operation();
-    } finally {
-        releaseTransition();
-        if (workingCopyRegistrationTransitions.get(workingPath) === transitionTail) {
-            workingCopyRegistrationTransitions.delete(workingPath);
-        }
-    }
+    return runRegistrationTransition(normalizePathForLookup(workingPath), operation);
 }
 
 function isWindowsPathLike(filePath: string) {
@@ -292,7 +278,7 @@ class TCanonicalWorkingCopyMap<TValue> extends Map<string, TValue> {
 
 export const workingCopyMap = new TCanonicalWorkingCopyMap<IWorkingCopyOriginalEntry>();
 const retiredWorkingCopyOriginalMap = new TCanonicalWorkingCopyMap<IRetiredWorkingCopyOriginalEntry>();
-const workingCopyRegistrationTransitions = new TCanonicalWorkingCopyMap<Promise<void>>();
+const runRegistrationTransition = createKeyedSerialQueue();
 const workingCopyRecoveryClaims = new TCanonicalWorkingCopyMap<IWorkingCopyRecoveryClaim>();
 let nextWorkingCopyRecoveryClaimGeneration = 0;
 

@@ -22,7 +22,6 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
 import {
     assertPathMatchesSaveWitnessSnapshot,
@@ -137,25 +136,6 @@ async function assertPathExists(filePath: string, context: string) {
 
 function atomicReplaceJournalPath(destinationPath: string) {
     return `${destinationPath}.evb-atomic-replace.json`;
-}
-
-async function writeWindowsAtomicReplaceJournal(journal: IWindowsAtomicReplaceJournal) {
-    const path = atomicReplaceJournalPath(journal.destinationPath);
-    const temporaryPath = `${path}.${randomSuffix()}.tmp`;
-    const handle = await open(temporaryPath, 'wx');
-    try {
-        await handle.writeFile(JSON.stringify(journal), 'utf8');
-        await syncFileHandleForDurability(handle);
-    } finally {
-        await handle.close();
-    }
-    try {
-        await rename(temporaryPath, path);
-        await fsyncParentDirectory(path);
-    } catch (error) {
-        await unlink(temporaryPath).catch(() => undefined);
-        throw error;
-    }
 }
 
 async function readWindowsAtomicReplaceJournal(destinationPath: string) {
@@ -487,14 +467,14 @@ export async function atomicReplace(
         }
         const backupPath = `${dst}.bak-${randomSuffix()}`;
         try {
-            await writeWindowsAtomicReplaceJournal({
+            await writeJsonAtomic(atomicReplaceJournalPath(dst), {
                 version: ATOMIC_REPLACE_JOURNAL_VERSION,
                 sourcePath: srcTemp,
                 destinationPath: dst,
                 backupPath,
                 destinationSnapshot: destinationWitness.getSnapshotForJournal(),
                 sourceSnapshot: sourceWitness.getSnapshotForJournal(),
-            });
+            } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
         } finally {
             await destinationWitness.close();
             await sourceWitness.close();
@@ -539,4 +519,20 @@ export async function atomicReplace(
     }
     await assertPathExists(dst, 'Atomic replace completed');
     await fsyncParentDirectory(dst);
+}
+
+/** Writes JSON through a sibling temp file and publishes it with `atomicReplace`. */
+export async function writeJsonAtomic(
+    path: string,
+    value: unknown,
+    options: Parameters<typeof atomicReplace>[2] = {},
+) {
+    const temporaryPath = makeSiblingTempPath(path);
+    try {
+        await writeFile(temporaryPath, `${JSON.stringify(value)}\n`, 'utf8');
+        await atomicReplace(temporaryPath, path, options);
+    } catch (error) {
+        await unlink(temporaryPath).catch(() => undefined);
+        throw error;
+    }
 }

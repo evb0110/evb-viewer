@@ -51,7 +51,7 @@ vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({
     resolveExistingReadableBinaryPath: vi.fn(async () => mocks.path),
     resolveExistingReadableDocumentOrImagePath: vi.fn(async () => mocks.path),
 }));
-vi.mock('@electron/file-access/documentRevisionSidecar', () => ({readWorkingCopyRevisionSidecar: vi.fn(async () => mocks.revision)}));
+vi.mock('@electron/file-access/workingCopyManifest', () => ({readWorkingCopyRevision: vi.fn(async () => mocks.revision)}));
 vi.mock('@electron/features/documents/main/fingerprintFileWithUtilityProcess', () => ({fingerprintFileWithUtilityProcess: mocks.inspect}));
 
 describe('managed temporary file handles', () => {
@@ -740,7 +740,7 @@ describe('managed temporary file handles', () => {
             .rejects.toThrow('changed after staging');
     });
 
-    it('invalidates a receipt after revision-sidecar drift', async () => {
+    it('invalidates a receipt after revision drift', async () => {
         const {
             createTypedStagedArtifact,
             resolveTypedStagedArtifact,

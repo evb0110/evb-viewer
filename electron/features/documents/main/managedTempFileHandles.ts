@@ -26,7 +26,7 @@ import {
     type TArtifactFileIdentity,
 } from '@contracts/stagedArtifacts';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
-import { readWorkingCopyRevisionSidecar } from '@electron/file-access/documentRevisionSidecar';
+import { readWorkingCopyRevision } from '@electron/file-access/workingCopyManifest';
 import {fingerprintFileWithUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
 import {setManagedTempPathAccessValidator} from '@electron/utils/pathValidator';
@@ -283,10 +283,10 @@ export async function createManagedTempFileHandle(
     const path = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const [
         inspection,
-        revisionSidecar,
+        currentRevision,
     ] = await Promise.all([
         fingerprintFileWithUtilityProcess(path),
-        readWorkingCopyRevisionSidecar(path),
+        readWorkingCopyRevision(path),
     ]);
     const leaseId = createLeaseId('managed-temp');
     registerLease(leaseId, {
@@ -301,7 +301,7 @@ export async function createManagedTempFileHandle(
         size: inspection.bytes,
         sha256: inspection.sha256,
         leaseId,
-        revision: revisionSidecar?.token ?? null,
+        revision: currentRevision?.token ?? null,
     };
 }
 
@@ -370,12 +370,12 @@ async function createTypedStagedArtifactAtPath(
     }
     const [
         inspection,
-        revisionSidecar,
+        currentRevision,
     ] = await Promise.all([
         trustedFingerprint === undefined
             ? fingerprintFileWithUtilityProcess(path)
             : Promise.resolve(trustedFingerprint),
-        readWorkingCopyRevisionSidecar(path),
+        readWorkingCopyRevision(path),
     ]);
     const fileStat = await statRegularArtifact(path);
     if (
@@ -411,7 +411,7 @@ async function createTypedStagedArtifactAtPath(
         fileIdentity,
         validations,
         leaseId,
-        revision: revisionSidecar?.token ?? null,
+        revision: currentRevision?.token ?? null,
     }, fileStat, {
         cleanupOnRelease: options.cleanupOnRelease === true,
         invalidReceiptMessage: 'Invalid staged artifact validation receipt',
@@ -445,7 +445,7 @@ export async function createOpaqueNativePdfStagedArtifact(
     }
     const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const beforeStat = await statRegularArtifact(path);
-    const revisionSidecar = await readWorkingCopyRevisionSidecar(path);
+    const currentRevision = await readWorkingCopyRevision(path);
     const fileStat = await statRegularArtifact(path);
     if (
         !isDeepStrictEqual(
@@ -476,7 +476,7 @@ export async function createOpaqueNativePdfStagedArtifact(
         fileIdentity,
         validations,
         leaseId,
-        revision: revisionSidecar?.token ?? null,
+        revision: currentRevision?.token ?? null,
     }, fileStat, {
         cleanupOnRelease: options.cleanupOnRelease === true,
         invalidReceiptMessage: 'Invalid opaque native staged artifact receipt',
@@ -546,12 +546,12 @@ export async function resolveManagedTempFileHandle(
     }
     const [
         inspection,
-        revisionSidecar,
+        currentRevision,
     ] = await Promise.all([
         fingerprintFileWithUtilityProcess(handle.path),
-        readWorkingCopyRevisionSidecar(handle.path),
+        readWorkingCopyRevision(handle.path),
     ]);
-    const revision = revisionSidecar?.token ?? null;
+    const revision = currentRevision?.token ?? null;
     if (inspection.bytes !== handle.size || inspection.sha256 !== handle.sha256 || revision !== handle.revision) {
         throw new Error('Managed binary handle content or revision changed after staging');
     }
@@ -590,8 +590,8 @@ export async function resolveTypedStagedArtifact(
         lease.artifact.fileIdentity,
     );
     const witnessMatches = isSameArtifactStatWitness(statWitness, lease.statWitness);
-    const revisionSidecar = await readWorkingCopyRevisionSidecar(lease.path);
-    const revisionMatches = (revisionSidecar?.token ?? null) === lease.artifact.revision;
+    const currentRevision = await readWorkingCopyRevision(lease.path);
+    const revisionMatches = (currentRevision?.token ?? null) === lease.artifact.revision;
     if (!identityMatches || !witnessMatches || !revisionMatches) {
         invalidateStagedArtifactLease(artifact.leaseId);
         throw new Error('Staged artifact content, identity, or revision changed after staging');
@@ -633,16 +633,16 @@ export async function rebindTypedStagedArtifactPath(
     const nextPath = await resolveExistingReadableBinaryPath(nextFilePath, context.senderId);
     const [
         fileStat,
-        revisionSidecar,
+        currentRevision,
     ] = await Promise.all([
         statRegularArtifact(nextPath),
-        readWorkingCopyRevisionSidecar(nextPath),
+        readWorkingCopyRevision(nextPath),
     ]);
     const statWitness = createArtifactStatWitness(fileStat);
     const witnessMatches = isSameArtifactStatWitness(statWitness, lease.statWitness);
     if (
         !isDeepStrictEqual(createArtifactFileIdentity(fileStat), lease.artifact.fileIdentity)
-        || (revisionSidecar?.token ?? null) !== lease.artifact.revision
+        || (currentRevision?.token ?? null) !== lease.artifact.revision
     ) {
         invalidateStagedArtifactLease(artifact.leaseId);
         throw new Error('Renamed staged artifact no longer matches its authoritative receipt');

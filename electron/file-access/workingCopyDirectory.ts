@@ -11,7 +11,11 @@ import {
     rm,
     stat,
 } from 'fs/promises';
-import {join} from 'path';
+import {
+    basename,
+    dirname,
+    join,
+} from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
@@ -130,6 +134,31 @@ export function createWorkingDirectory() {
 
 export function isWorkingCopyDirectoryName(name: string) {
     return name.startsWith('pdf-work-');
+}
+
+export function isWorkingCopyDocumentPath(path: string) {
+    return isWorkingCopyDirectoryName(basename(dirname(path)));
+}
+
+/**
+ * The layout of one working-copy directory. `document.<ext>` holds the bytes,
+ * `manifest.json` the revision, `journal.json` an unfinished transition, and
+ * `derived/` caches that are rebuilt whenever their revision does not match.
+ */
+export function getWorkingCopyManifestPath(workingCopyPath: string) {
+    return join(dirname(workingCopyPath), 'manifest.json');
+}
+
+export function getWorkingCopyJournalPath(workingCopyPath: string) {
+    return join(dirname(workingCopyPath), 'journal.json');
+}
+
+export function getWorkingCopyJournalBackupPath(workingCopyPath: string, suffix: string) {
+    return join(dirname(workingCopyPath), `journal-${suffix}.bak`);
+}
+
+export function getWorkingCopyDerivedPath(workingCopyPath: string, name: string) {
+    return join(dirname(workingCopyPath), 'derived', name);
 }
 
 export async function safeRemoveDirectory(path: string) {

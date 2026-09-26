@@ -7,7 +7,10 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
-import {join} from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import {
     readFile, rename, stat, utimes,
 } from 'node:fs/promises';
@@ -729,7 +732,7 @@ describe('Project 8 recovered close decisions', () => {
         ]));
         expect((await readPdfPageSnapshots(firstWorkingCopyPath))[0]?.rotation).toBe(90);
         expect((await readPdfPageSnapshots(secondWorkingCopyPath))[0]?.rotation).toBe(90);
-        const firstRecoverySidecarPaths = [`${firstWorkingCopyPath}.evb-revision.json`];
+        const firstRecoverySidecarPaths = [join(dirname(firstWorkingCopyPath), 'manifest.json')];
         expect(firstRecoverySidecarPaths.every(path => existsSync(path))).toBe(true);
 
         const initialCheckpoint = (readWorkspaceRecoveryRecords(checkpointSession)[0] ?? {}) as {checkpoint?: {tabs?: Array<{

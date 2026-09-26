@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -11,6 +12,10 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type { IPageText } from '@electron/features/search/pageText';
+import {
+    getWorkingCopyDerivedPath,
+    isWorkingCopyDocumentPath,
+} from '@electron/file-access/workingCopyDirectory';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -61,7 +66,9 @@ function indexRevision(document: ISearchIndexedDocument) {
 }
 
 export function getSearchIndexPath(documentPath: string) {
-    return `${documentPath}.evb-search-index`;
+    return isWorkingCopyDocumentPath(documentPath)
+        ? getWorkingCopyDerivedPath(documentPath, 'search-index')
+        : `${documentPath}.evb-search-index`;
 }
 
 function resolvePdfSearchBinary() {
@@ -136,7 +143,7 @@ export function buildSearchIndex(
             operation.signal,
         ]);
         const listeners = new Set<(pagesScanned: number) => void>();
-        const promise = runNativeToolCommand(resolvePdfSearchBinary(), [
+        const promise = mkdir(dirname(document.indexPath), {recursive: true}).then(() => runNativeToolCommand(resolvePdfSearchBinary(), [
             'index',
             '--out',
             document.indexPath,
@@ -150,7 +157,7 @@ export function buildSearchIndex(
                     listener(pageNumber);
                 }
             }),
-        }).then((result) => {
+        })).then((result) => {
             const coverage = parseOutput(result.stdout);
             if (!isCoverage(coverage)) {
                 throw new Error('evb-pdf-search index returned an invalid coverage report');

@@ -72,7 +72,11 @@ vi.mock('@electron/utils/atomicReplace', async (importOriginal) => {
     mocks.realReplace = actual.atomicReplace;
     return {
         ...actual,
-        atomicReplace: mocks.atomicReplace,
+        writeJsonAtomic: async (path: string, value: unknown) => {
+            const temporaryPath = actual.makeSiblingTempPath(path);
+            await writeFile(temporaryPath, JSON.stringify(value));
+            await mocks.atomicReplace(temporaryPath, path);
+        },
     };
 });
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal) => ({

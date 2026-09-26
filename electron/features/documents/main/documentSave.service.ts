@@ -74,7 +74,7 @@ function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOpti
 }
 
 function markSaveAsWorkingCopySyncRequired(workingPath: string, error: unknown) {
-    markWorkingCopySyncRequired(
+    return markWorkingCopySyncRequired(
         workingPath,
         `Target file was saved, but the working copy refresh failed: ${getErrorMessage(error)}`,
     );
@@ -163,7 +163,7 @@ export async function savePdfAs(
                     await markWorkingCopyContentChanged(normalizedWorkingPath, 'save-sync', context.senderId);
                 }
             } catch (syncError) {
-                markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
+                await markSaveAsWorkingCopySyncRequired(normalizedWorkingPath, syncError);
             }
         } finally {
             if (!replaced) {

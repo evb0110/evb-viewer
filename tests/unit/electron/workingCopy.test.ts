@@ -125,7 +125,7 @@ describe('workingCopy', () => {
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {getWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
-        const {getWorkingCopyRevisionSidecarPath} = await import('@electron/file-access/documentRevisionSidecar');
+        const {getWorkingCopyManifestPath} = await import('@electron/file-access/workingCopyDirectory');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const sourceName = `${'é'.repeat(80)}${'source'.repeat(13)}.pdf`;
         const originalPath = join(tempRoot, sourceName);
@@ -141,7 +141,7 @@ describe('workingCopy', () => {
         expect(getWorkingCopyOriginalPath(workingPath, 17)?.originalPath).toBe(realpathSync.native(originalPath));
         expect(basename(workingPath)).toBe('document.pdf');
         expect(Buffer.byteLength(basename(workingPath), 'utf8')).toBeLessThan(100);
-        expect(existsSync(getWorkingCopyRevisionSidecarPath(workingPath))).toBe(true);
+        expect(existsSync(getWorkingCopyManifestPath(workingPath))).toBe(true);
         expect(workingDirectoryEntries.every(entry => Buffer.byteLength(entry, 'utf8') <= 255)).toBe(true);
         expect(existsSync(originalPath)).toBe(true);
     });

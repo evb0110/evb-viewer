@@ -22,23 +22,19 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import { createWorkingCopySyncRequiredError } from '@contracts/documentMutationErrors';
+import {
+    createStaleRevisionError,
+    createWorkingCopySyncRequiredError,
+} from '@contracts/documentMutationErrors';
 import {createEpochMs} from '@contracts/timestamps';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
-    assertWorkingCopyRevisionSidecarCurrent,
-    clearWorkingCopyRevisionSidecarCommit,
-    getWorkingCopyRevisionSidecarPath,
-    readWorkingCopyRevisionSidecar,
-    readWorkingCopySyncRequiredJournalEntry,
-    reconcileWorkingCopyRevisionSidecarJournal,
-    stageWorkingCopyRevisionSidecarCommit,
-    writeProvisionalWorkingCopyRevisionSidecar,
-    writeWorkingCopySyncRequiredJournalEntry,
-    writeWorkingCopyRevisionSidecar,
-    type IWorkingCopyRevisionSidecar,
-} from '@electron/file-access/documentRevisionSidecar';
+    readWorkingCopyRevision,
+    readWorkingCopySyncRequired,
+    updateWorkingCopyManifest,
+    writeWorkingCopyManifestRevision,
+} from '@electron/file-access/workingCopyManifest';
 import {
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
@@ -49,31 +45,32 @@ import {
     refreshWorkingCopyOriginalFileExpectation,
     workingCopyMap,
 } from '@electron/file-access/workingCopyStore';
-import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
+import {
+    getWorkingCopyManifestPath,
+    isWorkingCopyDirectoryName,
+} from '@electron/file-access/workingCopyDirectory';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
 import {
-    completeWorkingCopyContentTransition,
-    prepareWorkingCopyContentTransition,
-    recoverWorkingCopyContentTransition,
-    rollbackWorkingCopyContentTransition,
-} from '@electron/file-access/workingCopyContentTransitionJournal';
-import type {TWorkingCopyContentBackupMode} from '@electron/file-access/workingCopyContentTransitionJournal';
-import {
-    cleanupOrphanedTwoTargetDocumentTransitionBackups,
-    recoverTwoTargetDocumentTransition,
-} from '@electron/file-access/recoverTwoTargetDocumentTransition';
+    completeWorkingCopyTransition,
+    prepareWorkingCopyTransition,
+    recoverWorkingCopyTransition,
+    rollbackWorkingCopyTransition,
+    sweepOrphanedOriginalBackups,
+    type IWorkingCopyJournal,
+    type TWorkingCopyContentBackupMode,
+} from '@electron/file-access/workingCopyJournal';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
 const workingCopySyncRequired = new Map<string, string>();
-const workingCopySyncRequiredJournalReadFailures = new Set<string>();
 interface IProvisionalWorkingCopyRevision {
-    durabilityPromise?: Promise<void>;
-    sidecar: IWorkingCopyRevisionSidecar;
+    durabilityPromise?: Promise<unknown>;
+    revision: IDocumentRevisionInfo;
 }
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
-const workingCopyContentTransitionQueue = new Map<string, Promise<void>>();
+const runContentTransitionSerially = createKeyedSerialQueue();
 
 function requireDocumentRef(value: string): TDocumentRef {
     const parsed = parseDocumentRef(value);
@@ -96,22 +93,6 @@ async function measureRevisionTransitionPhase<T>(
 
 function getRevisionQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
-}
-
-function enqueueWorkingCopyContentTransition<T>(
-    workingCopyPath: string,
-    operation: () => Promise<T>,
-) {
-    const queueKey = getRevisionQueueKey(workingCopyPath);
-    const previousTail = workingCopyContentTransitionQueue.get(queueKey) ?? Promise.resolve();
-    const operationPromise = previousTail.then(operation, operation);
-    const nextTail = operationPromise.then(() => undefined, () => undefined);
-    workingCopyContentTransitionQueue.set(queueKey, nextTail);
-    return operationPromise.finally(() => {
-        if (workingCopyContentTransitionQueue.get(queueKey) === nextTail) {
-            workingCopyContentTransitionQueue.delete(queueKey);
-        }
-    });
 }
 
 function isExistingFile(workingCopyPath: string) {
@@ -253,7 +234,7 @@ function assertCanUseWorkingCopyRevision(workingCopyPath: string, senderId?: num
     if (workingCopyMap.has(workingCopyPath) || isUnregisteredWorkingCopyPath(workingCopyPath)) {
         return;
     }
-    if (existsSync(getWorkingCopyRevisionSidecarPath(workingCopyPath))) {
+    if (existsSync(getWorkingCopyManifestPath(workingCopyPath))) {
         return;
     }
 
@@ -269,32 +250,18 @@ function getTokenRegistrationId(workingCopyPath: string, senderId?: number) {
     return `generated-${randomUUID()}`;
 }
 
-function createRevisionSidecar(
+function createRevision(
     workingCopyPath: string,
     contentRevision: number,
     senderId?: number,
-): IWorkingCopyRevisionSidecar {
-    const mintedAt = createEpochMs();
+): IDocumentRevisionInfo {
     return {
-        sidecarVersion: 1,
         version: 1,
         documentRef: requireDocumentRef(workingCopyPath),
         authority: 'electron-working-copy',
         token: requireDocumentRevisionToken(`drt1:${getTokenRegistrationId(workingCopyPath, senderId)}:${contentRevision}:${randomUUID()}`),
         contentRevision,
-        mintedAt,
-        updatedAt: mintedAt,
-    };
-}
-
-function toRevisionInfo(sidecar: IWorkingCopyRevisionSidecar): IDocumentRevisionInfo {
-    return {
-        version: 1,
-        documentRef: sidecar.documentRef,
-        authority: sidecar.authority,
-        token: sidecar.token,
-        contentRevision: sidecar.contentRevision,
-        mintedAt: sidecar.mintedAt,
+        mintedAt: createEpochMs(),
     };
 }
 
@@ -317,21 +284,21 @@ export async function initializeFreshWorkingCopyRevision(
     const queueKey = getRevisionQueueKey(normalizedWorkingPath);
     const active = provisionalWorkingCopyRevisions.get(queueKey);
     if (active) {
-        return toRevisionInfo(active.sidecar);
+        return active.revision;
     }
-    if (existsSync(getWorkingCopyRevisionSidecarPath(normalizedWorkingPath))) {
+    if (existsSync(getWorkingCopyManifestPath(normalizedWorkingPath))) {
         return ensureWorkingCopyRevision(normalizedWorkingPath, senderId);
     }
 
     const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
     if (originalPath) {
-        await cleanupOrphanedTwoTargetDocumentTransitionBackups(originalPath, normalizedWorkingPath);
+        await sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath);
     }
 
-    const sidecar = createRevisionSidecar(normalizedWorkingPath, 1, senderId);
-    await writeProvisionalWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
-    provisionalWorkingCopyRevisions.set(queueKey, {sidecar});
-    return toRevisionInfo(sidecar);
+    const revision = createRevision(normalizedWorkingPath, 1, senderId);
+    await writeWorkingCopyManifestRevision(normalizedWorkingPath, revision, {durable: false});
+    provisionalWorkingCopyRevisions.set(queueKey, {revision});
+    return revision;
 }
 
 /** Promotes a fresh revision to durable storage before any mutation commits. */
@@ -341,9 +308,9 @@ export async function awaitWorkingCopyRevisionDurability(workingCopyPath: string
     if (!entry) {
         return;
     }
-    entry.durabilityPromise ??= writeWorkingCopyRevisionSidecar(
+    entry.durabilityPromise ??= writeWorkingCopyManifestRevision(
         workingCopyPath,
-        entry.sidecar,
+        entry.revision,
         {markMutationCommitStarted: false},
     );
     try {
@@ -375,28 +342,23 @@ function notifyRevisionChanged(event: IDocumentRevisionChangedEvent) {
     }
 }
 
-function hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath: string) {
+function hydrateWorkingCopySyncRequired(workingCopyPath: string) {
     const queueKey = getRevisionQueueKey(workingCopyPath);
-    if (workingCopySyncRequired.has(queueKey) && !workingCopySyncRequiredJournalReadFailures.has(queueKey)) {
-        return workingCopySyncRequired.get(queueKey);
+    const known = workingCopySyncRequired.get(queueKey);
+    if (known !== undefined) {
+        return known;
     }
-
     let pendingSync;
     try {
-        pendingSync = readWorkingCopySyncRequiredJournalEntry(workingCopyPath);
-        workingCopySyncRequiredJournalReadFailures.delete(queueKey);
+        pendingSync = readWorkingCopySyncRequired(workingCopyPath);
     } catch (error) {
-        const reason = `Working copy recovery journal is unavailable: ${getErrorMessage(error)}`;
-        workingCopySyncRequired.set(queueKey, reason);
-        workingCopySyncRequiredJournalReadFailures.add(queueKey);
-        return reason;
+        // Unreadable evidence blocks mutations until it can be read again.
+        return `Working copy manifest is unavailable: ${getErrorMessage(error)}`;
     }
-    if (!pendingSync) {
-        workingCopySyncRequired.delete(queueKey);
-        return undefined;
+    if (pendingSync) {
+        workingCopySyncRequired.set(queueKey, pendingSync.reason);
     }
-    workingCopySyncRequired.set(queueKey, pendingSync.reason);
-    return pendingSync.reason;
+    return pendingSync?.reason;
 }
 
 export async function ensureWorkingCopyRevision(
@@ -410,31 +372,31 @@ export async function ensureWorkingCopyRevision(
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
     const provisional = provisionalWorkingCopyRevisions.get(getRevisionQueueKey(normalizedWorkingPath));
     if (provisional) {
-        return toRevisionInfo(provisional.sidecar);
+        return provisional.revision;
     }
-    await recoverTwoTargetDocumentTransition(normalizedWorkingPath);
+    await recoverWorkingCopyTransition(normalizedWorkingPath);
     const originalPath = getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath;
     if (originalPath) {
-        await cleanupOrphanedTwoTargetDocumentTransitionBackups(originalPath, normalizedWorkingPath);
+        await sweepOrphanedOriginalBackups(originalPath, normalizedWorkingPath);
     }
-    await recoverWorkingCopyContentTransition(normalizedWorkingPath);
-    hydrateWorkingCopySyncRequiredFromJournal(normalizedWorkingPath);
+    hydrateWorkingCopySyncRequired(normalizedWorkingPath);
 
-    const existing = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
+    const existing = await readWorkingCopyRevision(normalizedWorkingPath);
     if (existing) {
-        return toRevisionInfo(existing);
+        return existing;
     }
 
-    const sidecar = createRevisionSidecar(normalizedWorkingPath, 1, senderId);
-    await writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
-    return toRevisionInfo(sidecar);
+    const revision = createRevision(normalizedWorkingPath, 1, senderId);
+    await writeWorkingCopyManifestRevision(normalizedWorkingPath, revision);
+    return revision;
 }
 
 export function getWorkingCopyRevision(workingCopyPath: string, senderId?: number) {
     return ensureWorkingCopyRevision(workingCopyPath, senderId);
 }
 
-export async function markWorkingCopyRevisionChanged(
+/** Publishes a new revision for content that was already replaced. */
+export async function markWorkingCopyContentChanged(
     workingCopyPath: string,
     reason: TDocumentRevisionChangeReason,
     senderId?: number,
@@ -446,19 +408,12 @@ export async function markWorkingCopyRevisionChanged(
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
     await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
 
-    const previous = await readWorkingCopyRevisionSidecar(normalizedWorkingPath);
-    const contentRevision = (previous?.contentRevision ?? 0) + 1;
-    const sidecar = createRevisionSidecar(normalizedWorkingPath, contentRevision, senderId);
-    stageWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar, reason);
-    await writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar);
-    try {
-        clearWorkingCopyRevisionSidecarCommit(normalizedWorkingPath, sidecar.token);
-    } catch (error) {
-        log.debug(`Failed to clear document revision journal entry: ${getErrorMessage(error)}`);
-    }
+    const previous = await readWorkingCopyRevision(normalizedWorkingPath);
+    const revision = createRevision(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
+    await writeWorkingCopyManifestRevision(normalizedWorkingPath, revision);
 
     const event: IDocumentRevisionChangedEvent = {
-        ...toRevisionInfo(sidecar),
+        ...revision,
         ...(previous?.token ? {previousToken: previous.token} : {}),
         reason,
     };
@@ -474,7 +429,7 @@ export async function markWorkingCopyRevisionChanged(
 async function runWorkingCopyContentRevisionTransition(
     workingCopyPath: string,
     reason: TDocumentRevisionChangeReason,
-    commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
+    commit: (nextRevision: IDocumentRevisionInfo, journal: IWorkingCopyJournal) => Promise<void>,
     senderId?: number,
     onPhase?: (phase: string, durationMs: number) => void,
     contentBackupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
@@ -492,33 +447,30 @@ async function runWorkingCopyContentRevisionTransition(
     );
 
     const previous = await measureRevisionTransitionPhase('revision-read-previous', onPhase, () =>
-        readWorkingCopyRevisionSidecar(normalizedWorkingPath));
-    const sidecar = createRevisionSidecar(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
-    const contentJournal = await measureRevisionTransitionPhase('revision-prepare-journal', onPhase, () =>
-        prepareWorkingCopyContentTransition(
+        readWorkingCopyRevision(normalizedWorkingPath));
+    const revision = createRevision(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
+    const journal = await measureRevisionTransitionPhase('revision-prepare-journal', onPhase, () =>
+        prepareWorkingCopyTransition(
             normalizedWorkingPath,
-            sidecar.token,
+            revision.token,
             onPhase,
             contentBackupMode,
         ));
     try {
         await measureRevisionTransitionPhase('revision-commit-files', onPhase, () =>
-            commit(toRevisionInfo(sidecar)));
-        // The atomic, durable sidecar rename is the transaction commit point.
-        // Unlike standalone revision bumps, this path already has a content
-        // recovery journal, so a second pending-revision journal would make a
-        // crash before this write look committed during recovery.
-        await measureRevisionTransitionPhase('revision-write-sidecar', onPhase, () =>
-            writeWorkingCopyRevisionSidecar(normalizedWorkingPath, sidecar));
+            commit(revision, journal));
+        // The durable manifest write is the transaction commit point.
+        await measureRevisionTransitionPhase('revision-write-manifest', onPhase, () =>
+            writeWorkingCopyManifestRevision(normalizedWorkingPath, revision));
     } catch (error) {
-        await rollbackWorkingCopyContentTransition(contentJournal);
+        await rollbackWorkingCopyTransition(journal);
         throw error;
     }
     try {
         await measureRevisionTransitionPhase('revision-complete-journal', onPhase, () =>
-            completeWorkingCopyContentTransition(contentJournal));
+            completeWorkingCopyTransition(journal));
     } catch (error) {
-        log.debug(`Failed to clean committed content transition journal: ${getErrorMessage(error)}`);
+        log.debug(`Failed to clean committed working-copy journal: ${getErrorMessage(error)}`);
     }
     if (linkedOriginalExpectationFence) {
         await refreshOriginalExpectationAfterManagedLinkedDetach(
@@ -528,7 +480,7 @@ async function runWorkingCopyContentRevisionTransition(
     }
 
     const event: IDocumentRevisionChangedEvent = {
-        ...toRevisionInfo(sidecar),
+        ...revision,
         ...(previous?.token ? {previousToken: previous.token} : {}),
         reason,
     };
@@ -539,12 +491,12 @@ async function runWorkingCopyContentRevisionTransition(
 export function transitionWorkingCopyContentRevision(
     workingCopyPath: string,
     reason: TDocumentRevisionChangeReason,
-    commit: (nextRevision: IDocumentRevisionInfo) => Promise<void>,
+    commit: (nextRevision: IDocumentRevisionInfo, journal: IWorkingCopyJournal) => Promise<void>,
     senderId?: number,
     onPhase?: (phase: string, durationMs: number) => void,
     contentBackupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ): Promise<IDocumentRevisionChangedEvent> {
-    return enqueueWorkingCopyContentTransition(workingCopyPath, () =>
+    return runContentTransitionSerially(getRevisionQueueKey(workingCopyPath), () =>
         runWorkingCopyContentRevisionTransition(
             workingCopyPath,
             reason,
@@ -555,22 +507,12 @@ export function transitionWorkingCopyContentRevision(
         ));
 }
 
-export async function markWorkingCopyContentChanged(
-    workingCopyPath: string,
-    reason: TDocumentRevisionChangeReason,
-    senderId?: number,
-): Promise<IDocumentRevisionChangedEvent> {
-    return markWorkingCopyRevisionChanged(workingCopyPath, reason, senderId);
-}
-
 export function isWorkingCopyRevisionCurrent(
     workingCopyPath: string,
     token: TDocumentRevisionToken,
 ): Promise<boolean> {
-    return reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath)
-        .catch(() => null)
-        .then(() => readWorkingCopyRevisionSidecar(workingCopyPath))
-        .then(sidecar => sidecar?.token === token)
+    return readWorkingCopyRevision(workingCopyPath)
+        .then(revision => revision?.token === token)
         .catch(() => false);
 }
 
@@ -579,12 +521,18 @@ export async function assertWorkingCopyRevisionCurrent(
     token: TDocumentRevisionToken,
 ): Promise<void> {
     await awaitWorkingCopyRevisionDurability(workingCopyPath);
-    await reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath);
-    await assertWorkingCopyRevisionSidecarCurrent(workingCopyPath, token);
+    const revision = await readWorkingCopyRevision(workingCopyPath);
+    if (revision?.token !== token) {
+        throw createStaleRevisionError({
+            documentRef: requireDocumentRef(workingCopyPath),
+            expectedRevision: token,
+            actualRevision: revision?.token ?? null,
+        });
+    }
 }
 
 export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {
-    const reason = hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath);
+    const reason = hydrateWorkingCopySyncRequired(workingCopyPath);
     if (reason !== undefined) {
         throw createWorkingCopySyncRequiredError({
             documentRef: requireDocumentRef(workingCopyPath),
@@ -594,32 +542,30 @@ export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {
 }
 
 export function hasWorkingCopySyncRequired(workingCopyPath: string) {
-    return hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath) !== undefined;
+    return hydrateWorkingCopySyncRequired(workingCopyPath) !== undefined;
 }
 
-
-export function markWorkingCopySyncRequired(workingCopyPath: string, reason: string) {
+export async function markWorkingCopySyncRequired(workingCopyPath: string, reason: string) {
     const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
     const activeEntry = normalizedWorkingPath ? workingCopyMap.get(normalizedWorkingPath) : undefined;
-    workingCopySyncRequired.set(
-        getRevisionQueueKey(workingCopyPath),
-        reason,
-    );
-    workingCopySyncRequiredJournalReadFailures.delete(getRevisionQueueKey(workingCopyPath));
+    workingCopySyncRequired.set(getRevisionQueueKey(workingCopyPath), reason);
     if (!normalizedWorkingPath) {
         return;
     }
     try {
-        writeWorkingCopySyncRequiredJournalEntry(normalizedWorkingPath, {
-            reason,
-            ...(activeEntry?.originalPath === undefined ? {} : {originalPath: activeEntry.originalPath}),
-            ...(activeEntry?.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: activeEntry.ownerWebContentsId}),
-        });
+        await updateWorkingCopyManifest(normalizedWorkingPath, current => ({
+            version: 1,
+            revision: current?.revision ?? createRevision(normalizedWorkingPath, 1, activeEntry?.ownerWebContentsId),
+            syncRequired: {
+                reason,
+                ...(activeEntry?.originalPath === undefined ? {} : {originalPath: activeEntry.originalPath}),
+                ...(activeEntry?.ownerWebContentsId === undefined ? {} : {ownerWebContentsId: activeEntry.ownerWebContentsId}),
+            },
+        }));
     } catch (error) {
-        log.debug(`Failed to persist working-copy sync-required journal entry: ${getErrorMessage(error)}`);
+        log.debug(`Failed to persist working-copy sync-required state: ${getErrorMessage(error)}`);
     }
 }
-
 
 export function onWorkingCopyRevisionChanged(listener: (event: IDocumentRevisionChangedEvent) => void) {
     revisionListeners.add(listener);
