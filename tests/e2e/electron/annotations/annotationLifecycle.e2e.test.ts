@@ -55,6 +55,7 @@ import {
     waitForPdfAnnotationSubtypeCount,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
+    goToPageViaToolbar,
     openAnnotationsTab,
     openPdfInApp,
     saveViaVisibleToolbar,
@@ -262,8 +263,9 @@ async function annotationPointerTarget(page: Page, selector = '.editor-pane.is-a
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const COMMAND_MODIFIER = process.platform === 'darwin' ? 'Meta' : 'Control';
+const STAMP_PAGE_NUMBER = 31;
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
-const CANONICAL_STAMP_SELECTOR = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp';
+const CANONICAL_STAMP_SELECTOR = `.editor-pane.is-active .page_container[data-page="${STAMP_PAGE_NUMBER}"] .pdf-annotation-editor-stamp`;
 const PLACED_IMAGE_JPEG = Buffer.from(
     '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
     'base64',
@@ -1821,10 +1823,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
     it('places a stamp through the editor layer and round-trips its edited geometry', async () => {
         const session = sessionFixture.getSession();
-        const {page} = session;
+        let {page} = session;
         const fixturePath = await createMultiPageTextFixturePdf(
             `annotation-lifecycle-${Date.now()}-stamp-round-trip.pdf`,
-            1,
+            STAMP_PAGE_NUMBER,
         );
         const reopenPath = fixturePath.replace(/\.pdf$/u, '-reopen.pdf');
         onTestFinished(() => rmSync(reopenPath, {force: true}));
@@ -1832,6 +1834,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
+        await goToPageViaToolbar(page, STAMP_PAGE_NUMBER);
         const state = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(page, ['workingCopyPath']);
         if (typeof state.workingCopyPath !== 'string') {
             throw new Error('Stamp lifecycle working copy is unavailable');
@@ -1948,9 +1951,20 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             expect(realpathSync(String(saveEvent.detail.path))).toBe(realpathSync(fixturePath));
 
             copyFileSync(fixturePath, reopenPath);
+            await uninstallManagedJpegClipboard(page);
+            if (clipboardLeaseId) {
+                await releaseManagedImageHandle(page, clipboardLeaseId);
+                clipboardLeaseId = null;
+            }
+            const restarted = await sessionFixture.restart({
+                clean: false,
+                hard: true,
+            });
+            page = restarted.page;
             await openPdfInApp(page, reopenPath);
             await waitForPdfLoaded(page);
             await waitForViewerInteractive(page);
+            await goToPageViaToolbar(page, STAMP_PAGE_NUMBER);
             await page.waitForFunction((selector: string) => {
                 const stamp = document.querySelector<HTMLElement>(selector);
                 const image = stamp?.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
