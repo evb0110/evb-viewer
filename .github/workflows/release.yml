@@ -696,7 +696,7 @@ jobs:
           set -euo pipefail
           node scripts/release/release-checksums.mjs generate artifacts
           if [ "${{ needs.gate.outputs.drill }}" = true ]; then node scripts/release/ensure-github-release-assets.mjs "$TAG" artifacts/SHA256SUMS --drill; else node scripts/release/ensure-github-release-assets.mjs "$TAG" artifacts/SHA256SUMS; fi
-          node scripts/release/release-checksums.mjs verify artifacts "${{ needs.gate.outputs.version }}"
+          node scripts/release/release-checksums.mjs verify artifacts
       - name: Attest final release assets
         if: ${{ needs.package.result == 'success' }}
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3

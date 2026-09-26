@@ -195,7 +195,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         || (command !== 'generate' && command !== 'verify')
     ) {
         throw new Error(
-            'Usage: release-checksums.mjs <generate|verify> <artifact-directory> [release-version]',
+            'Usage: release-checksums.mjs <generate|verify> <artifact-directory>',
         );
     }
     if (command === 'generate') {
