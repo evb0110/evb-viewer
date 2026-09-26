@@ -29,7 +29,7 @@ export default {
         'speedMode': 'Режим скорости',
         'speedModeAria': 'Режим скорости: {label}',
         'speedFast': 'Быстро',
-        'speedStandard': 'Медленно',
+        'speedStandard': 'Стандартно',
         'newChat': 'Новый чат',
         'checkingTitle': 'Проверка EVB Assistant',
         'checkingDescription': 'Загружаем локальную сессию Codex и инструменты EVB.',
