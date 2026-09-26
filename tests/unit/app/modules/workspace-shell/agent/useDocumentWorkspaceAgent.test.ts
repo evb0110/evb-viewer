@@ -1080,12 +1080,13 @@ describe('useDocumentWorkspaceAgent', () => {
 
     it('enforces the advertised bookmarks.set_style schema on capability input', () => {
         const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'bookmarks.set_style');
-
-        expect(template).toBeDefined();
+        if (!template) {
+            throw new Error('bookmarks.set_style template is missing');
+        }
         expect(() => validateJsonObjectAgainstSchema(
             'bookmarks.set_style',
             {paths: [[0]]},
-            template?.inputSchema ?? {},
+            template.inputSchema,
         )).toThrow(/did not match its advertised schema/u);
         expect(() => validateJsonObjectAgainstSchema(
             'bookmarks.set_style',
@@ -1093,7 +1094,7 @@ describe('useDocumentWorkspaceAgent', () => {
                 depth: 0,
                 bold: true,
             },
-            template?.inputSchema ?? {},
+            template.inputSchema,
         )).not.toThrow();
         expect(() => validateJsonObjectAgainstSchema(
             'bookmarks.set_style',
@@ -1101,7 +1102,7 @@ describe('useDocumentWorkspaceAgent', () => {
                 paths: [[-1]],
                 bold: true,
             },
-            template?.inputSchema ?? {},
+            template.inputSchema,
         )).toThrow(/did not match its advertised schema/u);
         expect(() => validateJsonObjectAgainstSchema(
             'bookmarks.set_style',
@@ -1109,7 +1110,7 @@ describe('useDocumentWorkspaceAgent', () => {
                 path: [0.5],
                 bold: true,
             },
-            template?.inputSchema ?? {},
+            template.inputSchema,
         )).toThrow(/did not match its advertised schema/u);
     });
 

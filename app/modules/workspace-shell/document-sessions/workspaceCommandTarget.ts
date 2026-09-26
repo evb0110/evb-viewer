@@ -13,18 +13,18 @@ export type TWorkspaceCommandTarget =
         tabId: TTabId;
         sessionId: TSessionId;
         documentRef: TDocumentRef | null;
-        documentBackend?: TDocumentBackend;
-        documentInstanceId?: TDocumentInstanceId | null;
+        documentBackend?: TDocumentBackend | undefined;
+        documentInstanceId: TDocumentInstanceId | null;
         transactionId: string;
-        documentRevisionToken?: TDocumentRevisionToken;
+        documentRevisionToken?: TDocumentRevisionToken | undefined;
     }
     | {
         kind: 'revision';
         tabId: TTabId;
         sessionId: TSessionId;
         documentRef: TDocumentRef | null;
-        documentBackend?: TDocumentBackend;
-        documentInstanceId?: TDocumentInstanceId | null;
+        documentBackend?: TDocumentBackend | undefined;
+        documentInstanceId: TDocumentInstanceId | null;
         sessionRevision: number;
-        documentRevisionToken?: TDocumentRevisionToken;
+        documentRevisionToken?: TDocumentRevisionToken | undefined;
     };

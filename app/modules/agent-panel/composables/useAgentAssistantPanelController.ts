@@ -71,6 +71,7 @@ import {
     type IAssistantSubmitPayload,
 } from '@app/modules/agent-panel/utils/createAssistantSteering';
 import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
+import type {TAssistantComposerImage} from '@app/modules/agent-panel/utils/assistantImageAttachments';
 import {
     captureAssistantFailure,
     createAssistantActionOptions,
@@ -147,7 +148,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const installProgress = ref('');
     const deviceCode = ref('');
     const draft = ref('');
-    const composerImages = ref<IAgentAssistantImageAttachment[]>([]);
+    const composerImages = ref<TAssistantComposerImage[]>([]);
     const composerError = ref('');
     const assistantFailurePresentation = shallowRef<FailurePresentation | null>(null);
     const composerInputRef = ref<HTMLTextAreaElement | null>(null);
@@ -981,7 +982,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
         const attachments = composerImages.value.map((
-            image: IAgentAssistantImageAttachment,
+            image: TAssistantComposerImage,
         ) => ({ ...image }));
         if (isTurnActive.value) {
             queueSteer({

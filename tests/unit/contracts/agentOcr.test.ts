@@ -8,10 +8,21 @@ import {
     AGENT_OCR_RUN_INPUT_SCHEMA,
     parseAgentOcrRunOptions,
 } from '@contracts/agentOcr';
+import * as v from 'valibot';
+import {toJsonSchema} from '@valibot/to-json-schema';
 
 describe('agent OCR contract', () => {
     it('keeps the advertised fields and canonical enum values in one schema', () => {
-        expect(Object.keys(AGENT_OCR_RUN_INPUT_SCHEMA.properties)).toEqual([
+        const advertised = toJsonSchema(AGENT_OCR_RUN_INPUT_SCHEMA);
+        const branches = (advertised.anyOf ?? advertised.oneOf) as Array<{
+            properties: Record<string, {
+                const?: unknown;
+                enum?: unknown[]
+                type?: unknown;
+            }>;
+            additionalProperties: boolean;
+        }>;
+        expect(Object.keys(branches[0]!.properties)).toEqual([
             'pageRange',
             'customRange',
             'languages',
@@ -22,14 +33,19 @@ describe('agent OCR contract', () => {
             'replaceAllAcknowledged',
             'open',
         ]);
-        expect(AGENT_OCR_RUN_INPUT_SCHEMA.properties.supersessionPolicy.enum).toEqual([
+        expect(new Set([
+            branches[0]!.properties.supersessionPolicy?.const,
+            ...(branches[1]!.properties.supersessionPolicy?.enum ?? []),
+        ])).toEqual(new Set([
             'missing-only',
             'replace-evb',
             'replace-all',
-        ]);
-        expect(AGENT_OCR_RUN_INPUT_SCHEMA.properties.pageSegmentationMode.enum)
-            .toEqual(AGENT_OCR_PAGE_SEGMENTATION_MODES);
-        expect(AGENT_OCR_RUN_INPUT_SCHEMA.additionalProperties).toBe(false);
+        ]));
+        for (const branch of branches) {
+            expect(branch.properties.pageSegmentationMode?.enum).toEqual(AGENT_OCR_PAGE_SEGMENTATION_MODES);
+            expect(branch.properties.pageSegmentationMode?.type).toBe('integer');
+            expect(branch.additionalProperties).toBe(false);
+        }
     });
 
     it('normalizes every supported option at the untrusted action boundary', () => {
@@ -84,5 +100,14 @@ describe('agent OCR contract', () => {
         expect(parseAgentOcrRunOptions({pageSegmentationMode: 2})).toEqual({});
         expect(parseAgentOcrRunOptions({pageSegmentationMode: 12})).toEqual({});
         expect(parseAgentOcrRunOptions({pageSegmentationMode: 13})).toEqual({pageSegmentationMode: 13});
+    });
+
+    it('requires explicit acknowledgement for replace-all and rejects unknown fields', () => {
+        expect(v.safeParse(AGENT_OCR_RUN_INPUT_SCHEMA, {supersessionPolicy: 'replace-all'}).success).toBe(false);
+        expect(v.safeParse(AGENT_OCR_RUN_INPUT_SCHEMA, {
+            supersessionPolicy: 'replace-all',
+            replaceAllAcknowledged: true,
+        }).success).toBe(true);
+        expect(v.safeParse(AGENT_OCR_RUN_INPUT_SCHEMA, {selectedLanguages: ['eng']}).success).toBe(false);
     });
 });

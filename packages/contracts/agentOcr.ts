@@ -7,6 +7,7 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
 const AGENT_OCR_PAGE_RANGES = [
     'all',
@@ -49,76 +50,33 @@ export function isSupportedPageSegmentationMode(value: unknown): value is TOcrPa
 
 export type TAgentOcrPageRange = typeof AGENT_OCR_PAGE_RANGES[number];
 
-export interface IAgentOcrRunOptions {
-    pageRange?: TAgentOcrPageRange;
-    customRange?: string;
-    languages?: string[];
-    qualityProfile?: TOcrQualityProfile;
-    preprocessingMode?: TOcrPreprocessingMode;
-    pageSegmentationMode?: TOcrPageSegmentationMode;
-    supersessionPolicy?: TOcrTextSupersessionPolicy;
-    replaceAllAcknowledged?: boolean;
-    open?: boolean;
-}
-
-export const AGENT_OCR_RUN_INPUT_SCHEMA = {
-    type: 'object',
-    properties: {
-        pageRange: {
-            type: 'string',
-            enum: AGENT_OCR_PAGE_RANGES,
-            description: 'Pages to OCR. Defaults to the OCR popup current setting.',
-        },
-        customRange: {
-            type: 'string',
-            description: 'Custom page range such as 1-3,7. Used when pageRange is custom.',
-        },
-        languages: {
-            type: 'array',
-            items: {type: 'string'},
-            description: 'OCR language codes such as eng, deu, or tur. Select the languages present in the document. Defaults to the OCR popup current settings.',
-        },
-        qualityProfile: {
-            type: 'string',
-            enum: AGENT_OCR_QUALITY_PROFILES,
-            description: 'OCR quality profile. Defaults to the OCR popup current setting.',
-        },
-        preprocessingMode: {
-            type: 'string',
-            enum: AGENT_OCR_PREPROCESSING_MODES,
-            description: 'Optional image preprocessing mode before OCR. Defaults to the OCR popup current setting.',
-        },
-        pageSegmentationMode: {
-            type: 'integer',
-            enum: AGENT_OCR_PAGE_SEGMENTATION_MODES,
-            description: 'Optional Tesseract page segmentation mode supported by EVB output OCR.',
-        },
-        supersessionPolicy: {
-            type: 'string',
-            enum: AGENT_OCR_SUPERSESSION_POLICIES,
-            description: 'Existing text policy. Defaults to the OCR popup current setting.',
-        },
-        replaceAllAcknowledged: {
-            type: 'boolean',
-            description: 'Required and must be true when supersessionPolicy is replace-all.',
-        },
-        open: {
-            type: 'boolean',
-            description: 'Whether to open the OCR popup. Defaults to true.',
-        },
-    },
-    allOf: [{
-        if: {
-            properties: {supersessionPolicy: {const: 'replace-all'}},
-            required: ['supersessionPolicy'],
-        },
-        then: {
-            properties: {replaceAllAcknowledged: {const: true}},
-            required: ['replaceAllAcknowledged'],
-        },
-    }],
-    additionalProperties: false,
+const agentOcrRunInputProperties = {
+    pageRange: v.optional(v.pipe(v.picklist(AGENT_OCR_PAGE_RANGES), v.description('Pages to OCR. Defaults to the OCR popup current setting.'))),
+    customRange: v.optional(v.pipe(v.string(), v.description('Custom page range such as 1-3,7. Used when pageRange is custom.'))),
+    languages: v.optional(v.pipe(v.array(v.string()), v.description('OCR language codes such as eng, deu, or tur. Select the languages present in the document. Defaults to the OCR popup current settings.'))),
+    qualityProfile: v.optional(v.pipe(v.picklist(AGENT_OCR_QUALITY_PROFILES), v.description('OCR quality profile. Defaults to the OCR popup current setting.'))),
+    preprocessingMode: v.optional(v.pipe(v.picklist(AGENT_OCR_PREPROCESSING_MODES), v.description('Optional image preprocessing mode before OCR. Defaults to the OCR popup current setting.'))),
+    pageSegmentationMode: v.optional(v.pipe(v.picklist(AGENT_OCR_PAGE_SEGMENTATION_MODES), v.integer(), v.description('Optional Tesseract page segmentation mode supported by EVB output OCR.'))),
+    supersessionPolicy: v.optional(v.pipe(v.picklist(AGENT_OCR_SUPERSESSION_POLICIES), v.description('Existing text policy. Defaults to the OCR popup current setting.'))),
+    replaceAllAcknowledged: v.optional(v.pipe(v.boolean(), v.description('Required and must be true when supersessionPolicy is replace-all.'))),
+    open: v.optional(v.pipe(v.boolean(), v.description('Whether to open the OCR popup. Defaults to true.'))),
 };
+export const AGENT_OCR_RUN_INPUT_SCHEMA = v.union([
+    v.strictObject({
+        ...agentOcrRunInputProperties,
+        supersessionPolicy: v.literal('replace-all'),
+        replaceAllAcknowledged: v.literal(true),
+    }),
+    v.strictObject({
+        ...agentOcrRunInputProperties,
+        supersessionPolicy: v.optional(v.picklist([
+            'missing-only',
+            'replace-evb',
+        ])),
+    }),
+]);
+const _agentOcrRunOptionsSchema = v.object(agentOcrRunInputProperties);
+export type IAgentOcrRunOptions = v.InferOutput<typeof _agentOcrRunOptionsSchema>;
 
 function normalizeLanguages(value: unknown) {
     if (!Array.isArray(value)) {

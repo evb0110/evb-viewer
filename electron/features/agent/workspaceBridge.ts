@@ -317,7 +317,7 @@ function getRejectedAckForUnexpectedResponse<TResponse>(
     return null;
 }
 
-function normalizeResponseError(response: { error?: string }) {
+function normalizeResponseError(response: { error?: string | undefined }) {
     const message = response.error?.trim();
     return message && message.length > 0 ? message : 'Agent renderer request failed.';
 }

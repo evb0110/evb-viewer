@@ -162,8 +162,7 @@ function normalizeRecoveredLastAccessedAt(value: number, now = Date.now()) {
 
 function assistantMessageBytes(message: IAgentAssistantChatMessage) {
     const attachmentBytes = message.attachments?.reduce((total, attachment) => total
-        + Buffer.byteLength(attachment.dataUrl, 'utf8')
-        + Buffer.byteLength(attachment.previewDataUrl ?? '', 'utf8'), 0) ?? 0;
+        + Buffer.byteLength(attachment.dataUrl, 'utf8'), 0) ?? 0;
     return Buffer.byteLength(message.text, 'utf8') + attachmentBytes + 256;
 }
 

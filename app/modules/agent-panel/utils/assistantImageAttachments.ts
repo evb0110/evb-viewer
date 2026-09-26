@@ -7,6 +7,8 @@ import {
     type IProbedBrowserImage,
 } from '@app/platform/browser-api/public';
 
+export type TAssistantComposerImage = IAgentAssistantImageAttachment & {previewDataUrl?: string;};
+
 export const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 export const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const ASSISTANT_IMAGE_SIZE_LIMIT_LABEL = `${Math.round(ASSISTANT_MAX_IMAGE_BYTES / (1024 * 1024))} MB`;
@@ -42,7 +44,7 @@ export type TAssistantComposerImageError =
 
 interface IBuildComposerImageAttachmentsOptions {
     files: readonly File[];
-    existingImages: readonly IAgentAssistantImageAttachment[];
+    existingImages: readonly TAssistantComposerImage[];
     fallbackName: (index: number) => string;
     createId?: () => string;
     readFile?: (file: File) => Promise<string>;
@@ -169,7 +171,7 @@ export async function buildComposerImageAttachments({
 }
 
 export function buildExpandedImagePreview(
-    images: readonly IAgentAssistantImageAttachment[],
+    images: readonly TAssistantComposerImage[],
     selectedImageId: string,
 ): IExpandedImagePreview | null {
     const previewableImages = images
@@ -195,7 +197,7 @@ export function buildExpandedImagePreview(
     };
 }
 
-export function getAssistantImagePreviewUrl(image: IAgentAssistantImageAttachment) {
+export function getAssistantImagePreviewUrl(image: TAssistantComposerImage) {
     return image.previewDataUrl ?? image.dataUrl;
 }
 

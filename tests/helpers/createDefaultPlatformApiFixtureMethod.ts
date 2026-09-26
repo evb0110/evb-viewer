@@ -2,6 +2,10 @@ import { vi } from 'vitest';
 import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import { cast } from '@tests/helpers/cast';
+import {
+    createBrowserAgentMcpStatus,
+    createBrowserAssistantState,
+} from '@app/platform/browser-api/browserAgentCapability';
 
 export interface IPlatformApiFixtureEventMethod<TPayload = unknown> {
     /** Deliver a live event to the subscribers that are currently attached. */
@@ -93,6 +97,29 @@ type TPlatformApiFixtureEventFunction = (
 ) => () => void;
 
 const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
+    'agent.getMcpIntegrationStatus': createBrowserAgentMcpStatus(),
+    'agent.setMcpIntegrationEnabled': {
+        ok: true,
+        status: createBrowserAgentMcpStatus(),
+    },
+    'agent.getAssistantState': createBrowserAssistantState(),
+    'agent.installAssistantCodex': {
+        ok: true,
+        state: createBrowserAssistantState(),
+    },
+    'agent.startAssistantLogin': {
+        ok: true,
+        state: createBrowserAssistantState(),
+    },
+    'agent.cancelAssistantLogin': createBrowserAssistantState(),
+    'agent.sendAssistantMessage': {
+        ok: true,
+        state: createBrowserAssistantState(),
+    },
+    'agent.interruptAssistant': createBrowserAssistantState(),
+    'agent.resetAssistantChat': createBrowserAssistantState(),
+    'agent.submitWorkspaceSnapshot': {accepted: true},
+    'agent.submitCommandResponse': {accepted: true},
     'search.run': {
         results: [],
         truncated: false,

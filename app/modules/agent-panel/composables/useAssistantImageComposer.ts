@@ -1,5 +1,4 @@
 import type { Ref } from 'vue';
-import type { IAgentAssistantImageAttachment } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
 import {
     ASSISTANT_IMAGE_SIZE_LIMIT_LABEL,
@@ -9,11 +8,12 @@ import {
     navigateExpandedImagePreview,
     type IExpandedImagePreview,
     type TAssistantComposerImageError,
+    type TAssistantComposerImage,
 } from '@app/modules/agent-panel/utils/assistantImageAttachments';
 
 export const useAssistantImageComposer = (options: {
     composerError: Ref<string>;
-    composerImages: Ref<IAgentAssistantImageAttachment[]>;
+    composerImages: Ref<TAssistantComposerImage[]>;
     t: TTranslateFn;
 }) => {
     let imageIngestionGeneration = 0;
@@ -60,7 +60,7 @@ export const useAssistantImageComposer = (options: {
     const invalidatePendingImageIngestion = () => {
         imageIngestionGeneration += 1;
     };
-    const replaceComposerImages = (images: readonly IAgentAssistantImageAttachment[]) => {
+    const replaceComposerImages = (images: readonly TAssistantComposerImage[]) => {
         invalidatePendingImageIngestion();
         options.composerImages.value = images.map(image => ({...image}));
     };
@@ -119,7 +119,7 @@ export const useAssistantImageComposer = (options: {
         options.composerImages.value = options.composerImages.value.filter(image => image.id !== imageId);
         options.composerError.value = '';
     };
-    const expandImage = (images: readonly IAgentAssistantImageAttachment[] | undefined, selectedImageId: string) => {
+    const expandImage = (images: readonly TAssistantComposerImage[] | undefined, selectedImageId: string) => {
         if (images) {
             expandedImage.value = buildExpandedImagePreview(images, selectedImageId);
         }

@@ -9,6 +9,7 @@ import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { requireIsoTimestamp } from '@contracts/timestamps';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
+import * as v from 'valibot';
 
 type TIpcRendererFixture = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
 
@@ -167,10 +168,10 @@ describe('Agent platform feature', () => {
             },
         };
 
-        expect(assistantStateResult.decode(payload)).toEqual(state);
+        expect(v.parse(assistantStateResult, payload)).toEqual(state);
     });
 
-    it('rejects malformed provider entries in state events and invoke results', async () => {
+    it('rejects malformed provider entries at the main result boundary and forwards trusted preload results', async () => {
         const state = createAssistantState();
         const malformedState = {
             ...state,
@@ -180,20 +181,20 @@ describe('Agent platform feature', () => {
             },
         };
 
-        expect(() => assistantStateResult.decode(malformedState)).toThrow('invalid assistant state');
-        expect(() => assistantEvent.decode({
+        expect(() => v.parse(assistantStateResult, malformedState)).toThrow('invalid assistant state');
+        expect(() => v.parse(assistantEvent, {
             type: 'state',
             state: malformedState,
         })).toThrow('invalid agent assistant event');
-        expect(() => assistantInstallResult.decode({
+        expect(() => v.parse(assistantInstallResult, {
             ok: true,
             state: malformedState,
         })).toThrow('invalid assistant install');
-        expect(() => assistantLoginResult.decode({
+        expect(() => v.parse(assistantLoginResult, {
             ok: true,
             state: malformedState,
         })).toThrow('invalid assistant login');
-        expect(() => assistantMessageResult.decode({
+        expect(() => v.parse(assistantMessageResult, {
             ok: true,
             state: malformedState,
         })).toThrow('invalid assistant message');
@@ -212,15 +213,13 @@ describe('Agent platform feature', () => {
             AGENT_PLATFORM_FEATURE,
         );
 
-        await expect(client.getAssistantState()).rejects.toThrow(
-            'invalid assistant state',
-        );
+        await expect(client.getAssistantState()).resolves.toBe(malformedState);
     });
 
     it('reconstructs assistant operation result variants', () => {
         const state = createAssistantState();
 
-        expect(assistantInstallResult.decode({
+        expect(v.parse(assistantInstallResult, {
             ok: true,
             state,
             ignored: true,
@@ -228,7 +227,7 @@ describe('Agent platform feature', () => {
             ok: true,
             state,
         });
-        expect(assistantLoginResult.decode({
+        expect(v.parse(assistantLoginResult, {
             ok: true,
             state,
             loginId: 'login-1',
@@ -240,7 +239,7 @@ describe('Agent platform feature', () => {
             loginId: 'login-1',
             authUrl: 'https://example.test/auth',
         });
-        expect(assistantMessageResult.decode({
+        expect(v.parse(assistantMessageResult, {
             ok: false,
             state,
             error: 'Unavailable',
@@ -259,7 +258,7 @@ describe('Agent platform feature', () => {
             turnGeneration: 2,
             windowId: 1,
         };
-        expect(assistantEvent.decode({
+        expect(v.parse(assistantEvent, {
             type: 'reasoning-delta',
             reasoningDelta: 'Inspecting the page',
             phase: 'thinking',
@@ -272,7 +271,7 @@ describe('Agent platform feature', () => {
             lastEventAtMs: 42,
             binding,
         });
-        expect(assistantEvent.decode({
+        expect(v.parse(assistantEvent, {
             type: 'turn-progress',
             phase: 'tool-running',
             toolActivity: {
@@ -283,12 +282,12 @@ describe('Agent platform feature', () => {
             },
             binding,
         })).toMatchObject({type: 'turn-progress'});
-        expect(() => assistantEvent.decode({
+        expect(() => v.parse(assistantEvent, {
             type: 'heartbeat',
             phase: 'hung',
             binding,
         })).toThrow('invalid agent assistant event');
-        expect(() => assistantEvent.decode({
+        expect(() => v.parse(assistantEvent, {
             type: 'message-delta',
             delta: 'late',
         })).toThrow('invalid agent assistant event');

@@ -4,14 +4,14 @@ import type {
 } from 'vue';
 import type {
     IAgentAssistantChatScope,
-    IAgentAssistantImageAttachment,
     TAgentAssistantPresetId,
 } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
+import type {TAssistantComposerImage} from '@app/modules/agent-panel/utils/assistantImageAttachments';
 
 export interface IAssistantSubmitPayload {
     text: string;
-    attachments?: IAgentAssistantImageAttachment[];
+    attachments?: TAssistantComposerImage[];
     presetId?: TAgentAssistantPresetId;
 }
 
@@ -19,14 +19,14 @@ interface IAssistantSteeringOptions {
     chatScope: ComputedRef<IAgentAssistantChatScope | null>;
     clearComposerImages: () => void;
     composerError: Ref<string>;
-    composerImages: Ref<IAgentAssistantImageAttachment[]>;
+    composerImages: Ref<TAssistantComposerImage[]>;
     draft: Ref<string>;
     handleInterrupt: () => void;
     isSending: Ref<boolean>;
     isTurnActive: ComputedRef<boolean>;
     queuedSteer: Ref<IAssistantSubmitPayload | null>;
     queuedSteerSendInFlight: Ref<boolean>;
-    replaceComposerImages: (images: readonly IAgentAssistantImageAttachment[]) => void;
+    replaceComposerImages: (images: readonly TAssistantComposerImage[]) => void;
     sendGeneration: () => number;
     setTurnActivity: (activity: string) => void;
     submitAssistantPayload: (

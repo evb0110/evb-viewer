@@ -3,7 +3,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import type { IAgentAssistantImageAttachment } from '@contracts/agent';
 import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
@@ -13,6 +12,7 @@ import {
     getClipboardImageFiles,
     getAssistantImagePreviewUrl,
     navigateExpandedImagePreview,
+    type TAssistantComposerImage,
 } from '@app/modules/agent-panel/utils/assistantImageAttachments';
 
 type TFileOverrides = Partial<Pick<File, 'name' | 'size' | 'type'>>;
@@ -74,7 +74,7 @@ function createDataTransfer(fixture: IDataTransferFixture): DataTransfer {
     return dataTransfer;
 }
 
-function createImageAttachment(patch: Partial<IAgentAssistantImageAttachment> = {}): IAgentAssistantImageAttachment {
+function createImageAttachment(patch: Partial<TAssistantComposerImage> = {}): TAssistantComposerImage {
     return {
         type: 'image',
         id: 'image-1',

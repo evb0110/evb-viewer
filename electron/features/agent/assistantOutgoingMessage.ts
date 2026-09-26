@@ -73,9 +73,6 @@ export function normalizeOutgoingAttachments(
             throw new Error('One attached image is invalid or too large.');
         }
 
-        const parsedPreview = attachment.previewDataUrl
-            ? parseAssistantImageDataUrl(attachment.previewDataUrl)
-            : null;
         return {
             type: 'image',
             id: attachment.id.trim() || (options.createId ?? randomUUID)(),
@@ -83,9 +80,6 @@ export function normalizeOutgoingAttachments(
             mimeType: parsed.mimeType,
             sizeBytes: parsed.sizeBytes,
             dataUrl: `data:${parsed.mimeType};base64,${parsed.base64}`,
-            ...(parsedPreview
-                ? {previewDataUrl: `data:${parsedPreview.mimeType};base64,${parsedPreview.base64}`}
-                : {}),
         };
     });
 }

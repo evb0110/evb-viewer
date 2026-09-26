@@ -6,6 +6,7 @@ import type {
     TAgentCapabilityDomain,
 } from '@contracts/agent';
 import type { TTabId } from '@contracts/windowTabs';
+import {toJsonSchema} from '@valibot/to-json-schema';
 import { AGENT_CAPABILITY_DOMAINS } from '@contracts/agent';
 import { isOneOf } from '@contracts/runtimeGuards';
 import {
@@ -155,13 +156,15 @@ function createCapabilityDescriptor(
     template: IAgentCapabilityTemplate,
     tab: IAgentTabSnapshot | null,
 ): IAgentCapabilityDescriptor {
+    const inputSchema = toJsonSchema(template.inputSchema);
+    delete inputSchema.$schema;
     return {
         id: template.id,
         domain: template.domain,
         title: template.title,
         summary: template.summary,
         risk: template.risk,
-        inputSchema: template.inputSchema,
+        inputSchema: {...inputSchema},
         ...(template.outputSchema === undefined ? {} : {outputSchema: template.outputSchema}),
         policy: template.policy,
         ...(template.resourceTemplates === undefined ? {} : {resourceTemplates: template.resourceTemplates}),

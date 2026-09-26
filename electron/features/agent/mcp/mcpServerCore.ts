@@ -46,7 +46,6 @@ import {
     MCP_TOOLS,
     createMcpToolsForCaller,
     validateMcpToolArguments,
-    validateJsonObjectAgainstSchema,
     type IMcpResourceDefinition,
 } from '@electron/features/agent/mcp/mcpDefinitions';
 import {
@@ -374,9 +373,6 @@ async function runAgentActionTool(
         enforceReadActionToolPolicy(template);
     }
     enforceCapabilityPolicy(template, options);
-
-    const capabilityInput = getOptionalActionInput(params) ?? {};
-    validateJsonObjectAgainstSchema(`Capability ${id} input`, capabilityInput, template.inputSchema);
 
     const windowId = getOptionalWindowId(params);
     const actionParams = createActionParams(params);
@@ -920,8 +916,19 @@ export async function processMcpRequest(
                         id: getRequiredCapabilityId(params.arguments),
                     }
                     : params.arguments;
-                validateMcpToolArguments(toolName, argumentsForValidation);
-                const result = await callTool(toolName, params.arguments, options);
+                const validatedArguments = validateMcpToolArguments(toolName, argumentsForValidation);
+                const originalId = isRecord(params.arguments) ? params.arguments.id : undefined;
+                const toolArguments = (
+                    (toolName === 'evb_run_action' || toolName === 'evb_read_action')
+                    && typeof originalId === 'string'
+                    && isRecord(validatedArguments)
+                )
+                    ? {
+                        ...validatedArguments,
+                        id: originalId,
+                    }
+                    : validatedArguments;
+                const result = await callTool(toolName, toolArguments, options);
                 return createResultResponse(id, result);
             } catch (error) {
                 return createResultResponse(id, createMcpToolExecutionErrorResult(error, params.arguments));

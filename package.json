@@ -108,7 +108,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.268",
-    "@cfworker/json-schema": "4.1.1",
+    "@valibot/to-json-schema": "1.8.0",
     "@napi-rs/canvas": "1.0.9",
     "@sentry/browser": "10.74.0",
     "@sentry/core": "10.74.0",
@@ -125,6 +125,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.312-c3253faa.tgz",
     "utif": "^3.1.0",
+    "valibot": "1.5.0",
     "vue": "3.5.42"
   },
   "devDependencies": {

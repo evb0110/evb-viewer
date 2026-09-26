@@ -11,6 +11,25 @@ import {
 import { ASSISTANT_MCP_TOOL_HANDLER_NAMES } from '@electron/features/agent/mcp/mcpServerCore';
 import { resolveAgentCommandRequestTimeoutMs } from '@electron/features/agent/workspaceBridge';
 import {AGENT_OCR_RUN_INPUT_SCHEMA} from '@contracts/agentOcr';
+import {toJsonSchema} from '@valibot/to-json-schema';
+
+function generatedInputSchema(schema: Parameters<typeof toJsonSchema>[0]) {
+    const generated = toJsonSchema(schema);
+    delete generated.$schema;
+    const removeEmptyRequired = (value: unknown): void => {
+        if (Array.isArray(value)) {
+            value.forEach(removeEmptyRequired);
+        } else if (typeof value === 'object' && value !== null) {
+            const record = value as Record<string, unknown>;
+            if (Array.isArray(record.required) && record.required.length === 0) {
+                delete record.required;
+            }
+            Object.values(record).forEach(removeEmptyRequired);
+        }
+    };
+    removeEmptyRequired(generated);
+    return generated;
+}
 
 describe('assistant tool contract invariants', () => {
     it('maps every advertised tool to exactly one handler and keeps capability ids unique', () => {
@@ -28,38 +47,43 @@ describe('assistant tool contract invariants', () => {
         expect(branches).toHaveLength(AGENT_CAPABILITY_TEMPLATES.length);
         for (const template of AGENT_CAPABILITY_TEMPLATES) {
             const branch = branches.find(candidate => candidate.properties.id.const === template.id);
-            expect(branch?.properties.input).toBe(template.inputSchema);
+            expect(branch?.properties.input).toEqual(generatedInputSchema(template.inputSchema));
         }
     });
 
     it('uses the advertised schema itself as the recursive runtime validator', () => {
         const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'document.search');
-        expect(template).toBeDefined();
+        if (!template) {
+            throw new Error('document.search template is missing');
+        }
         expect(() => validateJsonObjectAgainstSchema('document.search', {
             query: 'needle',
             unexpected: true,
-        }, template?.inputSchema ?? {})).toThrow(/advertised schema/u);
-        expect(() => validateJsonObjectAgainstSchema('document.search', {query: 'needle'}, template?.inputSchema ?? {})).not.toThrow();
+        }, template.inputSchema)).toThrow(/advertised schema/u);
+        expect(() => validateJsonObjectAgainstSchema('document.search', {query: 'needle'}, template.inputSchema)).not.toThrow();
     });
 
     it('advertises the shared OCR contract and enforces replace-all acknowledgement', () => {
         const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'ocr.start');
-        expect(template?.inputSchema).toBe(AGENT_OCR_RUN_INPUT_SCHEMA);
+        if (!template) {
+            throw new Error('ocr.start template is missing');
+        }
+        expect(template.inputSchema).toBe(AGENT_OCR_RUN_INPUT_SCHEMA);
         expect(() => validateJsonObjectAgainstSchema(
             'ocr.start',
             {supersessionPolicy: 'replace-all'},
-            template?.inputSchema ?? {},
+            template.inputSchema,
         )).toThrow(/advertised schema/u);
         expect(() => validateJsonObjectAgainstSchema('ocr.start', {
             languages: ['eng'],
             supersessionPolicy: 'replace-all',
             replaceAllAcknowledged: true,
             open: false,
-        }, template?.inputSchema ?? {})).not.toThrow();
+        }, template.inputSchema)).not.toThrow();
         expect(() => validateJsonObjectAgainstSchema(
             'ocr.start',
             {selectedLanguages: ['eng']},
-            template?.inputSchema ?? {},
+            template.inputSchema,
         )).toThrow(/advertised schema/u);
     });
 

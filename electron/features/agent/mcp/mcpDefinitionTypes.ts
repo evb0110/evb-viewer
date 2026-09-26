@@ -1,4 +1,5 @@
 import type { IAgentCapabilityDescriptor } from '@contracts/agent';
+import type {GenericSchema} from 'valibot';
 
 export interface IMcpToolDefinition {
     name: string;
@@ -51,4 +52,7 @@ export type TCapabilityAvailabilityKind =
     | 'renderer-document'
     | 'renderer-pdf';
 
-export interface IAgentCapabilityTemplate extends Omit<IAgentCapabilityDescriptor, 'availability'> {availabilityKind: TCapabilityAvailabilityKind;}
+export type IAgentCapabilityTemplate = Omit<IAgentCapabilityDescriptor, 'availability' | 'inputSchema'> & {
+    inputSchema: GenericSchema;
+    availabilityKind: TCapabilityAvailabilityKind;
+};

@@ -440,9 +440,18 @@ function assertFeatureTupleArity<T>(schema: TPlatformFeatureSchema<T>, value: un
         return;
     }
     const tupleItems: readonly unknown[] = items;
-    const expected = tupleItems.length;
+    let minimum = tupleItems.length;
+    while (minimum > 0) {
+        const lastItem = tupleItems[minimum - 1];
+        if (typeof lastItem !== 'object' || lastItem === null || !('type' in lastItem) || lastItem.type !== 'optional') {
+            break;
+        }
+        minimum--;
+    }
+    const maximum = tupleItems.length;
     const received = Array.isArray(value) ? value.length : 0;
-    if (!Array.isArray(value) || received !== expected) {
+    if (!Array.isArray(value) || received < minimum || received > maximum) {
+        const expected = minimum === maximum ? String(maximum) : `${minimum}-${maximum}`;
         throw new Error(`expected ${expected} arguments, received ${received}`);
     }
 }
