@@ -14,7 +14,7 @@ const assets = [
     `EVB-Viewer-${version}-arm64-setup.exe`,
     'latest-win-x64.yml',
     'latest-win-arm64.yml',
-    `EVB-Viewer-${version}-x64.deb`,
+    `EVB-Viewer-${version}-amd64.deb`,
     `EVB-Viewer-${version}-arm64.deb`,
     `EVB-Viewer-${version}-win-x64-provenance.json`,
     `EVB-Viewer-${version}-win-arm64-provenance.json`,

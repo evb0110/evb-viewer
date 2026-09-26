@@ -19,7 +19,7 @@ const expected = [
     new RegExp(`^EVB-Viewer-${version}-arm64\\.zip$`, 'u'),
     new RegExp(`^EVB-Viewer-${version}-x64-setup\\.exe$`, 'u'),
     new RegExp(`^EVB-Viewer-${version}-arm64-setup\\.exe$`, 'u'),
-    new RegExp(`^EVB-Viewer-${version}-x64\\.deb$`, 'u'),
+    new RegExp(`^EVB-Viewer-${version}-amd64\\.deb$`, 'u'),
     new RegExp(`^EVB-Viewer-${version}-arm64\\.deb$`, 'u'),
     ...(signedMac ? [/^latest-mac\.yml$/u] : []),
     /^latest-win-x64\.yml$/u,
