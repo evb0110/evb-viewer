@@ -7,6 +7,7 @@ import {
     SCAN_CLEANUP_SUMMARY_SCHEMA,
 } from '@contracts/scan-cleanup/ipc';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
+import * as v from 'valibot';
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPlacementAnchorCalibration,
@@ -957,7 +958,7 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
     }
     const base = {
         jobId,
-        progress: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
+        progress: v.parse(SCAN_CLEANUP_PROGRESS_SCHEMA, value.progress, {abortEarly: true}),
         updatedAtMs,
     };
     if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'handoff' || value.status === 'committing' || value.status === 'canceled') {
@@ -1034,7 +1035,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
     if (resultCount < value.results.length) {
         throw new Error('invalid scan-cleanup detection result count');
     }
-    const progress = SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress);
+    const progress = v.parse(SCAN_CLEANUP_PROGRESS_SCHEMA, value.progress, {abortEarly: true});
     const results = value.results.map(result => {
         if (
             !isRecord(result)

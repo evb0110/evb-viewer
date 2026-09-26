@@ -23,6 +23,7 @@ import {
 import {isAbortError} from '@electron/utils/abort';
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import {createLogger} from '@electron/utils/createLogger';
+import * as v from 'valibot';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const workerFileName = WORKER_BUNDLES_BY_ID['scan-cleanup'].fileName;
@@ -46,7 +47,7 @@ function decodeProgress(value: unknown): TDecodedProgress {
     try {
         return {
             kind: 'progress',
-            value: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
+            value: v.parse(SCAN_CLEANUP_PROGRESS_SCHEMA, value.progress, {abortEarly: true}),
         };
     } catch (error) {
         logger.error('Rejected scan cleanup worker progress', {
