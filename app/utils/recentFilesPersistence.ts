@@ -6,16 +6,13 @@ import {
     type TDocumentBackend,
 } from '@contracts/documentRef';
 import { parseEpochMs } from '@contracts/timestamps';
-import {
-    getOptionalNumber,
-    getOptionalString,
-    isRecord,
-} from '@app/services/pdfjs/runtime';
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
 } from '@app/utils/localStorage';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
+import * as v from 'valibot';
 
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
 const RECENT_FILES_LIMIT = 30;
@@ -39,41 +36,106 @@ function normalizeRecentFileBackend(value: unknown, originalPath: unknown): TDoc
     return inferred === 'unknown' ? null : inferred;
 }
 
+const recentFileRecordSchema = v.pipe(
+    v.object({
+        originalPath: v.optional(v.unknown()),
+        fileName: v.optional(v.unknown()),
+        timestamp: v.optional(v.unknown()),
+        backend: v.optional(v.unknown()),
+        fileSize: v.optional(v.unknown()),
+        modifiedAt: v.optional(v.unknown()),
+    }),
+    // Document references, backend inference and legacy optional values need domain normalization.
+    v.transform(value => {
+        const originalPath = typeof value.originalPath === 'string' ? value.originalPath : null;
+        const fileName = typeof value.fileName === 'string' ? value.fileName : null;
+        const timestamp = typeof value.timestamp === 'number' && Number.isFinite(value.timestamp)
+            ? value.timestamp
+            : null;
+        const backend = normalizeRecentFileBackend(value.backend, originalPath);
+        const documentRef = parseDocumentRef(originalPath);
+        const parsedTimestamp = parseEpochMs(timestamp);
+        const modifiedAt = typeof value.modifiedAt === 'number' && Number.isFinite(value.modifiedAt)
+            ? value.modifiedAt
+            : null;
+        const parsedModifiedAt = modifiedAt === null ? null : parseEpochMs(modifiedAt);
+        if (!documentRef || !fileName || parsedTimestamp === null || backend === null
+            || (parsedModifiedAt === null && modifiedAt !== null)) {
+            return null;
+        }
+        const fileSize = typeof value.fileSize === 'number' && Number.isFinite(value.fileSize)
+            ? value.fileSize
+            : null;
+        return {
+            originalPath: documentRef,
+            backend,
+            fileName,
+            timestamp: parsedTimestamp,
+            ...(fileSize === null ? {} : {fileSize}),
+            ...(parsedModifiedAt === null ? {} : {modifiedAt: parsedModifiedAt}),
+        };
+    }),
+    v.check(value => value !== null),
+    v.transform(value => value as NonNullable<typeof value>),
+);
+
+const recentFileTupleSchema = v.pipe(
+    v.array(v.unknown()),
+    v.transform(tuple => {
+        const originalPath = tuple[0];
+        const fileName = tuple[1];
+        const timestamp = tuple[2];
+        const fileSize = tuple[3];
+        const backend = normalizeRecentFileBackend(tuple[4], originalPath);
+        const modifiedAt = tuple[5];
+        const documentRef = parseDocumentRef(originalPath);
+        const parsedTimestamp = parseEpochMs(timestamp);
+        const parsedModifiedAt = modifiedAt === undefined || modifiedAt === null
+            ? undefined
+            : parseEpochMs(modifiedAt);
+        if (documentRef === null || typeof fileName !== 'string' || parsedTimestamp === null
+            || backend === null || parsedModifiedAt === null) {
+            return null;
+        }
+        return {
+            originalPath: documentRef,
+            backend,
+            fileName,
+            timestamp: parsedTimestamp,
+            ...(typeof fileSize === 'number' ? {fileSize} : {}),
+            ...(parsedModifiedAt === undefined ? {} : {modifiedAt: parsedModifiedAt}),
+        };
+    }),
+    v.check(value => value !== null),
+    v.transform(value => value as NonNullable<typeof value>),
+);
+
+const recentFileCandidateSchema = v.union([
+    recentFileRecordSchema,
+    recentFileTupleSchema,
+]);
+const recentFilesSchema = v.array(recentFileCandidateSchema);
+const legacyRecentFilesCookieSchema = v.object({
+    v: v.literal(1),
+    t: v.boolean(),
+    f: recentFilesSchema,
+});
+const recentFilesStorageEnvelopeSchema = v.object({
+    truncated: v.optional(v.unknown()),
+    files: v.optional(v.unknown()),
+});
+const recentFilesCookieEnvelopeSchema = v.object({
+    f: v.optional(v.unknown()),
+    files: v.optional(v.unknown()),
+    t: v.optional(v.unknown()),
+    truncated: v.optional(v.unknown()),
+});
+
+type TNormalizedRecentFile = v.InferOutput<typeof recentFileCandidateSchema>;
+
 function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
-    if (!Array.isArray(value)) {
-        return null;
-    }
-
-    const tuple = value as unknown[];
-    const originalPath = tuple[0];
-    const fileName = tuple[1];
-    const timestamp = tuple[2];
-    const fileSize = tuple[3];
-    const backend = normalizeRecentFileBackend(tuple[4], originalPath);
-    const modifiedAt = tuple[5];
-    const documentRef = parseDocumentRef(originalPath);
-    const parsedTimestamp = parseEpochMs(timestamp);
-    const parsedModifiedAt = modifiedAt === undefined || modifiedAt === null
-        ? undefined
-        : parseEpochMs(modifiedAt);
-    if (
-        documentRef === null
-        || typeof fileName !== 'string'
-        || parsedTimestamp === null
-        || backend === null
-        || parsedModifiedAt === null
-    ) {
-        return null;
-    }
-
-    return {
-        originalPath: documentRef,
-        backend,
-        fileName,
-        timestamp: parsedTimestamp,
-        ...(typeof fileSize === 'number' ? {fileSize} : {}),
-        ...(parsedModifiedAt === undefined ? {} : {modifiedAt: parsedModifiedAt}),
-    };
+    const result = v.safeParse(recentFileTupleSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function normalizeRecentFilesCollection(value: unknown) {
@@ -101,13 +163,6 @@ function normalizeRecentFilesCollection(value: unknown) {
     return recentFiles;
 }
 
-function isValidRecentFilesCollection(value: unknown) {
-    return Array.isArray(value) && value.every(
-        candidate => normalizeRecentFile(candidate) !== null
-            || normalizeRecentFileTuple(candidate) !== null,
-    );
-}
-
 function parseJsonValue(raw: string | null | undefined): unknown {
     if (!raw) {
         return null;
@@ -123,7 +178,8 @@ function parseStrictRecentFilesSnapshot(
     collection: unknown,
     truncated: boolean,
 ): IRecentFilesCookieSnapshot {
-    if (!isValidRecentFilesCollection(collection)) {
+    const parsed = v.safeParse(recentFilesSchema, collection, {abortEarly: true});
+    if (!parsed.success) {
         return {
             recentFiles: [],
             hasSnapshot: false,
@@ -131,7 +187,7 @@ function parseStrictRecentFilesSnapshot(
         };
     }
     return {
-        recentFiles: normalizeRecentFilesCollection(collection),
+        recentFiles: normalizeNormalizedRecentFiles(parsed.output),
         hasSnapshot: true,
         truncated,
     };
@@ -139,13 +195,15 @@ function parseStrictRecentFilesSnapshot(
 
 export function parseLegacyRecentFilesCookieSnapshot(raw: string | null | undefined) {
     const parsed = parseJsonValue(raw);
-    if (!isRecord(parsed)
-        || parsed.v !== 1
-        || typeof parsed.t !== 'boolean'
-        || !Array.isArray(parsed.f)) {
+    const decoded = v.safeParse(legacyRecentFilesCookieSchema, parsed, {abortEarly: true});
+    if (!decoded.success) {
         return parseStrictRecentFilesSnapshot(null, false);
     }
-    return parseStrictRecentFilesSnapshot(parsed.f, parsed.t);
+    return {
+        recentFiles: normalizeNormalizedRecentFiles(decoded.output.f),
+        hasSnapshot: true,
+        truncated: decoded.output.t,
+    };
 }
 
 export function parseRecentFilesStorageSnapshot(raw: string | null | undefined) {
@@ -153,43 +211,34 @@ export function parseRecentFilesStorageSnapshot(raw: string | null | undefined) 
     if (Array.isArray(parsed)) {
         return parseStrictRecentFilesSnapshot(parsed, false);
     }
-    if (isRecord(parsed)
-        && parsed.truncated === true
-        && Array.isArray(parsed.files)) {
-        return parseStrictRecentFilesSnapshot(parsed.files, true);
+    if (isRecord(parsed)) {
+        const decoded = v.safeParse(recentFilesStorageEnvelopeSchema, parsed, {abortEarly: true});
+        if (decoded.success && decoded.output.truncated === true && Array.isArray(decoded.output.files)) {
+            return parseStrictRecentFilesSnapshot(decoded.output.files, true);
+        }
     }
     return parseStrictRecentFilesSnapshot(null, false);
 }
 
 function normalizeRecentFile(value: unknown): IRecentFile | null {
-    if (!isRecord(value)) {
-        return null;
-    }
+    const result = v.safeParse(recentFileRecordSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
+}
 
-    const originalPath = getOptionalString(value, 'originalPath');
-    const fileName = getOptionalString(value, 'fileName');
-    const timestamp = getOptionalNumber(value, 'timestamp');
-    const backend = normalizeRecentFileBackend(value.backend, originalPath);
-    const documentRef = parseDocumentRef(originalPath);
-    const parsedTimestamp = parseEpochMs(timestamp);
-    if (!documentRef || !fileName || parsedTimestamp === null || backend === null) {
-        return null;
+function normalizeNormalizedRecentFiles(value: TNormalizedRecentFile[]) {
+    const recentFiles: IRecentFile[] = [];
+    const seenPaths = new Set<string>();
+    for (const candidate of value) {
+        if (seenPaths.has(candidate.originalPath)) {
+            continue;
+        }
+        seenPaths.add(candidate.originalPath);
+        recentFiles.push(candidate);
+        if (recentFiles.length >= RECENT_FILES_LIMIT) {
+            break;
+        }
     }
-
-    const fileSize = getOptionalNumber(value, 'fileSize');
-    const modifiedAt = getOptionalNumber(value, 'modifiedAt');
-    const parsedModifiedAt = modifiedAt === null ? null : parseEpochMs(modifiedAt);
-    if (parsedModifiedAt === null && modifiedAt !== null) {
-        return null;
-    }
-    return {
-        originalPath: documentRef,
-        backend,
-        fileName,
-        timestamp: parsedTimestamp,
-        ...(fileSize === null ? {} : {fileSize}),
-        ...(parsedModifiedAt === null ? {} : {modifiedAt: parsedModifiedAt}),
-    };
+    return recentFiles;
 }
 
 export function parseRecentFilesPayload(raw: string | null | undefined) {
@@ -207,11 +256,10 @@ export function parseRecentFilesPayload(raw: string | null | undefined) {
             return [];
         }
 
-        return normalizeRecentFilesCollection(
-            Array.isArray(parsed.f)
-                ? parsed.f
-                : parsed.files,
-        );
+        const envelope = v.safeParse(recentFilesCookieEnvelopeSchema, parsed, {abortEarly: true});
+        return normalizeRecentFilesCollection(envelope.success
+            ? Array.isArray(envelope.output.f) ? envelope.output.f : envelope.output.files
+            : undefined);
     } catch {
         return [];
     }
@@ -244,14 +292,22 @@ export function parseRecentFilesCookieSnapshot(raw: string | null | undefined): 
             };
         }
 
+        const envelope = v.safeParse(recentFilesCookieEnvelopeSchema, parsed, {abortEarly: true});
+        if (!envelope.success) {
+            return {
+                recentFiles: [],
+                hasSnapshot: false,
+                truncated: false,
+            };
+        }
         return {
             recentFiles: normalizeRecentFilesCollection(
-                Array.isArray(parsed.f)
-                    ? parsed.f
-                    : parsed.files,
+                Array.isArray(envelope.output.f)
+                    ? envelope.output.f
+                    : envelope.output.files,
             ),
             hasSnapshot: true,
-            truncated: parsed.t === true || parsed.truncated === true,
+            truncated: envelope.output.t === true || envelope.output.truncated === true,
         };
     } catch {
         return {

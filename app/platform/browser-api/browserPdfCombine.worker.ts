@@ -6,6 +6,7 @@ import type {
     IBrowserPdfCombineInput,
     IBrowserPdfCombineWasmImagePreprocessing,
     IBrowserPdfCombineWasmPageSpec,
+    TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {
@@ -224,10 +225,7 @@ function addInputBytes(total: number, input: IBrowserPdfCombineInput) {
     return total + input.data.byteLength;
 }
 
-async function handleCombinePdfsRequest(request: {payload: {
-    inputs: IBrowserPdfCombineInput[];
-    wasmImagePreprocessing?: IBrowserPdfCombineWasmImagePreprocessing;
-};}) {
+async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest) {
     if (request.payload.inputs.length === 0) {
         throw new Error('ERR_BROWSER_PDF_COMBINE_NO_INPUTS');
     }

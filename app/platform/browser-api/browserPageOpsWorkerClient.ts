@@ -1,19 +1,11 @@
 import type {
-    IBrowserPdfCombineCatalog,
-    IBrowserPdfConformanceFacts,
     IBrowserPageOpsWorkerRequest,
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
-    IPageMutationWorkerResult,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
-import {decodePageGeometry} from '@contracts/decodePageGeometry';
-import {isRecord} from '@contracts/runtimeGuards';
-import {
-    BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
-    decodeBrowserPdfCatalog,
-} from '@contracts/browserPdfCatalog';
+import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -26,6 +18,7 @@ import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/br
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import * as v from 'valibot';
 
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
@@ -125,72 +118,12 @@ function buildWorkerRequestWithTransfers(
 }
 
 
-function decodePageMutationWorkerResult(data: unknown): IPageMutationWorkerResult | null {
-    if (
-        !isRecord(data)
-        || !(data.data instanceof Uint8Array)
-        || typeof data.pageCount !== 'number'
-        || !Number.isInteger(data.pageCount)
-        || data.pageCount < 1
-    ) {
-        return null;
-    }
-
-    return {
-        data: data.data,
-        pageCount: data.pageCount,
-    };
-}
-
-function decodeAnnotationParseWorkerResult(data: unknown) {
-    return isRecord(data) && data.data instanceof Uint8Array
-        ? {data: data.data}
-        : null;
-}
-
-function decodePdfCombineCatalog(data: unknown): IBrowserPdfCombineCatalog | null {
-    return decodeBrowserPdfCatalog(data, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS});
-}
-
-function decodePdfConformanceFacts(data: unknown): IBrowserPdfConformanceFacts | null {
-    if (isRecord(data)
-        && typeof data.isSigned === 'boolean'
-        && typeof data.isEncrypted === 'boolean'
-        && typeof data.isTagged === 'boolean'
-        && typeof data.hasAcroForm === 'boolean'
-        && typeof data.hasXfa === 'boolean') {
-        return {
-            isSigned: data.isSigned,
-            isEncrypted: data.isEncrypted,
-            isTagged: data.isTagged,
-            hasAcroForm: data.hasAcroForm,
-            hasXfa: data.hasXfa,
-        };
-    }
-    return null;
-}
-
 function decodePageOpsWorkerResult<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     data: unknown,
 ): IBrowserPageOpsWorkerResultMap[K] | null {
-    if (type === 'getPageGeometry') {
-        return decodePageGeometry(data) as IBrowserPageOpsWorkerResultMap[K] | null;
-    }
-
-    if (type === 'parseAnnotations') {
-        return decodeAnnotationParseWorkerResult(data) as IBrowserPageOpsWorkerResultMap[K] | null;
-    }
-
-    if (type === 'readCatalog') {
-        return decodePdfCombineCatalog(data) as IBrowserPageOpsWorkerResultMap[K] | null;
-    }
-
-    if (type === 'conformance') {
-        return decodePdfConformanceFacts(data) as IBrowserPageOpsWorkerResultMap[K] | null;
-    }
-
-    return decodePageMutationWorkerResult(data) as IBrowserPageOpsWorkerResultMap[K] | null;
+    const result = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS[type], data, {abortEarly: true});
+    return result.success ? result.output as IBrowserPageOpsWorkerResultMap[K] : null;
 }
 
 export function canUseBrowserPageOpsWorker() {
@@ -247,7 +180,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
         id: client.createRequestId(),
         type,
         payload,
-    };
+    } as IBrowserPageOpsWorkerRequest<K>;
 
     if (options.signal?.aborted) {
         throw abortErrorFromSignal(options.signal);
@@ -309,7 +242,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(
-                request as TBrowserPageOpsWorkerRequest,
+                request,
                 options.preserveInputOwnership === undefined
                     ? {}
                     : {preserveInputOwnership: options.preserveInputOwnership},

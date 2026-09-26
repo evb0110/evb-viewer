@@ -2,308 +2,142 @@ import {
     isRecord,
     isSafeWorkerRequestId,
 } from '@contracts/runtimeGuards';
+import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
+import * as v from 'valibot';
 
-interface IBrowserPdfCombineInput {
-    fileName: string;
-    data: Uint8Array;
-}
+const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const byteArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
+const pdfBytesSchema = v.pipe(
+    byteArraySchema,
+    v.check(value => value.byteLength >= 8 && new TextDecoder().decode(value.subarray(0, 5)) === '%PDF-'),
+);
+const jpegQualitySchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(100));
+const ppiCapSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(1200));
+const rgbChannelSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(255));
+const positiveFiniteNumber = v.pipe(
+    v.number(),
+    v.finite(),
+    v.check(value => value > 0),
+);
 
-interface IBrowserPdfCombinePageSize {
-    widthPoints: number;
-    heightPoints: number;
-}
+const inputSchema = v.object({
+    fileName: v.pipe(v.string(), v.check(value => value.trim().length > 0)),
+    data: byteArraySchema,
+});
 
-type TBrowserPdfCombineWasmPageKind = 'image' | 'mask' | 'layered' | 'layered-color';
-type TBrowserPdfCombineRgb = [number, number, number];
+const pageSizeSchema = v.object({
+    widthPoints: positiveFiniteNumber,
+    heightPoints: positiveFiniteNumber,
+});
 
-interface IBrowserPdfCombineWasmPageSpec {
-    kind: TBrowserPdfCombineWasmPageKind;
-    pageSize: IBrowserPdfCombinePageSize;
-    jpegQuality?: number;
-    ppiCap?: number;
-    rotationDegrees?: 0 | 90 | 180 | 270 | 360 | 450 | 540 | 630;
-    foregroundColor?: TBrowserPdfCombineRgb;
-    image?: IBrowserPdfCombineInput;
-    background?: IBrowserPdfCombineInput;
-    mask?: IBrowserPdfCombineInput;
-}
+const pageSpecShared = {
+    pageSize: pageSizeSchema,
+    jpegQuality: v.optional(jpegQualitySchema),
+    ppiCap: v.optional(ppiCapSchema),
+    rotationDegrees: v.optional(v.picklist([
+        0,
+        90,
+        180,
+        270,
+        360,
+        450,
+        540,
+        630,
+    ])),
+    foregroundColor: v.optional(v.strictTuple([
+        rgbChannelSchema,
+        rgbChannelSchema,
+        rgbChannelSchema,
+    ])),
+    image: v.optional(inputSchema),
+    background: v.optional(inputSchema),
+    mask: v.optional(inputSchema),
+};
 
-interface IBrowserPdfCombineWasmImagePreprocessing {
-    jpegQuality?: number;
-    ppiCap?: number;
-    pageSizes?: IBrowserPdfCombinePageSize[];
-    pageSpecs?: IBrowserPdfCombineWasmPageSpec[];
-}
+const pageSpecSchemas = [
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('image'),
+        image: inputSchema,
+    }),
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('mask'),
+        mask: inputSchema,
+    }),
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('layered'),
+        background: inputSchema,
+        mask: inputSchema,
+    }),
+    v.object({
+        ...pageSpecShared,
+        kind: v.literal('layered-color'),
+        background: inputSchema,
+        mask: inputSchema,
+        foregroundColor: v.strictTuple([
+            rgbChannelSchema,
+            rgbChannelSchema,
+            rgbChannelSchema,
+        ]),
+    }),
+] as const;
 
-interface IBrowserPdfCombinePayload {
-    inputs: IBrowserPdfCombineInput[];
-    wasmImagePreprocessing?: IBrowserPdfCombineWasmImagePreprocessing;
-}
+const pageSpecSchema = v.union(pageSpecSchemas);
+const imagePreprocessingSchema = v.object({
+    jpegQuality: v.optional(jpegQualitySchema),
+    ppiCap: v.optional(ppiCapSchema),
+    pageSizes: v.optional(v.pipe(v.array(pageSizeSchema), v.maxLength(500))),
+    pageSpecs: v.optional(v.pipe(v.array(pageSpecSchema), v.minLength(1), v.maxLength(500))),
+});
+const combinePayloadSchema = v.object({
+    inputs: v.pipe(v.array(inputSchema), v.minLength(1), v.maxLength(500)),
+    wasmImagePreprocessing: v.optional(imagePreprocessingSchema),
+});
 
-interface IBrowserPdfCombineWorkerRequestMap {combinePdfs: IBrowserPdfCombinePayload;}
+const requestSchema = v.object({
+    id: requestIdSchema,
+    type: v.literal('combinePdfs'),
+    payload: combinePayloadSchema,
+});
 
-interface IBrowserPdfCombineWorkerResultMap {combinePdfs: {data: Uint8Array;};}
+const resultSchemas = {combinePdfs: v.object({data: pdfBytesSchema})};
 
+const workerResponseSchema = v.union([
+    v.object({
+        id: requestIdSchema,
+        type: v.literal('combinePdfs'),
+        ok: v.literal(true),
+        data: pdfBytesSchema,
+    }),
+    v.object({
+        id: requestIdSchema,
+        ok: v.literal(false),
+        error: v.string(),
+        errorEnvelope: v.optional(v.custom<INativeErrorEnvelope>(isNativeErrorEnvelope)),
+    }),
+]);
+
+interface IBrowserPdfCombineWorkerRequestMap {combinePdfs: v.InferOutput<typeof combinePayloadSchema>;}
+type IBrowserPdfCombineWorkerResultMap = {
+    [K in keyof typeof resultSchemas]: v.InferOutput<(typeof resultSchemas)[K]>;
+};
 type TBrowserPdfCombineWorkerRequestType = keyof IBrowserPdfCombineWorkerRequestMap;
-
-interface IBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequestType = TBrowserPdfCombineWorkerRequestType> {
-    id: number;
-    type: K;
-    payload: IBrowserPdfCombineWorkerRequestMap[K];
-}
-
-type TBrowserPdfCombineWorkerRequest = {
-    [K in TBrowserPdfCombineWorkerRequestType]: IBrowserPdfCombineWorkerRequest<K>;
-}[TBrowserPdfCombineWorkerRequestType];
-
-type TBrowserPdfCombineWorkerResponse =
-    | {
-        [K in TBrowserPdfCombineWorkerRequestType]: {
-            id: number;
-            type: K;
-            ok: true;
-            data: IBrowserPdfCombineWorkerResultMap[K]['data'];
-        };
-    }[TBrowserPdfCombineWorkerRequestType]
-    | {
-        id: number;
-        ok: false;
-        error: string;
-        errorEnvelope?: INativeErrorEnvelope;
-    };
-
-
-function parseBrowserPdfCombineInput(value: unknown): IBrowserPdfCombineInput | null {
-    if (
-        !isRecord(value)
-        || typeof value.fileName !== 'string'
-        || value.fileName.trim().length === 0
-        || !(value.data instanceof Uint8Array)
-    ) {
-        return null;
-    }
-    return {
-        fileName: value.fileName,
-        data: value.data,
-    };
-}
-
-function parsePositiveFiniteNumber(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : null;
-}
-
-function parseOptionalBoundedInteger(
-    value: unknown,
-    minValue: number,
-    maxValue: number,
-): number | null | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (
-        typeof value !== 'number'
-        || !Number.isInteger(value)
-        || value < minValue
-        || value > maxValue
-    ) {
-        return null;
-    }
-    return value;
-}
-
-function parseBrowserPdfCombinePageSize(value: unknown): IBrowserPdfCombinePageSize | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const widthPoints = parsePositiveFiniteNumber(value.widthPoints);
-    const heightPoints = parsePositiveFiniteNumber(value.heightPoints);
-    if (widthPoints === null || heightPoints === null) {
-        return null;
-    }
-    return {
-        widthPoints,
-        heightPoints,
-    };
-}
-
-function parseBrowserPdfCombineWasmPageKind(value: unknown): TBrowserPdfCombineWasmPageKind | null {
-    return value === 'image'
-        || value === 'mask'
-        || value === 'layered'
-        || value === 'layered-color'
-        ? value
-        : null;
-}
-
-function parseOptionalWasmInput(value: unknown): IBrowserPdfCombineInput | null | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    return parseBrowserPdfCombineInput(value);
-}
-
-function parseOptionalRgb(value: unknown): TBrowserPdfCombineRgb | null | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (!Array.isArray(value) || value.length !== 3) {
-        return null;
-    }
-    const red = parseOptionalBoundedInteger(value[0], 0, 255);
-    const green = parseOptionalBoundedInteger(value[1], 0, 255);
-    const blue = parseOptionalBoundedInteger(value[2], 0, 255);
-    if (
-        typeof red !== 'number'
-        || typeof green !== 'number'
-        || typeof blue !== 'number'
-    ) {
-        return null;
-    }
-    return [
-        red,
-        green,
-        blue,
-    ];
-}
-
-function parseBrowserPdfCombineWasmPageSpec(value: unknown): IBrowserPdfCombineWasmPageSpec | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const kind = parseBrowserPdfCombineWasmPageKind(value.kind);
-    const pageSize = parseBrowserPdfCombinePageSize(value.pageSize);
-    const jpegQuality = parseOptionalBoundedInteger(value.jpegQuality, 1, 100);
-    const ppiCap = parseOptionalBoundedInteger(value.ppiCap, 0, 1200);
-    const rotationDegrees = value.rotationDegrees === undefined
-        ? undefined
-        : value.rotationDegrees === 0
-            || value.rotationDegrees === 90
-            || value.rotationDegrees === 180
-            || value.rotationDegrees === 270
-            || value.rotationDegrees === 360
-            || value.rotationDegrees === 450
-            || value.rotationDegrees === 540
-            || value.rotationDegrees === 630
-            ? value.rotationDegrees
-            : null;
-    const foregroundColor = parseOptionalRgb(value.foregroundColor);
-    const image = parseOptionalWasmInput(value.image);
-    const background = parseOptionalWasmInput(value.background);
-    const mask = parseOptionalWasmInput(value.mask);
-    if (
-        kind === null
-        || pageSize === null
-        || jpegQuality === null
-        || ppiCap === null
-        || rotationDegrees === null
-        || foregroundColor === null
-        || image === null
-        || background === null
-        || mask === null
-    ) {
-        return null;
-    }
-
-    if (
-        (kind === 'image' && image === undefined)
-        || (kind === 'mask' && mask === undefined)
-        || (kind === 'layered' && (background === undefined || mask === undefined))
-        || (kind === 'layered-color' && (background === undefined || mask === undefined || foregroundColor === undefined))
-    ) {
-        return null;
-    }
-
-    const parsed: IBrowserPdfCombineWasmPageSpec = {
-        kind,
-        pageSize,
-    };
-    if (jpegQuality !== undefined) {
-        parsed.jpegQuality = jpegQuality;
-    }
-    if (ppiCap !== undefined) {
-        parsed.ppiCap = ppiCap;
-    }
-    if (rotationDegrees !== undefined) {
-        parsed.rotationDegrees = rotationDegrees;
-    }
-    if (foregroundColor !== undefined) {
-        parsed.foregroundColor = foregroundColor;
-    }
-    if (image !== undefined) {
-        parsed.image = image;
-    }
-    if (background !== undefined) {
-        parsed.background = background;
-    }
-    if (mask !== undefined) {
-        parsed.mask = mask;
-    }
-    return parsed;
-}
-
-function parseBrowserPdfCombineWasmImagePreprocessing(
-    value: unknown,
-): IBrowserPdfCombineWasmImagePreprocessing | null | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (!isRecord(value)) {
-        return null;
-    }
-    const jpegQuality = parseOptionalBoundedInteger(value.jpegQuality, 1, 100);
-    const ppiCap = parseOptionalBoundedInteger(value.ppiCap, 0, 1200);
-    if (jpegQuality === null || ppiCap === null) {
-        return null;
-    }
-
-    let pageSizes: IBrowserPdfCombinePageSize[] | undefined;
-    if (value.pageSizes !== undefined) {
-        if (!Array.isArray(value.pageSizes) || value.pageSizes.length > 500) {
-            return null;
-        }
-        pageSizes = [];
-        for (const pageSize of value.pageSizes) {
-            const parsedPageSize = parseBrowserPdfCombinePageSize(pageSize);
-            if (parsedPageSize === null) {
-                return null;
-            }
-            pageSizes.push(parsedPageSize);
-        }
-    }
-
-    let pageSpecs: IBrowserPdfCombineWasmPageSpec[] | undefined;
-    if (value.pageSpecs !== undefined) {
-        if (!Array.isArray(value.pageSpecs) || value.pageSpecs.length === 0 || value.pageSpecs.length > 500) {
-            return null;
-        }
-        pageSpecs = [];
-        for (const pageSpec of value.pageSpecs) {
-            const parsedPageSpec = parseBrowserPdfCombineWasmPageSpec(pageSpec);
-            if (parsedPageSpec === null) {
-                return null;
-            }
-            pageSpecs.push(parsedPageSpec);
-        }
-    }
-
-    const parsed: IBrowserPdfCombineWasmImagePreprocessing = {};
-    if (jpegQuality !== undefined) {
-        parsed.jpegQuality = jpegQuality;
-    }
-    if (ppiCap !== undefined) {
-        parsed.ppiCap = ppiCap;
-    }
-    if (pageSizes !== undefined) {
-        parsed.pageSizes = pageSizes;
-    }
-    if (pageSpecs !== undefined) {
-        parsed.pageSpecs = pageSpecs;
-    }
-    return parsed;
-}
+type TBrowserPdfCombineWorkerRequest = v.InferOutput<typeof requestSchema>;
+type IBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequestType = TBrowserPdfCombineWorkerRequestType> = Extract<
+    TBrowserPdfCombineWorkerRequest,
+    {type: K}
+>;
+type TBrowserPdfCombineWorkerResponse = v.InferOutput<typeof workerResponseSchema>;
+type IBrowserPdfCombineInput = v.InferOutput<typeof inputSchema>;
+type IBrowserPdfCombinePageSize = v.InferOutput<typeof pageSizeSchema>;
+type IBrowserPdfCombineWasmPageSpec = v.InferOutput<typeof pageSpecSchema>;
+type IBrowserPdfCombineWasmImagePreprocessing = v.InferOutput<typeof imagePreprocessingSchema>;
+type IBrowserPdfCombinePayload = v.InferOutput<typeof combinePayloadSchema>;
+type TBrowserPdfCombineWasmPageKind = IBrowserPdfCombineWasmPageSpec['kind'];
+type TBrowserPdfCombineRgb = NonNullable<IBrowserPdfCombineWasmPageSpec['foregroundColor']>;
 
 export function getBrowserPdfCombineWorkerRequestId(value: unknown) {
     return isRecord(value) && isSafeWorkerRequestId(value.id)
@@ -312,40 +146,14 @@ export function getBrowserPdfCombineWorkerRequestId(value: unknown) {
 }
 
 export function parseBrowserPdfCombineWorkerRequest(value: unknown): TBrowserPdfCombineWorkerRequest | null {
-    if (
-        !isRecord(value)
-        || !isSafeWorkerRequestId(value.id)
-        || value.type !== 'combinePdfs'
-        || !isRecord(value.payload)
-        || !Array.isArray(value.payload.inputs)
-        || value.payload.inputs.length === 0
-        || value.payload.inputs.length > 500
-    ) {
-        return null;
-    }
-    const inputs: IBrowserPdfCombineInput[] = [];
-    for (const input of value.payload.inputs) {
-        const parsedInput = parseBrowserPdfCombineInput(input);
-        if (parsedInput === null) {
-            return null;
-        }
-        inputs.push(parsedInput);
-    }
-    const wasmImagePreprocessing = parseBrowserPdfCombineWasmImagePreprocessing(
-        value.payload.wasmImagePreprocessing,
-    );
-    if (wasmImagePreprocessing === null) {
-        return null;
-    }
-    return {
-        id: value.id,
-        type: value.type,
-        payload: {
-            inputs,
-            ...(wasmImagePreprocessing === undefined ? {} : {wasmImagePreprocessing}),
-        },
-    };
+    const result = v.safeParse(requestSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
+
+export {
+    resultSchemas as BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS,
+    workerResponseSchema as BROWSER_PDF_COMBINE_WORKER_RESPONSE_SCHEMA,
+};
 
 export type {
     IBrowserPdfCombineInput,

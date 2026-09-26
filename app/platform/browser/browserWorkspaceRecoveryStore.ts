@@ -9,25 +9,55 @@ import {
     runObjectStoreTransaction,
     withObjectStoreReadResult,
 } from '@app/platform/browser/browserDocumentIdb';
+import * as v from 'valibot';
 
-interface IBrowserWorkspaceRecoveryRecord {
-    id: string;
-    ownerId: string;
-    generation: number;
-    leaseRevision: number;
-    checkpoint: IWorkspaceCheckpoint;
-    snapshotRefs: TDocumentRef[];
-    updatedAt: number;
-}
+const recoveryOwnerIdSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+const recoveryRecordSchema = v.object({
+    id: v.pipe(v.string(), v.minLength(1)),
+    ownerId: recoveryOwnerIdSchema,
+    generation: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+    leaseRevision: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
+    checkpoint: v.unknown(),
+    snapshotRefs: v.array(v.string()),
+    updatedAt: v.pipe(v.number(), v.finite()),
+});
+type IBrowserWorkspaceRecoveryRecord = v.InferOutput<typeof recoveryRecordSchema>;
 
-interface IBrowserWorkspaceRecoverySnapshot {
-    ownerId: string;
-    generation: number;
-    leaseRevision: number;
-    checkpoint: IWorkspaceCheckpoint;
-    snapshotRefs: TDocumentRef[];
-    updatedAt: number;
-}
+const recoverySnapshotSchema = v.pipe(
+    recoveryRecordSchema,
+    // Recovery loading preserves the legacy lease revision and scopes refs to the checkpoint's working copies.
+    v.transform(record => {
+        const checkpoint = decodeWorkspaceCheckpoint(record.checkpoint);
+        if (!checkpoint || record.id !== getRecoveryRecordId(record.ownerId)) {
+            return null;
+        }
+        const leaseRevision = record.leaseRevision ?? (
+            Number.isSafeInteger(record.updatedAt) && record.updatedAt >= 0
+                ? record.updatedAt
+                : 0
+        );
+        const snapshotRefs = record.snapshotRefs.map(parseDocumentRef);
+        if (snapshotRefs.some(ref => ref === null)) {
+            return null;
+        }
+        const checkpointRefs = new Set(checkpoint.tabs.flatMap(tab => (
+            tab.workingCopyRef ? [tab.workingCopyRef] : []
+        )));
+        return {
+            ownerId: record.ownerId,
+            generation: record.generation,
+            leaseRevision,
+            checkpoint,
+            snapshotRefs: Array.from(new Set(snapshotRefs.flatMap(ref => {
+                return ref !== null && checkpointRefs.has(ref) ? [ref] : [];
+            }))),
+            updatedAt: record.updatedAt,
+        };
+    }),
+    v.check(value => value !== null),
+    v.transform(value => value as NonNullable<typeof value>),
+);
+type IBrowserWorkspaceRecoverySnapshot = v.InferOutput<typeof recoverySnapshotSchema>;
 
 export type TBrowserWorkspaceRecoveryMutationResult =
     | {
@@ -56,62 +86,12 @@ function getRecoveryRecordId(ownerId: string) {
 }
 
 function isValidOwnerId(value: unknown): value is string {
-    return typeof value === 'string' && value.length > 0 && value.length <= 128;
-}
-
-function decodeLeaseRevision(record: Record<string, unknown>): number | null {
-    if (record.leaseRevision === undefined) {
-        const updatedAt = record.updatedAt;
-        return typeof updatedAt === 'number'
-            && Number.isSafeInteger(updatedAt)
-            && updatedAt >= 0
-            ? updatedAt
-            : 0;
-    }
-    return typeof record.leaseRevision === 'number'
-        && Number.isSafeInteger(record.leaseRevision)
-        && record.leaseRevision >= 0
-        ? record.leaseRevision
-        : null;
+    return v.safeParse(recoveryOwnerIdSchema, value, {abortEarly: true}).success;
 }
 
 function decodeRecoveryRecord(value: unknown): IBrowserWorkspaceRecoverySnapshot | null {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        return null;
-    }
-    const record = value as Record<string, unknown>;
-    const checkpoint = decodeWorkspaceCheckpoint(record.checkpoint);
-    const snapshotRefs = record.snapshotRefs;
-    const leaseRevision = decodeLeaseRevision(record);
-    if (
-        !isValidOwnerId(record.ownerId)
-        || record.id !== getRecoveryRecordId(record.ownerId)
-        || typeof record.generation !== 'number'
-        || !Number.isSafeInteger(record.generation)
-        || record.generation <= 0
-        || leaseRevision === null
-        || !checkpoint
-        || !Array.isArray(snapshotRefs)
-        || snapshotRefs.some((ref: unknown) => parseDocumentRef(ref) === null)
-        || typeof record.updatedAt !== 'number'
-        || !Number.isFinite(record.updatedAt)
-    ) {
-        return null;
-    }
-    const checkpointRefs = new Set(checkpoint.tabs.flatMap(tab => (
-        tab.workingCopyRef ? [tab.workingCopyRef] : []
-    )));
-    return {
-        ownerId: record.ownerId,
-        generation: record.generation,
-        leaseRevision,
-        checkpoint,
-        snapshotRefs: Array.from(new Set(snapshotRefs.flatMap((ref: unknown) => {
-            const parsed = parseDocumentRef(ref);
-            return parsed !== null && checkpointRefs.has(parsed) ? [parsed] : [];
-        }))),
-        updatedAt: record.updatedAt,
-    };
+    const result = v.safeParse(recoverySnapshotSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 export async function loadBrowserWorkspaceRecoveries() {

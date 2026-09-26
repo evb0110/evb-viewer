@@ -8,8 +8,9 @@ import {
     BROWSER_TRANSFER_AUTHORITY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import type {IBrowserPersistedDocumentRecord} from '@app/platform/browser/browserDocumentTypes';
-import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
+import {windowTabIncomingTransferSchema} from '@contracts/windowTabsValidation';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
+import * as v from 'valibot';
 
 interface IIndexedDbReadResult<T> {
     available: boolean;
@@ -276,26 +277,32 @@ export async function deleteRecord(ref: string) {
     assertWriteCommitted(result, 'document delete');
 }
 
-export interface IBrowserTransferAuthorityRecord {
-    id: string;
-    transferId: string;
-    nonce: string;
-    sourceWindowId: number;
-    sourceInstanceNonce: string;
-    targetWindowId: number;
-    targetInstanceNonce: string;
-    generation: number;
-    state: 'pending' | 'committed' | 'aborted';
-    targetReady: boolean;
-    deadlineAt: number;
-    payload: IWindowTabIncomingTransfer;
-    backingRefs: Array<{
-        ref: string;
-        chunkGeneration?: string
-    }>;
-    createdAt: number;
-    decidedAt?: number;
-}
+export const BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA = v.object({
+    id: v.pipe(v.string(), v.minLength(1)),
+    transferId: v.pipe(v.string(), v.minLength(1)),
+    nonce: v.pipe(v.string(), v.minLength(1)),
+    sourceWindowId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+    sourceInstanceNonce: v.string(),
+    targetWindowId: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+    targetInstanceNonce: v.string(),
+    generation: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+    state: v.picklist([
+        'pending',
+        'committed',
+        'aborted',
+    ]),
+    targetReady: v.boolean(),
+    deadlineAt: v.pipe(v.number(), v.finite()),
+    payload: windowTabIncomingTransferSchema,
+    backingRefs: v.array(v.object({
+        ref: v.string(),
+        chunkGeneration: v.optional(v.string()),
+    })),
+    createdAt: v.pipe(v.number(), v.finite()),
+    decidedAt: v.optional(v.pipe(v.number(), v.finite())),
+});
+
+export type IBrowserTransferAuthorityRecord = v.InferOutput<typeof BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA>;
 
 export async function mutateBrowserTransferAuthority(
     transferId: string,
@@ -307,7 +314,10 @@ export async function mutateBrowserTransferAuthority(
         (store, setResult) => {
             const request = store.get(`transfer:${transferId}`);
             request.onsuccess = () => {
-                const current = request.result as IBrowserTransferAuthorityRecord | null;
+                const parsed = request.result === undefined || request.result === null
+                    ? null
+                    : v.safeParse(BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA, request.result, {abortEarly: true});
+                const current = parsed && parsed.success ? parsed.output : null;
                 const next = mutate(current, store);
                 if (next) store.put(next);
                 setResult(next);
@@ -322,9 +332,11 @@ export async function loadBrowserTransferAuthority(transferId: string) {
         BROWSER_TRANSFER_AUTHORITY_STORE,
         store => store.get(`transfer:${transferId}`),
     );
-    return result.available && result.value && typeof result.value === 'object'
-        ? result.value as IBrowserTransferAuthorityRecord
-        : null;
+    if (!result.available || result.value === undefined || result.value === null) {
+        return null;
+    }
+    const parsed = v.safeParse(BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA, result.value, {abortEarly: true});
+    return parsed.success ? parsed.output : null;
 }
 
 export async function abortBrowserTransferAuthority(transferId: string, nonce: string) {

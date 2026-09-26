@@ -6,6 +6,7 @@ import type {
     TBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerRequestType,
 } from '@app/platform/browser-api/browserPdfCombineWorker.types';
+import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -17,6 +18,7 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import * as v from 'valibot';
 
 const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS = 120_000;
@@ -110,21 +112,6 @@ function buildWorkerRequestWithTransfers(
     };
 }
 
-function decodePdfCombineWorkerResult<K extends TBrowserPdfCombineWorkerRequestType>(
-    _type: K,
-    data: unknown,
-): IBrowserPdfCombineWorkerResultMap[K] | null {
-    if (
-        !(data instanceof Uint8Array)
-        || data.byteLength < 8
-        || new TextDecoder().decode(data.subarray(0, 5)) !== '%PDF-'
-    ) {
-        return null;
-    }
-
-    return {data};
-}
-
 export function canUseBrowserPdfCombineWorker() {
     return canUseBrowserWorker();
 }
@@ -169,7 +156,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
         id: browserPdfCombineWorkerClient.createRequestId(),
         type,
         payload,
-    };
+    } as IBrowserPdfCombineWorkerRequest<K>;
 
     const worker = browserPdfCombineWorkerClient.getWorker();
 
@@ -186,12 +173,12 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
         browserPdfCombineWorkerClient.registerPendingRequest(request.id, {
             requestType: type,
             resolveData: (value) => {
-                const decoded = decodePdfCombineWorkerResult(type, value);
-                if (!decoded) {
+                const result = v.safeParse(BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS[type], {data: value}, {abortEarly: true});
+                if (!result.success) {
                     return false;
                 }
                 signal?.removeEventListener('abort', abort);
-                resolve(decoded);
+                resolve(result.output);
                 return true;
             },
             reject: (error) => {

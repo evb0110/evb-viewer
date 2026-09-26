@@ -122,10 +122,50 @@ const recentFilesStoreMocks = vi.hoisted(() => ({
 }));
 const recoveryMocks = vi.hoisted(() => ({loadBrowserWorkspaceRecoveryLeasedRefs: vi.fn(async () => new Set<string>())}));
 
-vi.mock('@app/platform/browser/browserDocumentIdb', () => documentIdbMocks);
+vi.mock('@app/platform/browser/browserDocumentIdb', async importOriginal => ({
+    ...await importOriginal(),
+    ...documentIdbMocks,
+}));
 vi.mock('@app/platform/browser/browserDocumentChunks', () => chunkMocks);
 vi.mock('@app/platform/browser/browserRecentFilesStore', () => recentFilesStoreMocks);
 vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMocks);
+
+function makeTransferAuthority(
+    transferId: string,
+    ref: string,
+    state: 'committed' | 'aborted',
+    decidedAt: number,
+) {
+    return {
+        id: `transfer:${transferId}`,
+        transferId,
+        nonce: `nonce-${transferId}`,
+        sourceWindowId: 1,
+        sourceInstanceNonce: 'source',
+        targetWindowId: 2,
+        targetInstanceNonce: 'target',
+        generation: 2,
+        state,
+        targetReady: state === 'committed',
+        deadlineAt: decidedAt,
+        payload: {
+            transferId,
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'transferred.pdf',
+                originalPath: ref,
+                originalBackend: 'browser',
+                isDirty: true,
+                isDjvu: false,
+            },
+            payload: {kind: 'empty'},
+        },
+        backingRefs: [{ref}],
+        createdAt: decidedAt - 1,
+        decidedAt,
+    };
+}
 
 describe('browserDocumentMaintenance', () => {
     beforeEach(() => {
@@ -567,12 +607,12 @@ describe('browserDocumentMaintenance', () => {
             value: record,
         });
         documentIdbMocks.documentsAtDelete = [record];
-        documentIdbMocks.transferAuthoritiesAtDelete = [{
-            id: 'transfer:settled',
-            state: 'committed',
-            decidedAt: Date.now() - 10 * 60 * 1_000,
-            backingRefs: [{ref}],
-        }];
+        documentIdbMocks.transferAuthoritiesAtDelete = [makeTransferAuthority(
+            'settled',
+            ref,
+            'committed',
+            Date.now() - 10 * 60 * 1_000,
+        )];
 
         await sweepBrowserDocumentMaintenance(new Map());
 
@@ -605,12 +645,12 @@ describe('browserDocumentMaintenance', () => {
             value: record,
         });
         documentIdbMocks.documentsAtDelete = [record];
-        documentIdbMocks.transferAuthoritiesAtDelete = [{
-            id: 'transfer:fresh',
-            state: 'aborted',
-            decidedAt: Date.now(),
-            backingRefs: [{ref}],
-        }];
+        documentIdbMocks.transferAuthoritiesAtDelete = [makeTransferAuthority(
+            'fresh',
+            ref,
+            'aborted',
+            Date.now(),
+        )];
 
         await sweepBrowserDocumentMaintenance(new Map());
 

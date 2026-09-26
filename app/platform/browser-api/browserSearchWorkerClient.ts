@@ -1,14 +1,18 @@
 import type {
     IBrowserSearchWorkerRequest,
     IBrowserSearchWorkerRequestMap,
+    IBrowserSearchWorkerProgress,
     IBrowserSearchWorkerResultMap,
-    TBrowserSearchWorkerRequestType,
+    TBrowserSearchWorkerRequestType,IBrowserSearchWorkerPageRecord,
 } from '@app/platform/browser-api/browserSearchWorker.types';
 import {
-    BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT,
-    type IBrowserSearchWorkerPageRecord,
-} from '@app/platform/browser-api/browserSearchLegacyArrayPageLimit';
-import {BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST} from '@app/platform/browser-api/browserSearchWorker.types';
+    BROWSER_SEARCH_WORKER_ERROR_RESPONSE_SCHEMA,
+    BROWSER_SEARCH_WORKER_PAGE_RESPONSE_SCHEMA,
+    BROWSER_SEARCH_WORKER_PROGRESS_RESPONSE_SCHEMA,
+    BROWSER_SEARCH_WORKER_RESPONSE_STATUS_SCHEMA,
+    BROWSER_SEARCH_WORKER_RESULT_SCHEMAS,
+    BROWSER_SEARCH_WORKER_SUCCESS_RESPONSE_SCHEMA,
+} from '@app/platform/browser-api/browserSearchWorker.types';
 import { isRecord } from '@contracts/runtimeGuards';
 import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 import {SearchRegexLimitError} from '@pdf-core';
@@ -19,6 +23,7 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import * as v from 'valibot';
 
 interface IPendingWorkerRequest {
     requestType: TBrowserSearchWorkerRequestType;
@@ -29,10 +34,7 @@ interface IPendingWorkerRequest {
     onPage?: (page: IBrowserSearchWorkerPageRecord) => void;
 }
 
-type TBrowserSearchWorkerProgressHandler = (progress: {
-    processed: number;
-    total: number;
-}) => void;
+type TBrowserSearchWorkerProgressHandler = (progress: IBrowserSearchWorkerProgress) => void;
 
 interface IBrowserSearchWorkerRequestOptions {
     onProgress?: TBrowserSearchWorkerProgressHandler;
@@ -110,161 +112,30 @@ function getSearchWorkerResponseId(response: unknown) {
         : null;
 }
 
-function isFiniteProgressNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value);
-}
-
 function parseSearchWorkerProgress(
     response: unknown,
     expectedType: TBrowserSearchWorkerRequestType,
 ): Parameters<TBrowserSearchWorkerProgressHandler>[0] | null {
-    if (
-        !isRecord(response)
-        || response.ok !== true
-        || response.type !== expectedType
-        || !isRecord(response.progress)
-    ) {
-        return null;
-    }
-
-    if (
-        !isFiniteProgressNumber(response.progress.processed)
-        || !isFiniteProgressNumber(response.progress.total)
-    ) {
-        return null;
-    }
-
-    return {
-        processed: response.progress.processed,
-        total: response.progress.total,
-    };
-}
-
-function decodeExtractDocumentTextResult(data: unknown): IBrowserSearchWorkerResultMap['extractDocumentText'] | null {
-    if (!isRecord(data) || typeof data.pageCount !== 'number' || !Array.isArray(data.pageTexts)) {
-        return null;
-    }
-
-    const pageTexts = data.pageTexts;
-    if (
-        !Number.isSafeInteger(data.pageCount)
-        || data.pageCount < 0
-        || data.pageCount > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT
-        || pageTexts.length > BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT
-        || pageTexts.length > data.pageCount
-        || !pageTexts.every((pageText): pageText is string => typeof pageText === 'string')
-    ) {
-        return null;
-    }
-
-    return {
-        pageCount: data.pageCount,
-        pageTexts: [...pageTexts],
-    };
-}
-
-function decodeCancelResult(data: unknown): IBrowserSearchWorkerResultMap['cancel'] | null {
-    if (!isRecord(data) || typeof data.canceled !== 'boolean') {
-        return null;
-    }
-
-    return {canceled: data.canceled};
-}
-
-function decodeStreamDocumentTextResult(data: unknown): IBrowserSearchWorkerResultMap['streamDocumentText'] | null {
-    if (
-        !isRecord(data)
-        || typeof data.pageCount !== 'number'
-        || !Number.isSafeInteger(data.pageCount)
-        || data.pageCount < 0
-    ) {
-        return null;
-    }
-
-    return {pageCount: data.pageCount};
-}
-
-function isSearchMatchRange(value: unknown): value is IBrowserSearchWorkerResultMap['matchPageText']['matches'][number] {
-    return isRecord(value)
-        && typeof value.startOffset === 'number'
-        && Number.isSafeInteger(value.startOffset)
-        && value.startOffset >= 0
-        && typeof value.endOffset === 'number'
-        && Number.isSafeInteger(value.endOffset)
-        && value.endOffset > value.startOffset;
-}
-
-function decodeMatchPageTextResult(data: unknown): IBrowserSearchWorkerResultMap['matchPageText'] | null {
-    if (
-        !isRecord(data)
-        || !Array.isArray(data.matches)
-        || data.matches.length > BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST
-        || typeof data.truncated !== 'boolean'
-        || !data.matches.every(isSearchMatchRange)
-    ) {
-        return null;
-    }
-
-    return {
-        matches: data.matches.map(match => ({
-            startOffset: match.startOffset,
-            endOffset: match.endOffset,
-        })),
-        truncated: data.truncated,
-    };
+    const result = v.safeParse(BROWSER_SEARCH_WORKER_PROGRESS_RESPONSE_SCHEMA, response, {abortEarly: true});
+    return result.success && result.output.type === expectedType
+        ? result.output.progress
+        : null;
 }
 
 function parseSearchWorkerPage(
     response: unknown,
     expectedType: TBrowserSearchWorkerRequestType,
 ): IBrowserSearchWorkerPageRecord | null {
-    if (
-        !isRecord(response)
-        || response.ok !== true
-        || response.type !== expectedType
-        || !isRecord(response.page)
-        || typeof response.page.pageNumber !== 'number'
-        || !Number.isSafeInteger(response.page.pageNumber)
-        || response.page.pageNumber < 1
-        || typeof response.page.pageCount !== 'number'
-        || !Number.isSafeInteger(response.page.pageCount)
-        || response.page.pageCount < response.page.pageNumber
-        || typeof response.page.text !== 'string'
-    ) {
-        return null;
-    }
-
-    return {
-        pageNumber: response.page.pageNumber,
-        pageCount: response.page.pageCount,
-        text: response.page.text,
-    };
+    const result = v.safeParse(BROWSER_SEARCH_WORKER_PAGE_RESPONSE_SCHEMA, response, {abortEarly: true});
+    return result.success && result.output.type === expectedType ? result.output.page : null;
 }
 
 function decodeSearchWorkerResult<K extends TBrowserSearchWorkerRequestType>(
     type: K,
     data: unknown,
 ): IBrowserSearchWorkerResultMap[K] | null {
-    if (type === 'extractDocumentText') {
-        return decodeExtractDocumentTextResult(data) as IBrowserSearchWorkerResultMap[K] | null;
-    }
-
-    if (type === 'streamDocumentText') {
-        return decodeStreamDocumentTextResult(data) as IBrowserSearchWorkerResultMap[K] | null;
-    }
-
-    if (type === 'matchPageText') {
-        return decodeMatchPageTextResult(data) as IBrowserSearchWorkerResultMap[K] | null;
-    }
-
-    if (type === 'acknowledgePage') {
-        if (!isRecord(data) || data.acknowledged !== true) {
-            return null;
-        }
-        return {acknowledged: true} as IBrowserSearchWorkerResultMap[K];
-    }
-
-    return decodeCancelResult(data) as IBrowserSearchWorkerResultMap[K] | null;
+    const result = v.safeParse(BROWSER_SEARCH_WORKER_RESULT_SCHEMAS[type], data, {abortEarly: true});
+    return result.success ? result.output as IBrowserSearchWorkerResultMap[K] : null;
 }
 
 function settleSearchWorkerResponse(
@@ -301,14 +172,16 @@ function settleSearchWorkerResponse(
         pending.timeoutTimer = null;
     }
 
-    if (!isRecord(response) || typeof response.ok !== 'boolean') {
+    const status = v.safeParse(BROWSER_SEARCH_WORKER_RESPONSE_STATUS_SCHEMA, response, {abortEarly: true});
+    if (!status.success) {
         pending.reject(new Error('Browser search worker returned an invalid response'));
         scheduleIdleWorkerTermination();
         return;
     }
 
-    if (response.ok === true) {
-        if (response.type !== pending.requestType || !('data' in response) || !pending.resolveData(response.data)) {
+    if (status.output.ok) {
+        const result = v.safeParse(BROWSER_SEARCH_WORKER_SUCCESS_RESPONSE_SCHEMA, response, {abortEarly: true});
+        if (!result.success || result.output.type !== pending.requestType || !pending.resolveData(result.output.data)) {
             pending.reject(new Error('Browser search worker returned an invalid result'));
             scheduleIdleWorkerTermination();
             return;
@@ -317,10 +190,11 @@ function settleSearchWorkerResponse(
         return;
     }
 
-    const errorMessage = typeof response.error === 'string'
-        ? response.error
+    const result = v.safeParse(BROWSER_SEARCH_WORKER_ERROR_RESPONSE_SCHEMA, response, {abortEarly: true});
+    const errorMessage = result.success && typeof result.output.error === 'string'
+        ? result.output.error
         : 'Browser search worker returned an invalid error response';
-    pending.reject(response.errorCode === 'SEARCH_REGEX_LIMIT'
+    pending.reject(result.success && result.output.errorCode === 'SEARCH_REGEX_LIMIT'
         ? new SearchRegexLimitError(errorMessage)
         : new BrowserSearchWorkerRequestError(errorMessage));
     scheduleIdleWorkerTermination();
@@ -359,11 +233,11 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
     requestId: number;
     promise: Promise<IBrowserSearchWorkerResultMap[K]>;
 } {
-    const request: IBrowserSearchWorkerRequest<K> = {
+    const request = {
         id: browserSearchWorkerClient.createRequestId(),
         type,
         payload,
-    };
+    } as IBrowserSearchWorkerRequest<K>;
 
     const worker = browserSearchWorkerClient.getWorker();
 

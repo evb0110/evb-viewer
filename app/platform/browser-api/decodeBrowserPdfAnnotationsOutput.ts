@@ -10,12 +10,22 @@ import * as v from 'valibot';
 
 const BROWSER_ANNOTATION_PARSE_MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 
-function rejectUnknownFields(value: Record<string, unknown>, label: string, allowed: readonly string[]) {
-    const unknown = Object.keys(value).find(key => !allowed.includes(key));
-    if (unknown !== undefined) {
-        throw new Error(`${label} contains unsupported field ${unknown}`);
-    }
-}
+const headerSchema = v.strictObject({
+    format: v.literal('evb-pdf-annotation-parse'),
+    schemaVersion: v.literal(1),
+    pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    chunkBytes: v.pipe(
+        v.number(),
+        v.safeInteger(),
+        v.minValue(64),
+        v.maxValue(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES),
+    ),
+});
+
+const chunkSchema = v.strictObject({
+    chunkIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    entries: v.array(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA),
+});
 
 function parseJsonLine(line: string, lineNumber: number) {
     try {
@@ -29,45 +39,22 @@ function decodeHeader(value: unknown) {
     if (!isRecord(value)) {
         throw new Error('PDF annotation parse WASM output is missing its header');
     }
-    rejectUnknownFields(value, 'PDF annotation parse WASM header', [
-        'format',
-        'schemaVersion',
-        'pageCount',
-        'chunkBytes',
-    ]);
-    if (
-        value.format !== 'evb-pdf-annotation-parse'
-        || value.schemaVersion !== 1
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 0
-        || typeof value.chunkBytes !== 'number'
-        || !Number.isSafeInteger(value.chunkBytes)
-        || value.chunkBytes < 64
-        || value.chunkBytes > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES
-    ) {
+    const result = v.safeParse(headerSchema, value, {abortEarly: true});
+    if (!result.success) {
         throw new Error('PDF annotation parse WASM output has an unsupported header');
     }
-    return value.pageCount;
+    return result.output.pageCount;
 }
 
 function decodeChunk(value: unknown, expectedChunkIndex: number, lineNumber: number) {
     if (!isRecord(value)) {
         throw new Error(`PDF annotation parse WASM output line ${lineNumber} is not an object`);
     }
-    rejectUnknownFields(value, `PDF annotation parse WASM chunk ${lineNumber}`, [
-        'chunkIndex',
-        'entries',
-    ]);
-    if (
-        typeof value.chunkIndex !== 'number'
-        || !Number.isSafeInteger(value.chunkIndex)
-        || value.chunkIndex !== expectedChunkIndex
-        || !Array.isArray(value.entries)
-    ) {
+    const result = v.safeParse(chunkSchema, value, {abortEarly: true});
+    if (!result.success || result.output.chunkIndex !== expectedChunkIndex) {
         throw new Error(`PDF annotation parse WASM output line ${lineNumber} has an invalid chunk`);
     }
-    return value.entries.map(entry => v.parse(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, entry, {abortEarly: true}));
+    return result.output.entries;
 }
 
 export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<

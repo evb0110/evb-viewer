@@ -4,9 +4,3 @@
  * request.
  */
 export const BROWSER_SEARCH_LEGACY_ARRAY_PAGE_LIMIT = 1_024;
-
-export interface IBrowserSearchWorkerPageRecord {
-    pageNumber: number;
-    pageCount: number;
-    text: string;
-}

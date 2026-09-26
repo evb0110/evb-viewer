@@ -1,17 +1,14 @@
 import { getErrorMessage } from '@app/utils/error';
 import type {
-    IBrowserPdfConformanceFacts,
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@app/platform/browser-api/browserPageOpsWorker.types';
 import {
     BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
     decodeBrowserPdfCatalog,
 } from '@contracts/browserPdfCatalog';
-import type {
-    IPdfNativeAnnotationIdentityBinding,
-    IPdfNativeMutationSet,
-} from '@contracts/electronApiDocuments';
+import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type {
     ICropMargins,
@@ -30,6 +27,7 @@ import {
     getCheckedWasmMemoryView,
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
 } from '@contracts/getCheckedWasmMemoryView';
+import * as v from 'valibot';
 
 interface IPdfPageOpsWasmExports {
     memory: WebAssembly.Memory;
@@ -70,17 +68,35 @@ interface IBrowserPageOpsWasmRequestMap extends IBrowserPageOpsWorkerRequestMap 
     printLayout: IBrowserPageOpsWasmPrintLayoutRequest;
 }
 
-interface IBrowserPageOpsWasmDecryptResult {
-    data: Uint8Array;
-    pageCount: number;
-}
+const wasmBytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
+const wasmMutationResultSchema = v.object({
+    data: wasmBytesSchema,
+    pageCount: v.number(),
+});
+const wasmIdentityBindingsSchema = v.array(v.object({
+    annotationId: v.string(),
+    pdfRef: v.string(),
+}));
+const wasmSaveMutationsResultSchema = v.object({
+    data: wasmBytesSchema,
+    pageCount: v.number(),
+    identityBindings: wasmIdentityBindingsSchema,
+    nativeMutationPostconditionsVerified: v.literal(true),
+});
+const wasmFailureSchema = v.object({
+    status: v.literal('failed'),
+    error: v.custom<INativeErrorEnvelope>(isNativeErrorEnvelope),
+});
+const wasmCatalogResultSchema = v.pipe(
+    v.unknown(),
+    // The shared decoder enforces recursive bookmark depth and aggregate item budgets.
+    v.transform(value => decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})),
+    v.check(value => value !== null),
+    v.transform(value => value as NonNullable<typeof value>),
+);
 
-interface IBrowserPageOpsWasmSaveMutationsResult {
-    data: Uint8Array;
-    pageCount: number;
-    identityBindings: IPdfNativeAnnotationIdentityBinding[];
-    nativeMutationPostconditionsVerified: true;
-}
+type IBrowserPageOpsWasmDecryptResult = v.InferOutput<typeof wasmMutationResultSchema>;
+type IBrowserPageOpsWasmSaveMutationsResult = v.InferOutput<typeof wasmSaveMutationsResultSchema>;
 
 interface IBrowserPageOpsWasmResultMap extends IBrowserPageOpsWorkerResultMap {
     decrypt: IBrowserPageOpsWasmDecryptResult;
@@ -134,18 +150,10 @@ const MAX_DOCUMENTS = 500;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
 
-export interface IBrowserPageOpsWasmFailure {
-    status: 'failed';
-    error: INativeErrorEnvelope;
-}
+export type IBrowserPageOpsWasmFailure = v.InferOutput<typeof wasmFailureSchema>;
 
 export function isBrowserPageOpsWasmFailure(value: unknown): value is IBrowserPageOpsWasmFailure {
-    return typeof value === 'object'
-        && value !== null
-        && 'status' in value
-        && value.status === 'failed'
-        && 'error' in value
-        && isNativeErrorEnvelope(value.error);
+    return v.safeParse(wasmFailureSchema, value, {abortEarly: true}).success;
 }
 
 function createWasmFailure(
@@ -610,19 +618,6 @@ function readGeometryResult(output: Uint8Array) {
     };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
-
-function isPdfConformanceFacts(value: unknown): value is IBrowserPdfConformanceFacts {
-    return isRecord(value)
-        && typeof value.isSigned === 'boolean'
-        && typeof value.isEncrypted === 'boolean'
-        && typeof value.isTagged === 'boolean'
-        && typeof value.hasAcroForm === 'boolean'
-        && typeof value.hasXfa === 'boolean';
-}
-
 function readJsonResult(output: Uint8Array) {
     if (output.byteLength < 8) {
         return null;
@@ -650,9 +645,10 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
     const kind = view.getUint32(0, true);
     if (type === 'getPageGeometry') {
-        return kind === RESPONSE_GEOMETRY
-            ? readGeometryResult(output) as IBrowserPageOpsWasmResultMap[K] | null
+        const parsed = kind === RESPONSE_GEOMETRY
+            ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.getPageGeometry, readGeometryResult(output), {abortEarly: true})
             : null;
+        return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
     if (type === 'parseAnnotations') {
@@ -663,7 +659,12 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         if (dataLength !== output.byteLength - 8) {
             return null;
         }
-        return {data: toTransferableUint8Array(output.slice(8))} as IBrowserPageOpsWasmResultMap[K];
+        const parsed = v.safeParse(
+            BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.parseAnnotations,
+            {data: toTransferableUint8Array(output.slice(8))},
+            {abortEarly: true},
+        );
+        return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
     if (type === 'saveMutations') {
@@ -686,19 +687,17 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         } catch {
             return null;
         }
-        if (!Array.isArray(identityBindings) || !identityBindings.every(binding => (
-            isRecord(binding)
-            && typeof binding.annotationId === 'string'
-            && typeof binding.pdfRef === 'string'
-        ))) {
+        const parsedBindings = v.safeParse(wasmIdentityBindingsSchema, identityBindings, {abortEarly: true});
+        if (!parsedBindings.success) {
             return null;
         }
-        return {
+        const parsed = v.safeParse(wasmSaveMutationsResultSchema, {
             data: toTransferableUint8Array(output.slice(20, 20 + dataLength)),
             pageCount: view.getUint32(4, true),
-            identityBindings: identityBindings as IPdfNativeAnnotationIdentityBinding[],
+            identityBindings: parsedBindings.output,
             nativeMutationPostconditionsVerified: true,
-        } as IBrowserPageOpsWasmResultMap[K];
+        }, {abortEarly: true});
+        return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
     if (type === 'readCatalog' || type === 'conformance') {
@@ -707,18 +706,17 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         }
         const value: unknown = readJsonResult(output);
         if (type === 'readCatalog') {
-            return decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS})
-                ? value as IBrowserPageOpsWasmResultMap[K]
-                : null;
+            const parsed = v.safeParse(wasmCatalogResultSchema, value, {abortEarly: true});
+            return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
         }
-        return isPdfConformanceFacts(value)
-            ? value as IBrowserPageOpsWasmResultMap[K]
-            : null;
+        const parsed = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.conformance, value, {abortEarly: true});
+        return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
     }
 
-    return kind === RESPONSE_MUTATION
-        ? readMutationResult(output) as IBrowserPageOpsWasmResultMap[K] | null
+    const parsed = kind === RESPONSE_MUTATION
+        ? v.safeParse(wasmMutationResultSchema, readMutationResult(output), {abortEarly: true})
         : null;
+    return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
 }
 
 export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasmRequestType>(

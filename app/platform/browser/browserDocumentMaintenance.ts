@@ -19,7 +19,7 @@ import {
 import {
     loadAllRecordKeysAvailability,
     loadRecordAvailability,
-    runObjectStoresTransaction,
+    runObjectStoresTransaction,BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA,
 } from '@app/platform/browser/browserDocumentIdb';
 import {
     createChunkKey,
@@ -36,16 +36,16 @@ import {
     runSerializedRecentFilesStorageMutation,
 } from '@app/platform/browser/browserRecentFilesStore';
 import type {
-    IBrowserDocumentLeaseDependency,
     IBrowserDocumentEntry,
-    IBrowserDocumentLiveLease,
     IBrowserPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentTypes';
+import {BROWSER_DOCUMENT_LIVE_LEASE_SCHEMA} from '@app/platform/browser/browserDocumentTypes';
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import { reclaimOrphanedBrowserDocumentLiveLeases } from '@app/platform/browser/browserDocumentLeaseStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
+import * as v from 'valibot';
 
 const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
 
@@ -78,84 +78,6 @@ function hasActivePendingChunkGeneration(record: IBrowserPersistedDocumentRecord
     return isRecentlyCreatedChunkGeneration(record.pendingChunkGeneration);
 }
 
-function decodeLiveLeaseDependency(value: unknown): IBrowserDocumentLeaseDependency | null {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
-    }
-
-    const dependency = value as Record<string, unknown>;
-    if (typeof dependency.ref !== 'string' || dependency.ref.length === 0) {
-        return null;
-    }
-
-    if (
-        dependency.chunkGeneration !== undefined
-        && (
-            typeof dependency.chunkGeneration !== 'string'
-            || dependency.chunkGeneration.length === 0
-        )
-    ) {
-        return null;
-    }
-
-    return {
-        ref: dependency.ref,
-        ...(dependency.chunkGeneration === undefined
-            ? {}
-            : {chunkGeneration: dependency.chunkGeneration}),
-    };
-}
-
-function decodeLiveLease(value: unknown): IBrowserDocumentLiveLease | null {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
-    }
-
-    const lease = value as Record<string, unknown>;
-    if (
-        typeof lease.id !== 'string'
-        || lease.id.length === 0
-        || typeof lease.ownerId !== 'string'
-        || lease.ownerId.length === 0
-        || typeof lease.generation !== 'number'
-        || !Number.isSafeInteger(lease.generation)
-        || lease.generation < 1
-        || typeof lease.leaseRevision !== 'number'
-        || !Number.isSafeInteger(lease.leaseRevision)
-        || lease.leaseRevision < 0
-        || (
-            lease.status !== 'active'
-            && lease.status !== 'suspended'
-            && lease.status !== 'dead'
-        )
-        || typeof lease.heartbeatAt !== 'number'
-        || !Number.isFinite(lease.heartbeatAt)
-        || lease.heartbeatAt < 0
-        || !Array.isArray(lease.protectedDependencies)
-    ) {
-        return null;
-    }
-
-    const protectedDependencies: IBrowserDocumentLeaseDependency[] = [];
-    for (const value of lease.protectedDependencies) {
-        const dependency = decodeLiveLeaseDependency(value);
-        if (!dependency) {
-            return null;
-        }
-        protectedDependencies.push(dependency);
-    }
-
-    return {
-        id: lease.id,
-        ownerId: lease.ownerId,
-        generation: lease.generation,
-        leaseRevision: lease.leaseRevision,
-        status: lease.status,
-        heartbeatAt: lease.heartbeatAt,
-        protectedDependencies,
-    };
-}
-
 interface IBrowserLiveLeaseProtection {
     leasedRefs: Set<string>;
     allGenerationsRefs: Set<string>;
@@ -167,18 +89,15 @@ function getChunkGenerationKey(ref: string, generation: string | undefined) {
 }
 
 function readLiveLeaseProtection(value: unknown): IBrowserLiveLeaseProtection | null {
-    if (!Array.isArray(value)) {
+    const parsed = v.safeParse(v.array(BROWSER_DOCUMENT_LIVE_LEASE_SCHEMA), value, {abortEarly: true});
+    if (!parsed.success) {
         return null;
     }
 
     const leasedRefs = new Set<string>();
     const allGenerationsRefs = new Set<string>();
     const leasedGenerations = new Set<string>();
-    for (const leaseValue of value) {
-        const lease = decodeLiveLease(leaseValue);
-        if (!lease) {
-            return null;
-        }
+    for (const lease of parsed.output) {
         if (lease.status === 'dead') {
             continue;
         }
@@ -221,7 +140,8 @@ const SETTLED_TRANSFER_RETENTION_MS = 60 * 1_000;
 interface IBrowserTransferAuthorityProtection extends IBrowserLiveLeaseProtection {settledIds: Set<string>;}
 
 function readTransferAuthorityProtection(value: unknown): IBrowserTransferAuthorityProtection | null {
-    if (!Array.isArray(value)) {
+    const parsed = v.safeParse(v.array(BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA), value, {abortEarly: true});
+    if (!parsed.success) {
         return null;
     }
     const leasedRefs = new Set<string>();
@@ -229,42 +149,19 @@ function readTransferAuthorityProtection(value: unknown): IBrowserTransferAuthor
     const leasedGenerations = new Set<string>();
     const settledIds = new Set<string>();
     const settledBefore = Date.now() - SETTLED_TRANSFER_RETENTION_MS;
-    for (const authorityValue of value) {
-        if (!authorityValue || typeof authorityValue !== 'object' || Array.isArray(authorityValue)) {
-            return null;
-        }
-        const authority = authorityValue as {
-            id?: unknown;
-            state?: unknown;
-            decidedAt?: unknown;
-        };
-        if (
-            typeof authority.id === 'string'
-            && (authority.state === 'committed' || authority.state === 'aborted')
-            && typeof authority.decidedAt === 'number'
-            && authority.decidedAt <= settledBefore
-        ) {
+    for (const authority of parsed.output) {
+        if ((authority.state === 'committed' || authority.state === 'aborted')
+            && authority.decidedAt !== undefined
+            && authority.decidedAt <= settledBefore) {
             settledIds.add(authority.id);
             continue;
         }
-        const backingRefs = (authorityValue as {backingRefs?: unknown}).backingRefs;
-        if (!Array.isArray(backingRefs)) {
-            return null;
-        }
-        for (const dependency of backingRefs) {
-            if (!dependency || typeof dependency !== 'object' || Array.isArray(dependency)) {
-                return null;
-            }
-            const ref = (dependency as {ref?: unknown}).ref;
-            const chunkGeneration = (dependency as {chunkGeneration?: unknown}).chunkGeneration;
-            if (typeof ref !== 'string' || (chunkGeneration !== undefined && typeof chunkGeneration !== 'string')) {
-                return null;
-            }
-            leasedRefs.add(ref);
-            if (chunkGeneration === undefined) {
-                allGenerationsRefs.add(ref);
+        for (const dependency of authority.backingRefs) {
+            leasedRefs.add(dependency.ref);
+            if (dependency.chunkGeneration === undefined) {
+                allGenerationsRefs.add(dependency.ref);
             } else {
-                leasedGenerations.add(getChunkGenerationKey(ref, chunkGeneration));
+                leasedGenerations.add(getChunkGenerationKey(dependency.ref, dependency.chunkGeneration));
             }
         }
     }

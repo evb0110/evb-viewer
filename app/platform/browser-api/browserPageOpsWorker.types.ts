@@ -1,159 +1,278 @@
-import type {
-    ICropMargins,
-    IPageGeometry,
-} from '@contracts/shared';
-import { normalizeCropMargins } from '@contracts/shared';
+import type {ICropMargins} from '@contracts/shared';
+import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
 import {
-    isRecord,
-    isSafeWorkerRequestId,
-} from '@contracts/runtimeGuards';
+    BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS,
+    decodeBrowserPdfCatalog,
+} from '@contracts/browserPdfCatalog';
 import type {
     IBrowserPdfCatalog,
     IBrowserPdfCatalogBookmark,
     IBrowserPdfCatalogPageLabelRange,
 } from '@contracts/browserPdfCatalog';
+import {
+    isRecord,
+    isSafeWorkerRequestId,
+} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
-interface IPageMutationWorkerResult {
-    data: Uint8Array;
-    pageCount: number;
-}
+const workerRequestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const positiveIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const nonNegativeIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const finiteNonNegativeSchema = v.pipe(v.number(), v.finite(), v.minValue(0));
+const pdfBytesSchema = v.custom<Uint8Array>(value => value instanceof Uint8Array);
 
-interface IBrowserPdfConformanceFacts {
-    isSigned: boolean;
-    isEncrypted: boolean;
-    isTagged: boolean;
-    hasAcroForm: boolean;
-    hasXfa: boolean;
-}
+const cropMarginsSchema = v.object({
+    top: finiteNonNegativeSchema,
+    bottom: finiteNonNegativeSchema,
+    left: finiteNonNegativeSchema,
+    right: finiteNonNegativeSchema,
+});
 
-interface IBrowserPageOpsWorkerRequestMap {
-    deletePages: {
-        data: Uint8Array;
-        pages: number[];
-    };
-    extractPages: {
-        data: Uint8Array;
-        pages: number[];
-    };
-    reorderPages: {
-        data: Uint8Array;
-        newOrder: number[];
-    };
-    insertPages: {
-        data: Uint8Array;
-        insertionData: Uint8Array;
-        afterPage: number;
-    };
-    rotate: {
-        data: Uint8Array;
-        pages: number[];
-        angle: 90 | 180 | 270;
-    };
-    crop: {
-        data: Uint8Array;
-        pages: number[];
-        margins: ICropMargins;
-    };
-    removeCrop: {
-        data: Uint8Array;
-        pages: number[];
-    };
-    getPageGeometry: {
-        data: Uint8Array;
-        pageNumber: number;
-    };
-    parseAnnotations: {data: Uint8Array;};
-    readCatalog: {data: Uint8Array;};
-    conformance: {data: Uint8Array;};
-    mergePages: {documents: Uint8Array[];};
-}
+const workerRequestPayloadSchemas = {
+    deletePages: v.object({
+        data: pdfBytesSchema,
+        pages: v.array(positiveIntegerSchema),
+    }),
+    extractPages: v.object({
+        data: pdfBytesSchema,
+        pages: v.array(positiveIntegerSchema),
+    }),
+    reorderPages: v.object({
+        data: pdfBytesSchema,
+        newOrder: v.array(positiveIntegerSchema),
+    }),
+    insertPages: v.object({
+        data: pdfBytesSchema,
+        insertionData: pdfBytesSchema,
+        afterPage: nonNegativeIntegerSchema,
+    }),
+    rotate: v.object({
+        data: pdfBytesSchema,
+        pages: v.array(positiveIntegerSchema),
+        angle: v.picklist([
+            90,
+            180,
+            270,
+        ]),
+    }),
+    crop: v.object({
+        data: pdfBytesSchema,
+        pages: v.array(positiveIntegerSchema),
+        margins: cropMarginsSchema,
+    }),
+    removeCrop: v.object({
+        data: pdfBytesSchema,
+        pages: v.array(positiveIntegerSchema),
+    }),
+    getPageGeometry: v.object({
+        data: pdfBytesSchema,
+        pageNumber: positiveIntegerSchema,
+    }),
+    parseAnnotations: v.object({data: pdfBytesSchema}),
+    readCatalog: v.object({data: pdfBytesSchema}),
+    conformance: v.object({data: pdfBytesSchema}),
+    mergePages: v.object({documents: v.pipe(v.array(pdfBytesSchema), v.minLength(1), v.maxLength(500))}),
+};
 
-interface IBrowserPageOpsWorkerResultMap {
-    deletePages: IPageMutationWorkerResult;
-    extractPages: IPageMutationWorkerResult;
-    reorderPages: IPageMutationWorkerResult;
-    insertPages: IPageMutationWorkerResult;
-    rotate: IPageMutationWorkerResult;
-    crop: IPageMutationWorkerResult;
-    removeCrop: IPageMutationWorkerResult;
-    getPageGeometry: IPageGeometry;
-    parseAnnotations: {data: Uint8Array;};
-    readCatalog: IBrowserPdfCatalog;
-    conformance: IBrowserPdfConformanceFacts;
-    mergePages: IPageMutationWorkerResult;
-}
+const workerRequestSchema = v.union([
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('deletePages'),
+        payload: workerRequestPayloadSchemas.deletePages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('extractPages'),
+        payload: workerRequestPayloadSchemas.extractPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('reorderPages'),
+        payload: workerRequestPayloadSchemas.reorderPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('insertPages'),
+        payload: workerRequestPayloadSchemas.insertPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('rotate'),
+        payload: workerRequestPayloadSchemas.rotate,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('crop'),
+        payload: workerRequestPayloadSchemas.crop,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('removeCrop'),
+        payload: workerRequestPayloadSchemas.removeCrop,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('getPageGeometry'),
+        payload: workerRequestPayloadSchemas.getPageGeometry,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('parseAnnotations'),
+        payload: workerRequestPayloadSchemas.parseAnnotations,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('readCatalog'),
+        payload: workerRequestPayloadSchemas.readCatalog,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('conformance'),
+        payload: workerRequestPayloadSchemas.conformance,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('mergePages'),
+        payload: workerRequestPayloadSchemas.mergePages,
+    }),
+]);
+
+const pageMutationResultSchema = v.object({
+    data: pdfBytesSchema,
+    pageCount: v.pipe(v.number(), v.check((value: number) => Number.isInteger(value)), v.minValue(1)),
+});
+const annotationParseResultSchema = v.object({data: pdfBytesSchema});
+const conformanceFactsSchema = v.object({
+    isSigned: v.boolean(),
+    isEncrypted: v.boolean(),
+    isTagged: v.boolean(),
+    hasAcroForm: v.boolean(),
+    hasXfa: v.boolean(),
+});
+// The shared decoder enforces recursive bookmark depth and aggregate item budgets.
+const catalogResultSchema = v.pipe(
+    v.unknown(),
+    v.transform(value => decodeBrowserPdfCatalog(value, {maxPageLabels: BROWSER_PDF_CATALOG_MAX_WORKER_PAGE_LABELS})),
+    v.check(value => value !== null),
+    v.transform(value => value as IBrowserPdfCatalog),
+);
+
+const workerResultSchemas = {
+    deletePages: pageMutationResultSchema,
+    extractPages: pageMutationResultSchema,
+    reorderPages: pageMutationResultSchema,
+    insertPages: pageMutationResultSchema,
+    rotate: pageMutationResultSchema,
+    crop: pageMutationResultSchema,
+    removeCrop: pageMutationResultSchema,
+    getPageGeometry: PAGE_GEOMETRY_SCHEMA,
+    parseAnnotations: annotationParseResultSchema,
+    readCatalog: catalogResultSchema,
+    conformance: conformanceFactsSchema,
+    mergePages: pageMutationResultSchema,
+};
+
+const workerSuccessResponseSchema = v.union([
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('deletePages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.deletePages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('extractPages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.extractPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('reorderPages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.reorderPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('insertPages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.insertPages,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('rotate'),
+        ok: v.literal(true),
+        data: workerResultSchemas.rotate,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('crop'),
+        ok: v.literal(true),
+        data: workerResultSchemas.crop,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('removeCrop'),
+        ok: v.literal(true),
+        data: workerResultSchemas.removeCrop,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('getPageGeometry'),
+        ok: v.literal(true),
+        data: workerResultSchemas.getPageGeometry,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('parseAnnotations'),
+        ok: v.literal(true),
+        data: workerResultSchemas.parseAnnotations,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('readCatalog'),
+        ok: v.literal(true),
+        data: workerResultSchemas.readCatalog,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('conformance'),
+        ok: v.literal(true),
+        data: workerResultSchemas.conformance,
+    }),
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('mergePages'),
+        ok: v.literal(true),
+        data: workerResultSchemas.mergePages,
+    }),
+]);
+
+const workerResponseSchema = v.union([
+    workerSuccessResponseSchema,
+    v.object({
+        id: workerRequestIdSchema,
+        ok: v.literal(false),
+        error: v.string(),
+    }),
+]);
+
+type IBrowserPageOpsWorkerRequestMap = {
+    [K in keyof typeof workerRequestPayloadSchemas]: v.InferOutput<(typeof workerRequestPayloadSchemas)[K]>;
+};
+
+type IBrowserPageOpsWorkerResultMap = {
+    [K in keyof typeof workerResultSchemas]: v.InferOutput<(typeof workerResultSchemas)[K]>;
+};
 
 type TBrowserPageOpsWorkerRequestType = keyof IBrowserPageOpsWorkerRequestMap;
-
-interface IBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType = TBrowserPageOpsWorkerRequestType> {
-    id: number;
-    type: K;
-    payload: IBrowserPageOpsWorkerRequestMap[K];
-}
-
-type TBrowserPageOpsWorkerRequest = {
-    [K in TBrowserPageOpsWorkerRequestType]: IBrowserPageOpsWorkerRequest<K>;
-}[TBrowserPageOpsWorkerRequestType];
-
-type TBrowserPageOpsWorkerResponse =
-    | {
-        [K in TBrowserPageOpsWorkerRequestType]: {
-            id: number;
-            type: K;
-            ok: true;
-            data: IBrowserPageOpsWorkerResultMap[K];
-        };
-    }[TBrowserPageOpsWorkerRequestType]
-    | {
-        id: number;
-        ok: false;
-        error: string;
-    };
-
-
-function isPositiveInteger(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value > 0;
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
-}
-
-function isPositiveIntegerArray(value: unknown): value is number[] {
-    return Array.isArray(value)
-        && value.every(isPositiveInteger);
-}
-
-function isCropMargins(value: unknown): value is ICropMargins {
-    try {
-        normalizeCropMargins(value);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-function getPdfData(value: Record<string, unknown>) {
-    return value.data instanceof Uint8Array
-        ? value.data
-        : null;
-}
-
-function getPdfDocuments(value: Record<string, unknown>) {
-    if (
-        !Array.isArray(value.documents)
-        || value.documents.length === 0
-        || value.documents.length > 500
-        || !value.documents.every(document => document instanceof Uint8Array)
-    ) {
-        return null;
-    }
-    return value.documents;
-}
+type TBrowserPageOpsWorkerRequest = v.InferOutput<typeof workerRequestSchema>;
+type IBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType = TBrowserPageOpsWorkerRequestType> = Extract<
+    TBrowserPageOpsWorkerRequest,
+    {type: K}
+>;
+type IPageMutationWorkerResult = v.InferOutput<typeof pageMutationResultSchema>;
+type IBrowserPdfConformanceFacts = v.InferOutput<typeof conformanceFactsSchema>;
+type TBrowserPageOpsWorkerResponse = v.InferOutput<typeof workerResponseSchema>;
 
 export function getBrowserPageOpsWorkerRequestId(value: unknown) {
     return isRecord(value) && isSafeWorkerRequestId(value.id)
@@ -162,152 +281,17 @@ export function getBrowserPageOpsWorkerRequestId(value: unknown) {
 }
 
 export function parseBrowserPageOpsWorkerRequest(value: unknown): TBrowserPageOpsWorkerRequest | null {
-    if (!isRecord(value) || !isSafeWorkerRequestId(value.id) || typeof value.type !== 'string' || !isRecord(value.payload)) {
-        return null;
-    }
-    switch (value.type) {
-        case 'deletePages':
-        case 'extractPages':
-        case 'removeCrop':
-        {
-            const data = getPdfData(value.payload);
-            if (data === null) {
-                return null;
-            }
-            return isPositiveIntegerArray(value.payload.pages)
-                ? {
-                    id: value.id,
-                    type: value.type,
-                    payload: {
-                        data,
-                        pages: value.payload.pages,
-                    },
-                }
-                : null;
-        }
-        case 'reorderPages':
-        {
-            const data = getPdfData(value.payload);
-            if (data === null) {
-                return null;
-            }
-            return isPositiveIntegerArray(value.payload.newOrder)
-                ? {
-                    id: value.id,
-                    type: value.type,
-                    payload: {
-                        data,
-                        newOrder: value.payload.newOrder,
-                    },
-                }
-                : null;
-        }
-        case 'insertPages':
-        {
-            const data = getPdfData(value.payload);
-            if (data === null) {
-                return null;
-            }
-            return value.payload.insertionData instanceof Uint8Array && isNonNegativeInteger(value.payload.afterPage)
-                ? {
-                    id: value.id,
-                    type: value.type,
-                    payload: {
-                        data,
-                        insertionData: value.payload.insertionData,
-                        afterPage: value.payload.afterPage,
-                    },
-                }
-                : null;
-        }
-        case 'rotate':
-        {
-            const data = getPdfData(value.payload);
-            if (data === null) {
-                return null;
-            }
-            return isPositiveIntegerArray(value.payload.pages)
-                && (
-                    value.payload.angle === 90
-                    || value.payload.angle === 180
-                    || value.payload.angle === 270
-                )
-                ? {
-                    id: value.id,
-                    type: value.type,
-                    payload: {
-                        data,
-                        pages: value.payload.pages,
-                        angle: value.payload.angle,
-                    },
-                }
-                : null;
-        }
-        case 'crop':
-        {
-            const data = getPdfData(value.payload);
-            if (data === null) {
-                return null;
-            }
-            return isPositiveIntegerArray(value.payload.pages) && isCropMargins(value.payload.margins)
-                ? {
-                    id: value.id,
-                    type: value.type,
-                    payload: {
-                        data,
-                        pages: value.payload.pages,
-                        margins: value.payload.margins,
-                    },
-                }
-                : null;
-        }
-        case 'getPageGeometry':
-        {
-            const data = getPdfData(value.payload);
-            if (data === null) {
-                return null;
-            }
-            return isPositiveInteger(value.payload.pageNumber)
-                ? {
-                    id: value.id,
-                    type: value.type,
-                    payload: {
-                        data,
-                        pageNumber: value.payload.pageNumber,
-                    },
-                }
-                : null;
-        }
-        case 'parseAnnotations':
-        case 'readCatalog':
-        case 'conformance':
-        {
-            const data = getPdfData(value.payload);
-            return data === null
-                ? null
-                : {
-                    id: value.id,
-                    type: value.type,
-                    payload: {data},
-                };
-        }
-        case 'mergePages':
-        {
-            const documents = getPdfDocuments(value.payload);
-            return documents === null
-                ? null
-                : {
-                    id: value.id,
-                    type: value.type,
-                    payload: {documents},
-                };
-        }
-        default:
-            return null;
-    }
+    const result = v.safeParse(workerRequestSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
+export {
+    workerResponseSchema as BROWSER_PAGE_OPS_WORKER_RESPONSE_SCHEMA,
+    workerResultSchemas as BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
+};
+
 export type {
+    IBrowserPageOpsWorkerRequest,
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
     IPageMutationWorkerResult,
@@ -315,8 +299,8 @@ export type {
     IBrowserPdfCatalogPageLabelRange as IBrowserPdfCombinePageLabelRange,
     IBrowserPdfCatalog as IBrowserPdfCombineCatalog,
     IBrowserPdfConformanceFacts,
-    IBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
     TBrowserPageOpsWorkerResponse,
+    ICropMargins,
 };

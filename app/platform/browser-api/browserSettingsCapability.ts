@@ -30,9 +30,9 @@ import {
     BROWSER_THEME_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
     assertSupportedBrowserSettingsPayload,
-    isValidBrowserSettingsStoragePayload,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
+    parseBrowserSettingsStoragePayload,
 } from '@app/utils/browserSettingsPersistence';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
@@ -104,10 +104,7 @@ function readBrowserSettingsFromStorage(options: { allowUnavailable?: boolean } 
 
     const rawSettings = result.value;
     assertSupportedBrowserSettingsPayload(rawSettings);
-    if (!isValidBrowserSettingsStoragePayload(rawSettings)) {
-        return null;
-    }
-    return migrateSettings(JSON.parse(rawSettings));
+    return parseBrowserSettingsStoragePayload(rawSettings);
 }
 
 function readLatestBrowserSettingsForSave() {

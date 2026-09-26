@@ -180,7 +180,7 @@ export function pruneRecentFiles(recentFiles: IRecentFile[]) {
 export interface IBrowserRecentFilesRepository {
     requireEntry: (ref: string) => Promise<{
         retention: 'durable' | 'transient';
-        saveName?: string;
+        saveName?: string | undefined;
         fileName: string;
         fileSize: number;
         updatedAt: number;

@@ -1,20 +1,18 @@
 import { BROWSER_DOCUMENT_CHUNK_SIZE } from '@app/platform/browser/browserDocumentConstants';
 import { groupBy } from 'es-toolkit/array';
 import { isRecord } from '@contracts/runtimeGuards';
-import {
-    cloneBytes,
-    normalizePersistedBytes,
-} from '@app/platform/browser/browserDocumentBytes';
+import {cloneBytes} from '@app/platform/browser/browserDocumentBytes';
 import { defaultRetentionForKind } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
     IBrowserDocumentEntry,
     IBrowserDocumentEntryInput,
     IBrowserPersistedDocumentRecord,
     IChunkKeyRecord,
-    TBrowserDocumentStorageMode,
 } from '@app/platform/browser/browserDocumentTypes';
+import {BROWSER_PERSISTED_DOCUMENT_RECORD_SCHEMA} from '@app/platform/browser/browserDocumentTypes';
 import { getBrowserDocumentEntryContentRevision } from '@app/platform/browser/browserDocumentRevision';
 import { parseDocumentRef } from '@contracts/documentRef';
+import * as v from 'valibot';
 
 export function createPersistedBrowserDocumentRecord(
     entry: IBrowserDocumentEntry,
@@ -51,109 +49,6 @@ export function createPersistedBrowserDocumentRecord(
     };
 }
 
-type TPersistedDocumentKind = IBrowserPersistedDocumentRecord['kind'];
-
-interface IPersistedDocumentRequiredFields {
-    ref: string;
-    fileName: string;
-    mimeType: string;
-    kind: TPersistedDocumentKind;
-    data: Uint8Array;
-    fileSize: number;
-    updatedAt: number;
-}
-
-interface IPersistedSaveTarget {
-    saveName?: string;
-    saveKind?: IBrowserDocumentEntry['saveKind'];
-    saveHandle?: FileSystemFileHandle | null;
-    sourceWitness?: boolean;
-    sourceBaseWitness?: string;
-}
-
-interface IPersistedChunkLayout {
-    chunkCount?: number;
-    chunkSize?: number;
-    chunkGeneration?: string;
-    pendingChunkGeneration?: string;
-    pendingChunkCount?: number;
-    pendingChunkSize?: number;
-    pendingFileSize?: number;
-    pendingChunkUpdatedAt?: number;
-}
-
-function normalizeStorageMode(value: unknown): TBrowserDocumentStorageMode {
-    if (
-        value === 'handle'
-        || value === 'chunked'
-        || value === 'source-proxy'
-    ) {
-        return value;
-    }
-
-    return 'inline';
-}
-
-function normalizePersistedKind(value: unknown): TPersistedDocumentKind | null {
-    if (value === 'source' || value === 'working' || value === 'output') {
-        return value;
-    }
-
-    return null;
-}
-
-function readRequiredString(value: unknown) {
-    return typeof value === 'string' ? value : null;
-}
-
-function readRequiredNumber(value: unknown) {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0
-        ? value
-        : null;
-}
-
-function readPersistedDocumentRequiredFields(
-    value: Record<string, unknown>,
-): IPersistedDocumentRequiredFields | null {
-    const ref = readRequiredString(value.ref);
-    const fileName = readRequiredString(value.fileName);
-    const mimeType = readRequiredString(value.mimeType);
-    const kind = normalizePersistedKind(value.kind);
-    const data = normalizePersistedBytes(value.data);
-    const fileSize = readRequiredNumber(value.fileSize);
-    const fileLastModified = value.fileLastModified === undefined
-        ? undefined
-        : readRequiredNumber(value.fileLastModified) ?? undefined;
-    const updatedAt = readRequiredNumber(value.updatedAt);
-
-    if (!ref || !fileName || !mimeType || !kind || !data || fileSize === null || updatedAt === null) {
-        return null;
-    }
-
-    return {
-        ref,
-        fileName,
-        mimeType,
-        kind,
-        data,
-        fileSize,
-        ...(fileLastModified === undefined ? {} : {fileLastModified}),
-        updatedAt,
-    };
-}
-
-function normalizePersistedSaveKind(
-    value: unknown,
-): IBrowserDocumentEntry['saveKind'] | undefined {
-    if (value === 'pdf' || value === 'docx' || value === 'generic') {
-        return value;
-    }
-
-    return undefined;
-}
-
 function isFileSystemFileHandleLike(value: unknown): value is FileSystemFileHandle {
     return isRecord(value)
         && value.kind === 'file'
@@ -161,135 +56,122 @@ function isFileSystemFileHandleLike(value: unknown): value is FileSystemFileHand
         && typeof value.getFile === 'function';
 }
 
-function normalizePersistedSaveHandle(value: unknown): FileSystemFileHandle | null | undefined {
-    if (value === null || value === undefined) {
-        return value;
-    }
-    return isFileSystemFileHandleLike(value) ? value : undefined;
-}
-
-function normalizePersistedSaveTarget(
-    value: Record<string, unknown>,
-): IPersistedSaveTarget {
-    const saveName =
-        typeof value.saveName === 'string' ? value.saveName : undefined;
-    const saveKind = normalizePersistedSaveKind(value.saveKind);
-    const saveHandle = 'saveHandle' in value
-        ? normalizePersistedSaveHandle(value.saveHandle)
-        : undefined;
-    const sourceWitness = value.sourceWitness === true;
-    const sourceBaseWitness = typeof value.sourceBaseWitness === 'string' && value.sourceBaseWitness.length > 0
-        ? value.sourceBaseWitness
-        : undefined;
-
-    return {
-        ...(saveName ? { saveName } : {}),
-        ...(saveKind ? { saveKind } : {}),
-        ...(saveHandle !== undefined ? { saveHandle } : {}),
-        ...(sourceWitness ? { sourceWitness: true } : {}),
-        ...(sourceBaseWitness ? { sourceBaseWitness } : {}),
-    };
-}
-
-function normalizePersistedChunkLayout(
-    value: Record<string, unknown>,
-): IPersistedChunkLayout {
-    const chunkCount =
-        typeof value.chunkCount === 'number'
-        && Number.isSafeInteger(value.chunkCount)
-        && value.chunkCount >= 0
-            ? value.chunkCount
-            : undefined;
-    const chunkSize =
-        typeof value.chunkSize === 'number'
-        && Number.isSafeInteger(value.chunkSize)
-        && value.chunkSize > 0
-            ? value.chunkSize
-            : undefined;
-    const chunkGeneration =
-        typeof value.chunkGeneration === 'string' && value.chunkGeneration.length > 0
-            ? value.chunkGeneration
-            : undefined;
-    const pendingChunkGeneration =
-        typeof value.pendingChunkGeneration === 'string' && value.pendingChunkGeneration.length > 0
-            ? value.pendingChunkGeneration
-            : undefined;
-    const pendingChunkCount =
-        typeof value.pendingChunkCount === 'number'
-        && Number.isSafeInteger(value.pendingChunkCount)
-        && value.pendingChunkCount >= 0
-            ? value.pendingChunkCount
-            : undefined;
-    const pendingChunkSize =
-        typeof value.pendingChunkSize === 'number'
-        && Number.isSafeInteger(value.pendingChunkSize)
-        && value.pendingChunkSize > 0
-            ? value.pendingChunkSize
-            : undefined;
-    const pendingFileSize =
-        typeof value.pendingFileSize === 'number'
-        && Number.isSafeInteger(value.pendingFileSize)
-        && value.pendingFileSize >= 0
-            ? value.pendingFileSize
-            : undefined;
-    const pendingChunkUpdatedAt =
-        typeof value.pendingChunkUpdatedAt === 'number'
-        && Number.isFinite(value.pendingChunkUpdatedAt)
-        && value.pendingChunkUpdatedAt >= 0
-            ? value.pendingChunkUpdatedAt
-            : undefined;
-
-    return {
-        ...(chunkCount !== undefined ? { chunkCount } : {}),
-        ...(chunkSize !== undefined ? { chunkSize } : {}),
-        ...(chunkGeneration ? { chunkGeneration } : {}),
-        ...(pendingChunkGeneration ? { pendingChunkGeneration } : {}),
-        ...(pendingChunkCount !== undefined ? { pendingChunkCount } : {}),
-        ...(pendingChunkSize !== undefined ? { pendingChunkSize } : {}),
-        ...(pendingFileSize !== undefined ? { pendingFileSize } : {}),
-        ...(pendingChunkUpdatedAt !== undefined ? { pendingChunkUpdatedAt } : {}),
-    };
-}
+const persistedDocumentRecordSchema = v.pipe(
+    v.object({
+        ref: v.pipe(v.string(), v.minLength(1)),
+        fileName: v.pipe(v.string(), v.minLength(1)),
+        mimeType: v.pipe(v.string(), v.minLength(1)),
+        kind: v.picklist([
+            'source',
+            'working',
+            'output',
+        ]),
+        data: v.custom<Uint8Array | ArrayBuffer>(value => value instanceof Uint8Array || value instanceof ArrayBuffer),
+        fileSize: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        updatedAt: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        retention: v.optional(v.unknown()),
+        sourceRef: v.optional(v.unknown()),
+        fileLastModified: v.optional(v.unknown()),
+        contentToken: v.optional(v.unknown()),
+        contentRevision: v.optional(v.unknown()),
+        saveName: v.optional(v.unknown()),
+        saveKind: v.optional(v.unknown()),
+        saveHandle: v.optional(v.unknown()),
+        sourceWitness: v.optional(v.unknown()),
+        sourceBaseWitness: v.optional(v.unknown()),
+        storageMode: v.optional(v.unknown()),
+        chunkCount: v.optional(v.unknown()),
+        chunkSize: v.optional(v.unknown()),
+        chunkGeneration: v.optional(v.unknown()),
+        pendingChunkGeneration: v.optional(v.unknown()),
+        pendingChunkCount: v.optional(v.unknown()),
+        pendingChunkSize: v.optional(v.unknown()),
+        pendingFileSize: v.optional(v.unknown()),
+        pendingChunkUpdatedAt: v.optional(v.unknown()),
+    }),
+    // Legacy optional metadata is dropped when invalid; retention and storage mode keep their defaults.
+    v.transform(value => ({
+        ref: value.ref,
+        fileName: value.fileName,
+        mimeType: value.mimeType,
+        kind: value.kind,
+        data: value.data instanceof Uint8Array ? value.data : new Uint8Array(value.data),
+        fileSize: value.fileSize,
+        updatedAt: value.updatedAt,
+        retention: value.retention === 'transient' ? 'transient' : 'durable',
+        ...(typeof value.sourceRef === 'string' && value.sourceRef ? {sourceRef: value.sourceRef} : {}),
+        ...(typeof value.fileLastModified === 'number'
+            && Number.isSafeInteger(value.fileLastModified)
+            && value.fileLastModified >= 0
+            ? {fileLastModified: value.fileLastModified}
+            : {}),
+        ...(typeof value.contentToken === 'string' && value.contentToken ? {contentToken: value.contentToken} : {}),
+        ...(typeof value.contentRevision === 'number'
+            && Number.isSafeInteger(value.contentRevision)
+            && value.contentRevision >= 1
+            ? {contentRevision: value.contentRevision}
+            : {}),
+        ...(typeof value.saveName === 'string' && value.saveName ? {saveName: value.saveName} : {}),
+        ...(value.saveKind === 'pdf' || value.saveKind === 'docx' || value.saveKind === 'generic'
+            ? {saveKind: value.saveKind}
+            : {}),
+        ...(value.saveHandle === null || isFileSystemFileHandleLike(value.saveHandle)
+            ? {saveHandle: value.saveHandle}
+            : {}),
+        ...(value.sourceWitness === true ? {sourceWitness: true} : {}),
+        ...(typeof value.sourceBaseWitness === 'string' && value.sourceBaseWitness
+            ? {sourceBaseWitness: value.sourceBaseWitness}
+            : {}),
+        storageMode: value.storageMode === 'handle'
+            || value.storageMode === 'chunked'
+            || value.storageMode === 'source-proxy'
+            ? value.storageMode
+            : 'inline',
+        ...(typeof value.chunkCount === 'number'
+            && Number.isSafeInteger(value.chunkCount)
+            && value.chunkCount >= 0
+            ? {chunkCount: value.chunkCount}
+            : {}),
+        ...(typeof value.chunkSize === 'number'
+            && Number.isSafeInteger(value.chunkSize)
+            && value.chunkSize > 0
+            ? {chunkSize: value.chunkSize}
+            : {}),
+        ...(typeof value.chunkGeneration === 'string' && value.chunkGeneration
+            ? {chunkGeneration: value.chunkGeneration}
+            : {}),
+        ...(typeof value.pendingChunkGeneration === 'string' && value.pendingChunkGeneration
+            ? {pendingChunkGeneration: value.pendingChunkGeneration}
+            : {}),
+        ...(typeof value.pendingChunkCount === 'number'
+            && Number.isSafeInteger(value.pendingChunkCount)
+            && value.pendingChunkCount >= 0
+            ? {pendingChunkCount: value.pendingChunkCount}
+            : {}),
+        ...(typeof value.pendingChunkSize === 'number'
+            && Number.isSafeInteger(value.pendingChunkSize)
+            && value.pendingChunkSize > 0
+            ? {pendingChunkSize: value.pendingChunkSize}
+            : {}),
+        ...(typeof value.pendingFileSize === 'number'
+            && Number.isSafeInteger(value.pendingFileSize)
+            && value.pendingFileSize >= 0
+            ? {pendingFileSize: value.pendingFileSize}
+            : {}),
+        ...(typeof value.pendingChunkUpdatedAt === 'number'
+            && Number.isFinite(value.pendingChunkUpdatedAt)
+            && value.pendingChunkUpdatedAt >= 0
+            ? {pendingChunkUpdatedAt: value.pendingChunkUpdatedAt}
+            : {}),
+    })),
+    BROWSER_PERSISTED_DOCUMENT_RECORD_SCHEMA,
+);
 
 export function toPersistedDocumentRecord(
     value: unknown,
 ): IBrowserPersistedDocumentRecord | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    const requiredFields = readPersistedDocumentRequiredFields(value);
-    if (!requiredFields) {
-        return null;
-    }
-
-    const retention = value.retention;
-    const sourceRef =
-        typeof value.sourceRef === 'string' ? value.sourceRef : undefined;
-    const contentToken =
-        typeof value.contentToken === 'string' && value.contentToken.length > 0
-            ? value.contentToken
-            : undefined;
-    const contentRevision =
-        typeof value.contentRevision === 'number'
-        && Number.isSafeInteger(value.contentRevision)
-        && value.contentRevision >= 1
-            ? value.contentRevision
-            : undefined;
-    const saveTarget = normalizePersistedSaveTarget(value);
-    const storageMode = normalizeStorageMode(value.storageMode);
-    const chunkLayout = normalizePersistedChunkLayout(value);
-
-    return {
-        ...requiredFields,
-        retention: retention === 'transient' ? 'transient' : 'durable',
-        ...(sourceRef ? { sourceRef } : {}),
-        ...(contentToken ? { contentToken } : {}),
-        ...(contentRevision !== undefined ? { contentRevision } : {}),
-        ...saveTarget,
-        storageMode,
-        ...chunkLayout,
-    };
+    const result = v.safeParse(persistedDocumentRecordSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function defaultSaveKindForFileName(fileName: string): IBrowserDocumentEntry['saveKind'] {

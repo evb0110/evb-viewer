@@ -1,4 +1,3 @@
-import {isRecord} from '@contracts/runtimeGuards';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {
@@ -8,7 +7,10 @@ import type {
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
 } from '@contracts/windowTabs';
-import { decodeWindowTabIncomingTransfer } from '@contracts/windowTabsValidation';
+import {
+    windowTabIncomingTransferSchema,
+    windowTabTransferAckSchema,
+} from '@contracts/windowTabsValidation';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     abortBrowserTransferAuthority,
@@ -22,6 +24,7 @@ import {
     loadBrowserWorkspaceRecovery,
     RECOVERY_OWNER_LEASE_TIMEOUT_MS,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
+import * as v from 'valibot';
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 const WINDOW_ID_QUERY_PARAM = 'evbWindowId';
 const WINDOW_NAME_PREFIX = 'evb-viewer-window:';
@@ -144,45 +147,95 @@ interface IIncomingBrowserTransferNonce {
     timeoutHandle: ReturnType<typeof setTimeout>;
 }
 
-type TBrowserTransferEnvelope = IWindowTabIncomingTransfer & {
-    schemaVersion: typeof TRANSFER_MESSAGE_SCHEMA_VERSION;
-    nonce: string;
-};
+const positiveWindowIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+function parsePositiveWindowId(value: unknown) {
+    const result = v.safeParse(positiveWindowIdSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
+}
 
-type TBrowserTransferAckEnvelope = IWindowTabTransferAck & {
-    schemaVersion: typeof TRANSFER_MESSAGE_SCHEMA_VERSION;
-    nonce: string;
-    instanceNonce?: string;
-};
+const transferEnvelopeMetadataSchema = v.object({
+    schemaVersion: v.literal(TRANSFER_MESSAGE_SCHEMA_VERSION),
+    nonce: v.string(),
+});
+const transferAckEnvelopeMetadataSchema = v.object({
+    schemaVersion: v.literal(TRANSFER_MESSAGE_SCHEMA_VERSION),
+    nonce: v.string(),
+    instanceNonce: v.optional(v.unknown()),
+});
+type TBrowserTransferEnvelope = v.InferOutput<typeof windowTabIncomingTransferSchema>
+    & v.InferOutput<typeof transferEnvelopeMetadataSchema>;
+type TBrowserTransferAckEnvelope = v.InferOutput<typeof windowTabTransferAckSchema>
+    & v.InferOutput<typeof transferAckEnvelopeMetadataSchema>;
+const transferEnvelopeSchema = v.pipe(
+    v.intersect([
+        windowTabIncomingTransferSchema,
+        transferEnvelopeMetadataSchema,
+    ]),
+    v.transform(value => value as TBrowserTransferEnvelope),
+);
+const transferAckEnvelopeSchema = v.pipe(
+    v.intersect([
+        windowTabTransferAckSchema,
+        transferAckEnvelopeMetadataSchema,
+    ]),
+    v.transform(value => value as TBrowserTransferAckEnvelope),
+);
 
-type TBrowserWindowTabsMessage =
-    | {
-        type: 'discover';
-        instanceNonce: string;
-        windowId: number;
-    }
-    | {
-        type: 'announce';
-        instanceNonce: string;
-        windowId: number;
-        label: string;
-        ready: boolean;
-    }
-    | {
-        type: 'unregister';
-        instanceNonce: string;
-        windowId: number;
-    }
-    | {
-        type: 'transfer';
-        transfer: TBrowserTransferEnvelope;
-    }
-    | {
-        type: 'ack';
-        windowId: number;
-        instanceNonce?: string;
-        ack: TBrowserTransferAckEnvelope;
-    };
+const discoverMessageSchema = v.pipe(
+    v.object({
+        type: v.literal('discover'),
+        windowId: positiveWindowIdSchema,
+        instanceNonce: v.optional(v.unknown()),
+    }),
+    v.transform(value => ({
+        type: value.type,
+        windowId: value.windowId,
+        instanceNonce: typeof value.instanceNonce === 'string' ? value.instanceNonce : '',
+    })),
+);
+const announceMessageSchema = v.pipe(
+    v.object({
+        type: v.literal('announce'),
+        windowId: positiveWindowIdSchema,
+        instanceNonce: v.optional(v.unknown()),
+        label: v.string(),
+        ready: v.boolean(),
+    }),
+    v.transform(value => ({
+        type: value.type,
+        windowId: value.windowId,
+        instanceNonce: typeof value.instanceNonce === 'string' ? value.instanceNonce : '',
+        label: value.label,
+        ready: value.ready,
+    })),
+);
+const unregisterMessageSchema = v.pipe(
+    v.object({
+        type: v.literal('unregister'),
+        windowId: positiveWindowIdSchema,
+        instanceNonce: v.optional(v.unknown()),
+    }),
+    v.transform(value => ({
+        type: value.type,
+        windowId: value.windowId,
+        instanceNonce: typeof value.instanceNonce === 'string' ? value.instanceNonce : '',
+    })),
+);
+const browserWindowTabsMessageSchema = v.union([
+    discoverMessageSchema,
+    announceMessageSchema,
+    unregisterMessageSchema,
+    v.object({
+        type: v.literal('transfer'),
+        transfer: transferEnvelopeSchema,
+    }),
+    v.object({
+        type: v.literal('ack'),
+        windowId: positiveWindowIdSchema,
+        ack: transferAckEnvelopeSchema,
+    }),
+]);
+type TBrowserWindowTabsMessage = v.InferOutput<typeof browserWindowTabsMessageSchema>;
 
 const incomingTransferListeners = new Set<TIncomingTransferListener>();
 const knownWindows = new Map<number, IKnownBrowserWindow>();
@@ -208,90 +261,9 @@ type TBrowserWindowTabsMessageHandlers = {
     ) => void;
 };
 
-function isPositiveWindowId(value: unknown): value is number {
-    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
-function decodeBrowserTransferEnvelope(value: unknown): TBrowserTransferEnvelope | null {
-    if (
-        !isRecord(value)
-        || value.schemaVersion !== TRANSFER_MESSAGE_SCHEMA_VERSION
-        || typeof value.nonce !== 'string'
-    ) {
-        return null;
-    }
-
-    const transfer = decodeWindowTabIncomingTransfer(value);
-    return transfer
-        ? {
-            ...transfer,
-            schemaVersion: TRANSFER_MESSAGE_SCHEMA_VERSION,
-            nonce: value.nonce,
-        }
-        : null;
-}
-
-function isBrowserTransferAckEnvelope(value: unknown): value is TBrowserTransferAckEnvelope {
-    return isRecord(value)
-        && value.schemaVersion === TRANSFER_MESSAGE_SCHEMA_VERSION
-        && typeof value.nonce === 'string'
-        && typeof value.transferId === 'string'
-        && typeof value.success === 'boolean'
-        && (value.error === undefined || typeof value.error === 'string');
-}
-
 function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage | null {
-    if (!isRecord(data) || typeof data.type !== 'string') {
-        return null;
-    }
-
-    switch (data.type) {
-        case 'discover':
-            return isPositiveWindowId(data.windowId)
-                ? {
-                    type: 'discover',
-                    windowId: data.windowId,
-                    instanceNonce: typeof data.instanceNonce === 'string' ? data.instanceNonce : '',
-                }
-                : null;
-        case 'announce':
-            return isPositiveWindowId(data.windowId)
-                && typeof data.label === 'string'
-                && typeof data.ready === 'boolean'
-                ? {
-                    type: 'announce',
-                    windowId: data.windowId,
-                    instanceNonce: typeof data.instanceNonce === 'string' ? data.instanceNonce : '',
-                    label: data.label,
-                    ready: data.ready,
-                }
-                : null;
-        case 'unregister':
-            return isPositiveWindowId(data.windowId)
-                ? {
-                    type: 'unregister',
-                    windowId: data.windowId,
-                    instanceNonce: typeof data.instanceNonce === 'string' ? data.instanceNonce : '',
-                }
-                : null;
-        case 'transfer': {
-            const transfer = decodeBrowserTransferEnvelope(data.transfer);
-            return transfer ? {
-                type: 'transfer',
-                transfer,
-            } : null;
-        }
-        case 'ack':
-            return isPositiveWindowId(data.windowId) && isBrowserTransferAckEnvelope(data.ack)
-                ? {
-                    type: 'ack',
-                    windowId: data.windowId,
-                    ack: data.ack,
-                }
-                : null;
-        default:
-            return null;
-    }
+    const result = v.safeParse(browserWindowTabsMessageSchema, data, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function noopUnsubscribe(): TMenuEventUnsubscribe {
@@ -343,7 +315,7 @@ function readNamedWindowId() {
         return null;
     }
     const windowId = Number(value.slice(WINDOW_NAME_PREFIX.length));
-    return isPositiveWindowId(windowId) ? windowId : null;
+    return parsePositiveWindowId(windowId);
 }
 
 function rememberNamedWindowId(windowId: number) {
@@ -403,9 +375,10 @@ function resolveCurrentWindowId() {
     }
 
     const state = getBrowserWindowTabsState();
-    if (isPositiveWindowId(state?.windowId)) {
-        rememberNamedWindowId(state.windowId);
-        return state.windowId;
+    const stateWindowId = parsePositiveWindowId(state?.windowId);
+    if (stateWindowId !== null) {
+        rememberNamedWindowId(stateWindowId);
+        return stateWindowId;
     }
 
     const namedWindowId = readNamedWindowId();

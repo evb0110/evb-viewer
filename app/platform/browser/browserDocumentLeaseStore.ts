@@ -4,23 +4,16 @@ import type {
     IBrowserDocumentLeaseDependency,
     IBrowserDocumentLiveLease,
 } from '@app/platform/browser/browserDocumentTypes';
+import {BROWSER_DOCUMENT_LIVE_LEASE_SCHEMA} from '@app/platform/browser/browserDocumentTypes';
+import * as v from 'valibot';
 
 function leaseId(ownerId: string) {
     return `owner:${ownerId}`;
 }
 
-function isLease(value: unknown): value is IBrowserDocumentLiveLease {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-    const record = value as Partial<IBrowserDocumentLiveLease>;
-    return typeof record.id === 'string'
-        && typeof record.ownerId === 'string'
-        && typeof record.generation === 'number'
-        && typeof record.leaseRevision === 'number'
-        && (record.status === 'active' || record.status === 'suspended' || record.status === 'dead')
-        && typeof record.heartbeatAt === 'number'
-        && Array.isArray(record.protectedDependencies);
+function decodeLease(value: unknown): IBrowserDocumentLiveLease | null {
+    const result = v.safeParse(BROWSER_DOCUMENT_LIVE_LEASE_SCHEMA, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function leaseOwnerLockName(ownerId: string) {
@@ -85,7 +78,7 @@ export async function saveBrowserDocumentLiveLease(
         (store, setResult) => {
             const request = store.get(leaseId(ownerId));
             request.onsuccess = () => {
-                const current = isLease(request.result) ? request.result : null;
+                const current = decodeLease(request.result);
                 const expected = current?.status === 'dead' && expectedGeneration === 0
                     ? current.generation
                     : expectedGeneration;
@@ -162,7 +155,11 @@ export async function reclaimOrphanedBrowserDocumentLiveLeases() {
         (store) => {
             const request = store.getAll();
             request.onsuccess = () => {
-                const leases = (Array.isArray(request.result) ? request.result : []).filter(isLease);
+                const leases = (Array.isArray(request.result) ? request.result : [])
+                    .flatMap(value => {
+                        const lease = decodeLease(value);
+                        return lease ? [lease] : [];
+                    });
                 for (const lease of leases) {
                     if (lease.status === 'dead' || heldNames.has(leaseOwnerLockName(lease.ownerId))) {
                         continue;

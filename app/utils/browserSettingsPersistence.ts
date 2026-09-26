@@ -19,6 +19,7 @@ import {
     safeSetLocalStorageItem,
 } from '@app/utils/localStorage';
 import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
+import * as v from 'valibot';
 
 export const BROWSER_SETTINGS_COOKIE_KEY = 'evb_viewer_settings';
 export const BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
@@ -49,55 +50,53 @@ function parseRawBrowserSettingsPayload(raw: unknown): Record<PropertyKey, unkno
     }
 }
 
-function hasExpectedSettingsShape(
-    value: Record<PropertyKey, unknown> | null,
-    requireBrowserOnlyFields: boolean,
-) {
-    if (!value
-        || typeof value.version !== 'number'
-        || !Number.isInteger(value.version)
-        || value.version < 1
-        || value.version > DEFAULT_SETTINGS.version
-        || typeof value.authorName !== 'string'
-        || typeof value.defaultZoomPreset !== 'string'
-        || typeof value.defaultViewMode !== 'string'
-        || typeof value.defaultContinuousScroll !== 'boolean'
-        || typeof value.defaultAnnotationColor !== 'string') {
-        return false;
-    }
-
-    const optionalBooleanFields = [
-        'optimizePdfOnSaveAs',
-        'assistantPanelEnabled',
-        'agentMcpEnabled',
-        'suppressDefaultViewerPrompt',
-    ];
-    if (optionalBooleanFields.some(key => Object.hasOwn(value, key) && typeof value[key] !== 'boolean')) {
-        return false;
-    }
-    const optionalStringFields = [
-        'uiScale',
-        'tabMemoryPolicy',
-        'performanceMode',
-        'skippedUpdateVersion',
-    ];
-    if (optionalStringFields.some(key => Object.hasOwn(value, key) && typeof value[key] !== 'string')) {
-        return false;
-    }
-
-    return !requireBrowserOnlyFields || (
-        isAppLocale(value.locale)
-        && isAppTheme(value.theme)
-        && (!Object.hasOwn(value, 'agentMcpEnabled') || typeof value.agentMcpEnabled === 'boolean')
-    );
-}
+const settingsShapeFields = {
+    version: v.pipe(
+        v.number(),
+        v.check(value => Number.isInteger(value)),
+        v.minValue(1),
+        v.maxValue(DEFAULT_SETTINGS.version),
+    ),
+    authorName: v.string(),
+    defaultZoomPreset: v.string(),
+    defaultViewMode: v.string(),
+    defaultContinuousScroll: v.boolean(),
+    defaultAnnotationColor: v.string(),
+    optimizePdfOnSaveAs: v.optional(v.boolean()),
+    assistantPanelEnabled: v.optional(v.boolean()),
+    agentMcpEnabled: v.optional(v.boolean()),
+    suppressDefaultViewerPrompt: v.optional(v.boolean()),
+    uiScale: v.optional(v.string()),
+    tabMemoryPolicy: v.optional(v.string()),
+    performanceMode: v.optional(v.string()),
+    skippedUpdateVersion: v.optional(v.string()),
+};
+const legacyBrowserSettingsSchema = v.object(settingsShapeFields);
+const browserSettingsStorageSchema = v.object({
+    ...settingsShapeFields,
+    locale: v.custom<TAppLocale>(isAppLocale),
+    theme: v.picklist([
+        'light',
+        'dark',
+    ]),
+});
 
 export function isValidLegacyBrowserSettingsPayload(raw: unknown) {
-    return hasExpectedSettingsShape(parseRawBrowserSettingsPayload(raw), false);
+    const payload = parseRawBrowserSettingsPayload(raw);
+    return payload !== null && v.safeParse(legacyBrowserSettingsSchema, payload, {abortEarly: true}).success;
 }
 
 export function isValidBrowserSettingsStoragePayload(raw: unknown) {
-    return hasExpectedSettingsShape(parseRawBrowserSettingsPayload(raw), true);
+    const payload = parseRawBrowserSettingsPayload(raw);
+    return payload !== null && v.safeParse(browserSettingsStorageSchema, payload, {abortEarly: true}).success;
+}
+
+export function parseBrowserSettingsStoragePayload(raw: unknown): ISettingsData | null {
+    const payload = parseRawBrowserSettingsPayload(raw);
+    if (!payload || !v.safeParse(browserSettingsStorageSchema, payload, {abortEarly: true}).success) {
+        return null;
+    }
+    return migrateSettings(payload);
 }
 
 export function assertSupportedBrowserSettingsPayload(raw: unknown) {
@@ -139,12 +138,7 @@ function omitCookieBackedSettingsFields<T extends Record<PropertyKey, unknown> |
 }
 
 function parseStoredBrowserSettingsSnapshot(raw: string | null) {
-    if (raw === null || !isValidBrowserSettingsStoragePayload(raw)) {
-        return null;
-    }
-
-    const parsed = parseRawBrowserSettingsPayload(raw);
-    return parsed ? migrateSettings(parsed) : null;
+    return raw === null ? null : parseBrowserSettingsStoragePayload(raw);
 }
 
 export function parseBrowserSettingsPayload(

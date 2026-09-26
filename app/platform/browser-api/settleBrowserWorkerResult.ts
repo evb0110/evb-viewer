@@ -4,6 +4,7 @@ import {
     SerializableError,
     type ISerializableErrorEnvelope,
 } from '@contracts/serializableError';
+import * as v from 'valibot';
 
 export interface IPendingBrowserWorkerRequest {
     requestType: string;
@@ -22,19 +23,6 @@ export interface ITypedPendingBrowserWorkerRequest<
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
 
-type TBrowserWorkerResult<TData = unknown> =
-    | {
-        id: number;
-        ok: true;
-        data: TData;
-    }
-    | {
-        id: number;
-        ok: false;
-        error: string;
-        errorEnvelope?: ISerializableErrorEnvelope;
-    };
-
 type TSerializableErrorEnvelopeGuard = (
     value: unknown,
 ) => value is ISerializableErrorEnvelope;
@@ -43,42 +31,6 @@ function getWorkerResponseId(response: unknown) {
     return isRecord(response) && typeof response.id === 'number'
         ? response.id
         : null;
-}
-
-function parseBrowserWorkerResult(
-    response: unknown,
-    expectedType: string,
-    isErrorEnvelope: TSerializableErrorEnvelopeGuard,
-): TBrowserWorkerResult | null {
-    if (!isRecord(response) || typeof response.id !== 'number') {
-        return null;
-    }
-
-    if (response.ok === true) {
-        if (response.type !== expectedType || !('data' in response)) {
-            return null;
-        }
-        return {
-            id: response.id,
-            ok: true,
-            data: response.data,
-        };
-    }
-
-    if (
-        response.ok === false
-        && typeof response.error === 'string'
-        && (response.errorEnvelope === undefined || isErrorEnvelope(response.errorEnvelope))
-    ) {
-        return {
-            id: response.id,
-            ok: false,
-            error: response.error,
-            ...(response.errorEnvelope === undefined ? {} : {errorEnvelope: response.errorEnvelope}),
-        };
-    }
-
-    return null;
 }
 
 export function settleBrowserWorkerResult<
@@ -101,20 +53,42 @@ export function settleBrowserWorkerResult<
         return;
     }
 
-    const result = parseBrowserWorkerResult(response, pending.requestType, isErrorEnvelope);
+    const result = v.safeParse(v.union([
+        v.pipe(
+            v.object({
+                id: v.number(),
+                ok: v.literal(true),
+                type: v.string(),
+                data: v.unknown(),
+            }),
+            // v.unknown accepts undefined; worker success responses require the data member.
+            v.check(value => 'data' in value),
+        ),
+        v.object({
+            id: v.number(),
+            ok: v.literal(false),
+            error: v.string(),
+            errorEnvelope: v.optional(v.custom<ISerializableErrorEnvelope>(isErrorEnvelope)),
+        }),
+    ]), response, {abortEarly: true});
 
     pendingRequests.delete(responseId);
     if (pending.timeoutTimer) {
         clearTimeout(pending.timeoutTimer);
         pending.timeoutTimer = null;
     }
-    if (!result) {
+    if (!result.success) {
         pending.reject(new Error('Browser worker returned an invalid response'));
         onSettled();
         return;
     }
-    if (result.ok) {
-        if (!pending.resolveData(result.data as TResultData)) {
+    if (result.output.ok) {
+        if (result.output.type !== pending.requestType) {
+            pending.reject(new Error('Browser worker returned an invalid response'));
+            onSettled();
+            return;
+        }
+        if (!pending.resolveData(result.output.data as TResultData)) {
             pending.reject(new Error('Browser worker returned an invalid result'));
             onSettled();
             return;
@@ -123,8 +97,8 @@ export function settleBrowserWorkerResult<
         return;
     }
 
-    pending.reject(result.errorEnvelope
-        ? new SerializableError(result.errorEnvelope)
-        : new Error(result.error));
+    pending.reject(result.output.errorEnvelope
+        ? new SerializableError(result.output.errorEnvelope)
+        : new Error(result.output.error));
     onSettled();
 }
