@@ -5,10 +5,7 @@ import {
 import {
     basename,
     dirname,
-    isAbsolute,
     join,
-    relative,
-    sep,
 } from 'path';
 import {
     rmdir,
@@ -28,7 +25,7 @@ import {
     copyFileCopyOnWrite,
     copyFileFromStableSource,
     createWorkingDirectory,
-    isWorkingCopyDirectoryName,
+    isManagedWorkingCopyPath,
     safeRemoveDirectory,
 } from '@electron/file-access/workingCopyDirectory';
 import {
@@ -39,7 +36,6 @@ import {
     getWorkingCopyRole,
     hasWorkingCopyRecoveryClaim,
     isKnownWorkingCopyOriginalPath,
-    normalizePathForLookup,
     setWorkingCopyOriginalPath,
     type TWorkingCopyRole,
     workingCopyAdmissionSnapshotsMatch,
@@ -47,7 +43,6 @@ import {
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { WorkingCopyMissingError } from '@electron/file-access/workingCopyMissingError';
 import { createLogger } from '@electron/utils/createLogger';
-import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     initializeFreshWorkingCopyRevision,
     markWorkingCopyContentChanged,
@@ -455,17 +450,10 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         return true;
     }
 
-    const tempDir = normalizePathForLookup(getAppTempDir());
-    const parentDir = normalizePathForLookup(dirname(normalizedWorkingPath));
-    const relativePath = relative(tempDir, parentDir);
-    const isWithinTemp = (
-        relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath)
-    );
-    if (!isWithinTemp || !isWorkingCopyDirectoryName(basename(parentDir))) {
+    if (!isManagedWorkingCopyPath(normalizedWorkingPath)) {
         throw new WorkingCopyMissingError('Working copy path is not a managed temp working directory');
     }
+    const parentDir = dirname(normalizedWorkingPath);
 
     if (existsSync(parentDir) && existsSync(normalizedWorkingPath)) {
         return true;

@@ -4,13 +4,6 @@ import {
     statSync,
 } from 'fs';
 import {stat} from 'node:fs/promises';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-    relative,
-    sep,
-} from 'path';
 import type {
     IDocumentRevisionChangedEvent,
     IDocumentRevisionInfo,
@@ -47,9 +40,8 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {
     getWorkingCopyManifestPath,
-    isWorkingCopyDirectoryName,
+    isManagedWorkingCopyPath,
 } from '@electron/file-access/workingCopyDirectory';
-import { getAppTempDir } from '@electron/utils/appTempDir';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
 import {
     completeWorkingCopyTransition,
@@ -209,29 +201,12 @@ async function refreshOriginalExpectationAfterManagedLinkedDetach(
     await refreshWorkingCopyOriginalFileExpectation(fence.workingCopyPath, senderId);
 }
 
-function isUnregisteredWorkingCopyPath(workingCopyPath: string) {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath || !isAbsolute(normalizedWorkingPath) || !isExistingFile(normalizedWorkingPath)) {
-        return false;
-    }
-
-    const tempDir = normalizePathForLookup(getAppTempDir());
-    const parentDir = normalizePathForLookup(dirname(normalizedWorkingPath));
-    const relativePath = relative(tempDir, parentDir);
-    return (
-        relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath)
-        && isWorkingCopyDirectoryName(basename(parentDir))
-    );
-}
-
 function assertCanUseWorkingCopyRevision(workingCopyPath: string, senderId?: number) {
     const ownerWebContentsId = getWorkingCopyOwnerWebContentsId(workingCopyPath);
     if (typeof ownerWebContentsId === 'number' && ownerWebContentsId !== senderId) {
         throw new Error('Working copy path is owned by another sender');
     }
-    if (workingCopyMap.has(workingCopyPath) || isUnregisteredWorkingCopyPath(workingCopyPath)) {
+    if (workingCopyMap.has(workingCopyPath) || (isManagedWorkingCopyPath(workingCopyPath) && isExistingFile(workingCopyPath))) {
         return;
     }
     if (existsSync(getWorkingCopyManifestPath(workingCopyPath))) {

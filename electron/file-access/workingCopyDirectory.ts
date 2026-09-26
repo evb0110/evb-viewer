@@ -14,10 +14,14 @@ import {
 import {
     basename,
     dirname,
+    isAbsolute,
     join,
+    relative,
+    sep,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {createLogger} from '@electron/utils/createLogger';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
@@ -138,6 +142,18 @@ export function isWorkingCopyDirectoryName(name: string) {
 
 export function isWorkingCopyDocumentPath(path: string) {
     return isWorkingCopyDirectoryName(basename(dirname(path)));
+}
+
+/** A working-copy document inside this profile's app temp namespace. */
+export function isManagedWorkingCopyPath(path: string) {
+    const relativePath = relative(
+        normalizePathForLookup(getAppTempDir()),
+        normalizePathForLookup(dirname(path)),
+    );
+    return relativePath !== '..'
+        && !relativePath.startsWith(`..${sep}`)
+        && !isAbsolute(relativePath)
+        && isWorkingCopyDocumentPath(path);
 }
 
 /**
