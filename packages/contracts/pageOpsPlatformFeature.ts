@@ -19,6 +19,7 @@ import type {
 import {requirePageIndex} from '@contracts/pageNumbers';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
+import {decodePageGeometry as decodeSharedPageGeometry} from '@contracts/decodePageGeometry';
 import { parseDocumentRef } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
@@ -640,33 +641,15 @@ function decodeInsertResult(value: unknown): IPageOpsInsertResult {
     };
 }
 
-function decodePdfBox(value: unknown) {
-    if (
-        !isRecord(value)
-        || !isFiniteNumber(value.x)
-        || !isFiniteNumber(value.y)
-        || !isFiniteNumber(value.width)
-        || !isFiniteNumber(value.height)
-    ) {
-        throw new Error('page geometry box must contain finite coordinates');
-    }
-    return {
-        x: value.x,
-        y: value.y,
-        width: value.width,
-        height: value.height,
-    };
-}
-
 function decodePageGeometry(value: unknown): IPageGeometry {
     if (!isRecord(value) || !isFiniteNumber(value.rotation)) {
         throw new Error('page geometry must contain a finite rotation');
     }
-    return {
-        mediaBox: decodePdfBox(value.mediaBox),
-        cropBox: value.cropBox === null ? null : decodePdfBox(value.cropBox),
-        rotation: value.rotation,
-    };
+    const geometry = decodeSharedPageGeometry(value);
+    if (geometry === null) {
+        throw new Error('page geometry box must contain finite coordinates');
+    }
+    return geometry;
 }
 
 const fixtureOptions = {

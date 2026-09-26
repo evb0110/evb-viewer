@@ -1,52 +1,20 @@
-import type {
-    IPageGeometry,
-    IPdfBox,
-} from '@contracts/geometry';
-import {
-    isFiniteNumber,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import type {IPageGeometry} from '@contracts/geometry';
+import * as v from 'valibot';
 
-function decodePdfBox(value: unknown): IPdfBox | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (
-        !isFiniteNumber(value.x)
-        || !isFiniteNumber(value.y)
-        || !isFiniteNumber(value.width)
-        || !isFiniteNumber(value.height)
-    ) {
-        return null;
-    }
-    return {
-        x: value.x,
-        y: value.y,
-        width: value.width,
-        height: value.height,
-    };
-}
+const pdfBoxSchema = v.object({
+    x: v.pipe(v.number(), v.finite()),
+    y: v.pipe(v.number(), v.finite()),
+    width: v.pipe(v.number(), v.finite()),
+    height: v.pipe(v.number(), v.finite()),
+});
+
+export const PAGE_GEOMETRY_SCHEMA = v.object({
+    mediaBox: pdfBoxSchema,
+    cropBox: v.nullable(pdfBoxSchema),
+    rotation: v.pipe(v.number(), v.finite()),
+});
 
 export function decodePageGeometry(value: unknown): IPageGeometry | null {
-    if (!isRecord(value) || !isFiniteNumber(value.rotation)) {
-        return null;
-    }
-
-    const mediaBox = decodePdfBox(value.mediaBox);
-    if (!mediaBox) {
-        return null;
-    }
-
-    const cropBox = value.cropBox === null
-        ? null
-        : decodePdfBox(value.cropBox);
-    if (cropBox === null && value.cropBox !== null) {
-        return null;
-    }
-
-    return {
-        mediaBox,
-        cropBox,
-        rotation: value.rotation,
-    };
+    const result = v.safeParse(PAGE_GEOMETRY_SCHEMA, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
