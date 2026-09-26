@@ -33,7 +33,6 @@ import {
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
     createPdfPageSizeStore,
-    readPdfPageSizes,
     IPdfPageSize,
     IPdfPageSizeStore,
 } from '@electron/pdf/pdfPageSizes';
@@ -515,11 +514,6 @@ export interface IScanCleanupPreviewDependencies {
         options?: IScanCleanupOptions,
     ) => IScanCleanupRasterAdmissionPolicy;
     getPageCount: typeof getPdfPageCount;
-    /**
-     * Array geometry is retained only for compatibility fixtures. Production
-     * composition must use the bounded page-size store above.
-     */
-    getPageSizes?: typeof readPdfPageSizes;
     /** Native-backed bounded geometry reader used by production detection. */
     getPageSizeStore: (
         pdfPath: Parameters<typeof createPdfPageSizeStore>[0],
@@ -539,7 +533,6 @@ export interface IScanCleanupPreviewDependencies {
     resolveBinary: () => string | null;
     resolvePageOpsBinary: () => string | null;
     resolveQpdfBinary?: () => string;
-    resolvePdfInfoBinary?: () => string | undefined;
     getTempDir: () => string;
     getPdftoppmBinary: () => string;
     detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
@@ -585,7 +578,7 @@ export interface IScanCleanupPreviewDependencies {
 export type IScanCleanupRasterDependencies = Pick<IScanCleanupPreviewDependencies,
     | 'getPageCount' | 'getPageSizeStore' | 'publishRaster' | 'readFile'
     | 'stat' | 'open'
-    | 'renderPage' | 'resolvePageOpsBinary' | 'resolvePdfInfoBinary'
+    | 'renderPage' | 'resolvePageOpsBinary'
     | 'getTempDir' | 'getPdftoppmBinary' | 'detectSourceDpi' | 'getAvailableScratchBytes'
     | 'detectRasterPages' | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'fileSystem'
     | 'resolveQpdfBinary'>;
@@ -611,7 +604,7 @@ export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependen
     | 'getPageSizeStore' | 'getTempDir' | 'resolveBinary' | 'runSidecar'
     | 'getPdftoppmBinary' | 'renderPage' | 'renderPagePpm' | 'getPageCount'
     | 'publishRaster' | 'resolvePageOpsBinary'
-    | 'resolvePdfInfoBinary' | 'detectSourceDpi' | 'detectRasterPages'
+    | 'detectSourceDpi' | 'detectRasterPages'
     | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'materializeWorkingCopy' | 'materializeRequest' | 'readFile'
     | 'stat' | 'getAvailableScratchBytes' | 'fileSystem'> & {nativeAllowedPathRoot?: string;};
 

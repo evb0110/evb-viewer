@@ -115,7 +115,6 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     resolveBinary: resolveScanCleanupPreviewPath,
     resolvePageOpsBinary: resolveNativePageOpsPath,
     resolveQpdfBinary: () => getPdfNativeToolPaths().qpdf,
-    resolvePdfInfoBinary: () => getPdfNativeToolPaths().pdfinfo,
     getTempDir: getAppTempDir,
     getPdftoppmBinary: () => getPdfNativeToolPaths().pdftoppm,
     detectSourceDpi: async (sourcePdfPath, pageNumber, signal) => {

@@ -110,7 +110,16 @@ describe('page-size sidecar reader', () => {
             commandCalls += 1;
             if (commandCalls === 2) release.resolve(undefined);
             await release.promise;
-            await writeFile(outputPath, JSON.stringify({pages: [page(1)]}));
+            await writeFile(outputPath, `${JSON.stringify({
+                format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
+                schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
+                pageCount: 1,
+                chunkBytes: 512,
+            })}\n${JSON.stringify({
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                pages: [page(1)],
+            })}\n`);
             return {
                 exitCode: 0,
                 stdout: '',

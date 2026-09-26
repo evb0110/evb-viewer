@@ -43,9 +43,7 @@ impl DominantImageAnalysis {
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
+#[cfg(test)]
 struct PageSizesOutput {
     pages: Vec<PageSizeEntry>,
 }
@@ -341,7 +339,7 @@ fn dominant_full_page_image(
     )
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn collect_page_sizes(document: &Document) -> Result<PageSizesOutput> {
     let page_resolver = PageTreeResolver::new(document)?;
     let mut pages = Vec::new();
@@ -403,13 +401,6 @@ fn page_size_entry(
         dominant_image_width_points: dominant_image.map(|image| image.width_points),
         dominant_image_height_points: dominant_image.map(|image| image.height_points),
     })
-}
-
-#[allow(dead_code)]
-pub(crate) fn write_page_sizes_json(document: &Document, output_path: &Path) -> Result<()> {
-    let page_sizes = collect_page_sizes(document)?;
-    fs::write(output_path, serde_json::to_vec(&page_sizes)?)?;
-    Ok(())
 }
 
 /// Write page geometry as a bounded JSONL sidecar. The header is one line and

@@ -320,9 +320,8 @@ export type TScanCleanupGetPageCount = (
 ) => Promise<number>;
 
 export interface IReadPdfPageSizesOptions {
-    pdfPageOpsBinary?: string;
+    pdfPageOpsBinary: string;
     qpdfBinary?: string;
-    pdfinfoBinary?: string;
     tempDir: string;
     signal?: AbortSignal;
     cancelGroup?: string;
@@ -330,8 +329,6 @@ export interface IReadPdfPageSizesOptions {
     runCommand: TScanCleanupRunCommand;
     /** Skip dominant-image inspection when the sidecar is an exact geometry snapshot. */
     nativeMetadataOnly?: boolean;
-    /** Detection reads raw CropBoxes so its native retry can test MediaBox. */
-    resolveSuspiciousCropBoxFallback?: boolean;
 }
 
 /**
@@ -455,7 +452,6 @@ export interface IScanCleanupWorkerPaths {
     qpdfBinary: string;
     pdftoppmBinary: string;
     pdfimagesBinary?: string;
-    pdfinfoBinary?: string;
     scanCleanupBinary: string;
     pdfImageCombineBinary: string;
     pdfPageOpsBinary?: string;

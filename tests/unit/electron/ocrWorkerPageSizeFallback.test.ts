@@ -26,14 +26,23 @@ afterEach(async () => {
     }
 });
 
-function nativePageSizesCommand(pageSizes: unknown) {
+function nativePageSizesCommand(pageSizes: unknown[]) {
     return vi.fn(async (_command: string, args: string[]) => {
         const outputIndex = args.indexOf('--output');
         const outputPath = args[outputIndex + 1];
         if (outputPath === undefined) {
             throw new Error('test native command did not receive an output path');
         }
-        await writeFile(outputPath, JSON.stringify({pages: pageSizes}));
+        await writeFile(outputPath, `${JSON.stringify({
+            format: 'evb-pdf-page-sizes',
+            schemaVersion: 1,
+            pageCount: pageSizes.length,
+            chunkBytes: 512,
+        })}\n${JSON.stringify({
+            chunkIndex: 0,
+            firstPageNumber: 1,
+            pages: pageSizes,
+        })}\n`);
         return {
             stdout: '',
             stderr: '',

@@ -1817,11 +1817,10 @@ export async function runScanCleanupConversion(
             }, warn);
         };
         emitProgress('normalizing', 1, 1);
-        // The lossless path assembles with evb-pdf-page-ops, so it needs the
-        // tool itself. Matching only needs the geometry, which Poppler reports
-        // too — a default matched run on an installation without page-ops is
-        // measured rather than degraded.
-        if (request.options.preserveOriginalQuality === true && !paths.pdfPageOpsBinary) {
+        // Page geometry and the lossless assembler both come from
+        // evb-pdf-page-ops, so no quality path runs without it.
+        const pdfPageOpsBinary = paths.pdfPageOpsBinary;
+        if (!pdfPageOpsBinary) {
             throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
         }
         // The same measurement the preview derives its canvas from, read from
@@ -1844,13 +1843,8 @@ export async function runScanCleanupConversion(
             }
         }
         const pageSizeOptions = {
-            ...(paths.pdfPageOpsBinary === undefined
-                ? {}
-                : {pdfPageOpsBinary: paths.pdfPageOpsBinary}),
+            pdfPageOpsBinary,
             qpdfBinary: paths.qpdfBinary,
-            ...(paths.pdfinfoBinary === undefined
-                ? {}
-                : {pdfinfoBinary: paths.pdfinfoBinary}),
             log,
             runCommand: dependencies.runCommand,
             signal,

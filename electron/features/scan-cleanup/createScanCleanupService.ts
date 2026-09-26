@@ -869,7 +869,6 @@ export function createScanCleanupService(
                                     qpdfBinary: pdfPaths.qpdf,
                                     pdftoppmBinary: pdfPaths.pdftoppm,
                                     ...(pdfPaths.pdfimages ? {pdfimagesBinary: pdfPaths.pdfimages} : {}),
-                                    pdfinfoBinary: pdfPaths.pdfinfo,
                                     scanCleanupBinary,
                                     pdfImageCombineBinary,
                                     ...(pdfPageOpsBinary ? {pdfPageOpsBinary} : {}),

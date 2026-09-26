@@ -835,6 +835,6 @@ export function resolveCliNativeToolPath(
     return candidates.find(candidate => candidate !== undefined && existsSync(candidate)) ?? null;
 }
 
-export function createCliRenderers(runCommand: TScanCleanupRunCommand, pdfinfoBinary?: string) {
-    return createScanCleanupRenderers(runCommand, undefined, {...(pdfinfoBinary === undefined ? {} : {pdfinfoBinary})});
+export function createCliRenderers(runCommand: TScanCleanupRunCommand) {
+    return createScanCleanupRenderers(runCommand);
 }

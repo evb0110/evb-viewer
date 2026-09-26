@@ -19,7 +19,10 @@ import type {
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {atomicReplace} from '@electron/utils/atomicReplace';
-import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {
+    createArrayBackedPdfPageSizeStore,
+    type IPdfPageSize,
+} from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {IScanCleanupPreviewService} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {materializeScanCleanupPreviewRequest} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
@@ -275,7 +278,13 @@ export function decodePpm(bytes: Buffer) {
     };
 }
 
-export type TScanCleanupPreviewDependenciesOverride = Partial<IScanCleanupPreviewDependencies> & {fileSystem?: Partial<NonNullable<IScanCleanupPreviewDependencies['fileSystem']>>;};
+/** A fixture page array that the default bounded page-size store serves. */
+export type TScanCleanupPreviewFixtureDependencies = IScanCleanupPreviewDependencies & {getPageSizes?: (
+    pdfPath: string,
+    options: Parameters<IScanCleanupPreviewDependencies['getPageSizeStore']>[1],
+) => Promise<IPdfPageSize[]>;};
+
+export type TScanCleanupPreviewDependenciesOverride = Partial<TScanCleanupPreviewFixtureDependencies> & {fileSystem?: Partial<NonNullable<IScanCleanupPreviewDependencies['fileSystem']>>;};
 
 export async function createScanCleanupPreviewTestContext(
     directories: string[],
@@ -292,7 +301,7 @@ export async function createScanCleanupPreviewTestContext(
 export function createScanCleanupPreviewDependencies(
     dir: string,
     overrides: TScanCleanupPreviewDependenciesOverride = {},
-): IScanCleanupPreviewDependencies {
+): TScanCleanupPreviewFixtureDependencies {
     const fileSystem = {
         copyFile,
         mkdir,
@@ -304,7 +313,7 @@ export function createScanCleanupPreviewDependencies(
         stat,
         writeFile,
     } satisfies NonNullable<IScanCleanupPreviewDependencies['fileSystem']>;
-    const base: IScanCleanupPreviewDependencies = {
+    const base: TScanCleanupPreviewFixtureDependencies = {
         fileSystem,
         getAvailableScratchBytes: async () => Number.MAX_SAFE_INTEGER,
         resolveRasterAdmissionPolicy: (supportsRasterStreaming, options) => resolveScanCleanupRasterAdmissionPolicy(
@@ -529,7 +538,7 @@ export function createScanCleanupPreviewDependencies(
         fileSystem: fileSystemOverride,
         ...dependencyOverrides
     } = overrides;
-    const dependencies: IScanCleanupPreviewDependencies = {
+    const dependencies: TScanCleanupPreviewFixtureDependencies = {
         ...base,
         ...dependencyOverrides,
         ...(fileSystemOverride === undefined ? {} : {fileSystem: {

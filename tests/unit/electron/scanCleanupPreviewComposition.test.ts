@@ -1698,7 +1698,6 @@ describe('scanCleanupPreviewCompositionTest', () => {
             const entries = await defaultDependencies.fileSystem!.readdir(scratch, {withFileTypes: true});
             expect(entries.map(entry => entry.name)).toEqual(['source.pdf']);
             await expect(defaultDependencies.getSourceStatIdentity!(sourcePath)).resolves.toMatch(/^\d+:\d+$/u);
-            expect(defaultDependencies.getPageSizes).toBeUndefined();
             expect(defaultDependencies.getPageSizeStore).toBeDefined();
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy(true);
             expect(rasterPolicy.rasterConcurrency).toBeGreaterThan(0);
@@ -1724,7 +1723,6 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 value => value === null || typeof value === 'string',
             );
             expect(defaultDependencies.resolveQpdfBinary!()).toEqual(expect.any(String));
-            expect(defaultDependencies.resolvePdfInfoBinary!()).toEqual(expect.any(String));
             expect(defaultDependencies.getPdftoppmBinary()).toEqual(expect.any(String));
             expect(defaultDependencies.isRasterDetectionAvailable!()).toBeTypeOf('boolean');
             await expect(readFile(sourcePath, 'utf8')).resolves.toBe('fixture');

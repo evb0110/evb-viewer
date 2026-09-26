@@ -669,9 +669,6 @@ async function runPageOpsFallback(
     qpdfBinary: string,
     options: IScanCleanupRunCommandOptions,
 ) {
-    if (args[0] === 'page-sizes') {
-        throw new Error('CLI page-ops fallback delegates page geometry to pdfinfo');
-    }
     if (args[0] !== 'split-pages') throw new Error(`Unsupported CLI page-ops operation: ${args[0] ?? ''}`);
     const inputPath = args[args.indexOf('--input') + 1];
     const outputPath = args[args.indexOf('--output') + 1];
@@ -763,13 +760,13 @@ async function main() {
     const argumentsValue = parseArguments(process.argv.slice(2));
     const sourceStats = await stat(argumentsValue.sourcePdfPath);
     const qpdfBinary = resolveTool('qpdf', 'qpdf');
-    const pdfinfoBinary = resolveTool('pdfinfo', 'poppler');
     const pdftoppmBinary = resolveTool('pdftoppm', 'poppler');
     const pdfimagesBinary = resolveTool('pdfimages', 'poppler');
     const scanCleanupBinary = resolveTool('evb-scan-cleanup', 'scan-cleanup', 'EVB_SCAN_CLEANUP_PATH');
-    const pageOpsBinary = argumentsValue.parity
-        ? resolveTool('evb-pdf-page-ops', 'pdf-page-ops', 'EVB_PDF_PAGE_OPS_PATH')
-        : PAGE_OPS_FALLBACK;
+    // Page geometry always comes from the native page-ops tool; only the
+    // assembler has a CLI fallback outside parity mode.
+    const nativePageOpsBinary = resolveTool('evb-pdf-page-ops', 'pdf-page-ops', 'EVB_PDF_PAGE_OPS_PATH');
+    const pageOpsBinary = argumentsValue.parity ? nativePageOpsBinary : PAGE_OPS_FALLBACK;
     const imageCombineBinary = argumentsValue.parity
         ? resolveTool('evb-pdf-image-combine', 'pdf-image-combine', 'EVB_PDF_IMAGE_COMBINE_PATH')
         : IMAGE_COMBINE_FALLBACK;
@@ -800,7 +797,9 @@ async function main() {
             );
         }
         if (command === PAGE_OPS_FALLBACK) {
-            return runPageOpsFallback(args, qpdfBinary, nativeOptions(options, log));
+            return args[0] === 'page-sizes'
+                ? runCliNativeToolCommand(nativePageOpsBinary, args, nativeOptions(options, log))
+                : runPageOpsFallback(args, qpdfBinary, nativeOptions(options, log));
         }
         if (
             argumentsValue.diagnosticEvidenceDirectory !== undefined
@@ -822,7 +821,7 @@ async function main() {
         }
         return runCliNativeToolCommand(command, args, nativeOptions(options, log));
     };
-    const renderers = createCliRenderers(runCommand, pdfinfoBinary);
+    const renderers = createCliRenderers(runCommand);
     const getPageCount: TScanCleanupGetPageCount = async (pdfPath, options) => {
         const result = await runCommand(qpdfBinary, [
             '--show-npages',
@@ -899,14 +898,12 @@ async function main() {
     };
     const getPageSizeStoreForDetection = (pdfPath: string, signal: AbortSignal) => Promise.resolve(
         createPdfPageSizeStore(pdfPath, {
-            ...(pageOpsBinary === PAGE_OPS_FALLBACK ? {} : {pdfPageOpsBinary: pageOpsBinary}),
-            pdfinfoBinary,
+            pdfPageOpsBinary: nativePageOpsBinary,
             qpdfBinary,
             log,
             runCommand,
             signal,
             tempDir: temporaryRoot,
-            resolveSuspiciousCropBoxFallback: false,
         }),
     );
     const retention = createCliRetention(
@@ -1056,7 +1053,6 @@ async function main() {
             qpdfBinary,
             pdftoppmBinary,
             pdfimagesBinary,
-            pdfinfoBinary,
             scanCleanupBinary,
             pdfImageCombineBinary: imageCombineBinary,
             pdfPageOpsBinary: pageOpsBinary,

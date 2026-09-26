@@ -270,29 +270,16 @@ function documentGeometry(pageNumbers: readonly number[]) {
     }));
 }
 
-function pipelinePaths(dir: string, includePageOps = true, includePdfInfo = false) {
+function pipelinePaths(dir: string, includePageOps = true) {
     return {
         qpdfBinary: '/qpdf',
         pdftoppmBinary: '/pdftoppm',
         scanCleanupBinary: '/cleanup',
         pdfImageCombineBinary: '/combine',
         ...(includePageOps ? {pdfPageOpsBinary: '/page-ops'} : {}),
-        ...(includePdfInfo ? {pdfinfoBinary: '/pdfinfo'} : {}),
         provenanceStampSupport: false,
         tempDir: dir,
     };
-}
-
-// What `pdfinfo -f 1 -l N` reports for a document of identically sized pages:
-// the page view Poppler renders, and the rotation it is presented under.
-function pdfInfoGeometry(pageCount: number, widthPoints: number, heightPoints: number) {
-    return [
-        `Pages:           ${String(pageCount)}`,
-        ...Array.from({length: pageCount}, (_, index) => [
-            `Page    ${String(index + 1)} size:  ${String(widthPoints)} x ${String(heightPoints)} pts`,
-            `Page    ${String(index + 1)} rot:   0`,
-        ].join('\n')),
-    ].join('\n');
 }
 
 function dependencies(
@@ -308,22 +295,6 @@ function dependencies(
     const pipelineDependencies: IRunScanCleanupPipelineDependencies = {
         getPageCount: vi.fn(async () => 2),
         getPageSizeStore: vi.fn(async (_pdfPath, pageSizeOptions) => {
-            if (
-                pageSizeOptions.pdfPageOpsBinary === undefined
-                && pageSizeOptions.pdfinfoBinary === undefined
-            ) {
-                throw new Error('no PDF tool is available to read page geometry');
-            }
-            const pageCount = await pipelineDependencies.getPageCount('');
-            if (pageSizeOptions.pdfPageOpsBinary === undefined) {
-                return createArrayBackedPdfPageSizeStore(documentGeometry(Array.from(
-                    {length: pageCount},
-                    (_value, index) => index + 1,
-                )).map(page => ({
-                    ...page,
-                    ...pageSize,
-                })));
-            }
             const outputPath = join(pageSizeOptions.tempDir, 'test-page-sizes.json');
             await pipelineDependencies.runCommand(pageSizeOptions.pdfPageOpsBinary, [
                 'page-sizes',
@@ -4497,110 +4468,21 @@ describe('scan cleanup pipeline', () => {
         ]});
     });
 
-    it('measures a matched run through pdfinfo when page-ops is unavailable', async () => {
-        const fixture = await setup();
-        let manifestOptions: Record<string, unknown> | null = null;
-        let manifestCanvas: unknown;
-        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-                documentCanvas?: unknown;
-                pages: Array<{
-                    pageMetadataPath: string;
-                    options: Record<string, unknown>;
-                    outputs: Array<{
-                        outputPath: string;
-                        metadataPath: string
-                    }>;
-                }>;
-            };
-            manifestOptions = manifest.pages[0]!.options;
-            manifestCanvas = manifest.documentCanvas;
-            for (const page of manifest.pages) {
-                await writeFile(page.pageMetadataPath, JSON.stringify({
-                    layoutClassification: 'single-uncut-page',
-                    cutterXPx: null,
-                    rotationDegrees: 0,
-                    excluded: false,
-                    blankOutputsSkipped: 0,
-                    outputCount: 1,
-                }));
-                const output = page.outputs[0]!;
-                await writeFile(output.outputPath, PNG);
-                await writeFile(output.metadataPath, JSON.stringify({
-                    outputWidthPx: 1,
-                    outputHeightPx: 1,
-                    canvasWidthPx: 1,
-                    canvasHeightPx: 1,
-                    layoutClassification: 'single-uncut-page',
-                    skewApplied: false,
-                    outputMode: 'bw',
-                    warningEvents: [],
-                }));
-            }
-        });
-
-        // Matched page size is a default setting, and the geometry it needs is
-        // something every PDF tool can report. An installation without
-        // evb-pdf-page-ops — or one where it is disabled — measures the document
-        // through Poppler instead of failing the feature or, worse, quietly
-        // producing pages of differing size.
-        const pipelineDependencies = dependencies(runSidecar);
-        pipelineDependencies.runCommand = vi.fn(async (command, args) => {
-            if (args[0] === '--check') {
-                return {
-                    exitCode: 0,
-                    stdout: '',
-                    stderr: '',
-                };
-            }
-            if (command === '/pdfinfo') {
-                return {
-                    exitCode: 0,
-                    stdout: pdfInfoGeometry(2, 240, 336),
-                    stderr: '',
-                };
-            }
-            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
-            return {
-                exitCode: 0,
-                stdout: '',
-                stderr: '',
-            };
-        });
-
-        await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options,
-        }, pipelinePaths(fixture.dir, false, true), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
-
-        expect(manifestOptions).toMatchObject({matchPageSize: true});
-        expect(manifestCanvas).toEqual({
-            widthPoints: 240,
-            heightPoints: 336,
-            widthPx: Math.ceil(240 / 72 * 300),
-            heightPx: Math.ceil(336 / 72 * 300),
-        });
-    });
-
     // Every raster mode now needs trusted page geometry before Poppler starts.
     // Missing or failed measurement is therefore a deterministic preflight
     // error rather than an unbounded render with matched-page-size disabled.
     for (const [
         label,
-        withPdfInfo,
         breakPageOps,
         expectedError,
     ] of [
             [
                 'nothing can measure the document',
                 false,
-                false,
-                /no PDF tool is available to read page geometry/u,
+                /Scan cleanup native tool is unavailable: evb-pdf-page-ops/u,
             ],
             [
                 'the measurement itself fails',
-                false,
                 true,
                 /evb-pdf-page-ops crashed/u,
             ],
@@ -4628,7 +4510,7 @@ describe('scan cleanup pipeline', () => {
                 sourcePdfPath: fixture.sourcePdfPath,
                 outputPdfPath: fixture.outputPdfPath,
                 options,
-            }, pipelinePaths(fixture.dir, breakPageOps, withPdfInfo), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies))
+            }, pipelinePaths(fixture.dir, breakPageOps), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies))
                 .rejects.toThrow(expectedError);
             expect(runSidecar).not.toHaveBeenCalled();
             expect(pipelineDependencies.renderPage).not.toHaveBeenCalled();

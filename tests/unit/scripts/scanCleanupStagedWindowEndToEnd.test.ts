@@ -28,7 +28,8 @@ import {
 } from '@evb/scan-cleanup/core/detection';
 import {
     createArrayBackedPdfPageSizeStore,
-    readPdfPageSizes,
+    readPdfPageSizeChunks,
+    type IPdfPageSize,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     createCliRenderers,
@@ -69,7 +70,7 @@ const scanCleanupBinary = resolveCliNativeToolPath(
     return existsSync(debugBuild) ? debugBuild : null;
 })();
 const pdftoppmBinary = resolveCliNativeToolPath('pdftoppm', 'poppler', process.cwd());
-const pdfinfoBinary = resolveCliNativeToolPath('pdfinfo', 'poppler', process.cwd());
+const pdfPageOpsBinary = resolveCliNativeToolPath('evb-pdf-page-ops', 'pdf-page-ops', process.cwd());
 
 const dirs: string[] = [];
 const resultStores: Array<{close: () => Promise<void>}> = [];
@@ -111,19 +112,22 @@ async function writeVariableGeometryPdf(path: string) {
 }
 
 describe.skipIf(
-    scanCleanupBinary === null || pdftoppmBinary === null || pdfinfoBinary === null,
+    scanCleanupBinary === null || pdftoppmBinary === null || pdfPageOpsBinary === null,
 )('scan cleanup detection against the real sidecar under a bounded window', () => {
     it('analyzes every page of a document that does not fit the scratch budget whole', async () => {
         const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-e2e-'));
         dirs.push(temporaryRoot);
         const sourcePdfPath = join(temporaryRoot, 'source.pdf');
         await writeVariableGeometryPdf(sourcePdfPath);
-        const pageSizes = await readPdfPageSizes(sourcePdfPath, {
-            pdfinfoBinary: pdfinfoBinary!,
+        const pageSizes: IPdfPageSize[] = [];
+        for await (const chunk of readPdfPageSizeChunks(sourcePdfPath, {
+            pdfPageOpsBinary: pdfPageOpsBinary!,
             tempDir: temporaryRoot,
             runCommand: runCliNativeToolCommand,
             log: () => undefined,
-        });
+        })) {
+            pageSizes.push(...chunk.pages);
+        }
         expect(pageSizes).toHaveLength(PAGE_COUNT);
 
         const documentDirectory = join(temporaryRoot, 'document');

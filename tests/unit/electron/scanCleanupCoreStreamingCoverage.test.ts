@@ -35,7 +35,6 @@ import {
     PDF_PAGE_SIZE_SIDECAR_MAX_CHUNK_BYTES,
     PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
     readPdfPageSizeChunks,
-    readPdfPageSizes,
     type IPdfPageSize,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
@@ -194,15 +193,9 @@ function paths(tempDir: string): IScanCleanupWorkerPaths {
         pdftoppmBinary: '/pdftoppm',
         scanCleanupBinary: '/scan-cleanup',
         pdfImageCombineBinary: '/pdf-image-combine',
+        pdfPageOpsBinary: '/pdf-page-ops',
         tempDir,
         provenanceStampSupport: false,
-    };
-}
-
-function pathsWithPageOps(tempDir: string): IScanCleanupWorkerPaths {
-    return {
-        ...paths(tempDir),
-        pdfPageOpsBinary: '/pdf-page-ops',
     };
 }
 
@@ -312,17 +305,6 @@ async function writePageSizeSidecar(
         pages,
     };
     await writeFile(outputPath, `${JSON.stringify(header)}\n${JSON.stringify(chunk)}\n`);
-}
-
-function pdfInfoWindow(firstPageNumber: number, lastPageNumber: number) {
-    const lines = [`Pages: ${String(lastPageNumber)}`];
-    for (let pageNumber = firstPageNumber; pageNumber <= lastPageNumber; pageNumber += 1) {
-        lines.push(`Page ${String(pageNumber)} size: 612 x 792 pts (Letter)`);
-        lines.push(`Page ${String(pageNumber)} rot: ${pageNumber === 1 ? '90' : '0'}`);
-        lines.push(`Page ${String(pageNumber)} MediaBox: 0 0 612 792`);
-        lines.push(`Page ${String(pageNumber)} CropBox: 0 0 612 792`);
-    }
-    return `${lines.join('\n')}\n`;
 }
 
 afterEach(async () => {
@@ -674,62 +656,34 @@ describe('scan-cleanup-core conversion coverage', () => {
         });
     });
 
-    it('streams native page geometry and enriches it with bounded box metadata', async () => {
+    it('streams native page geometry from the page-ops sidecar', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-page-size-test-'));
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
         await writeFile(sourcePdfPath, '%PDF-source');
         const log = vi.fn<TScanCleanupLog>();
         const runCommand = vi.fn(async (_command: string, args: string[]) => {
-            if (args.includes('--output')) {
-                await writePageSizeSidecar(
-                    args[args.indexOf('--output') + 1]!,
-                    [
-                        sidecarPage(1),
-                        sidecarPage(2),
-                    ],
-                );
-                return {
-                    exitCode: 0,
-                    stdout: '',
-                    stderr: '',
-                };
-            }
-            expect(args).toEqual([
-                '-f',
-                '1',
-                '-l',
-                '2',
-                '-box',
-                sourcePdfPath,
-            ]);
+            await writePageSizeSidecar(
+                args[args.indexOf('--output') + 1]!,
+                [
+                    sidecarPage(1),
+                    sidecarPage(2),
+                ],
+            );
             return {
                 exitCode: 0,
-                stdout: [
-                    'Pages: 2',
-                    'Page 1 size: 612 x 792 pts (Letter)',
-                    'Page 1 rot: 90',
-                    'Page 1 MediaBox: 0 0 612 792',
-                    'Page 1 CropBox: 10 20 600 780',
-                    'Page 2 size: 612 x 792 pts (Letter)',
-                    'Page 2 rot: 0',
-                    'Page 2 MediaBox: 0 0 612 792',
-                    'Page 2 CropBox: 0 0 612 792',
-                    '',
-                ].join('\n'),
+                stdout: '',
                 stderr: '',
             };
         });
-        const options = {
+        const chunks: IPdfPageSizeChunk[] = [];
+        for await (const chunk of readPdfPageSizeChunks(sourcePdfPath, {
             pdfPageOpsBinary: '/pdf-page-ops',
-            pdfinfoBinary: '/pdfinfo',
             qpdfBinary: '/qpdf',
             tempDir: root,
             log,
             runCommand,
-        };
-        const chunks: IPdfPageSizeChunk[] = [];
-        for await (const chunk of readPdfPageSizeChunks(sourcePdfPath, options)) {
+        })) {
             chunks.push(chunk);
         }
         expect(chunks).toHaveLength(1);
@@ -741,103 +695,10 @@ describe('scan-cleanup-core conversion coverage', () => {
             renderBox: 'cropbox',
         });
         expect(chunks[0]?.dominantImageAnalysis).toBe('performed');
-
-        const pageSizes = await readPdfPageSizes(sourcePdfPath, {
-            ...options,
-            resolveSuspiciousCropBoxFallback: false,
-        });
-        expect(pageSizes).toHaveLength(2);
-        expect(pageSizes[0]).toMatchObject({
-            xPoints: 10,
-            yPoints: 20,
-            widthPoints: 590,
-            heightPoints: 760,
-            renderBox: 'cropbox',
-            mediaWidthPoints: 612,
-            cropWidthPoints: 590,
-        });
-        expect(pageSizes[1]?.rotation).toBe(0);
         expect(log).not.toHaveBeenCalledWith('warn', expect.any(String));
     });
 
-    it('falls back to bounded pdfinfo windows and retains legacy page-ops JSON', async () => {
-        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-page-size-fallback-test-'));
-        roots.push(root);
-        const sourcePdfPath = join(root, 'source.pdf');
-        await writeFile(sourcePdfPath, '%PDF-source');
-        const log = vi.fn<TScanCleanupLog>();
-        const pdfInfoCommand = vi.fn(async (_command: string, args: string[]) => {
-            if (args.length === 1) {
-                return {
-                    exitCode: 0,
-                    stdout: 'Pages: 513\n',
-                    stderr: '',
-                };
-            }
-            const firstPageNumber = Number(args[1]);
-            const lastPageNumber = Number(args[3]);
-            return {
-                exitCode: 0,
-                stdout: pdfInfoWindow(firstPageNumber, lastPageNumber),
-                stderr: '',
-            };
-        });
-        const pdfInfoOptions = {
-            pdfinfoBinary: '/pdfinfo',
-            tempDir: root,
-            log,
-            runCommand: pdfInfoCommand,
-        };
-        const chunks: IPdfPageSizeChunk[] = [];
-        for await (const chunk of readPdfPageSizeChunks(sourcePdfPath, pdfInfoOptions)) {
-            chunks.push(chunk);
-        }
-        expect(chunks.map(chunk => [
-            chunk.firstPageNumber,
-            chunk.pages.length,
-        ])).toEqual([
-            [
-                1,
-                512,
-            ],
-            [
-                513,
-                1,
-            ],
-        ]);
-        expect(chunks[0]?.pages[0]?.rotation).toBe(90);
-        expect(pdfInfoCommand).toHaveBeenCalledTimes(3);
 
-        const legacyRunCommand = vi.fn(async (_command: string, args: string[]) => {
-            await writeFile(
-                args[args.indexOf('--output') + 1]!,
-                JSON.stringify({pages: [
-                    sidecarPage(1),
-                    sidecarPage(2),
-                ]}),
-            );
-            return {
-                exitCode: 0,
-                stdout: '',
-                stderr: '',
-            };
-        });
-        const legacyChunks: IPdfPageSizeChunk[] = [];
-        for await (const chunk of readPdfPageSizeChunks(sourcePdfPath, {
-            pdfPageOpsBinary: '/pdf-page-ops',
-            tempDir: root,
-            log,
-            runCommand: legacyRunCommand,
-        })) {
-            legacyChunks.push(chunk);
-        }
-        expect(legacyChunks).toHaveLength(1);
-        expect(legacyChunks[0]?.pages.map(page => page.pageNumber)).toEqual([
-            1,
-            2,
-        ]);
-        expect(legacyChunks[0]?.dominantImageAnalysis).toBe('unknown');
-    });
 
     it('converts selected pages through the xlarge geometry sidecar coordinator', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-xlarge-conversion-test-'));
@@ -1264,7 +1125,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                 detectionResultStore,
             },
             {
-                ...pathsWithPageOps(root),
+                ...paths(root),
                 pdfimagesBinary: '/pdfimages',
             },
             new AbortController().signal,
@@ -1295,7 +1156,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                     detectionResultStore,
                 },
                 {
-                    ...pathsWithPageOps(root),
+                    ...paths(root),
                     pdfimagesBinary: '/pdfimages',
                 },
                 new AbortController().signal,
@@ -1345,7 +1206,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                         detectionResultStore,
                     },
                     {
-                        ...pathsWithPageOps(root),
+                        ...paths(root),
                         pdfimagesBinary: '/pdfimages',
                     },
                     new AbortController().signal,
@@ -1379,7 +1240,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                     detectionResultStore,
                 },
                 {
-                    ...pathsWithPageOps(root),
+                    ...paths(root),
                     pdfimagesBinary: '/pdfimages',
                 },
                 new AbortController().signal,
