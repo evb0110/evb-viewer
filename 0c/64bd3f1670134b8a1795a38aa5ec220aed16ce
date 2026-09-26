@@ -1,0 +1,21 @@
+tests/e2e/electron/save/savePipeline.e2e.test.ts
+  s_d1dadb9ae0f739::t_cd09b6427bcc1d 722-725
+  s_d1dadb9ae0f739::t_e554d264bc3258 729-733
+  s_d1dadb9ae0f739::t_306fdb0f115938 704,721,726-728
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c64bd3f1670134b8a1795a38aa5ec220aed16ce",
+  "prompts": {},
+  "sessions": {
+    "s_d1dadb9ae0f739": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ddc5-cab5-7813-8aa7-2c63e73a7a72",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
