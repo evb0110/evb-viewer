@@ -1,0 +1,19 @@
+app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint.ts
+  s_1c16f324dd725a::t_4d6f3eb1b0fb41 76-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "50e80f8884676838a0b079f63d85a3851041a8d9",
+  "prompts": {},
+  "sessions": {
+    "s_1c16f324dd725a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0de82-9451-7571-9c08-05c7197a91c2",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
