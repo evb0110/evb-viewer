@@ -1,11 +1,9 @@
 import type {
-    IPdfAnnotationForeignEntry,
     IPdfAnnotationParseChunk,
     IPdfAnnotationParseEntry,
     IPdfAnnotationParseOptions,
     IPdfAnnotationParseResult,
     IPdfAnnotationParseSession,
-    TPdfAnnotationParseEntity,
 } from '@contracts/pdfAnnotationParseTypes';
 import {
     parseDocumentRef,
@@ -21,7 +19,8 @@ import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import {decodePdfAnnotationParseEntry} from '@contracts/pdfAnnotationParseSchemas';
+import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
+import * as v from 'valibot';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
 import {
@@ -150,7 +149,7 @@ function decodeDataLine(value: unknown): IPdfAnnotationParseEntry[] {
     ) {
         throw new Error('PDF annotation parse sidecar line has an invalid chunk index');
     }
-    return value.entries.map(decodePdfAnnotationParseEntry);
+    return value.entries.map(entry => v.parse(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, entry, {abortEarly: true}));
 }
 
 function parseChunkOptions(options: {chunkBytes?: number} | undefined) {
@@ -401,8 +400,8 @@ export async function parsePdfAnnotations(
 ): Promise<IPdfAnnotationParseResult> {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
     const session = await beginPdfAnnotationParse(context, filePath, options);
-    const entities: TPdfAnnotationParseEntity[] = [];
-    const foreign: IPdfAnnotationForeignEntry[] = [];
+    const entities: IPdfAnnotationParseResult['entities'] = [];
+    const foreign: IPdfAnnotationParseResult['foreign'] = [];
     let offset = 0;
     try {
         if (session.entryCount > PDF_ANNOTATION_PARSE_MAX_ENTRIES) {

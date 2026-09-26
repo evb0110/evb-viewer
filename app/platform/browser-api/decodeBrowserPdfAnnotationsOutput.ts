@@ -1,13 +1,12 @@
 import {
     PDF_ANNOTATION_PARSE_MAX_ENTRIES,
     PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
-    type IPdfAnnotationForeignEntry,
     type IPdfAnnotationParseResult,
-    type TPdfAnnotationParseEntity,
 } from '@contracts/pdfAnnotationParseTypes';
-import {decodePdfAnnotationParseEntry} from '@contracts/pdfAnnotationParseSchemas';
+import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
 import {isRecord} from '@contracts/runtimeGuards';
 import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
+import * as v from 'valibot';
 
 const BROWSER_ANNOTATION_PARSE_MAX_OUTPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;
 
@@ -68,7 +67,7 @@ function decodeChunk(value: unknown, expectedChunkIndex: number, lineNumber: num
     ) {
         throw new Error(`PDF annotation parse WASM output line ${lineNumber} has an invalid chunk`);
     }
-    return value.entries.map(decodePdfAnnotationParseEntry);
+    return value.entries.map(entry => v.parse(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, entry, {abortEarly: true}));
 }
 
 export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
@@ -107,8 +106,8 @@ export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
         return line.endsWith('\r') ? line.slice(0, -1) : line;
     });
     const pageCount = decodeHeader(parseJsonLine(lines[0]!, 1));
-    const entities: TPdfAnnotationParseEntity[] = [];
-    const foreign: IPdfAnnotationForeignEntry[] = [];
+    const entities: IPdfAnnotationParseResult['entities'] = [];
+    const foreign: IPdfAnnotationParseResult['foreign'] = [];
     for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
         const entries = decodeChunk(
             parseJsonLine(lines[lineIndex]!, lineIndex + 1),

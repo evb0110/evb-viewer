@@ -23,6 +23,12 @@ import type {
     IPoint2D,
 } from '@contracts/geometry';
 import type { IPdfAnnotationStampImageReference } from '@contracts/pdfAnnotationParseTypes';
+import type {
+    IPdfEmbeddedShapeIndexChunk,
+    IPdfEmbeddedShapeIndexChunkOptions,
+    IPdfEmbeddedShapeIndexOptions,
+    IPdfEmbeddedShapeIndexSession,
+} from '@contracts/pdfEmbeddedShapeIndexSchemas';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type {
     IPdfPageLabelsMutation,
@@ -74,7 +80,15 @@ import type {
     IPdfDecryptRequest,
     IPdfDecryptResult,
 } from '@contracts/pdfDecryptSchemas';
-import type {TPdfOpenFileFailureResult} from '@contracts/pdfOpenFileResults';
+import type {TOpenFileResult} from '@contracts/pdfOpenFileSchemas';
+export type {
+    IOpenDjvuResult,
+    IOpenPdfResult,
+    IPdfNeedsPasswordResult,
+    IPdfUnsupportedEncryptionResult,
+    TOpenFileResult,
+    TPdfOpenFileFailureResult,
+} from '@contracts/pdfOpenFileSchemas';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 export interface IPdfPathPrintOptions {
@@ -92,63 +106,19 @@ export type * from '@contracts/pdfAnnotationParseTypes';
 export type {
     IPdfDecryptRequest, IPdfDecryptResult, TPdfDecryptOutcome,
 } from '@contracts/pdfDecryptSchemas';
-/** A normalized point returned by the private embedded-shape index. */
-export interface IPdfEmbeddedShapeIndexPoint {
-    readonly x: number;
-    readonly y: number;
-}
-
-/** A typed structural shape entry returned by the private embedded-shape index. */
-export interface IPdfEmbeddedShapeIndexEntry {
-    readonly pageIndex: TPageIndex;
-    readonly objectNumber: number;
-    readonly generationNumber: number;
-    readonly stableKey: string | null;
-    readonly pdfSubtype: TPdfNativeShapePdfSubtype;
-    readonly type: TPdfNativeShapeType;
-    readonly x: number;
-    readonly y: number;
-    readonly width: number;
-    readonly height: number;
-    readonly x2: number | null;
-    readonly y2: number | null;
-    readonly color: string;
-    readonly fillColor: string | null;
-    readonly opacity: number;
-    readonly strokeWidth: number;
-    readonly points: readonly IPdfEmbeddedShapeIndexPoint[] | null;
-    readonly strokes: ReadonlyArray<readonly IPdfEmbeddedShapeIndexPoint[]> | null;
-    readonly lineStartStyle: TPdfNativeShapeLineEndStyle | null;
-    readonly lineEndStyle: TPdfNativeShapeLineEndStyle | null;
-    readonly createdAt: TEpochMs | null;
-    readonly modifiedAt: TEpochMs | null;
-}
+export type {
+    IPdfEmbeddedShapeIndexChunk,
+    IPdfEmbeddedShapeIndexChunkOptions,
+    IPdfEmbeddedShapeIndexEntry,
+    IPdfEmbeddedShapeIndexOptions,
+    IPdfEmbeddedShapeIndexPoint,
+    IPdfEmbeddedShapeIndexSession,
+} from '@contracts/pdfEmbeddedShapeIndexSchemas';
 
 /** The renderer requests at most 512 KiB of decoded shape-index data. */
 export const PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES = 512 * 1024;
 /** Native JSONL lines may be larger than one renderer pull, but never exceed 4 MiB. */
 export const PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES = 4 * 1024 * 1024;
-
-export interface IPdfEmbeddedShapeIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
-
-export interface IPdfEmbeddedShapeIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
-
-export interface IPdfEmbeddedShapeIndexSession {
-    readonly sessionId: TSessionId;
-    readonly documentRef: TDocumentRef;
-    readonly documentRevisionToken: TDocumentRevisionToken;
-    readonly pageCount: number;
-    readonly entryCount: number;
-    readonly totalBytes: number;
-}
-
-export interface IPdfEmbeddedShapeIndexChunk {
-    readonly offset: number;
-    readonly nextOffset: number | null;
-    readonly byteLength: number;
-    readonly done: boolean;
-    readonly entries: readonly IPdfEmbeddedShapeIndexEntry[];
-}
 
 export const IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES = 16 * 1024 * 1024;
 
@@ -326,22 +296,6 @@ export interface ICreateCombinedPdfFromFilesOptions {
     signal?: AbortSignal;
 }
 
-export interface IOpenPdfResult {
-    readonly kind: 'pdf';
-    readonly workingPath: TDocumentRef;
-    readonly originalPath: TDocumentRef;
-    readonly isGenerated?: boolean;
-    /** True when recovery reopened unsaved bytes from a prior checkpoint. */
-    readonly recoveryDirtyBaseline?: boolean;
-    readonly wasEncrypted?: true;
-}
-export interface IOpenDjvuResult {
-    readonly kind: 'djvu';
-    readonly workingPath: '';
-    readonly originalPath: TDocumentRef;
-}
-
-export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult | TPdfOpenFileFailureResult;
 export type TOpenFolderDialogResult =
     | {
         readonly ok: true;
