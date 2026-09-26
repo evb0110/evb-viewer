@@ -4,6 +4,7 @@ import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -18,6 +19,12 @@ import {
 } from 'vue';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 import PdfThumbnails from '@app/modules/pdf-viewer/components/PdfThumbnails.vue';
+import {
+    createDocumentThumbnailSourceHarness,
+    installDocumentThumbnailListEnvironment,
+    restoreDocumentThumbnailListEnvironment,
+    settleDocumentThumbnailList,
+} from '@tests/helpers/document-viewer/documentThumbnailListHarness';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -57,106 +64,16 @@ interface IThumbnailHarnessState {
 }
 
 const activeUnmounts = new Set<() => void>();
-const geometryRestores: Array<() => void> = [];
 
+beforeEach(installDocumentThumbnailListEnvironment);
 afterEach(() => {
-    vi.restoreAllMocks();
     for (const unmount of [...activeUnmounts]) {
         unmount();
     }
-    for (const restore of geometryRestores.splice(0).toReversed()) {
-        restore();
-    }
+    restoreDocumentThumbnailListEnvironment();
 });
 
-const RAIL_VIEWPORT_HEIGHT_PX = 400;
-
-/**
- * happy-dom reports zero geometry, which makes the rail read as hidden and
- * freezes the virtualized window. Give the rail (and only the rail, so row
- * chrome measurement keeps its defaults) a real viewport.
- */
-function stubRailGeometry() {
-    const isRail = (element: HTMLElement) => element.classList.contains('pdf-thumbnails');
-    const descriptors: Array<[string, PropertyDescriptor]> = [
-        [
-            'clientWidth',
-            {get(this: HTMLElement) {
-                return isRail(this) ? 200 : 0;
-            }},
-        ],
-        [
-            'clientHeight',
-            {get(this: HTMLElement) {
-                return isRail(this) ? RAIL_VIEWPORT_HEIGHT_PX : 0;
-            }},
-        ],
-        [
-            'scrollHeight',
-            {get(this: HTMLElement) {
-                if (!isRail(this)) {
-                    return 0;
-                }
-                const wrapper = this.querySelector<HTMLElement>('.pdf-thumbnails-virtual-wrapper');
-                return Number.parseFloat(wrapper?.style.height ?? '0') || 0;
-            }},
-        ],
-    ];
-    for (const [
-        name,
-        descriptor,
-    ] of descriptors) {
-        const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
-        Object.defineProperty(HTMLElement.prototype, name, {
-            ...descriptor,
-            configurable: true,
-        });
-        geometryRestores.push(() => {
-            if (original) {
-                Object.defineProperty(HTMLElement.prototype, name, original);
-            } else {
-                Reflect.deleteProperty(HTMLElement.prototype, name);
-            }
-        });
-    }
-
-    const originalRectDescriptor = Object.getOwnPropertyDescriptor(
-        HTMLElement.prototype,
-        'getBoundingClientRect',
-    );
-    const originalRect = HTMLElement.prototype.getBoundingClientRect;
-    HTMLElement.prototype.getBoundingClientRect = function railRect(this: HTMLElement) {
-        return isRail(this)
-            ? {
-                width: 200,
-                height: RAIL_VIEWPORT_HEIGHT_PX,
-                top: 0,
-                left: 0,
-                bottom: RAIL_VIEWPORT_HEIGHT_PX,
-                right: 200,
-                x: 0,
-                y: 0,
-                toJSON: () => ({}),
-            } as DOMRect
-            : originalRect.call(this);
-    };
-    geometryRestores.push(() => {
-        if (originalRectDescriptor) {
-            Object.defineProperty(
-                HTMLElement.prototype,
-                'getBoundingClientRect',
-                originalRectDescriptor,
-            );
-        } else {
-            Reflect.deleteProperty(HTMLElement.prototype, 'getBoundingClientRect');
-        }
-    });
-}
-
-async function mountThumbnails(
-    overrides: Partial<IThumbnailHarnessState> = {},
-    options: {waitForTick?: boolean} = {},
-) {
+async function mountThumbnails(overrides: Partial<IThumbnailHarnessState> = {}) {
     const state = reactive<IThumbnailHarnessState>({
         currentPage: 3,
         isActive: true,
@@ -164,6 +81,7 @@ async function mountThumbnails(
         totalPages: 12,
         ...overrides,
     });
+    const {source} = createDocumentThumbnailSourceHarness(state.totalPages);
     const goToPage: Array<{
         page: number;
         options?: IScrollToPageOptions | undefined;
@@ -171,8 +89,7 @@ async function mountThumbnails(
     const host = document.createElement('div');
     document.body.append(host);
     const app = createApp(defineComponent({setup: () => () => h(PdfThumbnails, {
-        pdfDocument: null,
-        rasterScheduler: null,
+        source,
         currentPage: state.currentPage,
         totalPages: state.totalPages,
         selectedPages: state.selectedPages,
@@ -188,9 +105,7 @@ async function mountThumbnails(
     app.component('UIcon', PassThroughStub);
     app.component('AppTooltip', PassThroughStub);
     app.mount(host);
-    if (options.waitForTick ?? true) {
-        await nextTick();
-    }
+    await settleDocumentThumbnailList();
     const unmount = () => {
         app.unmount();
         host.remove();
@@ -202,16 +117,15 @@ async function mountThumbnails(
         host,
         rail: host.querySelector<HTMLElement>('.pdf-thumbnails')!,
         state,
-        unmount,
     };
 }
 
 function rows(host: HTMLElement) {
-    return [...host.querySelectorAll<HTMLElement>('.pdf-thumbnail')];
+    return [...host.querySelectorAll<HTMLElement>('[data-thumbnail-page]')];
 }
 
 function row(host: HTMLElement, page: number) {
-    const found = host.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${page}"]`);
+    const found = host.querySelector<HTMLElement>(`[data-thumbnail-page="${page}"]`);
     expect(found).not.toBeNull();
     return found!;
 }
@@ -219,7 +133,7 @@ function row(host: HTMLElement, page: number) {
 function tabStopPages(host: HTMLElement) {
     return rows(host)
         .filter(element => element.getAttribute('tabindex') === '0')
-        .map(element => Number(element.dataset.page));
+        .map(element => Number(element.dataset.thumbnailPage));
 }
 
 function pressKey(target: HTMLElement, key: string, init: KeyboardEventInit = {}) {
@@ -243,7 +157,6 @@ describe('PdfThumbnails keyboard navigation', () => {
         expect(rail.getAttribute('role')).toBe('listbox');
         expect(rail.getAttribute('aria-multiselectable')).toBe('true');
         expect(rail.getAttribute('tabindex')).toBe('-1');
-        expect(rail.firstElementChild?.getAttribute('role')).toBe('presentation');
         expect(rows(host).every(element => element.getAttribute('role') === 'option')).toBe(true);
         expect(tabStopPages(host)).toEqual([3]);
         // Selection stays a separate axis from the roving focus.
@@ -261,9 +174,8 @@ describe('PdfThumbnails keyboard navigation', () => {
         currentRow.focus();
 
         const event = pressKey(currentRow, 'ArrowDown');
-        await vi.waitFor(() => {
-            expect(document.activeElement).toBe(row(host, 4));
-        });
+        await settleDocumentThumbnailList();
+        expect(document.activeElement).toBe(row(host, 4));
 
         expect(event.defaultPrevented).toBe(true);
         expect(tabStopPages(host)).toEqual([4]);
@@ -279,9 +191,8 @@ describe('PdfThumbnails keyboard navigation', () => {
         const currentRow = row(host, 3);
         currentRow.focus();
         pressKey(currentRow, 'ArrowDown');
-        await vi.waitFor(() => {
-            expect(document.activeElement).toBe(row(host, 4));
-        });
+        await settleDocumentThumbnailList();
+        expect(document.activeElement).toBe(row(host, 4));
 
         pressKey(row(host, 4), 'Enter');
         pressKey(row(host, 4), ' ');
@@ -307,9 +218,8 @@ describe('PdfThumbnails keyboard navigation', () => {
         currentRow.focus();
 
         pressKey(currentRow, 'ArrowDown', {shiftKey: true});
-        await vi.waitFor(() => {
-            expect(document.activeElement).toBe(row(host, 4));
-        });
+        await settleDocumentThumbnailList();
+        expect(document.activeElement).toBe(row(host, 4));
 
         expect(state.selectedPages).toEqual([
             3,
@@ -373,142 +283,19 @@ describe('PdfThumbnails keyboard navigation', () => {
         expect(tabStopPages(host)).toEqual([6]);
     });
 
-    it('keeps a distant current page row mounted before the hidden rail is measured', async () => {
-        const {host} = await mountThumbnails({
-            currentPage: 18,
-            totalPages: 300,
-        });
-
-        expect(row(host, 18).getAttribute('aria-current')).toBe('page');
-    });
-
-    it('uses the mounted rail height for the first virtual window', async () => {
-        stubRailGeometry();
-        const {host} = await mountThumbnails({totalPages: 300}, {waitForTick: false});
-
-        expect(rows(host).map(element => Number(element.dataset.page))).toContain(10);
-    });
-
-    it('reveals a virtualized row before moving focus to it', async () => {
-        stubRailGeometry();
+    it('reveals a row outside the mounted window before moving focus to it', async () => {
         const {host} = await mountThumbnails({
             currentPage: 3,
             selectedPages: [],
             totalPages: 300,
         });
-        const renderedPages = () => rows(host).map(element => Number(element.dataset.page));
-        expect(renderedPages()).not.toContain(300);
-
-        const currentRow = row(host, 3);
-        currentRow.focus();
-        pressKey(currentRow, 'End');
-        await vi.waitFor(() => {
-            expect(renderedPages()).toContain(300);
-            expect(tabStopPages(host)).toEqual([300]);
-            expect(document.activeElement).toBe(row(host, 300));
-        });
-    });
-
-    it('switches physical segments before focusing a distant keyboard target', async () => {
-        stubRailGeometry();
-        const {host} = await mountThumbnails({
-            currentPage: 3,
-            selectedPages: [],
-            totalPages: 138_000,
-        });
-        const rail = host.querySelector<HTMLElement>('.pdf-thumbnails')!;
-        const wrapper = host.querySelector<HTMLElement>('.pdf-thumbnails-virtual-wrapper')!;
-        expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBe(0);
-        expect(rows(host).map(element => Number(element.dataset.page))).not.toContain(138_000);
+        expect(rows(host).map(element => Number(element.dataset.thumbnailPage))).not.toContain(300);
 
         row(host, 3).focus();
         pressKey(row(host, 3), 'End');
+        await settleDocumentThumbnailList();
 
-        await vi.waitFor(() => {
-            expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBeGreaterThan(0);
-            expect(rows(host).map(element => Number(element.dataset.page))).toContain(138_000);
-            expect(rows(host).map(element => Number(element.dataset.page))).not.toContain(3);
-            expect(document.activeElement).toBe(row(host, 138_000));
-        });
-        expect(rail.scrollTop).toBeGreaterThan(0);
-    });
-
-    it('switches back to the first physical segment before focusing Home', async () => {
-        stubRailGeometry();
-        const {
-            host,
-            rail,
-        } = await mountThumbnails({
-            currentPage: 3,
-            selectedPages: [],
-            totalPages: 138_000,
-        });
-        const wrapper = host.querySelector<HTMLElement>('.pdf-thumbnails-virtual-wrapper')!;
-
-        row(host, 3).focus();
-        pressKey(row(host, 3), 'End');
-        await vi.waitFor(() => {
-            expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBeGreaterThan(0);
-            expect(document.activeElement).toBe(row(host, 138_000));
-        });
-
-        pressKey(row(host, 138_000), 'Home');
-        await vi.waitFor(() => {
-            expect(Number(wrapper.dataset.thumbnailScrollSegment)).toBe(0);
-            expect(document.activeElement).toBe(row(host, 1));
-        });
-        expect(rail.scrollTop).toBe(0);
-    });
-});
-
-/**
- * Rows are absolutely positioned by a translateY, so a row is inside the rail
- * viewport when that offset falls within the scrolled 400px window.
- */
-function isRowInsideRailViewport(host: HTMLElement, rail: HTMLElement, page: number) {
-    const style = row(host, page).style;
-    const top = Number.parseFloat(/translateY\((-?[\d.]+)px\)/.exec(style.transform)?.[1] ?? 'NaN');
-    const height = Number.parseFloat(style.minHeight) || 0;
-    return top >= rail.scrollTop && top + height <= rail.scrollTop + RAIL_VIEWPORT_HEIGHT_PX;
-}
-
-describe('PdfThumbnails pane reactivation', () => {
-    it('reveals the current page again when the pane is reactivated after a manual scroll', async () => {
-        stubRailGeometry();
-        // The rail's own scroll guard and the auto-follow cooldown are wall-clock
-        // windows. Advancing the clock past them leaves only the "manual scroll
-        // while the layout is still stabilising" rule in play, which is the one
-        // a hidden pane trips because its canvases were torn down.
-        const realNow = Date.now.bind(Date);
-        let clockOffsetMs = 0;
-        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + clockOffsetMs);
-        const {
-            host,
-            rail,
-            state,
-        } = await mountThumbnails({
-            currentPage: 3,
-            selectedPages: [],
-            totalPages: 300,
-        });
-        await vi.waitFor(() => {
-            expect(isRowInsideRailViewport(host, rail, 3)).toBe(true);
-        });
-
-        clockOffsetMs += 1_000;
-        rail.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
-        rail.scrollTop = 20_000;
-        rail.dispatchEvent(new Event('scroll'));
-        await nextTick();
-        expect(isRowInsideRailViewport(host, rail, 3)).toBe(false);
-
-        clockOffsetMs += 1_000;
-        state.isActive = false;
-        await nextTick();
-        state.isActive = true;
-
-        await vi.waitFor(() => {
-            expect(isRowInsideRailViewport(host, rail, 3)).toBe(true);
-        });
+        expect(tabStopPages(host)).toEqual([300]);
+        expect(document.activeElement).toBe(row(host, 300));
     });
 });

@@ -94,7 +94,6 @@ function createBindingHarness() {
     const onAnnotationEnrichmentState = vi.fn<TAnnotationEnrichmentStateListener>();
     const onAnnotationFailure = vi.fn();
     const onPageSourceUpdate = vi.fn();
-    const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const fallbacks = new Map<PropertyKey, unknown>();
@@ -108,7 +107,6 @@ function createBindingHarness() {
         onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
-        onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
         pdfSrc: ref<TPdfSource>({
             kind: 'path' as const,
@@ -139,7 +137,6 @@ function createBindingHarness() {
         onAnnotationEnrichmentState,
         onAnnotationInventory,
         onPageSourceUpdate,
-        onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
         pdfViewerRef,
     };
@@ -398,8 +395,6 @@ describe('WorkspaceDocumentDriver', () => {
         expect(harness.djvuViewerRef.value).toBe(djvuViewer);
         expect(harness.binding.activeViewerProps.value).toHaveProperty('searchResults');
         expect(harness.binding.activeViewerListeners.value['update:pageSource']).toBe(harness.onPageSourceUpdate);
-        expect(harness.binding.activeViewerListeners.value['update:rasterScheduler'])
-            .toBe(harness.onRasterSchedulerUpdate);
         expect(harness.binding.activeViewerListeners.value['update:sourceCapabilities']).toBe(harness.onSourceCapabilitiesUpdate);
     });
 

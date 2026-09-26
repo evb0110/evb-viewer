@@ -6,6 +6,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     assertDocumentPageNumber,
+    type IDocumentPageMetrics,
     type IDocumentPageRenderRequest,
     type IDocumentPageSource,
     type IDocumentRenderLease,
@@ -18,6 +19,9 @@ interface ICreatePdfPageSourceOptions {
     getPage?: (pageNumber: number) => Promise<IPdfPage>;
     /** Delegates to the existing coordinated PDF.js path; the generic chassis never rasterizes PDF itself. */
     renderPage: (request: IDocumentPageRenderRequest) => Promise<IDocumentRenderLease>;
+    /** Metrics the viewer already holds, when it has them for the page. */
+    getPageMetrics?: (pageNumber: number) => Promise<IDocumentPageMetrics | undefined>;
+    renderThumbnail?: (request: IDocumentPageRenderRequest) => Promise<IDocumentRenderLease>;
 }
 
 export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocumentPageSource {
@@ -34,6 +38,10 @@ export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocu
         async getPageMetrics(pageNumber, signal) {
             assertDocumentPageNumber(pageNumber, options.pdfDocument.numPages);
             signal?.throwIfAborted();
+            const known = await options.getPageMetrics?.(pageNumber);
+            if (known) {
+                return known;
+            }
             const page = await (options.getPage?.(pageNumber) ?? options.pdfDocument.getPage(pageNumber));
             signal?.throwIfAborted();
             const viewport = page.getViewport({ scale: 1 });
@@ -45,7 +53,7 @@ export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocu
             };
         },
         renderPage,
-        thumbnailProvider: {renderThumbnail: renderPage},
+        thumbnailProvider: {renderThumbnail: options.renderThumbnail ?? renderPage},
         dispose() {},
     };
 }

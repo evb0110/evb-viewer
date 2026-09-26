@@ -285,16 +285,14 @@ async function rotateFirstPageCounterclockwise(session: IElectronE2ESession) {
 
     await session.page.waitForFunction(() => {
         const item = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-document-thumbnail-item][data-page="1"], '
-            + '.editor-pane.is-active [data-document-thumbnail-item][data-thumbnail-page="1"]',
+            '.editor-pane.is-active [data-thumbnail-page="1"]',
         );
         const bounds = item?.getBoundingClientRect();
         return Boolean(bounds && bounds.width > 0 && bounds.height > 0);
     }, {timeout: 30_000});
     const thumbnail = await session.page.evaluate(() => {
         const item = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-document-thumbnail-item][data-page="1"], '
-            + '.editor-pane.is-active [data-document-thumbnail-item][data-thumbnail-page="1"]',
+            '.editor-pane.is-active [data-thumbnail-page="1"]',
         );
         if (!item) {
             return null;

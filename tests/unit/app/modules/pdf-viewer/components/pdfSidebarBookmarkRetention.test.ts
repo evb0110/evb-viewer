@@ -149,7 +149,7 @@ async function mountSidebar(overrides: {
         isOpen: state.isOpen,
         isSearching: false,
         pdfDocument: null,
-        rasterScheduler: null,
+        pageSource: null,
         searchOptions: {
             matchCase: false,
             useRegex: false,

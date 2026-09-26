@@ -23,7 +23,7 @@
                 :role="selectedPages ? 'option' : undefined"
                 :aria-selected="selectedPages ? selectedPages.has(item.pageNumber) : undefined"
                 :tabindex="itemTag === 'div'
-                    ? (disabled ? -1 : item.pageNumber === currentPage ? 0 : -1)
+                    ? (disabled ? -1 : item.pageNumber === tabStopPage ? 0 : -1)
                     : undefined"
                 frame-class="document-thumbnail-list__frame"
                 :frame-style="{aspectRatio: item.aspectRatio}"
@@ -85,7 +85,10 @@ const props = defineProps<{
     isResizing?: boolean;
     itemMetricsKey?: unknown;
     itemTag?: 'button' | 'div';
-    selectedPages?: ReadonlySet<number>;
+    selectedPages?: Pick<ReadonlySet<number>, 'has'>;
+    /** The row that holds the tab stop; the current page by default. */
+    focusPage?: number | null;
+    pageRevision?: (pageNumber: number) => string;
     disabled?: boolean;
 }>();
 const emit = defineEmits<IDocumentThumbnailListEmits>();
@@ -102,6 +105,7 @@ const {
     handleWheel,
     renderErrors,
     retryRender,
+    revealPage,
     states,
     virtualItems,
 } = useDocumentThumbnailController({
@@ -109,8 +113,20 @@ const {
     isActive: computed(() => props.isActive),
     isResizing: computed(() => props.isResizing),
     itemMetricsKey: toRef(props, 'itemMetricsKey'),
+    pageRevision: toRef(props, 'pageRevision'),
     scrollRoot,
     source: toRef(props, 'source'),
+});
+// One tab stop among the mounted rows, so the rail stays reachable by Tab
+// after the focused row scrolls out of the virtual window.
+const tabStopPage = computed(() => {
+    const first = virtualItems.value[0]?.pageNumber ?? 0;
+    const last = virtualItems.value.at(-1)?.pageNumber ?? 0;
+    return Math.min(Math.max(props.focusPage ?? props.currentPage, first), last);
+});
+defineExpose({
+    revealPage,
+    scrollRoot,
 });
 
 function setCanvasHost(

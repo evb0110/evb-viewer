@@ -67,6 +67,8 @@ interface IUseDocumentThumbnailControllerOptions {
     isActive: Ref<boolean>;
     isResizing: Ref<boolean>;
     itemMetricsKey: Ref<unknown>;
+    /** A page re-renders, keeping its thumbnail meanwhile, when its key changes. */
+    pageRevision: Ref<((pageNumber: number) => string) | undefined>;
     scrollRoot: Ref<HTMLElement | null>;
     source: Ref<IDocumentPageSource | null>;
 }
@@ -218,6 +220,14 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         if (!root || root.clientHeight <= 0) {
             return lastKnownAnchor;
         }
+        // A rail at its top stays there when rows above the centre change height.
+        if (root.scrollTop < 1 && activeScrollSegmentIndex.value === 0) {
+            lastKnownAnchor = {
+                page: 1,
+                ratio: 0,
+            };
+            return lastKnownAnchor;
+        }
         const centerOffset = root.scrollTop + (root.clientHeight / 2);
         const modelPage = layout.resolvePageAtScrollOffsetInSegment(centerOffset, activeScrollSegmentIndex.value);
         const modelAnchor = modelPage === null
@@ -297,6 +307,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         if (resizeAnchorLifecycle.isActive()) resizeAnchorLifecycle.preserve();
     }
 
+    function resolvePageRevision(pageNumber: number) {
+        return options.pageRevision.value?.(pageNumber) ?? '';
+    }
+
     async function getPageMetrics(
         source: IDocumentPageSource,
         pageNumber: number,
@@ -312,7 +326,6 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         const metrics = await promise;
         signal.throwIfAborted();
-        if (options.source.value === source) applyPageMetrics(pageNumber, metrics);
         return metrics;
     }
 
@@ -364,9 +377,14 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             const source = options.source.value;
             const provider = source?.thumbnailProvider;
             if (!source || !provider) throw new Error('Thumbnail provider is unavailable');
-            await getPageMetrics(source, request.pageNumber, request.signal);
-            request.signal.throwIfAborted();
-            return provider.renderThumbnail(request);
+            const metrics = await getPageMetrics(source, request.pageNumber, request.signal);
+            // A row showing a thumbnail keeps its frame until the new one
+            // lands, so a rotated page never shows the old bitmap squeezed.
+            const hasSurface = states.has(request.pageNumber);
+            if (!hasSurface && options.source.value === source) applyPageMetrics(request.pageNumber, metrics);
+            const lease = await provider.renderThumbnail(request);
+            if (hasSurface && !request.signal.aborted) applyPageMetrics(request.pageNumber, metrics);
+            return lease;
         },
     });
 
@@ -533,7 +551,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         const settledScale = resolveThumbnailOutputScale(window.devicePixelRatio || 1);
         const transient = isScrolling.value || options.isResizing.value;
         const quality: TDocumentThumbnailQuality = transient ? 'transient' : 'settled';
-        const rasterCssWidth = transient ? settledCssWidth.value : cssWidth.value;
+        const rasterCssWidth = transient ? Math.min(settledCssWidth.value, cssWidth.value) : cssWidth.value;
         const normalWidth = resolveThumbnailRasterWidth(rasterCssWidth * (transient ? 1 : settledScale));
         const currentWidth = resolveThumbnailRasterWidth(cssWidth.value * settledScale);
         pruneRenderFailures(retainedPages);
@@ -544,16 +562,17 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             // A page whose retries are exhausted stays out of the demand set until
             // its error is cleared, so one broken page neither retries forever nor
             // competes with its neighbours for a render slot. A page still holding
-            // an older thumbnail keeps it instead, pinned to the width that page's
-            // committed render asked for: that is the width the scheduler compares
-            // a settled demand against, so the demand reads as satisfied and the
-            // page neither renders again nor loses the surface the row is showing.
-            // Any other width — the width the rail now wants, or the raster the
-            // provider actually leased, which it may shrink — reads as unsatisfied
-            // and restarts the retry loop this branch exists to stop.
+            // an older thumbnail keeps it instead, pinned to the width and page
+            // revision that page's committed render asked for: those are what the
+            // scheduler compares a settled demand against, so the demand reads as
+            // satisfied and the page neither renders again nor loses the surface
+            // the row is showing. Any other width or revision — what the rail now
+            // wants, or the raster the provider actually leased, which it may
+            // shrink — reads as unsatisfied and restarts the retry loop this
+            // branch exists to stop.
             if (renderErrors.has(pageNumber)) {
-                const committedWidthPx = states.get(pageNumber)?.requestWidthPx;
-                if (committedWidthPx === undefined) {
+                const committed = states.get(pageNumber);
+                if (!committed) {
                     continue;
                 }
                 demand.push({
@@ -562,7 +581,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                     priority: 'thumbnail',
                     quality: 'settled',
                     rank: isCurrent ? 0 : isVisiblePage ? 1 : 2,
-                    widthPx: committedWidthPx,
+                    revision: committed.revision,
+                    widthPx: committed.requestWidthPx,
                 });
                 continue;
             }
@@ -573,6 +593,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                 priority: 'thumbnail',
                 quality: isCurrent ? 'settled' : quality,
                 rank: isCurrent ? 0 : isVisiblePage ? 1 : 2,
+                revision: resolvePageRevision(pageNumber),
                 widthPx,
             });
         }
@@ -695,7 +716,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         return (Date.now() - lastManualInteractionAtMs) < DOCUMENT_THUMBNAIL_AUTO_FOLLOW_COOLDOWN_MS;
     }
 
-    function revealCurrentPage(optionsOverride: {force?: boolean} = {}) {
+    function revealPage(pageNumber: number, optionsOverride: {force?: boolean} = {}) {
         const source = options.source.value;
         const root = options.scrollRoot.value;
         if (
@@ -707,15 +728,16 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         ) {
             return;
         }
-        const page = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
+        const page = Math.min(source.pageCount, Math.max(1, pageNumber));
         setActiveScrollSegmentForPage(page);
         const nextScrollTop = resolveDocumentThumbnailRevealScrollTop(
             getActiveScrollViewport(root),
             resolveDocumentThumbnailPageBounds(page, getActiveSegmentLayout()),
         );
         if (nextScrollTop !== null && Math.abs(root.scrollTop - nextScrollTop) >= 1) {
-            lastProgrammaticScrollAtMs = Date.now();
             writeScrollTop(root, nextScrollTop);
+            // Mount the revealed rows in the next patch, not after the scroll event.
+            viewportRevision.value += 1;
         }
     }
 
@@ -759,7 +781,21 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
 
     watch(
         options.source,
-        async source => {
+        async (source, previous) => {
+            // With page revisions, a reloaded source of the same document keeps
+            // the rows and their thumbnails; pages re-render as keys change.
+            if (
+                options.pageRevision.value
+                && source
+                && previous
+                && source.documentRef === previous.documentRef
+                && source.pageCount === previous.pageCount
+            ) {
+                metricsCache.clear();
+                clearRenderFailures();
+                scheduleRefresh();
+                return;
+            }
             lastManualInteractionAtMs = 0;
             scheduler.reset();
             states.clear();
@@ -780,16 +816,21 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             layoutRevision.value += 1;
             await nextTick();
             measureViewport();
-            revealCurrentPage({force: true});
+            revealPage(options.currentPage.value, {force: true});
             readCurrentAnchor();
             scheduleRefresh();
         },
         {immediate: true},
     );
+    // A changed key may carry a rotation, so page metrics are read again.
+    watch(options.pageRevision, () => {
+        metricsCache.clear();
+        scheduleRefresh();
+    });
     watch(options.currentPage, async () => {
         setActiveScrollSegmentForPage(options.currentPage.value);
         await nextTick();
-        revealCurrentPage();
+        revealPage(options.currentPage.value);
         readCurrentAnchor();
         viewportRevision.value += 1;
         scheduleRefresh();
@@ -812,7 +853,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
         await nextTick();
         measureViewport();
-        revealCurrentPage({force: true});
+        revealPage(options.currentPage.value, {force: true});
         readCurrentAnchor();
         viewportRevision.value += 1;
         scheduleRefresh();
@@ -833,14 +874,14 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         resizeObserver = new ResizeObserver(() => {
             const wasVisible = isVisible.value;
             measureViewport();
-            if (!wasVisible && isVisible.value && options.isActive.value) revealCurrentPage({force: true});
+            if (!wasVisible && isVisible.value && options.isActive.value) revealPage(options.currentPage.value, {force: true});
             scheduleRefresh();
             scheduleResizeSettle();
         });
         const root = options.scrollRoot.value;
         if (root) resizeObserver.observe(root);
         measureViewport();
-        revealCurrentPage({force: true});
+        revealPage(options.currentPage.value, {force: true});
         scheduleRefresh();
     });
     onBeforeUnmount(() => {
@@ -866,6 +907,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         handleWheel: markManualInteraction,
         renderErrors: renderErrors as ReadonlySet<number>,
         retryRender,
+        revealPage: (pageNumber: number) => revealPage(pageNumber, {force: true}),
         scheduleRefresh,
         states,
         virtualItems,

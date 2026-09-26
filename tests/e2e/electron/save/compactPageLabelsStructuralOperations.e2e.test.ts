@@ -75,10 +75,6 @@ interface IPageMutationFrame {
         painted: boolean;
         sameCanvas: boolean;
         canvasSize: [number, number] | null;
-        renderKey: string | null;
-        sameRenderKey: boolean;
-        rendered: boolean;
-        preserved: boolean
     }>;
     scrollTop: number | null;
     operationBusy: boolean | null;
@@ -86,7 +82,6 @@ interface IPageMutationFrame {
 
 interface IPageMutationProbeFields {
     __pageMutationBaselineCanvases?: Map<number, HTMLCanvasElement>;
-    __pageMutationBaselineRenderKeys?: Map<number, string | null>;
     __pageMutationCanvasResets?: Array<{
         page: number;
         stack: string | null
@@ -555,17 +550,17 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: 60_000});
         await waitForAnimationFrames(session.page, 4);
         await session.page.waitForFunction(() => {
-            const item = document.querySelector<HTMLElement>('[data-document-thumbnail-item][data-page="2"]');
+            const item = document.querySelector<HTMLElement>('[data-thumbnail-page="2"]');
             const page = document.querySelector<HTMLElement>('.page_container[data-page="2"]');
             return Boolean(item && page?.querySelector('canvas'));
         }, {timeout: 60_000});
         await session.page.waitForFunction(() => {
-            const item = document.querySelector<HTMLElement>('[data-document-thumbnail-item][data-page="2"]');
+            const item = document.querySelector<HTMLElement>('[data-thumbnail-page="2"]');
             const thumbnailCanvas = item?.querySelector<HTMLCanvasElement>('canvas');
             const page = document.querySelector<HTMLElement>('.page_container[data-page="2"]');
             const pageCanvas = page?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer > canvas');
             if (
-                thumbnailCanvas?.dataset.thumbnailRendered !== 'true'
+                !thumbnailCanvas
                 || !pageCanvas
                 || pageCanvas.width === 0
                 || pageCanvas.height === 0
@@ -600,7 +595,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 3,
             ].every(pageNumber => {
                 const item = activeHost?.querySelector<HTMLElement>(
-                    `[data-document-thumbnail-item][data-page="${pageNumber}"]`,
+                    `[data-thumbnail-page="${pageNumber}"]`,
                 );
                 return Boolean(item && (
                     Array.from(item.querySelectorAll('canvas')).some(canvas => canvas.width > 0 && canvas.height > 0)
@@ -617,7 +612,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 3,
             ].map(pageNumber => {
                 const item = activeHost?.querySelector<HTMLElement>(
-                    `[data-document-thumbnail-item][data-page="${pageNumber}"]`,
+                    `[data-thumbnail-page="${pageNumber}"]`,
                 ) ?? null;
                 return {
                     page: pageNumber,
@@ -638,7 +633,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
             ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const widthDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'width');
             const baselineCanvases = probe.__pageMutationBaselineCanvases = new Map<number, HTMLCanvasElement>();
-            const baselineRenderKeys = probe.__pageMutationBaselineRenderKeys = new Map<number, string | null>();
             const canvasResets: NonNullable<IPageMutationProbeFields['__pageMutationCanvasResets']> = [];
             const frameSamples: IPageMutationFrame[] = [];
             probe.__pageMutationCanvasResets = canvasResets;
@@ -648,16 +642,12 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 3,
             ]) {
                 const canvas = activeHost?.querySelector<HTMLCanvasElement>(
-                    `[data-document-thumbnail-item][data-page="${pageNumber}"] canvas`,
+                    `[data-thumbnail-page="${pageNumber}"] canvas`,
                 );
                 if (!canvas || !widthDescriptor?.get || !widthDescriptor.set) {
                     continue;
                 }
                 baselineCanvases.set(pageNumber, canvas);
-                baselineRenderKeys.set(
-                    pageNumber,
-                    canvas.dataset.thumbnailRenderKey ?? null,
-                );
                 Object.defineProperty(canvas, 'width', {
                     configurable: true,
                     enumerable: true,
@@ -751,7 +741,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 const viewer = activeHost?.querySelector<HTMLElement>('.document-viewer-viewport') ?? null;
                 const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
                 const pageRect = target?.getBoundingClientRect();
-                if (!probe.__pageMutationBaselineCanvases || !probe.__pageMutationBaselineRenderKeys) {
+                if (!probe.__pageMutationBaselineCanvases) {
                     return;
                 }
                 const pageCanvases = Array.from(target?.querySelectorAll<HTMLCanvasElement>(
@@ -789,7 +779,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                 const sidebar = activeHost?.querySelector<HTMLElement>('[data-testid="document-sidebar"]') ?? null;
                 const sidebarRect = sidebar?.getBoundingClientRect();
                 const targetThumbnail = activeHost?.querySelector<HTMLElement>(
-                    '[data-document-thumbnail-item][data-page="2"]',
+                    '[data-thumbnail-page="2"]',
                 ) ?? null;
                 const targetThumbnailCanvas = targetThumbnail?.querySelector<HTMLCanvasElement>('canvas') ?? null;
                 const targetThumbnailPaint = inspectCanvas(targetThumbnailCanvas);
@@ -801,7 +791,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
                     3,
                 ].map(pageNumber => {
                     const item = activeHost?.querySelector<HTMLElement>(
-                        `[data-document-thumbnail-item][data-page="${pageNumber}"]`,
+                        `[data-thumbnail-page="${pageNumber}"]`,
                     ) ?? null;
                     const canvas = item?.querySelector<HTMLCanvasElement>('canvas') ?? null;
                     const painted = Boolean(item && (
@@ -817,11 +807,6 @@ describe('Electron E2E, compact page labels through structural operations', () =
                             canvas.width,
                             canvas.height,
                         ] as [number, number] : null,
-                        renderKey: canvas?.dataset.thumbnailRenderKey ?? null,
-                        sameRenderKey: canvas?.dataset.thumbnailRenderKey
-                            === baselineRenderKeys.get(pageNumber),
-                        rendered: canvas?.dataset.thumbnailRendered === 'true',
-                        preserved: canvas?.dataset.thumbnailPreservedBitmap === 'true',
                     };
                 });
                 const pageSkeleton = target?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
@@ -905,7 +890,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
 
         const thumbnailPoint = await session.page.evaluate(() => {
             const item = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-document-thumbnail-item][data-page="2"]',
+                '.editor-pane.is-active [data-thumbnail-page="2"]',
             );
             if (!item) {
                 return null;
@@ -1093,18 +1078,12 @@ describe('Electron E2E, compact page labels through structural operations', () =
             item.painted,
             item.sameCanvas,
             item.canvasSize,
-            item.renderKey,
-            item.sameRenderKey,
-            item.rendered,
         ])).toEqual(initialFrame.neighbourThumbnails.map(item => [
             item.page,
             item.label,
             item.painted,
             item.sameCanvas,
             item.canvasSize,
-            item.renderKey,
-            item.sameRenderKey,
-            item.rendered,
         ]));
         expect(firstRotatedRaster.zoom).toBe(finalFrame.zoom);
         expect(sampledFrames.slice(firstRotatedRasterIndex).every(frame => frame.zoom === finalFrame.zoom)).toBe(true);

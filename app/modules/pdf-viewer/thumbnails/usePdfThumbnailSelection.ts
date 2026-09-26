@@ -51,7 +51,7 @@ function resolveRowPageFromElement(target: EventTarget | null) {
     if (!(target instanceof Element)) {
         return null;
     }
-    const page = Number(target.closest<HTMLElement>('[data-page]')?.dataset.page);
+    const page = Number(target.closest<HTMLElement>('[data-thumbnail-page]')?.dataset.thumbnailPage);
     return Number.isInteger(page) ? page : null;
 }
 
@@ -75,7 +75,6 @@ interface IUsePdfThumbnailSelectionOptions {
     onSelectionRefused?: (reason: IPdfThumbnailSelectionRefusal) => void;
     onSelectedPagesChange?: (pages: number[]) => void;
     onPageSelectionChange?: ((selection: TPageSelection) => void) | undefined;
-    renderedPages: ComputedRef<number[]>;
     scrollPageIntoKeyboardView: (page: number) => void | Promise<void>;
     selectedPages?: ComputedRef<number[]>;
     selectedPageSelection?: ComputedRef<TPageSelection | null> | undefined;
@@ -97,7 +96,6 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         onSelectionRefused = () => {},
         onSelectedPagesChange = () => {},
         onPageSelectionChange,
-        renderedPages,
         scrollPageIntoKeyboardView,
         selectedPages = computed(() => []),
         selectedPageSelection,
@@ -144,23 +142,10 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
             : selectedPagesSet.value?.has(page) === true;
     }
 
-    /**
-     * The single row that carries `tabindex=0`. Keyboard focus is deliberately
-     * independent of selection, and it is clamped into the virtualized window
-     * so the rail always keeps exactly one tab stop even after the user has
-     * scrolled the focused row out of the rendered range.
-     */
-    const rovingFocusPage = computed(() => {
-        const pages = renderedPages.value;
-        const firstRenderedPage = pages[0];
-        const lastRenderedPage = pages.at(-1);
-        if (firstRenderedPage === undefined || lastRenderedPage === undefined) {
-            return null;
-        }
-
-        const target = keyboardFocusPage.value ?? clampPage(currentPage.value);
-        return Math.min(Math.max(target, firstRenderedPage), lastRenderedPage);
-    });
+    /** The keyboard-focused row, independent of selection. */
+    const rovingFocusPage = computed(() => (
+        totalPages.value > 0 ? keyboardFocusPage.value ?? clampPage(currentPage.value) : null
+    ));
 
     function focusThumbnailPage(page: number) {
         keyboardFocusPage.value = page;

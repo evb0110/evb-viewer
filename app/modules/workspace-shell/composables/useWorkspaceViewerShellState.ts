@@ -13,7 +13,6 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 import { useDropdownManager } from '@app/modules/workspace-shell/composables/useDropdownManager';
 import type {
     IDocumentViewerExpose,
-    IPdfPageRasterScheduler,
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type {
@@ -134,7 +133,6 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     const currentPage = ref(Math.max(1, Math.trunc(initialState?.currentPage ?? 1)));
     const totalPages = ref(0);
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
-    const pdfRasterScheduler = shallowRef<IPdfPageRasterScheduler | null>(null);
     const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
 
     watch(totalPages, (pageCount) => {
@@ -188,7 +186,6 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         currentPage,
         totalPages,
         pdfDocument,
-        pdfRasterScheduler,
         documentPageSource,
         isLoading,
         dragMode,

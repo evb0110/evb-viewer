@@ -12,6 +12,8 @@ export interface IDocumentThumbnailDemand {
     priority: TDocumentRenderPriority;
     quality: TDocumentThumbnailQuality;
     rank: number;
+    /** The page's render key; a changed key re-renders a committed page. */
+    revision: string;
     widthPx: number;
 }
 
@@ -20,6 +22,8 @@ export interface IDocumentThumbnailCommittedState {
     pageNumber: number;
     /** Width the accepted demand asked for; the leased raster may be smaller. */
     requestWidthPx: number;
+    /** The page render key of the accepted demand. */
+    revision: string;
     surface: IDocumentRenderLease['surface'];
     widthPx: number;
 }
@@ -72,10 +76,13 @@ function normalizeDemand(demand: IDocumentThumbnailDemand): IDocumentThumbnailDe
 }
 
 function demandKey(demand: IDocumentThumbnailDemand) {
-    return `${String(demand.pageNumber)}:${String(demand.widthPx)}`;
+    return `${String(demand.pageNumber)}:${String(demand.widthPx)}:${demand.revision}`;
 }
 
 function isCommittedDemandSatisfied(entry: ICommittedEntry, demand: IDocumentThumbnailDemand) {
+    if (entry.revision !== demand.revision) {
+        return false;
+    }
     return demand.quality === 'transient'
         ? entry.requestWidthPx >= demand.widthPx
         : entry.requestWidthPx === demand.widthPx;
@@ -234,6 +241,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 surface: lease.surface,
                 lease,
                 requestWidthPx: demand.widthPx,
+                revision: demand.revision,
                 releaseOnce: pendingLease.releaseOnce,
                 unsubscribe: null,
             };
@@ -246,6 +254,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 widthPx: entry.widthPx,
                 heightPx: entry.heightPx,
                 requestWidthPx: entry.requestWidthPx,
+                revision: entry.revision,
                 surface: entry.surface,
             });
             if (previous && previous !== entry) {
@@ -254,7 +263,11 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 previous.releaseOnce.release();
             }
         } catch (error) {
-            if (!controller.signal.aborted && !isAbortError(error)) options.onError?.(error, demand);
+            if (!controller.signal.aborted && isAbortError(error)) {
+                // The source refused the page, as a closing document does;
+                // asking again at once would spin, so the next reconcile asks.
+                if (desired.get(pageNumber) === demand) desired.delete(pageNumber);
+            } else if (!controller.signal.aborted) options.onError?.(error, demand);
         } finally {
             if (renderTimer !== null) {
                 clearTimeout(renderTimer);

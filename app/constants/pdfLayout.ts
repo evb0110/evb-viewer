@@ -64,5 +64,3 @@ export function resolveNoteWindowAnchorZIndex(order: number) {
         NOTE_WINDOW.ANCHOR_Z_INDEX_SLOTS - 1,
     );
 }
-
-export const THUMBNAIL_WIDTH = 150;

@@ -7,11 +7,6 @@ import { clamp } from 'es-toolkit/math';
 import type { ComputedRef } from 'vue';
 import type { TaggedUnion } from 'type-fest';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    createNativeDocumentRefValue,
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
@@ -32,8 +27,6 @@ import {
 import { isPathPdfSource } from '@app/modules/pdf-viewer/engine/pdf-document-source/isPathPdfSource';
 import { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
 import { usePdfOpeningGeometryLifecycle } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfOpeningGeometryLifecycle';
-import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
-import { createPdfPageSource } from '@app/modules/document-viewer/public';
 import { pdfjsDocumentTeardownCoordinator } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 import {
     createPdfjsDocumentSourceLoader,
@@ -134,14 +127,12 @@ export interface ICreatePdfDocumentSessionOptions {
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null> | undefined;
     originalDocumentId?: ComputedRef<string | null> | undefined;
     currentPage?: ComputedRef<number> | undefined;
-    pageSourceDocumentRef?: ComputedRef<TDocumentRef | null> | undefined;
     isActive?: ComputedRef<boolean> | undefined;
     isAnySaving?: ComputedRef<boolean> | undefined;
     emitDocument?: ((document: IPdfDocument | null) => void) | undefined;
     emitTotalPages?: ((total: number) => void) | undefined;
     emitLoading?: ((loading: boolean) => void) | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
-    emitRasterScheduler?: ((scheduler: IPdfPageRasterScheduler | null) => void) | undefined;
 }
 
 function isRewriteOfSameDocument(previous: TPdfSource | null, next: TPdfSource) {
@@ -859,10 +850,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function clearAcceptedDocumentState() {
-        if (activeRasterScheduler) {
-            activeRasterScheduler = null;
-            options.emitRasterScheduler?.(null);
-        }
+        activeRasterScheduler = null;
         pageCache.cleanupAll();
         pageMetricLoads.clear();
         const document = pdfDocument.value;
@@ -992,7 +980,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 reason: 'document-cleanup',
             });
             activeRasterScheduler = null;
-            options.emitRasterScheduler?.(null);
         }
         pageCache.cleanupAll();
         pageMetricLoads.clear();
@@ -1216,7 +1203,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const deferSelectiveDocumentPublish = activePlan.isSelectiveReload
             && activePlan.preserveVisibleContent;
         const publishLoadedDocument = () => {
-            options.emitRasterScheduler?.(activeRasterScheduler);
             options.emitDocument?.(pdfDocument.value);
             options.emitTotalPages?.(numPages.value);
         };
@@ -1372,51 +1358,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             src: options.src,
         });
     }
-
-    watch(
-        [
-            pdfDocument,
-            () => options.src?.value ?? null,
-            () => options.pageSourceDocumentRef?.value ?? null,
-        ],
-        ([
-            document,
-            source,
-            documentRef,
-        ], _previous, onCleanup) => {
-            const authority = options.chassisAuthority;
-            if (!authority || !document) {
-                if (authority?.source.value?.kind === 'pdf') {
-                    authority.bindSource(null);
-                }
-                return;
-            }
-            const sourceIdentifier = documentRef
-                ?? (typeof source === 'string' ? source : null)
-                ?? (typeof source === 'object' && source !== null && 'path' in source ? source.path : 'memory');
-            const pageSource = createPdfPageSource({
-                documentRef: documentRef
-                    ?? (typeof source === 'string' ? parseDocumentRef(source) : null)
-                    ?? createNativeDocumentRefValue('/memory/pdf').path,
-                pdfDocument: document,
-                getPage: pageNumber => pageCache.getPage(requirePageNumber(pageNumber, document.numPages)),
-                renderPage: request => renderPdfDocumentPageSource({
-                    document,
-                    request,
-                    surfaceBudget: authority.surfaceBudget,
-                    scopeId: `pdf-page-source:${sourceIdentifier}`,
-                }),
-            });
-            authority.bindSource(pageSource);
-            onCleanup(() => {
-                pageSource.dispose();
-                if (authority.source.value === pageSource) {
-                    authority.bindSource(null);
-                }
-            });
-        },
-        {immediate: true},
-    );
 
     const isEffectivelyLoading = computed(() => Boolean(options.src?.value) && isLoading.value);
     watch(isEffectivelyLoading, value => options.emitLoading?.(value), { immediate: true });

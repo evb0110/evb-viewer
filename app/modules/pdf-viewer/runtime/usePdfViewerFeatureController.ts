@@ -121,7 +121,6 @@ export const usePdfViewerFeatureController = (
         documentRevisionToken,
         originalDocumentId: computed(() => props.originalPath ?? null),
         currentPage: viewerCurrentPage,
-        pageSourceDocumentRef: workingCopyPath,
         isActive,
         isAnySaving,
         emitDocument: document => emit('update:document', document),
@@ -131,7 +130,6 @@ export const usePdfViewerFeatureController = (
             emit('loading', loading);
         },
         emitLoadError: viewerEvents.loadError,
-        emitRasterScheduler: scheduler => emit('update:rasterScheduler', scheduler),
     });
 
     const {

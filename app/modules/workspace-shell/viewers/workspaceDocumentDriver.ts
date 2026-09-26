@@ -29,7 +29,6 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     IAnnotationCreationFailureReport,
     IDocumentViewerExpose,
-    IPdfPageRasterScheduler,
     IPdfViewerExpose,
     IAnnotationEnrichmentState,
 } from '@app/modules/pdf-viewer/public';
@@ -626,7 +625,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationToolCancel: () => void;
     onCurrentPageUpdate: (value: number) => void;
     onDocumentUpdate: (value: unknown) => void;
-    onRasterSchedulerUpdate: (scheduler: IPdfPageRasterScheduler | null) => void;
     onEffectiveZoomUpdate: (value: number) => void;
 
     onInitialVisualPending: () => void;
@@ -728,7 +726,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         'update:currentPage': options.onCurrentPageUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,
-        'update:rasterScheduler': options.onRasterSchedulerUpdate,
         loading: options.onLoading,
         loadError: options.onLoadError,
         initialVisualPending: options.onInitialVisualPending,

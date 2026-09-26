@@ -62,6 +62,7 @@ function commitSurface(pageNumber: number, surface: IDocumentThumbnailCommittedS
         heightPx: 252,
         pageNumber,
         requestWidthPx: 192,
+        revision: '',
         surface,
         widthPx: 180,
     });

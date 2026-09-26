@@ -283,16 +283,6 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(400);
     });
 
-    it('rejects one-shot requests outside navigation-target', async () => {
-        const harness = createHarness();
-
-        await expect(harness.scheduler.request({
-            sourceId: 'viewport',
-            demand: createDemand(1, 'viewport-visible'),
-            target: harness.target,
-        })).rejects.toThrow('navigation-target');
-    });
-
     it('preempts lower-priority same-page work and waits for its PDF.js task to settle', async () => {
         const page = cast<IPdfPage>({pageNumber: 7});
         const lowTask = Promise.withResolvers<undefined>();

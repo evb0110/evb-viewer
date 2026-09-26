@@ -196,18 +196,16 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             }
         }
 
-        const thumbs = el.querySelectorAll('.pdf-thumbnail');
-        for (let i = 0; i < thumbs.length; i++) {
-            const thumb = thumbs[i];
-            if (!thumb) {
-                continue;
-            }
-            const rect = thumb.getBoundingClientRect();
+        // Only a window of rows is mounted, so indexes come from their pages.
+        let lastPage = 0;
+        for (const row of el.querySelectorAll<HTMLElement>('[data-thumbnail-page]')) {
+            const rect = row.getBoundingClientRect();
+            lastPage = Number(row.dataset.thumbnailPage);
             if (clientY < rect.top + rect.height / 2) {
-                return i;
+                return clamp(lastPage - 1, 0, totalPages.value);
             }
         }
-        return thumbs.length;
+        return clamp(lastPage, 0, totalPages.value);
     }
 
     function prepareDragReorderContext(

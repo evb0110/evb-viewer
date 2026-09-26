@@ -41,6 +41,7 @@ function demand(
         priority: rank === 0 ? 'navigation' : 'visible',
         quality: 'settled',
         rank,
+        revision: '',
         widthPx,
     };
 }

@@ -824,9 +824,6 @@ export function createPdfPageRasterScheduler(
         demand: IPdfRasterDemand;
         target: IPdfRasterRenderTarget<TPrepared>;
     }) {
-        if (requestOptions.demand.lane !== 'navigation-target') {
-            return Promise.reject(new TypeError('PdfPageRasterScheduler.request() accepts navigation-target demand only'));
-        }
         if (
             !accepting
             || !isSameDocumentFence(requestOptions.demand.documentFence, options.documentFence)

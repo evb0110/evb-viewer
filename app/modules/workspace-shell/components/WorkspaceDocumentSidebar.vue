@@ -9,7 +9,7 @@
         :is-active="isActive"
         :is-resizing="search.isPointerResizingSidebar.value"
         :pdf-document="view.pdfDocument.value"
-        :raster-scheduler="view.pdfRasterScheduler.value"
+        :page-source="view.documentPageSource.value"
         :page-geometry="thumbnailPageGeometry"
         :current-page="view.currentPage.value"
         :total-pages="view.totalPages.value"
@@ -133,11 +133,10 @@ const isReader = computed(() => context.scanCleanup.surfaceMode.value === 'reade
 const pdfViewer = computed(() => view.pdfViewerRef.value);
 const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
     const viewer = pdfViewer.value;
-    if (!viewer?.pageMetrics || !viewer.ensurePageMetricsInRange) {
+    if (!viewer?.pageMetrics) {
         return null;
     }
     return {
-        ensureRange: viewer.ensurePageMetricsInRange,
         metrics: toRaw(viewer.pageMetrics),
         version: viewer.pageMetricsVersion ?? 0,
     };

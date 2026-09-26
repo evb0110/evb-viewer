@@ -2906,7 +2906,7 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                 // after the navigation lands.
                 const paneMoving = lastPaneWidth !== undefined && lastPaneWidth - paneWidth >= 12;
                 lastPaneWidth = paneWidth;
-                const item = document.querySelector<HTMLElement>(`[data-document-thumbnail-item][data-page="${target}"]`);
+                const item = document.querySelector<HTMLElement>(`[data-thumbnail-page="${target}"]`);
                 // The rail reveals the current page while its rows are still
                 // being measured, which resets an earlier scroll. Keep
                 // scrolling toward the target until its row is mounted.

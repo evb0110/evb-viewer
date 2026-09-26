@@ -1,31 +1,27 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IAnnotationCommentSummary,
     IAnnotationSettings,
 } from '@app/types/annotations';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
-import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
+import type {
+    IDocumentPageSource,
+    TDocumentPageLabelLookup,
+} from '@app/modules/document-viewer/public';
 import type {
     TPageMoveOperation,
     TPageSelection,
 } from '@contracts/pageNumbers';
 
-/**
- * The viewer's document session owns page geometry. The rail reads it here
- * and asks for the pages it lays out instead of measuring pages itself.
- */
+/** The viewer's page geometry; a page's presented rotation keys its thumbnail. */
 export interface IPdfThumbnailPageGeometry {
-    ensureRange: (startPage: number, endPage: number) => Promise<boolean>;
     metrics: readonly IPdfPageMetric[];
     version: number;
 }
 
 export interface IPdfThumbnailsProps {
-    pdfDocument: IPdfDocument | null;
-    rasterScheduler: IPdfPageRasterScheduler | null;
+    source: IDocumentPageSource | null;
     pageGeometry?: IPdfThumbnailPageGeometry | null | undefined;
     currentPage: number;
     totalPages: number;

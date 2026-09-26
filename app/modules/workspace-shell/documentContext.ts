@@ -971,7 +971,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             onAnnotationToolCancel: annotations.handleAnnotationToolCancel,
             onCurrentPageUpdate: handleCurrentPage,
             onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
-            onRasterSchedulerUpdate: (scheduler) => { view.pdfRasterScheduler.value = scheduler; },
             onEffectiveZoomUpdate: (value) => { view.effectiveZoom.value = value; },
             onInitialVisualPending: options.onInitialVisualPending,
             onInitialVisualReady: options.onInitialVisualReady,

@@ -787,64 +787,6 @@ describe('PdfDocumentSession range loading', () => {
         expect(getPage).not.toHaveBeenCalled();
     });
 
-    it('routes page-source metric hydration through the bounded PDF page cache', async () => {
-        const loadedPages: Array<{
-            cleanup: ReturnType<typeof vi.fn>;
-            pageNumber: number;
-        }> = [];
-        const getPage = vi.fn(async (pageNumber: number) => {
-            const page = {
-                cleanup: vi.fn(),
-                getViewport: vi.fn(() => ({
-                    width: 200,
-                    height: 400,
-                })),
-                pageNumber,
-            };
-            loadedPages.push(page);
-            return page;
-        });
-        const pageCount = maxCachedPdfPages + 1;
-        pdfjsState.getDocument.mockReturnValue({
-            promise: Promise.resolve({
-                numPages: pageCount,
-                getPage,
-                destroy: vi.fn(),
-            }),
-            destroy: vi.fn(),
-        });
-        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-        ]));
-
-        const authority = createDocumentViewerRuntime(ref('pdf'));
-        const documentState = createPdfDocumentSession({chassisAuthority: authority});
-        try {
-            await documentState.loadPdf({
-                kind: 'path',
-                path: requireDocumentRef('/tmp/page-source-metric-cache.pdf'),
-                size: 2048,
-            });
-            await nextTick();
-
-            const pageSource = authority.source.value;
-            expect(pageSource).not.toBeNull();
-            if (!pageSource) {
-                throw new Error('PDF page source was not bound');
-            }
-            for (let pageNumber = 2; pageNumber <= pageCount; pageNumber += 1) {
-                await pageSource.getPageMetrics(pageNumber);
-            }
-
-            expect(loadedPages[0]?.cleanup).toHaveBeenCalledTimes(1);
-        } finally {
-            documentState.cleanup();
-        }
-    });
-
     it('surfaces a load error when PDF.js range transport API is unavailable', async () => {
         delete pdfjsState.PDFDataRangeTransport;
         electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([

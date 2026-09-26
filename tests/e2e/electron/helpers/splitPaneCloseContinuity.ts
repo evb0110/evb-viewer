@@ -64,9 +64,7 @@ async function prepareThumbnailRail(
         if (!root || root.clientHeight <= 0) {
             return false;
         }
-        const item = payload.documentKind === 'pdf'
-            ? root.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${String(payload.targetPageNumber)}"]`)
-            : root.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`);
+        const item = root.querySelector<HTMLElement>(`[data-thumbnail-page="${String(payload.targetPageNumber)}"]`);
         if (!item) {
             // A virtualized rail only mounts items near the scroll position, so
             // sweep until the target page mounts instead of waiting forever.
@@ -362,9 +360,7 @@ async function installContinuityProbe(
         };
 
         const readThumbnailAnchor = (): IThumbnailSnapshot => {
-            const itemSelector = payload.documentKind === 'pdf'
-                ? '.pdf-thumbnail[data-page]'
-                : '[data-thumbnail-page]';
+            const itemSelector = '[data-thumbnail-page]';
             const viewportRect = sourceThumbnailSurface.getBoundingClientRect();
             const visibleItems = Array.from(
                 sourceThumbnailSurface.querySelectorAll<HTMLElement>(itemSelector),
@@ -387,12 +383,7 @@ async function installContinuityProbe(
             }).length;
             return {
                 pageNumber: anchorItem
-                    ? Number.parseInt(
-                        payload.documentKind === 'pdf'
-                            ? anchorItem.dataset.page ?? ''
-                            : anchorItem.dataset.thumbnailPage ?? '',
-                        10,
-                    ) || null
+                    ? Number.parseInt(anchorItem.dataset.thumbnailPage ?? '', 10) || null
                     : null,
                 readyVisiblePageCount,
                 scrollTop: sourceThumbnailSurface.scrollTop,

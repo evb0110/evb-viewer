@@ -9,10 +9,21 @@ import type {
     TPdfViewRotation,
     TPdfViewMode,
 } from '@app/types/pdfContracts';
+import {
+    createNativeDocumentRefValue,
+    parseDocumentRef,
+} from '@contracts/documentRef';
 import { runGuardedTask } from '@app/utils/asyncGuard';
-import type {
-    IDocumentViewerRuntime, IDocumentOpenSurfaceRenderOwner,
+import {
+    createPdfPageSource,
+    type IDocumentPageRenderRequest,
+    type IDocumentViewerRuntime,
+    type IDocumentOpenSurfaceRenderOwner,
 } from '@app/modules/document-viewer/public';
+import {
+    renderPdfDocumentPageSource,
+    renderPdfDocumentThumbnail,
+} from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { usePdfPageRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -1096,6 +1107,105 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         isPageRendered: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         applySearchHighlights: pageRenderer.applySearchHighlights,
     });
+    function waitForLoadedDocument(signal: AbortSignal) {
+        const isLoaded = () => documentSession.pdfDocument.value !== null && !documentSession.isLoading.value;
+        if (isLoaded()) {
+            return Promise.resolve();
+        }
+        return new Promise<void>((resolve, reject) => {
+            const stop = watch(isLoaded, (loaded) => {
+                if (loaded) {
+                    stop();
+                    signal.removeEventListener('abort', abort);
+                    resolve();
+                }
+            });
+            function abort() {
+                stop();
+                reject(signal.reason);
+            }
+            signal.addEventListener('abort', abort, {once: true});
+        });
+    }
+    async function renderThumbnail(request: IDocumentPageRenderRequest) {
+        await waitForLoadedDocument(request.signal);
+        const scheduler = documentSession.rasterScheduler;
+        if (!scheduler) {
+            throw new DOMException('The PDF document closed', 'AbortError');
+        }
+        return renderPdfDocumentThumbnail({
+            scheduler,
+            request,
+            rotation: documentSession.pageMetrics.value[request.pageNumber - 1]?.rotation,
+            hiddenAnnotationIds: pageRenderer.canvasHiddenAnnotationIds.value,
+        });
+    }
+    // The chassis page source. A reload of the same document keeps the bound
+    // source until its successor is ready, so the rail keeps its thumbnails
+    // through a save.
+    watch(
+        [
+            documentSession.pdfDocument,
+            documentSession.acceptedSource,
+            options.workingCopyPath,
+        ],
+        ([
+            document,
+            source,
+            documentRef,
+        ], _previous, onCleanup) => {
+            const authority = options.chassisAuthority;
+            if (!authority || !document) {
+                if (!source && authority?.source.value?.kind === 'pdf') {
+                    authority.bindSource(null);
+                }
+                return;
+            }
+            // The source outlives its document while a reload runs; a page it
+            // asks for then belongs to no document, which is no render failure.
+            const refuseReplaced = () => {
+                if (documentSession.pdfDocument.value !== document) {
+                    throw new DOMException('The PDF document was replaced', 'AbortError');
+                }
+            };
+            const sourceIdentifier = documentRef
+                ?? (typeof source === 'string' ? source : null)
+                ?? (typeof source === 'object' && source !== null && 'path' in source ? source.path : 'memory');
+            const pageSource = createPdfPageSource({
+                documentRef: documentRef
+                    ?? (typeof source === 'string' ? parseDocumentRef(source) : null)
+                    ?? createNativeDocumentRefValue('/memory/pdf').path,
+                pdfDocument: document,
+                getPage: (pageNumber) => {
+                    refuseReplaced();
+                    return documentSession.getPage(requirePageNumber(pageNumber, document.numPages));
+                },
+                // The page geometry, including a rotation preview.
+                getPageMetrics: async (pageNumber) => {
+                    await documentSession.ensurePageMetricsInRange(pageNumber, pageNumber);
+                    const metric = documentSession.pageMetrics.value[pageNumber - 1];
+                    return metric && {
+                        widthPoints: metric.width,
+                        heightPoints: metric.height,
+                        rotation: ((Math.round((metric.rotation ?? 0) / 90) * 90 % 360 + 360) % 360) as 0 | 90 | 180 | 270,
+                    };
+                },
+                renderPage: request => renderPdfDocumentPageSource({
+                    document,
+                    request,
+                    surfaceBudget: authority.surfaceBudget,
+                    scopeId: `pdf-page-source:${sourceIdentifier}`,
+                }),
+                renderThumbnail: (request) => {
+                    refuseReplaced();
+                    return renderThumbnail(request);
+                },
+            });
+            authority.bindSource(pageSource);
+            onCleanup(() => pageSource.dispose());
+        },
+        {immediate: true},
+    );
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
         if (!transition.isCurrent()) {
             return;
@@ -1141,6 +1251,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     });
     documentSession.registerDisposable(async () => {
         disposed = true;
+        if (options.chassisAuthority?.source.value?.kind === 'pdf') {
+            options.chassisAuthority.bindSource(null);
+        }
         unsubscribeDocumentTransitions();
         stopDemandWatch();
         stopCancelRasterWatch();

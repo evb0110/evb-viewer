@@ -53,8 +53,7 @@
                 />
                 </template>
                     <PdfThumbnails
-                        :pdf-document="pdfDocument"
-                        :raster-scheduler="rasterScheduler"
+                        :source="pageSource"
                         :page-geometry="pageGeometry"
                         :current-page="currentPage"
                         :total-pages="totalPages"
@@ -155,8 +154,10 @@ import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentS
 import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/public';
 import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
 import { SIDEBAR } from '@app/constants/pdfLayout';
-import type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
+import type {
+    IDocumentPageSource,
+    TDocumentPageLabelLookup,
+} from '@app/modules/document-viewer/public';
 import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
 type TPageSelectionInput = number[] | TPageSelection;
@@ -166,7 +167,7 @@ interface IProps {
     isActive?: boolean | undefined;
     isResizing?: boolean | undefined;
     pdfDocument: IPdfDocument | null;
-    rasterScheduler: IPdfPageRasterScheduler | null;
+    pageSource: IDocumentPageSource | null;
     pageGeometry?: IPdfThumbnailPageGeometry | null | undefined;
     currentPage: number;
     totalPages: number;
@@ -244,6 +245,7 @@ const {
     pageGeometry = undefined,
     pageLabelRanges = undefined,
     pageLabels = undefined,
+    pageSource,
     pdfDocument,
     searchError = undefined,
     searchFocusRequest = undefined,

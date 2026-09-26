@@ -17,7 +17,6 @@ import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/use
 function createSelectionHarness(options: {
     currentPage?: number;
     keyboardMove?: 'move' | 'reorder';
-    renderedPages?: number[];
     scrollPageIntoKeyboardView?: (page: number) => void | Promise<void>;
     selectedPages?: number[];
     totalPages?: number;
@@ -25,13 +24,6 @@ function createSelectionHarness(options: {
 } = {}) {
     const totalPages = ref(options.totalPages ?? 5);
     const currentPage = ref(options.currentPage ?? 2);
-    const renderedPages = ref(options.renderedPages ?? [
-        1,
-        2,
-        3,
-        4,
-        5,
-    ]);
     const selectedPages = ref(options.selectedPages ?? [
         2,
         4,
@@ -69,7 +61,6 @@ function createSelectionHarness(options: {
                 onPageSelectionChange,
                 selectedPageSelection: computed(() => selectedPageSelection.value),
             }),
-        renderedPages: computed(() => renderedPages.value),
         scrollPageIntoKeyboardView,
         selectedPages: computed(() => selectedPages.value),
         totalPages: computed(() => totalPages.value),
@@ -84,7 +75,6 @@ function createSelectionHarness(options: {
         onReorder,
         onSelectionRefused,
         onSelectedPagesChange,
-        renderedPages,
         scrollPageIntoKeyboardView,
         selection,
         selectedPages,
@@ -139,30 +129,16 @@ describe('usePdfThumbnailSelection', () => {
         expect(selectedPages.value).toEqual([2]);
     });
 
-    it('roves the tab stop from the current page and clamps it into the rendered window', () => {
+    it('roves the tab stop from the current page and drops it for an empty document', () => {
         const {
-            renderedPages,
             selection,
+            totalPages,
         } = createSelectionHarness({currentPage: 2});
 
         expect(selection.rovingFocusPage.value).toBe(2);
 
-        renderedPages.value = [
-            7,
-            8,
-            9,
-        ];
-        expect(selection.rovingFocusPage.value).toBe(7);
-
-        renderedPages.value = [];
+        totalPages.value = 0;
         expect(selection.rovingFocusPage.value).toBeNull();
-
-        renderedPages.value = [
-            10,
-            11,
-            12,
-        ];
-        expect(selection.rovingFocusPage.value).toBe(10);
     });
 
     it('moves keyboard focus with arrow keys without changing selection or the page', () => {
@@ -194,18 +170,6 @@ describe('usePdfThumbnailSelection', () => {
     it('clamps arrow focus at the document edges and supports Home, End and paging keys', () => {
         const {selection} = createSelectionHarness({
             currentPage: 1,
-            renderedPages: [
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-            ],
             totalPages: 10,
         });
 
@@ -248,7 +212,6 @@ describe('usePdfThumbnailSelection', () => {
     }) => {
         const harness = createSelectionHarness({
             currentPage,
-            renderedPages: Array.from({length: 20}, (_, index) => index + 1),
             scrollPageIntoKeyboardView: () => Promise.resolve(),
             totalPages: 20,
         });
@@ -312,7 +275,7 @@ describe('usePdfThumbnailSelection', () => {
             selection,
         } = createSelectionHarness({currentPage: 2});
         const row = document.createElement('div');
-        row.dataset.page = '2';
+        row.dataset.thumbnailPage = '2';
         const toggle = document.createElement('button');
         row.append(toggle);
         document.body.append(row);
@@ -335,15 +298,16 @@ describe('usePdfThumbnailSelection', () => {
         }
     });
 
-    it('ignores keyboard navigation before the virtualized window has rows', () => {
+    it('ignores keyboard navigation before the document has pages', () => {
         const {
             focusPageElement,
             onGoToPage,
-            renderedPages,
             scrollPageIntoKeyboardView,
             selection,
-        } = createSelectionHarness({currentPage: 2});
-        renderedPages.value = [];
+        } = createSelectionHarness({
+            currentPage: 2,
+            totalPages: 0,
+        });
 
         const event = keyEvent('ArrowDown');
         selection.handleContainerKeyDown(event);
@@ -357,7 +321,7 @@ describe('usePdfThumbnailSelection', () => {
     it('adopts the focused row when focus enters the rail', () => {
         const {selection} = createSelectionHarness({currentPage: 2});
         const row = document.createElement('div');
-        row.dataset.page = '4';
+        row.dataset.thumbnailPage = '4';
         const label = document.createElement('span');
         row.append(label);
 
