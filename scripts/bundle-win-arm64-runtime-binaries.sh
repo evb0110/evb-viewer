@@ -8,7 +8,7 @@ TMP_ROOT="${TMPDIR:-$PROJECT_ROOT/.devkit/tmp}"
 mkdir -p "$TMP_ROOT"
 BUILD_DIR="$(mktemp -d "$TMP_ROOT/msys2-arm64-XXXXXX")"
 PACKAGE_DIR="$BUILD_DIR/packages"
-STAGING="$BUILD_DIR/staging/clangarm64"
+STAGING="$BUILD_DIR/staging"
 PACKAGE_URL="https://repo.msys2.org/mingw/clangarm64"
 mkdir -p "$PACKAGE_DIR" "$STAGING"
 trap 'rm -rf -- "$BUILD_DIR"' EXIT
@@ -105,7 +105,7 @@ copy_runtime_dlls() {
   shopt -u nullglob
 }
 
-STAGING_BIN="$STAGING/bin"
+STAGING_BIN="$STAGING/clangarm64/bin"
 for family in poppler qpdf djvulibre; do
   rm -rf "$PROJECT_ROOT/resources/$family/$TARGET"
   mkdir -p "$PROJECT_ROOT/resources/$family/$TARGET/bin"
@@ -114,9 +114,9 @@ mkdir -p "$PROJECT_ROOT/resources/poppler/$TARGET/share" "$PROJECT_ROOT/resource
 for tool in pdfinfo pdftoppm pdftotext pdfimages pdftocairo; do
   cp "$STAGING_BIN/$tool.exe" "$PROJECT_ROOT/resources/poppler/$TARGET/bin/"
 done
-cp -R "$STAGING/share/poppler" "$PROJECT_ROOT/resources/poppler/$TARGET/share/"
-if [ -d "$STAGING/etc/fonts" ]; then
-  cp -R "$STAGING/etc/fonts" "$PROJECT_ROOT/resources/poppler/$TARGET/etc/"
+cp -R "$STAGING/clangarm64/share/poppler" "$PROJECT_ROOT/resources/poppler/$TARGET/share/"
+if [ -d "$STAGING/clangarm64/etc/fonts" ]; then
+  cp -R "$STAGING/clangarm64/etc/fonts" "$PROJECT_ROOT/resources/poppler/$TARGET/etc/"
 fi
 cp "$STAGING_BIN/qpdf.exe" "$PROJECT_ROOT/resources/qpdf/$TARGET/bin/"
 for tool in ddjvu djvused djvudump; do
