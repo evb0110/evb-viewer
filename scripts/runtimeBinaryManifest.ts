@@ -79,9 +79,9 @@ const RUNTIME_ARCHIVES = {
     'tesseract-darwin-arm64': {
         // Tesseract 5.5.3 built from the pinned source tarballs.
         releaseName: 'runtime-binaries-v2',
-        assetName: 'tesseract-darwin-arm64-5.5.3',
-        archiveBytes: 3302585,
-        archiveSha256: '7e3cd77ecccc3b24d026a549786fe90d1c8fc0cc3cfc5bf12646cc9ea5963549',
+        assetName: 'tesseract-darwin-arm64-5.5.3-r2',
+        archiveBytes: 3304377,
+        archiveSha256: '16e8faa547f3b93255869577d1277c598adeefeecb039569feda3dbe254fc0ab',
     },
     'tesseract-linux-x64': {
         // Versioned so the v1 runtime-binaries asset stays byte-identical.
@@ -163,5 +163,5 @@ export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
 export const RUNTIME_BINARY_MANIFEST: IRuntimeBinaryManifest = {
     entries: RUNTIME_BINARY_MANIFEST_ENTRIES,
     dataEntries: [TESSDATA_RUNTIME_DATA_ENTRY],
-    manifestSha256: '7bf4d618e145acd1988e0f51c1ea8ce91fdc90c9e326536cb9ed9f8603a73486',
+    manifestSha256: 'bc8b1c224b0c7d00f663ca2958cf6b27ef1aea93639e3282f6c18488f06bb5f4',
 };
