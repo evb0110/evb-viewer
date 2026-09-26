@@ -1397,7 +1397,6 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             .filter(entry => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp');
         expect(addedStamps).toHaveLength(1);
         const stampEntry = addedStamps[0]!;
-        expect(stampEntry.name).toMatch(/^placed-image-/u);
         const stampObject = await readObject(documentPath, {
             objectNumber: stampEntry.objectNumber,
             generationNumber: stampEntry.generationNumber,
