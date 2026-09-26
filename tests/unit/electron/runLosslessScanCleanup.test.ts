@@ -114,6 +114,15 @@ function analysisMetadata() {
             },
             inputWidthPx: 100,
             inputHeightPx: 100,
+            pdfPlacement: {
+                cropRect: {
+                    x: 0,
+                    y: 0,
+                    width: 612,
+                    height: 792,
+                },
+                contentScaled: false,
+            },
         }],
     };
 }

@@ -1,48 +1,24 @@
 import type {
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupOptions,
-    IScanCleanupPixelRect,
-    IScanCleanupPlacementAnchor,
     TScanCleanupLayoutByPage,
     TScanCleanupLayoutClassification,
-    TScanCleanupOutputHalf,
-    TScanCleanupPageRotation,
     TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
-    resolveScanCleanupPlacementOffset,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    assertCanonicalPdfPageSizes,
-    type IScanCleanupPageRasterSource,
-    type IPdfPageSize,
+import type {
+    IScanCleanupPageRasterSource,
+    IPdfPageSize,
 } from '@evb/scan-cleanup/core/types';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     resolveScanCleanupMatchedCanvasMaxPixels,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
-
-export interface IScanCleanupRect {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-}
-
-export interface IScanCleanupMatchedCanvasPlacement {
-    contentWidthPx: number;
-    contentHeightPx: number;
-    intrinsicRasterWidthPx: number;
-    intrinsicRasterHeightPx: number;
-    matchScaleX: number;
-    matchScaleY: number;
-    effectivePlacementOffsetXPx: number;
-    effectivePlacementOffsetYPx: number;
-}
 
 /**
  * Resolves the intrinsic raster's scale and origin in the logical matched
@@ -61,7 +37,7 @@ export function resolveScanCleanupMatchedCanvasPlacement(input: {
     matchedCanvasIntrinsicOverflowTopPx?: number | null;
     placementOffsetXPx: number;
     placementOffsetYPx: number;
-}): IScanCleanupMatchedCanvasPlacement {
+}) {
     const positiveFiniteOr = (value: number | null | undefined, fallback: number) => (
         typeof value === 'number' && Number.isFinite(value) && value > 0
             ? value
@@ -97,72 +73,9 @@ export function resolveScanCleanupMatchedCanvasPlacement(input: {
     };
 }
 
-/**
- * Places a canvas-sized box around fixed content without scaling the content.
- * The shared placement resolver speaks top-left free-space offsets; PDF
- * consumers use a bottom-left y origin, so this is the one conversion owner
- * for the lossless assembler and compact-source preservation path.
- *
- * `displayRotationDegrees` is the quarter turn a reader applies to that page.
- * An alignment names visual edges — `top-center` is the top of the sheet the
- * reader holds — so the offsets are resolved on the presented rectangle and the
- * insets they produce are turned back into page space, exactly as the margins
- * beside them are. Resolving them in page space instead sent a quarter-turned
- * page to whichever edge happened to carry the same page-space letter, which
- * put its content up to 67 mm from where the raster and preview fitters put it.
- */
-export function placeScanCleanupCanvasBox(
-    content: IScanCleanupRect,
-    width: number,
-    height: number,
-    alignment: IScanCleanupOptions['pageAlignment'],
-    anchor?: IScanCleanupPlacementAnchor,
-    displayRotationDegrees = 0,
-): IScanCleanupRect {
-    const quarterTurns = normalizeScanCleanupQuarterTurns(displayRotationDegrees);
-    const swapsAxes = quarterTurns % 2 === 1;
-    const availableWidth = swapsAxes ? height - content.height : width - content.width;
-    const availableHeight = swapsAxes ? width - content.width : height - content.height;
-    const placement = resolveScanCleanupPlacementOffset(
-        availableWidth,
-        availableHeight,
-        alignment,
-        anchor === undefined
-            ? undefined
-            : {
-                anchor,
-                contentHeight: swapsAxes ? content.width : content.height,
-            },
-    );
-    const pageInsets = orientScanCleanupInsetsToPageSpace({
-        left: placement.x,
-        top: placement.y,
-        right: availableWidth - placement.x,
-        bottom: availableHeight - placement.y,
-    }, quarterTurns * 90);
-    return {
-        x: content.x - pageInsets.left,
-        y: content.y - pageInsets.bottom,
-        width,
-        height,
-    };
-}
-
 export interface IScanCleanupOrientedRect {
     widthPoints: number;
     heightPoints: number;
-}
-
-export interface IScanCleanupOutputPaperPixels {
-    widthPx: number;
-    heightPx: number;
-}
-
-export interface IScanCleanupInsets {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
 }
 
 /**
@@ -194,67 +107,6 @@ function orient(rect: IScanCleanupOrientedRect, quarterTurns: number): IScanClea
             widthPoints: rect.heightPoints,
             heightPoints: rect.widthPoints,
         };
-}
-
-/**
- * The physical source-paper frame represented by one cleanup output.
- *
- * A split region is pixel-selection geometry: an automatic or manual cutter
- * may be off centre because the gutter is wide, curved, or contaminated. It
- * does not make the two leaves live at different source scales. Paper matching
- * therefore divides the oriented source sheet by output count and lets the
- * crop/cutter choose pixels inside that stable frame.
- */
-export function resolveScanCleanupOutputPaperPixels(input: {
-    half: TScanCleanupOutputHalf;
-    inputWidthPx: number;
-    inputHeightPx: number;
-    rotationDegrees: TScanCleanupPageRotation;
-}): IScanCleanupOutputPaperPixels {
-    const swapsAxes = normalizeScanCleanupQuarterTurns(input.rotationDegrees) % 2 === 1;
-    const orientedWidth = swapsAxes ? input.inputHeightPx : input.inputWidthPx;
-    const orientedHeight = swapsAxes ? input.inputWidthPx : input.inputHeightPx;
-    return {
-        widthPx: orientedWidth / (input.half === 'full' ? 1 : 2),
-        heightPx: orientedHeight,
-    };
-}
-
-/**
- * Turns margins expressed on the displayed sheet back into the unrotated PDF
- * user space consumed by page-ops. This mirrors `resolveScanCleanupPageCanvasBox`:
- * the delivered top/left/right/bottom remain visual directions even when the
- * source page carries a rotation entry.
- */
-export function orientScanCleanupInsetsToPageSpace(
-    insets: IScanCleanupInsets,
-    rotationDegrees: number,
-): IScanCleanupInsets {
-    switch (normalizeScanCleanupQuarterTurns(rotationDegrees)) {
-        case 1:
-            return {
-                left: insets.top,
-                top: insets.right,
-                right: insets.bottom,
-                bottom: insets.left,
-            };
-        case 2:
-            return {
-                left: insets.right,
-                top: insets.bottom,
-                right: insets.left,
-                bottom: insets.top,
-            };
-        case 3:
-            return {
-                left: insets.bottom,
-                top: insets.left,
-                right: insets.top,
-                bottom: insets.right,
-            };
-        default:
-            return {...insets};
-    }
 }
 
 /**
@@ -642,30 +494,6 @@ export function resolveScanCleanupDroppedMatchWarningEventFromAccumulator(
 }
 
 /**
- * The produced pages left on automatic layout that nobody has classified yet.
- * Their sheet is measured whole, so a run started before detection finished
- * still writes one rectangle — but a page of that set that turns out to be a
- * spread lands on the document rectangle without being scaled to it, which is
- * a visible result the run has to name rather than leave to be discovered.
- */
-export function resolveScanCleanupUnclassifiedPages(
-    pageSizes: readonly IPdfPageSize[],
-    options: IScanCleanupOptions,
-    layoutByPage?: TScanCleanupLayoutByPage,
-) {
-    return pageSizes
-        .filter(pageSize => !getScanCleanupPageOverride(
-            options.pageOverrides,
-            requirePageNumber(pageSize.pageNumber),
-            options.pageOverrideDefaults,
-            options.marginsMm,
-        ).excluded
-            && isAutomaticLayout(options, pageSize.pageNumber)
-            && readObservedLayout(layoutByPage, pageSize.pageNumber) === undefined)
-        .map(pageSize => pageSize.pageNumber);
-}
-
-/**
  * The best matched-page rectangle a preview can honestly claim while automatic
  * layout detection is still open.
  *
@@ -746,36 +574,6 @@ export function resolveScanCleanupProvisionalDocumentCanvas(
 }
 
 /**
- * What a run tells the user when a document it *could* measure still answers no
- * canvas, or null when there is nothing to say.
- *
- * Both quality paths drop matching on a null canvas, so both report it the same
- * way: pages of differing size are what the setting was turned on to prevent,
- * and a run that silently stops preventing them is the one thing the user
- * cannot see from the output.
- *
- * A document whose every page the user excluded is the exception. It has no
- * canvas because it produces no pages at all, which is what the user asked for
- * — not geometry the run failed to read — and a warning there names a problem
- * that does not exist.
- */
-export function resolveScanCleanupDroppedMatchWarningEvent(
-    pageSizes: readonly IPdfPageSize[],
-    options: IScanCleanupOptions,
-): TScanCleanupWarningEvent | null {
-    return pageSizes.every(
-        pageSize => getScanCleanupPageOverride(
-            options.pageOverrides,
-            requirePageNumber(pageSize.pageNumber),
-            options.pageOverrideDefaults,
-            options.marginsMm,
-        ).excluded,
-    )
-        ? null
-        : {code: 'matched-canvas-dropped'};
-}
-
-/**
  * The rectangle one output page of this sheet is presented on: the sheet as the
  * reader sees it, divided across the outputs it is cut into. This is the
  * rectangle matched page size normalizes, because it is the paper the reader
@@ -792,32 +590,6 @@ export function resolveScanCleanupOutputPageRect(
         widthPoints: rect.widthPoints / Math.max(1, shares),
         heightPoints: rect.heightPoints,
     };
-}
-
-/**
- * The logical output paper expressed in the source PDF page's unrotated user
- * space. Split-pages consumes this coordinate system, so a quarter-turned page
- * divides its raw height: that is the axis presented horizontally when the
- * cutter runs.
- */
-export function resolveScanCleanupOutputPageSpacePaperRect(
-    pageSize: IPdfPageSize,
-    shares: number,
-    rotationDegreesOverride = 0,
-): IScanCleanupOrientedRect {
-    const divisor = Math.max(1, shares);
-    const swapsAxes = normalizeScanCleanupQuarterTurns(
-        pageSize.rotation + rotationDegreesOverride,
-    ) % 2 === 1;
-    return swapsAxes
-        ? {
-            widthPoints: pageSize.widthPoints,
-            heightPoints: pageSize.heightPoints / divisor,
-        }
-        : {
-            widthPoints: pageSize.widthPoints / divisor,
-            heightPoints: pageSize.heightPoints,
-        };
 }
 
 /**
@@ -894,59 +666,6 @@ export function resolveScanCleanupDocumentCanvasDpi(
     canvas: IScanCleanupDocumentCanvasPlan,
 ) {
     return canvas.widthPx / canvas.widthPoints * 72;
-}
-
-/**
- * The pixel grid the shared canvas rectangle is sampled on at one page's render
- * resolution, and the one rule every consumer of that grid answers by.
- *
- * The plan's own `widthPx`/`heightPx` are the rectangle rounded up at the
- * resolution the document was planned at; a page renders at its own resolution,
- * and the sidecar rebuilds the grid from the rectangle and that resolution by
- * rounding to nearest. A consumer that instead rescales the plan's pixel counts
- * lands a whole pixel away from the page the run actually produces — which is
- * what made the preview fitter present a 297 px canvas for the 296 px page the
- * output carried, and decide the margin-fitting boundary differently from it.
- */
-export function resolveScanCleanupCanvasGridAtDpi(
-    canvas: IScanCleanupOrientedRect,
-    dpi: number,
-) {
-    return {
-        widthPx: Math.max(1, Math.round(canvas.widthPoints / 72 * dpi)),
-        heightPx: Math.max(1, Math.round(canvas.heightPoints / 72 * dpi)),
-    };
-}
-
-/**
- * Fits one axis of a requested margin pair onto the matched canvas grid: the
- * single margin-fit policy every quality route answers by.
- *
- * A pair that does not leave one content pixel on its axis is reduced to the
- * pair that does, keeping the requested ratio so an off-centre request stays
- * off-centre. `native/scan-cleanup/src/adapters/batch_cli.rs` states the same
- * rule for the raster route it plans inside the sidecar; the preview fitter and
- * the lossless assembler call this one, so a page cannot be reported reduced on
- * one route and delivered exact on the other.
- */
-export function fitScanCleanupMarginAxisPx(
-    leadingPx: number,
-    trailingPx: number,
-    totalPx: number,
-) {
-    const sum = leadingPx + trailingPx;
-    if (sum < totalPx || sum === 0) {
-        return [
-            leadingPx,
-            trailingPx,
-        ] as const;
-    }
-    const availablePx = Math.max(0, totalPx - 1);
-    const fittedLeadingPx = Math.min(availablePx, Math.round(availablePx * leadingPx / sum));
-    return [
-        fittedLeadingPx,
-        availablePx - fittedLeadingPx,
-    ] as const;
 }
 
 /**
@@ -1075,119 +794,14 @@ export function resolveScanCleanupCanvasFitScale(
     );
 }
 
-/**
- * The canvas expressed in the page's own unrotated PDF user space, which is
- * where `evb-pdf-page-ops split-pages` writes the MediaBox. The output page
- * carries the source rotation plus the page's rotation override, so the box
- * that displays as the canvas is the canvas turned back by the same amount.
- */
-export function resolveScanCleanupPageCanvasBox(
-    canvas: IScanCleanupDocumentCanvasPlan,
-    pageSize: IPdfPageSize,
-    rotationDegreesOverride: number,
-) {
-    return orient({
-        widthPoints: canvas.widthPoints,
-        heightPoints: canvas.heightPoints,
-    }, normalizeScanCleanupQuarterTurns(pageSize.rotation + rotationDegreesOverride));
-}
-
 // Paper that is already the canvas needs no scaling at all; anything past this
 // is a real difference in the paper the scanner produced.
 export const CANVAS_CONTENT_SCALE_EPSILON = 0.001;
-
-/**
- * How much larger than the canvas a sheet may measure and still be the sheet
- * the canvas was measured from. A page rounded onto the shared grid can land a
- * pixel past the rectangle it is identical to, and only paper that needs more
- * grid than there is — a sheet cut into fewer pages than the rectangle expected
- * — is a real difference.
- *
- * The bound is exactly one pixel because it is stated in the units of the
- * shared grid, and that grid puts each rectangle on a whole pixel by rounding
- * to nearest (`Math.round` in `resolveScanCleanupCanvasGridAtDpi`): two
- * rectangles the run lands on the same pixel count differ by strictly less than
- * one pixel. A grid that stopped rounding to whole pixels, or a caller that
- * compared counts built at some other resolution, could move a rectangle
- * further than that and would have to raise this number with it.
- */
-const SCAN_CLEANUP_CANVAS_GRID_TOLERANCE_PX = 1;
-
-/**
- * Whether this output's paper is larger than the canvas it is normalized onto,
- * decided against the shared pixel grid rather than against a bare ratio.
- *
- * Every matched-canvas fitter reports the same condition for the same page, so
- * the decision lives here once. A fitter that measured its paper in its own
- * raster pixels and compared the ratio to 1 called a half sheet undersized
- * because halving an odd pixel count rounds.
- */
-export function isScanCleanupPaperLargerThanCanvas(
-    canvas: IScanCleanupDocumentCanvasPlan,
-    paper: IScanCleanupOrientedRect,
-) {
-    return paper.widthPoints / canvas.widthPoints * canvas.widthPx
-        > canvas.widthPx + SCAN_CLEANUP_CANVAS_GRID_TOLERANCE_PX
-        || paper.heightPoints / canvas.heightPoints * canvas.heightPx
-        > canvas.heightPx + SCAN_CLEANUP_CANVAS_GRID_TOLERANCE_PX;
-}
 
 // The lossless path never rasterizes, so its canvas grid is nominal: it exists
 // only so both quality paths carry the same plan shape, and the rectangle —
 // which is all the split assembler consumes — is identical either way.
 export const SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI = 300;
-
-/**
- * The pages matched page size cannot normalize without re-rendering them: they
- * carry a raster, and their content has to change scale to reach the document
- * canvas. Scaling such a page losslessly keeps its own pixels, which leaves it
- * on the shared sheet at a visibly different resolution — matched page size
- * promises one grid, so those pages are rendered instead.
- *
- * A page with no raster (vector or text) is not on this list: a content
- * transform places it on the canvas exactly, at any scale.
- *
- * This reads `pageSizes[pageNumber - 1]`, and the preview service reaches it
- * with geometry from an injectable dependency that no earlier call has
- * admitted, so the order check belongs here rather than at the callers.
- */
-export function resolveMatchedCanvasResamplePages(
-    pageSizes: readonly IPdfPageSize[],
-    pageNumbers: readonly number[],
-    options: IScanCleanupOptions,
-    canvasGridDpi: number,
-    rasterPages: {has: (pageNumber: number) => boolean},
-    rasterDetectionAvailable: boolean,
-    layoutByPage?: TScanCleanupLayoutByPage,
-) {
-    assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup matched canvas resample planning');
-    const canvas = options.matchPageSize
-        ? resolveScanCleanupDocumentCanvas(pageSizes, canvasGridDpi, options, layoutByPage)
-        : null;
-    if (!canvas) {
-        return [];
-    }
-    return pageNumbers.filter(pageNumber => {
-        const validPageNumber = requirePageNumber(pageNumber);
-        const pageSize = pageSizes[pageNumber - 1];
-        if (!pageSize || getScanCleanupPageOverride(
-            options.pageOverrides,
-            validPageNumber,
-            options.pageOverrideDefaults,
-            options.marginsMm,
-        ).excluded) {
-            return false;
-        }
-        const scale = resolveScanCleanupCanvasFitScale(canvas, resolveScanCleanupOutputPageRect(
-            pageSize,
-            resolveSheetShares(options, pageNumber, layoutByPage),
-        ));
-        // Without pdfimages every page has to be treated as one that carries a
-        // raster, because there is no evidence that it does not.
-        const carriesRaster = !rasterDetectionAvailable || rasterPages.has(pageNumber);
-        return carriesRaster && Math.abs(scale - 1) > CANVAS_CONTENT_SCALE_EPSILON;
-    });
-}
 
 /**
  * Store-backed counterpart for conversion. Read geometry in bounded chunks and
@@ -1257,122 +871,3 @@ export async function resolveMatchedCanvasResamplePagesFromStore(input: {
     return resampledPages;
 }
 
-function rectFromPoints(points: Array<{
-    x: number;
-    y: number
-}>): IScanCleanupRect {
-    const left = Math.min(...points.map(point => point.x));
-    const right = Math.max(...points.map(point => point.x));
-    const bottom = Math.min(...points.map(point => point.y));
-    const top = Math.max(...points.map(point => point.y));
-    return {
-        x: left,
-        y: bottom,
-        width: right - left,
-        height: top - bottom,
-    };
-}
-
-function unrotateAnalysisPoint(
-    point: {
-        x: number;
-        y: number
-    },
-    inputWidthPx: number,
-    inputHeightPx: number,
-    rotationDegrees: TScanCleanupPageRotation,
-) {
-    if (rotationDegrees === 90) {
-        return {
-            x: point.y,
-            y: inputHeightPx - point.x,
-        };
-    }
-    if (rotationDegrees === 180) {
-        return {
-            x: inputWidthPx - point.x,
-            y: inputHeightPx - point.y,
-        };
-    }
-    if (rotationDegrees === 270) {
-        return {
-            x: inputWidthPx - point.y,
-            y: point.x,
-        };
-    }
-    return point;
-}
-
-function displayPointToPdf(
-    point: {
-        x: number;
-        y: number
-    },
-    inputWidthPx: number,
-    inputHeightPx: number,
-    page: IPdfPageSize,
-) {
-    const markerX = point.x / inputWidthPx;
-    const markerY = point.y / inputHeightPx;
-    const x = page.xPoints;
-    const y = page.yPoints;
-    const rotation = ((Math.round(page.rotation / 90) * 90 % 360) + 360) % 360;
-    if (rotation === 90) {
-        return {
-            x: x + markerY * page.widthPoints,
-            y: y + markerX * page.heightPoints,
-        };
-    }
-    if (rotation === 180) {
-        return {
-            x: x + (1 - markerX) * page.widthPoints,
-            y: y + markerY * page.heightPoints,
-        };
-    }
-    if (rotation === 270) {
-        return {
-            x: x + (1 - markerY) * page.widthPoints,
-            y: y + (1 - markerX) * page.heightPoints,
-        };
-    }
-    return {
-        x: x + markerX * page.widthPoints,
-        y: y + (1 - markerY) * page.heightPoints,
-    };
-}
-
-/**
- * Where a rectangle the sidecar measured on a rendered page lands in the page's
- * own PDF user space. The lossless assembler never rasterizes, so every crop and
- * every share of the paper it is given has to be expressed in the coordinates
- * the page carries — through the display rotation the document applies and the
- * quarter turn the user asked for.
- */
-export function mapLosslessAnalysisRectToPdf(
-    rect: IScanCleanupPixelRect,
-    inputWidthPx: number,
-    inputHeightPx: number,
-    cleanupRotation: TScanCleanupPageRotation,
-    page: IPdfPageSize,
-) {
-    const corners = [
-        {
-            x: rect.xPx,
-            y: rect.yPx,
-        },
-        {
-            x: rect.xPx + rect.widthPx,
-            y: rect.yPx,
-        },
-        {
-            x: rect.xPx,
-            y: rect.yPx + rect.heightPx,
-        },
-        {
-            x: rect.xPx + rect.widthPx,
-            y: rect.yPx + rect.heightPx,
-        },
-    ].map(point => unrotateAnalysisPoint(point, inputWidthPx, inputHeightPx, cleanupRotation))
-        .map(point => displayPointToPdf(point, inputWidthPx, inputHeightPx, page));
-    return rectFromPoints(corners);
-}

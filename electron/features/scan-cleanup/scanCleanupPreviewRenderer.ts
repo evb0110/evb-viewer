@@ -29,8 +29,6 @@ import {
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
-    resolveScanCleanupMarginsMm,
-    resolveScanCleanupPlacementOffset,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import { resolveScanCleanupEffectiveOutputMode } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
@@ -40,21 +38,13 @@ import {
 import {
     formatScanCleanupWarningEvent,
     describeScanCleanupNativeWarnings,
-    toScanCleanupPercentTenths,
 } from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import { resolveReusablePagePlan } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {
-    isScanCleanupPaperLargerThanCanvas,
-    resolveScanCleanupCanvasFitScale,
     resolveScanCleanupDocumentCanvasDpi,
-    resolveScanCleanupOutputPageRect,
-    resolveScanCleanupOutputPaperPixels,
-    resolveScanCleanupCanvasGridAtDpi,
-    CANVAS_CONTENT_SCALE_EPSILON,
     resolveScanCleanupDocumentCanvasFromAccumulator,
     resolveScanCleanupProvisionalDocumentCanvasFromAccumulator,
-    fitScanCleanupMarginAxisPx,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
 import { shouldExtractTrustedMrcForeground } from '@evb/scan-cleanup/core/policy/scanCleanupRepresentationPolicy';
 
@@ -572,6 +562,14 @@ export async function scanCleanupPreviewRenderer(
                 pageMetadataPath,
                 outputs,
                 ...(request.documentPrior === undefined ? {} : {documentPrior: request.documentPrior}),
+                ...(!lossless || pageSize === undefined ? {} : {pdfPage: {
+                    xPoints: pageSize.xPoints,
+                    yPoints: pageSize.yPoints,
+                    widthPoints: pageSize.widthPoints,
+                    heightPoints: pageSize.heightPoints,
+                    rotation: pageSize.rotation,
+                    sourceDpi,
+                }}),
             }],
             allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
         });
@@ -589,118 +587,6 @@ export async function scanCleanupPreviewRenderer(
         );
         if (lossless) {
             const analyzedOutputs = pageMetadata.outputs ?? [];
-            const canvasGridDpi = matchedCanvas === undefined
-                ? renderDpi
-                : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(matchedCanvas)));
-            const previewCanvasGrid = matchedCanvas === undefined
-                ? null
-                : resolveScanCleanupCanvasGridAtDpi(matchedCanvas, canvasGridDpi);
-            const canvasWidthPx = previewCanvasGrid?.widthPx ?? null;
-            const canvasHeightPx = previewCanvasGrid?.heightPx ?? null;
-            const previewPageSize = pageSize;
-            const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, pageOverride);
-            const requestedMargins = matchedCanvas === undefined
-                ? {
-                    leftPx: 0,
-                    topPx: 0,
-                    rightPx: 0,
-                    bottomPx: 0,
-                }
-                : {
-                    leftPx: Math.max(0, Math.round(marginsMm.leftMm / 25.4 * canvasGridDpi)),
-                    topPx: Math.max(0, Math.round(marginsMm.topMm / 25.4 * canvasGridDpi)),
-                    rightPx: Math.max(0, Math.round(marginsMm.rightMm / 25.4 * canvasGridDpi)),
-                    bottomPx: Math.max(0, Math.round(marginsMm.bottomMm / 25.4 * canvasGridDpi)),
-                };
-            const marginsRequested = Object.values(requestedMargins).some(margin => margin > 0);
-            const plannedOutputs = analyzedOutputs.map(output => {
-                const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
-                const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
-                const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
-                const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
-                const marginsAvailable = request.options.crop;
-                const appliedMargins = matchedCanvas === undefined
-                    ? output.appliedMargins
-                    : marginsAvailable ? requestedMargins : {
-                        leftPx: 0,
-                        topPx: 0,
-                        rightPx: 0,
-                        bottomPx: 0,
-                    };
-                const [
-                    marginLeft,
-                    marginRight,
-                ] = fitScanCleanupMarginAxisPx(appliedMargins.leftPx, appliedMargins.rightPx, resolvedCanvasWidth);
-                const [
-                    marginTop,
-                    marginBottom,
-                ] = fitScanCleanupMarginAxisPx(appliedMargins.topPx, appliedMargins.bottomPx, resolvedCanvasHeight);
-                const deliveredMargins = {
-                    leftPx: marginLeft,
-                    topPx: marginTop,
-                    rightPx: marginRight,
-                    bottomPx: marginBottom,
-                };
-                const innerCanvasWidth = Math.max(1, resolvedCanvasWidth - marginLeft - marginRight);
-                const innerCanvasHeight = Math.max(1, resolvedCanvasHeight - marginTop - marginBottom);
-                const outputPaper = resolveScanCleanupOutputPaperPixels({
-                    half: output.half,
-                    inputWidthPx: output.inputWidthPx,
-                    inputHeightPx: output.inputHeightPx,
-                    rotationDegrees: pageMetadata.rotationDegrees,
-                });
-                const paperPoints = previewPageSize === undefined
-                    ? null
-                    : resolveScanCleanupOutputPageRect(
-                        previewPageSize,
-                        output.half === 'full' ? 1 : 2,
-                    );
-                const paperScale = canvasWidthPx === null || canvasHeightPx === null
-                    ? 1
-                    : resolveScanCleanupCanvasFitScale({
-                        widthPoints: canvasWidthPx,
-                        heightPoints: canvasHeightPx,
-                    }, {
-                        widthPoints: Math.max(1, outputPaper.widthPx),
-                        heightPoints: Math.max(1, outputPaper.heightPx),
-                    });
-                const paperLargerThanCanvas = matchedCanvas !== undefined
-                    && previewCanvasGrid !== null
-                    && paperPoints !== null
-                    && isScanCleanupPaperLargerThanCanvas({
-                        ...matchedCanvas,
-                        ...previewCanvasGrid,
-                    }, paperPoints);
-                const contentScale = paperScale * Math.min(1, resolveScanCleanupCanvasFitScale({
-                    widthPoints: innerCanvasWidth,
-                    heightPoints: innerCanvasHeight,
-                }, {
-                    widthPoints: Math.max(1, outputWidthPx * paperScale),
-                    heightPoints: Math.max(1, outputHeightPx * paperScale),
-                }));
-                return {
-                    appliedMargins,
-                    contentScale,
-                    deliveredMargins,
-                    innerCanvasHeight,
-                    innerCanvasWidth,
-                    marginLeft,
-                    marginTop,
-                    marginsAvailable,
-                    output,
-                    outputHeightPx,
-                    outputWidthPx,
-                    paperLargerThanCanvas,
-                    paperScale,
-                    resolvedCanvasHeight,
-                    resolvedCanvasWidth,
-                };
-            });
-            const spreadContentScale = plannedOutputs.length === 2
-                && plannedOutputs.some(({output}) => output.half === 'left')
-                && plannedOutputs.some(({output}) => output.half === 'right')
-                ? Math.min(...plannedOutputs.map(({contentScale}) => contentScale))
-                : null;
             return {
                 pageNumber: request.pageNumber,
                 totalPages: baseRaw.totalPages,
@@ -719,45 +605,26 @@ export async function scanCleanupPreviewRenderer(
                             : {textToneDiagnostics: output.textToneDiagnostics}),
                     })),
                 },
-                outputs: plannedOutputs.map(({
-                    appliedMargins,
-                    contentScale: leafContentScale,
-                    deliveredMargins,
-                    innerCanvasHeight,
-                    innerCanvasWidth,
-                    marginLeft,
-                    marginTop,
-                    marginsAvailable,
-                    output,
-                    outputHeightPx,
-                    outputWidthPx,
-                    paperLargerThanCanvas,
-                    paperScale,
-                    resolvedCanvasHeight,
-                    resolvedCanvasWidth,
-                }) => {
-                    const contentScale = spreadContentScale ?? leafContentScale;
-                    const contentWidthPx = Math.min(
-                        innerCanvasWidth,
-                        Math.max(1, Math.round(outputWidthPx * contentScale)),
-                    );
-                    const contentHeightPx = Math.min(
-                        innerCanvasHeight,
-                        Math.max(1, Math.round(outputHeightPx * contentScale)),
-                    );
-                    const canvasOverflow = contentScale < paperScale * (1 - CANVAS_CONTENT_SCALE_EPSILON);
-                    const placementAnchor = request.placementAnchors?.[output.half];
-                    const placement = resolveScanCleanupPlacementOffset(
-                        innerCanvasWidth - contentWidthPx,
-                        innerCanvasHeight - contentHeightPx,
-                        pageOverride.placementOverrides?.[output.half] ?? request.options.pageAlignment,
-                        placementAnchor === undefined
-                            ? undefined
-                            : {
-                                anchor: placementAnchor,
-                                contentHeight: contentHeightPx,
-                            },
-                    );
+                outputs: analyzedOutputs.map(output => {
+                    const outputWidthPx = Math.max(1, Math.round(output.cropRect.widthPx));
+                    const outputHeightPx = Math.max(1, Math.round(output.cropRect.heightPx));
+                    // Without page geometry there is no canvas to place on: the
+                    // output is its own crop, exactly as the assembler writes it.
+                    const placement = output.pdfPlacement?.preview ?? {
+                        canvasWidthPx: outputWidthPx,
+                        canvasHeightPx: outputHeightPx,
+                        contentWidthPx: outputWidthPx,
+                        contentHeightPx: outputHeightPx,
+                        offsetXPx: 0,
+                        offsetYPx: 0,
+                        margins: {
+                            leftPx: 0,
+                            topPx: 0,
+                            rightPx: 0,
+                            bottomPx: 0,
+                        },
+                        canvasOverflow: false,
+                    };
                     return {
                         imageData: baseRaw.bytes,
                         metadata: {
@@ -770,13 +637,13 @@ export async function scanCleanupPreviewRenderer(
                             ...(output.contentDiagnostics === undefined
                                 ? {}
                                 : {contentDiagnostics: output.contentDiagnostics}),
-                            appliedMargins: deliveredMargins,
+                            appliedMargins: placement.margins,
                             outputWidthPx,
                             outputHeightPx,
-                            canvasWidthPx: resolvedCanvasWidth,
-                            canvasHeightPx: resolvedCanvasHeight,
-                            placementOffsetXPx: marginLeft + Math.floor(placement.x),
-                            placementOffsetYPx: marginTop + Math.floor(placement.y),
+                            canvasWidthPx: placement.canvasWidthPx,
+                            canvasHeightPx: placement.canvasHeightPx,
+                            placementOffsetXPx: placement.offsetXPx,
+                            placementOffsetYPx: placement.offsetYPx,
                             forwardTransform: null,
                             cutterXPx: pageMetadata.cutterXPx,
                             inputWidthPx: output.inputWidthPx,
@@ -789,45 +656,16 @@ export async function scanCleanupPreviewRenderer(
                             requestedRenderDpi,
                             rasterScaleLimited: false,
                             canvasPolicy: matchedCanvas === undefined ? 'intrinsic' : 'strict-maximum',
-                            canvasOverflow,
-                            matchedCanvasTargetWidthPx: canvasWidthPx,
-                            matchedCanvasTargetHeightPx: canvasHeightPx,
+                            canvasOverflow: placement.canvasOverflow,
+                            matchedCanvasTargetWidthPx: matchedCanvas === undefined ? null : placement.canvasWidthPx,
+                            matchedCanvasTargetHeightPx: matchedCanvas === undefined ? null : placement.canvasHeightPx,
                             matchedCanvasTargetWidthPoints: matchedCanvas?.widthPoints ?? null,
                             matchedCanvasTargetHeightPoints: matchedCanvas?.heightPoints ?? null,
-                            matchedCanvasContentWidthPx: contentWidthPx,
-                            matchedCanvasContentHeightPx: contentHeightPx,
+                            matchedCanvasContentWidthPx: placement.contentWidthPx,
+                            matchedCanvasContentHeightPx: placement.contentHeightPx,
                             warnings: [
                                 ...previewWarningEvents,
-                                ...(matchedCanvas !== undefined && marginsRequested && !marginsAvailable
-                                    ? [{code: 'matched-canvas-margins-unavailable'} as const]
-                                    : []),
-                                ...(deliveredMargins.leftPx !== appliedMargins.leftPx
-                                    || deliveredMargins.topPx !== appliedMargins.topPx
-                                    || deliveredMargins.rightPx !== appliedMargins.rightPx
-                                    || deliveredMargins.bottomPx !== appliedMargins.bottomPx
-                                    ? [{code: 'matched-canvas-margins-reduced'} as const]
-                                    : []),
-                                ...(paperLargerThanCanvas
-                                    ? [{
-                                        code: 'matched-canvas-paper-downscaled',
-                                        unit: 'px',
-                                        scalePercentTenths: toScanCleanupPercentTenths(paperScale * 100),
-                                        documentCanvasWidth: resolvedCanvasWidth,
-                                        documentCanvasHeight: resolvedCanvasHeight,
-                                    } as const]
-                                    : []),
-                                ...(canvasOverflow
-                                    ? [{
-                                        code: 'matched-canvas-content-fitted',
-                                        unit: 'px',
-                                        contentWidth: contentWidthPx,
-                                        contentHeight: contentHeightPx,
-                                        innerWidth: innerCanvasWidth,
-                                        innerHeight: innerCanvasHeight,
-                                        documentCanvasWidth: resolvedCanvasWidth,
-                                        documentCanvasHeight: resolvedCanvasHeight,
-                                    } as const]
-                                    : []),
+                                ...output.pdfPlacement?.warningEvents ?? [],
                             ].map(event => formatScanCleanupWarningEvent(event)),
                         },
                     };

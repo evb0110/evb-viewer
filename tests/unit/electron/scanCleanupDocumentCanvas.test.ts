@@ -12,27 +12,16 @@ import {
     addScanCleanupDocumentCanvasObservedPage,
     addScanCleanupDocumentCanvasPage,
     createScanCleanupDocumentCanvasAccumulator,
-    fitScanCleanupMarginAxisPx,
-    isScanCleanupPaperLargerThanCanvas,
-    orientScanCleanupInsetsToPageSpace,
-    resolveMatchedCanvasResamplePages,
     resolveScanCleanupCanvasFitScale,
-    resolveScanCleanupCanvasGridAtDpi,
     resolveScanCleanupDocumentCanvasRenderDpi,
     resolveScanCleanupDocumentCanvas,
     resolveScanCleanupDocumentCanvasFromAccumulator,
-    resolveScanCleanupDroppedMatchWarningEvent,
     resolveMatchedCanvasResamplePagesFromStore,
     resolveScanCleanupMatchedCanvasPlacement,
-    resolveScanCleanupOutputPaperPixels,
     resolveScanCleanupOutputPageRect,
-    resolveScanCleanupPageCanvasBox,
     resolveScanCleanupProvisionalDocumentCanvas,
-    resolveScanCleanupUnclassifiedPages,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-    placeScanCleanupCanvasBox,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import {resolveScanCleanupPlacementOffset} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import type {
     IPdfPageSizeStore,
     IPdfPageSize,
@@ -192,281 +181,6 @@ describe('scan cleanup document canvas', () => {
         });
     });
 
-    it('uses one fractional placement owner for every lossless alignment', () => {
-        const content = {
-            x: 10,
-            y: 20,
-            width: 100,
-            height: 50,
-        };
-        const targetWidth = 121.5;
-        const targetHeight = 81.5;
-        const availableWidth = targetWidth - content.width;
-        const availableHeight = targetHeight - content.height;
-
-        const expectations = [
-            [
-                'top-left',
-                {
-                    offset: {
-                        x: 0,
-                        y: 0,
-                    },
-                    box: {
-                        x: 10,
-                        y: -11.5,
-                    },
-                },
-            ],
-            [
-                'top-center',
-                {
-                    offset: {
-                        x: 10.75,
-                        y: 0,
-                    },
-                    box: {
-                        x: -0.75,
-                        y: -11.5,
-                    },
-                },
-            ],
-            [
-                'top-right',
-                {
-                    offset: {
-                        x: 21.5,
-                        y: 0,
-                    },
-                    box: {
-                        x: -11.5,
-                        y: -11.5,
-                    },
-                },
-            ],
-            [
-                'center-left',
-                {
-                    offset: {
-                        x: 0,
-                        y: 15.75,
-                    },
-                    box: {
-                        x: 10,
-                        y: 4.25,
-                    },
-                },
-            ],
-            [
-                'center',
-                {
-                    offset: {
-                        x: 10.75,
-                        y: 15.75,
-                    },
-                    box: {
-                        x: -0.75,
-                        y: 4.25,
-                    },
-                },
-            ],
-            [
-                'center-right',
-                {
-                    offset: {
-                        x: 21.5,
-                        y: 15.75,
-                    },
-                    box: {
-                        x: -11.5,
-                        y: 4.25,
-                    },
-                },
-            ],
-            [
-                'bottom-left',
-                {
-                    offset: {
-                        x: 0,
-                        y: 31.5,
-                    },
-                    box: {
-                        x: 10,
-                        y: 20,
-                    },
-                },
-            ],
-            [
-                'bottom-center',
-                {
-                    offset: {
-                        x: 10.75,
-                        y: 31.5,
-                    },
-                    box: {
-                        x: -0.75,
-                        y: 20,
-                    },
-                },
-            ],
-            [
-                'bottom-right',
-                {
-                    offset: {
-                        x: 21.5,
-                        y: 31.5,
-                    },
-                    box: {
-                        x: -11.5,
-                        y: 20,
-                    },
-                },
-            ],
-        ] as const;
-
-        // Every horizontal and vertical choice is pinned with fractional free
-        // space. The box result is the exact lossless assembler currency,
-        // including the bottom-left y reflection.
-        for (const [
-            alignment,
-            expected,
-        ] of expectations) {
-            expect(resolveScanCleanupPlacementOffset(
-                availableWidth,
-                availableHeight,
-                alignment,
-            )).toEqual(expected.offset);
-            expect(placeScanCleanupCanvasBox(
-                content,
-                targetWidth,
-                targetHeight,
-                alignment,
-            )).toEqual({
-                ...expected.box,
-                width: targetWidth,
-                height: targetHeight,
-            });
-        }
-    });
-
-    it('aligns a quarter-turned page to the edge the request names', () => {
-        // A 200x100 pt canvas presented through a page that a reader turns a
-        // quarter clockwise: the page's own box is 100 pt across and 200 pt
-        // down, and its content is 60x40 in that box. `top-center` asks for the
-        // top of the sheet the reader holds, which is the page's own left edge.
-        const content = {
-            x: 0,
-            y: 0,
-            width: 60,
-            height: 40,
-        };
-        const placed = placeScanCleanupCanvasBox(content, 100, 200, 'top-center', undefined, 90);
-        // Flush against the presented top: no page-space left inset at all.
-        expect(placed.x).toBe(0);
-        // And centred across the presented width, which is the page's own
-        // vertical axis: 200 - 40 free, half of it below the content.
-        expect(placed.y).toBe(-80);
-
-        // The same request on an unturned page keeps its long-standing answer,
-        // so orientation is the only thing this adds.
-        expect(placeScanCleanupCanvasBox(content, 100, 200, 'top-center')).toEqual({
-            x: -20,
-            y: -160,
-            width: 100,
-            height: 200,
-        });
-    });
-
-    it('samples the canvas rectangle on the grid the sidecar rebuilds', () => {
-        // 142.08 pt is 296.00000000000006 px at 150 DPI. The sidecar rounds,
-        // so the page carries 296 px; a consumer that ceils presents a canvas
-        // one pixel wider than the page it stands for.
-        expect(resolveScanCleanupCanvasGridAtDpi({
-            widthPoints: 142.08,
-            heightPoints: 213.12,
-        }, 150)).toEqual({
-            widthPx: 296,
-            heightPx: 444,
-        });
-        // A rectangle too fine for one whole pixel is still a grid.
-        expect(resolveScanCleanupCanvasGridAtDpi({
-            widthPoints: 0.01,
-            heightPoints: 0.01,
-        }, 150)).toEqual({
-            widthPx: 1,
-            heightPx: 1,
-        });
-    });
-
-    it('fits a margin pair onto one canvas axis under a single policy', () => {
-        // A pair that still leaves the canvas some content is delivered
-        // exactly as it was requested.
-        expect(fitScanCleanupMarginAxisPx(30, 20, 100)).toEqual([
-            30,
-            20,
-        ]);
-        // A pair that meets the canvas exactly is already too much: the
-        // canvas keeps one content pixel, and the reduction is split by the
-        // ratio the request asked for, so an off-centre request stays
-        // off-centre.
-        expect(fitScanCleanupMarginAxisPx(60, 40, 100)).toEqual([
-            59,
-            40,
-        ]);
-        expect(fitScanCleanupMarginAxisPx(300, 100, 100)).toEqual([
-            74,
-            25,
-        ]);
-        // A canvas with room for nothing but its content pixel carries no
-        // margin at all rather than a negative one.
-        expect(fitScanCleanupMarginAxisPx(5, 5, 1)).toEqual([
-            0,
-            0,
-        ]);
-        // Nothing requested is nothing to reduce, whatever the axis measures.
-        expect(fitScanCleanupMarginAxisPx(0, 0, 0)).toEqual([
-            0,
-            0,
-        ]);
-    });
-
-    it('calls paper larger than its canvas only past the shared grid', () => {
-        const canvas = {
-            widthPoints: 612,
-            heightPoints: 792,
-            widthPx: 1_275,
-            heightPx: 1_650,
-        };
-        // A half sheet is exactly the half-sheet canvas, and a sheet measured
-        // through a raster that rounds is still that sheet.
-        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
-            widthPoints: 612,
-            heightPoints: 792,
-        })).toBe(false);
-        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
-            widthPoints: 612.4,
-            heightPoints: 792,
-        })).toBe(false);
-        // The bound is one whole grid pixel, because that is the most a
-        // rectangle can move by being rounded onto this grid. Paper a pixel
-        // wider is still the sheet the grid rounded; paper past that pixel is
-        // reported, so a rounding change that could move a rectangle further
-        // fails here rather than silently widening the tolerance.
-        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
-            widthPoints: 612.47,
-            heightPoints: 792,
-        })).toBe(false);
-        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
-            widthPoints: 612.5,
-            heightPoints: 792,
-        })).toBe(true);
-        // Paper the canvas genuinely cannot hold is reported.
-        expect(isScanCleanupPaperLargerThanCanvas(canvas, {
-            widthPoints: 792,
-            heightPoints: 612,
-        })).toBe(true);
-    });
-
     it('takes the rectangle a rotated page is actually presented on', () => {
         // A landscape scan stored as a rotated portrait page is landscape to
         // the reader, and that is the frame the preview and the output carry.
@@ -520,40 +234,6 @@ describe('scan cleanup document canvas', () => {
             widthPx: 595,
             heightPx: 842,
         });
-    });
-
-    it('separates a document without a canvas from a document without pages', () => {
-        // Both quality paths drop matching on a document that answers no
-        // rectangle, and both report it with this condition: a run that quietly
-        // stops matching writes exactly the pages of differing size the setting
-        // exists to prevent.
-        const dropped = resolveScanCleanupDroppedMatchWarningEvent([
-            page({pageNumber: 1}),
-            page({pageNumber: 2}),
-        ], options);
-        // The condition is the code; the sentence it becomes is pinned once,
-        // beside the formatter that owns it.
-        expect(dropped).toEqual({code: 'matched-canvas-dropped'});
-        // Except when the user took every page off the sheet. That document has
-        // no canvas because it produces nothing, which is what was asked for.
-        expect(resolveScanCleanupDroppedMatchWarningEvent([
-            page({pageNumber: 1}),
-            page({pageNumber: 2}),
-        ], {
-            ...options,
-            pageOverrides: {
-                '1': override({excluded: true}),
-                '2': override({excluded: true}),
-            },
-        })).toBeNull();
-        // One page still on the sheet is still a document worth reporting.
-        expect(resolveScanCleanupDroppedMatchWarningEvent([
-            page({pageNumber: 1}),
-            page({pageNumber: 2}),
-        ], {
-            ...options,
-            pageOverrides: {'1': override({excluded: true})},
-        })).not.toBeNull();
     });
 
     it('answers the same rectangle whatever order the pages arrive in', () => {
@@ -760,27 +440,6 @@ describe('scan cleanup document canvas', () => {
     });
 
     describe('spreads', () => {
-        it('keeps logical paper size independent of an off-center cutter region', () => {
-            expect(resolveScanCleanupOutputPaperPixels({
-                half: 'left',
-                inputWidthPx: 2_203,
-                inputHeightPx: 1_573,
-                rotationDegrees: 0,
-            })).toEqual({
-                widthPx: 1_101.5,
-                heightPx: 1_573,
-            });
-            expect(resolveScanCleanupOutputPaperPixels({
-                half: 'right',
-                inputWidthPx: 2_203,
-                inputHeightPx: 1_573,
-                rotationDegrees: 90,
-            })).toEqual({
-                widthPx: 786.5,
-                heightPx: 2_203,
-            });
-        });
-
         it('measures the half sheet a split spread actually produces', () => {
             // Two book pages on one sheet become two pages of half its width.
             // Measuring the sheet would put each half on a canvas it fills
@@ -869,14 +528,6 @@ describe('scan cleanup document canvas', () => {
             // that it had to measure that way.
             expect(resolveScanCleanupDocumentCanvas(pages, 150, options, {'1': 'two-page-spread'}))
                 .toMatchObject({widthPoints: 1_224});
-            expect(resolveScanCleanupUnclassifiedPages(pages, options, {'1': 'two-page-spread'}))
-                .toEqual([2]);
-            // Detection settled: every page speaks for itself and there is
-            // nothing left to report.
-            expect(resolveScanCleanupUnclassifiedPages(pages, options, {
-                '1': 'two-page-spread',
-                '2': 'single-uncut-page',
-            })).toEqual([]);
         });
 
         it('builds a provisional preview canvas only from pages whose layout is known', () => {
@@ -974,28 +625,6 @@ describe('scan cleanup document canvas', () => {
                 widthPoints: 612,
                 heightPoints: 792,
             });
-        });
-
-        it('reports nothing for pages that never needed a classification', () => {
-            const pages = [
-                spread,
-                page({
-                    pageNumber: 2,
-                    widthPoints: 1_224,
-                    heightPoints: 792,
-                }),
-            ];
-
-            // A document whose layout the user chose outright, and a page they
-            // excluded, are not pages waiting on detection.
-            expect(resolveScanCleanupUnclassifiedPages(pages, {
-                ...options,
-                layoutMode: 'force-two-page',
-            }, {})).toEqual([]);
-            expect(resolveScanCleanupUnclassifiedPages(pages, {
-                ...options,
-                pageOverrides: {'2': override({excluded: true})},
-            }, {'1': 'single-uncut-page'})).toEqual([]);
         });
 
         it('puts a spread half and a page scanned on its own on the same rectangle', () => {
@@ -1122,66 +751,6 @@ describe('scan cleanup document canvas', () => {
         });
     });
 
-    it('turns the canvas back into the page space split-pages writes', () => {
-        const canvas = {
-            widthPoints: 612,
-            heightPoints: 792,
-            widthPx: 1275,
-            heightPx: 1650,
-        };
-
-        expect(resolveScanCleanupPageCanvasBox(canvas, page({pageNumber: 1}), 0)).toEqual({
-            widthPoints: 612,
-            heightPoints: 792,
-        });
-        // A page presented rotated carries an unrotated box with the axes
-        // swapped, so it still displays as the canvas.
-        expect(resolveScanCleanupPageCanvasBox(canvas, page({
-            pageNumber: 1,
-            rotation: 270,
-        }), 0)).toEqual({
-            widthPoints: 792,
-            heightPoints: 612,
-        });
-        // The user's own rotation lands on top of the document's.
-        expect(resolveScanCleanupPageCanvasBox(canvas, page({
-            pageNumber: 1,
-            rotation: 90,
-        }), 90)).toEqual({
-            widthPoints: 612,
-            heightPoints: 792,
-        });
-    });
-
-    it('turns visual margin directions back with the matched canvas', () => {
-        const margins = {
-            left: 1,
-            top: 2,
-            right: 3,
-            bottom: 4,
-        };
-
-        expect(orientScanCleanupInsetsToPageSpace(margins, 0)).toEqual(margins);
-        expect(orientScanCleanupInsetsToPageSpace(margins, 90)).toEqual({
-            left: 2,
-            top: 3,
-            right: 4,
-            bottom: 1,
-        });
-        expect(orientScanCleanupInsetsToPageSpace(margins, 180)).toEqual({
-            left: 3,
-            top: 4,
-            right: 1,
-            bottom: 2,
-        });
-        expect(orientScanCleanupInsetsToPageSpace(margins, 270)).toEqual({
-            left: 4,
-            top: 1,
-            right: 2,
-            bottom: 3,
-        });
-    });
-
     it('measures the scale paper needs to become the canvas', () => {
         const canvas = {
             widthPoints: 612,
@@ -1219,103 +788,6 @@ describe('scan cleanup document canvas', () => {
                 heightPoints: 396,
             }),
         ];
-
-        it('names the raster pages a matched document would have to re-render', () => {
-            expect(resolveMatchedCanvasResamplePages(
-                mixedScale,
-                [
-                    1,
-                    2,
-                ],
-                losslessOptions,
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                new Set([
-                    1,
-                    2,
-                ]),
-                true,
-            )).toEqual([2]);
-            // A page with no raster of its own is placed by a content
-            // transform, at any scale, without being re-rendered.
-            expect(resolveMatchedCanvasResamplePages(
-                mixedScale,
-                [
-                    1,
-                    2,
-                ],
-                losslessOptions,
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                new Set([1]),
-                true,
-            )).toEqual([]);
-        });
-
-        it('keeps a spread document lossless, because its halves are the canvas', () => {
-            // Measured as sheets, every half of this document would look like a
-            // page at half the document's scale and the whole run would be
-            // re-rendered for nothing.
-            expect(resolveMatchedCanvasResamplePages(
-                [
-                    spread,
-                    page({
-                        pageNumber: 2,
-                        widthPoints: 1_224,
-                        heightPoints: 792,
-                    }),
-                ],
-                [
-                    1,
-                    2,
-                ],
-                {
-                    ...losslessOptions,
-                    layoutMode: 'force-two-page',
-                },
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                new Set([
-                    1,
-                    2,
-                ]),
-                true,
-            )).toEqual([]);
-        });
-
-        it('treats every page as a raster page when it cannot be detected', () => {
-            expect(resolveMatchedCanvasResamplePages(
-                mixedScale,
-                [
-                    1,
-                    2,
-                ],
-                losslessOptions,
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                new Set<number>(),
-                false,
-            )).toEqual([2]);
-        });
-
-        it('rejects page geometry that is not in document order', () => {
-            // The canvas rectangle is order-independent, but the per-page
-            // lookup here is positional: a full-length shuffled array would
-            // measure page 1 against page 2's paper and silently name the
-            // wrong pages for re-rendering.
-            expect(() => resolveMatchedCanvasResamplePages(
-                [...mixedScale].reverse(),
-                [
-                    1,
-                    2,
-                ],
-                losslessOptions,
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                new Set([
-                    1,
-                    2,
-                ]),
-                true,
-            )).toThrow(
-                'Scan cleanup matched canvas resample planning received page geometry out of document order: expected page 1 at index 0, received page 2',
-            );
-        });
 
         it('validates order and total page count while planning from a store', async () => {
             const canvas = resolveScanCleanupDocumentCanvas(
@@ -1357,20 +829,7 @@ describe('scan cleanup document canvas', () => {
                 options: losslessOptions,
                 rasterSource,
                 rasterDetectionAvailable: true,
-            })).resolves.toEqual(resolveMatchedCanvasResamplePages(
-                mixedScale,
-                [
-                    1,
-                    2,
-                ],
-                losslessOptions,
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                new Set([
-                    1,
-                    2,
-                ]),
-                true,
-            ));
+            })).resolves.toEqual([2]);
 
             await expect(resolveMatchedCanvasResamplePagesFromStore({
                 pageSizeStore: createPageSizeStore([

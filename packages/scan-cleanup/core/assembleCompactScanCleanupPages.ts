@@ -6,6 +6,7 @@ import {join} from 'path';
 import type {
     INativeScanCleanupOutputMetadataV3,
     INativeScanCleanupPageMetadataV3,
+    INativeScanCleanupPdfPlacementV3,
     TScanCleanupOutputMode,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
@@ -19,11 +20,6 @@ import type {
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/types';
-import {
-    placeScanCleanupCanvasBox,
-    type IScanCleanupRect,
-    mapLosslessAnalysisRectToPdf,
-} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix';
 import {
     buildScanCleanupPageOpsInstructions,
@@ -50,12 +46,8 @@ export interface IRenderedCleanupOutputPage {
             | 'mixed-layer-validation-fallback';
         sourcePageIndex: number;
         rotationQuarterTurns: number;
-        cropRect: IScanCleanupRect;
-        contentTransform: {
-            scale: number;
-            translateX: number;
-            translateY: number;
-        };
+        cropRect: INativeScanCleanupPdfPlacementV3['cropRect'];
+        contentTransform: NonNullable<INativeScanCleanupPdfPlacementV3['contentTransform']>;
     };
 }
 
@@ -142,61 +134,18 @@ export function resolveCompactSourcePreservation(
         || pageOverride.manualSkewDegrees !== undefined
         || (manualZones?.picture.length ?? 0) > 0
         || (manualZones?.fill.length ?? 0) > 0
-        || output.metadata.cropRect === undefined
-        || output.metadata.inputWidthPx === undefined
-        || output.metadata.inputHeightPx === undefined
+        || output.metadata.sourcePdfPlacement?.contentTransform === undefined
     ) {
         return undefined;
     }
-    const targetWidth = output.metadata.matchedCanvasTargetWidthPoints
-        ?? output.metadata.canvasWidthPx / output.dpi * 72;
-    const targetHeight = output.metadata.matchedCanvasTargetHeightPoints
-        ?? output.metadata.canvasHeightPx / output.dpi * 72;
-    const sourceCrop = mapLosslessAnalysisRectToPdf(
-        output.metadata.cropRect,
-        output.metadata.inputWidthPx,
-        output.metadata.inputHeightPx,
-        pageMetadata.rotationDegrees,
-        pageSize,
-    );
-    const scale = Math.min(
-        targetWidth / sourceCrop.width,
-        targetHeight / sourceCrop.height,
-    );
-    if (!Number.isFinite(scale) || scale <= 0) {
-        return undefined;
-    }
-    const alignment = pageOverride.placementOverrides?.full ?? request.options.pageAlignment;
-    const placementAnchor = request.placementAnchorsByPage?.[String(sourcePageNumber)]?.full;
-    const placed = placeScanCleanupCanvasBox(
-        {
-            x: sourceCrop.x * scale,
-            y: sourceCrop.y * scale,
-            width: sourceCrop.width * scale,
-            height: sourceCrop.height * scale,
-        },
-        targetWidth,
-        targetHeight,
-        alignment,
-        placementAnchor,
-    );
     return {
         reason: preservesTrustedMrcTone
             ? 'auto-mixed-trusted-mrc-tone-preserved' as const
             : 'auto-color-compact-layered-no-raster-change' as const,
         sourcePageIndex: sourcePageNumber - 1,
         rotationQuarterTurns: 0,
-        cropRect: {
-            x: 0,
-            y: 0,
-            width: targetWidth,
-            height: targetHeight,
-        },
-        contentTransform: {
-            scale,
-            translateX: -placed.x,
-            translateY: -placed.y,
-        },
+        cropRect: output.metadata.sourcePdfPlacement.cropRect,
+        contentTransform: output.metadata.sourcePdfPlacement.contentTransform,
     };
 }
 

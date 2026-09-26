@@ -578,6 +578,40 @@ function splitDiagnostics(value: unknown, artifact: TArtifact, label: string) {
     return source;
 }
 
+function pdfPlacement(value: unknown, artifact: TArtifact, label: string) {
+    const source = record(value, artifact, label);
+    const crop = record(source.cropRect, artifact, `${label}.cropRect`);
+    finite(crop.x, artifact, `${label}.cropRect.x`);
+    finite(crop.y, artifact, `${label}.cropRect.y`);
+    if (
+        finite(crop.width, artifact, `${label}.cropRect.width`) <= 0
+        || finite(crop.height, artifact, `${label}.cropRect.height`) <= 0
+    ) fail(artifact, `${label}.cropRect must have a positive extent`);
+    if (source.contentTransform !== undefined) {
+        const transform = record(source.contentTransform, artifact, `${label}.contentTransform`);
+        if (finite(transform.scale, artifact, `${label}.contentTransform.scale`) <= 0) {
+            fail(artifact, `${label}.contentTransform.scale must be positive`);
+        }
+        finite(transform.translateX, artifact, `${label}.contentTransform.translateX`);
+        finite(transform.translateY, artifact, `${label}.contentTransform.translateY`);
+    }
+    if (typeof source.contentScaled !== 'boolean') fail(artifact, `${label}.contentScaled must be boolean`);
+    if (source.warningEvents !== undefined) decodeWarningEvents(source.warningEvents, artifact);
+    if (source.preview !== undefined) {
+        const preview = record(source.preview, artifact, `${label}.preview`);
+        for (const key of [
+            'canvasWidthPx',
+            'canvasHeightPx',
+            'contentWidthPx',
+            'contentHeightPx',
+        ] as const) integer(preview[key], artifact, `${label}.preview.${key}`, 1);
+        integer(preview.offsetXPx, artifact, `${label}.preview.offsetXPx`);
+        integer(preview.offsetYPx, artifact, `${label}.preview.offsetYPx`);
+        margins(preview.margins, artifact, `${label}.preview.margins`);
+        if (typeof preview.canvasOverflow !== 'boolean') fail(artifact, `${label}.preview.canvasOverflow must be boolean`);
+    }
+}
+
 function analysisOutput(value: unknown, artifact: TArtifact, label: string) {
     const source = record(value, artifact, label);
     oneOf(source.half, SCAN_CLEANUP_OUTPUT_HALVES, artifact, `${label}.half`);
@@ -589,6 +623,7 @@ function analysisOutput(value: unknown, artifact: TArtifact, label: string) {
     if (source.appliedMargins !== undefined) margins(source.appliedMargins, artifact, `${label}.appliedMargins`);
     integer(source.inputWidthPx, artifact, `${label}.inputWidthPx`, 1);
     integer(source.inputHeightPx, artifact, `${label}.inputHeightPx`, 1);
+    if (source.pdfPlacement !== undefined) pdfPlacement(source.pdfPlacement, artifact, `${label}.pdfPlacement`);
 }
 
 function validateVersion(source: Record<string, unknown>, artifact: TArtifact) {
@@ -824,6 +859,7 @@ function validateOutputOptionals(source: Record<string, unknown>, artifact: TArt
             fail(artifact, 'pdfImagePlacement must have a positive extent and non-negative origin');
         }
     }
+    if (source.sourcePdfPlacement !== undefined) pdfPlacement(source.sourcePdfPlacement, artifact, 'sourcePdfPlacement');
     if (source.renderRegion !== undefined) pixelRect(source.renderRegion, artifact, 'renderRegion');
     if (source.canvasPolicy !== undefined) oneOf(source.canvasPolicy, SCAN_CLEANUP_CANVAS_POLICIES, artifact, 'canvasPolicy');
     if (source.canvasScope !== undefined) oneOf(source.canvasScope, SCAN_CLEANUP_CANVAS_SCOPES, artifact, 'canvasScope');

@@ -18,7 +18,7 @@ libc.workspace = true
 rayon.workspace = true
 scan-primitives = { version = "0.1.0", path = "../scan-primitives" }
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 
 [dev-dependencies]

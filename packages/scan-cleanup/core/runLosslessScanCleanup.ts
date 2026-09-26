@@ -17,10 +17,7 @@ import type {
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
-import {
-    getScanCleanupPageOverride,
-    resolveScanCleanupMarginsMm,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
@@ -55,24 +52,12 @@ import {
     sha256ScanCleanupFile,
 } from '@evb/scan-cleanup/core/provenanceStamp';
 import {
-    CANVAS_CONTENT_SCALE_EPSILON,
     addScanCleanupDocumentCanvasPage,
     createScanCleanupDocumentCanvasAccumulator,
-    fitScanCleanupMarginAxisPx,
-    isScanCleanupPaperLargerThanCanvas,
-    type IScanCleanupRect,
-    mapLosslessAnalysisRectToPdf,
-    orientScanCleanupInsetsToPageSpace,
-    resolveScanCleanupCanvasFitScale,
-    resolveScanCleanupCanvasGridAtDpi,
     resolveScanCleanupDocumentCanvasFromAccumulator,
     resolveScanCleanupDroppedMatchWarningEventFromAccumulator,
-    resolveScanCleanupOutputPageSpacePaperRect,
-    resolveScanCleanupPageCanvasBox,
-    placeScanCleanupCanvasBox,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import {toScanCleanupPercentTenths} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
 import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {
@@ -231,22 +216,24 @@ export async function runLosslessScanCleanup(
             }
         });
     }
+    const documentCanvas = context.documentCanvas === undefined
+        ? request.options.matchPageSize
+            ? resolveScanCleanupDocumentCanvasFromAccumulator(
+                canvasAccumulator,
+                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
+                request.options,
+                true,
+                policy.rasterMaxPixels,
+            )
+            : null
+        : context.documentCanvas;
     const analyzedPages: Array<{
         sourcePageIndex: number;
         rotationQuarterTurns: number;
         outputs: Array<{
             half: INativeScanCleanupAnalysisOutputV3['half'];
-            cropRect: IScanCleanupRect;
-            paperRect: IScanCleanupRect;
-            contentTransform?: {
-                scale: number;
-                translateX: number;
-                translateY: number;
-            };
-            contentDetected: boolean;
+            placement: NonNullable<INativeScanCleanupAnalysisOutputV3['pdfPlacement']>;
         }>;
-        pageOverride: ReturnType<typeof getScanCleanupPageOverride>;
-        pageSize: IPdfPageSize;
         sourceDpi: number;
         sourceRasterDetected: boolean;
     }> = [];
@@ -291,6 +278,7 @@ export async function runLosslessScanCleanup(
             const renderer = extension === 'ppm'
                 ? dependencies.renderPagePpm
                 : dependencies.renderPage;
+            const pageSize = pageSizeByNumber.get(plan.pageNumber)!;
             try {
                 await renderer(
                     paths,
@@ -303,7 +291,7 @@ export async function runLosslessScanCleanup(
                     signal,
                     undefined,
                     undefined,
-                    pageSizeByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
+                    pageSize.renderBox ?? 'cropbox',
                 );
                 rasterizedCount += 1;
                 rasterizedPageNumbers.add(plan.pageNumber);
@@ -318,6 +306,14 @@ export async function runLosslessScanCleanup(
                         ? {}
                         : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
                     ...pagePlanResolver.resolve(plan.pageNumber),
+                    pdfPage: {
+                        xPoints: pageSize.xPoints,
+                        yPoints: pageSize.yPoints,
+                        widthPoints: pageSize.widthPoints,
+                        heightPoints: pageSize.heightPoints,
+                        rotation: pageSize.rotation,
+                        sourceDpi: plan.dpi,
+                    },
                     pageMetadataPath: join(scratch, `analysis-${plan.pageNumber}.json`),
                 };
             } catch (error) {
@@ -332,6 +328,7 @@ export async function runLosslessScanCleanup(
             qualityPath: 'lossless',
             hostMemoryBytes: policy.totalRamBytes,
             options: request.options,
+            ...(documentCanvas === null ? {} : {documentCanvas}),
             ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
             experimental: {
                 autoDewarp: request.options.autoDewarp ?? false,
@@ -409,7 +406,14 @@ export async function runLosslessScanCleanup(
                 collectedPageNumbers.add(sourcePageNumber);
                 collectedCount += 1;
                 emitProgress('collecting', collectedCount, pageNumbers.length, collectedPageNumbers);
-                pageMetadataBySource.set(sourcePageNumber, metadata);
+                // Placement is planned from the canvas rather than observed on
+                // the page, so the provenance evidence stays the analysis alone.
+                pageMetadataBySource.set(sourcePageNumber, metadata.outputs === undefined ? metadata : {
+                    ...metadata,
+                    outputs: metadata.outputs.map(({
+                        pdfPlacement: _pdfPlacement, ...output
+                    }) => output),
+                });
                 const pageOverride = getScanCleanupPageOverride(
                     request.options.pageOverrides,
                     requirePageNumber(sourcePageNumber),
@@ -422,35 +426,13 @@ export async function runLosslessScanCleanup(
                 }
                 if (metadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
                 if (metadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
-                const pageSize = pageSizeByNumber.get(sourcePageNumber);
-                if (!pageSize) {
-                    throw new Error(`evb-pdf-page-ops returned no geometry for page ${String(sourcePageNumber)}`);
-                }
                 const outputs = (metadata.outputs ?? []).map(output => {
-                    const paper = resolveScanCleanupOutputPageSpacePaperRect(
-                        pageSize,
-                        output.half === 'full' ? 1 : 2,
-                        pageOverride.rotationDegrees,
-                    );
+                    if (output.pdfPlacement === undefined) {
+                        throw new Error(`evb-scan-cleanup returned no placement for page ${String(sourcePageNumber)}`);
+                    }
                     return {
                         half: output.half,
-                        contentDetected: output.contentBox !== undefined,
-                        cropRect: mapLosslessAnalysisRectToPdf(
-                            output.cropRect,
-                            output.inputWidthPx,
-                            output.inputHeightPx,
-                            metadata.rotationDegrees,
-                            pageSize,
-                        ),
-                        // The cutter selects source pixels; it does not measure the
-                        // paper. Both spread leaves inherit one half of the oriented
-                        // source sheet even when their selected regions are unequal.
-                        paperRect: {
-                            x: 0,
-                            y: 0,
-                            width: paper.widthPoints,
-                            height: paper.heightPoints,
-                        },
+                        placement: output.pdfPlacement,
                     };
                 });
                 if (request.options.readingOrder === 'rtl' && metadata.layoutClassification === 'two-page-spread') {
@@ -460,8 +442,6 @@ export async function runLosslessScanCleanup(
                     sourcePageIndex: sourcePageNumber - 1,
                     rotationQuarterTurns: pageOverride.rotationDegrees / 90,
                     outputs,
-                    pageOverride,
-                    pageSize,
                     sourceDpi: resolveRasterPlan(
                         sourcePageNumber,
                         batchRasterByNumber.get(sourcePageNumber),
@@ -499,251 +479,25 @@ export async function runLosslessScanCleanup(
     if (allOutputs.length === 0) {
         throw new Error('evb-scan-cleanup analysis produced no output pages');
     }
-    const computedDocumentCanvas = request.options.matchPageSize
-        ? resolveScanCleanupDocumentCanvasFromAccumulator(
-            canvasAccumulator,
-            SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-            request.options,
-            true,
-            policy.rasterMaxPixels,
-        )
-        : null;
-    const documentCanvas = context.documentCanvas === undefined
-        ? computedDocumentCanvas
-        : context.documentCanvas;
     if (documentCanvas === null && request.options.matchPageSize) {
         const droppedEvent = resolveScanCleanupDroppedMatchWarningEventFromAccumulator(canvasAccumulator);
         if (droppedEvent) warnEvent(droppedEvent);
     }
     const scaledRasterPages = new Set<number>();
-    const fittedPageEvents: Array<{
-        pageNumber: number;
-        half: TScanCleanupOutputHalf;
-        event: TScanCleanupWarningEvent
-    }> = [];
-    if (documentCanvas) {
-        for (const page of analyzedPages) {
-            const box = resolveScanCleanupPageCanvasBox(
-                documentCanvas,
-                page.pageSize,
-                page.pageOverride.rotationDegrees,
-            );
-            // Margins are fitted on the pixel grid this page's raster would
-            // carry, because that is the grid the raster route fits them on. A
-            // pair the canvas rounds up to exactly its own width is a pair the
-            // raster route has to reduce, while the same request measured in
-            // exact points still fits — so the two quality routes of one
-            // document disagreed about whether margins were reduced at all,
-            // and delivered a margin that differed by the rounding. One grid
-            // for the decision, exact points for the placement inside it.
-            // Every analyzed page resolves through the same source-DPI helper;
-            // an undetected page falls back to the document resolution, so a
-            // page can never be measured against an unplanned resolution.
-            const pageRenderDpi = page.sourceDpi;
-            const canvasGrid = resolveScanCleanupCanvasGridAtDpi(documentCanvas, pageRenderDpi);
-            // The same grid seen from the page's own unrotated user space,
-            // where its paper rectangle is stated.
-            const pageCanvasGrid = resolveScanCleanupCanvasGridAtDpi(box, pageRenderDpi);
-            const canvasGridDpi = canvasGrid.widthPx / documentCanvas.widthPoints * 72;
-            const pointsPerPixelX = documentCanvas.widthPoints / canvasGrid.widthPx;
-            const pointsPerPixelY = documentCanvas.heightPoints / canvasGrid.heightPx;
-            const marginsMm = resolveScanCleanupMarginsMm(request.options.marginsMm, page.pageOverride);
-            const requestedVisualMarginsPx = {
-                left: Math.max(0, Math.round(marginsMm.leftMm * canvasGridDpi / 25.4)),
-                top: Math.max(0, Math.round(marginsMm.topMm * canvasGridDpi / 25.4)),
-                right: Math.max(0, Math.round(marginsMm.rightMm * canvasGridDpi / 25.4)),
-                bottom: Math.max(0, Math.round(marginsMm.bottomMm * canvasGridDpi / 25.4)),
-            };
-            /**
-             * The margins this output actually delivers, in the page's own
-             * unrotated user space, and whether fitting had to reduce them.
-             * `pageAlignment` and the request both name visual edges, so the
-             * fit happens on the presented canvas and only its result is
-             * turned into page space.
-             */
-            const resolveFittedMargins = (marginsAvailable: boolean) => {
-                const requested = marginsAvailable ? requestedVisualMarginsPx : {
-                    left: 0,
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                };
-                const [
-                    leftPx,
-                    rightPx,
-                ] = fitScanCleanupMarginAxisPx(requested.left, requested.right, canvasGrid.widthPx);
-                const [
-                    topPx,
-                    bottomPx,
-                ] = fitScanCleanupMarginAxisPx(requested.top, requested.bottom, canvasGrid.heightPx);
-                const visual = orientScanCleanupInsetsToPageSpace({
-                    left: leftPx * pointsPerPixelX,
-                    top: topPx * pointsPerPixelY,
-                    right: rightPx * pointsPerPixelX,
-                    bottom: bottomPx * pointsPerPixelY,
-                }, page.pageSize.rotation + page.pageOverride.rotationDegrees);
-                return {
-                    marginLeft: visual.left,
-                    marginBottom: visual.bottom,
-                    innerWidth: Math.max(
-                        pointsPerPixelX,
-                        box.widthPoints - visual.left - visual.right,
-                    ),
-                    innerHeight: Math.max(
-                        pointsPerPixelY,
-                        box.heightPoints - visual.top - visual.bottom,
-                    ),
-                    reduced: leftPx !== requested.left
-                        || topPx !== requested.top
-                        || rightPx !== requested.right
-                        || bottomPx !== requested.bottom,
-                };
-            };
-            const marginsRequested = Object.values(requestedVisualMarginsPx)
-                .some(margin => margin > 0);
-            // A spread's shared scale is the smallest of the very numbers this
-            // loop then places each leaf with, so both are measured once, here.
-            // Deriving them twice let the scale a leaf was compared at and the
-            // scale it was placed at drift apart under any later edit.
-            const fittedOutputs = page.outputs.map(output => {
-                const marginsAvailable = request.options.crop && output.contentDetected;
-                const fitted = resolveFittedMargins(marginsAvailable);
-                const paperScale = resolveScanCleanupCanvasFitScale(box, {
-                    widthPoints: output.paperRect.width,
-                    heightPoints: output.paperRect.height,
-                });
-                const leafFit = Math.min(1, resolveScanCleanupCanvasFitScale({
-                    widthPoints: fitted.innerWidth,
-                    heightPoints: fitted.innerHeight,
-                }, {
-                    widthPoints: output.cropRect.width * paperScale,
-                    heightPoints: output.cropRect.height * paperScale,
-                }));
-                return {
-                    output,
-                    marginsAvailable,
-                    paperScale,
-                    leafFit,
-                    ...fitted,
-                };
-            });
-            const sharedSpreadScale = page.outputs.length === 2
-                && page.outputs.some(output => output.half === 'left')
-                && page.outputs.some(output => output.half === 'right')
-                ? Math.min(...fittedOutputs.map(fitted => fitted.paperScale * fitted.leafFit))
-                : null;
-            for (const {
-                output,
-                marginsAvailable,
-                paperScale,
-                leafFit,
-                marginLeft,
-                marginBottom,
-                innerWidth,
-                innerHeight,
-                reduced,
-            } of fittedOutputs) {
-                if (marginsRequested && !marginsAvailable) {
-                    fittedPageEvents.push({
-                        pageNumber: page.sourcePageIndex + 1,
-                        half: output.half,
-                        event: {code: 'matched-canvas-margins-unavailable'},
-                    });
-                }
-                if (reduced) {
-                    fittedPageEvents.push({
-                        pageNumber: page.sourcePageIndex + 1,
-                        half: output.half,
-                        event: {code: 'matched-canvas-margins-reduced'},
-                    });
-                }
-                const scale = sharedSpreadScale ?? paperScale * leafFit;
-                const fit = scale / paperScale;
-                if (isScanCleanupPaperLargerThanCanvas({
-                    widthPoints: box.widthPoints,
-                    heightPoints: box.heightPoints,
-                    ...pageCanvasGrid,
-                }, {
-                    widthPoints: output.paperRect.width,
-                    heightPoints: output.paperRect.height,
-                })) {
-                    fittedPageEvents.push({
-                        pageNumber: page.sourcePageIndex + 1,
-                        half: output.half,
-                        event: {
-                            code: 'matched-canvas-paper-downscaled',
-                            unit: 'pt',
-                            scalePercentTenths: toScanCleanupPercentTenths(paperScale * 100),
-                            documentCanvasWidth: box.widthPoints,
-                            documentCanvasHeight: box.heightPoints,
-                            paperWidth: output.paperRect.width,
-                            paperHeight: output.paperRect.height,
-                        },
-                    });
-                }
-                if (fit < 1 - CANVAS_CONTENT_SCALE_EPSILON) {
-                    fittedPageEvents.push({
-                        pageNumber: page.sourcePageIndex + 1,
-                        half: output.half,
-                        event: {
-                            code: 'matched-canvas-content-fitted',
-                            unit: 'pt',
-                            contentWidth: output.cropRect.width * scale,
-                            contentHeight: output.cropRect.height * scale,
-                            innerWidth,
-                            innerHeight,
-                        },
-                    });
-                }
-                const alignment = page.pageOverride.placementOverrides?.[output.half]
-                    ?? request.options.pageAlignment;
-                const placementAnchor = request.placementAnchorsByPage?.[
-                    String(page.sourcePageIndex + 1)
-                ]?.[output.half];
-                if (Math.abs(scale - 1) <= CANVAS_CONTENT_SCALE_EPSILON) {
-                    const innerBox = placeScanCleanupCanvasBox(
-                        output.cropRect,
-                        innerWidth,
-                        innerHeight,
-                        alignment,
-                        placementAnchor,
-                        page.pageSize.rotation + page.pageOverride.rotationDegrees,
-                    );
-                    output.cropRect = {
-                        x: innerBox.x - marginLeft,
-                        y: innerBox.y - marginBottom,
-                        width: box.widthPoints,
-                        height: box.heightPoints,
-                    };
-                    continue;
-                }
-                const placed = placeScanCleanupCanvasBox(
-                    {
-                        x: output.cropRect.x * scale,
-                        y: output.cropRect.y * scale,
-                        width: output.cropRect.width * scale,
-                        height: output.cropRect.height * scale,
-                    },
-                    innerWidth,
-                    innerHeight,
-                    alignment,
-                    placementAnchor,
-                    page.pageSize.rotation + page.pageOverride.rotationDegrees,
-                );
-                output.contentTransform = {
-                    scale,
-                    translateX: -(placed.x - marginLeft),
-                    translateY: -(placed.y - marginBottom),
-                };
-                output.cropRect = {
-                    x: 0,
-                    y: 0,
-                    width: box.widthPoints,
-                    height: box.heightPoints,
-                };
-                if (page.sourceRasterDetected) {
-                    scaledRasterPages.add(page.sourcePageIndex + 1);
-                }
+    const fittedPageEvents: Parameters<typeof warnEvent>[] = [];
+    for (const page of analyzedPages) {
+        for (const {
+            half, placement,
+        } of page.outputs) {
+            for (const event of placement.warningEvents ?? []) {
+                fittedPageEvents.push([
+                    event,
+                    page.sourcePageIndex + 1,
+                    half,
+                ]);
+            }
+            if (placement.contentScaled && page.sourceRasterDetected) {
+                scaledRasterPages.add(page.sourcePageIndex + 1);
             }
         }
     }
@@ -753,7 +507,7 @@ export async function runLosslessScanCleanup(
             pages: [...scaledRasterPages].map(pageNumber => requirePageNumber(pageNumber)),
         });
     }
-    for (const fitted of fittedPageEvents) warnEvent(fitted.event, fitted.pageNumber, fitted.half);
+    for (const fitted of fittedPageEvents) warnEvent(...fitted);
     summary.outputPages = allOutputs.length;
     const outputMappings: IScanCleanupOutputMapping[] = allOutputs.map((output, outputIndex) => {
         const sourcePage = output.sourcePageIndex + 1;
@@ -838,9 +592,9 @@ export async function runLosslessScanCleanup(
     const instructions = buildScanCleanupPageOpsInstructions(analyzedPages.map(page => ({
         sourcePageIndex: page.sourcePageIndex,
         rotationQuarterTurns: page.rotationQuarterTurns,
-        outputs: page.outputs.map(output => ({
-            cropRect: output.cropRect,
-            ...(output.contentTransform ? {contentTransform: output.contentTransform} : {}),
+        outputs: page.outputs.map(({placement}) => ({
+            cropRect: placement.cropRect,
+            ...(placement.contentTransform ? {contentTransform: placement.contentTransform} : {}),
         })),
     })), provenanceStampHex);
     await writeFile(

@@ -13,7 +13,6 @@ import {
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
-import {resolveScanCleanupPlacementOffset} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
@@ -320,13 +319,9 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
         layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
     });
 
-    // The raster path reads the canvas the sidecar wrote; the lossless path
-    // places the analysed crop on the same document rectangle itself.
+    // Both paths report the placement the sidecar planned for this page.
     const matchedCanvas = lossless
-        ? {
-            canvasWidthPx: DOCUMENT_CANVAS.widthPx,
-            canvasHeightPx: DOCUMENT_CANVAS.heightPx,
-        }
+        ? {}
         : {
             canvasWidthPx: 100,
             canvasHeightPx: 140,
@@ -354,42 +349,6 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
             documentCanvas: DOCUMENT_CANVAS,
         },
     ]);
-
-    if (lossless) {
-        // This is the preserveOriginalQuality row in the harness table:
-        // preview reports the same free-space offset that the lossless PDF
-        // assembler consumes, with pixel flooring only at the metadata
-        // boundary. A sign or rounding mutation makes this identity red.
-        for (const output of [
-            first.outputs[0]!.metadata,
-            second.outputs[0]!.metadata,
-        ]) {
-            const contentWidthPx = output.matchedCanvasContentWidthPx!;
-            const contentHeightPx = output.matchedCanvasContentHeightPx!;
-            const innerWidthPx = output.canvasWidthPx
-                    - output.appliedMargins.leftPx
-                    - output.appliedMargins.rightPx;
-            const innerHeightPx = output.canvasHeightPx
-                    - output.appliedMargins.topPx
-                    - output.appliedMargins.bottomPx;
-            const exportPlacement = resolveScanCleanupPlacementOffset(
-                innerWidthPx - contentWidthPx,
-                innerHeightPx - contentHeightPx,
-                detectRequest.options.pageAlignment,
-            );
-            expect({
-                previewX: output.placementOffsetXPx - output.appliedMargins.leftPx,
-                previewY: output.placementOffsetYPx - output.appliedMargins.topPx,
-                exportX: Math.floor(exportPlacement.x),
-                exportY: Math.floor(exportPlacement.y),
-            }).toEqual({
-                previewX: Math.floor(exportPlacement.x),
-                previewY: Math.floor(exportPlacement.y),
-                exportX: Math.floor(exportPlacement.x),
-                exportY: Math.floor(exportPlacement.y),
-            });
-        }
-    }
 }
 
 async function runRendererCancellation(eventName: 'destroyed' | 'render-process-gone'): Promise<void> {

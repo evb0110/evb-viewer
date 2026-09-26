@@ -1212,6 +1212,7 @@ mod moved_tests {
             },
             document_prior: None,
             detail_render_plan: None,
+            pdf_page: None,
             outputs: Vec::new(),
         };
         let render_cache = manifest_cache(PlanningOperation::Render, None);

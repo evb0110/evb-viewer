@@ -717,6 +717,7 @@ fn assemble_region_result(
             fold_clip_left: 0,
             fold_clip_right: 0,
             pdf_image_placement: None,
+            source_pdf_placement: None,
             output_mode: emitted_output_mode,
             bilevel_written: false,
             layered_written: false,

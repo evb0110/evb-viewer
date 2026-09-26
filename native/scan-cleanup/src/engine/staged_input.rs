@@ -1468,6 +1468,7 @@ mod moved_tests {
                 },
                 document_prior: None,
                 detail_render_plan: None,
+                pdf_page: None,
                 outputs: vec![PageOutput {
                     output_path: output,
                     metadata_path: root.join("output.json"),
@@ -1711,6 +1712,7 @@ mod moved_tests {
                 options: CleanupOptions::default(),
                 document_prior: None,
                 detail_render_plan: None,
+                pdf_page: None,
                 outputs: Vec::new(),
             }],
         };
@@ -1821,6 +1823,7 @@ mod moved_tests {
             options: crate::CleanupOptions::default(),
             document_prior: None,
             detail_render_plan: None,
+            pdf_page: None,
         };
         let manifest = ManifestV3 {
             version: VERSION,

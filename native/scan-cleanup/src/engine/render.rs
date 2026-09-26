@@ -183,6 +183,17 @@ pub enum CleanupWarningEvent {
 /// A non-finite measurement has no digits to report and quantizes to zero; a
 /// magnitude past `i64` saturates, which the contract's own ceilings reject.
 pub(crate) fn quantize_decimal(value: f64, decimals: u32) -> i64 {
+    quantize_decimal_with_ties(value, decimals, true)
+}
+
+/// `quantize_decimal` with exact ties rounded away from zero, which is how
+/// JavaScript's `toFixed` rounds; lossless-route percentages were always
+/// quantized that way.
+pub(crate) fn quantize_decimal_half_up(value: f64, decimals: u32) -> i64 {
+    quantize_decimal_with_ties(value, decimals, false)
+}
+
+fn quantize_decimal_with_ties(value: f64, decimals: u32, ties_to_even: bool) -> i64 {
     if !value.is_finite() {
         return 0;
     }
@@ -209,7 +220,7 @@ pub(crate) fn quantize_decimal(value: f64, decimals: u32) -> i64 {
         let quotient = scaled_mantissa / denominator;
         let doubled_remainder = (scaled_mantissa % denominator) * 2;
         if doubled_remainder > denominator
-            || (doubled_remainder == denominator && quotient % 2 == 1)
+            || (doubled_remainder == denominator && (!ties_to_even || quotient % 2 == 1))
         {
             quotient + 1
         } else {
@@ -329,6 +340,11 @@ pub struct CleanupMetadata {
     /// absent, assemblers retain the legacy behavior of covering the MediaBox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pdf_image_placement: Option<PdfImagePlacement>,
+    /// How the compact source page is placed when it is kept instead of this
+    /// raster. Reported for whole-page outputs of pages whose PDF geometry the
+    /// manifest carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_pdf_placement: Option<crate::engine::lossless_placement::LosslessPlacement>,
     pub output_mode: OutputMode,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bilevel_written: bool,
@@ -1011,6 +1027,10 @@ pub struct AnalysisOutputMetadata {
     pub input_width: usize,
     #[serde(rename = "inputHeightPx")]
     pub input_height: usize,
+    /// Present when the manifest page carries its PDF geometry for the
+    /// lossless route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf_placement: Option<crate::engine::lossless_placement::LosslessPlacement>,
 }
 
 mod pixel_rect_serde {

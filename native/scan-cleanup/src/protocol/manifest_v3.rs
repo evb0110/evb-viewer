@@ -256,6 +256,10 @@ pub struct Page {
     pub document_prior: Option<DocumentPrior>,
     #[serde(default)]
     pub detail_render_plan: Option<DetailRenderPlan>,
+    /// The source page's PDF geometry. When present, outputs also report their
+    /// placement in PDF points for the lossless assembler.
+    #[serde(default)]
+    pub pdf_page: Option<crate::engine::lossless_placement::PdfPageGeometry>,
     pub outputs: Vec<PageOutput>,
 }
 
@@ -355,6 +359,7 @@ fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
             "options",
             "documentPrior",
             "detailRenderPlan",
+            "pdfPage",
             "outputs",
         ],
         "output" => &[

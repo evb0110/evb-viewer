@@ -62,6 +62,7 @@ export interface IScanCleanupManifestPageInput {
     outputs?: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
     detailRenderPlan?: INativeScanCleanupManifestV3['pages'][number]['detailRenderPlan'];
+    pdfPage?: INativeScanCleanupManifestV3['pages'][number]['pdfPage'];
 }
 
 export interface IBuildNativeScanCleanupManifestInput {
@@ -495,6 +496,7 @@ function assembleNativeScanCleanupManifest({
                 outputs: page.outputs ?? [],
                 ...(page.documentPrior === undefined ? {} : {documentPrior: page.documentPrior}),
                 ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
+                ...(page.pdfPage === undefined ? {} : {pdfPage: page.pdfPage}),
             };
         }),
     };

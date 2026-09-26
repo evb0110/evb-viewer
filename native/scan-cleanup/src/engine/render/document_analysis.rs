@@ -264,6 +264,7 @@ pub(crate) fn analyze_page(
             .into(),
             input_width: source.width(),
             input_height: source.height(),
+            pdf_placement: None,
         })
     })
     .collect::<Result<Vec<_>, AnalysisError>>()?;

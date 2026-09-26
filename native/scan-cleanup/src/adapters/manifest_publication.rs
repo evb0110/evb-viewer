@@ -371,6 +371,7 @@ mod tests {
                     options: CleanupOptions::default(),
                     document_prior: None,
                     detail_render_plan: None,
+                    pdf_page: None,
                     outputs: vec![output(page)],
                 })
                 .collect(),
@@ -488,6 +489,7 @@ mod tests {
                 options: CleanupOptions::default(),
                 document_prior: None,
                 detail_render_plan: None,
+                pdf_page: None,
                 outputs: vec![PageOutput {
                     output_path: output.clone(),
                     metadata_path: metadata,

@@ -107,6 +107,7 @@ mod tests {
                 fold_clip_left: 0,
                 fold_clip_right: 0,
                 pdf_image_placement: None,
+                source_pdf_placement: None,
                 output_mode: OutputMode::Color,
                 bilevel_written: false,
                 layered_written: false,

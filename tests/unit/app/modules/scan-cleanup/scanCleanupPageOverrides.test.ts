@@ -17,7 +17,6 @@ import {
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPlacementAnchors,
-    resolveScanCleanupPlacementOffset,
     setScanCleanupPageOverride,
     shouldShowScanCleanupOutputEstimate,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
@@ -422,37 +421,5 @@ describe('scan cleanup ink placement', () => {
             samples[3]!,
             samples[1]!,
         ], 0.05)).toEqual(expected);
-    });
-
-    it('places content at its anchor inside the free space, centred horizontally', () => {
-        expect(resolveScanCleanupPlacementOffset(100, 200, 'ink', {
-            anchor: {yNormalized: 0.25},
-            contentHeight: 100,
-        })).toEqual({
-            x: 50,
-            y: 75,
-        });
-    });
-
-    it('never lets an anchor push content past the requested margins', () => {
-        expect(resolveScanCleanupPlacementOffset(100, 200, 'ink', {
-            anchor: {yNormalized: 1},
-            contentHeight: 100,
-        })).toEqual({
-            x: 50,
-            y: 200,
-        });
-        expect(resolveScanCleanupPlacementOffset(100, 200, 'ink', {
-            anchor: {yNormalized: 0},
-            contentHeight: 100,
-        })).toEqual({
-            x: 50,
-            y: 0,
-        });
-    });
-
-    it('falls back to top-center when a page has no resolved anchor', () => {
-        expect(resolveScanCleanupPlacementOffset(100, 200, 'ink'))
-            .toEqual(resolveScanCleanupPlacementOffset(100, 200, 'top-center'));
     });
 });

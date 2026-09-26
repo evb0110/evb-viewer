@@ -144,6 +144,47 @@ export interface INativeScanCleanupPdfImagePlacementV3 {
     heightPoints: number;
 }
 
+/** The source page's PDF view box, display rotation and raster resolution. */
+export interface INativeScanCleanupPdfPageV3 {
+    xPoints: number;
+    yPoints: number;
+    widthPoints: number;
+    heightPoints: number;
+    rotation: number;
+    sourceDpi: number;
+}
+
+/**
+ * Where native places one output of the source page, in PDF points: the
+ * window `split-pages` cuts and the transform it applies first, and for a
+ * preview the same placement on the preview's pixel canvas.
+ */
+export interface INativeScanCleanupPdfPlacementV3 {
+    cropRect: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    contentTransform?: {
+        scale: number;
+        translateX: number;
+        translateY: number;
+    };
+    contentScaled: boolean;
+    warningEvents?: TScanCleanupWarningEvent[];
+    preview?: {
+        canvasWidthPx: number;
+        canvasHeightPx: number;
+        contentWidthPx: number;
+        contentHeightPx: number;
+        offsetXPx: number;
+        offsetYPx: number;
+        margins: IScanCleanupAppliedMargins;
+        canvasOverflow: boolean;
+    };
+}
+
 export interface INativeScanCleanupDewarpModelV3 {
     topCurve: IScanCleanupPixelPoint[];
     bottomCurve: IScanCleanupPixelPoint[];
@@ -197,6 +238,8 @@ export interface INativeScanCleanupOutputMetadataV3 {
     uniformCanvas?: boolean;
     canvasPolicy?: 'intrinsic' | 'strict-maximum';
     canvasOverflow?: boolean;
+    /** Placement of the compact source page if it is kept instead of this raster. */
+    sourcePdfPlacement?: INativeScanCleanupPdfPlacementV3;
     inkConsistencyDiagnostics?: INativeScanCleanupInkConsistencyDiagnosticsV3;
     /**
      * Unstructured native diagnostics. Every condition the pipeline aggregates
@@ -274,6 +317,7 @@ export interface INativeScanCleanupAnalysisOutputV3 {
     sourceRegion: IScanCleanupPixelRect;
     inputWidthPx: number;
     inputHeightPx: number;
+    pdfPlacement?: INativeScanCleanupPdfPlacementV3;
 }
 
 export interface INativeScanCleanupOutputModeDiagnosticsV3 {
@@ -634,6 +678,7 @@ export interface INativeScanCleanupPageV3 {
     outputs: INativeScanCleanupOutputV3[];
     documentPrior?: IScanCleanupDocumentPrior;
     detailRenderPlan?: INativeScanCleanupDetailRenderPlanV3;
+    pdfPage?: INativeScanCleanupPdfPageV3;
 }
 
 export interface INativeScanCleanupManifestV3 {

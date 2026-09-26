@@ -115,11 +115,7 @@ import {
     toCropBoxPageSize,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
-import {
-    buildRunnableNativeScanCleanupManifest,
-    buildShapeOnlyNativeScanCleanupManifest,
-} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
-import {assertNativeScanCleanupManifestGeometry} from '@evb/scan-cleanup/core/policy/assertNativeScanCleanupManifestGeometry';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildNativeScanCleanupManifest';
 import {
     addScanCleanupDocumentCanvasPage,
     createScanCleanupDocumentCanvasAccumulator,
@@ -2429,53 +2425,6 @@ export async function runScanCleanupConversion(
             resolvePagePlan(plan.pageNumber),
         ]));
         pagePlanResolver.report();
-        // Resolve and validate the complete effective geometry before touching
-        // compact source layers or starting any final raster producer. The
-        // source can contain hundreds of expensive MRC masks; discovering one
-        // malformed page only after extracting all of them made a validation
-        // error look like a hung cleanup.
-        const geometryPageInputs = rasterPlans.map(plan => {
-            const detectedRaster = detectedRasterByPage.get(plan.pageNumber);
-            return {
-                inputPath: '',
-                pageNumber: plan.pageNumber,
-                dpi: plan.dpi,
-                sourceDpi: plan.sourceDpi,
-                sourceHasBilevelLayer: detectedRaster?.hasBilevelLayer ?? false,
-                ...(detectedRaster?.backgroundDpi === undefined
-                    ? {}
-                    : {sourceBackgroundDpi: detectedRaster.backgroundDpi}),
-                requestedRenderDpi: plan.requestedRenderDpi,
-                ...(plan.resolvedOutputMode === undefined
-                    ? {}
-                    : {resolvedOutputMode: plan.resolvedOutputMode}),
-                ...buildConversionPageMetadata({
-                    documentPriorByPage: request.documentPriorByPage,
-                    layoutByPage: request.layoutByPage,
-                    pageMetadataPath: '',
-                    pageNumber: plan.pageNumber,
-                    resolvedPagePlan: resolvedPagePlanByNumber.get(plan.pageNumber),
-                }),
-            };
-        });
-        for (const batch of iterateScanCleanupPageBatches(geometryPageInputs.length)) {
-            assertNativeScanCleanupManifestGeometry(buildShapeOnlyNativeScanCleanupManifest({
-                operation: 'render',
-                renderMode: 'final',
-                canvasScope: 'document',
-                qualityPath: 'raster',
-                hostMemoryBytes: policy.totalRamBytes,
-                options: request.options,
-                ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
-                experimental: {
-                    autoDewarp: request.options.autoDewarp ?? false,
-                    ...(request.options.autoDewarpDepth === undefined
-                        ? {}
-                        : {autoDewarpDepth: request.options.autoDewarpDepth}),
-                },
-                pages: collectScanCleanupPageBatch(geometryPageInputs, batch),
-            }));
-        }
         const canonicalAnalysisDpi = DETECTION_DPI;
         const estimateNativeOutputScratchBytes = (plan: ReturnType<typeof capRasterPlanDpi>) => {
             const width = Math.max(1, Math.ceil(plan.guardrail.width * plan.dpi / plan.guardrail.dpi));
@@ -2664,6 +2613,7 @@ export async function runScanCleanupConversion(
             const inputPath = join(scratch, `source-${plan.pageNumber}.${extension}`);
             const detectedRaster = detectedRasterByPage.get(plan.pageNumber);
             const trustedMrcLayers = trustedMrcLayersByPage.get(plan.pageNumber);
+            const pageGeometry = pageGeometryByNumber.get(plan.pageNumber);
             return {
                 inputPath,
                 analysisInputPath: join(
@@ -2680,6 +2630,14 @@ export async function runScanCleanupConversion(
                 pageNumber: plan.pageNumber,
                 dpi: plan.dpi,
                 sourceDpi: plan.sourceDpi,
+                ...(pageGeometry === undefined ? {} : {pdfPage: {
+                    xPoints: pageGeometry.xPoints,
+                    yPoints: pageGeometry.yPoints,
+                    widthPoints: pageGeometry.widthPoints,
+                    heightPoints: pageGeometry.heightPoints,
+                    rotation: pageGeometry.rotation,
+                    sourceDpi: plan.sourceDpi,
+                }}),
                 sourceHasBilevelLayer: detectedRaster?.hasBilevelLayer ?? false,
                 ...(detectedRaster?.backgroundDpi === undefined
                     ? {}
@@ -2761,7 +2719,6 @@ export async function runScanCleanupConversion(
                 pages: batchPageInputs,
                 allowedPathRoot: scratch,
             });
-            assertNativeScanCleanupManifestGeometry(manifest);
             const pages = manifest.pages;
             for (const page of pages) manifestPageBySource.set(page.sourcePageIndex + 1, page);
             const manifestPath = join(scratch, `cleanup-manifest-${String(batch.batchIndex)}.json`);

@@ -81,10 +81,6 @@ import {
     createArrayBackedPdfPageSizeStore,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
-import {
-    fitScanCleanupMarginAxisPx,
-    placeScanCleanupCanvasBox,
-} from '@evb/scan-cleanup/core/policy/documentCanvas';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
@@ -494,6 +490,15 @@ async function measurePipelineRasterPeak(
                     },
                     inputWidthPx: 100,
                     inputHeightPx: 100,
+                    pdfPlacement: {
+                        cropRect: {
+                            x: 0,
+                            y: 0,
+                            width: 240,
+                            height: 336,
+                        },
+                        contentScaled: false,
+                    },
                 }],
             }))));
             return;
@@ -1097,7 +1102,7 @@ describe('scan cleanup pipeline', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('EAGER');
     });
 
-    it('maps rotated lossless analysis to PDF points, reverses RTL halves, and prunes raster options', async () => {
+    it('reverses RTL lossless halves and prunes raster options', async () => {
         const fixture = await setup();
         const losslessOptions: IScanCleanupOptions = {
             ...options,
@@ -1177,6 +1182,15 @@ describe('scan cleanup pipeline', () => {
                         },
                         inputWidthPx: 1000,
                         inputHeightPx: 500,
+                        pdfPlacement: {
+                            cropRect: {
+                                x: 0,
+                                y: 0,
+                                width: 200,
+                                height: 50,
+                            },
+                            contentScaled: false,
+                        },
                     },
                     {
                         half: 'right',
@@ -1194,6 +1208,15 @@ describe('scan cleanup pipeline', () => {
                         },
                         inputWidthPx: 1000,
                         inputHeightPx: 500,
+                        pdfPlacement: {
+                            cropRect: {
+                                x: 0,
+                                y: 50,
+                                width: 200,
+                                height: 50,
+                            },
+                            contentScaled: false,
+                        },
                     },
                 ],
             }));
@@ -1626,6 +1649,20 @@ describe('scan cleanup pipeline', () => {
                 dewarpModel: null,
                 outputMode: 'color',
                 contentBox: null,
+                sourcePdfPlacement: {
+                    cropRect: {
+                        x: 0,
+                        y: 0,
+                        width: 240,
+                        height: 336,
+                    },
+                    contentTransform: {
+                        scale: 1,
+                        translateX: 0,
+                        translateY: 0,
+                    },
+                    contentScaled: true,
+                },
                 warnings: [],
                 warningEvents: [],
             }));
@@ -1780,6 +1817,20 @@ describe('scan cleanup pipeline', () => {
                     trustedMrcBackgroundPreserved: true,
                     illuminationNormalized: true,
                     textToneDiagnostics: {applied: true},
+                    sourcePdfPlacement: {
+                        cropRect: {
+                            x: 0,
+                            y: 0,
+                            width: 240,
+                            height: 336,
+                        },
+                        contentTransform: {
+                            scale: 1,
+                            translateX: 0,
+                            translateY: 0,
+                        },
+                        contentScaled: true,
+                    },
                 },
             } as Parameters<typeof resolveCompactSourcePreservation>[3],
             {
@@ -1803,102 +1854,6 @@ describe('scan cleanup pipeline', () => {
             reason: 'auto-mixed-trusted-mrc-tone-preserved',
             sourcePageIndex: 0,
         });
-    });
-
-    it('keeps fractional preview placement identical to compact lossless assembly', () => {
-        const request = {
-            sourcePdfPath: '/source.pdf',
-            outputPdfPath: '/cleaned.pdf',
-            options: {
-                ...options,
-                outputMode: 'auto' as const,
-                preserveOriginalQuality: true,
-                pageAlignment: 'center' as const,
-                matchPageSize: true,
-                marginsMm: {
-                    leftMm: 0,
-                    topMm: 0,
-                    rightMm: 0,
-                    bottomMm: 0,
-                },
-            },
-        };
-        const pageSize = {
-            pageNumber: 1,
-            xPoints: 0,
-            yPoints: 0,
-            widthPoints: 121.5,
-            heightPoints: 81.5,
-            rotation: 0,
-        };
-        const pageMetadata = {
-            layoutClassification: 'single-uncut-page' as const,
-            outputCount: 1,
-            rotationDegrees: 0 as const,
-        };
-        const output = {
-            sourcePageNumber: 1,
-            path: '/clean-1-0.png',
-            dpi: 300,
-            resolvedOutputMode: 'color' as const,
-            metadata: {
-                half: 'full' as const,
-                cropRect: {
-                    xPx: 10,
-                    yPx: 20,
-                    widthPx: 100,
-                    heightPx: 50,
-                },
-                inputWidthPx: 121.5,
-                inputHeightPx: 81.5,
-                outputWidthPx: 100,
-                outputHeightPx: 50,
-                canvasWidthPx: 121.5,
-                canvasHeightPx: 81.5,
-                layoutClassification: 'single-uncut-page' as const,
-                skewApplied: false,
-                dewarpModel: null,
-                placementOffsetXPx: 0,
-                placementOffsetYPx: 0,
-                forwardTransform: null,
-                rotationDegrees: 0 as const,
-                matchedCanvasTargetWidthPoints: 121.5,
-                matchedCanvasTargetHeightPoints: 81.5,
-            },
-        };
-        const preserved = resolveCompactSourcePreservation(
-            request,
-            1,
-            pageMetadata as Parameters<typeof resolveCompactSourcePreservation>[2],
-            output as Parameters<typeof resolveCompactSourcePreservation>[3],
-            pageSize,
-            {
-                dpi: 300,
-                width: 121.5,
-                height: 81.5,
-                hasBilevelLayer: true,
-                backgroundDpi: 120,
-            },
-        );
-
-        expect(preserved).not.toBeUndefined();
-        const sourceCrop = {
-            x: 10,
-            y: 11.5,
-            width: 100,
-            height: 50,
-        };
-        const scale = 121.5 / 100;
-        const placed = placeScanCleanupCanvasBox({
-            x: sourceCrop.x * scale,
-            y: sourceCrop.y * scale,
-            width: sourceCrop.width * scale,
-            height: sourceCrop.height * scale,
-        }, 121.5, 81.5, 'center');
-        expect(preserved!.contentTransform.scale).toBeCloseTo(scale, 12);
-        expect(preserved!.contentTransform.translateX).toBeCloseTo(-placed.x, 12);
-        expect(preserved!.contentTransform.translateY).toBeCloseTo(-placed.y, 12);
-        expect(preserved!.contentTransform.translateY % 1).not.toBe(0);
     });
 
     async function runOversizedRasterPipeline(availableScratchBytes: number | null) {
@@ -2060,6 +2015,15 @@ describe('scan cleanup pipeline', () => {
                         },
                         inputWidthPx: 500,
                         inputHeightPx: 700,
+                        pdfPlacement: {
+                            cropRect: {
+                                x: 0,
+                                y: 0,
+                                width: 240,
+                                height: 336,
+                            },
+                            contentScaled: false,
+                        },
                     }],
                 }));
             }
@@ -3489,56 +3453,6 @@ describe('scan cleanup pipeline', () => {
     // The geometry preflight builds a manifest of placeholder paths. It must
     // reach the geometry verdict without any runnable path validation, or this
     // would fail on the empty placeholders instead.
-    it('rejects malformed final geometry before extracting reusable MRC layers', async () => {
-        const fixture = await setup();
-        const pipelineDependencies = dependencies(vi.fn());
-        pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
-            1,
-            300,
-            {
-                width: 1_000,
-                height: 1_400,
-                hasBilevelLayer: true,
-                backgroundDpi: 100,
-            },
-        ]]));
-        pipelineDependencies.extractMrcLayers = vi.fn();
-        pipelineDependencies.extractMrcLayersBatch = vi.fn();
-
-        await expect(runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                outputMode: 'auto',
-                matchPageSize: false,
-            },
-            outputModeRecommendations: {'1': 'mixed'},
-            layoutByPage: {'1': 'single-uncut-page'},
-            pagePlanEvidenceByPage: {'1': {
-                pageNumber: requirePageNumber(1),
-                rotationDegrees: 0,
-                layoutClassification: 'single-uncut-page',
-                outputs: {right: {contentBox: {
-                    xNormalized: 0.72,
-                    yNormalized: 0.1,
-                    widthNormalized: 0.29,
-                    heightNormalized: 0.8,
-                    rotationDegrees: 0,
-                }}},
-            }},
-        }, {
-            ...pipelinePaths(fixture.dir),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies))
-            .rejects.toThrow(
-                'Scan cleanup page 1 has invalid automatic right content box geometry',
-            );
-        expect(pipelineDependencies.extractMrcLayers).not.toHaveBeenCalled();
-        expect(pipelineDependencies.extractMrcLayersBatch).not.toHaveBeenCalled();
-    });
-
     it.each([
         [
             'vanished',
@@ -4335,139 +4249,6 @@ describe('scan cleanup pipeline', () => {
         await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
-    it('places every matched output on one rotation-aware document canvas', async () => {
-        const fixture = await setup();
-        let splitInstructions: {pages: Array<{
-            sourcePageIndex: number;
-            rotationQuarterTurns: number;
-            outputs: Array<{cropRect: {
-                x: number;
-                y: number;
-                width: number;
-                height: number
-            }}>
-        }>} | null = null;
-        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string;}>};
-            for (const [
-                index,
-                page,
-            ] of manifest.pages.entries()) {
-                await writeFile(page.pageMetadataPath, JSON.stringify({
-                    layoutClassification: 'single-uncut-page',
-                    cutterXPx: null,
-                    rotationDegrees: 0,
-                    excluded: false,
-                    blankOutputsSkipped: 0,
-                    outputCount: 1,
-                    // The first page's content is a quarter of the sheet, so a
-                    // canvas taken from the outputs rather than from the
-                    // document would frame it by its own crop.
-                    outputs: [{
-                        half: 'full',
-                        // The whole sheet: the page was not cut, so the paper
-                        // it owns is the raster it was rendered from.
-                        sourceRegion: {
-                            xPx: 0,
-                            yPx: 0,
-                            widthPx: 400,
-                            heightPx: 200,
-                        },
-                        cropRect: {
-                            xPx: 0,
-                            yPx: 0,
-                            widthPx: index === 0 ? 200 : 400,
-                            heightPx: index === 0 ? 100 : 200,
-                        },
-                        inputWidthPx: 400,
-                        inputHeightPx: 200,
-                    }],
-                }));
-            }
-        });
-        const pipelineDependencies = dependencies(runSidecar);
-        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            if (args[0] === '--check') {
-                return {
-                    exitCode: 0,
-                    stdout: '',
-                    stderr: '',
-                };
-            }
-            const outputPath = args[args.indexOf('--output') + 1]!;
-            if (args[0] === 'page-sizes') {
-                // A landscape page, and the same paper stored as a rotated
-                // portrait page. Both are presented 400 x 200.
-                await writeFile(outputPath, JSON.stringify({pages: [
-                    {
-                        pageNumber: 1,
-                        xPoints: 0,
-                        yPoints: 0,
-                        widthPoints: 400,
-                        heightPoints: 200,
-                        rotation: 0,
-                    },
-                    {
-                        pageNumber: 2,
-                        xPoints: 0,
-                        yPoints: 0,
-                        widthPoints: 200,
-                        heightPoints: 400,
-                        rotation: 90,
-                    },
-                ]}));
-            } else {
-                const instructionsPath = args[args.indexOf('--instructions-file') + 1]!;
-                splitInstructions = JSON.parse(await readFile(instructionsPath, 'utf8')) as typeof splitInstructions;
-                await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
-            }
-            return {
-                exitCode: 0,
-                stdout: '',
-                stderr: '',
-            };
-        });
-
-        await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                crop: false,
-                matchPageSize: true,
-                pageAlignment: 'top-left',
-            },
-        }, pipelinePaths(fixture.dir, true), new AbortController().signal, vi.fn(), highTierPolicy, undefined, pipelineDependencies);
-
-        // The canvas is 400 x 200 as presented. The rotated page carries it
-        // with the axes swapped, because split-pages writes the box in the
-        // page's own unrotated space and keeps its rotation, so both pages
-        // display at exactly the same size.
-        expect(splitInstructions).toEqual({pages: [
-            {
-                sourcePageIndex: 0,
-                rotationQuarterTurns: 0,
-                outputs: [{cropRect: {
-                    x: 0,
-                    y: 0,
-                    width: 400,
-                    height: 200,
-                }}],
-            },
-            {
-                sourcePageIndex: 1,
-                rotationQuarterTurns: 0,
-                outputs: [{cropRect: {
-                    x: 0,
-                    y: 0,
-                    width: 200,
-                    height: 400,
-                }}],
-            },
-        ]});
-    });
-
     // Every raster mode now needs trusted page geometry before Poppler starts.
     // Missing or failed measurement is therefore a deterministic preflight
     // error rather than an unbounded render with matched-page-size disabled.
@@ -5119,6 +4900,15 @@ describe('scan cleanup pipeline', () => {
                         contentBox: cropRect,
                         inputWidthPx: 400,
                         inputHeightPx: 200,
+                        pdfPlacement: {
+                            cropRect: {
+                                x: 0,
+                                y: 0,
+                                width: pageGeometry[index]?.widthPoints ?? 400,
+                                height: pageGeometry[index]?.heightPoints ?? 200,
+                            },
+                            contentScaled: false,
+                        },
                     }],
                 }));
                 for (const output of page.outputs ?? []) {
@@ -5290,75 +5080,6 @@ describe('scan cleanup pipeline', () => {
         }));
     });
 
-    it('scales a smaller page onto the canvas with a content transform when nothing has to be resampled', async () => {
-        const fixture = await setup();
-        const harness = losslessMatchedHarness([
-            {
-                widthPoints: 400,
-                heightPoints: 200,
-            },
-            {
-                widthPoints: 200,
-                heightPoints: 100,
-            },
-        ]);
-        // No page carries a raster, so scaling costs nothing: the split
-        // assembler carries the page's own objects onto the shared rectangle.
-        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
-
-        const summary = await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                crop: false,
-                matchPageSize: true,
-                pageAlignment: 'center',
-                marginsMm: {
-                    leftMm: 0,
-                    topMm: 0,
-                    rightMm: 0,
-                    bottomMm: 0,
-                },
-            },
-            // Detection has settled, so the run measures a document it knows
-            // the shape of and has nothing to report about it.
-            layoutByPage: {
-                '1': 'single-uncut-page',
-                '2': 'single-uncut-page',
-            },
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        expect(summary.warnings).toEqual([]);
-        const instructions = harness.readSplitInstructions();
-        // The page that already is the canvas is re-boxed and nothing else;
-        // the half-size page is doubled onto the same rectangle, and its box
-        // is the canvas exactly rather than the canvas around unscaled content.
-        expect(instructions!.pages[0]!.outputs[0]).toEqual({cropRect: {
-            x: 0,
-            y: 0,
-            width: 400,
-            height: 200,
-        }});
-        expect(instructions!.pages[1]!.outputs[0]).toEqual({
-            cropRect: {
-                x: 0,
-                y: 0,
-                width: 400,
-                height: 200,
-            },
-            contentTransform: {
-                scale: 2,
-                translateX: 0,
-                translateY: 0,
-            },
-        });
-    });
-
     // The final raster run reports placement by code, so the sentence a
     // fixture carries can change without changing which pages the run
     // aggregates — and an artifact from before the structured channel keeps
@@ -5489,498 +5210,6 @@ describe('scan cleanup pipeline', () => {
         expect(summary.warnings).toEqual([`Page 1: ${legacySentence}`]);
     });
 
-    it('uses one pair-wide fit when either lossless spread leaf reaches the margin box', async () => {
-        const fixture = await setup();
-        const harness = losslessMatchedHarness([{
-            widthPoints: 400,
-            heightPoints: 200,
-        }]);
-        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        harness.pipelineDependencies.runSidecar = vi.fn(async (_binary, manifestPath) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
-            await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
-                layoutClassification: 'two-page-spread',
-                cutterXPx: 240,
-                rotationDegrees: 0,
-                canvasScope: 'document',
-                excluded: false,
-                blankOutputsSkipped: 0,
-                outputCount: 2,
-                outputs: [
-                    {
-                        half: 'left',
-                        sourceRegion: {
-                            xPx: 0,
-                            yPx: 0,
-                            widthPx: 240,
-                            heightPx: 200,
-                        },
-                        cropRect: {
-                            xPx: 10,
-                            yPx: 10,
-                            widthPx: 220,
-                            heightPx: 180,
-                        },
-                        contentBox: {
-                            xPx: 10,
-                            yPx: 10,
-                            widthPx: 220,
-                            heightPx: 180,
-                        },
-                        inputWidthPx: 400,
-                        inputHeightPx: 200,
-                    },
-                    {
-                        half: 'right',
-                        sourceRegion: {
-                            xPx: 240,
-                            yPx: 0,
-                            widthPx: 160,
-                            heightPx: 200,
-                        },
-                        cropRect: {
-                            xPx: 250,
-                            yPx: 11,
-                            widthPx: 100,
-                            heightPx: 178,
-                        },
-                        contentBox: {
-                            xPx: 250,
-                            yPx: 11,
-                            widthPx: 100,
-                            heightPx: 178,
-                        },
-                        inputWidthPx: 400,
-                        inputHeightPx: 200,
-                    },
-                ],
-            }));
-        });
-
-        const summary = await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                crop: true,
-                matchPageSize: true,
-                pageAlignment: 'center',
-                marginsMm: {
-                    leftMm: 0,
-                    topMm: 0,
-                    rightMm: 0,
-                    bottomMm: 0,
-                },
-            },
-            layoutByPage: {'1': 'two-page-spread'},
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        const outputs = harness.readSplitInstructions()!.pages[0]!.outputs;
-        expect(outputs).toHaveLength(2);
-        const scales = outputs.map(output => output.contentTransform?.scale);
-        expect(scales[0]).toBeCloseTo(200 / 220, 6);
-        expect(scales[1]).toBeCloseTo(scales[0]!, 12);
-        expect(summary.warnings.filter(warning => warning.startsWith(
-            'Page 1: Matched page size fitted this page',
-        ))).toHaveLength(2);
-    });
-
-    it('names the raster pages a layout it was told before analysis left it scaling', async () => {
-        const fixture = await setup();
-        const harness = losslessMatchedHarness([
-            {
-                widthPoints: 400,
-                heightPoints: 200,
-            },
-            {
-                widthPoints: 200,
-                heightPoints: 100,
-            },
-        ]);
-
-        // The run is told page one is a spread, so it plans the document
-        // against the half sheets that page would produce — 200 x 200 — and
-        // every page shares that grid, which is what keeps the run lossless.
-        // Analysis then reports page one as one uncut page, so its whole 400 pt
-        // sheet has to be scaled onto the 200 pt rectangle. The page carries a
-        // raster, so that scale is the one case where a matched lossless
-        // document holds two visual resolutions, and the run says so rather
-        // than shipping it silently.
-        const summary = await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                crop: false,
-                matchPageSize: true,
-                pageAlignment: 'center',
-                marginsMm: {
-                    leftMm: 0,
-                    topMm: 0,
-                    rightMm: 0,
-                    bottomMm: 0,
-                },
-            },
-            layoutByPage: {
-                '1': 'two-page-spread',
-                '2': 'single-uncut-page',
-            },
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        // It stayed lossless: the assembler carried the page's own objects.
-        expect(harness.readSplitInstructions()).not.toBeNull();
-        expect(harness.readSplitInstructions()!.pages[0]!.outputs[0]!.contentTransform)
-            .toMatchObject({scale: 0.5});
-        expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
-            code: 'matched-canvas-pages-scaled-in-place',
-            pages: [requirePageNumber(1)],
-        }));
-    });
-
-    it('names a lossless page whose sheet is larger than the rectangle the run measured', async () => {
-        const fixture = await setup();
-        const harness = losslessMatchedHarness([
-            {
-                widthPoints: 400,
-                heightPoints: 200,
-            },
-            {
-                widthPoints: 400,
-                heightPoints: 200,
-            },
-        ]);
-        // No page carries a raster, so nothing is re-rendered and nothing is
-        // clipped: the sheets simply land on the canvas at half the document's
-        // scale, with a uniform grid and no overflow to report. That is the
-        // case this pins — the run was told both sheets were spreads, so it
-        // measured the document by the half sheets they would produce, and
-        // analysis then cut each sheet as one whole page.
-        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
-
-        const summary = await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                crop: false,
-                matchPageSize: true,
-                pageAlignment: 'center',
-                marginsMm: {
-                    leftMm: 0,
-                    topMm: 0,
-                    rightMm: 0,
-                    bottomMm: 0,
-                },
-            },
-            layoutByPage: {
-                '1': 'two-page-spread',
-                '2': 'two-page-spread',
-            },
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        // The geometry is untouched by the report: the page is placed on the
-        // shared rectangle exactly as before, at half the document's scale.
-        const output = harness.readSplitInstructions()!.pages[0]!.outputs[0]!;
-        expect(output.cropRect).toEqual({
-            x: 0,
-            y: 0,
-            width: 200,
-            height: 200,
-        });
-        expect(output.contentTransform!.scale).toBeCloseTo(0.5, 6);
-        const downscaled = {
-            code: 'matched-canvas-paper-downscaled',
-            unit: 'pt',
-            scalePercentTenths: 500,
-            documentCanvasWidth: 200,
-            documentCanvasHeight: 200,
-            paperWidth: 400,
-            paperHeight: 200,
-        } as const;
-        expect(summary.warnings).toEqual([
-            formatScanCleanupWarningEvent(downscaled, 1),
-            formatScanCleanupWarningEvent(downscaled, 2),
-        ]);
-    });
-
-    it('places a quarter-turned lossless page against the edge the reader sees', async () => {
-        const fixture = await setup();
-        // A 400x200 pt page a reader turns a quarter clockwise is presented as
-        // 200 pt across and 400 pt down, and the crop is the top half of that
-        // presented sheet.
-        const harness = losslessMatchedHarness([{
-            widthPoints: 400,
-            heightPoints: 200,
-            rotation: 90,
-        }], {
-            xPx: 0,
-            yPx: 0,
-            widthPx: 400,
-            heightPx: 100,
-        });
-        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
-
-        await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                matchPageSize: true,
-                pageAlignment: 'top-center',
-                marginsMm: {
-                    leftMm: 0,
-                    topMm: 0,
-                    rightMm: 0,
-                    bottomMm: 0,
-                },
-            },
-            layoutByPage: {'1': 'single-uncut-page'},
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        // `top-center` names the top of the sheet the reader holds, which is
-        // this page's own left edge. The window therefore starts at the page
-        // origin: content that already sits against the presented top is left
-        // there. Resolving the alignment in page space instead centred it
-        // across the presented height, half a sheet from where the raster and
-        // preview fitters put it.
-        expect(harness.readSplitInstructions()!.pages[0]!.outputs[0]!.cropRect).toEqual({
-            x: 0,
-            y: 0,
-            width: 400,
-            height: 200,
-        });
-    });
-
-    it('publishes every lossless condition as a typed event beside its sentence', async () => {
-        const fixture = await setup();
-        // The canvas is the wider page, so the narrow one is placed below the
-        // document's scale and says so.
-        const harness = losslessMatchedHarness([
-            {
-                widthPoints: 400,
-                heightPoints: 200,
-            },
-            {
-                widthPoints: 200,
-                heightPoints: 200,
-            },
-        ]);
-        harness.pipelineDependencies.getPageCount = vi.fn(async () => 2);
-        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
-
-        const summary = await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                matchPageSize: true,
-            },
-            layoutByPage: {
-                '1': 'single-uncut-page',
-                '2': 'single-uncut-page',
-            },
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        // Every sentence the run published came from a typed event it also
-        // published, attributed to the output it belongs to. A consumer that
-        // needs the condition reads the code instead of the English.
-        expect(summary.warningEvents?.length).toBe(summary.warnings.length);
-        expect(summary.warningEvents?.map(entry => entry.event.code)).toContain(
-            'matched-canvas-content-fitted',
-        );
-        for (const entry of summary.warningEvents ?? []) {
-            expect(entry.half).toBe('full');
-            expect(entry.pageNumber).toBeGreaterThan(0);
-        }
-        expect(summary.warnings).toEqual((summary.warningEvents ?? []).map(
-            entry => formatScanCleanupWarningEvent(entry.event, entry.pageNumber),
-        ));
-    });
-
-    it('reserves exact final-canvas margins for a lossless matched page and says when content is fitted', async () => {
-        const fixture = await setup();
-        const harness = losslessMatchedHarness([{
-            widthPoints: 400,
-            heightPoints: 200,
-        }]);
-        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
-
-        const summary = await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                matchPageSize: true,
-                pageAlignment: 'center',
-            },
-            layoutByPage: {'1': 'single-uncut-page'},
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        // The page rectangle stays fixed. Five millimetres is removed from
-        // each final edge before fitting, rather than being padded around the
-        // content and then scaled back down with it.
-        const output = harness.readSplitInstructions()!.pages[0]!.outputs[0]!;
-        expect(output.cropRect).toEqual({
-            x: 0,
-            y: 0,
-            width: 400,
-            height: 200,
-        });
-        // Five millimetres is reserved on the document canvas grid — the grid
-        // the raster route reserves it on — so the reservation is a whole
-        // number of canvas pixels and not an exact point decimal. The page
-        // carries no measured resolution, so the grid is this pipeline's
-        // 300-DPI fallback: the 200 pt axis is 833 px, and one pixel of it is
-        // 200/833 pt.
-        const canvasPixelPoints = 200 / Math.round(200 / 72 * 300);
-        const reservedPoints = output.contentTransform!.translateY;
-        expect(reservedPoints / canvasPixelPoints)
-            .toBeCloseTo(Math.round(reservedPoints / canvasPixelPoints), 6);
-        // And it is the pixel the request rounds to, so the delivered margin
-        // is within half a canvas pixel of the five millimetres asked for.
-        expect(Math.abs(reservedPoints - (5 / 25.4 * 72)))
-            .toBeLessThanOrEqual(canvasPixelPoints / 2);
-        expect(output.contentTransform!.scale).toBeCloseTo(
-            (200 - 2 * reservedPoints) / 200,
-            6,
-        );
-        // And a page that ended up below the document's scale is named rather
-        // than left to be found.
-        // The lossless placement reports the same fitted condition the raster
-        // and preview paths report, through the same formatter.
-        expect(summary.warnings).toEqual([formatScanCleanupWarningEvent({
-            code: 'matched-canvas-content-fitted',
-            unit: 'pt',
-            contentWidth: 343.3,
-            contentHeight: 171.7,
-            innerWidth: 371.7,
-            innerHeight: 171.7,
-        }, 1)]);
-    });
-
-    it('measures a lossless matched margin on the resolution the page was scanned at', async () => {
-        const fixture = await setup();
-        const harness = losslessMatchedHarness([{
-            widthPoints: 400,
-            heightPoints: 200,
-        }]);
-        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        // The one page of this document is the canvas, so a measured raster
-        // costs it no resampling and the run stays lossless while carrying a
-        // resolution that is not the nominal lossless grid.
-        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(600, [[
-            1,
-            600,
-            {
-                width: Math.round(400 / 72 * 600),
-                height: Math.round(200 / 72 * 600),
-            },
-        ]]));
-
-        await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                matchPageSize: true,
-                pageAlignment: 'center',
-            },
-            layoutByPage: {'1': 'single-uncut-page'},
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        // Every page of the run resolves a source resolution, and the margin
-        // grid is that resolution rather than the nominal grid the lossless
-        // canvas plan is stated on. The reservation therefore lands on a whole
-        // 600-DPI canvas pixel — and not on a whole 300-DPI one, which is the
-        // grid a route that ignored the page's own resolution would use.
-        const reservedPoints = harness.readSplitInstructions()!
-            .pages[0]!.outputs[0]!.contentTransform!.translateY;
-        const measuredPixelPoints = 200 / Math.round(200 / 72 * 600);
-        const nominalPixelPoints = 200 / Math.round(200 / 72 * 300);
-        expect(reservedPoints / measuredPixelPoints)
-            .toBeCloseTo(Math.round(reservedPoints / measuredPixelPoints), 6);
-        expect(Math.abs(
-            reservedPoints / nominalPixelPoints - Math.round(reservedPoints / nominalPixelPoints),
-        )).toBeGreaterThan(1e-3);
-    });
-
-    it('reduces a lossless margin pair by the fit the preview applies', async () => {
-        const fixture = await setup();
-        const harness = losslessMatchedHarness([{
-            widthPoints: 400,
-            heightPoints: 100,
-        }]);
-        harness.pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        harness.pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(null, []));
-
-        const summary = await runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                preserveOriginalQuality: true,
-                matchPageSize: true,
-                pageAlignment: 'center',
-                // 25 mm on each side of a 100 pt axis is more margin than the
-                // axis has: a request no canvas can deliver, which is where
-                // the two quality routes have to agree on the reduction.
-                marginsMm: {
-                    leftMm: 25,
-                    topMm: 25,
-                    rightMm: 25,
-                    bottomMm: 25,
-                },
-            },
-            layoutByPage: {'1': 'single-uncut-page'},
-        }, {
-            ...pipelinePaths(fixture.dir, true),
-            pdfimagesBinary: '/pdfimages',
-        }, new AbortController().signal, vi.fn(), highTierPolicy, undefined, harness.pipelineDependencies);
-
-        // The reduction is the shared margin fit's answer for an equal pair
-        // that meets this axis, delivered on the canvas grid the page renders
-        // on — the same function the preview fitter calls, so the two routes
-        // cannot reserve different margins for one request.
-        const canvasHeightPx = Math.round(100 / 72 * 300);
-        const canvasPixelPoints = 100 / canvasHeightPx;
-        const [reservedPx] = fitScanCleanupMarginAxisPx(canvasHeightPx, canvasHeightPx, canvasHeightPx);
-        const output = harness.readSplitInstructions()!.pages[0]!.outputs[0]!;
-        expect(output.contentTransform!.translateY).toBeCloseTo(reservedPx * canvasPixelPoints, 6);
-        // And a reduced request is reported rather than silently delivered.
-        expect(summary.warnings).toContain(
-            formatScanCleanupWarningEvent({code: 'matched-canvas-margins-reduced'}, 1),
-        );
-    });
     it('rejects injected page geometry that is not in document order before probing, rendering or the sidecar', async () => {
         const fixture = await setup();
         const pipelineDependencies = dependencies(vi.fn());
@@ -6207,6 +5436,15 @@ describe('scan cleanup pipeline', () => {
                     },
                     inputWidthPx: 1_000,
                     inputHeightPx: 1_400,
+                    pdfPlacement: {
+                        cropRect: {
+                            x: 0,
+                            y: 0,
+                            width: 240,
+                            height: 336,
+                        },
+                        contentScaled: false,
+                    },
                 }],
             });
         }

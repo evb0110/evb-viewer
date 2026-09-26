@@ -230,57 +230,6 @@ export type TScanCleanupPlacementAnchorsByPage = Map<
 >;
 
 /**
- * The content height `ink` placement needs on top of the free space every
- * other alignment is resolved from: the anchor addresses the inner rect the
- * margins leave, not the free space, so the content's own size has to come back
- * in to convert between the two.
- */
-export interface IScanCleanupInkPlacement {
-    anchor: IScanCleanupPlacementAnchor;
-    contentHeight: number;
-}
-
-function clampScanCleanupOffset(value: number, available: number) {
-    return Math.min(Math.max(value, 0), Math.max(available, 0));
-}
-
-export function resolveScanCleanupPlacementOffset(
-    availableWidth: number,
-    availableHeight: number,
-    alignment: IScanCleanupOptions['pageAlignment'],
-    ink?: IScanCleanupInkPlacement,
-) {
-    if (alignment === 'ink') {
-        // Ink moves content vertically only; horizontally it is centred like
-        // `top-center`, which is also what an output without a resolved anchor
-        // falls back to, and what native does for the same page. The anchor is
-        // applied to the inner rect the margins leave rather than the source
-        // sheet it was measured on, so distances below the top edge scale with
-        // the printable height — the same proportion the content itself keeps.
-        return {
-            x: availableWidth / 2,
-            y: ink === undefined
-                ? 0
-                : clampScanCleanupOffset(
-                    ink.anchor.yNormalized * (availableHeight + ink.contentHeight),
-                    availableHeight,
-                ),
-        };
-    }
-    const [
-        vertical,
-        horizontal = vertical,
-    ] = alignment.split('-');
-    return {
-        // Keep this in the geometry contract's native currency. Pixel callers
-        // may quantize the result at their serialization boundary, while the
-        // lossless PDF path must retain the fractional point offset.
-        x: horizontal === 'left' ? 0 : horizontal === 'right' ? availableWidth : availableWidth / 2,
-        y: vertical === 'top' ? 0 : vertical === 'bottom' ? availableHeight : availableHeight / 2,
-    };
-}
-
-/**
  * The lower median. Every value between the two central members of an
  * even-sized cluster minimizes the total distance moved equally, so taking a
  * member rather than their mean keeps the snapped position one the document

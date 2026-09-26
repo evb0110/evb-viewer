@@ -1390,6 +1390,7 @@ mod moved_tests {
                     options: CleanupOptions::default(),
                     document_prior: None,
                     detail_render_plan: None,
+                    pdf_page: None,
                     outputs: vec![duplicate_output.clone()],
                 })
                 .collect(),

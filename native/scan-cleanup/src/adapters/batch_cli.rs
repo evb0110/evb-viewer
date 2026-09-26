@@ -4,6 +4,7 @@ use crate::engine::batch_reconciliation::{
     apply_reconciliation_actions, reconcile_classification_batch, reconciliation_candidates,
     ReconciliationPolicy,
 };
+use crate::engine::lossless_placement::{plan_lossless_page, record_source_preservation};
 use crate::engine::output_geometry::{match_page_sizes, write_json_atomic};
 use crate::engine::page_statistics::{
     derive_page_ink_contexts, derive_page_ink_sample, page_needs_ink_sample,
@@ -223,6 +224,7 @@ fn run_inner(
         options,
         document_prior: None,
         detail_render_plan: None,
+        pdf_page: None,
     };
     let cache = manifest_cache(PlanningOperation::Render, None);
     let page_cache = page_cache_for(&planning_page(&page), &cache)?;
@@ -518,9 +520,20 @@ fn run_manifest_inner(
         };
         apply_reconciliation_actions(&mut page_results, &actions, rerun)?;
     }
-    for (index, page_result) in page_results.iter().enumerate() {
+    for (index, page_result) in page_results.iter_mut().enumerate() {
         if is_canceled.load(std::sync::atomic::Ordering::Acquire) {
             return Err(crate::engine::cancellation_error().into());
+        }
+        let page = &manifest.pages[index];
+        if let Some(pdf_page) = &page.pdf_page {
+            plan_lossless_page(
+                &mut page_result.metadata.outputs,
+                pdf_page,
+                page_result.metadata.rotation_degrees,
+                &page.options,
+                manifest.document_canvas,
+                manifest.render_mode == RenderMode::Preview,
+            );
         }
         write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)?;
         if analyzing {
@@ -535,6 +548,13 @@ fn run_manifest_inner(
         return Err(crate::engine::cancellation_error().into());
     }
     match_page_sizes(&written_outputs, manifest.document_canvas)?;
+    for (page, page_result) in manifest.pages.iter().zip(&page_results) {
+        if let Some(pdf_page) = &page.pdf_page {
+            for output in &page_result.outputs {
+                record_source_preservation(&output.metadata_path, pdf_page, &page.options)?;
+            }
+        }
+    }
     write_progress(Progress {
         stage: ProgressStage::Completed,
         completed_pages: manifest.pages.len(),
