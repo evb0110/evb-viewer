@@ -181,7 +181,6 @@
                     :view-mode="viewMode"
                     :continuous-scroll="continuousScroll"
                     :drag-mode="dragMode"
-                    show-annotations
                     :annotation-tool="'none'"
                     :search-page-matches="pageMatches"
                     :current-search-match="currentResult"

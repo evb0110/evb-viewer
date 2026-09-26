@@ -8,7 +8,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
 import { cast } from '@tests/helpers/cast';
 import { usePdfRendererAnnotationLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 
@@ -28,7 +27,6 @@ function createHarness() {
     })});
     const controller = usePdfRendererAnnotationLayerController({
         annotationLayerRenderer,
-        showAnnotations: ref(true),
         getRenderVersion: () => 1,
         cleanupPageIfCurrentRender: vi.fn(),
         logNonCriticalStageError: vi.fn(),

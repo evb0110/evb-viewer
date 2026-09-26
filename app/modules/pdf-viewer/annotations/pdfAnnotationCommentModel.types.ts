@@ -16,7 +16,6 @@ export interface IPdfAnnotationCommentModel {
     updateCachedColor(comment: IAnnotationCommentSummary, color: string, options?: { colorEdited?: boolean }): void;
     withTransientNoteCreationTimestamp(comment: IAnnotationCommentSummary): IAnnotationCommentSummary;
     markLocallyDeleted(comment: IAnnotationCommentSummary): void;
-    restoreLocally(comment: IAnnotationCommentSummary): void;
     applyFromSync(comments: IAnnotationCommentSummary[]): IAnnotationCommentSummary[];
     isGracePreservedEditorOnlyComment(comment: IAnnotationCommentSummary): boolean;
     handleMarkerMove(
@@ -33,7 +32,6 @@ export interface IPdfAnnotationCommentModel {
     ): boolean;
     getSnapshot(): IAnnotationCommentSummary[];
     removeFromInternalCache(stableKey: string): void;
-    clearPendingMarkerMoves(): void;
     clearProjection(): void;
     handleSourceChanged(next: unknown, previous: unknown, options?: { syncAnnotationComments?: () => void | Promise<void> }): void;
 }

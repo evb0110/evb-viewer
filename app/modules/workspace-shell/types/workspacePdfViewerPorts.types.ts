@@ -101,7 +101,6 @@ export interface IWorkspacePdfViewerAgentPort extends
 export interface IWorkspacePdfViewerExposeAutomationPort extends
     Partial<Pick<IPdfViewerAnnotationCommandExpose,
         'commentAtPoint'
-        | 'getAnnotationStorageDebugState'
         | 'highlightSelection'
         | 'selectAllAnnotations'
         | 'captureCanonicalAnnotationRecovery'

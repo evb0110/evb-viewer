@@ -75,7 +75,6 @@ export interface ICreatePdfRenderingSessionOptions {
     outputScale: Vue.Ref<number>;
     rasterDisplayProfile: Vue.ComputedRef<TPdfRasterDisplayProfile | null>;
     bufferPages: Vue.ComputedRef<number>;
-    showAnnotations: Vue.ComputedRef<boolean>;
     searchPageMatches: Vue.ComputedRef<Map<number, PdfUi.IPdfPageMatches>>;
     currentSearchMatch: Vue.ComputedRef<PdfUi.IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: Vue.ComputedRef<number>;
@@ -84,7 +83,6 @@ export interface ICreatePdfRenderingSessionOptions {
     maxBufferCanvasPixels: number;
     /** Shared with the annotation session so renderer-owned PDF links reach the portal layer. */
     linkAnnotations?: Vue.Ref<ILinkAnnotation[]> | undefined;
-    markDelayedSkeletonPageRendered: (pageNumber: TPageNumber) => void;
     emitInitialVisualReady: (payload: {pageNumber: TPageNumber}) => void;
     emitLoadError: (error: unknown) => void;
 }
@@ -652,14 +650,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         isActive: rasterOperational,
         outputScale: options.outputScale,
-        showAnnotations: options.showAnnotations,
         searchPageMatches: options.searchPageMatches,
         currentSearchMatch: options.currentSearchMatch,
         currentSearchMatchNavigationId: options.currentSearchMatchNavigationId,
         workingCopyPath: options.workingCopyPath,
         documentRevisionToken: options.documentRevisionToken,
         linkAnnotations: options.linkAnnotations,
-        onPageRendered: options.markDelayedSkeletonPageRendered,
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;
             pageTextLayerReadyWaiter.resolveReady();

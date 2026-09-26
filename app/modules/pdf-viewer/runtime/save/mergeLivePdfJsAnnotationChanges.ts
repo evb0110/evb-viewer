@@ -9,12 +9,6 @@ export interface IPdfLiveAnnotationChangeSummary {
     fingerprint: string;
 }
 
-export interface IPdfAnnotationStorageDebugState {
-    reported: boolean;
-    modifiedIds: string[];
-    serializableEntryKeys: string[];
-}
-
 export function mergeLivePdfJsAnnotationChanges(left: IPdfLiveAnnotationChangeSummary, right: IPdfLiveAnnotationChangeSummary): IPdfLiveAnnotationChangeSummary {
     return {
         ids: new Set([
@@ -34,8 +28,3 @@ export function mergeLivePdfJsAnnotationChanges(left: IPdfLiveAnnotationChangeSu
         fingerprint: `${left.fingerprint}|${right.fingerprint}`,
     };
 }
-export function collectPdfJsAnnotationStorageDebugState(..._args: unknown[]): IPdfAnnotationStorageDebugState { return {
-    reported: false,
-    modifiedIds: [],
-    serializableEntryKeys: [],
-}; }

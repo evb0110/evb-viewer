@@ -1,6 +1,5 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPageNumber } from '@contracts/pageNumbers';
-import type { MaybeRefOrGetter } from 'vue';
 import type { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
@@ -22,7 +21,6 @@ interface IAnnotationRenderContext {
 
 interface IUsePdfRendererAnnotationLayerControllerOptions {
     annotationLayerRenderer: ReturnType<typeof usePdfAnnotationLayerRenderer>;
-    showAnnotations: MaybeRefOrGetter<boolean>;
     getRenderVersion: () => number;
     cleanupPageIfCurrentRender: (pageNumber: TPageNumber, version: number, requestId?: number) => void;
     logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => void;
@@ -39,7 +37,6 @@ interface IPdfRendererAnnotationLayerController {
 export const usePdfRendererAnnotationLayerController = (options: IUsePdfRendererAnnotationLayerControllerOptions) => {
     const {
         annotationLayerRenderer,
-        showAnnotations,
         getRenderVersion,
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
@@ -112,7 +109,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         const annotationLayerDiv =
             container.querySelector<HTMLElement>('.annotation-layer');
         let annotationLayerInstance: TAnnotationLayerInstance = null;
-        if (annotationLayerDiv && toValue(showAnnotations)) {
+        if (annotationLayerDiv) {
             if (getRenderVersion() !== version || !shouldContinue()) {
                 if (!preserveCanvasOnStale) {
                     cleanupPageIfCurrentRender(pageNumber, version, requestId);

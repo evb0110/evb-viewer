@@ -121,7 +121,6 @@ export interface ICreatePdfViewportSessionOptions {
     emitZoomState: (state: TPdfZoomState) => void;
     emitEffectiveZoom: (value: number) => void;
     summarizeViewerStateForLog: () => unknown;
-    clearPendingImagePlacement: () => void;
 }
 export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptions) => {
     const documentSession = options.document;
@@ -929,7 +928,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         mountedVisibilityProjectionDisposed = true;
         cancelMountedVisibilityProjection();
         viewportPin.clearPinnedViewportPage('before-unmount');
-        options.clearPendingImagePlacement();
         scroll.setPageLayoutMetrics(null);
     });
     function markUserViewportInteraction() {

@@ -207,7 +207,6 @@ function createViewportFixture(input: {
                 },
                 emitEffectiveZoom,
                 summarizeViewerStateForLog: vi.fn(),
-                clearPendingImagePlacement: vi.fn(),
             });
             return () => null;
         },

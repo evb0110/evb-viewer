@@ -410,6 +410,5 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         updatePendingImagePlacementRect,
         requestPendingImagePlacementFinalize,
         clearPendingImagePlacement,
-        restorePendingImagePlacement,
     };
 };

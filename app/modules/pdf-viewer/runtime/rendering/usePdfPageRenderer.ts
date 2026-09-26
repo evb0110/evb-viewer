@@ -60,7 +60,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         numPages,
         isLoading,
     } = options.document;
-    const showAnnotations = options.showAnnotations ?? true;
     const searchPageMatches =
         options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
     const currentSearchMatch = options.currentSearchMatch ?? null;
@@ -83,7 +82,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         numPages,
         currentPage: viewport.currentPage,
         pdfDocument,
-        showAnnotations,
         hiddenAnnotationIds,
         annotationProjectionReady,
         linkAnnotations: options.linkAnnotations,
@@ -309,7 +307,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
     const annotationLayerController = usePdfRendererAnnotationLayerController({
         annotationLayerRenderer,
-        showAnnotations,
         getRenderVersion: options.getRenderVersion,
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
@@ -353,7 +350,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
             container.dataset.pageLayerReadiness = retainedLayers ? 'ready' : 'canvas-only';
             pageRenderState.completeRender(pageNumber, version, requestId);
-            options.onPageRendered?.(pageNumber);
             options.onRenderedPageStateChanged?.();
             return;
         }
@@ -435,7 +431,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 kind: 'page-layer-committed',
                 pageNumber,
             }, documentFence);
-            options.onPageRendered?.(pageNumber);
             if (priority === 'text-first') {
                 if (pageRenderState.markLayersReady(pageNumber, version, requestId, container)) {
                     container.dataset.pageLayerReadiness = 'ready';

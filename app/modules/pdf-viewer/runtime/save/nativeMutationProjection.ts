@@ -29,7 +29,7 @@ import {
 import {
     mergeLivePdfJsAnnotationChanges,
     type IPdfLiveAnnotationChangeSummary,
-} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
+} from '@app/modules/pdf-viewer/runtime/save/mergeLivePdfJsAnnotationChanges';
 import type {
     INativeAppendSaveRoute,
     TNativePdfMutationSaveMode,

@@ -3,7 +3,6 @@
         ref="viewerHost"
         class="relative min-h-full w-full"
         data-pdf-viewer-host
-        :class="{'pdf-viewer-container--dark': props.invertColors === true}"
     >
         <template v-if="props.mountPresentation !== false">
             <PdfViewerViewport

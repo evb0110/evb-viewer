@@ -24,7 +24,6 @@ function createHarness(options?: {
     isPageRenderFailed?: (page: number) => boolean;
     shouldShowSkeletonImmediately?: (page: number) => boolean;
     shouldShowSkeleton?: (page: number) => boolean;
-    suppressLoadingOverlay?: boolean;
 }) {
     const scope = effectScope();
     const mountedPages = ref([1]);
@@ -40,7 +39,6 @@ function createHarness(options?: {
         getPage: vi.fn(async () => cast({})),
         openSurface: createDocumentOpenSurfaceSession(),
         isVisualReloadTransitionActive: ref(false),
-        suppressLoadingOverlay: computed(() => options?.suppressLoadingOverlay ?? false),
         skeletonContentInsets: ref(null),
         pagesToRender: computed(() => mountedPages.value),
         isPageBuffered: options?.isPageBuffered ?? vi.fn(() => false),
@@ -176,30 +174,6 @@ describe('usePdfRenderViewModel', () => {
             }
 
             expect(viewModel.shouldShowPageSkeleton(1)).toBe(true);
-
-            scope.stop();
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
-    it('blocks immediate navigation skeletons while skeletons are globally suppressed', () => {
-        vi.useFakeTimers();
-        try {
-            const {
-                scope,
-                viewModel,
-            } = createHarness({
-                shouldShowSkeleton: () => true,
-                shouldShowSkeletonImmediately: () => true,
-                suppressLoadingOverlay: true,
-            });
-
-            if (!viewModel) {
-                throw new Error('Failed to create PDF render view model');
-            }
-
-            expect(viewModel.shouldShowPageSkeleton(1)).toBe(false);
 
             scope.stop();
         } finally {

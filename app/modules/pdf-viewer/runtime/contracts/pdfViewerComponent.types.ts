@@ -29,8 +29,6 @@ export interface IPdfViewerProps {
     reloadSrc?: TPdfSource | null | undefined;
     sourcePdfData?: Uint8Array | null | undefined;
     rasterDisplayProfile?: TPdfRasterDisplayProfile | null | undefined;
-    suppressLoadingOverlay?: boolean | undefined;
-    bufferPages?: number | undefined;
     isAnySaving?: boolean | undefined;
     zoomState?: TPdfZoomState | undefined;
     dragMode?: boolean | undefined;
@@ -41,8 +39,6 @@ export interface IPdfViewerProps {
     /** Keep the document session alive without mounting the reader presentation. */
     mountPresentation?: boolean | undefined;
     isResizing?: boolean | undefined;
-    invertColors?: boolean | undefined;
-    showAnnotations?: boolean | undefined;
     annotationTool?: TAnnotationTool | undefined;
     annotationCursorMode?: boolean | undefined;
     annotationKeepActive?: boolean | undefined;
@@ -64,7 +60,6 @@ export interface IPdfViewerEmit {
     (e: 'update:currentPage', page: number): void;
     (e: 'update:navigationFeedbackPage', page: number | null): void;
     (e: 'update:totalPages', total: number): void;
-    (e: 'update:loading', loading: boolean): void;
     (e: 'update:document', document: IPdfDocument | null): void;
     (e: 'loading', loading: boolean): void;
     (e: 'load-error', error: unknown): void;

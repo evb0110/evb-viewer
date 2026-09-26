@@ -11,7 +11,7 @@ import type {
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
+import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/mergeLivePdfJsAnnotationChanges';
 import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import { buildNativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import type {

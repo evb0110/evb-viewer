@@ -21,7 +21,7 @@ import type {
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
-import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
+import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/mergeLivePdfJsAnnotationChanges';
 import type {TDocumentRef} from '@contracts/documentRef';
 export type TPdfViewerSaveTransactionMode =
     | 'persist'

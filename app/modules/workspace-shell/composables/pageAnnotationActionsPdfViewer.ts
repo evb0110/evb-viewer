@@ -19,8 +19,5 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
 > & Partial<Pick<WorkspaceOrchestration.IPdfViewerExpose,
     'registerAnnotationHistoryCommand'
     | 'clearPendingImagePlacement'
-    | 'rerenderAnnotationPage'
-    | 'restorePendingImagePlacement'
-    | 'restoreAnnotationToInternalCache'
     | 'updateSelectedAnnotationProperties'
 >>;

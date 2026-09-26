@@ -18,12 +18,10 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { cloneSparsePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import { collectPdfJsAnnotationStorageDebugState } from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 
 type TPdfViewerPublicApiRefBackedKeys =
-    | 'annotationHistoryMutationVersion'
     | 'annotationHistoryResetVersion'
     | 'hasShapes'
     | 'isCapturingRegion'
@@ -65,7 +63,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
     startImagePlacement: IPdfViewerExpose['startImagePlacement'];
     clearPendingImagePlacement: IPdfViewerExpose['clearPendingImagePlacement'];
-    restorePendingImagePlacement: IPdfViewerExpose['restorePendingImagePlacement'];
     invalidatePages: IPdfViewerExpose['invalidatePages'];
     preparePageMutationRevisionSwap?: IPdfViewerExpose['preparePageMutationRevisionSwap'];
     beginPageRotationPreview?: IPdfViewerExpose['beginPageRotationPreview'];
@@ -123,7 +120,7 @@ export const usePdfViewerPublicApiController = (
             : normalizedPage;
     }
 
-    async function renderAnnotationPage(pageNumber: TPageNumber, optionsOverride: { forceRerender?: boolean } = {}) {
+    async function renderAnnotationPage(pageNumber: TPageNumber) {
         if (!Number.isFinite(pageNumber)) {
             return false;
         }
@@ -140,17 +137,12 @@ export const usePdfViewerPublicApiController = (
             },
             {
                 preserveRenderedPages: true,
-                ...(optionsOverride.forceRerender !== undefined ? { forceRerender: optionsOverride.forceRerender } : {}),
                 bufferOverride: 0,
             },
         );
         await nextTick();
         const container = options.viewerContainer.value;
         return Boolean(container && getPageContainerByNumber(container, normalizedPageNumber));
-    }
-
-    async function rerenderAnnotationPage(pageNumber: TPageNumber) {
-        return renderAnnotationPage(pageNumber, { forceRerender: true });
     }
 
     async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
@@ -186,7 +178,6 @@ export const usePdfViewerPublicApiController = (
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
         commitPdfEditorsForSave: annotationSession.commitPdfEditorsForSave,
         runSaveTransaction: annotationSession.runSaveTransaction,
-        clearAnnotationHistory: () => annotationSession.appAnnotationHistory.clear(),
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
         markSavedShapeState: (_prepared?: unknown) => {
             // Saving changes the clean shape baseline but must not collapse the
@@ -297,14 +288,10 @@ export const usePdfViewerPublicApiController = (
             return result(true, annotationSession.annotationApplication.value.listCommentSummaries()
                 .find(comment => comment.appAnnotationId === shape.id) ?? null);
         },
-        annotationHistoryMutationVersion: annotationSession.appAnnotationHistory.annotationHistoryMutationVersion,
         annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
         getAnnotationDirtyEntityCount: () => annotationSession.annotationApplication.value.store.dirtyEntities().length,
         hasCanonicalShapeChanges: annotationRuntime.hasCanonicalShapeChanges,
-        getAnnotationStorageDebugState: () => collectPdfJsAnnotationStorageDebugState(
-            documentSession.pdfDocument.value,
-        ),
         getDeletedCanonicalAnnotationIds: annotationRuntime.getDeletedCanonicalAnnotationIds,
         getDeletedPersistedCanonicalAnnotationCount: annotationRuntime.getDeletedPersistedCanonicalAnnotationCount,
         setWorkspaceCommandSink: annotationSession.appAnnotationHistory.setWorkspaceCommandSink,
@@ -377,10 +364,8 @@ export const usePdfViewerPublicApiController = (
             {source: 'user'},
         ),
         getAnnotationCommentsSnapshot: annotationCommentModel.getSnapshot,
-        rerenderAnnotationPage,
         getMarkupSubtypeOverrides: annotations.editor.getMarkupSubtypeOverrides,
         getMarkupSubtypeHints: annotations.editor.getMarkupSubtypeHints,
-        getSelectedTextMarkupAnnotationProperties: annotations.editor.markupSubtype.getSelectedTextMarkupAnnotationProperties,
         updateSelectedTextMarkupAnnotationColor: (color, selected) => annotationMutationService.updateColor(
             {
                 color,
@@ -389,14 +374,6 @@ export const usePdfViewerPublicApiController = (
             },
             { source: 'user' },
         ),
-        updateSelectedTextMarkupAnnotationProperties: (updates, selected) => annotationMutationService
-            .updateSelectedTextMarkupAnnotationProperties(
-                {
-                    updates,
-                    selected,
-                },
-                { source: 'user' },
-            ),
         updateTextMarkupAnnotationColor: (comment, color) => annotationMutationService.updateColor(
             {
                 comment,
@@ -411,14 +388,12 @@ export const usePdfViewerPublicApiController = (
         clearShapes: shapeComposable.clearShapes,
         clearSelectedShape: selectedShapeCommands.clearSelectedShape,
         deleteSelectedShape: selectedShapeCommands.deleteSelectedShape,
-        deleteShapeById: selectedShapeCommands.deleteShapeById,
         hasShapes: shapeComposable.hasShapes,
         selectedShapeId: shapeComposable.selectedShapeId,
         updateShape: selectedShapeCommands.updateShape,
         getSelectedShape: selectedShapeCommands.getSelectedShape,
         startImagePlacement: options.startImagePlacement,
         clearPendingImagePlacement: options.clearPendingImagePlacement,
-        restorePendingImagePlacement: options.restorePendingImagePlacement,
         invalidatePages: options.invalidatePages,
         ...(options.preparePageMutationRevisionSwap
             ? {preparePageMutationRevisionSwap: options.preparePageMutationRevisionSwap}
@@ -435,11 +410,6 @@ export const usePdfViewerPublicApiController = (
             stableKey,
             { source: 'user' },
         ),
-        restoreAnnotationToInternalCache: comment => annotationMutationService.restoreAnnotation(
-            comment,
-            { source: 'user' },
-        ),
-        clearPendingMarkerMoves: annotationMutationService.clearPendingMarkerMoves,
         captureRegionToClipboard: options.captureRegionToClipboard,
         isCapturingRegion: options.isCapturingRegion,
         startCropSelection: options.startCropSelection,

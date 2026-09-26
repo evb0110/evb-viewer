@@ -1,7 +1,6 @@
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
-    ITextMarkupAnnotationProperties,
 } from '@app/types/annotations';
 import type { ITextMarkupColorMutationResult } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -15,15 +14,9 @@ export interface IUseAnnotationMutationServiceOptions {
     updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     updateSelectedTextMarkupAnnotationColor: (color: string) => ITextMarkupColorMutationResult;
-    updateSelectedTextMarkupAnnotationProperties: (
-        updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>,
-        selected: ITextMarkupAnnotationProperties,
-    ) => boolean;
     updateTextMarkupAnnotationColor: (comment: IAnnotationCommentSummary, color: string) => ITextMarkupColorMutationResult;
     markAnnotationLocallyDeleted: (comment: IAnnotationCommentSummary) => void;
-    restoreAnnotationLocally: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
-    clearPendingMarkerMoves: () => void;
     handleMarkerMove: (
         comment: IAnnotationCommentSummary,
         markerRect: IAnnotationMarkerRect,
@@ -174,25 +167,6 @@ export const useAnnotationMutationService = (
         return result.updated;
     }
 
-    function updateSelectedTextMarkupAnnotationProperties(
-        input: {
-            updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>;
-            selected: ITextMarkupAnnotationProperties;
-        },
-        _context: IAnnotationMutationContext,
-    ) {
-        return runHistoryTransaction(() => {
-            const updated = options.updateSelectedTextMarkupAnnotationProperties(
-                input.updates,
-                input.selected,
-            );
-            if (updated) {
-                options.markModified();
-            }
-            return updated;
-        });
-    }
-
     function moveMarker(
         input: {
             comment: IAnnotationCommentSummary;
@@ -225,13 +199,6 @@ export const useAnnotationMutationService = (
         return true;
     }
 
-    function restoreAnnotation(
-        comment: IAnnotationCommentSummary,
-        _context: IAnnotationMutationContext,
-    ) {
-        options.restoreAnnotationLocally(comment);
-    }
-
     function removeAnnotationFromInternalCache(
         stableKey: string,
         _context: IAnnotationMutationContext,
@@ -248,11 +215,8 @@ export const useAnnotationMutationService = (
         deleteAnnotation,
         deleteReopenedEditorAnnotation,
         updateColor,
-        updateSelectedTextMarkupAnnotationProperties,
         moveMarker,
-        restoreAnnotation,
         removeAnnotationFromInternalCache,
-        clearPendingMarkerMoves: options.clearPendingMarkerMoves,
         deleteEmbeddedAnnotationDeferred,
         flushForSave,
     };

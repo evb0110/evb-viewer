@@ -158,7 +158,6 @@ function createHarness() {
         viewport: createViewportFixture(),
         pageRenderState,
         outputScale: ref(1),
-        showAnnotations: false,
         getRenderVersion: () => 1,
         getRenderDocumentToken: () => 'document-a',
         getCommittedCanvas: () => canvas,

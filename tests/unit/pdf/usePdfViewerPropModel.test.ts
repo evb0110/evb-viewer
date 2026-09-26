@@ -15,7 +15,6 @@ describe('usePdfViewerPropModel', () => {
 
         expect(model.src.value).toBeNull();
         expect(model.sourcePdfData.value).toBeNull();
-        expect(model.suppressLoadingOverlay.value).toBe(false);
         expect(model.bufferPages.value).toBe(1);
         expect(model.isAnySaving.value).toBe(false);
         expect(model.zoom.value).toBe(1);
@@ -24,7 +23,6 @@ describe('usePdfViewerPropModel', () => {
         expect(model.zoomMode.value).toBe('fit-width');
         expect(model.viewMode.value).toBe('single');
         expect(model.isResizing.value).toBe(false);
-        expect(model.showAnnotations.value).toBe(true);
         expect(model.annotationTool.value).toBe('none');
         expect(model.annotationCursorMode.value).toBe(false);
         expect(model.annotationKeepActive.value).toBe(true);
@@ -59,17 +57,5 @@ describe('usePdfViewerPropModel', () => {
         expect(model.fitMode.value).toBe('height');
         // A fit keeps the last manual scale.
         expect(model.zoom.value).toBe(1.75);
-    });
-
-    it('keeps invertColors as a public component prop instead of feature-model state', () => {
-        const props = reactive<IPdfViewerProps>({
-            src: null,
-            invertColors: true,
-        });
-
-        const model = usePdfViewerPropModel(props);
-
-        expect(props.invertColors).toBe(true);
-        expect('invertColors' in model).toBe(false);
     });
 });

@@ -963,25 +963,6 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode .page_container:has(.an
     pointer-events: none;
 }
 
-/* ── Dark Mode (Invert Colors) Overrides ───────────────────────────── */
-
-.pdf-viewer-container--dark {
-    .text-layer ::selection {
-        background: var(--app-pdf-text-selection-bg);
-    }
-
-    /* stylelint-disable no-descending-specificity -- dark mode filter targets different properties than drag mode */
-    .page_container,
-    .page_container canvas {
-        filter: invert(1) hue-rotate(180deg) saturate(1.05);
-    }
-    /* stylelint-enable no-descending-specificity */
-
-    .pdfViewer {
-        background: var(--app-pdf-viewer-bg);
-    }
-}
-
 /*
  * Single-page CSS scroll-snap was removed — paging is JS-driven via
  * the viewport authority. Keeping a CSS snap point on each .page_container

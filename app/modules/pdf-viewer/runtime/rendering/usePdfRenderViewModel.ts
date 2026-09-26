@@ -26,7 +26,6 @@ interface IUsePdfRenderViewModelOptions {
     getPage: (pageNumber: number) => Promise<IPdfPage>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     isVisualReloadTransitionActive: Ref<boolean>;
-    suppressLoadingOverlay: ComputedRef<boolean>;
     skeletonContentInsets: Ref<IContentInsets | null>;
     pagesToRender: ComputedRef<number[]>;
     isPageBuffered: (page: number) => boolean;
@@ -69,9 +68,7 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         (
             isViewerLoadingOverlayVisible.value
             && options.isVisualReloadTransitionActive.value
-            && !options.suppressLoadingOverlay.value
         )
-        || options.suppressLoadingOverlay.value
         || isInitialSkeletonGeometryPending.value
     ));
 
@@ -104,6 +101,5 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         visibleLinksByPage,
         shouldShowPageSkeleton,
         isPageRenderFailed: options.isPageRenderFailed,
-        markPageRendered: (_pageNumber: number) => {},
     };
 };

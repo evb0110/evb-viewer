@@ -50,14 +50,12 @@ export interface IUsePdfPageRendererOptions {
     viewport: TPdfViewportSession;
     viewRotation?: MaybeRefOrGetter<TPdfViewRotation>;
     isActive?: MaybeRefOrGetter<boolean>;
-    showAnnotations?: MaybeRefOrGetter<boolean>;
     outputScale?: MaybeRefOrGetter<number>;
     searchPageMatches?: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch?: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId?: MaybeRefOrGetter<number>;
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null>;
-    onPageRendered?: (pageNumber: TPageNumber) => void;
     onPageLayersCommitted?: (
         signal: {
             kind: 'page-layer-committed';

@@ -36,7 +36,6 @@ function createRenderer(overrides: Record<string, unknown> = {}) {
         numPages: ref(3),
         currentPage: ref(1),
         pdfDocument: ref({annotationStorage: {}} as never),
-        showAnnotations: ref(true),
         ...overrides,
     });
 }

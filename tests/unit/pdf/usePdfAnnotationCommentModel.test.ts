@@ -170,16 +170,6 @@ describe('usePdfAnnotationCommentModel', () => {
         expect(model.annotationCommentsCache.value).toEqual([deleted]);
     });
 
-    it('restores a local deletion by canonical command identity', () => {
-        const {model} = createModel();
-        const restored = comment();
-
-        model.markLocallyDeleted(restored);
-        model.restoreLocally(restored);
-
-        expect(model.annotationCommentsCache.value).toHaveLength(0);
-    });
-
     it('updates the read projection and editor executor state when a marker moves', () => {
         const { model } = createModel();
         const original = comment();

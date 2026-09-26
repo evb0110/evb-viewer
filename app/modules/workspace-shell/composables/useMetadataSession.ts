@@ -24,8 +24,6 @@ interface IMetadataSessionOptions {
     markDirty: () => void;
     fileHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
     fileHistorySessionVersion?: Readonly<Ref<number>> | undefined;
-    annotationHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
-    annotationHistoryResetVersion?: Readonly<Ref<number>> | undefined;
     undoFile?: (() => Promise<boolean>) | undefined;
     redoFile?: (() => Promise<boolean>) | undefined;
     setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;

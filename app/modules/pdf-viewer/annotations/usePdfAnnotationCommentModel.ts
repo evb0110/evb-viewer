@@ -132,13 +132,11 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
         updateCachedColor,
         withTransientNoteCreationTimestamp,
         markLocallyDeleted: () => undefined,
-        restoreLocally: () => undefined,
         applyFromSync,
         isGracePreservedEditorOnlyComment: () => false,
         handleMarkerMove,
         getSnapshot,
         removeFromInternalCache: () => undefined,
-        clearPendingMarkerMoves: () => undefined,
         clearProjection,
         handleSourceChanged,
     };

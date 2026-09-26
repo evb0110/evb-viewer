@@ -154,7 +154,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     numPages: Ref<number>;
     currentPage: Ref<number>;
     pdfDocument: Ref<IPdfDocument | null>;
-    showAnnotations: MaybeRefOrGetter<boolean>;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     annotationProjectionReady?: MaybeRefOrGetter<boolean>;
     renderSupervisor?: IPdfRenderSupervisor | undefined;

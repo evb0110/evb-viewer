@@ -1,86 +1,19 @@
-import type {
-    ComputedRef,
-    ShallowRef,
-} from 'vue';
+import type {ComputedRef} from 'vue';
 import type {
     IAnnotationSettings,
-    ITextMarkupAnnotationProperties,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 interface ICreatePdfAnnotationEditorCompatibilityOptions {
-    annotationApplication: ShallowRef<AnnotationApplication>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     canonicalMarkupSubtypeHints: Map<string, TMarkupSubtype>;
     commitPendingFreeTextDraftsForSave?: () => void;
 }
 
-function selectedTextMarkupEntity(
-    annotationApplication: ShallowRef<AnnotationApplication>,
-): ITextMarkupEntity | null {
-    return [...annotationApplication.value.store.selectedIds]
-        .map(id => annotationApplication.value.store.get(id))
-        .find((candidate): candidate is ITextMarkupEntity => (
-            candidate?.kind === 'text-markup' && !candidate.deleted
-        )) ?? null;
-}
-
-function selectedTextMarkupProperties(
-    annotationApplication: ShallowRef<AnnotationApplication>,
-): ITextMarkupAnnotationProperties | null {
-    const entity = selectedTextMarkupEntity(annotationApplication);
-    if (!entity) {
-        return null;
-    }
-    return {
-        id: entity.identity.id,
-        pageIndex: entity.pageIndex,
-        subtype: entity.subtype,
-        color: entity.color ?? '',
-        markerRect: entity.quadPoints[0] ?? null,
-        opacity: entity.opacity,
-        contents: entity.contents,
-    };
-}
-
 export function createPdfAnnotationEditorCompatibility(
     options: ICreatePdfAnnotationEditorCompatibilityOptions,
 ) {
-    const markupSubtype = {
-        getSelectedTextMarkupAnnotationProperties: () => selectedTextMarkupProperties(
-            options.annotationApplication,
-        ),
-        updateSelectedTextMarkupAnnotationProperties: (
-            updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>,
-            selected: ITextMarkupAnnotationProperties,
-        ) => {
-            const selectedEntity = selectedTextMarkupEntity(options.annotationApplication);
-            if (!selectedEntity || selectedEntity.identity.id !== selected.id) {
-                return false;
-            }
-            const opacity = updates.opacity;
-            if (
-                opacity !== undefined
-                && opacity !== null
-                && (typeof opacity !== 'number' || !Number.isFinite(opacity))
-            ) {
-                return false;
-            }
-            return Boolean(options.annotationApplication.value.store.updateTextMarkup(
-                selectedEntity.identity.id,
-                {
-                    ...updates,
-                    ...(typeof opacity === 'number'
-                        ? {opacity: Math.min(1, Math.max(0, opacity))}
-                        : {}),
-                },
-            ));
-        },
-    };
     const editor = {
-        markupSubtype,
         getMarkupSubtypeOverrides: () => new Map(options.canonicalMarkupSubtypeHints),
         getMarkupSubtypeHints: () => [],
         commitPendingFreeTextDraftsForSave: () => {

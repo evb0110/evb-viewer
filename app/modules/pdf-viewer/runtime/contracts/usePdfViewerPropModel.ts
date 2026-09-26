@@ -19,14 +19,6 @@ import { getPerformanceProfile } from '@app/utils/performanceProfile';
 
 const emptyAnnotationMatches = new Map<number, IPdfPageMatches>();
 
-function isPropProvided(...names: string[]) {
-    const vnodeProps = getCurrentInstance()?.vnode.props;
-    if (!vnodeProps) {
-        return false;
-    }
-    return names.some(name => Object.prototype.hasOwnProperty.call(vnodeProps, name));
-}
-
 export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
     const performanceProfile = getPerformanceProfile();
     const zoomState = computed<TPdfZoomState>(() => props.zoomState ?? FIT_WIDTH_ZOOM_STATE);
@@ -43,15 +35,13 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         immediate: true,
     });
     const zoom = computed(() => manualZoom.value);
-    const hasShowAnnotationsProp = isPropProvided('showAnnotations', 'show-annotations');
 
     return {
         src: computed(() => props.src),
         reloadSrc: computed(() => props.reloadSrc ?? null),
         sourcePdfData: computed(() => props.sourcePdfData ?? null),
         rasterDisplayProfile: computed(() => props.rasterDisplayProfile ?? null),
-        suppressLoadingOverlay: computed(() => props.suppressLoadingOverlay === true),
-        bufferPages: computed(() => props.bufferPages ?? performanceProfile.pdfBufferPages),
+        bufferPages: computed(() => performanceProfile.pdfBufferPages),
         isAnySaving: computed(() => props.isAnySaving ?? false),
         zoom,
         zoomState,
@@ -61,7 +51,6 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         viewMode: computed<TPdfViewMode>(() => props.viewMode ?? 'single'),
         viewRotation: computed<TPdfViewRotation>(() => props.viewRotation ?? 0),
         isResizing: computed(() => props.isResizing ?? false),
-        showAnnotations: computed(() => !hasShowAnnotationsProp || props.showAnnotations !== false),
         annotationTool: computed<TAnnotationTool>(() => props.annotationTool ?? 'none'),
         annotationCursorMode: computed(() => props.annotationCursorMode ?? false),
         annotationKeepActive: computed(() => props.annotationKeepActive ?? true),

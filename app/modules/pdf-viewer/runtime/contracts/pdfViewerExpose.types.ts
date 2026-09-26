@@ -23,7 +23,6 @@ import type {
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import type {IPdfAnnotationStorageDebugState} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
     ITextBoxEntity,
@@ -139,8 +138,6 @@ export interface IPdfViewerCropExpose {
 }
 
 export interface IPdfViewerShapePersistenceExpose {
-    adoptPersistedManagedShapesOnNextImport?: () => void;
-    clearPendingManagedShapeImportAdoption?: () => void;
     ensureManagedShapeBaselineReady?: () => Promise<boolean>;
     preparePersistedManagedShapesForSave?: (data?: Uint8Array) => Promise<unknown>;
     restorePreparedManagedShapesAfterFailedSave?: (snapshot: unknown) => Promise<void>;
@@ -160,15 +157,12 @@ export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPri
 ) => Promise<void>;}
 
 export interface IPdfViewerAnnotationCommandExpose {
-    annotationHistoryMutationVersion?: number | undefined;
     annotationHistoryResetVersion?: number | undefined;
     hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
     getAnnotationDirtyEntityCount?: (() => number) | undefined;
     hasCanonicalShapeChanges?: (() => boolean) | undefined;
-    getAnnotationStorageDebugState?: (() => IPdfAnnotationStorageDebugState) | undefined;
     getDeletedCanonicalAnnotationIds?: (() => string[]) | undefined;
     getDeletedPersistedCanonicalAnnotationCount?: (() => number) | undefined;
-    clearAnnotationHistory?: () => void;
     setWorkspaceCommandSink?: (sink: IWorkspaceCommandSink | null) => void;
     highlightSelection: () => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
@@ -232,21 +226,13 @@ export interface IPdfViewerAnnotationCommentExpose {
     /** Remove a reopened editor and tombstone its canonical entity in one history transaction. */
     deleteReopenedEditorAnnotation?: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
-    rerenderAnnotationPage: (pageNumber: TPageNumber) => Promise<boolean>;
     deleteEmbeddedAnnotationDeferred?: (comment: IAnnotationCommentSummary) => boolean;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
-    restoreAnnotationToInternalCache?: (comment: IAnnotationCommentSummary) => void;
-    clearPendingMarkerMoves?: () => void;
     getMarkupSubtypeOverrides: () => Map<string, TMarkupSubtype>;
     getMarkupSubtypeHints?: () => IMarkupSubtypeHint[];
-    getSelectedTextMarkupAnnotationProperties?: () => ITextMarkupAnnotationProperties | null;
     updateSelectedTextMarkupAnnotationColor?: (
         color: string,
-        selected: ITextMarkupAnnotationProperties,
-    ) => boolean;
-    updateSelectedTextMarkupAnnotationProperties?: (
-        updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>,
         selected: ITextMarkupAnnotationProperties,
     ) => boolean;
     updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
@@ -261,7 +247,6 @@ export interface IPdfViewerShapeExpose {
     clearShapes: () => void;
     clearSelectedShape: () => void;
     deleteSelectedShape: () => void;
-    deleteShapeById: (id: string) => boolean;
     hasShapes: boolean;
     selectedShapeId: string | null;
     updateShape: (id: string, updates: TShapeAnnotationPatch) => void;
@@ -281,7 +266,6 @@ export interface IPdfViewerImagePlacementExpose {
         },
     ) => Promise<boolean>;
     clearPendingImagePlacement: () => void;
-    restorePendingImagePlacement: () => void;
 }
 
 export interface IPdfViewerExpose extends
