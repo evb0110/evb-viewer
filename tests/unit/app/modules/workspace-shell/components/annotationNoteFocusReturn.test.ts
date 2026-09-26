@@ -9,13 +9,20 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     createApp,
     defineComponent,
     h,
     nextTick,
     reactive,
+    ref,
 } from 'vue';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
+import {
+    provideDocumentContext,
+    type TDocumentContext,
+} from '@app/modules/workspace-shell/documentContext';
+import { cast } from '@tests/helpers/cast';
 import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -53,11 +60,10 @@ function mountNotes() {
     const focusReturned = vi.fn(() => editor.focus());
     const overlayHost = document.createElement('div');
     host.append(overlayHost);
-    const app = createApp(defineComponent({setup: () => () => h(WorkspaceAnnotationOverlays, {
-        visible: state.visible,
-        sortedAnnotationNoteWindows: notes,
-        annotationNotePositions: {},
-        annotationContextMenu: {
+    const annotations = {
+        sortedAnnotationNoteWindows: computed(() => notes),
+        annotationNotePositions: ref({}),
+        annotationContextMenu: ref({
             visible: false,
             x: 0,
             y: 0,
@@ -67,32 +73,49 @@ function mountNotes() {
             pageNumber: null,
             pageX: null,
             pageY: null,
-        },
-        annotationContextMenuStyle: {},
-        annotationContextMenuCanCopy: false,
-        annotationContextMenuCanCopySelection: false,
-        annotationContextMenuCanCreateFree: false,
-        annotationContextMenuCanInsertImage: false,
-        annotationContextMenuIsImage: false,
-        contextMenuAnnotationLabel: '',
-        contextMenuDeleteActionLabel: '',
-        pageContextMenu: {
-            visible: false,
-            x: 0,
-            y: 0,
-            clickedPage: null,
-            pages: [],
-            selection: null,
-        },
-        pageContextMenuStyle: {},
-        isPageOperationInProgress: false,
-        isDjvuMode: false,
-        'onMinimize-note': (id: string) => {
+        }),
+        annotationContextMenuStyle: ref({}),
+        annotationContextMenuCanCopy: ref(false),
+        annotationContextMenuCanCopySelection: ref(false),
+        annotationContextMenuCanCreateFree: ref(false),
+        annotationContextMenuCanInsertImage: ref(false),
+        annotationContextMenuIsImage: ref(false),
+        contextMenuAnnotationLabel: ref(''),
+        contextMenuDeleteActionLabel: ref(''),
+        minimizeAnnotationNote: (id: string) => {
             const note = notes.find(item => item.annotationId === id);
             if (note) note.isMinimized = true;
         },
-        'onReturn-note-focus': focusReturned,
-    })}));
+        focusAnnotationNote: focusReturned,
+        updateAnnotationNoteText: vi.fn(),
+        updateAnnotationNotePosition: vi.fn(),
+        bringAnnotationNoteToFront: vi.fn(),
+    };
+    const context = {
+        annotations,
+        annotationActions: {},
+        pageContextMenu: {
+            pageContextMenu: ref({
+                visible: false,
+                x: 0,
+                y: 0,
+                clickedPage: null,
+                pages: [],
+                selection: null,
+            }),
+            pageContextMenuStyle: ref({}),
+        },
+        pageOps: {isPageOperationInProgress: ref(false)},
+        file: {isDjvuMode: ref(false)},
+        view: {
+            pdfViewerRef: ref(null),
+            effectiveZoom: ref(1),
+        },
+    };
+    const app = createApp(defineComponent({setup: () => {
+        provideDocumentContext(cast<TDocumentContext>(context));
+        return () => h(WorkspaceAnnotationOverlays, {visible: state.visible});
+    }}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
     app.component('AppTooltip', defineComponent({setup: (_props, {slots}) => () => slots.default?.()}));
     app.mount(overlayHost);

@@ -228,52 +228,7 @@
                 @save="handleStatusSaveClick"
             />
         </Teleport>
-        <WorkspaceAnnotationOverlays
-            :visible="surfaceMode === 'reader'"
-            :sorted-annotation-note-windows="sortedAnnotationNoteWindows"
-            :annotation-note-positions="annotationNotePositions"
-            :annotation-viewport-root="pdfViewerRef?.getViewerContainer?.() ?? null"
-            :annotation-zoom="effectiveZoom"
-            :annotation-context-menu="annotationContextMenu"
-            :annotation-context-menu-style="annotationContextMenuStyle"
-            :annotation-context-menu-can-copy="annotationContextMenuCanCopy"
-            :annotation-context-menu-can-copy-selection="annotationContextMenuCanCopySelection"
-            :annotation-context-menu-can-create-free="annotationContextMenuCanCreateFree"
-            :annotation-context-menu-can-insert-image="annotationContextMenuCanInsertImage"
-            :annotation-context-menu-is-image="annotationContextMenuIsImage"
-            :context-menu-annotation-label="contextMenuAnnotationLabel"
-            :context-menu-delete-action-label="contextMenuDeleteActionLabel"
-            :page-context-menu="pageContextMenu"
-            :page-context-menu-style="pageContextMenuStyle"
-            :is-page-operation-in-progress="isPageOperationInProgress"
-            :is-djvu-mode="isDjvuMode"
-            @update-note-text="updateAnnotationNoteText"
-            @update-note-position="updateAnnotationNotePosition"
-            @minimize-note="minimizeAnnotationNote"
-            @return-note-focus="annotationSession.focusAnnotationNote"
-            @restore-note="restoreAnnotationNote"
-            @delete-annotation="annotationActions.handleDeleteAnnotationById"
-            @focus-note="bringAnnotationNoteToFront"
-            @context-open-note="annotationActions.openContextMenuNote"
-            @context-copy-text="annotationActions.copyContextMenuNoteText"
-            @context-copy-selection-text="annotationActions.copyContextMenuSelectionText"
-            @context-delete="annotationActions.deleteContextMenuComment"
-            @context-update-color="annotationActions.handleContextTextMarkupColorUpdate"
-            @context-markup="annotationActions.createContextMenuMarkup"
-            @context-create-free-note="annotationActions.createContextMenuFreeNote"
-            @context-create-selection-note="annotationActions.createContextMenuSelectionNote"
-            @context-insert-image-from-file="annotationActions.insertContextMenuImageFromFile"
-            @context-paste-image-from-clipboard="annotationActions.pasteContextMenuImageFromClipboard"
-            @page-delete="pageOps.handlePageContextMenuDelete"
-            @page-extract="pageOps.handlePageContextMenuExtract"
-            @page-export="pageOps.handlePageContextMenuExport"
-            @page-rotate-cw="pageOps.handlePageContextMenuRotateCw"
-            @page-rotate-ccw="pageOps.handlePageContextMenuRotateCcw"
-            @page-insert-before="pageOps.handlePageContextMenuInsertBefore"
-            @page-insert-after="pageOps.handlePageContextMenuInsertAfter"
-            @page-select-all="pageOps.handlePageContextMenuSelectAll"
-            @page-invert-selection="pageOps.handlePageContextMenuInvertSelection"
-        />
+        <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader'" />
         <DjvuConversionOverlay
             :is-converting="conversionState.isConverting"
             :phase="conversionState.phase"
@@ -621,15 +576,6 @@ const {
 } = bookmarkState;
 const {bookmarkNavigationIntentVersion} = context;
 const {
-    annotationContextMenu,
-    annotationContextMenuStyle,
-    annotationContextMenuCanCopy,
-    annotationContextMenuCanCopySelection,
-    annotationContextMenuCanCreateFree,
-    annotationContextMenuCanInsertImage,
-    annotationContextMenuIsImage,
-    contextMenuAnnotationLabel,
-    contextMenuDeleteActionLabel,
     annotationTool,
     annotationKeepActive,
     annotationSettings,
@@ -643,20 +589,11 @@ const {
     markAnnotationDirty,
     handleAnnotationToolChange,
     handleAnnotationSettingChange,
-    annotationNotePositions,
     sortedAnnotationNoteWindows,
     updateAnnotationNoteText,
-    updateAnnotationNotePosition,
-    minimizeAnnotationNote,
-    restoreAnnotationNote,
-    bringAnnotationNoteToFront,
     isSameAnnotationComment,
 } = annotationSession;
-const {
-    pageContextMenu,
-    pageContextMenuStyle,
-    showPageContextMenu,
-} = context.pageContextMenu;
+const {showPageContextMenu} = context.pageContextMenu;
 const {
     handleSave,
     handleRepairSave,

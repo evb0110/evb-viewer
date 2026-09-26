@@ -17,12 +17,12 @@
             noteIndex,
             NOTE_WINDOW.ACTIVE_Z_INDEX_SLOTS - 1,
         )"
-        :bounds-root="annotationViewportRoot ?? null"
-        @update:text="emit('update-note-text', note.annotationId, $event)"
+        :bounds-root="annotationViewportRoot"
+        @update:text="updateAnnotationNoteText(note.annotationId, $event)"
         @update:position="handleNotePositionUpdate(note.annotationId, $event)"
         @minimize="handleNoteMinimize(note.annotationId, $event)"
-        @delete="emit('delete-annotation', note.annotationId)"
-        @focus="emit('focus-note', note.annotationId)"
+        @delete="annotationActions.handleDeleteAnnotationById(note.annotationId)"
+        @focus="bringAnnotationNoteToFront(note.annotationId)"
     />
     <template
         v-for="note in anchoredAnnotationNoteWindows"
@@ -101,31 +101,31 @@
         :annotation-label="contextMenuAnnotationLabel"
         :delete-label="contextMenuDeleteActionLabel"
         :is-image-comment="annotationContextMenuIsImage"
-        @open-note="emit('context-open-note')"
-        @copy-text="emit('context-copy-text')"
-        @copy-selection-text="emit('context-copy-selection-text')"
-        @delete="emit('context-delete')"
-        @update-color="emit('context-update-color', $event)"
-        @markup="emit('context-markup', $event)"
-        @create-free-note="emit('context-create-free-note')"
-        @create-selection-note="emit('context-create-selection-note')"
-        @insert-image-from-file="emit('context-insert-image-from-file')"
-        @paste-image-from-clipboard="emit('context-paste-image-from-clipboard')"
+        @open-note="annotationActions.openContextMenuNote"
+        @copy-text="annotationActions.copyContextMenuNoteText"
+        @copy-selection-text="annotationActions.copyContextMenuSelectionText"
+        @delete="annotationActions.deleteContextMenuComment"
+        @update-color="annotationActions.handleContextTextMarkupColorUpdate"
+        @markup="annotationActions.createContextMenuMarkup"
+        @create-free-note="annotationActions.createContextMenuFreeNote"
+        @create-selection-note="annotationActions.createContextMenuSelectionNote"
+        @insert-image-from-file="annotationActions.insertContextMenuImageFromFile"
+        @paste-image-from-clipboard="annotationActions.pasteContextMenuImageFromClipboard"
     />
     <PdfPageContextMenu
         :menu="pageContextMenu"
         :style="pageContextMenuStyle"
-        :is-operation-in-progress="isPageOperationInProgress"
-        :is-djvu-mode="isDjvuMode"
-        @delete-pages="emit('page-delete')"
-        @extract-pages="emit('page-extract')"
-        @export-pages="emit('page-export')"
-        @rotate-cw="emit('page-rotate-cw')"
-        @rotate-ccw="emit('page-rotate-ccw')"
-        @insert-before="emit('page-insert-before')"
-        @insert-after="emit('page-insert-after')"
-        @select-all="emit('page-select-all')"
-        @invert-selection="emit('page-invert-selection')"
+        :is-operation-in-progress="pageOps.isPageOperationInProgress.value"
+        :is-djvu-mode="file.isDjvuMode.value"
+        @delete-pages="pageOps.handlePageContextMenuDelete"
+        @extract-pages="pageOps.handlePageContextMenuExtract"
+        @export-pages="pageOps.handlePageContextMenuExport"
+        @rotate-cw="pageOps.handlePageContextMenuRotateCw"
+        @rotate-ccw="pageOps.handlePageContextMenuRotateCcw"
+        @insert-before="pageOps.handlePageContextMenuInsertBefore"
+        @insert-after="pageOps.handlePageContextMenuInsertAfter"
+        @select-all="pageOps.handlePageContextMenuSelectAll"
+        @invert-selection="pageOps.handlePageContextMenuInvertSelection"
     />
     </div>
 </template>
@@ -135,71 +135,40 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import { PdfAnnotationContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu';
 import { PdfAnnotationNoteWindow } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationNoteWindow';
 import { PdfPageContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfPageContextMenu';
-import type {
-    IAnnotationContextMenuState,
-    IPageContextMenuState,
-} from '@app/types/pdfContextMenu';
-import type { TAnnotationTool } from '@app/types/annotations';
 import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
 import { NOTE_WINDOW } from '@app/constants/pdfLayout';
 import type { IAnnotationNoteWindowEntry } from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 import { createAnnotationOverlayRuntime } from '@app/modules/workspace-shell/annotations/createAnnotationOverlayRuntime';
+import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
 
+const { visible } = defineProps<{visible: boolean;}>();
 const {
-    annotationNotePositions,
-    annotationViewportRoot = undefined,
-    annotationZoom = undefined,
+    annotations,
+    annotationActions,
+    pageContextMenu: {
+        pageContextMenu,
+        pageContextMenuStyle,
+    },
+    pageOps,
+    file,
+    view,
+} = useDocumentContext();
+const {
     sortedAnnotationNoteWindows,
-    visible,
-} = defineProps<{
-    visible: boolean;
-    sortedAnnotationNoteWindows: IAnnotationNoteWindowEntry[];
-    annotationNotePositions: Record<string, IAnnotationNotePosition>;
-    annotationViewportRoot?: HTMLElement | null;
-    annotationZoom?: number;
-    annotationContextMenu: IAnnotationContextMenuState;
-    annotationContextMenuStyle: Record<string, string>;
-    annotationContextMenuCanCopy: boolean;
-    annotationContextMenuCanCopySelection: boolean;
-    annotationContextMenuCanCreateFree: boolean;
-    annotationContextMenuCanInsertImage: boolean;
-    contextMenuAnnotationLabel: string;
-    contextMenuDeleteActionLabel: string;
-    annotationContextMenuIsImage: boolean;
-    pageContextMenu: IPageContextMenuState;
-    pageContextMenuStyle: Record<string, string>;
-    isPageOperationInProgress: boolean;
-    isDjvuMode: boolean;
-}>();
-
-const emit = defineEmits<{
-    'update-note-text': [annotationId: string, text: string];
-    'update-note-position': [annotationId: string, position: IAnnotationNotePosition];
-    'minimize-note': [annotationId: string];
-    'return-note-focus': [annotationId: string];
-    'restore-note': [annotationId: string];
-    'delete-annotation': [annotationId: string];
-    'focus-note': [annotationId: string];
-    'context-open-note': [];
-    'context-copy-text': [];
-    'context-copy-selection-text': [];
-    'context-delete': [];
-    'context-update-color': [color: string];
-    'context-markup': [tool: TAnnotationTool];
-    'context-create-free-note': [];
-    'context-create-selection-note': [];
-    'context-insert-image-from-file': [];
-    'context-paste-image-from-clipboard': [];
-    'page-delete': [];
-    'page-extract': [];
-    'page-export': [];
-    'page-rotate-cw': [];
-    'page-rotate-ccw': [];
-    'page-insert-before': [];
-    'page-insert-after': [];
-    'page-select-all': [];
-    'page-invert-selection': [];
-}>();
+    annotationNotePositions,
+    annotationContextMenu,
+    annotationContextMenuStyle,
+    annotationContextMenuCanCopy,
+    annotationContextMenuCanCopySelection,
+    annotationContextMenuCanCreateFree,
+    annotationContextMenuCanInsertImage,
+    annotationContextMenuIsImage,
+    contextMenuAnnotationLabel,
+    contextMenuDeleteActionLabel,
+    updateAnnotationNoteText,
+    bringAnnotationNoteToFront,
+} = annotations;
+const annotationViewportRoot = computed(() => view.pdfViewerRef.value?.getViewerContainer?.() ?? null);
 
 const { t } = useTypedI18n();
 
@@ -216,37 +185,36 @@ const {
     traceAnchorInteraction,
     scheduleConnectorRefreshBurst,
 } = createAnnotationOverlayRuntime({
-    getNoteWindows: () => sortedAnnotationNoteWindows,
-    getNotePositions: () => annotationNotePositions,
-    getWorkspaceRoot: () => annotationViewportRoot?.closest<HTMLElement>('.workspace-host')
-        ?? annotationViewportRoot
-        ?? null,
-    getViewportRoot: () => annotationViewportRoot ?? null,
-    getZoom: () => annotationZoom,
+    getNoteWindows: () => sortedAnnotationNoteWindows.value,
+    getNotePositions: () => annotationNotePositions.value,
+    getWorkspaceRoot: () => annotationViewportRoot.value?.closest<HTMLElement>('.workspace-host')
+        ?? annotationViewportRoot.value,
+    getViewportRoot: () => annotationViewportRoot.value,
+    getZoom: () => view.effectiveZoom.value,
     getEmptyNoteLabel: () => t('annotations.emptyNote'),
 });
 
 function handleNotePositionUpdate(annotationId: string, position: IAnnotationNotePosition) {
-    emit('update-note-position', annotationId, position);
+    annotations.updateAnnotationNotePosition(annotationId, position);
     scheduleConnectorRefreshBurst(2);
 }
 
 async function handleNoteMinimize(annotationId: string, focusDocument: Document | null) {
-    emit('minimize-note', annotationId);
+    annotations.minimizeAnnotationNote(annotationId);
     await nextTick();
     if (
         visible
         && focusDocument
         && focusDocument.activeElement === focusDocument.body
-        && sortedAnnotationNoteWindows.some(note => note.annotationId === annotationId && note.isMinimized)
+        && sortedAnnotationNoteWindows.value.some(note => note.annotationId === annotationId && note.isMinimized)
     ) {
-        emit('return-note-focus', annotationId);
+        annotations.focusAnnotationNote(annotationId);
     }
 }
 
 function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     traceAnchorInteraction('anchor clicked', note);
-    emit('restore-note', note.annotationId);
+    annotations.restoreAnnotationNote(note.annotationId);
 }
 </script>
 
