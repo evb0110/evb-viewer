@@ -1,255 +1,398 @@
 import {
-    decodeManagedTempFileHandle,
-    decodeOpenBatchProgress,
-    decodeOptimizeProgress,
-    isPdfOptimizePreset,
-    type IApplicationMenuDocumentState,
-    type IDocumentsFileCapability,
-    type IPdfNativeSaveResult,
-    type IPdfOptimizeOptions,
-    type IPdfOptimizeResult,
-    type TDocumentSaveResult,
-    type TOpenFileResult,
+    FILE_STAT_RESULT_SCHEMA,
+    MANAGED_TEMP_FILE_HANDLE_SCHEMA,
+    OPEN_BATCH_PROGRESS_SCHEMA,
+    PDF_OPTIMIZE_PRESET_SCHEMA,
+    PDF_OPTIMIZE_PROGRESS_SCHEMA,
 } from '@contracts/electronApiDocuments';
 import {
-    decodeDocumentRevisionChangedEvent,
-    isDocumentRevisionInfo,
-    requireDocumentRevisionToken,
-    type IDocumentRevisionChangedEvent,
-} from '@contracts/documentRevision';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
+    parseDocumentRef, type TDocumentRef,
 } from '@contracts/documentRef';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {
-    appendOptionalDocumentArg as appendOptional,
-    decodeNullablePdfValidation,
-    decodeOptionalDocumentObject as decodeOptionalObject,
-    decodePdfPathValidationResult as decodePathValidationResult,
-    decodePdfNativeStagedCommitOptions,
-    decodePdfRevisionOptions as decodeRevisionOptions,
-    decodePdfSaveAsOptions as decodeSaveAsOptions,
-    decodePdfValidation,
-    decodeRequiredDocumentObject as decodeRequiredObject,
-} from '@contracts/documentsPersistenceSchemas';
-import {
-    decodeOpeningGeometry,
-    decodeNativePageSizesOptions,
-    decodeNativePageGeometry,
-    decodeSafeIntegerValue,
-    decodeUint8ArrayValue,
-    fail,
-} from '@contracts/documentsPlatformFeatureNativePageSchemas';
-import {
-    isPdfDecryptPassword,
-    PDF_DECRYPT_PASSWORD_MAX_BYTES,
+    isPdfDecryptPassword, PDF_DECRYPT_PASSWORD_MAX_BYTES,
 } from '@contracts/pdfDecryptSchemas';
-import {openFileResult} from '@contracts/pdfOpenFileSchemas';
-import type {
-    IPdfConformanceProfile,
-    IPdfValidationResult,
-} from '@contracts/pdfConformance';
 import {
-    PDF_PAGE_LABEL_STYLE_VALUES,
-    type IPdfPageLabelRange,
-} from '@contracts/pdfPageLabels';
-import type { TPlatformUnsupportedReason } from '@contracts/platformUnsupported';
-import {
-    decodePdfDataPrintOptions,
-    decodePdfPathPrintOptions,
-} from '@contracts/pdfPathPrintOptions';
-import {runtimeSchema as s} from '@contracts/platformFeature';
-import {
-    isFiniteNumber,
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
-import {
-    parseLeaseId,
-    parseRequestId,
-    type IRecentFile,
-    type TLeaseId,
-    type TRequestId,
-} from '@contracts/shared';
-import {
-    parseEpochMs,
-    requireEpochMs,
-} from '@contracts/timestamps';
-import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
-import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
-import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+    PDF_OPENING_GEOMETRY_SCHEMA,
+    PDF_NATIVE_PAGE_GEOMETRY_SCHEMA,
+    PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA,
+} from '@contracts/documentsPlatformFeatureNativePageSchemas';
 import {
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeModifiedAt,
-    normalizePdfNativeNoteTextUpdates,
-    normalizePdfNativeNoteChanges,
     normalizePdfNativeMutationSet,
+    normalizePdfNativeNoteChanges,
+    normalizePdfNativeNoteTextUpdates,
 } from '@contracts/nativePdfMutations';
-const fixtureNativeMutation = {pageLabels: {
-    totalPages: 1,
-    ranges: [],
-}};
-function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
-    if (value === null) {
-        return null;
-    }
-    if (!isRecord(value) || (value.kind !== 'pdf' && value.kind !== 'djvu')) {
-        fail('invalid open-file result');
-    }
-    if (value.kind === 'djvu') {
-        const originalPath = parseDocumentRef(value.originalPath);
-        if (value.workingPath !== '' || originalPath === null) {
-            fail('invalid DjVu open-file result');
-        }
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath,
-        };
-    }
-    if (
-        typeof value.workingPath !== 'string'
-        || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
-        || (value.recoveryDirtyBaseline !== undefined && typeof value.recoveryDirtyBaseline !== 'boolean')
-    ) {
-        fail('invalid PDF open-file result');
-    }
-    const workingPath = parseDocumentRef(value.workingPath);
-    const originalPath = parseDocumentRef(value.originalPath);
-    if (workingPath === null || originalPath === null) {
-        fail('invalid PDF open-file paths');
-    }
-    return {
-        kind: 'pdf',
-        workingPath,
-        originalPath,
-        ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
-        ...(value.recoveryDirtyBaseline === undefined ? {} : {recoveryDirtyBaseline: value.recoveryDirtyBaseline}),
-    };
+import {PDF_PAGE_LABEL_STYLE_VALUES} from '@contracts/pdfPageLabels';
+import {OPEN_FILE_RESULT_SCHEMA} from '@contracts/pdfOpenFileSchemas';
+import {PDF_VALIDATION_RESULT_SCHEMA} from '@contracts/pdfConformance';
+import {
+    PDF_DATA_PRINT_OPTIONS_SCHEMA, PDF_PATH_PRINT_OPTIONS_SCHEMA,
+} from '@contracts/pdfPathPrintOptions';
+import {PDF_VALIDATION_PATH_ARGS_SCHEMA} from '@contracts/pdfValidationPathArgs';
+import {
+    PDF_REVISION_OPTIONS_SCHEMA,
+    PDF_SAVE_AS_OPTIONS_SCHEMA,
+    PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA,
+} from '@contracts/documentsPersistenceSchemas';
+import {TYPED_STAGED_ARTIFACT_SCHEMA} from '@contracts/stagedArtifacts';
+import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
+import {
+    parseLeaseId, parseRequestId, type TRequestId,
+} from '@contracts/shared';
+import {parseEpochMs} from '@contracts/timestamps';
+import * as v from 'valibot';
+
+function fail(message: string): never {
+    throw new Error(message);
 }
-function decodeRecentFile(value: unknown): IRecentFile {
-    if (!isRecord(value)) {
-        fail('invalid recent file');
-    }
-    const originalPath = parseDocumentRef(value.originalPath);
-    const timestamp = parseEpochMs(value.timestamp);
-    const modifiedAt = value.modifiedAt === undefined ? undefined : parseEpochMs(value.modifiedAt);
-    if (
-        originalPath === null
-        || typeof value.fileName !== 'string'
-        || timestamp === null
-        || modifiedAt === null
-        || (value.backend !== undefined && value.backend !== 'electron' && value.backend !== 'browser')
-        || (value.fileSize !== undefined && (!isFiniteNumber(value.fileSize) || value.fileSize < 0))
-    ) {
-        fail('invalid recent file');
-    }
-    return {
-        originalPath,
-        fileName: value.fileName,
-        timestamp,
-        ...(value.backend === undefined ? {} : {backend: value.backend}),
-        ...(value.fileSize === undefined ? {} : {fileSize: value.fileSize}),
-        ...(modifiedAt === undefined ? {} : {modifiedAt}),
-    };
-}
-const applicationMenuOptionalBooleanFields = [
-    'interactive',
-    'supportsSaveAs',
-    'canSaveAs',
-    'supportsRepairSave',
-    'canRepairSave',
-    'supportsOptimizePdf',
-    'canOptimizePdf',
-    'supportsPrint',
-    'canPrint',
-    'supportsExportDocx',
-    'canExportDocx',
-    'isExportingDocx',
-    'supportsRasterExport',
-    'canExportRaster',
-    'canUndo',
-    'canRedo',
-    'supportsPdfMutation',
-    'canMutatePages',
-    'supportsContinuousScroll',
-    'canContinuousScroll',
-    'continuousScroll',
-    'supportsViewMode',
-    'supportsViewRotation',
-    'isActualSizeActive',
-    'isFitWidthActive',
-    'isFitHeightActive',
-    'canToggleAssistant',
-    'canCreatePane',
-    'canCloseTab',
-    'canTransferActiveTab',
-] as const satisfies ReadonlyArray<keyof IApplicationMenuDocumentState>;
-function decodeApplicationMenuDocumentState(value: unknown): boolean | IApplicationMenuDocumentState {
-    if (typeof value === 'boolean') {
-        return value;
-    }
-    if (!isRecord(value) || typeof value.hasDocument !== 'boolean' || typeof value.canSave !== 'boolean') {
-        fail('state must include boolean hasDocument and canSave fields');
-    }
-    for (const field of applicationMenuOptionalBooleanFields) {
-        if (value[field] !== undefined && typeof value[field] !== 'boolean') {
-            fail(`state.${field} must be a boolean`);
-        }
-    }
-    for (const field of [
-        'selectedPageCount',
-        'totalPages',
-    ] as const) {
-        if (value[field] !== undefined && (
-            typeof value[field] !== 'number'
-            || !Number.isSafeInteger(value[field])
-            || value[field] < 0
-        )) {
-            fail(`state.${field} must be a non-negative safe integer`);
-        }
-    }
-    if (
-        value.viewMode !== undefined
-        && !isOneOf([
+
+const documentRefSchema = v.pipe(
+    v.string('path must be an absolute document reference'),
+    v.check(value => parseDocumentRef(value) !== null, 'path must be an absolute document reference'),
+    v.transform(value => parseDocumentRef(value) ?? fail('path must be an absolute document reference')),
+);
+const requestIdSchema = v.pipe(
+    v.string('requestId must be a non-empty request ID'),
+    v.check(value => parseRequestId(value) !== null, 'requestId must be a non-empty request ID'),
+    v.transform(value => parseRequestId(value) ?? fail('requestId must be a non-empty request ID')),
+);
+const leaseIdSchema = v.pipe(
+    v.string('leaseId must be a non-empty lease ID'),
+    v.check(value => parseLeaseId(value) !== null, 'leaseId must be a non-empty lease ID'),
+    v.transform(value => parseLeaseId(value) ?? fail('leaseId must be a non-empty lease ID')),
+);
+const documentRevisionTokenSchema = v.pipe(
+    v.string('expectedDocumentRevisionToken must be valid'),
+    v.check(value => parseDocumentRevisionToken(value) !== null, 'expectedDocumentRevisionToken must be valid'),
+    v.transform(value => parseDocumentRevisionToken(value) ?? fail('expectedDocumentRevisionToken must be valid')),
+);
+const epochMsSchema = v.pipe(
+    v.number(),
+    v.safeInteger(),
+    v.minValue(0),
+    v.transform(value => parseEpochMs(value) ?? fail('invalid timestamp')),
+);
+const positiveEpochMsSchema = v.pipe(
+    v.number(),
+    v.safeInteger(),
+    v.minValue(1),
+    v.transform(value => parseEpochMs(value) ?? fail('invalid timestamp')),
+);
+const nonNegativeSafeInteger = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const positiveSafeInteger = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const finiteNumber = v.pipe(v.number(), v.finite());
+const uint8ArraySchema = v.custom<Uint8Array>(
+    (value): value is Uint8Array => value instanceof Uint8Array,
+);
+const recentFileSchema = v.message(v.object({
+    originalPath: documentRefSchema,
+    backend: v.exactOptional(v.picklist([
+        'electron',
+        'browser',
+    ])),
+    fileName: v.string(),
+    timestamp: epochMsSchema,
+    fileSize: v.exactOptional(v.pipe(finiteNumber, v.minValue(0))),
+    modifiedAt: v.exactOptional(epochMsSchema),
+}), 'invalid recent file');
+
+const pdfPathSchema = v.strictTuple([documentRefSchema]);
+const requestIdArgs = v.strictTuple([requestIdSchema]);
+const leaseIdArgs = v.strictTuple([leaseIdSchema]);
+const optionalDocumentRefSchema = v.optional(v.pipe(
+    v.nullish(documentRefSchema),
+    v.transform(value => value ?? undefined),
+));
+const optionalRequestIdSchema = v.optional(v.pipe(
+    v.nullish(requestIdSchema),
+    v.transform(value => value ?? undefined),
+));
+const optionalRevisionOptionsSchema = v.optional(v.pipe(
+    v.nullish(PDF_REVISION_OPTIONS_SCHEMA),
+    v.transform(value => value ?? undefined),
+));
+const pdfDecryptPasswordSchema = v.pipe(
+    v.string(),
+    v.check(
+        (value: string) => isPdfDecryptPassword(value),
+        `password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`,
+    ),
+);
+const optionalPasswordSchema = v.optional(v.pipe(
+    v.nullish(pdfDecryptPasswordSchema),
+    v.transform(value => value ?? undefined),
+));
+const optionalFileNameSchema = v.optional(v.pipe(
+    v.nullish(v.string()),
+    v.transform(value => value ?? undefined),
+));
+const saveAsOptionsOrUndefinedSchema = v.pipe(
+    v.nullish(PDF_SAVE_AS_OPTIONS_SCHEMA),
+    v.transform(value => value ?? undefined),
+);
+const optionalNativeStagedCommitOptionsSchema = v.optional(v.pipe(
+    v.nullish(PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA),
+    v.transform(value => value ?? undefined),
+));
+const optionalDataPrintOptionsSchema = v.optional(v.pipe(
+    v.nullish(PDF_DATA_PRINT_OPTIONS_SCHEMA),
+    v.transform(value => value ?? undefined),
+));
+const optionalPathPrintOptionsSchema = v.optional(v.pipe(
+    v.nullish(PDF_PATH_PRINT_OPTIONS_SCHEMA),
+    v.transform(value => value ?? undefined),
+));
+const optionsForceCombineSchema = v.object({forceCombine: v.exactOptional(v.boolean())});
+
+const openDocumentDirectArgs = v.pipe(
+    v.strictTuple([
+        documentRefSchema,
+        v.optional(pdfDecryptPasswordSchema),
+    ]),
+    v.transform(args => args[1] === undefined
+        ? [args[0]] as [TDocumentRef]
+        : args as [TDocumentRef, string]),
+);
+const openDocumentDirectBatchArgs = v.pipe(
+    v.strictTuple([
+        v.array(documentRefSchema),
+        optionalRequestIdSchema,
+        v.optional(optionsForceCombineSchema),
+    ]),
+    v.transform(args => args as [
+        TDocumentRef[],
+        (TRequestId | undefined)?,
+        ({forceCombine?: boolean} | undefined)?,
+    ]),
+);
+const createWorkingCopyFromDataArgs = v.strictTuple([
+    v.string(),
+    uint8ArraySchema,
+    optionalDocumentRefSchema,
+    optionalPasswordSchema,
+]);
+const createWorkingCopyFromPathArgs = v.strictTuple([
+    documentRefSchema,
+    optionalDocumentRefSchema,
+    optionalPasswordSchema,
+]);
+const cancelOpenBatchArgs = requestIdArgs;
+const cancelRequestArgs = requestIdArgs;
+
+const savePdfAsArgs = v.strictTuple([
+    documentRefSchema,
+    saveAsOptionsOrUndefinedSchema,
+    optionalRevisionOptionsSchema,
+]);
+const savePdfDialogArgs = v.strictTuple([v.string()]);
+const pathArgs = (_fieldName: string) => pdfPathSchema;
+const readFileArgs = pdfPathSchema;
+const statFileArgs = pdfPathSchema;
+const readFileRangeArgs = v.strictTuple([
+    documentRefSchema,
+    nonNegativeSafeInteger,
+    nonNegativeSafeInteger,
+]);
+const managedHandleArgs = pdfPathSchema;
+const releaseManagedHandleArgs = leaseIdArgs;
+const openingGeometryArgs = pdfPathSchema;
+const pageSizesArgs = v.strictTuple([
+    documentRefSchema,
+    PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA,
+]);
+const readTextFileArgs = pdfPathSchema;
+const fileExistsArgs = pdfPathSchema;
+const writeFileArgs = v.strictTuple([
+    documentRefSchema,
+    uint8ArraySchema,
+    optionalRevisionOptionsSchema,
+]);
+const replaceWorkingCopyArgs = v.strictTuple([
+    documentRefSchema,
+    documentRefSchema,
+    optionalRevisionOptionsSchema,
+]);
+const writeDocxArgs = v.strictTuple([
+    documentRefSchema,
+    uint8ArraySchema,
+]);
+const saveFileStructuredArgs = v.strictTuple([
+    documentRefSchema,
+    optionalRevisionOptionsSchema,
+]);
+const repairPdfArgs = saveFileStructuredArgs;
+const optimizeInteractionArgs = saveFileStructuredArgs;
+const optimizeOptionsSchema = v.object({preset: PDF_OPTIMIZE_PRESET_SCHEMA});
+const optimizeAsCopyArgs = v.strictTuple([
+    documentRefSchema,
+    optimizeOptionsSchema,
+    optionalRequestIdSchema,
+    optionalRevisionOptionsSchema,
+]);
+
+// Native mutation normalizers canonicalize PDF dates, identities, and cross-field mutation semantics.
+const nativeNoteTextArgs = v.strictTuple([
+    documentRefSchema,
+    v.pipe(v.unknown(), v.transform(value => normalizePdfNativeNoteTextUpdates(value, 'updates', {allowEmpty: true}))),
+    v.pipe(v.string(), v.transform(value => normalizePdfNativeModifiedAt(value, 'modifiedAt'))),
+    optionalRevisionOptionsSchema,
+]);
+const nativeNoteChangesArgs = v.strictTuple([
+    documentRefSchema,
+    v.pipe(v.unknown(), v.transform(value => normalizePdfNativeNoteChanges(value, 'changes'))),
+    v.pipe(v.string(), v.transform(value => normalizePdfNativeModifiedAt(value, 'modifiedAt'))),
+    optionalRevisionOptionsSchema,
+]);
+const applyNativeMutationsArgs = v.strictTuple([
+    documentRefSchema,
+    v.pipe(v.unknown(), v.transform(value => normalizePdfNativeMutationSet(value, 'mutations'))),
+    v.pipe(v.string(), v.transform(value => normalizePdfNativeModifiedAt(value, 'modifiedAt'))),
+    v.pipe(
+        v.nullish(PDF_REVISION_OPTIONS_SCHEMA),
+        v.transform(value => value ?? fail('applyPdfNativeMutationsToWorkingCopy requires revisionOptions')),
+    ),
+]);
+const stagedArtifactSchema = v.message(TYPED_STAGED_ARTIFACT_SCHEMA, 'stagedOutput must be a typed staged artifact');
+const commitNativeMutationsArgs = v.pipe(
+    v.strictTuple([
+        documentRefSchema,
+        stagedArtifactSchema,
+        optionalNativeStagedCommitOptionsSchema,
+    ]),
+    v.transform(args => (args[2] === undefined ? [
+        args[0],
+        args[1],
+    ] : args) as [
+        TDocumentRef,
+        v.InferOutput<typeof stagedArtifactSchema>,
+            (v.InferOutput<typeof PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA> | undefined)?,
+    ]),
+);
+const cloneStagedNativeMutationArgs = v.strictTuple([
+    stagedArtifactSchema,
+    optionalDocumentRefSchema,
+]);
+const replaceWorkingCopyFromStagedNativeMutationArgs = v.strictTuple([
+    documentRefSchema,
+    stagedArtifactSchema,
+    v.pipe(
+        v.nullish(PDF_REVISION_OPTIONS_SCHEMA),
+        v.transform(value => value ?? fail('replaceWorkingCopyFromStagedPdfNativeMutation requires revisionOptions')),
+    ),
+]);
+
+const printPdfDataArgs = v.strictTuple([
+    uint8ArraySchema,
+    optionalFileNameSchema,
+    optionalDataPrintOptionsSchema,
+]);
+const pdfConformanceOptionsSchema = v.object({purpose: v.exactOptional(v.picklist([
+    'full',
+    'save-restrictions',
+]))});
+const optionalPdfConformanceOptionsSchema = v.optional(v.pipe(
+    v.nullish(pdfConformanceOptionsSchema),
+    v.transform(value => value ?? undefined),
+));
+const pdfPathArgs = v.strictTuple([
+    documentRefSchema,
+    optionalPdfConformanceOptionsSchema,
+]);
+const printPdfPathArgs = v.strictTuple([
+    documentRefSchema,
+    optionalFileNameSchema,
+    optionalPathPrintOptionsSchema,
+]);
+
+const revisionInfoSchema = v.object({
+    version: v.literal(1),
+    token: documentRevisionTokenSchema,
+    documentRef: documentRefSchema,
+    authority: v.picklist([
+        'electron-working-copy',
+        'browser-document-store',
+    ]),
+    contentRevision: nonNegativeSafeInteger,
+    mintedAt: positiveEpochMsSchema,
+});
+const documentRevisionEventSchema = v.object({
+    version: v.literal(1),
+    token: documentRevisionTokenSchema,
+    previousToken: v.exactOptional(documentRevisionTokenSchema),
+    documentRef: documentRefSchema,
+    authority: v.picklist([
+        'electron-working-copy',
+        'browser-document-store',
+    ]),
+    contentRevision: nonNegativeSafeInteger,
+    mintedAt: positiveEpochMsSchema,
+    reason: v.picklist([
+        'open',
+        'write',
+        'replace-working-copy',
+        'page-ops',
+        'ocr-apply',
+        'save-sync',
+        'native-mutation',
+        'browser-handle-refresh',
+        'unknown',
+    ]),
+});
+const menuDocumentStateSchema = v.union([
+    v.boolean(),
+    v.looseObject({
+        hasDocument: v.boolean('state must include boolean hasDocument and canSave fields'),
+        interactive: v.exactOptional(v.boolean()),
+        canSave: v.boolean('state must include boolean hasDocument and canSave fields'),
+        supportsSaveAs: v.exactOptional(v.boolean()),
+        canSaveAs: v.exactOptional(v.boolean()),
+        supportsRepairSave: v.exactOptional(v.boolean()),
+        canRepairSave: v.exactOptional(v.boolean()),
+        supportsOptimizePdf: v.exactOptional(v.boolean()),
+        canOptimizePdf: v.exactOptional(v.boolean()),
+        supportsPrint: v.exactOptional(v.boolean()),
+        canPrint: v.exactOptional(v.boolean()),
+        supportsExportDocx: v.exactOptional(v.boolean()),
+        canExportDocx: v.exactOptional(v.boolean()),
+        isExportingDocx: v.exactOptional(v.boolean()),
+        supportsRasterExport: v.exactOptional(v.boolean()),
+        canExportRaster: v.exactOptional(v.boolean()),
+        canUndo: v.exactOptional(v.boolean()),
+        canRedo: v.exactOptional(v.boolean()),
+        supportsPdfMutation: v.exactOptional(v.boolean()),
+        canMutatePages: v.exactOptional(v.boolean()),
+        selectedPageCount: v.exactOptional(nonNegativeSafeInteger),
+        totalPages: v.exactOptional(nonNegativeSafeInteger),
+        supportsContinuousScroll: v.exactOptional(v.boolean()),
+        canContinuousScroll: v.exactOptional(v.boolean()),
+        continuousScroll: v.exactOptional(v.boolean()),
+        supportsViewMode: v.exactOptional(v.boolean()),
+        viewMode: v.exactOptional(v.picklist([
             'single',
             'facing',
             'facing-first-single',
-        ] as const, value.viewMode)
-    ) {
-        fail('state.viewMode must be a supported PDF view mode');
-    }
-    if (
-        value.viewRotation !== undefined
-        && !([
+        ])),
+        supportsViewRotation: v.exactOptional(v.boolean()),
+        viewRotation: v.exactOptional(v.picklist([
             0,
             90,
             180,
             270,
-        ] as readonly unknown[]).includes(value.viewRotation)
-    ) {
-        fail('state.viewRotation must be a supported PDF view rotation');
-    }
-    return {
-        ...value,
-        hasDocument: value.hasDocument,
-        canSave: value.canSave,
-    };
-}
-function decodeNonNegativeInteger(value: unknown, field: string) {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-        fail(`${field} must be a non-negative safe integer`);
-    }
-    return value;
-}
-const platformUnsupportedReasons = [
-    'unsupported-backend',
-    'missing-browser-permission',
-    'user-canceled',
-    'not-implemented',
-    'requires-native-backend',
-] as const satisfies readonly TPlatformUnsupportedReason[];
+        ])),
+        isActualSizeActive: v.exactOptional(v.boolean()),
+        isFitWidthActive: v.exactOptional(v.boolean()),
+        isFitHeightActive: v.exactOptional(v.boolean()),
+        canToggleAssistant: v.exactOptional(v.boolean()),
+        canCreatePane: v.exactOptional(v.boolean()),
+        canCloseTab: v.exactOptional(v.boolean()),
+        canTransferActiveTab: v.exactOptional(v.boolean()),
+    }),
+]);
+const nonNegativeInteger = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+
 const documentSaveFailureReasons = [
     'user-canceled',
     'validation-failed',
@@ -261,938 +404,109 @@ const documentSaveFailureReasons = [
     'stale',
     'unknown',
 ] as const;
+const unsupportedReasons = [
+    'unsupported-backend',
+    'missing-browser-permission',
+    'user-canceled',
+    'not-implemented',
+    'requires-native-backend',
+] as const;
+const documentSaveWarningSchema = v.object({
+    reason: v.literal('refresh-failed'),
+    message: v.string(),
+});
+const documentSaveResultSchema = v.variant('ok', [
+    v.object({
+        ok: v.literal(true),
+        externalWriteCommitted: v.boolean(),
+        workingCopyRefreshed: v.boolean(),
+        validation: v.exactOptional(v.nullable(PDF_VALIDATION_RESULT_SCHEMA)),
+        warning: v.exactOptional(documentSaveWarningSchema),
+    }),
+    v.object({
+        ok: v.literal(false),
+        reason: v.picklist(documentSaveFailureReasons),
+        message: v.exactOptional(v.string()),
+        externalWriteCommitted: v.exactOptional(v.nullable(v.boolean())),
+        workingCopySyncRequired: v.exactOptional(v.boolean()),
+        validation: v.exactOptional(v.nullable(PDF_VALIDATION_RESULT_SCHEMA)),
+    }),
+]);
+const printResultSchema = v.object({
+    success: v.boolean(),
+    canceled: v.exactOptional(v.boolean()),
+    error: v.exactOptional(v.string()),
+    unsupportedReason: v.exactOptional(v.picklist(unsupportedReasons)),
+});
+const nullableCountSchema = v.nullable(nonNegativeSafeInteger);
+const optimizeResultSchema = v.object({
+    path: v.nullable(documentRefSchema),
+    validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
+    preset: PDF_OPTIMIZE_PRESET_SCHEMA,
+    originalBytes: nullableCountSchema,
+    optimizedBytes: nullableCountSchema,
+    pageCount: nullableCountSchema,
+});
+const stagedOutputSchema = v.message(TYPED_STAGED_ARTIFACT_SCHEMA, 'invalid staged native PDF output');
+const nativeErrorEnvelopeSchema: v.GenericSchema<unknown, INativeErrorEnvelope> = v.custom<INativeErrorEnvelope>(
+    isNativeErrorEnvelope,
+    'invalid native PDF save result',
+);
+const nativeSaveResultSchema = v.object({
+    applied: v.boolean(),
+    validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
+    nativeMutationPostconditionsVerified: v.exactOptional(v.literal(true, 'invalid native PDF save result')),
+    identityBindings: v.exactOptional(v.pipe(
+        v.unknown(),
+        v.transform(value => normalizePdfNativeAnnotationIdentityBindings(value, 'identityBindings', {errorKind: 'error'})),
+    )),
+    error: v.exactOptional(nativeErrorEnvelopeSchema),
+    syncError: v.exactOptional(v.string()),
+    stagedOutput: v.exactOptional(stagedOutputSchema),
+});
+const conformanceResultSchema = v.object({
+    isSigned: v.boolean(),
+    isEncrypted: v.boolean(),
+    isTagged: v.boolean(),
+    pdfaLevel: v.nullable(v.string()),
+    hasAcroForm: v.boolean(),
+    hasXfa: v.boolean(),
+    canIncrementalSave: v.boolean(),
+    saveRestrictions: v.array(v.string()),
+});
+const pdfPageLabelRangesResult = v.array(v.object({
+    startPage: positiveSafeInteger,
+    style: v.nullable(v.picklist(PDF_PAGE_LABEL_STYLE_VALUES)),
+    prefix: v.string(),
+    startNumber: positiveSafeInteger,
+}));
+
+const cancellationResult = v.object({canceled: v.boolean()});
+const revisionResult = revisionInfoSchema;
+const nullableDocumentRefResult = v.nullable(documentRefSchema);
+const nullableStringResult = v.nullable(v.string());
+const recentFilesResult = v.array(recentFileSchema);
+const validationResult = PDF_VALIDATION_RESULT_SCHEMA;
+const documentSaveResult = documentSaveResultSchema;
+const optimizeResult = optimizeResultSchema;
+const nativeSaveResult = nativeSaveResultSchema;
+const openingGeometryResult = v.nullable(PDF_OPENING_GEOMETRY_SCHEMA);
+const pageSizesResult = PDF_NATIVE_PAGE_GEOMETRY_SCHEMA;
+const managedHandleResult = MANAGED_TEMP_FILE_HANDLE_SCHEMA;
+const fileStatResult = FILE_STAT_RESULT_SCHEMA;
+const booleanResult = v.boolean();
+const bytesResult = uint8ArraySchema;
+const noPayload = v.undefined();
+const menuStateArgs = v.strictTuple([menuDocumentStateSchema]);
+const documentRevisionArgs = pdfPathSchema;
+const documentRevisionEvent = documentRevisionEventSchema;
+const optimizeProgress = PDF_OPTIMIZE_PROGRESS_SCHEMA;
+const openBatchProgress = OPEN_BATCH_PROGRESS_SCHEMA;
+const nonNegativeIntegerSchema = nonNegativeInteger;
 const longNativeIpcTimeoutMs = 30 * 60 * 1_000;
-const fixtureRevisionToken = requireDocumentRevisionToken('drt1:fixture');
-const fixtureRevisionOptions = {expectedDocumentRevisionToken: fixtureRevisionToken};
-function decodeArgumentArray(value: unknown, minLength: number, maxLength = minLength) {
-    if (!Array.isArray(value) || value.length < minLength || value.length > maxLength) {
-        fail(`expected ${minLength === maxLength ? minLength : `${minLength}-${maxLength}`} arguments`);
-    }
-    return value as unknown[];
-}
-function decodeStringValue(value: unknown, fieldName: string) {
-    if (typeof value !== 'string') {
-        fail(`${fieldName} must be a string`);
-    }
-    return value;
-}
 
-function decodeDocumentRefValue(value: unknown, fieldName: string): TDocumentRef {
-    const parsed = parseDocumentRef(value);
-    if (parsed === null) {
-        fail(`${fieldName} must be an absolute document reference`);
-    }
-    return parsed;
-}
+const readPdfPageLabelRangesArgs = pdfPathSchema;
 
-function decodeOptionalDocumentRefValue(value: unknown, fieldName: string): TDocumentRef | undefined {
-    return value === undefined || value === null
-        ? undefined
-        : decodeDocumentRefValue(value, fieldName);
-}
-
-function decodeRequestIdValue(value: unknown, fieldName: string): TRequestId {
-    const parsed = parseRequestId(value);
-    if (parsed === null) {
-        fail(`${fieldName} must be a non-empty request ID`);
-    }
-    return parsed;
-}
-
-function decodeOptionalRequestIdValue(value: unknown, fieldName: string): TRequestId | undefined {
-    return value === undefined || value === null
-        ? undefined
-        : decodeRequestIdValue(value, fieldName);
-}
-
-function decodeLeaseIdValue(value: unknown, fieldName: string): TLeaseId {
-    const parsed = parseLeaseId(value);
-    if (parsed === null) {
-        fail(`${fieldName} must be a non-empty lease ID`);
-    }
-    return parsed;
-}
-function decodeOptionalStringValue(value: unknown, fieldName: string) {
-    return value === undefined || value === null
-        ? undefined
-        : decodeStringValue(value, fieldName);
-}
-function decodeDocumentRefArrayValue(value: unknown, fieldName: string): TDocumentRef[] {
-    if (!Array.isArray(value)) {
-        fail(`${fieldName} must be an array of document references`);
-    }
-    return value.map((item, index) => decodeDocumentRefValue(item, `${fieldName}[${index}]`));
-}
-function decodeOptimizeOptions(value: unknown): IPdfOptimizeOptions {
-    const decoded = decodeRequiredObject(value, 'optimizeOptions');
-    if (!isPdfOptimizePreset(decoded.preset)) {
-        fail('invalid PDF optimize preset');
-    }
-    return {preset: decoded.preset};
-}
-function decodePrintResult(value: unknown) {
-    if (
-        !isRecord(value)
-        || typeof value.success !== 'boolean'
-        || (value.canceled !== undefined && typeof value.canceled !== 'boolean')
-        || (value.error !== undefined && typeof value.error !== 'string')
-        || (value.unsupportedReason !== undefined && !isOneOf(platformUnsupportedReasons, value.unsupportedReason))
-    ) {
-        fail('invalid print result');
-    }
-    return {
-        success: value.success,
-        ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
-        ...(value.error === undefined ? {} : {error: value.error}),
-        ...(value.unsupportedReason === undefined ? {} : {unsupportedReason: value.unsupportedReason}),
-    };
-}
-function decodeDocumentSaveResult(value: unknown): TDocumentSaveResult {
-    if (!isRecord(value) || typeof value.ok !== 'boolean') {
-        fail('invalid document save result');
-    }
-    const validation = value.validation === undefined
-        ? undefined
-        : decodeNullablePdfValidation(value.validation);
-    if (value.ok) {
-        if (
-            typeof value.externalWriteCommitted !== 'boolean'
-            || typeof value.workingCopyRefreshed !== 'boolean'
-        ) {
-            fail('invalid document save success result');
-        }
-        let warning: {
-            reason: 'refresh-failed';
-            message: string
-        } | undefined;
-        if (value.warning !== undefined) {
-            if (
-                !isRecord(value.warning)
-                || value.warning.reason !== 'refresh-failed'
-                || typeof value.warning.message !== 'string'
-            ) {
-                fail('invalid document save warning');
-            }
-            warning = {
-                reason: 'refresh-failed',
-                message: value.warning.message,
-            };
-        }
-        return {
-            ok: true,
-            externalWriteCommitted: value.externalWriteCommitted,
-            workingCopyRefreshed: value.workingCopyRefreshed,
-            ...(validation === undefined ? {} : {validation}),
-            ...(warning === undefined ? {} : {warning}),
-        };
-    }
-    if (
-        !isOneOf(documentSaveFailureReasons, value.reason)
-        || (value.message !== undefined && typeof value.message !== 'string')
-        || (value.externalWriteCommitted !== undefined
-            && value.externalWriteCommitted !== null
-            && typeof value.externalWriteCommitted !== 'boolean')
-        || (value.workingCopySyncRequired !== undefined && typeof value.workingCopySyncRequired !== 'boolean')
-    ) {
-        fail('invalid document save failure result');
-    }
-    return {
-        ok: false,
-        reason: value.reason,
-        ...(value.message === undefined ? {} : {message: value.message}),
-        ...(value.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: value.externalWriteCommitted}),
-        ...(value.workingCopySyncRequired === undefined ? {} : {workingCopySyncRequired: value.workingCopySyncRequired}),
-        ...(validation === undefined ? {} : {validation}),
-    };
-}
-function decodeOptimizeResult(value: unknown): IPdfOptimizeResult {
-    if (
-        !isRecord(value)
-        || (value.path !== null && typeof value.path !== 'string')
-        || !isPdfOptimizePreset(value.preset)
-    ) {
-        fail('invalid PDF optimize result');
-    }
-    const decodeNullableCount = (candidate: unknown, fieldName: string) => {
-        if (candidate === null) {
-            return null;
-        }
-        if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 0) {
-            fail(`${fieldName} must be a non-negative safe integer`);
-        }
-        return candidate;
-    };
-    const path = value.path === null
-        ? null
-        : decodeDocumentRefValue(value.path, 'path');
-    return {
-        path,
-        validation: decodeNullablePdfValidation(value.validation),
-        preset: value.preset,
-        originalBytes: decodeNullableCount(value.originalBytes, 'originalBytes'),
-        optimizedBytes: decodeNullableCount(value.optimizedBytes, 'optimizedBytes'),
-        pageCount: decodeNullableCount(value.pageCount, 'pageCount'),
-    };
-}
-function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
-    if (
-        !isRecord(value)
-        || typeof value.applied !== 'boolean'
-        || (
-            value.nativeMutationPostconditionsVerified !== undefined
-            && value.nativeMutationPostconditionsVerified !== true
-        )
-        || (value.error !== undefined && !isNativeErrorEnvelope(value.error))
-        || (value.syncError !== undefined && typeof value.syncError !== 'string')
-    ) {
-        fail('invalid native PDF save result');
-    }
-    const stagedOutput = value.stagedOutput === undefined
-        ? undefined
-        : decodeTypedStagedArtifact(value.stagedOutput);
-    if (value.stagedOutput !== undefined && !stagedOutput) {
-        fail('invalid staged native PDF output');
-    }
-    const identityBindings = value.identityBindings === undefined
-        ? undefined
-        : normalizePdfNativeAnnotationIdentityBindings(
-            value.identityBindings,
-            'identityBindings',
-            {errorKind: 'error'},
-        );
-    return {
-        applied: value.applied,
-        validation: decodeNullablePdfValidation(value.validation),
-        ...(value.nativeMutationPostconditionsVerified === true
-            ? {nativeMutationPostconditionsVerified: true as const}
-            : {}),
-        ...(identityBindings === undefined ? {} : {identityBindings}),
-        ...(value.error === undefined ? {} : {error: value.error}),
-        ...(value.syncError === undefined ? {} : {syncError: value.syncError}),
-        ...(stagedOutput ? {stagedOutput} : {}),
-    };
-}
-function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
-    if (
-        !isRecord(value)
-        || typeof value.isSigned !== 'boolean'
-        || typeof value.isEncrypted !== 'boolean'
-        || typeof value.isTagged !== 'boolean'
-        || (value.pdfaLevel !== null && typeof value.pdfaLevel !== 'string')
-        || typeof value.hasAcroForm !== 'boolean'
-        || typeof value.hasXfa !== 'boolean'
-        || typeof value.canIncrementalSave !== 'boolean'
-        || !Array.isArray(value.saveRestrictions)
-        || value.saveRestrictions.some(item => typeof item !== 'string')
-    ) {
-        fail('invalid PDF conformance result');
-    }
-    return {
-        isSigned: value.isSigned,
-        isEncrypted: value.isEncrypted,
-        isTagged: value.isTagged,
-        pdfaLevel: value.pdfaLevel,
-        hasAcroForm: value.hasAcroForm,
-        hasXfa: value.hasXfa,
-        canIncrementalSave: value.canIncrementalSave,
-        saveRestrictions: value.saveRestrictions.map(String),
-    };
-}
-const nullableDocumentRefResult = s.fromParser<TDocumentRef | null>(
-    value => value === null
-        ? null
-        : parseDocumentRef(value) ?? fail('expected a nullable absolute document ref'),
-    () => null,
-);
-const nullableStringResult = s.fromParser<string | null>(
-    value => value === null || typeof value === 'string'
-        ? value
-        : fail('expected a nullable string'),
-    () => null,
-);
-const recentFilesResult = s.array(
-    s.fromParser(decodeRecentFile, () => ({
-        originalPath: decodeDocumentRefValue('/tmp/document.pdf', 'originalPath'),
-        fileName: 'document.pdf',
-        timestamp: requireEpochMs(0),
-    })),
-);
-const menuStateArgs = s.tuple([s.fromParser(decodeApplicationMenuDocumentState, () => false)]);
-const nonNegativeInteger = s.fromParser(
-    value => decodeNonNegativeInteger(value, 'value'),
-    () => 0,
-);
-const noPayload = s.undefined();
-const optimizeProgress = s.fromParser(decodeOptimizeProgress, () => ({
-    requestId: decodeRequestIdValue('optimize-1', 'requestId'),
-    preset: 'lossless' as const,
-    phase: 'preparing' as const,
-    processed: 0,
-    total: 1,
-    percent: 0,
-}));
-const openBatchProgress = s.fromParser(decodeOpenBatchProgress, () => ({
-    operation: 'document-open' as const,
-    requestId: decodeRequestIdValue('open-1', 'requestId'),
-    processed: 0,
-    total: 1,
-    percent: 0,
-    elapsedMs: 0,
-    estimatedRemainingMs: null,
-}));
-type TDocumentMethodName = keyof IDocumentsFileCapability;
-type TDocumentMethod<TName extends TDocumentMethodName> =
-    NonNullable<IDocumentsFileCapability[TName]>;
-type TDocumentMethodArgs<TName extends TDocumentMethodName> =
-    Parameters<Extract<TDocumentMethod<TName>, (...args: never[]) => unknown>>;
-type TDocumentMethodResult<TName extends TDocumentMethodName> =
-    Awaited<ReturnType<Extract<TDocumentMethod<TName>, (...args: never[]) => unknown>>>;
-function documentArgs<TName extends TDocumentMethodName>(
-    decode: (value: unknown) => TDocumentMethodArgs<TName>,
-    example: () => TDocumentMethodArgs<TName>,
-) {
-    return s.declared<TDocumentMethodArgs<TName>>()(s.fromParser(decode, example));
-}
-function documentResult<TName extends TDocumentMethodName>(
-    decode: (value: unknown) => TDocumentMethodResult<TName>,
-    example: () => TDocumentMethodResult<TName>,
-) {
-    return s.declared<TDocumentMethodResult<TName>>()(s.fromParser(decode, example));
-}
-function decodeSingleStringArgs(value: unknown, fieldName: string): [string] {
-    const args = decodeArgumentArray(value, 1);
-    return [decodeStringValue(args[0], fieldName)];
-}
-function decodeSingleDocumentRefArgs(value: unknown, fieldName: string): [TDocumentRef] {
-    const args = decodeArgumentArray(value, 1);
-    return [decodeDocumentRefValue(args[0], fieldName)];
-}
-function decodeSingleRequestIdArgs(value: unknown, fieldName: string): [TRequestId] {
-    const args = decodeArgumentArray(value, 1);
-    return [decodeRequestIdValue(args[0], fieldName)];
-}
-function decodeSingleLeaseIdArgs(value: unknown, fieldName: string): [TLeaseId] {
-    const args = decodeArgumentArray(value, 1);
-    return [decodeLeaseIdValue(args[0], fieldName)];
-}
-const openDocumentDirectArgs = documentArgs<'openDocumentDirect'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 2);
-        const path = decodeDocumentRefValue(args[0], 'path');
-        return args.length === 1 || args[1] === undefined
-            ? [path]
-            : (() => {
-                const password = decodeStringValue(args[1], 'password');
-                if (!isPdfDecryptPassword(password)) {
-                    fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
-                }
-                return [
-                    path,
-                    password,
-                ];
-            })();
-    },
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const openDocumentDirectBatchArgs = documentArgs<'openDocumentDirectBatch'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 3);
-        const paths = decodeDocumentRefArrayValue(args[0], 'paths');
-        const requestId = decodeOptionalRequestIdValue(args[1], 'requestId');
-        const rawOptions = args[2];
-        let options: {forceCombine?: boolean} | undefined;
-        if (rawOptions !== undefined) {
-            const decoded = decodeRequiredObject(rawOptions, 'options');
-            if (decoded.forceCombine !== undefined && typeof decoded.forceCombine !== 'boolean') {
-                fail('invalid force-combine option');
-            }
-            options = decoded.forceCombine === undefined ? {} : {forceCombine: decoded.forceCombine};
-        }
-        if (options !== undefined) {
-            return [
-                paths,
-                requestId,
-                options,
-            ];
-        }
-        return requestId === undefined ? [paths] : [
-            paths,
-            requestId,
-        ];
-    },
-    () => [
-        [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-        decodeRequestIdValue('open-1', 'requestId'),
-    ],
-);
-const cancelOpenBatchArgs = documentArgs<'cancelOpenDocumentDirectBatch'>(
-    value => decodeSingleRequestIdArgs(value, 'requestId'),
-    () => [decodeRequestIdValue('open-1', 'requestId')],
-);
-const createWorkingCopyFromDataArgs = documentArgs<'createWorkingCopyFromData'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2, 4);
-        const base: [string, Uint8Array] = [
-            decodeStringValue(args[0], 'fileName'),
-            decodeUint8ArrayValue(args[1], 'data'),
-        ];
-        const originalPath = decodeOptionalDocumentRefValue(args[2], 'originalPath');
-        if (args.length < 4) {
-            return appendOptional(base, originalPath);
-        }
-        const password = decodeOptionalStringValue(args[3], 'password');
-        if (password !== undefined && !isPdfDecryptPassword(password)) {
-            fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
-        }
-        return [
-            base[0],
-            base[1],
-            originalPath,
-            password,
-        ];
-    },
-    () => [
-        'document.pdf',
-        Uint8Array.of(1),
-    ],
-);
-const createWorkingCopyFromPathArgs = documentArgs<'createWorkingCopyFromPath'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 3);
-        const sourcePath = decodeDocumentRefValue(args[0], 'sourcePath');
-        const originalPath = decodeOptionalDocumentRefValue(args[1], 'originalPath');
-        if (args.length < 3) {
-            return appendOptional([sourcePath], originalPath);
-        }
-        const password = decodeOptionalStringValue(args[2], 'password');
-        if (password !== undefined && !isPdfDecryptPassword(password)) {
-            fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
-        }
-        return [
-            sourcePath,
-            originalPath,
-            password,
-        ];
-    },
-    () => [decodeDocumentRefValue('/tmp/source.pdf', 'sourcePath')],
-);
-const savePdfAsArgs = documentArgs<'savePdfAs'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2, 3);
-        return appendOptional([
-            decodeDocumentRefValue(args[0], 'workingPath'),
-            decodeSaveAsOptions(args[1]),
-        ], decodeRevisionOptions(args[2])) as TDocumentMethodArgs<'savePdfAs'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'workingPath'),
-        undefined,
-        fixtureRevisionOptions,
-    ],
-);
-const savePdfDialogArgs = documentArgs<'savePdfDialog'>(
-    value => decodeSingleStringArgs(value, 'suggestedName'),
-    () => ['document.pdf'],
-);
-const pathArgs = (fieldName: string) => s.fromParser<[TDocumentRef]>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1);
-        return [decodeDocumentRefValue(args[0], fieldName)];
-    },
-    () => [decodeDocumentRefValue('/tmp/document.pdf', fieldName)],
-);
-const readFileArgs = s.declared<TDocumentMethodArgs<'readFile'>>()(
-    pathArgs('path'),
-);
-const pdfPageLabelRangesResult = documentResult<'readPdfPageLabelRanges'>(
-    value => {
-        if (!Array.isArray(value)) {
-            fail('expected PDF page-label ranges');
-        }
-        return value.map((rawRange, index) => {
-            const range = decodeRequiredObject(rawRange, `pageLabels[${index}]`);
-            const startPage = decodeSafeIntegerValue(range.startPage, `pageLabels[${index}].startPage`);
-            const startNumber = decodeSafeIntegerValue(range.startNumber, `pageLabels[${index}].startNumber`);
-            if (startPage < 1 || startNumber < 1) {
-                fail(`pageLabels[${index}] must use positive page numbers`);
-            }
-            const style = range.style;
-            if (style !== null && !isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, style)) {
-                fail(`pageLabels[${index}].style is invalid`);
-            }
-            if (typeof range.prefix !== 'string') {
-                fail(`pageLabels[${index}].prefix must be a string`);
-            }
-            return {
-                startPage,
-                style,
-                prefix: range.prefix,
-                startNumber,
-            } satisfies IPdfPageLabelRange;
-        });
-    },
-    () => [{
-        startPage: 1,
-        style: null,
-        prefix: '',
-        startNumber: 1,
-    }],
-);
-const statFileArgs = s.declared<TDocumentMethodArgs<'statFile'>>()(
-    pathArgs('path'),
-);
-const readFileRangeArgs = documentArgs<'readFileRange'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 3);
-        return [
-            decodeDocumentRefValue(args[0], 'path'),
-            decodeSafeIntegerValue(args[1], 'offset'),
-            decodeSafeIntegerValue(args[2], 'length'),
-        ];
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/document.pdf', 'path'),
-        0,
-        1,
-    ],
-);
-const managedHandleArgs = documentArgs<'createManagedTempFileHandle'>(
-    value => decodeSingleDocumentRefArgs(value, 'path'),
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const releaseManagedHandleArgs = documentArgs<'releaseManagedTempFileHandle'>(
-    value => decodeSingleLeaseIdArgs(value, 'leaseId'),
-    () => [decodeLeaseIdValue('lease-1', 'leaseId')],
-);
-const openingGeometryArgs = documentArgs<'getPdfOpeningGeometry'>(
-    value => decodeSingleDocumentRefArgs(value, 'path'),
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const pageSizesArgs = documentArgs<'getPdfNativePageSizes'>(
-    value => {
-        const args = decodeArgumentArray(value, 2, 2);
-        return [
-            decodeDocumentRefValue(args[0], 'path'),
-            decodeNativePageSizesOptions(args[1]),
-        ] as TDocumentMethodArgs<'getPdfNativePageSizes'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/document.pdf', 'path'),
-        {
-            mode: 'exact',
-            expectedDocumentRevisionToken: fixtureRevisionToken,
-        },
-    ],
-);
-const cancelRequestArgs = documentArgs<'cancelPdfPrint'>(
-    value => decodeSingleRequestIdArgs(value, 'requestId'),
-    () => [decodeRequestIdValue('print-1', 'requestId')],
-);
-const readTextFileArgs = documentArgs<'readTextFile'>(
-    value => decodeSingleDocumentRefArgs(value, 'path'),
-    () => [decodeDocumentRefValue('/tmp/document.txt', 'path')],
-);
-const fileExistsArgs = documentArgs<'fileExists'>(
-    value => decodeSingleDocumentRefArgs(value, 'path'),
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const documentRevisionArgs = documentArgs<'getDocumentRevision'>(
-    value => decodeSingleDocumentRefArgs(value, 'path'),
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const writeFileArgs = documentArgs<'writeFile'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2, 3);
-        return appendOptional([
-            decodeDocumentRefValue(args[0], 'path'),
-            decodeUint8ArrayValue(args[1], 'data'),
-        ], decodeRevisionOptions(args[2])) as TDocumentMethodArgs<'writeFile'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/document.pdf', 'path'),
-        Uint8Array.of(1),
-        fixtureRevisionOptions,
-    ],
-);
-const replaceWorkingCopyArgs = documentArgs<'replaceWorkingCopyFromPath'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2, 3);
-        return appendOptional([
-            decodeDocumentRefValue(args[0], 'workingCopyPath'),
-            decodeDocumentRefValue(args[1], 'sourcePath'),
-        ], decodeRevisionOptions(args[2])) as TDocumentMethodArgs<'replaceWorkingCopyFromPath'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'workingCopyPath'),
-        decodeDocumentRefValue('/tmp/source.pdf', 'sourcePath'),
-        fixtureRevisionOptions,
-    ],
-);
-const writeDocxArgs = documentArgs<'writeDocxFile'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2);
-        return [
-            decodeDocumentRefValue(args[0], 'path'),
-            decodeUint8ArrayValue(args[1], 'data'),
-        ];
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/document.docx', 'path'),
-        Uint8Array.of(1),
-    ],
-);
-const saveFileStructuredArgs = documentArgs<'saveFileStructured'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 2);
-        return appendOptional(
-            [decodeDocumentRefValue(args[0], 'path')],
-            decodeRevisionOptions(args[1]),
-        ) as TDocumentMethodArgs<'saveFileStructured'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        fixtureRevisionOptions,
-    ],
-);
-const repairPdfArgs = documentArgs<'repairPdf'>(
-    value => saveFileStructuredArgs.decode(value),
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        fixtureRevisionOptions,
-    ],
-);
-const optimizeInteractionArgs = documentArgs<'optimizePdfForInteraction'>(
-    value => saveFileStructuredArgs.decode(value),
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        fixtureRevisionOptions,
-    ],
-);
-const optimizeAsCopyArgs = documentArgs<'optimizePdfAsCopy'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2, 4);
-        const base: [TDocumentRef, IPdfOptimizeOptions] = [
-            decodeDocumentRefValue(args[0], 'path'),
-            decodeOptimizeOptions(args[1]),
-        ];
-        const requestId = decodeOptionalRequestIdValue(args[2], 'requestId');
-        const revisionOptions = decodeRevisionOptions(args[3]);
-        if (requestId === undefined && revisionOptions === undefined) {
-            return base;
-        }
-        return appendOptional([
-            ...base,
-            requestId,
-        ], revisionOptions) as TDocumentMethodArgs<'optimizePdfAsCopy'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        {preset: 'lossless'},
-        decodeRequestIdValue('optimize-1', 'requestId'),
-        fixtureRevisionOptions,
-    ],
-);
-const nativeNoteTextArgs = documentArgs<'savePdfNoteTextUpdates'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 3, 4);
-        if (!Array.isArray(args[1])) {
-            fail('updates must be an array');
-        }
-        return appendOptional([
-            decodeDocumentRefValue(args[0], 'path'),
-            normalizePdfNativeNoteTextUpdates(args[1], 'updates', {allowEmpty: true}),
-            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
-        ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'savePdfNoteTextUpdates'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        [],
-        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
-        fixtureRevisionOptions,
-    ],
-);
-const nativeNoteChangesArgs = documentArgs<'savePdfNoteChanges'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 3, 4);
-        return appendOptional([
-            decodeDocumentRefValue(args[0], 'path'),
-            normalizePdfNativeNoteChanges(args[1], 'changes'),
-            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
-        ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'savePdfNoteChanges'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        {updates: [{
-            objectNumber: 12,
-            generationNumber: 0,
-            text: 'Updated note',
-        }]},
-        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
-        fixtureRevisionOptions,
-    ],
-);
-const applyNativeMutationsArgs = documentArgs<'applyPdfNativeMutationsToWorkingCopy'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 4);
-        const revisionOptions = decodeRevisionOptions(args[3]);
-        if (!revisionOptions) {
-            fail('applyPdfNativeMutationsToWorkingCopy requires revisionOptions');
-        }
-        return [
-            decodeDocumentRefValue(args[0], 'path'),
-            normalizePdfNativeMutationSet(args[1], 'mutations'),
-            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
-            revisionOptions,
-        ] as TDocumentMethodArgs<'applyPdfNativeMutationsToWorkingCopy'>;
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        fixtureNativeMutation,
-        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
-        fixtureRevisionOptions,
-    ],
-);
-const commitNativeMutationsArgs = documentArgs<'commitStagedPdfNativeMutations'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 2, 3);
-        const stagedOutput = decodeTypedStagedArtifact(args[1]);
-        if (!stagedOutput) {
-            fail('stagedOutput must be a typed staged artifact');
-        }
-        const base: [TDocumentRef, ITypedStagedArtifact] = [
-            decodeDocumentRefValue(args[0], 'path'),
-            stagedOutput,
-        ];
-        return appendOptional(base, decodePdfNativeStagedCommitOptions(args[2]));
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
-        {
-            receiptVersion: 1,
-            artifactKind: 'pdf',
-            path: decodeDocumentRefValue('/tmp/staged.pdf', 'path'),
-            size: 1,
-            sha256: '0'.repeat(64),
-            fileIdentity: {
-                platform: 'posix',
-                deviceId: '1',
-                inode: '2',
-            },
-            validations: {
-                qpdfCheck: false,
-                tailCheck: false,
-                semanticCheck: false,
-                fsynced: false,
-            },
-            leaseId: decodeLeaseIdValue('lease-1', 'leaseId'),
-            revision: null,
-        },
-        fixtureRevisionOptions,
-    ],
-);
-const cloneStagedNativeMutationArgs = documentArgs<'cloneStagedPdfNativeMutationToWorkingCopy'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 2);
-        const stagedOutput = decodeTypedStagedArtifact(args[0]);
-        if (!stagedOutput) {
-            fail('stagedOutput must be a typed staged artifact');
-        }
-        return appendOptional(
-            [stagedOutput],
-            decodeOptionalDocumentRefValue(args[1], 'originalPath'),
-        );
-    },
-    () => [
-        commitNativeMutationsArgs.example()[1],
-        decodeDocumentRefValue('/tmp/original.pdf', 'originalPath'),
-    ],
-);
-const replaceWorkingCopyFromStagedNativeMutationArgs = documentArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 3, 3);
-        const stagedOutput = decodeTypedStagedArtifact(args[1]);
-        if (!stagedOutput) {
-            fail('stagedOutput must be a typed staged artifact');
-        }
-        const options = decodeRevisionOptions(args[2]) ?? fail('replaceWorkingCopyFromStagedPdfNativeMutation requires revisionOptions');
-        return [
-            decodeDocumentRefValue(args[0], 'workingCopyPath'),
-            stagedOutput,
-            options,
-        ];
-    },
-    () => [
-        decodeDocumentRefValue('/tmp/working.pdf', 'workingCopyPath'),
-        commitNativeMutationsArgs.example()[1],
-        fixtureRevisionOptions,
-    ],
-);
-const printPdfDataArgs = documentArgs<'printPdfData'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 3);
-        const data = decodeUint8ArrayValue(args[0], 'data');
-        const fileName = decodeOptionalStringValue(args[1], 'fileName');
-        if (args[2] === undefined) {
-            return appendOptional([data], fileName);
-        }
-        const options = decodePdfDataPrintOptions(args[2], 'options');
-        return [
-            data,
-            fileName,
-            options,
-        ];
-    },
-    () => [Uint8Array.of(1)],
-);
-const pdfPathArgs = documentArgs<'analyzePdfConformance'>(
-    value => {
-        const args = decodeArgumentArray(value, 1, 2);
-        const rawOptions = decodeOptionalObject(args[1], 'options');
-        const purpose = rawOptions?.purpose;
-        if (purpose !== undefined && purpose !== 'full' && purpose !== 'save-restrictions') fail('invalid PDF conformance analysis purpose');
-        return appendOptional([decodeDocumentRefValue(args[0], 'path')], purpose === undefined ? undefined : {purpose});
-    },
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const printPdfPathArgs = documentArgs<'printPdfPath'>(
-    (value) => {
-        const args = decodeArgumentArray(value, 1, 3);
-        const path = decodeDocumentRefValue(args[0], 'path');
-        const fileName = decodeOptionalStringValue(args[1], 'fileName');
-        if (args[2] === undefined) {
-            return fileName === undefined
-                ? [path]
-                : [
-                    path,
-                    fileName,
-                ];
-        }
-        return [
-            path,
-            fileName,
-            decodePdfPathPrintOptions(args[2], 'options'),
-        ];
-    },
-    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
-);
-const booleanResult = s.boolean();
-const bytesResult = s.fromParser(
-    value => decodeUint8ArrayValue(value, 'result'),
-    () => Uint8Array.of(1),
-);
-const fileStatResult = s.fromParser(
-    (value) => {
-        if (!isRecord(value) || typeof value.size !== 'number' || !Number.isSafeInteger(value.size) || value.size < 0) {
-            fail('invalid file stat');
-        }
-        const modifiedAt = value.modifiedAt === undefined ? undefined : parseEpochMs(value.modifiedAt);
-        if (modifiedAt === null) {
-            fail('invalid file modification time');
-        }
-        return {
-            size: value.size,
-            ...(modifiedAt === undefined ? {} : {modifiedAt}),
-        };
-    },
-    () => ({size: 1}),
-);
-const managedHandleResult = documentResult<'createManagedTempFileHandle'>(
-    value => decodeManagedTempFileHandle(value) ?? fail('invalid managed temporary file handle'),
-    () => ({
-        path: decodeDocumentRefValue('/tmp/document.pdf', 'path'),
-        size: 1,
-        sha256: '0'.repeat(64),
-        leaseId: decodeLeaseIdValue('lease-1', 'leaseId'),
-        revision: null,
-    }),
-);
-const openingGeometryResult = documentResult<'getPdfOpeningGeometry'>(
-    value => value === null ? null : decodeOpeningGeometry(value),
-    () => ({
-        pageNumber: requirePageNumber(1),
-        pageCount: 1,
-        width: 612,
-        height: 792,
-        rotation: 0,
-        widestPageWidth: 612,
-        size: 1,
-        modifiedAt: requireEpochMs(0),
-    }),
-);
-const pageSizesResult = documentResult<'getPdfNativePageSizes'>(
-    decodeNativePageGeometry,
-    () => ({
-        kind: 'exact',
-        documentRef: decodeDocumentRefValue('/tmp/document.pdf', 'documentRef'),
-        documentRevisionToken: fixtureRevisionToken,
-        pageCount: 1,
-        pages: [{
-            pageNumber: requirePageNumber(1),
-            xPoints: 0,
-            yPoints: 0,
-            widthPoints: 612,
-            heightPoints: 792,
-            rotation: 0,
-            userUnit: 1,
-        }],
-    }),
-);
-const cancellationResult = documentResult<'cancelPdfPrint'>(
-    (value) => {
-        if (!isRecord(value) || typeof value.canceled !== 'boolean') {
-            fail('invalid cancellation result');
-        }
-        return {canceled: value.canceled};
-    },
-    () => ({canceled: false}),
-);
-const revisionResult = documentResult<'getDocumentRevision'>(
-    value => isDocumentRevisionInfo(value) ? value : fail('invalid document revision'),
-    () => ({
-        version: 1,
-        token: fixtureRevisionToken,
-        documentRef: decodeDocumentRefValue('/tmp/document.pdf', 'documentRef'),
-        authority: 'electron-working-copy',
-        contentRevision: 1,
-        mintedAt: requireEpochMs(1),
-    }),
-);
-const validationResult = s.fromParser<IPdfValidationResult>(decodePdfValidation, () => ({
-    isValid: true,
-    tool: 'native',
-    errors: [],
-    warnings: [],
-}));
-const documentSaveResult = s.fromParser<TDocumentSaveResult>(
-    decodeDocumentSaveResult,
-    () => ({
-        ok: true,
-        externalWriteCommitted: true,
-        workingCopyRefreshed: true,
-    }),
-);
-const optimizeResult = s.fromParser<IPdfOptimizeResult>(
-    decodeOptimizeResult,
-    () => ({
-        path: null,
-        validation: null,
-        preset: 'lossless',
-        originalBytes: null,
-        optimizedBytes: null,
-        pageCount: null,
-    }),
-);
-const nativeSaveResult = s.fromParser(decodeNativeSaveResult, () => ({
-    applied: true,
-    validation: null,
-}));
-const documentRevisionEvent = s.fromParser<IDocumentRevisionChangedEvent>(
-    value => decodeDocumentRevisionChangedEvent(value) ?? fail('invalid document revision event'),
-    () => ({
-        ...revisionResult.example(),
-        reason: 'write',
-    }),
-);
 export {
     applyNativeMutationsArgs,
     booleanResult,
@@ -1200,24 +514,16 @@ export {
     cancelOpenBatchArgs,
     cancellationResult,
     cancelRequestArgs,
-    commitNativeMutationsArgs,
     cloneStagedNativeMutationArgs,
+    commitNativeMutationsArgs,
+    conformanceResultSchema as conformanceResult,
     createWorkingCopyFromDataArgs,
     createWorkingCopyFromPathArgs,
-    decodeConformanceResult,
-    decodeOpenFileResult,
-    decodePdfValidation,
-    decodePathValidationResult,
-    decodePrintResult,
-    decodeRevisionOptions,
-    decodeSaveAsOptions,
     documentRevisionArgs,
     documentRevisionEvent,
     documentSaveResult,
     fileExistsArgs,
     fileStatResult,
-    fixtureRevisionOptions,
-    longNativeIpcTimeoutMs,
     managedHandleArgs,
     managedHandleResult,
     menuStateArgs,
@@ -1225,28 +531,32 @@ export {
     nativeNoteTextArgs,
     nativeSaveResult,
     noPayload,
-    nonNegativeInteger,
+    nonNegativeIntegerSchema as nonNegativeInteger,
+    longNativeIpcTimeoutMs,
     nullableDocumentRefResult,
     nullableStringResult,
     openBatchProgress,
     openDocumentDirectArgs,
     openDocumentDirectBatchArgs,
-    openFileResult,
-    openingGeometryArgs,
-    openingGeometryResult,
+    OPEN_FILE_RESULT_SCHEMA as openFileResult,
     optimizeAsCopyArgs,
     optimizeInteractionArgs,
     optimizeProgress,
     optimizeResult,
+    openingGeometryArgs,
+    openingGeometryResult,
     pageSizesArgs,
     pageSizesResult,
-    pdfPageLabelRangesResult,
     pathArgs,
+    pdfPageLabelRangesResult,
     pdfPathArgs,
+    PDF_VALIDATION_PATH_ARGS_SCHEMA as pdfValidationPathArgs,
+    printResultSchema as printResult,
     printPdfDataArgs,
     printPdfPathArgs,
     readFileArgs,
     readFileRangeArgs,
+    readPdfPageLabelRangesArgs,
     readTextFileArgs,
     recentFilesResult,
     releaseManagedHandleArgs,
@@ -1261,12 +571,19 @@ export {
     validationResult,
     writeDocxArgs,
     writeFileArgs,
-    decodeArgumentArray,
-    decodeSafeIntegerValue,
-    documentArgs,
-    documentResult,
 };
-export type {
-    TDocumentMethodArgs,
-    TDocumentMethodResult,
-};
+
+export type IPdfOptimizeResult = v.InferOutput<typeof optimizeResultSchema>;
+export type IPdfOptimizeOptions = v.InferOutput<typeof optimizeOptionsSchema>;
+export type IPdfNativeNoteTextSaveResult = v.InferOutput<typeof nativeSaveResultSchema>;
+export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
+export type TDocumentSaveResult = v.InferOutput<typeof documentSaveResultSchema>;
+export type TDocumentSaveFailureReason = v.InferOutput<typeof documentSaveResultSchema> extends infer TOutput
+    ? TOutput extends {
+        ok: false;
+        reason: infer TReason
+    } ? TReason : never
+    : never;
+export type IDocumentSaveSuccessResult = Extract<TDocumentSaveResult, {ok: true}>;
+export type IDocumentSaveFailureResult = Extract<TDocumentSaveResult, {ok: false}>;
+export type IApplicationMenuDocumentState = Extract<v.InferOutput<typeof menuDocumentStateSchema>, Record<string, unknown>>;

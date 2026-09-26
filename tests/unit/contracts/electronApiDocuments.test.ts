@@ -3,17 +3,14 @@ import {
     expect,
     it,
 } from 'vitest';
-import { decodeWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
 import {
-    DOCUMENT_MENU_PLATFORM_FEATURE,
-    DOCUMENT_OPEN_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
+    OPEN_BATCH_PROGRESS_SCHEMA,
+    PDF_OPTIMIZE_PROGRESS_SCHEMA,
+    WORKING_COPY_BACKING_STATUS_SCHEMA,
+} from '@contracts/electronApiDocuments';
+import * as v from 'valibot';
 
-describe('progress event payload codecs', () => {
-    const decodeOptimize = DOCUMENT_MENU_PLATFORM_FEATURE
-        .events.onPdfOptimizeProgress.payload.decode;
-    const decodeOpenBatch = DOCUMENT_OPEN_PLATFORM_FEATURE
-        .events.onOpenDocumentDirectBatchProgress.payload.decode;
+describe('progress event payload schemas', () => {
     const optimizePayload = {
         requestId: 'optimize-7',
         preset: 'balancedScanned',
@@ -33,7 +30,7 @@ describe('progress event payload codecs', () => {
     };
 
     it('round-trips well-formed optimize progress', () => {
-        expect(decodeOptimize(optimizePayload)).toEqual(optimizePayload);
+        expect(v.parse(PDF_OPTIMIZE_PROGRESS_SCHEMA, optimizePayload)).toEqual(optimizePayload);
     });
 
     it.each([
@@ -64,12 +61,12 @@ describe('progress event payload codecs', () => {
         'progress',
         null,
     ])('rejects malformed optimize progress %#', (payload) => {
-        expect(() => decodeOptimize(payload)).toThrow(/invalid PDF optimize/);
+        expect(v.safeParse(PDF_OPTIMIZE_PROGRESS_SCHEMA, payload, {abortEarly: true}).success).toBe(false);
     });
 
     it('round-trips well-formed open-batch progress', () => {
-        expect(decodeOpenBatch(openBatchPayload)).toEqual(openBatchPayload);
-        expect(decodeOpenBatch({
+        expect(v.parse(OPEN_BATCH_PROGRESS_SCHEMA, openBatchPayload)).toEqual(openBatchPayload);
+        expect(v.parse(OPEN_BATCH_PROGRESS_SCHEMA, {
             ...openBatchPayload,
             estimatedRemainingMs: 340,
         })).toEqual({
@@ -101,13 +98,13 @@ describe('progress event payload codecs', () => {
         },
         undefined,
     ])('rejects malformed open-batch progress %#', (payload) => {
-        expect(() => decodeOpenBatch(payload)).toThrow(/invalid open-batch progress/);
+        expect(v.safeParse(OPEN_BATCH_PROGRESS_SCHEMA, payload, {abortEarly: true}).success).toBe(false);
     });
 });
 
 describe('working-copy backing status contract', () => {
     it('decodes and sanitizes renderer-visible backing status', () => {
-        expect(decodeWorkingCopyBackingStatus({
+        expect(v.parse(WORKING_COPY_BACKING_STATUS_SCHEMA, {
             documentRef: '/tmp/managed.pdf',
             failure: {
                 code: 'WORKING_COPY_MATERIALIZATION_NO_SPACE',
@@ -163,6 +160,6 @@ describe('working-copy backing status contract', () => {
             state: 'materializing',
         },
     ])('rejects malformed status %#', (status) => {
-        expect(decodeWorkingCopyBackingStatus(status)).toBeNull();
+        expect(v.safeParse(WORKING_COPY_BACKING_STATUS_SCHEMA, status, {abortEarly: true}).success).toBe(false);
     });
 });

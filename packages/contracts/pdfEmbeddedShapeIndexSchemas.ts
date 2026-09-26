@@ -7,20 +7,13 @@ import {
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
 } from '@contracts/electronApiDocuments';
-import {
-    documentArgs,
-    documentResult,
-    type TDocumentMethodArgs,
-} from '@contracts/documentsPlatformFeatureSchemas';
-import {
-    parseDocumentRevisionToken, requireDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    parseDocumentRef, requireDocumentRef,
-} from '@contracts/documentRef';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {isRecord} from '@contracts/runtimeGuards';
-import {parseSessionId} from '@contracts/shared';
+import {
+    parseSessionId, type TSessionId,
+} from '@contracts/shared';
 import {parseEpochMs} from '@contracts/timestamps';
 import * as v from 'valibot';
 
@@ -78,7 +71,7 @@ const revisionOptionsSchema = v.pipe(
 );
 const embeddedShapeIndexOptionsSchema = revisionOptionsSchema;
 const chunkOptionsSchema = v.pipe(
-    v.nullish(v.object({chunkBytes: v.optional(safeInteger('options.chunkBytes', 1))})),
+    v.nullish(v.object({chunkBytes: v.exactOptional(safeInteger('options.chunkBytes', 1))})),
     v.transform(value => value ?? undefined),
     v.check(value => value?.chunkBytes === undefined || value.chunkBytes <= PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
         `options.chunkBytes must be at most ${PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES}`),
@@ -197,30 +190,22 @@ export type IPdfEmbeddedShapeIndexChunkOptions = NonNullable<v.InferOutput<typeo
 export type IPdfEmbeddedShapeIndexSession = v.InferOutput<typeof PDF_EMBEDDED_SHAPE_INDEX_SESSION_SCHEMA>;
 export type IPdfEmbeddedShapeIndexChunk = v.InferOutput<typeof PDF_EMBEDDED_SHAPE_INDEX_CHUNK_SCHEMA>;
 
-const fixtureRevisionToken = requireDocumentRevisionToken('drt1:embedded-shape-index-fixture');
-const fixtureSessionId = parseSessionId('embedded-shape-index-1')!;
-const beginPdfEmbeddedShapeIndexArgs = documentArgs<'beginPdfEmbeddedShapeIndex'>(
-    value => v.parse(v.strictTuple([
-        documentRefSchema,
-        embeddedShapeIndexOptionsSchema,
-    ]), value, {abortEarly: true}),
-    () => [
-        requireDocumentRef('/tmp/document.pdf'),
-        {expectedDocumentRevisionToken: fixtureRevisionToken},
-    ],
-);
-const readPdfEmbeddedShapeIndexChunkArgs = documentArgs<'readPdfEmbeddedShapeIndexChunk'>(
-    value => v.parse(v.pipe(
-        v.strictTuple([
-            sessionIdSchema,
-            safeInteger('offset'),
-            v.optional(chunkOptionsSchema),
-        ]),
-        v.transform(([
-            sessionId,
-            offset,
-            options,
-        ]) => options === undefined ? [
+const beginPdfEmbeddedShapeIndexArgs = v.strictTuple([
+    documentRefSchema,
+    embeddedShapeIndexOptionsSchema,
+]);
+const readPdfEmbeddedShapeIndexChunkArgs = v.pipe(
+    v.strictTuple([
+        sessionIdSchema,
+        safeInteger('offset'),
+        v.optional(chunkOptionsSchema),
+    ]),
+    v.transform(([
+        sessionId,
+        offset,
+        options,
+    ]): [TSessionId, number, options?: IPdfEmbeddedShapeIndexChunkOptions] =>
+        options === undefined ? [
             sessionId,
             offset,
         ] : [
@@ -228,37 +213,10 @@ const readPdfEmbeddedShapeIndexChunkArgs = documentArgs<'readPdfEmbeddedShapeInd
             offset,
             options,
         ]),
-    ), value, {abortEarly: true}) as TDocumentMethodArgs<'readPdfEmbeddedShapeIndexChunk'>,
-    () => [
-        fixtureSessionId,
-        0,
-    ],
 );
-const releasePdfEmbeddedShapeIndexArgs = documentArgs<'releasePdfEmbeddedShapeIndex'>(
-    value => v.parse(v.strictTuple([sessionIdSchema]), value, {abortEarly: true}),
-    () => [fixtureSessionId],
-);
-const pdfEmbeddedShapeIndexSessionResult = documentResult<'beginPdfEmbeddedShapeIndex'>(
-    value => v.parse(PDF_EMBEDDED_SHAPE_INDEX_SESSION_SCHEMA, value, {abortEarly: true}),
-    () => ({
-        sessionId: fixtureSessionId,
-        documentRef: requireDocumentRef('/tmp/document.pdf'),
-        documentRevisionToken: fixtureRevisionToken,
-        pageCount: 1,
-        entryCount: 0,
-        totalBytes: 1,
-    }),
-);
-const pdfEmbeddedShapeIndexChunkResult = documentResult<'readPdfEmbeddedShapeIndexChunk'>(
-    value => v.parse(PDF_EMBEDDED_SHAPE_INDEX_CHUNK_SCHEMA, value, {abortEarly: true}),
-    () => ({
-        offset: 0,
-        nextOffset: null,
-        byteLength: 0,
-        done: true,
-        entries: [],
-    }),
-);
+const releasePdfEmbeddedShapeIndexArgs = v.strictTuple([sessionIdSchema]);
+const pdfEmbeddedShapeIndexSessionResult = PDF_EMBEDDED_SHAPE_INDEX_SESSION_SCHEMA;
+const pdfEmbeddedShapeIndexChunkResult = PDF_EMBEDDED_SHAPE_INDEX_CHUNK_SCHEMA;
 
 export {
     beginPdfEmbeddedShapeIndexArgs,

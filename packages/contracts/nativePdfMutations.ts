@@ -5,6 +5,7 @@ import type {
     Simplify,
 } from 'type-fest';
 import type {
+    IManagedTempFileHandle,
     IPdfNativeAnnotationDelete,
     IPdfNativeBookmarksMutation,
     IPdfNativeFreeTextNote,
@@ -24,7 +25,7 @@ import type {
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
-import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
+import {MANAGED_TEMP_FILE_HANDLE_SCHEMA} from '@contracts/electronApiDocuments';
 import {isPdfDateString} from '@contracts/pdfDateString';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
@@ -44,6 +45,7 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import {requireEpochMs} from '@contracts/timestamps';
+import * as v from 'valibot';
 
 export const PDF_NATIVE_MUTATION_LIMITS = {
     collectionItems: 100_000,
@@ -1179,17 +1181,16 @@ function normalizePlacedImageSource(
     label: string,
     options: IPdfNativeValidationOptions,
 ): {
-    source: NonNullable<ReturnType<typeof decodeManagedTempFileHandle>>;
-    byteLength: number;
+    source: IManagedTempFileHandle;
+    byteLength: number
 } {
-    if (
-        !decodeManagedTempFileHandle(value)
-    ) {
+    const parsed = v.safeParse(MANAGED_TEMP_FILE_HANDLE_SCHEMA, value, {abortEarly: true});
+    if (!parsed.success) {
         fail(`${label} must be a valid managed binary handle`, options);
     }
 
-    const source = decodeManagedTempFileHandle(value);
-    if (!source || source.size === 0 || source.size > PDF_NATIVE_MUTATION_LIMITS.placedImageBytes) {
+    const source = parsed.output;
+    if (source.size === 0 || source.size > PDF_NATIVE_MUTATION_LIMITS.placedImageBytes) {
         fail(`${label} must reference bounded non-empty image bytes`, options);
     }
 

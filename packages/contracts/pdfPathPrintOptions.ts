@@ -1,98 +1,51 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    parseRequestId, type TRequestId,
+} from '@contracts/shared';
+import * as v from 'valibot';
 
-import type {
-    IPdfDataPrintOptions,
-    IPdfNativePrintDialogOpenedEvent,
-    IPdfPathPrintOptions,
-} from '@contracts/electronApiDocuments';
-import {isRecord} from '@contracts/runtimeGuards';
-import {requireRequestId} from '@contracts/shared';
+const requestIdSchema = v.pipe(
+    v.string('options.requestId must be a non-empty bounded string'),
+    v.minLength(1, 'options.requestId must be a non-empty bounded string'),
+    v.maxLength(128, 'options.requestId must be a non-empty bounded string'),
+    v.check(value => parseRequestId(value) !== null, 'options.requestId must be a non-empty bounded string'),
+    v.transform(value => parseRequestId(value) as TRequestId),
+);
+const pageNumberSchema = v.pipe(
+    v.number(),
+    v.safeInteger(),
+    v.minValue(1),
+    v.transform(value => requirePageNumber(value)),
+);
 
-const MAX_PDF_PRINT_REQUEST_ID_LENGTH = 128;
+export const PDF_PATH_PRINT_OPTIONS_SCHEMA = v.object({
+    pageNumbers: v.exactOptional(v.array(pageNumberSchema)),
+    requestId: v.exactOptional(requestIdSchema),
+    viewMode: v.picklist([
+        'single',
+        'facing',
+        'facing-first-single',
+    ], 'options.viewMode is invalid'),
+    orientation: v.picklist([
+        'auto',
+        'portrait',
+        'landscape',
+    ], 'options.orientation is invalid'),
+}, 'options must be an object');
 
-function decodePdfPrintRequestId(value: unknown, label: string) {
-    if (
-        typeof value !== 'string'
-        || value.length === 0
-        || value.length > MAX_PDF_PRINT_REQUEST_ID_LENGTH
-    ) {
-        throw new TypeError(`${label} must be a non-empty bounded string`);
-    }
-    return requireRequestId(value);
-}
+export const PDF_DATA_PRINT_OPTIONS_SCHEMA = v.object({requestId: v.exactOptional(requestIdSchema)}, 'options must be an object');
 
-export function decodePdfPathPrintOptions(
-    value: unknown,
-    label: string,
-): IPdfPathPrintOptions {
-    if (!isRecord(value)) {
-        throw new TypeError(`${label} must be an object`);
-    }
-    if (value.viewMode !== 'single' && value.viewMode !== 'facing' && value.viewMode !== 'facing-first-single') {
-        throw new TypeError(`${label}.viewMode is invalid`);
-    }
-    if (value.orientation !== 'auto' && value.orientation !== 'portrait' && value.orientation !== 'landscape') {
-        throw new TypeError(`${label}.orientation is invalid`);
-    }
-    let pageNumbers: TPageNumber[] | undefined;
-    if (value.pageNumbers !== undefined) {
-        if (!Array.isArray(value.pageNumbers)) {
-            throw new TypeError(`${label}.pageNumbers must be an array`);
-        }
-        pageNumbers = value.pageNumbers.map((pageNumber, index) => {
-            if (typeof pageNumber !== 'number' || !Number.isSafeInteger(pageNumber) || pageNumber < 1) {
-                throw new TypeError(`${label}.pageNumbers[${index}] must be a positive safe integer`);
-            }
-            return requirePageNumber(pageNumber);
-        });
-    }
+export const PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA = v.object({requestId: v.pipe(
+    v.string('native print dialog event requestId must be a non-empty bounded string'),
+    v.minLength(1, 'native print dialog event requestId must be a non-empty bounded string'),
+    v.maxLength(128, 'native print dialog event requestId must be a non-empty bounded string'),
+    v.check(
+        value => parseRequestId(value) !== null,
+        'native print dialog event requestId must be a non-empty bounded string',
+    ),
+    v.transform(value => parseRequestId(value) as TRequestId),
+)}, 'native print dialog event must be an object');
 
-    return {
-        viewMode: value.viewMode,
-        orientation: value.orientation,
-        ...(pageNumbers === undefined ? {} : {pageNumbers}),
-        ...(value.requestId === undefined
-            ? {}
-            : {requestId: decodePdfPrintRequestId(value.requestId, `${label}.requestId`)}),
-    };
-}
-
-export function decodeOptionalPdfPathPrintOptions(
-    value: unknown,
-    label: string,
-): IPdfPathPrintOptions | undefined {
-    return value === undefined || value === null
-        ? undefined
-        : decodePdfPathPrintOptions(value, label);
-}
-
-export function decodePdfDataPrintOptions(
-    value: unknown,
-    label: string,
-): IPdfDataPrintOptions {
-    if (!isRecord(value)) {
-        throw new TypeError(`${label} must be an object`);
-    }
-    return value.requestId === undefined
-        ? {}
-        : {requestId: decodePdfPrintRequestId(value.requestId, `${label}.requestId`)};
-}
-
-export function decodeOptionalPdfDataPrintOptions(
-    value: unknown,
-    label: string,
-): IPdfDataPrintOptions | undefined {
-    return value === undefined || value === null
-        ? undefined
-        : decodePdfDataPrintOptions(value, label);
-}
-
-export function decodePdfNativePrintDialogOpenedEvent(
-    value: unknown,
-): IPdfNativePrintDialogOpenedEvent {
-    if (!isRecord(value)) {
-        throw new TypeError('native print dialog event must be an object');
-    }
-    return {requestId: decodePdfPrintRequestId(value.requestId, 'native print dialog event requestId')};
-}
+export type IPdfPathPrintOptions = v.InferOutput<typeof PDF_PATH_PRINT_OPTIONS_SCHEMA>;
+export type IPdfDataPrintOptions = v.InferOutput<typeof PDF_DATA_PRINT_OPTIONS_SCHEMA>;
+export type IPdfNativePrintDialogOpenedEvent = v.InferOutput<typeof PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA>;

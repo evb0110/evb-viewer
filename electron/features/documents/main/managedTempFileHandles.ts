@@ -11,6 +11,7 @@ import {
     isAbsolute,
 } from 'node:path';
 import type { IManagedTempFileHandle } from '@contracts/electronApiDocuments';
+import {MANAGED_TEMP_FILE_HANDLE_SCHEMA} from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {
     createLeaseId,
@@ -18,9 +19,9 @@ import {
     requireLeaseId,
     type TLeaseId,
 } from '@contracts/shared';
-import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
+import * as v from 'valibot';
 import {
-    decodeTypedStagedArtifact,
+    TYPED_STAGED_ARTIFACT_SCHEMA,
     type IStagedArtifactValidations,
     type ITypedStagedArtifact,
     type TArtifactFileIdentity,
@@ -328,13 +329,13 @@ function registerTypedStagedArtifact(
     fileStat: BigIntStats,
     options: IRegisterTypedStagedArtifactOptions,
 ): ITypedStagedArtifact {
-    // Decode once at the contract boundary. The canonical value is both the
+    // Parse once at the contract boundary. The canonical value is both the
     // lease authority and the return value; IPC provides renderer isolation.
-    const artifact = decodeTypedStagedArtifact(candidate);
-    if (artifact === null) {
+    const artifact = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, candidate, {abortEarly: true});
+    if (!artifact.success) {
         throw new Error(options.invalidReceiptMessage);
     }
-    const authoritativeArtifact = freezeTypedStagedArtifact(artifact);
+    const authoritativeArtifact = freezeTypedStagedArtifact(artifact.output);
     registerLease(authoritativeArtifact.leaseId, {
         ownerId: context.senderId,
         path: authoritativeArtifact.path,
@@ -532,10 +533,11 @@ export async function resolveManagedTempFileHandle(
     context: IDocumentsSenderIdContext,
     value: unknown,
 ): Promise<IManagedTempFileHandle> {
-    const handle = decodeManagedTempFileHandle(value);
-    if (!handle) {
+    const parsed = v.safeParse(MANAGED_TEMP_FILE_HANDLE_SCHEMA, value, {abortEarly: true});
+    if (!parsed.success) {
         throw new Error('Invalid managed binary handle');
     }
+    const handle = parsed.output;
     sweepExpiredLeases();
     const lease = leases.get(handle.leaseId);
     if (!lease || lease.invalidated || 'artifact' in lease || lease.ownerId !== context.senderId || lease.path !== handle.path) {

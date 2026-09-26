@@ -5,11 +5,13 @@ import {
 } from 'node:path';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
-    decodeTypedStagedArtifact,
     isBrowserStoreFileIdentity,
+    TYPED_STAGED_ARTIFACT_SCHEMA,
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
+
+import * as v from 'valibot';
 
 export interface IDocumentSaveUtilityCommitRequest {
     type: 'commit';
@@ -102,19 +104,17 @@ export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveU
         || value.expectedBytes <= 0) {
         return null;
     }
-    const stagedArtifact = value.stagedArtifact === undefined
+    const stagedArtifactResult = value.stagedArtifact === undefined
         ? undefined
-        : decodeTypedStagedArtifact(value.stagedArtifact);
-    if (value.stagedArtifact !== undefined) {
-        if (
-            stagedArtifact === undefined
-            || stagedArtifact === null
-            || stagedArtifact.path !== value.sourcePath
-            || stagedArtifact.size !== value.expectedBytes
-        ) {
-            return null;
-        }
+        : v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, value.stagedArtifact, {abortEarly: true});
+    if (value.stagedArtifact !== undefined && (
+        !stagedArtifactResult?.success
+        || stagedArtifactResult.output.path !== value.sourcePath
+        || stagedArtifactResult.output.size !== value.expectedBytes
+    )) {
+        return null;
     }
+    const stagedArtifact = stagedArtifactResult?.success ? stagedArtifactResult.output : undefined;
     return {
         type: 'commit',
         sourcePath: value.sourcePath,
@@ -125,9 +125,7 @@ export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveU
             && value.changedObjectRefs.every((entry): entry is string => typeof entry === 'string')
             ? {changedObjectRefs: [...value.changedObjectRefs]}
             : {}),
-        ...(stagedArtifact === undefined || stagedArtifact === null
-            ? {}
-            : {stagedArtifact}),
+        ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
         ...(value.validateOnly === true ? {validateOnly: true as const} : {}),
     };
 }

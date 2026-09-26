@@ -1,166 +1,112 @@
-import type {
-    IPdfNativePageGeometry,
-    IPdfNativePageGeometryPage,
-    IPdfNativePageSizesExactOptions,
-} from '@contracts/electronApiDocuments';
-import {parseDocumentRef} from '@contracts/documentRef';
-import {parseDocumentRevisionToken} from '@contracts/documentRevision';
-import { requirePageNumber } from '@contracts/pageNumbers';
 import {
-    isFiniteNumber,
-    isRecord,
-} from '@contracts/runtimeGuards';
-import {parseEpochMs} from '@contracts/timestamps';
+    parseDocumentRef, type TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    parseDocumentRevisionToken, type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    parseEpochMs, type TEpochMs,
+} from '@contracts/timestamps';
+import * as v from 'valibot';
 
-function fail(message: string): never {
-    throw new Error(message);
-}
-
-function decodeSafeIntegerValue(value: unknown, fieldName: string, min = 0) {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
-        fail(`${fieldName} must be a safe integer >= ${min}`);
-    }
-    return value;
-}
-
-function decodeUint8ArrayValue(value: unknown, fieldName: string) {
-    if (!(value instanceof Uint8Array)) {
-        fail(`${fieldName} must be a Uint8Array`);
-    }
-    return value;
-}
-
-const PDF_ROTATIONS = [
+const safeInteger = v.pipe(v.number(), v.safeInteger());
+const nonNegativeSafeInteger = v.pipe(safeInteger, v.minValue(0));
+const positiveSafeInteger = v.pipe(safeInteger, v.minValue(1));
+const finiteNumber = v.pipe(v.number(), v.finite());
+const positiveFiniteNumber = v.pipe(finiteNumber, v.gtValue(0));
+const pdfRotationSchema = v.picklist([
     0,
     90,
     180,
     270,
-] as const;
+]);
+const documentRefSchema = v.pipe(
+    v.string(),
+    v.check(value => parseDocumentRef(value) !== null, 'must be an absolute document reference'),
+    v.transform(value => parseDocumentRef(value) as TDocumentRef),
+);
+const documentRevisionTokenSchema = v.pipe(
+    v.string(),
+    v.check(value => parseDocumentRevisionToken(value) !== null, 'must be a valid document revision token'),
+    v.transform(value => parseDocumentRevisionToken(value) as TDocumentRevisionToken),
+);
+const epochMsSchema = v.pipe(
+    nonNegativeSafeInteger,
+    v.transform(value => parseEpochMs(value) as TEpochMs),
+);
+const pageNumberSchema = v.pipe(
+    positiveSafeInteger,
+    v.transform(value => requirePageNumber(value)),
+);
 
-function isPdfRotation(value: unknown): value is typeof PDF_ROTATIONS[number] {
-    return PDF_ROTATIONS.some(rotation => rotation === value);
-}
+const pdfOpeningGeometryDataSchema = v.pipe(
+    v.object({
+        pageNumber: v.pipe(v.literal(1), v.transform(value => requirePageNumber(value))),
+        pageCount: positiveSafeInteger,
+        width: positiveFiniteNumber,
+        height: positiveFiniteNumber,
+        rotation: pdfRotationSchema,
+        widestPageWidth: positiveFiniteNumber,
+        size: nonNegativeSafeInteger,
+        modifiedAt: epochMsSchema,
+    }),
+    v.check(value => value.widestPageWidth >= value.width, 'invalid PDF opening geometry result'),
+);
 
-function decodeOpeningGeometry(value: unknown) {
-    if (
-        !isRecord(value)
-        || value.pageNumber !== 1
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 1
-        || !isFiniteNumber(value.width)
-        || value.width <= 0
-        || !isFiniteNumber(value.height)
-        || value.height <= 0
-        || !isPdfRotation(value.rotation)
-        || !isFiniteNumber(value.widestPageWidth)
-        || value.widestPageWidth < value.width
-        || typeof value.size !== 'number'
-        || !Number.isSafeInteger(value.size)
-        || value.size < 0
-        || parseEpochMs(value.modifiedAt) === null
-    ) {
-        fail('invalid PDF opening geometry result');
-    }
-    return {
-        pageNumber: requirePageNumber(1),
-        pageCount: value.pageCount,
-        width: value.width,
-        height: value.height,
-        rotation: value.rotation,
-        widestPageWidth: value.widestPageWidth,
-        size: value.size,
-        modifiedAt: parseEpochMs(value.modifiedAt) ?? fail('invalid PDF modification time'),
-    };
-}
+// Preserve the uniform IPC failure message while Valibot validates the geometry fields.
+export const PDF_OPENING_GEOMETRY_SCHEMA = v.pipe(
+    v.unknown(),
+    v.transform((value) => {
+        const result = v.safeParse(pdfOpeningGeometryDataSchema, value, {abortEarly: true});
+        if (!result.success) {
+            throw new Error('invalid PDF opening geometry result');
+        }
+        return result.output;
+    }),
+);
 
-function decodeNativePageSizesOptions(value: unknown): IPdfNativePageSizesExactOptions {
-    if (!isRecord(value) || value.mode !== 'exact') {
-        fail('native page sizes options.mode must be exact');
-    }
-    const expectedDocumentRevisionToken = parseDocumentRevisionToken(value.expectedDocumentRevisionToken);
-    if (expectedDocumentRevisionToken === null) {
-        fail('exact native page sizes require expectedDocumentRevisionToken');
-    }
-    return {
-        mode: 'exact',
-        expectedDocumentRevisionToken,
-    };
-}
+export const PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA = v.object({
+    mode: v.literal('exact', 'native page sizes options.mode must be exact'),
+    expectedDocumentRevisionToken: v.pipe(
+        v.unknown(),
+        v.check(
+            value => typeof value === 'string' && parseDocumentRevisionToken(value) !== null,
+            'exact native page sizes require expectedDocumentRevisionToken',
+        ),
+        v.transform(value => parseDocumentRevisionToken(value as string) as TDocumentRevisionToken),
+    ),
+});
 
-function decodeNativePageGeometryPage(
-    value: unknown,
-    index: number,
-    pageCount: number,
-): IPdfNativePageGeometryPage {
-    if (!isRecord(value)) {
-        fail(`invalid exact native page geometry ${String(index)}`);
-    }
-    const pageNumber = decodeSafeIntegerValue(
-        value.pageNumber,
-        `exact native page geometry ${String(index)}.pageNumber`,
-        1,
-    );
-    if (pageNumber > pageCount || pageNumber !== index + 1) {
-        fail(`exact native page geometry ${String(index)}.pageNumber is out of order`);
-    }
-    const xPoints = value.xPoints;
-    const yPoints = value.yPoints;
-    const widthPoints = value.widthPoints;
-    const heightPoints = value.heightPoints;
-    const userUnit = value.userUnit;
-    if (
-        !isFiniteNumber(xPoints)
-        || !isFiniteNumber(yPoints)
-        || !isFiniteNumber(widthPoints)
-        || widthPoints <= 0
-        || !isFiniteNumber(heightPoints)
-        || heightPoints <= 0
-        || !isPdfRotation(value.rotation)
-        || !isFiniteNumber(userUnit)
-        || userUnit <= 0
-    ) {
-        fail(`invalid exact native page geometry ${String(index)}`);
-    }
-    return {
-        pageNumber: requirePageNumber(pageNumber, pageCount),
-        xPoints,
-        yPoints,
-        widthPoints,
-        heightPoints,
-        rotation: value.rotation,
-        userUnit,
-    };
-}
+export const PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA = v.object({
+    pageNumber: pageNumberSchema,
+    xPoints: finiteNumber,
+    yPoints: finiteNumber,
+    widthPoints: positiveFiniteNumber,
+    heightPoints: positiveFiniteNumber,
+    rotation: pdfRotationSchema,
+    userUnit: positiveFiniteNumber,
+});
 
-function decodeNativePageGeometry(value: unknown): IPdfNativePageGeometry {
-    if (
-        !isRecord(value)
-        || value.kind !== 'exact'
-        || parseDocumentRef(value.documentRef) === null
-        || parseDocumentRevisionToken(value.documentRevisionToken) === null
-    ) {
-        fail('invalid exact native page geometry result');
-    }
-    const pageCount = decodeSafeIntegerValue(value.pageCount, 'exact native page geometry pageCount', 1);
-    if (!Array.isArray(value.pages) || value.pages.length !== pageCount) {
-        fail('exact native page geometry pages must cover the document');
-    }
-    return {
-        kind: 'exact',
-        documentRef: parseDocumentRef(value.documentRef) ?? fail('invalid exact native documentRef'),
-        documentRevisionToken: parseDocumentRevisionToken(value.documentRevisionToken)
-            ?? fail('invalid exact native documentRevisionToken'),
-        pageCount,
-        pages: value.pages.map((page, index) => decodeNativePageGeometryPage(page, index, pageCount)),
-    };
-}
+export const PDF_NATIVE_PAGE_GEOMETRY_SCHEMA = v.pipe(
+    v.object({
+        kind: v.literal('exact'),
+        documentRef: documentRefSchema,
+        documentRevisionToken: documentRevisionTokenSchema,
+        pageCount: positiveSafeInteger,
+        pages: v.array(PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA),
+    }),
+    v.check(
+        value => value.pages.length === value.pageCount,
+        'exact native page geometry pages must cover the document',
+    ),
+    v.check(
+        value => value.pages.every((page, index) => page.pageNumber === index + 1),
+        'exact native page geometry page numbers must be in order',
+    ),
+);
 
-export {
-    decodeOpeningGeometry,
-    decodeNativePageSizesOptions,
-    decodeNativePageGeometry,
-    decodeSafeIntegerValue,
-    decodeUint8ArrayValue,
-    fail,
-};
+export type IPdfOpeningGeometry = v.InferOutput<typeof PDF_OPENING_GEOMETRY_SCHEMA>;
+export type IPdfNativePageSizesExactOptions = v.InferOutput<typeof PDF_NATIVE_PAGE_SIZES_EXACT_OPTIONS_SCHEMA>;
+export type IPdfNativePageGeometryPage = v.InferOutput<typeof PDF_NATIVE_PAGE_GEOMETRY_PAGE_SCHEMA>;
+export type IPdfNativePageGeometry = v.InferOutput<typeof PDF_NATIVE_PAGE_GEOMETRY_SCHEMA>;

@@ -1,165 +1,78 @@
-import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
-import type {
-    IPdfNativeStagedCommitOptions,
-    IPdfSaveAsOptions,
-    IPdfSaveAsWarning,
-    IPdfSerializedSaveOptions,
-} from '@contracts/electronApiDocuments';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
-import {parseDocumentRef} from '@contracts/documentRef';
-import {
-    isPdfValidationResult,
-    type IPdfValidationResult,
-} from '@contracts/pdfConformance';
-import { isRecord } from '@contracts/runtimeGuards';
 import {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdfMutations';
+import {TYPED_STAGED_ARTIFACT_SCHEMA} from '@contracts/stagedArtifacts';
+import * as v from 'valibot';
 
 const pdfObjectRefPattern = /^\d+\s+\d+\s+R$/u;
+const documentRevisionTokenSchema = v.pipe(
+    v.string(),
+    v.check(value => parseDocumentRevisionToken(value) !== null, 'invalid document revision options'),
+    // Brand the normalized token returned at this persistence boundary.
+    v.transform(value => parseDocumentRevisionToken(value) as NonNullable<ReturnType<typeof parseDocumentRevisionToken>>),
+);
+const changedObjectRefsSchema = v.pipe(
+    v.unknown(),
+    v.check(
+        value => Array.isArray(value) && value.length <= 128,
+        'invalid changed PDF object references',
+    ),
+    v.array(v.pipe(v.string(), v.regex(pdfObjectRefPattern)), 'invalid changed PDF object references'),
+    v.transform(refs => [...new Set(refs)]),
+);
 
-export function decodeOptionalDocumentObject(
-    value: unknown,
-    fieldName: string,
-): Record<string, unknown> | undefined {
-    if (value === undefined || value === null) {
-        return undefined;
-    }
-    if (!isRecord(value)) {
-        throw new Error(`${fieldName} must be an object`);
-    }
-    return value;
-}
+const revisionOptionsShape = {
+    expectedDocumentRevisionToken: documentRevisionTokenSchema,
+    changedObjectRefs: v.exactOptional(changedObjectRefsSchema),
+    workingCopyOnly: v.exactOptional(v.literal(true)),
+};
 
-export function decodeRequiredDocumentObject(value: unknown, fieldName: string): Record<string, unknown> {
-    const decoded = decodeOptionalDocumentObject(value, fieldName);
-    if (decoded === undefined) {
-        throw new Error(`${fieldName} must be an object`);
-    }
-    return decoded;
-}
-
-export function decodePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | undefined {
-    const decoded = decodeOptionalDocumentObject(value, 'saveAsOptions');
-    if (decoded === undefined) {
-        return undefined;
-    }
-    if (decoded?.optimizeLossless !== undefined && typeof decoded.optimizeLossless !== 'boolean') {
-        throw new Error('invalid PDF save-as options');
-    }
-    const stagedOutput = decoded.stagedOutput === undefined ? undefined : decodeTypedStagedArtifact(decoded.stagedOutput);
-    if (stagedOutput === null) throw new Error('invalid PDF save-as staged output');
-    return {
-        ...(decoded.optimizeLossless === undefined ? {} : {optimizeLossless: decoded.optimizeLossless}),
-        ...(stagedOutput ? {stagedOutput} : {}),
-    };
-}
-
-export function decodePdfRevisionOptions(value: unknown): IPdfSerializedSaveOptions | undefined {
-    const decoded = decodeOptionalDocumentObject(value, 'revisionOptions');
-    if (decoded === undefined) {
-        return undefined;
-    }
-    const expectedDocumentRevisionToken = typeof decoded.expectedDocumentRevisionToken === 'string'
-        ? parseDocumentRevisionToken(decoded.expectedDocumentRevisionToken)
-        : null;
-    if (expectedDocumentRevisionToken === null) {
-        throw new Error('invalid document revision options');
-    }
-    const changedObjectRefsValue = decoded.changedObjectRefs;
-    let changedObjectRefs: string[] | undefined;
-    if (changedObjectRefsValue !== undefined) {
-        if (
-            !Array.isArray(changedObjectRefsValue)
-            || changedObjectRefsValue.length > 128
-            || !changedObjectRefsValue.every((ref): ref is string =>
-                typeof ref === 'string' && pdfObjectRefPattern.test(ref))
-        ) {
-            throw new Error('invalid changed PDF object references');
-        }
-        changedObjectRefs = changedObjectRefsValue;
-    }
-    const workingCopyOnly = decoded.workingCopyOnly;
-    if (workingCopyOnly !== undefined && workingCopyOnly !== true) {
-        throw new Error('invalid working-copy-only PDF staging option');
-    }
-    return {
+export const PDF_REVISION_OPTIONS_SCHEMA = v.pipe(
+    v.object(revisionOptionsShape),
+    v.transform(({
+        expectedDocumentRevisionToken, changedObjectRefs, workingCopyOnly,
+    }) => ({
         expectedDocumentRevisionToken,
-        ...(changedObjectRefs?.length
-            ? {changedObjectRefs: [...new Set(changedObjectRefs)]}
-            : {}),
+        ...(changedObjectRefs?.length ? {changedObjectRefs} : {}),
         ...(workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
-    };
-}
+    })),
+);
 
-export function decodePdfNativeStagedCommitOptions(value: unknown): IPdfNativeStagedCommitOptions | undefined {
-    const decoded = decodePdfRevisionOptions(value);
-    if (decoded === undefined) {
-        return undefined;
-    }
-    const raw = decodeRequiredDocumentObject(value, 'revisionOptions');
-    const identityBindings = normalizePdfNativeAnnotationIdentityBindings(
-        raw.identityBindings,
+export const PDF_SAVE_AS_OPTIONS_SCHEMA = v.object({
+    optimizeLossless: v.exactOptional(v.boolean()),
+    stagedOutput: v.exactOptional(v.message(TYPED_STAGED_ARTIFACT_SCHEMA, 'invalid PDF save-as staged output')),
+});
+
+const identityBindingsSchema = v.pipe(
+    v.unknown(),
+    // Native mutation identity bindings require canonical identity and reference checks.
+    v.transform(value => normalizePdfNativeAnnotationIdentityBindings(
+        value,
         'revisionOptions.identityBindings',
         {errorKind: 'error'},
-    );
-    return {
-        ...decoded,
-        ...(raw.identityBindings === undefined ? {} : {identityBindings}),
-    };
-}
+    )),
+);
 
-export function appendOptionalDocumentArg<TBase extends unknown[], TValue>(
-    base: TBase,
-    value: TValue | undefined,
-): TBase | [...TBase, TValue] {
-    return value === undefined ? base : [
-        ...base,
-        value,
-    ];
-}
+export const PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA = v.pipe(
+    v.object({
+        ...revisionOptionsShape,
+        identityBindings: v.exactOptional(identityBindingsSchema),
+    }),
+    v.transform(({
+        expectedDocumentRevisionToken, changedObjectRefs, workingCopyOnly, identityBindings,
+    }) => ({
+        expectedDocumentRevisionToken,
+        ...(changedObjectRefs?.length ? {changedObjectRefs} : {}),
+        ...(workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
+        ...(identityBindings === undefined ? {} : {identityBindings}),
+    })),
+);
 
-export function decodePdfValidation(value: unknown): IPdfValidationResult {
-    if (!isPdfValidationResult(value)) {
-        throw new Error('invalid PDF validation result');
-    }
-    return {
-        isValid: value.isValid,
-        tool: value.tool,
-        errors: [...value.errors],
-        warnings: [...value.warnings],
-    };
-}
+export const PDF_SAVE_AS_WARNING_SCHEMA = v.object({
+    reason: v.literal('working-copy-sync-required'),
+    message: v.string(),
+});
 
-export function decodeNullablePdfValidation(value: unknown): IPdfValidationResult | null {
-    return value === null ? null : decodePdfValidation(value);
-}
-
-export function decodeSaveAsWarning(value: unknown): IPdfSaveAsWarning | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (!isRecord(value)
-        || value.reason !== 'working-copy-sync-required'
-        || typeof value.message !== 'string') {
-        throw new Error('invalid PDF save-as warning');
-    }
-    return {
-        reason: value.reason,
-        message: value.message,
-    };
-}
-
-export function decodePdfPathValidationResult(value: unknown) {
-    if (!isRecord(value) || (value.path !== null && typeof value.path !== 'string')) {
-        throw new Error('invalid PDF persistence result');
-    }
-    const path = value.path === null ? null : parseDocumentRef(value.path);
-    if (value.path !== null && path === null) {
-        throw new Error('invalid PDF persistence path');
-    }
-    const warning = decodeSaveAsWarning(value.warning);
-    return {
-        path,
-        validation: decodeNullablePdfValidation(value.validation),
-        ...(warning === undefined ? {} : {warning}),
-    };
-}
+export type IPdfSerializedSaveOptions = v.InferOutput<typeof PDF_REVISION_OPTIONS_SCHEMA>;
+export type IPdfNativeStagedCommitOptions = v.InferOutput<typeof PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA>;
+export type IPdfSaveAsOptions = v.InferOutput<typeof PDF_SAVE_AS_OPTIONS_SCHEMA>;
+export type IPdfSaveAsWarning = v.InferOutput<typeof PDF_SAVE_AS_WARNING_SCHEMA>;

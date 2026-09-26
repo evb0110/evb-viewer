@@ -1,7 +1,7 @@
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import { isPdfValidationResult } from '@contracts/pdfConformance';
+import {PDF_VALIDATION_RESULT_SCHEMA} from '@contracts/pdfConformance';
 import {
-    decodeTypedStagedArtifact,
+    TYPED_STAGED_ARTIFACT_SCHEMA,
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 import { getErrorMessage } from '@contracts/getErrorMessage';
@@ -14,6 +14,7 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import { isRecord } from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 import {
     parseSessionId,
     type TSessionId,
@@ -243,30 +244,31 @@ export function parsePdfPersistenceMainToPreloadFrame(value: unknown): TPdfPersi
     if (!isRecord(value) || typeof value.type !== 'string') {
         return null;
     }
-    if (value.type === 'result' && isPdfValidationResult(value.validation)) {
+    const validation = v.safeParse(PDF_VALIDATION_RESULT_SCHEMA, value.validation, {abortEarly: true});
+    if (value.type === 'result' && validation.success) {
         const path = value.path === null ? null : parseDocumentRef(value.path);
         if (value.path !== null && path === null) {
             return null;
         }
         return createPdfPersistenceResultFrame(
             path,
-            value.validation,
+            validation.output,
         );
     }
     if (
         value.type === 'staged'
-        && isPdfValidationResult(value.validation)
+        && validation.success
     ) {
         const sessionId = parseSessionId(value.sessionId);
         if (sessionId === null) {
             return null;
         }
-        const stagedOutput = decodeTypedStagedArtifact(value.stagedOutput);
-        if (stagedOutput !== null) {
+        const stagedOutput = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, value.stagedOutput, {abortEarly: true});
+        if (stagedOutput.success) {
             return createPdfPersistenceStagedFrame(
                 sessionId,
-                stagedOutput,
-                value.validation,
+                stagedOutput.output,
+                validation.output,
             );
         }
     }

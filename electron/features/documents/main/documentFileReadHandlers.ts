@@ -6,6 +6,8 @@ import {
 import type { FileHandle } from 'fs/promises';
 import { extname } from 'path';
 import { MAX_CHUNK } from '@electron/config/constants';
+import type {IFileStatResult} from '@contracts/electronApiDocuments';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     onWorkingCopyMutationSettled,
     onWorkingCopyMutationStarting,
@@ -642,7 +644,7 @@ async function statOriginalBacking(backing: IOriginalBackedRead) {
     const snapshot = await assertOriginalBackingSnapshot(backing);
     return {
         size: Number(snapshot.size),
-        modifiedAt: Math.trunc(Number(snapshot.mtimeNs) / 1_000_000),
+        modifiedAt: requireEpochMs(Math.trunc(Number(snapshot.mtimeNs) / 1_000_000)),
     };
 }
 
@@ -782,10 +784,7 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
 export async function handleFileStat(
     context: IDocumentsSenderIdContext,
     filePath: unknown,
-): Promise<{
-    size: number;
-    modifiedAt: number
-}> {
+): Promise<IFileStatResult> {
     const resolvedPath = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
     if (originalBacking) {
@@ -796,7 +795,7 @@ export async function handleFileStat(
     const s = statSync(resolvedPath);
     return {
         size: s.size,
-        modifiedAt: Math.trunc(s.mtimeMs),
+        modifiedAt: requireEpochMs(Math.trunc(s.mtimeMs)),
     };
 }
 

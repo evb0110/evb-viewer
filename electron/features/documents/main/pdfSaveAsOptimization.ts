@@ -1,4 +1,4 @@
-import {decodePdfSaveAsOptions} from '@contracts/documentsPersistenceSchemas';
+import {PDF_SAVE_AS_OPTIONS_SCHEMA} from '@contracts/documentsPersistenceSchemas';
 import {
     rm,
     stat,
@@ -28,6 +28,7 @@ import {
     isAbortError,
 } from '@electron/utils/abort';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
+import * as v from 'valibot';
 
 const logger = createLogger('documents-pdfSaveAsOptimization');
 
@@ -61,7 +62,7 @@ export function normalizePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | u
         return undefined;
     }
 
-    const decoded = decodePdfSaveAsOptions(value);
+    const decoded = v.parse(PDF_SAVE_AS_OPTIONS_SCHEMA, value, {abortEarly: true});
     return decoded?.optimizeLossless === true || decoded?.stagedOutput
         ? decoded
         : undefined;

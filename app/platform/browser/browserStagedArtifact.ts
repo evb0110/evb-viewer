@@ -4,9 +4,9 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
-    decodeTypedStagedArtifact,
     createBrowserStoreFileIdentity,
     isBrowserStoreStagedArtifact,
+    TYPED_STAGED_ARTIFACT_SCHEMA,
     type IStagedArtifactValidations,
     type TBrowserStoreStagedArtifact,
 } from '@contracts/stagedArtifacts';
@@ -15,6 +15,7 @@ import {
     type IDocumentRevisionInfo,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import * as v from 'valibot';
 
 export interface IBrowserStagedArtifactStore {
     getDocumentRevision(ref: TDocumentRef): Promise<IDocumentRevisionInfo>;
@@ -87,11 +88,11 @@ export async function createBrowserStoreStagedArtifact(
         leaseId: options.leaseId,
         revision: revision.token,
     };
-    const artifact = decodeTypedStagedArtifact(candidate);
-    if (!artifact || !isBrowserStoreStagedArtifact(artifact)) {
+    const artifact = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, candidate, {abortEarly: true});
+    if (!artifact.success || !isBrowserStoreStagedArtifact(artifact.output)) {
         throw new Error('Invalid browser staged artifact receipt');
     }
-    return artifact;
+    return artifact.output;
 }
 
 /**
@@ -105,10 +106,11 @@ export async function commitBrowserStoreStagedArtifact(
     targetRef: TDocumentRef,
     expectedTargetRevisionToken: TDocumentRevisionToken,
 ): Promise<boolean> {
-    const decoded = decodeTypedStagedArtifact(stagedArtifact);
-    if (!decoded || !isBrowserStoreStagedArtifact(decoded)) {
+    const parsed = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, stagedArtifact, {abortEarly: true});
+    if (!parsed.success || !isBrowserStoreStagedArtifact(parsed.output)) {
         throw new Error('Expected a browser-store staged artifact');
     }
+    const decoded = parsed.output;
     if (!isBrowserLegacyDocumentRef(targetRef) || targetRef === decoded.path) {
         throw new Error('Browser staged commit requires a different browser target ref');
     }

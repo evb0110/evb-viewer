@@ -6,18 +6,8 @@ import {
 } from '@contracts/annotations';
 import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
 import type {TPageIndex} from '@contracts/pageNumbers';
-import {
-    documentArgs,
-    documentResult,
-} from '@contracts/documentsPlatformFeatureSchemas';
-import {
-    parseDocumentRevisionToken,
-    requireDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    parseDocumentRef,
-    requireDocumentRef,
-} from '@contracts/documentRef';
+import {parseDocumentRevisionToken} from '@contracts/documentRevision';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {isPdfNativeNormalizedRectInsidePageBounds} from '@contracts/nativePdfPageBounds';
 import {isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
@@ -315,26 +305,11 @@ export type IPdfAnnotationStampEntry = v.InferOutput<typeof stampSchema>;
 export type IPdfAnnotationParsePoint = v.InferOutput<typeof pointSchema>;
 export type IPdfAnnotationShapeEntry = v.InferOutput<typeof shapeSchema>;
 
-const fixtureRevisionToken = requireDocumentRevisionToken('drt1:annotation-parse-fixture');
-const pdfAnnotationParseResult = documentResult<'parsePdfAnnotations'>(
-    value => v.parse(PDF_ANNOTATION_PARSE_RESULT_SCHEMA, value, {abortEarly: true}),
-    () => ({
-        documentRevisionToken: fixtureRevisionToken,
-        pageCount: 1,
-        entities: [],
-        foreign: [],
-    }),
-);
-const parsePdfAnnotationsArgs = documentArgs<'parsePdfAnnotations'>(
-    value => v.parse(v.strictTuple([
-        documentRefSchema,
-        PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA,
-    ]), value, {abortEarly: true}),
-    () => [
-        requireDocumentRef('/tmp/document.pdf'),
-        {expectedDocumentRevisionToken: fixtureRevisionToken},
-    ],
-);
+const pdfAnnotationParseResult = PDF_ANNOTATION_PARSE_RESULT_SCHEMA;
+const parsePdfAnnotationsArgs = v.strictTuple([
+    documentRefSchema,
+    PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA,
+]);
 
 export {
     pdfAnnotationParseResult,

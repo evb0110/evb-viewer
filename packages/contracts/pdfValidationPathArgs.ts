@@ -1,45 +1,31 @@
 import {
-    parseDocumentRef,
-    type TDocumentRef,
+    parseDocumentRef, type TDocumentRef,
 } from '@contracts/documentRef';
-import type { IPdfPathValidationOptions } from '@contracts/electronApiDocuments';
-import {runtimeSchema as s} from '@contracts/platformFeature';
-import {isRecord} from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
-type TPdfValidationPathArgs = [
-    path: TDocumentRef,
-    options?: IPdfPathValidationOptions,
-];
-
-function fail(message: string): never {
-    throw new Error(message);
-}
-
-export const pdfValidationPathArgs = s.fromParser<TPdfValidationPathArgs>(
-    (value) => {
-        if (!Array.isArray(value) || value.length < 1 || value.length > 2) {
-            fail('expected 1-2 arguments');
-        }
-        const args = value as unknown[];
-        const path = args[0];
-        const documentRef = parseDocumentRef(path);
-        if (documentRef === null) {
-            fail('path must be an absolute document reference');
-        }
-        const rawOptions = args[1];
-        if (rawOptions === undefined) {
-            return [documentRef];
-        }
-        if (!isRecord(rawOptions) || (rawOptions.purpose !== 'opening' && rawOptions.purpose !== 'save')) {
-            fail('validation options must be {purpose: \'opening\' | \'save\'}');
-        }
-        return [
-            documentRef,
-            {purpose: rawOptions.purpose},
-        ];
-    },
-    () => [
-        parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference'),
-        {purpose: 'opening'},
-    ],
+const documentRefSchema = v.pipe(
+    v.string(),
+    v.check(value => parseDocumentRef(value) !== null, 'path must be an absolute document reference'),
+    v.transform(value => parseDocumentRef(value) as TDocumentRef),
 );
+const validationOptionsSchema = v.object({purpose: v.picklist([
+    'opening',
+    'save',
+], 'validation options must be {purpose: \'opening\' | \'save\'}')}, 'validation options must be {purpose: \'opening\' | \'save\'}');
+export type IPdfPathValidationOptions = v.InferOutput<typeof validationOptionsSchema>;
+
+export const PDF_VALIDATION_PATH_ARGS_SCHEMA = v.pipe(
+    v.strictTuple([
+        documentRefSchema,
+        v.optional(validationOptionsSchema),
+    ]),
+    v.transform(([
+        path,
+        options,
+    ]): [TDocumentRef, options?: IPdfPathValidationOptions] => options === undefined ? [path] : [
+        path,
+        options,
+    ]),
+);
+
+export const pdfValidationPathArgs = PDF_VALIDATION_PATH_ARGS_SCHEMA;

@@ -5,14 +5,15 @@ import {
 } from 'vitest';
 import {
     createBrowserStoreFileIdentity,
-    decodeTypedStagedArtifact,
     isBrowserStoreFileIdentity,
     isBrowserStoreStagedArtifact,
     isTypedStagedArtifact,
+    TYPED_STAGED_ARTIFACT_SCHEMA,
 } from '@contracts/stagedArtifacts';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireLeaseId} from '@contracts/shared';
+import * as v from 'valibot';
 
 const SHA256 = 'a'.repeat(64);
 const BROWSER_DOCUMENT_REF = requireDocumentRef('browser://documents/browser-id/staged.pdf');
@@ -54,8 +55,9 @@ describe('typed staged artifact contracts', () => {
         const artifact = createArtifact();
 
         expect(isTypedStagedArtifact(artifact)).toBe(true);
-        expect(decodeTypedStagedArtifact(artifact)).toEqual(artifact);
-        expect(decodeTypedStagedArtifact(artifact)?.validations.qpdfResult?.warnings)
+        const parsed = v.parse(TYPED_STAGED_ARTIFACT_SCHEMA, artifact, {abortEarly: true});
+        expect(parsed).toEqual(artifact);
+        expect(parsed.validations.qpdfResult?.warnings)
             .toEqual(['object stream warning']);
     });
 
@@ -75,7 +77,7 @@ describe('typed staged artifact contracts', () => {
             },
         };
 
-        expect(decodeTypedStagedArtifact(artifact)).toEqual(artifact);
+        expect(v.parse(TYPED_STAGED_ARTIFACT_SCHEMA, artifact, {abortEarly: true})).toEqual(artifact);
     });
 
     it('accepts an opaque POSIX native receipt without a reusable content hash', () => {
@@ -88,7 +90,7 @@ describe('typed staged artifact contracts', () => {
             receiptVersion: 2,
         } as const;
 
-        expect(decodeTypedStagedArtifact(opaqueArtifact)).toEqual(opaqueArtifact);
+        expect(v.parse(TYPED_STAGED_ARTIFACT_SCHEMA, opaqueArtifact, {abortEarly: true})).toEqual(opaqueArtifact);
     });
 
     it('accepts an opaque Windows native receipt with NTFS identity', () => {
@@ -108,7 +110,7 @@ describe('typed staged artifact contracts', () => {
             receiptVersion: 2,
         } as const;
 
-        expect(decodeTypedStagedArtifact(opaqueArtifact)).toEqual(opaqueArtifact);
+        expect(v.parse(TYPED_STAGED_ARTIFACT_SCHEMA, opaqueArtifact, {abortEarly: true})).toEqual(opaqueArtifact);
     });
 
     it('decodes browser-store identity without manufacturing an OS identity', () => {
@@ -124,7 +126,7 @@ describe('typed staged artifact contracts', () => {
 
         expect(isBrowserStoreFileIdentity(artifact.fileIdentity)).toBe(true);
         expect(isBrowserStoreStagedArtifact(artifact)).toBe(true);
-        expect(decodeTypedStagedArtifact(artifact)).toEqual(artifact);
+        expect(v.parse(TYPED_STAGED_ARTIFACT_SCHEMA, artifact, {abortEarly: true})).toEqual(artifact);
         expect(artifact.fileIdentity).toEqual({
             platform: 'browser',
             documentRef: BROWSER_DOCUMENT_REF,
@@ -191,7 +193,7 @@ describe('typed staged artifact contracts', () => {
             revision: BROWSER_REVISION,
         };
 
-        expect(decodeTypedStagedArtifact(artifact)).toBeNull();
+        expect(v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, artifact, {abortEarly: true}).success).toBe(false);
         expect(isBrowserStoreStagedArtifact(artifact)).toBe(false);
     });
 
@@ -206,7 +208,7 @@ describe('typed staged artifact contracts', () => {
             revision: null,
         };
 
-        expect(decodeTypedStagedArtifact(artifact)).toBeNull();
+        expect(v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, artifact, {abortEarly: true}).success).toBe(false);
         expect(isBrowserStoreStagedArtifact(artifact)).toBe(false);
     });
 
@@ -224,10 +226,10 @@ describe('typed staged artifact contracts', () => {
             revision: BROWSER_REVISION,
         };
 
-        expect(decodeTypedStagedArtifact({
+        expect(v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, {
             ...artifact,
             receiptVersion: 2,
-        })).toBeNull();
+        }, {abortEarly: true}).success).toBe(false);
     });
 
     it('rejects browser identity construction for non-browser refs', () => {
@@ -298,10 +300,10 @@ describe('typed staged artifact contracts', () => {
             },
         }},
     ])('rejects malformed receipt input %#', (override) => {
-        expect(decodeTypedStagedArtifact({
+        expect(v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, {
             ...createArtifact(),
             ...override,
-        })).toBeNull();
+        }, {abortEarly: true}).success).toBe(false);
         expect(isTypedStagedArtifact({
             ...createArtifact(),
             ...override,

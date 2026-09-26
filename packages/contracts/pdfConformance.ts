@@ -1,8 +1,8 @@
-import { isRecord } from '@contracts/runtimeGuards';
 import type {
     Except,
     LiteralUnion,
 } from 'type-fest';
+import * as v from 'valibot';
 
 export type TPdfSaveMode = 'incremental' | 'rewrite' | 'save_as_rewrite';
 
@@ -25,19 +25,14 @@ export interface IPdfConformanceAnalysisOptions {purpose?: 'full' | 'save-restri
 
 export type TPdfConformanceProfileBase = Except<IPdfConformanceProfile, 'saveRestrictions'>;
 
-export interface IPdfValidationResult {
-    readonly isValid: boolean;
-    readonly tool: 'qpdf' | 'browser' | 'native';
-    readonly errors: readonly string[];
-    readonly warnings: readonly string[];
-}
-
-export function isPdfValidationResult(value: unknown): value is IPdfValidationResult {
-    return isRecord(value)
-        && typeof value.isValid === 'boolean'
-        && (value.tool === 'qpdf' || value.tool === 'browser' || value.tool === 'native')
-        && Array.isArray(value.errors)
-        && value.errors.every(error => typeof error === 'string')
-        && Array.isArray(value.warnings)
-        && value.warnings.every(warning => typeof warning === 'string');
-}
+export const PDF_VALIDATION_RESULT_SCHEMA = v.object({
+    isValid: v.boolean(),
+    tool: v.picklist([
+        'qpdf',
+        'browser',
+        'native',
+    ]),
+    errors: v.pipe(v.array(v.string()), v.readonly()),
+    warnings: v.pipe(v.array(v.string()), v.readonly()),
+});
+export type IPdfValidationResult = v.InferOutput<typeof PDF_VALIDATION_RESULT_SCHEMA>;

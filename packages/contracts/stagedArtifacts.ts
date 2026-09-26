@@ -1,299 +1,179 @@
 import {
-    parseDocumentRef,
     isBrowserLegacyDocumentRef,
+    parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
-import { isPdfValidationResult } from '@contracts/pdfConformance';
-import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import { isRecord } from '@contracts/runtimeGuards';
+import {PDF_VALIDATION_RESULT_SCHEMA} from '@contracts/pdfConformance';
 import {
     parseLeaseId,
     type TLeaseId,
 } from '@contracts/shared';
+import * as v from 'valibot';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const DECIMAL_BIGINT_PATTERN = /^(?:0|[1-9]\d*)$/u;
 const BROWSER_DOCUMENT_REF_PREFIX = 'browser://documents/';
-
-export type TArtifactFileIdentity =
-    | {
-        platform: 'posix';
-        deviceId: string;
-        inode: string;
-    }
-    | {
-        platform: 'win32';
-        volumeId: string;
-        fileId: string;
-    }
-    /**
-     * Identity for an artifact held by the browser document store. Browser
-     * documents have no operating-system inode or volume, so the store ref and
-     * its content revision identify the exact record without inventing one.
-     */
-    | IBrowserStoreFileIdentity;
-
-export interface IBrowserStoreFileIdentity {
-    platform: 'browser';
-    documentRef: TDocumentRef;
-    revisionToken: TDocumentRevisionToken;
-}
-
-export interface IStagedArtifactValidations {
-    qpdfCheck: boolean;
-    tailCheck: boolean;
-    semanticCheck: boolean;
-    fsynced: boolean;
-
-    /** Required when qpdfCheck is true; preserves warnings. */
-    qpdfResult?: IPdfValidationResult;
-
-    /** Hash of the mutation/postcondition program proven by semanticCheck. */
-    semanticScopeSha256?: string;
-
-    changedObjectRefsSha256?: string;
-}
-
-interface ITypedStagedArtifactBase {
-    artifactKind: 'pdf';
-    path: TDocumentRef;
-    size: number;
-    fileIdentity: TArtifactFileIdentity;
-    validations: IStagedArtifactValidations;
-    leaseId: TLeaseId;
-    revision: TDocumentRevisionToken | null;
-}
-
-export interface IContentFingerprintStagedArtifact extends ITypedStagedArtifactBase {
-    receiptVersion: 1;
-    sha256: string;
-}
-
-/**
- * Main-process-owned native output. The lease's file identity and private stat
- * witness authorize promotion; this receipt is never a reusable content hash.
- */
-export interface IOpaqueNativeStagedArtifact extends ITypedStagedArtifactBase {
-    receiptVersion: 2;
-    fileIdentity: Extract<TArtifactFileIdentity, {platform: 'posix' | 'win32'}>;
-}
-
-export type ITypedStagedArtifact =
-    | IContentFingerprintStagedArtifact
-    | IOpaqueNativeStagedArtifact;
-
-export type TBrowserStoreStagedArtifact = Omit<
-    IContentFingerprintStagedArtifact,
-    'fileIdentity' | 'revision'
-> & {
-    fileIdentity: IBrowserStoreFileIdentity;
-    revision: TDocumentRevisionToken;
-};
-
 const BROWSER_DOCUMENT_REF_MAX_LENGTH = 32_768;
 const BROWSER_REVISION_TOKEN_MAX_LENGTH = 512;
 
-function decodeBrowserStoreFileIdentity(value: unknown): IBrowserStoreFileIdentity | null {
-    if (!isRecord(value)
-        || value.platform !== 'browser'
-        || typeof value.documentRef !== 'string'
-        || value.documentRef.length === 0
-        || value.documentRef === BROWSER_DOCUMENT_REF_PREFIX
-        || value.documentRef.length > BROWSER_DOCUMENT_REF_MAX_LENGTH
-        || !isBrowserLegacyDocumentRef(value.documentRef)) {
-        return null;
-    }
-    const revisionToken = parseDocumentRevisionToken(value.revisionToken);
-    if (
-        revisionToken === null
-        || revisionToken.length > BROWSER_REVISION_TOKEN_MAX_LENGTH
-    ) {
-        return null;
-    }
-    return {
-        platform: 'browser',
-        documentRef: value.documentRef,
-        revisionToken,
-    };
-}
+const documentRefSchema = v.pipe(
+    v.string(),
+    v.check(value => parseDocumentRef(value) !== null),
+    v.transform(value => parseDocumentRef(value) as TDocumentRef),
+);
+const browserDocumentRefSchema = v.pipe(
+    v.string(),
+    v.maxLength(BROWSER_DOCUMENT_REF_MAX_LENGTH),
+    v.check(value => value !== BROWSER_DOCUMENT_REF_PREFIX && isBrowserLegacyDocumentRef(value)),
+    v.transform(value => parseDocumentRef(value) as TDocumentRef),
+);
+const documentRevisionTokenSchema = v.pipe(
+    v.string(),
+    v.maxLength(BROWSER_REVISION_TOKEN_MAX_LENGTH),
+    v.check(value => parseDocumentRevisionToken(value) !== null),
+    v.transform(value => parseDocumentRevisionToken(value) as TDocumentRevisionToken),
+);
+const leaseIdSchema = v.pipe(
+    v.string(),
+    v.check(value => parseLeaseId(value) !== null),
+    v.transform(value => parseLeaseId(value) as TLeaseId),
+);
+const sha256Schema = v.pipe(v.string(), v.regex(SHA256_PATTERN));
+const nonNegativeSizeSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+
+const posixFileIdentitySchema = v.object({
+    platform: v.literal('posix'),
+    deviceId: v.pipe(v.string(), v.regex(DECIMAL_BIGINT_PATTERN)),
+    inode: v.pipe(v.string(), v.regex(DECIMAL_BIGINT_PATTERN)),
+});
+const win32FileIdentitySchema = v.object({
+    platform: v.literal('win32'),
+    volumeId: v.pipe(v.string(), v.minLength(1)),
+    fileId: v.pipe(v.string(), v.minLength(1)),
+});
+const browserStoreFileIdentitySchema = v.object({
+    platform: v.literal('browser'),
+    documentRef: browserDocumentRefSchema,
+    revisionToken: documentRevisionTokenSchema,
+});
+const nativeFileIdentitySchema = v.union([
+    posixFileIdentitySchema,
+    win32FileIdentitySchema,
+]);
+const fileIdentitySchema = v.variant('platform', [
+    posixFileIdentitySchema,
+    win32FileIdentitySchema,
+    browserStoreFileIdentitySchema,
+]);
+
+const stagedArtifactValidationsSchema = v.pipe(
+    v.object({
+        qpdfCheck: v.boolean(),
+        tailCheck: v.boolean(),
+        semanticCheck: v.boolean(),
+        fsynced: v.boolean(),
+        qpdfResult: v.exactOptional(PDF_VALIDATION_RESULT_SCHEMA),
+        semanticScopeSha256: v.exactOptional(sha256Schema),
+        changedObjectRefsSha256: v.exactOptional(sha256Schema),
+    }),
+    v.check(value =>
+        (value.qpdfResult === undefined || value.qpdfResult.tool === 'qpdf')
+        && (!value.qpdfCheck || value.qpdfResult?.isValid === true)
+        && (!value.semanticCheck || value.semanticScopeSha256 !== undefined),
+    ),
+);
+
+const stagedArtifactBaseShape = {
+    artifactKind: v.literal('pdf'),
+    path: documentRefSchema,
+    size: nonNegativeSizeSchema,
+    validations: stagedArtifactValidationsSchema,
+    leaseId: leaseIdSchema,
+};
+
+const contentFingerprintStagedArtifactSchema = v.pipe(
+    v.object({
+        ...stagedArtifactBaseShape,
+        receiptVersion: v.literal(1),
+        sha256: sha256Schema,
+        fileIdentity: fileIdentitySchema,
+        revision: v.nullable(documentRevisionTokenSchema),
+    }),
+    v.check(value => value.fileIdentity.platform !== 'browser' || (
+        value.fileIdentity.documentRef === value.path
+        && value.revision !== null
+        && value.fileIdentity.revisionToken === value.revision
+    )),
+);
+
+const browserStoreStagedArtifactSchema = v.pipe(
+    v.object({
+        ...stagedArtifactBaseShape,
+        receiptVersion: v.literal(1),
+        sha256: sha256Schema,
+        fileIdentity: browserStoreFileIdentitySchema,
+        revision: documentRevisionTokenSchema,
+    }),
+    v.check(value =>
+        value.fileIdentity.documentRef === value.path
+        && value.fileIdentity.revisionToken === value.revision,
+    ),
+);
+
+/** A native output authorized by its lease's file identity and private stat witness. */
+const opaqueNativeStagedArtifactSchema = v.pipe(
+    v.object({
+        ...stagedArtifactBaseShape,
+        receiptVersion: v.literal(2),
+        sha256: v.exactOptional(v.undefined()),
+        fileIdentity: nativeFileIdentitySchema,
+        revision: v.nullable(documentRevisionTokenSchema),
+    }),
+    v.transform(({
+        sha256: _sha256, ...artifact
+    }) => artifact),
+);
+
+export const TYPED_STAGED_ARTIFACT_SCHEMA = v.union([
+    contentFingerprintStagedArtifactSchema,
+    opaqueNativeStagedArtifactSchema,
+]);
+
+export type TArtifactFileIdentity = v.InferOutput<typeof fileIdentitySchema>;
+export type IBrowserStoreFileIdentity = v.InferOutput<typeof browserStoreFileIdentitySchema>;
+export type IStagedArtifactValidations = v.InferOutput<typeof stagedArtifactValidationsSchema>;
+export type IContentFingerprintStagedArtifact = v.InferOutput<typeof contentFingerprintStagedArtifactSchema>;
+export type IOpaqueNativeStagedArtifact = v.InferOutput<typeof opaqueNativeStagedArtifactSchema>;
+export type ITypedStagedArtifact = v.InferOutput<typeof TYPED_STAGED_ARTIFACT_SCHEMA>;
+export type TBrowserStoreStagedArtifact = v.InferOutput<typeof browserStoreStagedArtifactSchema>;
 
 export function isBrowserStoreFileIdentity(value: unknown): value is IBrowserStoreFileIdentity {
-    return decodeBrowserStoreFileIdentity(value) !== null;
+    return v.is(browserStoreFileIdentitySchema, value);
 }
 
 export function createBrowserStoreFileIdentity(
     documentRef: TDocumentRef,
     revisionToken: TDocumentRevisionToken,
 ): IBrowserStoreFileIdentity {
-    const identity = decodeBrowserStoreFileIdentity({
+    const identity = v.safeParse(browserStoreFileIdentitySchema, {
         platform: 'browser',
         documentRef,
         revisionToken,
-    });
-    if (identity === null) {
+    }, {abortEarly: true});
+    if (!identity.success) {
         throw new TypeError('Browser staged artifact identity requires a browser document ref and revision token');
     }
-    return identity;
-}
-
-function decodeFileIdentity(value: unknown): TArtifactFileIdentity | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (
-        value.platform === 'posix'
-        && typeof value.deviceId === 'string'
-        && DECIMAL_BIGINT_PATTERN.test(value.deviceId)
-        && typeof value.inode === 'string'
-        && DECIMAL_BIGINT_PATTERN.test(value.inode)
-    ) {
-        return {
-            platform: 'posix',
-            deviceId: value.deviceId,
-            inode: value.inode,
-        };
-    }
-    if (
-        value.platform === 'win32'
-        && typeof value.volumeId === 'string'
-        && value.volumeId.length > 0
-        && typeof value.fileId === 'string'
-        && value.fileId.length > 0
-    ) {
-        return {
-            platform: 'win32',
-            volumeId: value.volumeId,
-            fileId: value.fileId,
-        };
-    }
-    return decodeBrowserStoreFileIdentity(value);
-}
-
-function decodeValidations(value: unknown): IStagedArtifactValidations | null {
-    if (
-        !isRecord(value)
-        || typeof value.qpdfCheck !== 'boolean'
-        || typeof value.tailCheck !== 'boolean'
-        || typeof value.semanticCheck !== 'boolean'
-        || typeof value.fsynced !== 'boolean'
-        || (value.qpdfResult !== undefined && !isPdfValidationResult(value.qpdfResult))
-        || (value.qpdfResult !== undefined && value.qpdfResult.tool !== 'qpdf')
-        || (value.qpdfCheck && value.qpdfResult === undefined)
-        || (value.qpdfCheck && value.qpdfResult?.isValid !== true)
-        || (value.semanticScopeSha256 !== undefined && (
-            typeof value.semanticScopeSha256 !== 'string'
-            || !SHA256_PATTERN.test(value.semanticScopeSha256)
-        ))
-        || (value.semanticCheck && value.semanticScopeSha256 === undefined)
-        || (value.changedObjectRefsSha256 !== undefined && (
-            typeof value.changedObjectRefsSha256 !== 'string'
-            || !SHA256_PATTERN.test(value.changedObjectRefsSha256)
-        ))
-    ) {
-        return null;
-    }
-    return {
-        qpdfCheck: value.qpdfCheck,
-        tailCheck: value.tailCheck,
-        semanticCheck: value.semanticCheck,
-        fsynced: value.fsynced,
-        ...(value.qpdfResult === undefined ? {} : {qpdfResult: {
-            isValid: value.qpdfResult.isValid,
-            tool: value.qpdfResult.tool,
-            errors: [...value.qpdfResult.errors],
-            warnings: [...value.qpdfResult.warnings],
-        }}),
-        ...(value.semanticScopeSha256 === undefined
-            ? {}
-            : {semanticScopeSha256: value.semanticScopeSha256}),
-        ...(value.changedObjectRefsSha256 === undefined
-            ? {}
-            : {changedObjectRefsSha256: value.changedObjectRefsSha256}),
-    };
-}
-
-export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const path = parseDocumentRef(value.path);
-    const leaseId = parseLeaseId(value.leaseId);
-    if (
-        (value.receiptVersion !== 1 && value.receiptVersion !== 2)
-        || value.artifactKind !== 'pdf'
-        || path === null
-        || typeof value.size !== 'number'
-        || !Number.isSafeInteger(value.size)
-        || value.size < 0
-        || (value.receiptVersion === 1 && (
-            typeof value.sha256 !== 'string'
-            || !SHA256_PATTERN.test(value.sha256)
-        ))
-        || (value.receiptVersion === 2 && value.sha256 !== undefined)
-        || leaseId === null
-        || (value.revision !== null && typeof value.revision !== 'string')
-    ) {
-        return null;
-    }
-    const fileIdentity = decodeFileIdentity(value.fileIdentity);
-    const validations = decodeValidations(value.validations);
-    const revision = value.revision === null ? null : parseDocumentRevisionToken(value.revision);
-    if (fileIdentity === null || validations === null || revision === null && value.revision !== null) {
-        return null;
-    }
-    if (
-        fileIdentity.platform === 'browser'
-        && (
-            fileIdentity.documentRef !== value.path
-            || revision === null
-            || fileIdentity.revisionToken !== revision
-        )
-    ) {
-        return null;
-    }
-    if (value.receiptVersion === 2) {
-        if (fileIdentity.platform === 'browser') {
-            return null;
-        }
-        return {
-            receiptVersion: 2,
-            artifactKind: 'pdf',
-            path,
-            size: value.size,
-            fileIdentity,
-            validations,
-            leaseId,
-            revision,
-        };
-    }
-    if (typeof value.sha256 !== 'string') {
-        return null;
-    }
-    return {
-        receiptVersion: 1,
-        artifactKind: 'pdf',
-        path,
-        size: value.size,
-        sha256: value.sha256,
-        fileIdentity,
-        validations,
-        leaseId,
-        revision,
-    };
+    return identity.output;
 }
 
 export function isTypedStagedArtifact(value: unknown): value is ITypedStagedArtifact {
-    return decodeTypedStagedArtifact(value) !== null;
+    return v.is(TYPED_STAGED_ARTIFACT_SCHEMA, value);
 }
 
 export function isBrowserStoreStagedArtifact(value: unknown): value is TBrowserStoreStagedArtifact {
-    const artifact = decodeTypedStagedArtifact(value);
-    return artifact !== null
-        && artifact.receiptVersion === 1
-        && artifact.fileIdentity.platform === 'browser'
-        && artifact.revision !== null;
+    return v.is(browserStoreStagedArtifactSchema, value);
 }

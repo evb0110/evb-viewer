@@ -272,7 +272,12 @@ function createAsyncDefault(path: string) {
         }));
     }
     if (path.includes('validatePdf') || path.includes('repairPdf') || path.includes('savePdfData')) {
-        return vi.fn(async () => ({valid: true}));
+        return vi.fn(async () => ({
+            isValid: true,
+            tool: 'browser' as const,
+            errors: [],
+            warnings: [],
+        }));
     }
     if (path.endsWith('.saveFileStructured')) {
         return vi.fn(async () => ({

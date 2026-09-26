@@ -2,7 +2,6 @@ import { stat } from 'fs/promises';
 import type {
     IPdfNativePageGeometry,
     IPdfNativePageSizesExactOptions,
-    IPdfNativePageSize,
     IPdfOpeningGeometry,
 } from '@contracts/electronApiDocuments';
 import {
@@ -50,6 +49,7 @@ import {
 } from '@electron/file-access/documentRevisionStore';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { readPdfNativePageGeometry } from '@electron/pdf/pdfPageSizes';
+type IPdfNativePageSize = Pick<IPdfOpeningGeometry, 'width' | 'height'>;
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 // The opening skeleton reads every page of an ordinary document to find its

@@ -32,25 +32,22 @@ import {
     registerDocumentRevisionEventBridge,
     registerDocumentRevisionInvalidationEffects,
 } from '@electron/features/documents/public';
-import {
-    appendOptionalDocumentArg,
-    decodePdfRevisionOptions,
-} from '@contracts/documentsPersistenceSchemas';
+import {PDF_REVISION_OPTIONS_SCHEMA} from '@contracts/documentsPersistenceSchemas';
 import type {
     IPdfSerializedSaveOptions, IWorkingCopyBackingStatus,  
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
-    decodeTypedStagedArtifact,
+    TYPED_STAGED_ARTIFACT_SCHEMA,
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 import {
     requireSessionId,
     type TSessionId,
+    type TRequestId,
 } from '@contracts/shared';
 import {
     decodeBoundedArray,
-    decodeSafeIntegerArg,
     decodeStringArg,
     decodeStringArrayArg,
     decodeUint8ArrayArg,
@@ -73,6 +70,7 @@ import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import {parseDocumentRef} from '@contracts/documentRef';
+import * as v from 'valibot';
 import {
     revokeManagedTempFileHandlesForSender,
     createManagedTempFileHandle,
@@ -331,17 +329,43 @@ function decodeRendererFileOpenRequest(value: unknown): IRendererFileOpenRequest
 }
 
 function decodeStagedSerializedPdfArgs(args: readonly unknown[]) {
-    const stagedOutput = decodeTypedStagedArtifact(args[1]);
-    if (!stagedOutput) throw new Error('stagedOutput must be a typed staged artifact');
+    const stagedOutput = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, args[1], {abortEarly: true});
+    if (!stagedOutput.success) throw new Error('stagedOutput must be a typed staged artifact');
     return [
         requireSessionId(decodeStringArg(args, 0, 'sessionId')),
-        stagedOutput,
+        stagedOutput.output,
     ];
 }
 
 function decodeSessionIdArgs(args: readonly unknown[]) {
     return [requireSessionId(decodeStringArg(args, 0, 'sessionId'))];
 }
+
+const savePdfDataBeginArgsSchema = v.pipe(
+    v.strictTuple([
+        v.pipe(
+            v.string('path must be a non-empty string'),
+            v.check(value => parseDocumentRef(value) !== null, 'Expected an absolute document ref'),
+            v.transform(value => parseDocumentRef(value) as TDocumentRef),
+        ),
+        v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        v.optional(v.nullish(PDF_REVISION_OPTIONS_SCHEMA)),
+    ]),
+    v.transform(([
+        path,
+        totalBytes,
+        revisionOptions,
+    ]) => revisionOptions === undefined || revisionOptions === null
+        ? [
+            path,
+            totalBytes,
+        ]
+        : [
+            path,
+            totalBytes,
+            revisionOptions,
+        ]),
+);
 
 /** Argument decoders for the channels outside the platform-feature specs. */
 export const DOCUMENTS_DIRECT_ARG_DECODERS: Record<string, {decodeArgs: (args: readonly unknown[]) => unknown[]}> = {
@@ -352,10 +376,7 @@ export const DOCUMENTS_DIRECT_ARG_DECODERS: Record<string, {decodeArgs: (args: r
         allowEmpty: true,
         maxItems: 4_096,
     }).map(decodeRendererFileOpenRequest)]},
-    [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {decodeArgs: args => appendOptionalDocumentArg([
-        requireDocumentRef(decodeStringArg(args, 0, 'path')),
-        decodeSafeIntegerArg(args, 1, 'totalBytes'),
-    ], decodePdfRevisionOptions(args[2]))},
+    [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {decodeArgs: args => v.parse(savePdfDataBeginArgsSchema, args)},
     [DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: {decodeArgs: decodeStagedSerializedPdfArgs},
     [DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf]: {decodeArgs: decodeStagedSerializedPdfArgs},
     [DOCX_EXPORT_STREAM_CHANNELS.begin]: {decodeArgs: args => [decodeStringArg(args, 0, 'filePath')]},
@@ -416,17 +437,17 @@ export const documentsMainBindings = {
         ...context,
         parentWindow: BrowserWindow.fromWebContents(context.sender),
     }),
-    openDocumentDirect: (context, filePath, password) => password === undefined
+    openDocumentDirect: (context, filePath, password?: string) => password === undefined
         ? handleOpenPdfDirect(context, filePath)
         : handleOpenPdfDirect(context, filePath, password),
-    openDocumentDirectBatch: (context, filePaths, requestId, batchOptions) =>
+    openDocumentDirectBatch: (context, filePaths, requestId?: TRequestId, batchOptions?: {forceCombine?: boolean}) =>
         handleOpenPdfDirectBatch(context, filePaths, requestId, batchOptions),
     cancelOpenDocumentDirectBatch: (context, requestId) =>
         handleCancelOpenDocumentDirectBatch(context, requestId),
-    createWorkingCopyFromData: (context, fileName, data, originalPath, password) =>
+    createWorkingCopyFromData: (context, fileName, data, originalPath?, password?) =>
         handleCreateWorkingCopyFromData(context, fileName, data, originalPath, password)
             .then(result => requireDocumentRef(result)),
-    createWorkingCopyFromPath: async (context, sourcePath, originalPath, password) => {
+    createWorkingCopyFromPath: async (context, sourcePath, originalPath?, password?) => {
         const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
         return handleCreateWorkingCopyFromPath(context, trustedSourcePath, originalPath, password)
             .then(result => requireDocumentRef(result));
@@ -468,7 +489,7 @@ export const documentsMainBindings = {
         getWorkingCopyRevision(filePath, context.senderId),
     getWorkingCopyBackingStatus: (context, filePath) =>
         getWorkingCopyBackingStatus(context.senderId, filePath),
-    savePdfAs: (context, workingPath, saveOptions, revisionOptions) =>
+    savePdfAs: (context, workingPath, saveOptions, revisionOptions?) =>
         handleSavePdfAs({
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
@@ -495,7 +516,7 @@ export const documentsMainBindings = {
         handleRepairPdfSave(context, workingPath, revisionOptions),
     optimizePdfForInteraction: (context, workingPath, revisionOptions) =>
         handleOptimizePdfForInteraction(context, workingPath, revisionOptions),
-    optimizePdfAsCopy: (context, workingPath, optimizeOptions, requestId, revisionOptions) =>
+    optimizePdfAsCopy: (context, workingPath, optimizeOptions, requestId?, revisionOptions?) =>
         handleOptimizePdfAsCopy({
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
@@ -517,7 +538,7 @@ export const documentsMainBindings = {
         modifiedAt,
         revisionOptions,
     ),
-    commitStagedPdfNativeMutations: (context, workingPath, stagedOutput, revisionOptions) =>
+    commitStagedPdfNativeMutations: (context, workingPath, stagedOutput, revisionOptions?) =>
         handleCommitStagedPdfNativeMutations(context, workingPath, stagedOutput, revisionOptions),
     cloneStagedPdfNativeMutationToWorkingCopy: (context, stagedOutput, originalPath) =>
         handleCloneStagedPdfNativeMutationToWorkingCopy(context, stagedOutput, originalPath)
@@ -533,7 +554,7 @@ export const documentsMainBindings = {
         handleAnalyzePdfConformance(context, filePath, options),
     validatePdfPath: (context, filePath, options) =>
         handleValidatePdfPath(context, filePath, options),
-    printPdfData: (context, data, fileName, options) => {
+    printPdfData: (context, data, fileName?, options?) => {
         registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
         return handlePrintPdfData({
             onNativePrintDialogOpened: requestId => context.sender.send(
@@ -546,7 +567,7 @@ export const documentsMainBindings = {
     },
     cancelPdfPrint: (context, requestId) =>
         handleCancelPdfPrint(context, requestId),
-    printPdfPath: (context, filePath, fileName, options) => {
+    printPdfPath: (context, filePath, fileName?, options?) => {
         registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
         return handlePrintPdfPath({
             onNativePrintDialogOpened: requestId => context.sender.send(

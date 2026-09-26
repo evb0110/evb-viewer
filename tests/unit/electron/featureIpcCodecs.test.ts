@@ -126,10 +126,8 @@ describe('feature IPC codec maps', () => {
     it('validates native print-dialog handoff events', () => {
         const event = DOCUMENT_PDF_PLATFORM_FEATURE.events.onNativePrintDialogOpened;
 
-        expect(event.payload.decode({requestId: 'print-request-1'})).toEqual({requestId: 'print-request-1'});
-        expect(() => event.payload.decode({requestId: ''})).toThrow(
-            'native print dialog event requestId must be a non-empty bounded string',
-        );
+        expect(v.parse(event.payload, {requestId: 'print-request-1'})).toEqual({requestId: 'print-request-1'});
+        expect(v.safeParse(event.payload, {requestId: ''}, {abortEarly: true}).success).toBe(false);
     });
 
     it('validates working-copy backing status once at the generated IPC boundary', () => {
@@ -145,7 +143,7 @@ describe('feature IPC codec maps', () => {
             .toEqual(['/tmp/managed.pdf']);
         expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel]?.decodeResult(validStatus))
             .toEqual(validStatus);
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.events.onWorkingCopyBackingStatusChanged.payload.decode(validStatus))
+        expect(v.parse(DOCUMENT_FILES_PLATFORM_FEATURE.events.onWorkingCopyBackingStatusChanged.payload, validStatus))
             .toEqual(validStatus);
         expect(DOCUMENT_FILES_PLATFORM_FEATURE.platformDescriptors.methods.find(
             descriptor => descriptor.path.at(-1) === 'onWorkingCopyBackingStatusChanged',
@@ -156,12 +154,10 @@ describe('feature IPC codec maps', () => {
                 electron: false,
             },
         });
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.events
-            .onWorkingCopyBackingStatusChanged.payload.decode({
-                ...validStatus,
-                progress: 1.1,
-            }))
-            .toThrow('invalid working-copy backing status');
+        expect(v.safeParse(DOCUMENT_FILES_PLATFORM_FEATURE.events.onWorkingCopyBackingStatusChanged.payload, {
+            ...validStatus,
+            progress: 1.1,
+        }, {abortEarly: true}).success).toBe(false);
     });
 
     it('accepts bounded opening and save purposes for path validation', () => {

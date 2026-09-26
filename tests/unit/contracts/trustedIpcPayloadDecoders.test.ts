@@ -6,7 +6,7 @@ import {
 import {
     MAX_DOCUMENT_ALLOCATION_BYTES,
     assertDocumentAllocationSize,
-    decodeFileStatResult,
+    FILE_STAT_RESULT_SCHEMA,
 } from '@contracts/electronApiDocuments';
 import { decodeAppUpdateStatus } from '@contracts/updatesPlatformFeature';
 import { decodeHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
@@ -14,10 +14,11 @@ import { decodeHostResourceProfileSnapshot } from '@contracts/hostResourceProfil
 import { decodeWindowTabsAction } from '@contracts/windowTabsValidation';
 import { decodeDocumentRevisionChangedEvent } from '@contracts/documentRevision';
 import { decodeOcrLanguages } from '@contracts/ocrLanguages';
+import * as v from 'valibot';
 
 describe('trusted IPC payload decoders', () => {
     it('accepts bounded file sizes and rejects malformed allocation sizes', () => {
-        expect(decodeFileStatResult({size: 42}, MAX_DOCUMENT_ALLOCATION_BYTES)).toEqual({size: 42});
+        expect(v.parse(FILE_STAT_RESULT_SCHEMA, {size: 42})).toEqual({size: 42});
         for (const value of [
             null,
             {size: '42'},
@@ -25,9 +26,9 @@ describe('trusted IPC payload decoders', () => {
             {size: 1.5},
             {size: Number.MAX_SAFE_INTEGER + 1},
         ]) {
-            expect(decodeFileStatResult(value, MAX_DOCUMENT_ALLOCATION_BYTES), JSON.stringify(value)).toBeNull();
+            expect(v.safeParse(FILE_STAT_RESULT_SCHEMA, value, {abortEarly: true}).success, JSON.stringify(value)).toBe(false);
         }
-        expect(decodeFileStatResult({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1})).toEqual({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
+        expect(v.parse(FILE_STAT_RESULT_SCHEMA, {size: MAX_DOCUMENT_ALLOCATION_BYTES + 1})).toEqual({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
         expect(() => assertDocumentAllocationSize(MAX_DOCUMENT_ALLOCATION_BYTES + 1)).toThrow(
             `no greater than ${MAX_DOCUMENT_ALLOCATION_BYTES} bytes`,
         );

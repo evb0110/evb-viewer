@@ -1,12 +1,13 @@
 import type {
-    ICreateCombinedPdfFromFilesOptions,
-    IWorkingCopyBackingStatus,
+    ICreateCombinedPdfFromFilesOptions,IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import {decodeWorkingCopyBackingStatus} from '@contracts/electronApiDocuments';
+import {
+    PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA,
+    WORKING_COPY_BACKING_STATUS_SCHEMA,
+} from '@contracts/electronApiDocuments';
 import {
     definePlatformFeature,
-    runtimeSchema as s,
-    type IRuntimeSchema,
+    type TPlatformFeatureSchema,
     type TFeatureCapability,
     type TFeatureEventMap,
     type TFeatureInvokeMap,
@@ -22,14 +23,12 @@ import {
     commitNativeMutationsArgs,
     createWorkingCopyFromDataArgs,
     createWorkingCopyFromPathArgs,
-    decodeConformanceResult,
-    decodePrintResult,
+    conformanceResult,
     documentRevisionArgs,
     documentRevisionEvent,
     documentSaveResult,
     fileExistsArgs,
     fileStatResult,
-    fixtureRevisionOptions,
     longNativeIpcTimeoutMs,
     managedHandleArgs,
     managedHandleResult,
@@ -57,6 +56,7 @@ import {
     pdfPathArgs,
     printPdfDataArgs,
     printPdfPathArgs,
+    printResult,
     readFileArgs,
     pdfPageLabelRangesResult,
     readFileRangeArgs,
@@ -74,9 +74,8 @@ import {
     validationResult,
     writeDocxArgs,
     writeFileArgs,
-    type TDocumentMethodArgs,
 } from '@contracts/documentsPlatformFeatureSchemas';
-import {decodePdfNativePrintDialogOpenedEvent} from '@contracts/pdfPathPrintOptions';
+import {PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA} from '@contracts/pdfPathPrintOptions';
 import {
     parsePdfAnnotationsArgs,
     pdfAnnotationParseResult,
@@ -93,8 +92,9 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {parseRequestId} from '@contracts/shared';
-export {decodeOpenFileResult} from '@contracts/documentsPlatformFeatureSchemas';
+import {isRecord} from '@contracts/runtimeGuards';
+import {PDF_REVISION_OPTIONS_SCHEMA} from '@contracts/documentsPersistenceSchemas';
+import * as v from 'valibot';
 
 const optionalEverywhere = {
     browser: false,
@@ -115,47 +115,34 @@ const electronImplementedOptional = {
         reason: 'requires-native-backend',
     },
 } as const;
-const noArgs = s.tuple([]);
-const voidResult = s.undefined();
-const documentRefResult = s.branded(
-    s.string('/tmp/document.pdf'),
-    (value): value is TDocumentRef => parseDocumentRef(value) !== null,
-    'invalid document reference',
+const noArgs = v.strictTuple([]);
+const voidResult = v.undefined();
+const documentRefResult = v.pipe(
+    v.string('invalid document reference'),
+    v.check(value => parseDocumentRef(value) !== null, 'invalid document reference'),
+    v.transform(value => parseDocumentRef(value) as TDocumentRef),
 );
-const documentRefArrayResult = s.array<TDocumentRef>(documentRefResult, [parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference')]);
-const fileArgs = s.trustedDirect<[file: File]>(() => [new File([], 'fixture.pdf')]);
-const filesArgs = s.trustedDirect<[files: File[]]>(() => [[new File([], 'fixture.pdf')]]);
-const combinedFilesArgs = s.trustedDirect<[
-    files: File[],
-    options?: ICreateCombinedPdfFromFilesOptions,
-]>(() => [[new File([], 'fixture.pdf')]]);
-const combinedPdfResult = s.trustedDirect<Uint8Array>(() => new Uint8Array());
+const documentRefArrayResult = v.array(documentRefResult);
+const fileSchema = v.custom<File>(value => typeof File !== 'undefined' && value instanceof File);
+const fileArgs = v.strictTuple([fileSchema]);
+const filesArgs = v.strictTuple([v.array(fileSchema)]);
+const combinedFilesOptionsSchema = v.custom<ICreateCombinedPdfFromFilesOptions>(value => isRecord(value)
+    && (value.onProgress === undefined || typeof value.onProgress === 'function')
+    && (value.signal === undefined || typeof AbortSignal !== 'undefined' && value.signal instanceof AbortSignal));
+const combinedFilesArgs = v.strictTuple([
+    v.array(fileSchema),
+    v.optional(combinedFilesOptionsSchema),
+]);
+const combinedPdfResult = v.custom<Uint8Array>((value): value is Uint8Array => value instanceof Uint8Array);
 const workingCopyBackingStatusArgs = pathArgs('path');
-const workingCopyBackingStatus = s.fromParser<IWorkingCopyBackingStatus>(
-    value => decodeWorkingCopyBackingStatus(value) ?? fail('invalid working-copy backing status'),
-    () => ({
-        documentRef: parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference'),
-        failure: null,
-        progress: 0.5,
-        state: 'materializing',
-    }),
-);
-const nullableWorkingCopyBackingStatus = s.fromParser<IWorkingCopyBackingStatus | null>(
-    value => value === null
-        ? null
-        : decodeWorkingCopyBackingStatus(value) ?? fail('invalid working-copy backing status'),
-    () => null,
-);
-
-function fail(message: string): never {
-    throw new Error(message);
-}
+const workingCopyBackingStatus = WORKING_COPY_BACKING_STATUS_SCHEMA;
+const nullableWorkingCopyBackingStatus = v.nullable(WORKING_COPY_BACKING_STATUS_SCHEMA);
 
 function defineIpcMethod<
     const TName extends string,
     const TChannel extends string,
-    const TArgs extends IRuntimeSchema<unknown[]>,
-    const TResult extends IRuntimeSchema<unknown>,
+    const TArgs extends TPlatformFeatureSchema<unknown[]>,
+    const TResult extends TPlatformFeatureSchema,
     const TMain extends string,
     const TContext extends 'none' | 'sender',
 >(
@@ -185,8 +172,8 @@ function defineIpcMethod<
 function defineLocalMethod<
     const TName extends string,
     const TKind extends 'async' | 'void',
-    const TArgs extends IRuntimeSchema<unknown[]>,
-    const TResult extends IRuntimeSchema<unknown>,
+    const TArgs extends TPlatformFeatureSchema<unknown[]>,
+    const TResult extends TPlatformFeatureSchema,
 >(name: TName, kind: TKind, args: TArgs, result: TResult) {
     return {
         kind,
@@ -202,7 +189,7 @@ function defineLocalMethod<
 function defineEvent<
     const TName extends string,
     const TChannel extends string,
-    const TPayload extends IRuntimeSchema<unknown>,
+    const TPayload extends TPlatformFeatureSchema,
 >(name: TName, channel: TChannel, payload: TPayload) {
     return {
         kind: 'event',
@@ -359,11 +346,20 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
     events: {},
 });
 
-const savePdfDataLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfData'>>(() => [
-    parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
-    Uint8Array.of(1),
-    fixtureRevisionOptions,
-]);
+const savePdfDataLocalArgs = v.pipe(
+    v.strictTuple([
+        documentRefResult,
+        v.custom<Uint8Array>(value => value instanceof Uint8Array),
+        v.optional(PDF_REVISION_OPTIONS_SCHEMA),
+        v.optional(PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA),
+    ]),
+    v.transform(args => args as [
+        TDocumentRef,
+        Uint8Array,
+        (IPdfSerializedSaveOptions | undefined)?,
+        (v.InferOutput<typeof PDF_SERIALIZED_COMMIT_CALLBACKS_SCHEMA> | undefined)?,
+    ]),
+);
 
 export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
     path: ['documentFiles'],
@@ -433,7 +429,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ...electronImplementedOptional,
         },
         readTextFile: defineIpcMethod(
-            'readTextFile', 'file:readText', readTextFileArgs, s.string(), 'readTextFile', 'sender',
+            'readTextFile', 'file:readText', readTextFileArgs, v.string(), 'readTextFile', 'sender',
         ),
         fileExists: defineIpcMethod(
             'fileExists', 'file:exists', fileExistsArgs, booleanResult, 'fileExists', 'sender',
@@ -635,29 +631,11 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
         analyzePdfConformance: {
             ...defineIpcMethod(
                 'analyzePdfConformance', 'pdf:analyzeConformance', pdfPathArgs,
-                s.fromParser(decodeConformanceResult, () => ({
-                    isSigned: false,
-                    isEncrypted: false,
-                    isTagged: false,
-                    pdfaLevel: null,
-                    hasAcroForm: false,
-                    hasXfa: false,
-                    canIncrementalSave: true,
-                    saveRestrictions: [],
-                })), 'analyzePdfConformance', 'sender',
+                conformanceResult, 'analyzePdfConformance', 'sender',
             ),
             ipc: {
                 args: pdfPathArgs,
-                result: s.fromParser(decodeConformanceResult, () => ({
-                    isSigned: false,
-                    isEncrypted: false,
-                    isTagged: false,
-                    pdfaLevel: null,
-                    hasAcroForm: false,
-                    hasXfa: false,
-                    canIncrementalSave: true,
-                    saveRestrictions: [],
-                })),
+                result: conformanceResult,
                 timeoutMs: longNativeIpcTimeoutMs,
             },
         },
@@ -674,7 +652,7 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
         },
         printPdfData: defineIpcMethod(
             'printPdfData', 'pdf:printData', printPdfDataArgs,
-            s.fromParser(decodePrintResult, () => ({success: true})),
+            printResult,
             'printPdfData', 'sender',
         ),
         cancelPdfPrint: {
@@ -686,7 +664,7 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
         },
         printPdfPath: defineIpcMethod(
             'printPdfPath', 'pdf:printPath', printPdfPathArgs,
-            s.fromParser(decodePrintResult, () => ({success: true})),
+            printResult,
             'printPdfPath', 'sender',
         ),
     },
@@ -694,10 +672,7 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
         ...defineEvent(
             'onNativePrintDialogOpened',
             'pdf:print:native-dialog-opened',
-            s.fromParser(
-                decodePdfNativePrintDialogOpenedEvent,
-                () => ({requestId: parseRequestId('print-request') ?? fail('invalid fixture request ID')}),
-            ),
+            PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA,
         ),
         ...electronImplementedOptional,
     }},
@@ -719,7 +694,7 @@ export const DOCUMENT_RECENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             'get', 'recentFiles:get', noArgs, recentFilesResult, 'getRecentFiles', 'sender',
         ),
         remove: defineIpcMethod(
-            'remove', 'recentFiles:remove', s.tuple([documentRefResult]), voidResult, 'removeRecentFile', 'none',
+            'remove', 'recentFiles:remove', v.strictTuple([documentRefResult]), voidResult, 'removeRecentFile', 'none',
         ),
         clear: defineIpcMethod(
             'clear', 'recentFiles:clear', noArgs, voidResult, 'clearRecentFiles', 'none',
@@ -733,12 +708,12 @@ export const DOCUMENT_WINDOW_PLATFORM_FEATURE = definePlatformFeature({
     required: requiredEverywhere,
     methods: {
         setWindowTitle: defineIpcMethod(
-            'setWindowTitle', 'window:setTitle', s.tuple([s.string('Document')]),
+            'setWindowTitle', 'window:setTitle', v.strictTuple([v.string()]),
             voidResult, 'setWindowTitle', 'sender',
         ),
         showItemInFolder: defineIpcMethod(
-            'showItemInFolder', 'shell:showItemInFolder', s.tuple([documentRefResult]),
-            s.boolean(), 'showItemInFolder', 'sender',
+            'showItemInFolder', 'shell:showItemInFolder', v.strictTuple([documentRefResult]),
+            v.boolean(), 'showItemInFolder', 'sender',
         ),
     },
     events: {},
@@ -760,7 +735,7 @@ export const DOCUMENT_MENU_PLATFORM_FEATURE = definePlatformFeature({
             voidResult, 'setMenuDocumentState', 'sender',
         ),
         setMenuTabCount: defineIpcMethod(
-            'setMenuTabCount', 'menu:setTabCount', s.tuple([nonNegativeInteger]),
+            'setMenuTabCount', 'menu:setTabCount', v.strictTuple([nonNegativeInteger]),
             voidResult, 'setMenuTabCount', 'sender',
         ),
     },

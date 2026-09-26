@@ -4,8 +4,9 @@ import type {
     IPdfNativePrintDialogOpenedEvent,
 } from '@contracts/electronApiDocuments';
 import {DOCUMENT_PDF_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
-import {decodePdfNativePrintDialogOpenedEvent} from '@contracts/pdfPathPrintOptions';
+import {PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA} from '@contracts/pdfPathPrintOptions';
 import {createTypedIpcEventSubscriber} from '@electron/preload/ipcClient';
+import * as v from 'valibot';
 
 interface INativePrintDialogEventMap {[DOCUMENT_PDF_PLATFORM_FEATURE.eventChannels.onNativePrintDialogOpened]: IPdfNativePrintDialogOpenedEvent;}
 
@@ -14,11 +15,8 @@ type TSubscribeToNativePrintDialogOpened = NonNullable<
 >;
 
 function decodePreloadNativePrintDialogOpenedEvent(value: unknown) {
-    try {
-        return decodePdfNativePrintDialogOpenedEvent(value);
-    } catch {
-        return null;
-    }
+    const parsed = v.safeParse(PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA, value, {abortEarly: true});
+    return parsed.success ? parsed.output : null;
 }
 
 export function createNativePrintDialogOpenedSubscriber(
