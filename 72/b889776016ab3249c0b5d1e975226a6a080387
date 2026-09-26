@@ -1,0 +1,60 @@
+tests/unit/electron/workingCopy.test.ts
+  s_d1dadb9ae0f739::t_86b2ca79b7feee 174,177-186,188,190-199,416,428-431,434,452-457
+  s_d1dadb9ae0f739::t_9c97fab83cad6d 463,497,504-507,674
+electron/features/documents/main/serializedPdfPersistence.ts
+  s_d1dadb9ae0f739::t_339e028655ce0b 618,623
+electron/file-access/workingCopyStore.ts
+  s_d1dadb9ae0f739::t_e62bcc043919f5 313-325,716
+  s_d1dadb9ae0f739::t_56df6c58f104f6 117,296-300,302-311,337-343,356,379,383-384,394,663,670,674-677,684,687,694-715,717-720,722-730
+  s_d1dadb9ae0f739::t_c375ed1b97d1d2 326-331,334-336,644-646,669,671-673
+  s_d1dadb9ae0f739::t_268dada17e77dd 1062-1065,1068-1070,1134-1137,1149,1152
+  s_d1dadb9ae0f739::t_119dbd47c1a946 14,347,350,380,385
+  s_d1dadb9ae0f739::t_8a40ee8b61c098 332-333
+  s_d1dadb9ae0f739::t_c4d1b04a90a39a 348-349
+  s_d1dadb9ae0f739::t_bbf1537d6ec57c 721
+tests/unit/electron/originalPathSaveWitness.test.ts
+  s_d1dadb9ae0f739::t_1886d095f720e2 180
+  s_d1dadb9ae0f739::t_5a2e6b581f2960 7,208-209,212-222,224-226
+  s_d1dadb9ae0f739::t_318b99f49d6faf 27-28,38-39,43,45,58-68,101-102,135-177,182-198,228-229
+tests/e2e/electron/save/savePipeline.e2e.test.ts
+  s_d1dadb9ae0f739::t_893c15293b9c09 811
+  s_d1dadb9ae0f739::t_bc3f0173684d4c 753-771,788-810
+  s_d1dadb9ae0f739::t_43f469ea53c1e3 772-785
+  s_d1dadb9ae0f739::t_922c0005c96955 41,786-787
+electron/features/documents/main/nativePdfMutationSaveHandlers.ts
+  s_d1dadb9ae0f739::t_3dd49ebb0b4095 631,648,653
+  s_d1dadb9ae0f739::t_9a2cf178f38ce3 447,449
+electron/file-access/originalPathSaveWitness.ts
+  s_d1dadb9ae0f739::t_e9e7b68e2fc506 98
+  s_d1dadb9ae0f739::t_ca2d199e5353e0 524,526,540-547,549
+  s_d1dadb9ae0f739::t_42c66101d64531 4,345-348,351-360
+  s_d1dadb9ae0f739::t_d68ee6e6960420 192,202,207-208
+  s_d1dadb9ae0f739::t_d1ae16e977177b 277-278
+  s_d1dadb9ae0f739::t_b9c80b3905c126 152,161,172,178,184,223,251
+  s_d1dadb9ae0f739::t_137a3e9dd7ed00 505,507-509,533,578
+  s_d1dadb9ae0f739::t_1f56eef7d9da18 535-538,579-582
+  s_d1dadb9ae0f739::t_1eb9b39fd754a5 185-191,193-201,203-206,209-216,527-529,532
+  s_d1dadb9ae0f739::t_ba7e10b00997b9 657
+electron/features/documents/main/transitionOriginalAndWorkingCopyRevision.ts
+  s_d1dadb9ae0f739::t_4bfd44fb24a16f 35,55,67,98-102
+electron/features/documents/main/workingCopySave.ts
+  s_d1dadb9ae0f739::t_733bf4f38c0027 192
+  s_d1dadb9ae0f739::t_9c891aee33024f 280-283,321-324
+  s_d1dadb9ae0f739::t_12e9796d0ade5d 155,190,308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "72b889776016ab3249c0b5d1e975226a6a080387",
+  "prompts": {},
+  "sessions": {
+    "s_d1dadb9ae0f739": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ddc5-cab5-7813-8aa7-2c63e73a7a72",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
