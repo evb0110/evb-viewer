@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
+import * as v from 'valibot';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
@@ -17,10 +18,10 @@ describe('OCR platform feature', () => {
     it('keeps optional catalog arguments in their declared slots', () => {
         const revision = parseDocumentRevisionToken('drt1:ocr-fixture');
         if (revision === null) throw new Error('fixture revision must be valid');
-        const catalogArgs = OCR_PLATFORM_FEATURE.methods.resolveDocumentTextCatalog.ipc.args;
-        const windowArgs = OCR_PLATFORM_FEATURE.methods.resolveDocumentTextCatalogWindow.ipc.args;
+        const catalogArgs = OCR_PLATFORM_FEATURE.ipcCodecs[channels.resolveDocumentTextCatalog];
+        const windowArgs = OCR_PLATFORM_FEATURE.ipcCodecs[channels.resolveDocumentTextCatalogWindow];
 
-        expect(catalogArgs.decode([
+        expect(catalogArgs.decodeArgs([
             '/tmp/ocr-fixture.pdf',
             revision,
             undefined,
@@ -31,7 +32,7 @@ describe('OCR platform feature', () => {
             undefined,
             'ocr-catalog-1',
         ]);
-        expect(catalogArgs.decode([
+        expect(catalogArgs.decodeArgs([
             '/tmp/ocr-fixture.pdf',
             revision,
             7,
@@ -42,7 +43,7 @@ describe('OCR platform feature', () => {
             7,
             'ocr-catalog-2',
         ]);
-        expect(windowArgs.decode([
+        expect(windowArgs.decodeArgs([
             '/tmp/ocr-fixture.pdf',
             revision,
             2,
@@ -57,7 +58,7 @@ describe('OCR platform feature', () => {
             undefined,
             'ocr-window-1',
         ]);
-        expect(windowArgs.decode([
+        expect(windowArgs.decodeArgs([
             '/tmp/ocr-fixture.pdf',
             revision,
             2,
@@ -124,7 +125,7 @@ describe('OCR platform feature', () => {
         })).toBe(true);
     });
 
-    it('decodes OCR languages and rejects malformed nested language entries', async () => {
+    it('parses OCR languages in the feature codec while preload forwards trusted main results', async () => {
         let result: unknown = [
             {
                 code: 'eng',
@@ -144,7 +145,9 @@ describe('OCR platform feature', () => {
             ipcRenderer as IpcRenderer,
             OCR_PLATFORM_FEATURE,
         );
+        const codec = OCR_PLATFORM_FEATURE.ipcCodecs[channels.getLanguages];
 
+        expect(codec.decodeResult(result)).toEqual(result);
         await expect(client.getLanguages()).resolves.toEqual(result);
 
         for (result of [
@@ -171,13 +174,12 @@ describe('OCR platform feature', () => {
                 },
             ],
         ]) {
-            await expect(client.getLanguages()).rejects.toThrow(
-                'invalid OCR languages IPC result',
-            );
+            expect(() => codec.decodeResult(result)).toThrow();
+            await expect(client.getLanguages()).resolves.toEqual(result);
         }
     });
 
-    it('drops malformed OCR progress and converts malformed completions to failure callbacks', async () => {
+    it('forwards main-originated OCR events without re-decoding them in preload', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
             invoke: vi.fn(),
@@ -266,61 +268,70 @@ describe('OCR platform feature', () => {
             errors: [],
         });
 
-        expect(progressCallback).toHaveBeenCalledTimes(1);
-        expect(progressCallback).toHaveBeenCalledWith(expect.objectContaining({
+        expect(progressCallback).toHaveBeenCalledTimes(3);
+        expect(progressCallback).toHaveBeenNthCalledWith(1, {
             requestId: 'ocr-1',
             currentPage: 1,
-        }));
+            processedCount: 1,
+            totalPages: 2,
+            phase: 'processing',
+        });
+        expect(progressCallback).toHaveBeenNthCalledWith(2, {
+            requestId: 'ocr-2',
+            currentPage: '1',
+            processedCount: 1,
+            totalPages: 2,
+        });
+        expect(progressCallback).toHaveBeenNthCalledWith(3, {
+            requestId: 'ocr-3',
+            currentPage: 1,
+            processedCount: 1,
+            totalPages: 2,
+            phase: 'not-a-contract-phase',
+        });
         expect(completeCallback).toHaveBeenCalledTimes(5);
-        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
+        expect(completeCallback).toHaveBeenNthCalledWith(1, expect.objectContaining({
             requestId: 'ocr-1',
             pdfPath: '/tmp/out.pdf',
-            sourceDocumentRevisionToken: 'source-revision-token',
-            resultSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-            diagnostics: [expect.objectContaining({
-                code: 'OCR_SOURCE_DPI_LIMITED',
-                pageNumber: 1,
-            })],
         }));
-        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
+        expect(completeCallback).toHaveBeenNthCalledWith(2, {
+            requestId: 'ocr-2',
+            success: true,
+            errors: [42],
+        });
+        expect(completeCallback).toHaveBeenNthCalledWith(3, expect.objectContaining({
             requestId: 'ocr-3',
             success: false,
-            errorEnvelope: {
-                code: 'OCR_QUEUE_BACKPRESSURE',
-                message: 'OCR queue is full',
-                retryable: true,
-                timestamp: 123,
-            },
+            errorEnvelope: expect.objectContaining({code: 'OCR_QUEUE_BACKPRESSURE'}),
         }));
-        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
-            requestId: 'ocr-2',
-            success: false,
-            errors: ['Malformed OCR completion payload'],
-            errorEnvelope: expect.objectContaining({
-                code: 'OCR_INVALID_PAYLOAD',
-                message: 'Malformed OCR completion payload',
-                retryable: false,
-            }),
-        }));
-        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
+        expect(completeCallback).toHaveBeenNthCalledWith(4, expect.objectContaining({
             requestId: 'ocr-4',
-            success: false,
-            errors: ['Malformed OCR completion error envelope'],
-            errorEnvelope: expect.objectContaining({
-                code: 'OCR_INVALID_PAYLOAD',
-                message: 'Malformed OCR completion error envelope',
-                retryable: false,
-            }),
+            errorEnvelope: expect.objectContaining({retryable: 'no'}),
         }));
-        expect(completeCallback).toHaveBeenCalledWith(expect.objectContaining({
+        expect(completeCallback).toHaveBeenNthCalledWith(5, expect.objectContaining({
             requestId: 'ocr-5',
-            success: false,
-            errors: ['Malformed OCR completion payload'],
-            errorEnvelope: expect.objectContaining({
-                code: 'OCR_INVALID_PAYLOAD',
-                message: 'Malformed OCR completion payload',
-                retryable: false,
-            }),
+            success: true,
         }));
+
+        const progressSchema = OCR_PLATFORM_FEATURE.events.onProgress.payload;
+        expect(v.parse(progressSchema, {
+            requestId: 'ocr-1',
+            currentPage: 1,
+            processedCount: 1,
+            totalPages: 2,
+            phase: 'processing',
+        })).toEqual({
+            requestId: 'ocr-1',
+            currentPage: 1,
+            processedCount: 1,
+            totalPages: 2,
+            phase: 'processing',
+        });
+        expect(v.safeParse(progressSchema, {
+            requestId: 'ocr-2',
+            currentPage: '1',
+            processedCount: 1,
+            totalPages: 2,
+        }).success).toBe(false);
     });
 });

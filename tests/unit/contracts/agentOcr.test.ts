@@ -48,7 +48,18 @@ describe('agent OCR contract', () => {
         }
     });
 
-    it('normalizes every supported option at the untrusted action boundary', () => {
+    it('does not advertise OSD-only Tesseract modes as output OCR modes', () => {
+        for (const mode of [
+            0,
+            2,
+            12,
+        ]) {
+            expect(v.safeParse(AGENT_OCR_RUN_INPUT_SCHEMA, {pageSegmentationMode: mode}).success).toBe(false);
+        }
+        expect(v.safeParse(AGENT_OCR_RUN_INPUT_SCHEMA, {pageSegmentationMode: 13}).success).toBe(true);
+    });
+
+    it('keeps tolerant option parsing and normalization for the OCR popup', () => {
         expect(parseAgentOcrRunOptions({
             pageRange: 'custom',
             customRange: ' 1-3, 7 ',
@@ -78,9 +89,6 @@ describe('agent OCR contract', () => {
             replaceAllAcknowledged: true,
             open: false,
         });
-    });
-
-    it('drops invalid and legacy-only representations', () => {
         expect(parseAgentOcrRunOptions({
             pageRange: 'selection',
             customRange: '   ',
@@ -93,13 +101,6 @@ describe('agent OCR contract', () => {
             open: 'yes',
         })).toEqual({});
         expect(parseAgentOcrRunOptions(null)).toEqual({});
-    });
-
-    it('does not advertise OSD-only Tesseract modes as output OCR modes', () => {
-        expect(parseAgentOcrRunOptions({pageSegmentationMode: 0})).toEqual({});
-        expect(parseAgentOcrRunOptions({pageSegmentationMode: 2})).toEqual({});
-        expect(parseAgentOcrRunOptions({pageSegmentationMode: 12})).toEqual({});
-        expect(parseAgentOcrRunOptions({pageSegmentationMode: 13})).toEqual({pageSegmentationMode: 13});
     });
 
     it('requires explicit acknowledgement for replace-all and rejects unknown fields', () => {

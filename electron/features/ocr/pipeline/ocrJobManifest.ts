@@ -9,32 +9,9 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
-
-type TOcrDagNode = 'model' | 'normalized-source' | 'page-raster' | 'preprocessed' | 'recognized-page' | 'assembled-document' | 'verified-result';
-
-interface IOcrDurableJobManifest {
-    version: 1;
-    fingerprint: string;
-    state: 'running' | 'completed' | 'failed' | 'cancelled';
-    updatedAt: number;
-    nodes: Partial<Record<TOcrDagNode, 'pending' | 'running' | 'verified'>>;
-    verifiedPages: number[];
-}
+import * as v from 'valibot';
 
 const OCR_JOB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const OCR_DAG_NODES = [
-    'model',
-    'normalized-source',
-    'page-raster',
-    'preprocessed',
-    'recognized-page',
-    'assembled-document',
-    'verified-result',
-] as const satisfies readonly TOcrDagNode[];
 const OCR_DAG_NODE_STATES = [
     'pending',
     'running',
@@ -47,48 +24,30 @@ const OCR_JOB_STATES = [
     'cancelled',
 ] as const;
 
-function parseJson(raw: string): unknown {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed;
-}
+const OCR_JOB_MANIFEST_SCHEMA = v.object({
+    version: v.literal(1),
+    fingerprint: v.string(),
+    state: v.picklist(OCR_JOB_STATES),
+    updatedAt: v.pipe(v.number(), v.finite()),
+    nodes: v.strictObject({
+        model: v.exactOptional(v.picklist(OCR_DAG_NODE_STATES)),
+        'normalized-source': v.exactOptional(v.picklist(OCR_DAG_NODE_STATES)),
+        'page-raster': v.exactOptional(v.picklist(OCR_DAG_NODE_STATES)),
+        preprocessed: v.exactOptional(v.picklist(OCR_DAG_NODE_STATES)),
+        'recognized-page': v.exactOptional(v.picklist(OCR_DAG_NODE_STATES)),
+        'assembled-document': v.exactOptional(v.picklist(OCR_DAG_NODE_STATES)),
+        'verified-result': v.exactOptional(v.picklist(OCR_DAG_NODE_STATES)),
+    }),
+    verifiedPages: v.array(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
+});
+type IOcrDurableJobManifest = v.InferOutput<typeof OCR_JOB_MANIFEST_SCHEMA>;
+type TOcrDagNode = keyof IOcrDurableJobManifest['nodes'];
 
 function decodeManifest(value: unknown, fingerprint: string): IOcrDurableJobManifest | null {
-    if (
-        !isRecord(value)
-        || value.version !== 1
-        || value.fingerprint !== fingerprint
-        || !isOneOf(OCR_JOB_STATES, value.state)
-        || typeof value.updatedAt !== 'number'
-        || !Number.isFinite(value.updatedAt)
-        || !isRecord(value.nodes)
-        || !Array.isArray(value.verifiedPages)
-        || value.verifiedPages.some(page => (
-            typeof page !== 'number'
-            || !Number.isSafeInteger(page)
-            || page < 1
-        ))
-    ) {
-        return null;
-    }
-    const nodes: IOcrDurableJobManifest['nodes'] = {};
-    for (const [
-        node,
-        state,
-    ] of Object.entries(value.nodes)) {
-        if (!isOneOf(OCR_DAG_NODES, node) || !isOneOf(OCR_DAG_NODE_STATES, state)) {
-            return null;
-        }
-        nodes[node] = state;
-    }
-    const verifiedPages = value.verifiedPages.filter((page): page is number => typeof page === 'number');
-    return {
-        version: 1,
-        fingerprint,
-        state: value.state,
-        updatedAt: value.updatedAt,
-        nodes,
-        verifiedPages,
-    };
+    const result = v.safeParse(OCR_JOB_MANIFEST_SCHEMA, value, {abortEarly: true});
+    return result.success && result.output.fingerprint === fingerprint
+        ? result.output
+        : null;
 }
 
 async function writeManifestAtomic(path: string, manifest: IOcrDurableJobManifest) {
@@ -114,7 +73,9 @@ export async function cleanupStaleOcrJobDirectories(rootDir: string, now = Date.
 export async function createOcrJobManifestController(jobDir: string, fingerprint: string) {
     await mkdir(jobDir, {recursive: true});
     const manifestPath = join(jobDir, 'manifest.json');
-    const loaded: unknown = await readFile(manifestPath, 'utf8').then(parseJson).catch(() => null);
+    const loaded: unknown = await readFile(manifestPath, 'utf8')
+        .then(raw => JSON.parse(raw) as unknown)
+        .catch(() => null);
     const manifest: IOcrDurableJobManifest = decodeManifest(loaded, fingerprint) ?? {
         version: 1,
         fingerprint,

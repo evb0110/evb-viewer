@@ -82,6 +82,35 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         ok: true,
         result: {},
     }],
+    'ocr:cancel': ['ocr-cancel-1'],
+    'ocr:resolveDocumentTextCatalog': [
+        '/tmp/ocr-fixture.pdf',
+        'drt1:ocr-fixture',
+    ],
+    'ocr:resolveDocumentTextCatalogWindow': [
+        '/tmp/ocr-fixture.pdf',
+        'drt1:ocr-fixture',
+        1,
+        1,
+    ],
+    'ocr:resolveDocumentOcrAvailability': [
+        '/tmp/ocr-fixture.pdf',
+        'drt1:ocr-fixture',
+    ],
+    'ocr:resolveDocumentOcrPage': [
+        '/tmp/ocr-fixture.pdf',
+        'drt1:ocr-fixture',
+        1,
+    ],
+    'ocr:ackResultFile': ['ocr-ack-1'],
+    'ocr:createSearchablePdf': [
+        '/tmp/ocr-fixture.pdf',
+        [{
+            pageNumber: 1,
+            languages: ['eng'],
+        }],
+        'ocr-start-1',
+    ],
     'settings:save': [{theme: 'dark'}],
     'shell:openExternal': ['https://example.test/'],
     'updates:skipVersion': ['1.2.3'],

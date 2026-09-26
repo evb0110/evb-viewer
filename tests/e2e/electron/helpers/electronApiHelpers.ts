@@ -4,6 +4,7 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
+import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
@@ -75,14 +76,7 @@ export async function runOcrSearchablePdf(
     }) => {
         const api = (window as typeof globalThis & IE2EWindow & {electronAPI?: {ocr?: {
             onProgress?: (callback: (progress: {requestId: string;}) => void) => () => void;
-            onComplete?: (callback: (result: {
-                requestId: string;
-                success: boolean;
-                pdfPath?: string;
-                sourceDocumentRevisionToken?: string;
-                requiresCleanupAck?: boolean;
-                errors: readonly string[];
-            }) => void) => () => void;
+            onComplete?: (callback: (result: IOcrCompleteResult) => void) => () => void;
             createSearchablePdf?: (
                 sourcePdfPath: string,
                 pages: Array<{
@@ -107,14 +101,7 @@ export async function runOcrSearchablePdf(
         let disposeComplete = () => {};
 
         try {
-            const completion = new Promise<{
-                requestId: string;
-                success: boolean;
-                pdfPath?: string;
-                sourceDocumentRevisionToken?: string;
-                requiresCleanupAck?: boolean;
-                errors: readonly string[];
-            }>((resolve, reject) => {
+            const completion = new Promise<IOcrCompleteResult>((resolve, reject) => {
                 const timeoutId = window.setTimeout(() => {
                     reject(new Error('Timed out waiting for OCR completion event'));
                 }, 180_000);

@@ -1,23 +1,19 @@
 import type {
-    IOcrCancelResult,
-    IOcrCompleteResult,
-    IOcrDiagnostic,
-    IOcrErrorEnvelope,
-    IOcrJobStartResult,
     IOcrProgress,
-    IOcrResultFileAckResult,
     IOcrSearchablePdfOptions,
     IOcrSearchablePdfPage,
     IOcrSearchablePdfPageRange,
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
 import {
+    OCR_CANCEL_RESULT_SCHEMA,
     OCR_COMPLETE_EVENT_CHANNEL,
-    OCR_COMPLETION_OUTCOMES,
-    OCR_DIAGNOSTIC_CODES,
-    OCR_ERROR_CODES,
+    OCR_COMPLETE_RESULT_SCHEMA,
+    OCR_JOB_START_RESULT_SCHEMA,
     OCR_PROGRESS_EVENT_CHANNEL,
-    OCR_PROGRESS_PHASES,
+    OCR_PROGRESS_SCHEMA,
+    OCR_RESULT_FILE_ACK_RESULT_SCHEMA,
+    OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA,
 } from '@contracts/electronApiOcr';
 import {
     decodeDocumentOcrAvailability,
@@ -34,44 +30,27 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     parseDocumentRevisionToken,
-    requireDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import {isLikelyAbsolutePath} from '@contracts/ipcAssertions';
+import {decodeOcrLanguages} from '@contracts/ocrLanguages';
 import {
-    assertAbsolutePath,
-    assertNonEmptyString,
-    assertOptionalAbsolutePath,
-} from '@contracts/ipcAssertions';
-import { decodeOcrLanguages } from '@contracts/ocrLanguages';
-import {
-    argsSchema,
     definePlatformFeature,
-    resultSchema,
-    runtimeSchema as s,
-    type IRuntimeSchema,
     type TFeatureCapability,
     type TFeatureEventMap,
     type TFeatureInvokeMap,
+    type TPlatformFeatureSchema,
 } from '@contracts/platformFeature';
+import {isRecord} from '@contracts/runtimeGuards';
 import {
-    isFiniteNumber,
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
-import {
-    parseJobId,
     parseRequestId,
     type IOcrLanguage,
     type TRequestId,
 } from '@contracts/shared';
-import {
-    createEpochMs,
-    isEpochMs,
-    requireEpochMs,
-} from '@contracts/timestamps';
+import * as v from 'valibot';
 
 const MAX_COLLECTION_ITEMS = 100_000;
 const OCR_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1_000;
@@ -81,19 +60,6 @@ const OMITTED_BROWSER_METHOD = {
     reason: 'not-implemented',
 } as const;
 
-function requireArgs(args: readonly unknown[], count: number | {
-    min: number;
-    max: number
-}) {
-    const min = typeof count === 'number' ? count : count.min;
-    const max = typeof count === 'number' ? count : count.max;
-    if (args.length < min || args.length > max) {
-        const expected = min === max ? String(min) : `${min}-${max}`;
-        throw new Error(`expected ${expected} arguments, received ${args.length}`);
-    }
-    return args;
-}
-
 function decodeSafeIntegerArg(
     args: readonly unknown[],
     index: number,
@@ -102,7 +68,7 @@ function decodeSafeIntegerArg(
 ) {
     const value = args[index];
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
-        throw new Error(`${fieldName} must be a safe integer >= ${min}`);
+        throw new Error(fieldName + ' must be a safe integer >= ' + min);
     }
     return value;
 }
@@ -110,83 +76,31 @@ function decodeSafeIntegerArg(
 function decodeStringArrayArg(args: readonly unknown[], index: number, fieldName: string) {
     const value = args[index];
     if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
-        throw new Error(`${fieldName} must be an array of strings`);
+        throw new Error(fieldName + ' must be an array of strings');
     }
     return value.filter((item): item is string => typeof item === 'string');
 }
 
-function decodeBoundedArray(value: unknown, fieldName: string) {
+function decodeBoundedArray(value: unknown, fieldName: string): unknown[] {
     if (!Array.isArray(value)) {
-        throw new Error(`${fieldName} must be an array`);
+        throw new Error(fieldName + ' must be an array');
     }
     if (value.length > MAX_COLLECTION_ITEMS) {
-        throw new Error(`${fieldName} exceeds maximum item count (${MAX_COLLECTION_ITEMS})`);
+        throw new Error(fieldName + ' exceeds maximum item count (' + MAX_COLLECTION_ITEMS + ')');
     }
-    return value.map((item: unknown) => item);
+    return value.map((item: unknown): unknown => item);
 }
 
-function requireDecoded<T>(
-    value: unknown,
-    decode: (candidate: unknown) => T | null,
-    label: string,
-) {
-    const decoded = decode(value);
-    if (decoded === null) {
-        throw new Error(`invalid ${label} IPC result`);
-    }
-    return decoded;
-}
-
-function decodeOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (
-        !isRecord(value)
-        || !isOneOf(OCR_ERROR_CODES, value.code)
-        || typeof value.message !== 'string'
-        || typeof value.retryable !== 'boolean'
-        || !isEpochMs(value.timestamp)
-        || (value.details !== undefined && typeof value.details !== 'string')
-    ) {
-        throw new Error('invalid OCR error envelope');
-    }
-    return {
-        code: value.code,
-        message: value.message,
-        retryable: value.retryable,
-        timestamp: value.timestamp,
-        ...(value.details === undefined ? {} : {details: value.details}),
-    };
-}
-
-const optionalOcrErrorEnvelope = s.declared<IOcrErrorEnvelope | undefined>()(
-    s.fromParser(decodeOcrErrorEnvelope, () => undefined),
-);
-
-function decodeOptionalErrorFields(value: Record<PropertyKey, unknown>) {
-    if (value.error !== undefined && typeof value.error !== 'string') {
-        throw new Error('error must be a string');
-    }
-    const errorEnvelope = optionalOcrErrorEnvelope.decode(value.errorEnvelope);
-    return {
-        ...(value.error === undefined ? {} : {error: value.error}),
-        ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
-    };
-}
-
-function decodeSearchablePdfPages(value: unknown) {
+function decodeSearchablePdfPages(value: unknown): TOcrSearchablePdfPages {
     if (Array.isArray(value)) {
         return decodeBoundedArray(value, 'OCR searchable PDF pages').map((page) => {
             if (!isRecord(page)) {
                 throw new Error('OCR searchable PDF page must be an object');
             }
             return {
-                pageNumber: requirePageNumber(
-                    decodeSafeIntegerArg([page.pageNumber], 0, 'pageNumber', 1),
-                ),
+                pageNumber: requirePageNumber(decodeSafeIntegerArg([page.pageNumber], 0, 'pageNumber', 1)),
                 languages: decodeStringArrayArg([page.languages], 0, 'languages'),
-            } satisfies IOcrSearchablePdfPage;
+            };
         }) satisfies IOcrSearchablePdfPage[];
     }
     if (!isRecord(value)) {
@@ -212,7 +126,7 @@ function decodeSearchablePdfPages(value: unknown) {
             kind: 'all',
             pageCount: decodePageNumber(value.pageCount, 'pageCount'),
             languages,
-        } as const;
+        };
     }
     if (kind === 'range') {
         const firstPage = decodePageNumber(value.firstPage, 'firstPage');
@@ -225,18 +139,17 @@ function decodeSearchablePdfPages(value: unknown) {
             firstPage,
             lastPage,
             languages,
-        } as const;
+        };
     }
 
-    const rangesValue = value.ranges;
-    const ranges = decodeBoundedArray(rangesValue, 'OCR searchable PDF ranges').map((range, index) => {
+    const ranges = decodeBoundedArray(value.ranges, 'OCR searchable PDF ranges').map((range, index) => {
         if (!isRecord(range)) {
-            throw new Error(`OCR searchable PDF range ${index} must be an object`);
+            throw new Error('OCR searchable PDF range ' + index + ' must be an object');
         }
-        const firstPage = decodePageNumber(range.firstPage, `ranges[${index}].firstPage`);
-        const lastPage = decodePageNumber(range.lastPage, `ranges[${index}].lastPage`, firstPage);
+        const firstPage = decodePageNumber(range.firstPage, 'ranges[' + index + '].firstPage');
+        const lastPage = decodePageNumber(range.lastPage, 'ranges[' + index + '].lastPage', firstPage);
         if (lastPage < firstPage) {
-            throw new Error(`ranges[${index}].lastPage must be greater than or equal to firstPage`);
+            throw new Error('ranges[' + index + '].lastPage must be greater than or equal to firstPage');
         }
         return {
             firstPage,
@@ -250,854 +163,260 @@ function decodeSearchablePdfPages(value: unknown) {
         kind: 'ranges',
         ranges,
         languages,
-    } as const;
-}
-
-function decodeSearchablePdfOptions(value: unknown): number | IOcrSearchablePdfOptions | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (typeof value === 'number') {
-        return decodeSafeIntegerArg([value], 0, 'renderDpi', 1);
-    }
-    if (!isRecord(value)) {
-        throw new Error('OCR searchable PDF options must be an object');
-    }
-    const renderDpi = value.renderDpi === undefined
-        ? undefined
-        : decodeSafeIntegerArg([value.renderDpi], 0, 'renderDpi', 1);
-    const pageSegmentationMode = value.pageSegmentationMode === undefined
-        ? undefined
-        : decodeSafeIntegerArg([value.pageSegmentationMode], 0, 'pageSegmentationMode', 0);
-    if (
-        value.qualityProfile !== undefined
-        && value.qualityProfile !== 'balanced'
-        && value.qualityProfile !== 'accurate'
-        && value.qualityProfile !== 'poor-scan'
-    ) {
-        throw new Error('invalid OCR quality profile');
-    }
-    if (
-        value.preprocessingMode !== undefined
-        && value.preprocessingMode !== 'off'
-        && value.preprocessingMode !== 'clean'
-    ) {
-        throw new Error('invalid OCR preprocessing mode');
-    }
-    if (
-        value.supersessionPolicy !== undefined
-        && value.supersessionPolicy !== 'missing-only'
-        && value.supersessionPolicy !== 'replace-evb'
-        && value.supersessionPolicy !== 'replace-all'
-    ) {
-        throw new Error('invalid OCR supersession policy');
-    }
-    if (value.replaceAllAcknowledged !== undefined && typeof value.replaceAllAcknowledged !== 'boolean') {
-        throw new Error('invalid OCR replace-all acknowledgement');
-    }
-    if (value.supersessionPolicy === 'replace-all' && value.replaceAllAcknowledged !== true) {
-        throw new Error('replace-all OCR requires acknowledgement');
-    }
-    return {
-        ...(renderDpi === undefined ? {} : {renderDpi}),
-        ...(value.qualityProfile === undefined ? {} : {qualityProfile: value.qualityProfile}),
-        ...(value.preprocessingMode === undefined ? {} : {preprocessingMode: value.preprocessingMode}),
-        ...(pageSegmentationMode === undefined ? {} : {pageSegmentationMode}),
-        ...(value.supersessionPolicy === undefined ? {} : {supersessionPolicy: value.supersessionPolicy}),
-        ...(value.replaceAllAcknowledged === undefined ? {} : {replaceAllAcknowledged: value.replaceAllAcknowledged}),
     };
 }
 
-function decodeJobStartResult(value: unknown) {
-    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
-    if (
-        !isRecord(value)
-        || typeof value.started !== 'boolean'
-        || jobId === null
-        || (value.installed !== undefined && (!Array.isArray(value.installed) || value.installed.some(item => typeof item !== 'string')))
-        || (value.errors !== undefined && (!Array.isArray(value.errors) || value.errors.some(item => typeof item !== 'string')))
-    ) {
-        throw new Error('invalid OCR job result');
-    }
-    return {
-        started: value.started,
-        jobId,
-        ...(value.installed === undefined ? {} : {installed: value.installed.map(String)}),
-        ...(value.errors === undefined ? {} : {errors: value.errors.map(String)}),
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
-function decodeCancelResult(value: unknown): IOcrCancelResult {
-    if (
-        !isRecord(value)
-        || typeof value.canceled !== 'boolean'
-        || (
-            value.reason !== undefined
-            && value.reason !== 'invalid-request'
-            && value.reason !== 'not-found'
-            && value.reason !== 'failed'
-        )
-    ) {
-        throw new Error('invalid OCR cancellation result');
-    }
-    const reason: IOcrCancelResult['reason'] = value.reason;
-    return {
-        canceled: value.canceled,
-        ...(reason === undefined ? {} : {reason}),
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
-function decodeAckResult(value: unknown) {
-    if (!isRecord(value) || typeof value.cleaned !== 'boolean') {
-        throw new Error('invalid OCR result file acknowledgement');
-    }
-    return {
-        cleaned: value.cleaned,
-        ...decodeOptionalErrorFields(value),
-    };
-}
-
-function buildMalformedCompleteResult(
-    requestId: TRequestId,
-    message = 'Malformed OCR completion payload',
-): IOcrCompleteResult {
-    return {
-        requestId,
-        success: false,
-        errors: [message],
-        errorEnvelope: {
-            code: 'OCR_INVALID_PAYLOAD',
-            message,
-            retryable: false,
-            timestamp: createEpochMs(),
-        },
-    };
-}
-
-function decodeOcrProgress(payload: unknown): IOcrProgress | null {
-    const requestId = isRecord(payload) ? parseRequestId(payload.requestId) : null;
-    if (
-        !isRecord(payload)
-        || requestId === null
-        || !isFiniteNumber(payload.currentPage)
-        || !isFiniteNumber(payload.processedCount)
-        || !isFiniteNumber(payload.totalPages)
-    ) {
-        return null;
-    }
-    if (
-        payload.phase !== undefined
-        && (
-            typeof payload.phase !== 'string'
-            || !isOneOf(OCR_PROGRESS_PHASES, payload.phase)
-        )
-    ) {
-        return null;
-    }
-    if (payload.phaseProgress !== undefined && !isFiniteNumber(payload.phaseProgress)) {
-        return null;
-    }
-    if (payload.activePages !== undefined && (
-        !Array.isArray(payload.activePages)
-        || payload.activePages.some(page => !isFiniteNumber(page))
-    )) {
-        return null;
-    }
-    if (payload.languageCode !== undefined && typeof payload.languageCode !== 'string') {
-        return null;
-    }
-    if (
-        payload.status !== undefined
-        && payload.status !== 'running'
-        && payload.status !== 'success'
-        && payload.status !== 'canceled'
-        && payload.status !== 'failed'
-    ) {
-        return null;
-    }
-    if (payload.error !== undefined && typeof payload.error !== 'string') {
-        return null;
-    }
-
-    return {
-        requestId,
-        currentPage: payload.currentPage,
-        processedCount: payload.processedCount,
-        totalPages: payload.totalPages,
-        ...(payload.phase === undefined ? {} : {phase: payload.phase}),
-        ...(payload.phaseProgress === undefined ? {} : {phaseProgress: payload.phaseProgress}),
-        ...(payload.activePages === undefined ? {} : {activePages: payload.activePages.filter((page): page is number => isFiniteNumber(page))}),
-        ...(payload.languageCode === undefined ? {} : {languageCode: payload.languageCode}),
-        ...(payload.status === undefined ? {} : {status: payload.status}),
-        ...(payload.error === undefined ? {} : {error: payload.error}),
-    };
-}
-
-function decodeOcrDiagnostics(value: unknown): IOcrDiagnostic[] | null | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    if (!Array.isArray(value)) {
-        return null;
-    }
-    const diagnostics: IOcrDiagnostic[] = [];
-    for (const diagnostic of value) {
-        if (
-            !isRecord(diagnostic)
-            || !isOneOf(OCR_DIAGNOSTIC_CODES, diagnostic.code)
-            || (diagnostic.severity !== 'info' && diagnostic.severity !== 'warning')
-            || typeof diagnostic.message !== 'string'
-            || (diagnostic.pageNumber !== undefined && (
-                typeof diagnostic.pageNumber !== 'number'
-                || !Number.isSafeInteger(diagnostic.pageNumber)
-                || diagnostic.pageNumber < 1
-            ))
-        ) {
-            return null;
-        }
-        diagnostics.push({
-            code: diagnostic.code,
-            severity: diagnostic.severity,
-            message: diagnostic.message,
-            ...(diagnostic.pageNumber === undefined
-                ? {}
-                : {pageNumber: requirePageNumber(diagnostic.pageNumber)}),
-        });
-    }
-    return diagnostics;
-}
-
-function decodeOcrEventErrorEnvelope(payload: unknown): IOcrErrorEnvelope | null {
-    if (
-        !isRecord(payload)
-        || !isOneOf(OCR_ERROR_CODES, payload.code)
-        || typeof payload.message !== 'string'
-        || typeof payload.retryable !== 'boolean'
-        || !isEpochMs(payload.timestamp)
-    ) {
-        return null;
-    }
-    if (payload.details !== undefined && typeof payload.details !== 'string') {
-        return null;
-    }
-
-    return {
-        code: payload.code,
-        message: payload.message,
-        retryable: payload.retryable,
-        timestamp: payload.timestamp,
-        ...(payload.details === undefined ? {} : {details: payload.details}),
-    };
-}
-
-const ocrEventErrorEnvelope = s.declared<IOcrErrorEnvelope>()(
-    s.fromNullableDecoder(
-        decodeOcrEventErrorEnvelope,
-        'OCR error envelope',
-        () => ({
-            code: 'OCR_INTERNAL_ERROR',
-            message: 'OCR failed',
-            retryable: false,
-            timestamp: requireEpochMs(0),
-        }),
+const searchablePdfPagesSchema = v.pipe(
+    v.unknown(),
+    v.transform(decodeSearchablePdfPages),
+);
+const safeIntegerSchema = (fieldName: string, min = 0) => v.message(
+    v.pipe(
+        v.number(),
+        v.finite(),
+        v.safeInteger(),
+        v.minValue(min),
     ),
+    fieldName + ' must be a safe integer >= ' + min,
 );
-
-function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
-    if (!isRecord(payload)) {
-        return null;
-    }
-    const requestId = parseRequestId(payload.requestId);
-    if (requestId === null) {
-        return null;
-    }
-    const pdfPath = payload.pdfPath === undefined ? undefined : parseDocumentRef(payload.pdfPath);
-
-    if (
-        typeof payload.success !== 'boolean'
-        || !Array.isArray(payload.errors)
-        || payload.errors.some(error => typeof error !== 'string')
-    ) {
-        return buildMalformedCompleteResult(requestId);
-    }
-    if (pdfPath === null) {
-        return buildMalformedCompleteResult(requestId);
-    }
-    const sourceDocumentRevisionToken = payload.sourceDocumentRevisionToken === undefined
-        ? undefined
-        : parseDocumentRevisionToken(payload.sourceDocumentRevisionToken);
-    if (sourceDocumentRevisionToken === null) {
-        return buildMalformedCompleteResult(requestId);
-    }
-    if (payload.requiresCleanupAck !== undefined && typeof payload.requiresCleanupAck !== 'boolean') {
-        return buildMalformedCompleteResult(requestId);
-    }
-    const resultSha256 = payload.resultSha256 === undefined
-        ? undefined
-        : typeof payload.resultSha256 === 'string' && /^[a-f0-9]{64}$/u.test(payload.resultSha256)
-            ? payload.resultSha256
-            : null;
-    if (resultSha256 === null) {
-        return buildMalformedCompleteResult(requestId);
-    }
-    if (
-        payload.success
-        && (
-            pdfPath === undefined
-            || sourceDocumentRevisionToken === undefined
-            || resultSha256 === undefined
-            || typeof payload.requiresCleanupAck !== 'boolean'
-        )
-    ) {
-        return buildMalformedCompleteResult(requestId);
-    }
-    const outcome = payload.outcome === undefined
-        ? undefined
-        : isOneOf(OCR_COMPLETION_OUTCOMES, payload.outcome)
-            ? payload.outcome
-            : null;
-    if (outcome === null || (payload.success && outcome !== undefined)) {
-        return buildMalformedCompleteResult(requestId);
-    }
-    let errorEnvelope: IOcrErrorEnvelope | null = null;
-    if (payload.errorEnvelope !== undefined) {
-        try {
-            errorEnvelope = ocrEventErrorEnvelope.decode(payload.errorEnvelope);
-        } catch {
-            return buildMalformedCompleteResult(
-                requestId,
-                'Malformed OCR completion error envelope',
-            );
-        }
-    }
-    const errors = payload.errors.filter((error): error is string => typeof error === 'string');
-    const diagnostics = decodeOcrDiagnostics(payload.diagnostics);
-    if (diagnostics === null) {
-        return buildMalformedCompleteResult(
-            requestId,
-            'Malformed OCR completion diagnostics',
-        );
-    }
-
-    return {
+const absolutePathSchema = (fieldName: string) => v.pipe(
+    v.string(),
+    v.check(value => value.trim().length > 0, fieldName + ' must not be empty'),
+    v.maxLength(4_096, fieldName + ' exceeds maximum length (4096)'),
+    v.check(value => !value.includes('\0'), fieldName + ' must not contain NUL bytes'),
+    v.check(isLikelyAbsolutePath, fieldName + ' must be an absolute path'),
+    v.custom<TDocumentRef>(value => parseDocumentRef(value) !== null, fieldName + ' must be a supported document reference'),
+);
+const optionalAbsolutePathSchema = (fieldName: string) => v.pipe(
+    v.nullish(v.union([
+        v.literal(''),
+        absolutePathSchema(fieldName),
+    ])),
+    v.transform(value => value === '' || value === null || value === undefined ? undefined : value),
+);
+const requestIdSchema = (fieldName: string) => v.pipe(
+    v.string(),
+    v.transform(value => value.trim()),
+    v.minLength(1, fieldName + ' must not be empty'),
+    v.maxLength(OCR_REQUEST_ID_MAX_LENGTH, fieldName + ' exceeds maximum length (' + OCR_REQUEST_ID_MAX_LENGTH + ')'),
+    v.check(value => !value.includes('\0'), fieldName + ' must not contain NUL bytes'),
+    v.custom<TRequestId>(value => parseRequestId(value) !== null, fieldName + ' must be a valid request ID'),
+);
+const documentRevisionSchema = v.pipe(
+    v.string(),
+    v.transform(value => value.trim()),
+    v.custom<TDocumentRevisionToken>(value => parseDocumentRevisionToken(value) !== null, 'documentRevision must be a valid revision token'),
+);
+const pageCountSchema = safeIntegerSchema('pageCount', 0);
+const requestIdArgs = v.strictTuple([requestIdSchema('requestId')]);
+const noArgs = v.strictTuple([]);
+const acknowledgeResultFileArgs = v.pipe(
+    v.strictTuple([
+        requestIdSchema('ocrAcknowledgeResultFile.requestId'),
+        v.optional(optionalAbsolutePathSchema('ocrAcknowledgeResultFile.pdfPath')),
+        v.optional(optionalAbsolutePathSchema('ocrAcknowledgeResultFile.documentRef')),
+        v.optional(documentRevisionSchema),
+    ]),
+    v.check(([
+        , , documentRef,
+        sourceDocumentRevisionToken,
+    ]) =>
+        documentRef === undefined || sourceDocumentRevisionToken !== undefined,
+    'ocrAcknowledgeResultFile.sourceDocumentRevisionToken is required with documentRef'),
+    v.check(([
+        , pdfPath,
+        documentRef,
+    ]) =>
+        documentRef === undefined || pdfPath !== undefined,
+    'ocrAcknowledgeResultFile.pdfPath is required with documentRef'),
+    v.check(([
+        , , documentRef,
+        sourceDocumentRevisionToken,
+    ]) =>
+        documentRef !== undefined || sourceDocumentRevisionToken === undefined,
+    'ocrAcknowledgeResultFile.documentRef is required with sourceDocumentRevisionToken'),
+    v.transform(([
         requestId,
-        success: payload.success,
-        errors,
-        ...(outcome === undefined ? {} : {outcome}),
-        ...(diagnostics === undefined ? {} : {diagnostics}),
-        ...(pdfPath === undefined ? {} : {pdfPath}),
-        ...(sourceDocumentRevisionToken === undefined ? {} : {sourceDocumentRevisionToken}),
-        ...(resultSha256 === undefined ? {} : {resultSha256}),
-        ...(payload.requiresCleanupAck === undefined ? {} : {requiresCleanupAck: payload.requiresCleanupAck}),
-        ...(errorEnvelope === null ? {} : {errorEnvelope}),
-    };
-}
-
-type TOcrCreateSearchablePdfArgs = [
-    sourcePdfPath: TDocumentRef,
-    pages: TOcrSearchablePdfPages,
-    requestId: TRequestId,
-    renderDpiOrOptions?: number | IOcrSearchablePdfOptions,
-];
-type TOcrAcknowledgeResultFileArgs = [
-    requestId: TRequestId,
-    pdfPath?: TDocumentRef,
-    documentRef?: TDocumentRef,
-    sourceDocumentRevisionToken?: TDocumentRevisionToken,
-];
-type TResolveDocumentTextCatalogArgs =
-    | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken]
-    | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken, pageCount: number]
-    | [
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        pageCount: undefined,
-        requestId: TRequestId,
-    ]
-    | [
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        pageCount: number,
-        requestId: TRequestId,
-    ];
-type TResolveDocumentTextCatalogWindowArgs =
-    | [
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        firstPage: number,
-        lastPage: number,
-    ]
-    | [
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        firstPage: number,
-        lastPage: number,
-        pageCount: number,
-    ]
-    | [
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        firstPage: number,
-        lastPage: number,
-        pageCount: undefined,
-        requestId: TRequestId,
-    ]
-    | [
-        workingCopyPath: TDocumentRef,
-        documentRevision: TDocumentRevisionToken,
-        firstPage: number,
-        lastPage: number,
-        pageCount: number,
-        requestId: TRequestId,
-    ];
-
-function decodeDocumentRevisionArg(
-    args: readonly unknown[],
-    index: number,
-    fieldName = 'documentRevision',
-) {
-    const documentRevision = parseDocumentRevisionToken(args[index]);
-    if (documentRevision === null) {
-        throw new Error(`${fieldName} must be a valid revision token`);
-    }
-    return documentRevision;
-}
-
-const createSearchablePdfArgs = argsSchema<TOcrCreateSearchablePdfArgs>(
-    (args) => {
-        requireArgs(args, {
-            min: 3,
-            max: 4,
-        });
-        const requiredArgs: [
-            TDocumentRef,
-            TOcrSearchablePdfPages,
-            TRequestId,
-        ] = [
-            assertAbsolutePath(
-                args[0],
-                'ocrCreateSearchablePdf.sourcePdfPath',
-            ),
-            decodeSearchablePdfPages(args[1]),
-            assertRequestId(
-                args[2],
-                'ocrCreateSearchablePdf.requestId',
-            ),
-        ];
-        const options = decodeSearchablePdfOptions(args[3]);
-        return options === undefined
-            ? requiredArgs
-            : [
-                ...requiredArgs,
-                options,
-            ];
-    },
-    () => [
-        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture sourcePdfPath'),
-        [{
-            pageNumber: requirePageNumber(1),
-            languages: ['eng'],
-        }],
-        assertRequestId('ocr-searchable-pdf-fixture', 'fixture requestId'),
-        {renderDpi: 300},
-    ],
-);
-const requestIdArgs = argsSchema<[TRequestId]>(
-    args => [assertRequestId(requireArgs(args, 1)[0], 'requestId')],
-    () => [parseRequestId('ocr-request-fixture') ?? (() => { throw new TypeError('invalid request ID fixture'); })()],
-);
-const acknowledgeResultFileArgs = argsSchema<TOcrAcknowledgeResultFileArgs>(
-    (args) => {
-        requireArgs(args, {
-            min: 1,
-            max: 4,
-        });
-        const requestId = assertRequestId(
-            args[0],
-            'ocrAcknowledgeResultFile.requestId',
-        );
-        const pdfPath = assertOptionalAbsolutePath(
-            args[1],
-            'ocrAcknowledgeResultFile.pdfPath',
-        );
-        const documentRef = assertOptionalAbsolutePath(
-            args[2],
-            'ocrAcknowledgeResultFile.documentRef',
-        );
-        const sourceDocumentRevisionToken = args[3] === undefined
-            ? undefined
-            : parseDocumentRevisionToken(args[3]);
-        if (args[3] !== undefined && sourceDocumentRevisionToken === null) {
-            throw new TypeError('ocrAcknowledgeResultFile.sourceDocumentRevisionToken must be a non-empty string');
-        }
-        if (documentRef === undefined && sourceDocumentRevisionToken !== undefined) {
-            throw new TypeError('ocrAcknowledgeResultFile.documentRef is required with sourceDocumentRevisionToken');
-        }
-        if (documentRef !== undefined && pdfPath === undefined) {
-            throw new TypeError('ocrAcknowledgeResultFile.pdfPath is required with documentRef');
-        }
-        if (documentRef !== undefined && sourceDocumentRevisionToken === undefined) {
-            throw new TypeError('ocrAcknowledgeResultFile.sourceDocumentRevisionToken is required with documentRef');
-        }
-        if (pdfPath === undefined && documentRef === undefined && sourceDocumentRevisionToken === undefined) {
-            return [requestId];
-        }
-        if (pdfPath !== undefined && documentRef === undefined) {
+        pdfPath,
+        documentRef,
+        sourceDocumentRevisionToken,
+    ]) => {
+        if (documentRef !== undefined && sourceDocumentRevisionToken !== undefined && pdfPath !== undefined) {
             return [
                 requestId,
                 pdfPath,
-            ];
-        }
-        if (pdfPath === undefined || documentRef === undefined || !sourceDocumentRevisionToken) {
-            throw new TypeError('ocrAcknowledgeResultFile document scope is incomplete');
-        }
-        return [
-            requestId,
-            pdfPath,
-            documentRef,
-            sourceDocumentRevisionToken,
-        ];
-    },
-    () => [
-        assertRequestId('ocr-request-fixture', 'fixture requestId'),
-        assertAbsolutePath('/tmp/ocr-result-fixture.pdf', 'fixture pdfPath'),
-    ],
-);
-const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArgs>(
-    (args) => {
-        requireArgs(args, {
-            min: 2,
-            max: 4,
-        });
-        const requiredArgs: [
-            TDocumentRef,
-            TDocumentRevisionToken,
-        ] = [
-            assertAbsolutePath(
-                args[0],
-                'resolveDocumentTextCatalog.workingCopyPath',
-            ),
-            decodeDocumentRevisionArg(
-                args,
-                1,
-                'resolveDocumentTextCatalog.documentRevision',
-            ),
-        ];
-        const pageCount = args[2] === undefined
-            ? undefined
-            : decodeSafeIntegerArg(args, 2, 'pageCount', 0);
-        const requestId = args[3] === undefined
-            ? undefined
-            : assertRequestId(args[3], 'resolveDocumentTextCatalog.requestId');
-        if (requestId === undefined) {
-            if (pageCount === undefined) {
-                return requiredArgs;
-            }
-            const pageCountArgs: [
-                TDocumentRef,
-                TDocumentRevisionToken,
-                number,
-            ] = [
-                requiredArgs[0],
-                requiredArgs[1],
-                pageCount,
-            ];
-            return pageCountArgs;
-        }
-        if (pageCount === undefined) {
-            const requestIdArgs: [
-                TDocumentRef,
-                TDocumentRevisionToken,
-                undefined,
+                documentRef,
+                sourceDocumentRevisionToken,
+            ] as [
                 TRequestId,
-            ] = [
-                requiredArgs[0],
-                requiredArgs[1],
-                undefined,
-                requestId,
+                TDocumentRef,
+                TDocumentRef,
+                TDocumentRevisionToken,
             ];
-            return requestIdArgs;
         }
-        const requestIdArgs: [
-            TDocumentRef,
-            TDocumentRevisionToken,
-            number,
-            TRequestId,
-        ] = [
-            requiredArgs[0],
-            requiredArgs[1],
-            pageCount,
-            requestId,
-        ];
-        return requestIdArgs;
-    },
-    () => [
-        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
-        requireDocumentRevisionToken('drt1:ocr-fixture'),
-        1,
-    ],
+        return pdfPath === undefined
+            ? [requestId] as [TRequestId]
+            : [
+                requestId,
+                pdfPath,
+            ] as [TRequestId, TDocumentRef];
+    }),
 );
-const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCatalogWindowArgs>(
-    (args) => {
-        requireArgs(args, {
-            min: 4,
-            max: 6,
-        });
-        const firstPage = decodeSafeIntegerArg(args, 2, 'firstPage', 1);
-        const lastPage = decodeSafeIntegerArg(args, 3, 'lastPage', firstPage);
-        if (lastPage < firstPage) {
-            throw new Error('lastPage must be greater than or equal to firstPage');
-        }
-        if (lastPage - firstPage + 1 > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES) {
-            throw new Error(`document text catalog windows may contain at most ${MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES} pages`);
-        }
-        const pageCount = args[4] === undefined
-            ? undefined
-            : decodeSafeIntegerArg(args, 4, 'pageCount', lastPage);
-        const requestId = args[5] === undefined
-            ? undefined
-            : assertRequestId(args[5], 'resolveDocumentTextCatalogWindow.requestId');
-        const requiredArgs: [
-            TDocumentRef,
-            TDocumentRevisionToken,
-            number,
-            number,
-        ] = [
-            assertAbsolutePath(
-                args[0],
-                'resolveDocumentTextCatalogWindow.workingCopyPath',
-            ),
-            decodeDocumentRevisionArg(
-                args,
-                1,
-                'resolveDocumentTextCatalogWindow.documentRevision',
-            ),
-            firstPage,
+const createSearchablePdfArgs = v.pipe(
+    v.strictTuple([
+        absolutePathSchema('ocrCreateSearchablePdf.sourcePdfPath'),
+        searchablePdfPagesSchema,
+        requestIdSchema('ocrCreateSearchablePdf.requestId'),
+        v.optional(v.union([
+            safeIntegerSchema('renderDpi', 1),
+            OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA,
+        ])),
+    ]),
+    v.transform(([
+        sourcePdfPath,
+        pages,
+        requestId,
+        renderDpiOrOptions,
+    ]) =>
+        renderDpiOrOptions === undefined
+            ? [
+                sourcePdfPath,
+                pages,
+                requestId,
+            ] as [TDocumentRef, TOcrSearchablePdfPages, TRequestId]
+            : [
+                sourcePdfPath,
+                pages,
+                requestId,
+                renderDpiOrOptions,
+            ] as [
+                TDocumentRef,
+                TOcrSearchablePdfPages,
+                TRequestId,
+                number | IOcrSearchablePdfOptions,
+            ]),
+);
+const resolveDocumentTextCatalogArgs = v.union([
+    v.strictTuple([
+        absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'),
+        documentRevisionSchema,
+    ]),
+    v.strictTuple([
+        absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'),
+        documentRevisionSchema,
+        pageCountSchema,
+    ]),
+    v.strictTuple([
+        absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'),
+        documentRevisionSchema,
+        v.undefined(),
+        requestIdSchema('resolveDocumentTextCatalog.requestId'),
+    ]),
+    v.strictTuple([
+        absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'),
+        documentRevisionSchema,
+        pageCountSchema,
+        requestIdSchema('resolveDocumentTextCatalog.requestId'),
+    ]),
+]);
+const resolveDocumentTextCatalogWindowArgs = v.union([
+    v.pipe(
+        v.strictTuple([
+            absolutePathSchema('resolveDocumentTextCatalogWindow.workingCopyPath'),
+            documentRevisionSchema,
+            safeIntegerSchema('firstPage', 1),
+            safeIntegerSchema('lastPage', 1),
+        ]),
+        v.check(([
+            , , firstPage,
             lastPage,
-        ];
-        if (requestId === undefined) {
-            if (pageCount === undefined) {
-                return requiredArgs;
-            }
-            const pageCountArgs: [
-                TDocumentRef,
-                TDocumentRevisionToken,
-                number,
-                number,
-                number,
-            ] = [
-                requiredArgs[0],
-                requiredArgs[1],
-                requiredArgs[2],
-                requiredArgs[3],
-                pageCount,
-            ];
-            return pageCountArgs;
-        }
-        if (pageCount === undefined) {
-            const requestIdArgs: [
-                TDocumentRef,
-                TDocumentRevisionToken,
-                number,
-                number,
-                undefined,
-                TRequestId,
-            ] = [
-                requiredArgs[0],
-                requiredArgs[1],
-                requiredArgs[2],
-                requiredArgs[3],
-                undefined,
-                requestId,
-            ];
-            return requestIdArgs;
-        }
-        const requestIdArgs: [
-            TDocumentRef,
-            TDocumentRevisionToken,
-            number,
-            number,
-            number,
-            TRequestId,
-        ] = [
-            requiredArgs[0],
-            requiredArgs[1],
-            requiredArgs[2],
-            requiredArgs[3],
+        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(([
+            , , firstPage,
+            lastPage,
+        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
+    ),
+    v.pipe(
+        v.strictTuple([
+            absolutePathSchema('resolveDocumentTextCatalogWindow.workingCopyPath'),
+            documentRevisionSchema,
+            safeIntegerSchema('firstPage', 1),
+            safeIntegerSchema('lastPage', 1),
+            pageCountSchema,
+        ]),
+        v.check(([
+            , , firstPage,
+            lastPage,
+        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(([
+            , , firstPage,
+            lastPage,
+        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
+        v.check(([
+            , , , lastPage,
             pageCount,
-            requestId,
-        ];
-        return requestIdArgs;
-    },
-    () => [
-        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
-        requireDocumentRevisionToken('drt1:ocr-fixture'),
-        1,
-        64,
-        64,
-    ],
-);
-const resolveDocumentOcrAvailabilityArgs = argsSchema<[
-    TDocumentRef,
-    TDocumentRevisionToken,
-]>(
-    (args) => {
-        requireArgs(args, 2);
-        return [
-            assertAbsolutePath(
-                args[0],
-                'resolveDocumentOcrAvailability.workingCopyPath',
-            ),
-            decodeDocumentRevisionArg(
-                args,
-                1,
-                'resolveDocumentOcrAvailability.documentRevision',
-            ),
-        ];
-    },
-    () => [
-        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
-        requireDocumentRevisionToken('drt1:ocr-fixture'),
-    ],
-);
-const resolveDocumentOcrPageArgs = argsSchema<[
-    TDocumentRef,
-    TDocumentRevisionToken,
-    number,
-]>(
-    (args) => {
-        requireArgs(args, 3);
-        return [
-            assertAbsolutePath(
-                args[0],
-                'resolveDocumentOcrPage.workingCopyPath',
-            ),
-            decodeDocumentRevisionArg(
-                args,
-                1,
-                'resolveDocumentOcrPage.documentRevision',
-            ),
-            decodeSafeIntegerArg(args, 2, 'pageNumber', 1),
-        ];
-    },
-    () => [
-        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
-        requireDocumentRevisionToken('drt1:ocr-fixture'),
-        1,
-    ],
-);
-const jobStartResult = resultSchema<IOcrJobStartResult>(decodeJobStartResult, () => ({
-    started: true,
-    jobId: parseJobId('ocr-job-fixture') ?? (() => { throw new TypeError('invalid job ID fixture'); })(),
-}));
-const cancelResult = resultSchema(decodeCancelResult, () => ({canceled: false}));
-const acknowledgeResult =
-    resultSchema<IOcrResultFileAckResult>(decodeAckResult, () => ({cleaned: true}));
-const languagesResult = resultSchema<IOcrLanguage[]>(
-    value => requireDecoded(value, decodeOcrLanguages, 'OCR languages'),
-    () => [{
-        code: 'eng',
-        script: 'latin',
-    }],
-);
-const documentTextCatalogResult = resultSchema<IDocumentTextSnapshot>(
-    value => requireDecoded(
-        value,
-        decodeDocumentTextSnapshot,
-        'DocumentTextCatalog snapshot',
+        ]) => pageCount >= lastPage, 'pageCount must be greater than or equal to lastPage'),
     ),
-    () => ({
-        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
-        pageCount: 0,
-        pages: [],
-        contentDigest: '',
-    }),
-);
-const documentTextCatalogWindowResult = resultSchema<IDocumentTextCatalogWindow>(
-    value => requireDecoded(
-        value,
-        decodeDocumentTextCatalogWindow,
-        'DocumentTextCatalog window',
+    v.pipe(
+        v.strictTuple([
+            absolutePathSchema('resolveDocumentTextCatalogWindow.workingCopyPath'),
+            documentRevisionSchema,
+            safeIntegerSchema('firstPage', 1),
+            safeIntegerSchema('lastPage', 1),
+            v.undefined(),
+            requestIdSchema('resolveDocumentTextCatalogWindow.requestId'),
+        ]),
+        v.check(([
+            , , firstPage,
+            lastPage,
+        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(([
+            , , firstPage,
+            lastPage,
+        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
     ),
-    () => ({
-        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
-        pageCount: 64,
-        firstPage: 1,
-        lastPage: 64,
-        pages: [],
-        contentDigest: '',
-    }),
-);
-const documentOcrAvailabilityResult = resultSchema<IDocumentOcrAvailability>(
-    value => requireDecoded(
-        value,
-        decodeDocumentOcrAvailability,
-        'document OCR availability',
+    v.pipe(
+        v.strictTuple([
+            absolutePathSchema('resolveDocumentTextCatalogWindow.workingCopyPath'),
+            documentRevisionSchema,
+            safeIntegerSchema('firstPage', 1),
+            safeIntegerSchema('lastPage', 1),
+            pageCountSchema,
+            requestIdSchema('resolveDocumentTextCatalogWindow.requestId'),
+        ]),
+        v.check(([
+            , , firstPage,
+            lastPage,
+        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(([
+            , , firstPage,
+            lastPage,
+        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
+        v.check(([
+            , , , lastPage,
+            pageCount,
+        ]) => pageCount >= lastPage, 'pageCount must be greater than or equal to lastPage'),
     ),
-    () => ({
-        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
-        pageCount: 0,
-        mappedPageCount: 0,
-        pageRanges: [],
-        rangesComplete: true,
-    }),
-);
-const documentOcrPageResult = resultSchema<IDocumentOcrPageSnapshot>(
-    value => requireDecoded(
-        value,
-        decodeDocumentOcrPageSnapshot,
-        'document OCR page',
-    ),
-    () => ({
-        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
-        pageCount: 0,
-        page: null,
-    }),
-);
-const progress = s.declared<IOcrProgress>()(
-    s.fromNullableDecoder(decodeOcrProgress, 'OCR progress', () => ({
-        requestId: parseRequestId('ocr-request-fixture') ?? (() => { throw new TypeError('invalid request ID fixture'); })(),
-        currentPage: 1,
-        processedCount: 0,
-        totalPages: 1,
-        status: 'running',
-    })),
-);
-const completeResult = s.declared<IOcrCompleteResult>()(
-    s.fromNullableDecoder(decodeOcrCompleteResult, 'OCR completion', () => ({
-        requestId: parseRequestId('ocr-request-fixture') ?? (() => { throw new TypeError('invalid request ID fixture'); })(),
-        success: false,
-        errors: [],
-    })),
-);
-const progressReplay = {
-    owner: 'ipc-progress-pump',
-    mode: 'latest-per-key',
-    key: (payload: IOcrProgress) => payload.requestId,
-    terminal: (payload: IOcrProgress) =>
-        payload.status === 'success'
-        || payload.status === 'canceled'
-        || payload.status === 'failed',
-    intervalMs: 50,
-    terminalRetentionMs: 30_000,
-} as const;
-
-function assertRequestId(value: unknown, fieldName: string): TRequestId {
-    const normalized = assertNonEmptyString(value, fieldName, OCR_REQUEST_ID_MAX_LENGTH);
-    const parsed = parseRequestId(normalized);
-    if (parsed === null) {
-        throw new Error(`${fieldName} must be a valid request ID`);
-    }
-    return parsed;
-}
+]);
+const resolveDocumentOcrAvailabilityArgs = v.strictTuple([
+    absolutePathSchema('resolveDocumentOcrAvailability.workingCopyPath'),
+    documentRevisionSchema,
+]);
+const resolveDocumentOcrPageArgs = v.strictTuple([
+    absolutePathSchema('resolveDocumentOcrPage.workingCopyPath'),
+    documentRevisionSchema,
+    safeIntegerSchema('pageNumber', 1),
+]);
 
 function defineOcrMethod<
     const TName extends string,
     const TChannel extends string,
-    const TArgs extends IRuntimeSchema<unknown[]>,
-    const TResult extends IRuntimeSchema<unknown>,
+    const TArgs extends TPlatformFeatureSchema<unknown[]>,
+    const TResult extends TPlatformFeatureSchema,
 >(definition: {
     name: TName;
     channel: TChannel;
@@ -1134,6 +453,23 @@ function defineOcrMethod<
     } as const;
 }
 
+const languageResult = v.custom<IOcrLanguage[]>(value => decodeOcrLanguages(value) !== null);
+const documentTextCatalogResult = v.custom<IDocumentTextSnapshot>(value => decodeDocumentTextSnapshot(value) !== null);
+const documentTextCatalogWindowResult = v.custom<IDocumentTextCatalogWindow>(value => decodeDocumentTextCatalogWindow(value) !== null);
+const documentOcrAvailabilityResult = v.custom<IDocumentOcrAvailability>(value => decodeDocumentOcrAvailability(value) !== null);
+const documentOcrPageResult = v.custom<IDocumentOcrPageSnapshot>(value => decodeDocumentOcrPageSnapshot(value) !== null);
+const progressReplay = {
+    owner: 'ipc-progress-pump',
+    mode: 'latest-per-key',
+    key: (payload: IOcrProgress) => payload.requestId,
+    terminal: (payload: IOcrProgress) =>
+        payload.status === 'success'
+        || payload.status === 'canceled'
+        || payload.status === 'failed',
+    intervalMs: 50,
+    terminalRetentionMs: 30_000,
+} as const;
+
 export const OCR_PLATFORM_FEATURE = definePlatformFeature({
     path: ['ocr'],
     required: {
@@ -1145,13 +481,13 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
             name: 'cancel',
             channel: 'ocr:cancel',
             args: requestIdArgs,
-            result: cancelResult,
+            result: OCR_CANCEL_RESULT_SCHEMA,
         }),
         getLanguages: defineOcrMethod({
             name: 'getLanguages',
             channel: 'ocr:getLanguages',
-            args: s.tuple([]),
-            result: languagesResult,
+            args: noArgs,
+            result: languageResult,
         }),
         resolveDocumentTextCatalog: defineOcrMethod({
             name: 'resolveDocumentTextCatalog',
@@ -1187,13 +523,13 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
             name: 'acknowledgeResultFile',
             channel: 'ocr:ackResultFile',
             args: acknowledgeResultFileArgs,
-            result: acknowledgeResult,
+            result: OCR_RESULT_FILE_ACK_RESULT_SCHEMA,
         }),
         createSearchablePdf: defineOcrMethod({
             name: 'createSearchablePdf',
             channel: 'ocr:createSearchablePdf',
             args: createSearchablePdfArgs,
-            result: jobStartResult,
+            result: OCR_JOB_START_RESULT_SCHEMA,
             timeout: true,
         }),
     },
@@ -1201,7 +537,7 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
         onProgress: {
             kind: 'event',
             channel: OCR_PROGRESS_EVENT_CHANNEL,
-            payload: progress,
+            payload: OCR_PROGRESS_SCHEMA,
             subscription: {
                 channel: 'ocr:progress:subscribe',
                 request: 'once-per-preload-event-channel',
@@ -1217,7 +553,7 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
         onComplete: {
             kind: 'event',
             channel: OCR_COMPLETE_EVENT_CHANNEL,
-            payload: completeResult,
+            payload: OCR_COMPLETE_RESULT_SCHEMA,
             browser: {method: 'onComplete'},
             lazy: 'forwarded',
         },

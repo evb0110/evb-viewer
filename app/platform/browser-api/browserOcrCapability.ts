@@ -1,6 +1,7 @@
 import type {
     IOcrErrorEnvelope,
     IOcrJobStartResult,
+    IOcrSearchablePdfOptions,
 } from '@contracts/electronApiOcr';
 import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
@@ -76,7 +77,7 @@ export const browserOcrCapability: IOcrCapability = {
             errorEnvelope: createBrowserOcrUnavailableEnvelope(),
         });
     },
-    createSearchablePdf(_sourcePdfPath, _pages, _requestId) {
+    createSearchablePdf(_sourcePdfPath, _pages, _requestId, _renderDpiOrOptions?: number | IOcrSearchablePdfOptions) {
         return Promise.resolve(createBrowserOcrJobUnavailableResult());
     },
     onProgress: noopUnsubscribe,

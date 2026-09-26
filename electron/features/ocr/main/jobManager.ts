@@ -85,7 +85,8 @@ interface IOcrRegistryProgress extends IOcrProgress {projection: {
 };}
 
 /** Everything the renderer needs to hear about a job that ended without a PDF. */
-interface IOcrJobError extends IOcrErrorEnvelope {
+interface IOcrJobError extends Omit<IOcrErrorEnvelope, 'details'> {
+    details?: string;
     errors: string[];
     diagnostics?: IOcrCompleteResult['diagnostics'];
 }
@@ -148,16 +149,32 @@ function isOcrErrorEnvelope(cause: unknown): cause is IOcrErrorEnvelope {
         && typeof cause.timestamp === 'number';
 }
 
+function createOcrJobError(
+    envelope: IOcrErrorEnvelope,
+    errors: string[],
+    diagnostics?: IOcrCompleteResult['diagnostics'],
+): IOcrJobError {
+    const {
+        details, ...fields
+    } = envelope;
+    return {
+        ...fields,
+        ...(details === undefined ? {} : {details}),
+        errors,
+        ...(diagnostics === undefined ? {} : {diagnostics}),
+    };
+}
+
 function toOcrJobError(cause: unknown, kind: TMainJobErrorKind): IOcrJobError {
     if (cause instanceof OcrJobFailure) {
         return cause.failure;
     }
     if (kind === 'canceled') {
         const message = 'OCR job was cancelled';
-        return {
-            ...buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', message, {details: getErrorMessage(cause)}),
-            errors: [message],
-        };
+        return createOcrJobError(
+            buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', message, {details: getErrorMessage(cause)}),
+            [message],
+        );
     }
     const envelope = isOcrErrorEnvelope(cause)
         ? cause
@@ -166,10 +183,7 @@ function toOcrJobError(cause: unknown, kind: TMainJobErrorKind): IOcrJobError {
             getErrorMessage(cause) || 'OCR job failed',
             {retryable: kind === 'duplicate-job-id'},
         );
-    return {
-        ...envelope,
-        errors: [envelope.message],
-    };
+    return createOcrJobError(envelope, [envelope.message]);
 }
 
 function toPublicOcrProgress(progress: IOcrRegistryProgress): IOcrProgress {
@@ -333,14 +347,14 @@ export async function handleOcrCreateSearchablePdfAsync(
                     }),
                 });
                 if (!result.success && result.outcome === undefined) {
-                    throw new OcrJobFailure({
-                        ...(result.errorEnvelope ?? buildOcrErrorEnvelope(
+                    throw new OcrJobFailure(createOcrJobError(
+                        result.errorEnvelope ?? buildOcrErrorEnvelope(
                             'OCR_INTERNAL_ERROR',
                             result.errors[0] ?? 'OCR failed without an error message',
-                        )),
-                        errors: result.errors,
-                        ...(result.diagnostics === undefined ? {} : {diagnostics: result.diagnostics}),
-                    });
+                        ),
+                        result.errors,
+                        result.diagnostics,
+                    ));
                 }
                 return {
                     result: result.success

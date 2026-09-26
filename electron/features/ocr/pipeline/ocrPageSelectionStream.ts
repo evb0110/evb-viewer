@@ -4,6 +4,7 @@ import {
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {isGreekOcrLanguage} from '@contracts/ocrLanguages';
+import * as v from 'valibot';
 import type {
     IOcrDiagnostic,
     TOcrSearchablePdfPages,
@@ -50,6 +51,15 @@ function isCheckpointPageData(value: unknown, pageNumber: number): value is IOcr
         && pageData.imageHeight > 0;
 }
 
+function checkpointSchema(pageNumber: number) {
+    return v.object({
+        pageData: v.custom<IOcrPageWithWords>(value => isCheckpointPageData(value, pageNumber)),
+        effectiveDpi: v.optional(v.unknown()),
+        diagnostics: v.optional(v.custom<IOcrDiagnostic[]>(Array.isArray)),
+        preprocessInverse: v.optional(v.unknown()),
+    });
+}
+
 /** Read one bounded checkpoint artifact at a time for assembly and indexing. */
 export async function* iterateCheckpointPageResults(
     selection: TOcrPdfPageSelection,
@@ -61,12 +71,14 @@ export async function* iterateCheckpointPageResults(
             throwIfAborted(signal);
             const pageDataPath = join(checkpointDir, `page-${page.pageNumber}.json`);
             const pdfPath = join(checkpointDir, `page-${page.pageNumber}.pdf`);
-            const checkpoint = await readFile(pageDataPath, 'utf8')
-                .then(raw => JSON.parse(raw) as Record<string, unknown>)
+            const rawCheckpoint: unknown = await readFile(pageDataPath, 'utf8')
+                .then(raw => JSON.parse(raw) as unknown)
                 .catch(() => null);
-            if (!checkpoint || !isCheckpointPageData(checkpoint.pageData, page.pageNumber)) {
+            const parsed = v.safeParse(checkpointSchema(page.pageNumber), rawCheckpoint, {abortEarly: true});
+            if (!parsed.success) {
                 continue;
             }
+            const checkpoint = parsed.output;
             const pdfStat = await stat(pdfPath).catch(() => null);
             if (!pdfStat?.isFile() || pdfStat.size <= 0) {
                 continue;
@@ -77,7 +89,7 @@ export async function* iterateCheckpointPageResults(
                 ? checkpoint.effectiveDpi
                 : undefined;
             const diagnostics = Array.isArray(checkpoint.diagnostics)
-                ? checkpoint.diagnostics as IOcrDiagnostic[]
+                ? checkpoint.diagnostics
                 : [];
             yield {
                 pageData: checkpoint.pageData,

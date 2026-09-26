@@ -3,10 +3,6 @@ import type {
     TOcrQualityProfile,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
 const AGENT_OCR_PAGE_RANGES = [
@@ -75,52 +71,45 @@ export const AGENT_OCR_RUN_INPUT_SCHEMA = v.union([
         ])),
     }),
 ]);
-const _agentOcrRunOptionsSchema = v.object(agentOcrRunInputProperties);
-export type IAgentOcrRunOptions = v.InferOutput<typeof _agentOcrRunOptionsSchema>;
 
-function normalizeLanguages(value: unknown) {
-    if (!Array.isArray(value)) {
-        return undefined;
-    }
+const agentOcrRunOptionsSchema = v.fallback(v.object({
+    pageRange: v.fallback(v.optional(v.picklist(AGENT_OCR_PAGE_RANGES)), undefined),
+    customRange: v.fallback(v.optional(v.string()), undefined),
+    languages: v.fallback(v.optional(v.array(v.unknown())), undefined),
+    qualityProfile: v.fallback(v.optional(v.picklist(AGENT_OCR_QUALITY_PROFILES)), undefined),
+    preprocessingMode: v.fallback(v.optional(v.picklist(AGENT_OCR_PREPROCESSING_MODES)), undefined),
+    pageSegmentationMode: v.fallback(v.optional(v.picklist(AGENT_OCR_PAGE_SEGMENTATION_MODES)), undefined),
+    supersessionPolicy: v.fallback(v.optional(v.picklist(AGENT_OCR_SUPERSESSION_POLICIES)), undefined),
+    replaceAllAcknowledged: v.fallback(v.optional(v.boolean()), undefined),
+    open: v.fallback(v.optional(v.boolean()), undefined),
+}), {});
 
-    const languages = value.flatMap((language) => {
-        if (typeof language !== 'string') {
-            return [];
-        }
-        const normalized = language.trim();
-        return normalized ? [normalized] : [];
-    });
-    return [...new Set(languages)];
-}
+export const AGENT_OCR_RUN_OPTIONS_SCHEMA = v.pipe(
+    agentOcrRunOptionsSchema,
+    v.transform((options) => {
+        const customRange = options.customRange?.trim();
+        const languages = options.languages?.flatMap((language) => {
+            if (typeof language !== 'string') {
+                return [];
+            }
+            const normalized = language.trim();
+            return normalized ? [normalized] : [];
+        });
+        return {
+            ...(options.pageRange === undefined ? {} : {pageRange: options.pageRange}),
+            ...(customRange ? {customRange} : {}),
+            ...(languages === undefined ? {} : {languages: [...new Set(languages)]}),
+            ...(options.qualityProfile === undefined ? {} : {qualityProfile: options.qualityProfile}),
+            ...(options.preprocessingMode === undefined ? {} : {preprocessingMode: options.preprocessingMode}),
+            ...(options.pageSegmentationMode === undefined ? {} : {pageSegmentationMode: options.pageSegmentationMode}),
+            ...(options.supersessionPolicy === undefined ? {} : {supersessionPolicy: options.supersessionPolicy}),
+            ...(options.replaceAllAcknowledged === undefined ? {} : {replaceAllAcknowledged: options.replaceAllAcknowledged}),
+            ...(options.open === undefined ? {} : {open: options.open}),
+        };
+    }),
+);
+export type IAgentOcrRunOptions = v.InferOutput<typeof AGENT_OCR_RUN_OPTIONS_SCHEMA>;
 
 export function parseAgentOcrRunOptions(value: unknown): IAgentOcrRunOptions {
-    if (!isRecord(value)) {
-        return {};
-    }
-
-    const customRange = typeof value.customRange === 'string' && value.customRange.trim()
-        ? value.customRange.trim()
-        : undefined;
-    const languages = normalizeLanguages(value.languages);
-    return {
-        ...(isOneOf(AGENT_OCR_PAGE_RANGES, value.pageRange) ? {pageRange: value.pageRange} : {}),
-        ...(customRange === undefined ? {} : {customRange}),
-        ...(languages === undefined ? {} : {languages}),
-        ...(isOneOf(AGENT_OCR_QUALITY_PROFILES, value.qualityProfile)
-            ? {qualityProfile: value.qualityProfile}
-            : {}),
-        ...(isOneOf(AGENT_OCR_PREPROCESSING_MODES, value.preprocessingMode)
-            ? {preprocessingMode: value.preprocessingMode}
-            : {}),
-        ...(isSupportedPageSegmentationMode(value.pageSegmentationMode)
-            ? {pageSegmentationMode: value.pageSegmentationMode}
-            : {}),
-        ...(isOneOf(AGENT_OCR_SUPERSESSION_POLICIES, value.supersessionPolicy)
-            ? {supersessionPolicy: value.supersessionPolicy}
-            : {}),
-        ...(typeof value.replaceAllAcknowledged === 'boolean'
-            ? {replaceAllAcknowledged: value.replaceAllAcknowledged}
-            : {}),
-        ...(typeof value.open === 'boolean' ? {open: value.open} : {}),
-    };
+    return v.parse(AGENT_OCR_RUN_OPTIONS_SCHEMA, value);
 }
