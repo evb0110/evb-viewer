@@ -1,0 +1,20 @@
+tests/unit/app/modules/scan-cleanup/scanCleanupComponents.test.ts
+  s_c409b66395b17d::t_1fdcc900dd0f79 3603-3617,3642-3646
+  s_c409b66395b17d::t_e4191d50ea59fb 3602,3624-3625,3630-3631,3640-3641,3647-3658,3662-3663,3668-3669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "250ef82ecb78e1945837e683231ee70b14fac0c2",
+  "prompts": {},
+  "sessions": {
+    "s_c409b66395b17d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0de3d-8ee0-78e3-b3c1-de94a65f098d",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
