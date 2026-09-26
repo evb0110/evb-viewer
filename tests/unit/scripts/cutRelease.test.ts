@@ -9,6 +9,10 @@ describe('tag release cutter', () => {
     it('accepts only one release level', () => {
         expect(parseCutReleaseArgs(['patch'])).toBe('patch');
         expect(parseCutReleaseArgs(['minor'])).toBe('minor');
+        expect(parseCutReleaseArgs([
+            '--',
+            'patch',
+        ])).toBe('patch');
         expect(() => parseCutReleaseArgs(['--resume'])).toThrow('Usage:');
     });
 

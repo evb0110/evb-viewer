@@ -136,8 +136,10 @@ export function planRelease(level, {
 
 /** @param {string[]} argv @returns {'patch'|'minor'|'major'} */
 export function parseCutReleaseArgs(argv) {
-    const level = argv[0];
-    if (argv.length !== 1 || !LEVELS.has(/** @type {'patch'|'minor'|'major'} */ (level))) throw new Error('Usage: pnpm run release:cut -- <patch|minor|major>');
+    // pnpm forwards the `--` in `pnpm run release:cut -- patch`.
+    const args = argv[0] === '--' ? argv.slice(1) : argv;
+    const level = args[0];
+    if (args.length !== 1 || !LEVELS.has(/** @type {'patch'|'minor'|'major'} */ (level))) throw new Error('Usage: pnpm run release:cut -- <patch|minor|major>');
     return /** @type {'patch'|'minor'|'major'} */ (level);
 }
 
