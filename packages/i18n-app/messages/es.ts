@@ -958,7 +958,7 @@ export default {
             'applying': 'Aplicando el resultado de OCR...',
         },
         'processingPage': 'Procesando página {page} ({processed}/{total})',
-        'complete': 'OCR completado — el PDF ahora permite búsqueda',
+        'complete': 'OCR completado — ahora se puede buscar en el PDF',
         'partialComplete': 'OCR completado con advertencias',
         'noPagesToProcess': 'Ninguna página necesitaba OCR',
         'exportDocx': 'Exportar DOCX',

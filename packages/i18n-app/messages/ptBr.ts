@@ -699,7 +699,7 @@ export default {
         'facingPages': 'Páginas Opostas',
         'facingWithFirstSingle': 'Opostas (Primeira Página Única)',
         'continuousScroll': 'Rolagem Contínua',
-        'handTool': 'Ferramenta Mão',
+        'handTool': 'Ferramenta de mão',
         'textSelect': 'Selecionar Texto',
         'zoomOut': 'Reduzir',
         'zoomIn': 'Ampliar',

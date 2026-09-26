@@ -959,7 +959,7 @@ export default {
             'applying': 'Application du résultat OCR...',
         },
         'processingPage': 'Traitement de la page {page} ({processed}/{total})',
-        'complete': 'OCR terminé — le PDF est désormais interrogeable',
+        'complete': 'OCR terminé — la recherche dans le PDF est maintenant possible',
         'partialComplete': 'OCR terminé avec des avertissements',
         'noPagesToProcess': 'Aucune page ne nécessitait d’OCR',
         'exportDocx': 'Exporter DOCX',
