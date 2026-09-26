@@ -44,11 +44,12 @@ describe('compact DjVu checkpoints', () => {
 
         const first = await openCompactDjvuCheckpointJob(sourcePath, [1], 'balanced');
         maskPath = join(first.directory, 'compact-pages', 'mask.pbm');
-        await loadOrBuildCompactDjvuPage(first, 0, build);
+        const expectedSpec = await loadOrBuildCompactDjvuPage(first, 0, build);
         await first.close();
         const reopened = await openCompactDjvuCheckpointJob(sourcePath, [1], 'balanced');
-        await loadOrBuildCompactDjvuPage(reopened, 0, build);
+        const resumedSpec = await loadOrBuildCompactDjvuPage(reopened, 0, build);
 
+        expect(resumedSpec).toEqual(expectedSpec);
         expect(build).toHaveBeenCalledTimes(1);
         expect(reopened.manifest.ranges[0]).toMatchObject({status: 'verified'});
         await reopened.cleanup?.();

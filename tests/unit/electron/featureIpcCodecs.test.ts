@@ -15,6 +15,7 @@ import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import {createBrowserAssistantState} from '@app/platform/browser-api/browserAgentCapability';
+import * as v from 'valibot';
 
 const AGENT_CHANNELS = AGENT_PLATFORM_FEATURE.invokeChannels;
 const AGENT_IPC_CODECS = AGENT_PLATFORM_FEATURE.ipcCodecs;
@@ -308,7 +309,7 @@ describe('feature IPC codec maps', () => {
             sourceSize: 28_000_000,
             sourceModifiedAt: 1_720_000_000_000,
         });
-        expect(DJVU_PLATFORM_FEATURE.events.onOpenComplete.payload.decode({
+        expect(v.parse(DJVU_PLATFORM_FEATURE.events.onOpenComplete.payload, {
             success: true,
             pageCount: 431,
             requestId: 'djvu-open-finalized',

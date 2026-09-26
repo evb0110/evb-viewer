@@ -103,6 +103,52 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         1,
     ],
     'ocr:ackResultFile': ['ocr-ack-1'],
+    'djvu:open:start': [
+        '/tmp/sample.djvu',
+        'djvu-open-1',
+    ],
+    'djvu:releaseViewingPath': ['/tmp/sample.djvu'],
+    'djvu:convert:start': [
+        '/tmp/sample.djvu',
+        '/tmp/sample.pdf',
+        {requestId: 'djvu-convert-1'},
+    ],
+    'djvu:printDjvuPath': [
+        '/tmp/sample.djvu',
+        {
+            viewMode: 'single',
+            orientation: 'auto',
+        },
+    ],
+    'djvu:cancel': ['djvu-job-1'],
+    'djvu:job:getState': ['djvu-job-1'],
+    'djvu:cancelPagePreview': ['djvu-preview-1'],
+    'djvu:text:search': [
+        '/tmp/sample.djvu',
+        'needle',
+        {
+            requestId: 'djvu-search-1',
+            pageCount: 1,
+        },
+    ],
+    'djvu:text:cancel': ['djvu-search-1'],
+    'djvu:getInfo': ['/tmp/sample.djvu'],
+    'djvu:getPageSourceInfo': [
+        '/tmp/sample.djvu',
+        1,
+    ],
+    'djvu:getPageSizes': ['/tmp/sample.djvu'],
+    'djvu:getPageText': [
+        '/tmp/sample.djvu',
+        1,
+    ],
+    'djvu:getOutline': ['/tmp/sample.djvu'],
+    'djvu:renderPagePreview': [
+        '/tmp/sample.djvu',
+        1,
+    ],
+    'djvu:estimateSizes': ['/tmp/sample.djvu'],
+    'djvu:cleanupTemp': ['/tmp/sample.djvu'],
     'ocr:createSearchablePdf': [
         '/tmp/ocr-fixture.pdf',
         [{

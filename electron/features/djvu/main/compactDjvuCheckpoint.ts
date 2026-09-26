@@ -17,28 +17,40 @@ import {
     openDjvuArtifactJob,
     type IDjvuArtifactJob,
 } from '@electron/features/djvu/main/djvuArtifactManifest';
-import { isRecord } from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
-export interface ICheckpointedCompactPageSpec {
-    pageNumber: number;
-    manifestLine: string;
-    kind: 'bitonal' | 'layered' | 'layered-color' | 'photo';
-    reason: string;
-    effectivePpi: number;
-    jpegQuality?: number;
-}
-
-interface ICheckpointedCompactArtifact {
-    path: string;
-    size: number;
-    sha256: string;
-}
-
-interface ICheckpointedCompactPageEnvelope {
-    version: 2;
-    spec: ICheckpointedCompactPageSpec;
-    artifacts: ICheckpointedCompactArtifact[];
-}
+const compactPageSpecSchema = v.pipe(v.object({
+    pageNumber: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(1)),
+    manifestLine: v.pipe(v.string(), v.minLength(1)),
+    kind: v.picklist([
+        'bitonal',
+        'layered',
+        'layered-color',
+        'photo',
+    ]),
+    reason: v.string(),
+    effectivePpi: v.pipe(v.number(), v.finite(), v.minValue(Number.MIN_VALUE)),
+    jpegQuality: v.optional(v.pipe(v.number(), v.finite(), v.minValue(1), v.maxValue(100))),
+}), v.transform(value => ({
+    pageNumber: value.pageNumber,
+    manifestLine: value.manifestLine,
+    kind: value.kind,
+    reason: value.reason,
+    effectivePpi: value.effectivePpi,
+    ...(value.jpegQuality === undefined ? {} : {jpegQuality: value.jpegQuality}),
+})));
+export type ICheckpointedCompactPageSpec = v.InferOutput<typeof compactPageSpecSchema>;
+const compactArtifactSchema = v.object({
+    path: v.string(),
+    size: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(1)),
+    sha256: v.pipe(v.string(), v.regex(/^[a-f\d]{64}$/u)),
+});
+const compactCheckpointSchema = v.object({
+    version: v.literal(2),
+    spec: compactPageSpecSchema,
+    artifacts: v.pipe(v.array(compactArtifactSchema), v.minLength(1)),
+});
+type ICheckpointedCompactPageEnvelope = v.InferOutput<typeof compactCheckpointSchema>;
 
 export function openCompactDjvuCheckpointJob(
     sourcePath: string,
@@ -57,76 +69,6 @@ export function openCompactDjvuCheckpointJob(
         ...(signal ? {signal} : {}),
         ...(sourceIdentity ? {sourceIdentity} : {}),
     });
-}
-
-function decodeSpec(value: unknown): ICheckpointedCompactPageSpec | null {
-    if (!isRecord(value)
-        || typeof value.pageNumber !== 'number'
-        || !Number.isSafeInteger(value.pageNumber)
-        || value.pageNumber < 1
-        || typeof value.manifestLine !== 'string'
-        || value.manifestLine.length === 0
-        || !isCompactPageKind(value.kind)
-        || typeof value.reason !== 'string'
-        || typeof value.effectivePpi !== 'number'
-        || !Number.isFinite(value.effectivePpi)
-        || value.effectivePpi <= 0
-        || value.jpegQuality !== undefined && (
-            typeof value.jpegQuality !== 'number'
-            || !Number.isFinite(value.jpegQuality)
-            || value.jpegQuality < 1
-            || value.jpegQuality > 100
-        )) {
-        return null;
-    }
-    return {
-        pageNumber: value.pageNumber,
-        manifestLine: value.manifestLine,
-        kind: value.kind,
-        reason: value.reason,
-        effectivePpi: value.effectivePpi,
-        ...(value.jpegQuality === undefined ? {} : {jpegQuality: value.jpegQuality}),
-    };
-}
-
-function isCompactPageKind(value: unknown): value is ICheckpointedCompactPageSpec['kind'] {
-    return value === 'bitonal'
-        || value === 'layered'
-        || value === 'layered-color'
-        || value === 'photo';
-}
-
-function decodeArtifact(value: unknown): ICheckpointedCompactArtifact | null {
-    if (!isRecord(value)
-        || typeof value.path !== 'string'
-        || typeof value.size !== 'number'
-        || !Number.isSafeInteger(value.size)
-        || value.size <= 0
-        || typeof value.sha256 !== 'string'
-        || !/^[a-f\d]{64}$/u.test(value.sha256)) {
-        return null;
-    }
-    return {
-        path: value.path,
-        size: value.size,
-        sha256: value.sha256,
-    };
-}
-
-function decodeEnvelope(value: unknown): ICheckpointedCompactPageEnvelope | null {
-    if (!isRecord(value) || value.version !== 2 || !Array.isArray(value.artifacts)) {
-        return null;
-    }
-    const spec = decodeSpec(value.spec);
-    const artifacts = value.artifacts.map(decodeArtifact);
-    if (!spec || artifacts.length === 0 || artifacts.some(artifact => artifact === null)) {
-        return null;
-    }
-    return {
-        version: 2,
-        spec,
-        artifacts: artifacts.filter((artifact): artifact is ICheckpointedCompactArtifact => artifact !== null),
-    };
 }
 
 function getManifestArtifactPaths(manifestLine: string) {
@@ -236,7 +178,10 @@ export async function loadOrBuildCompactDjvuPage(
     const artifactDirectory = resolve(job.directory, 'compact-pages');
     if (checkpoint.status === 'verified') {
         const saved = await readFile(checkpoint.outputPath, 'utf8')
-            .then(value => decodeEnvelope(JSON.parse(value)))
+            .then(value => {
+                const parsed = v.safeParse(compactCheckpointSchema, JSON.parse(value), {abortEarly: true});
+                return parsed.success ? parsed.output : null;
+            })
             .catch(() => null);
         if (saved && await validateEnvelope(saved, checkpoint.startPage, artifactDirectory)) {
             await job.updateRange(index, {status: 'verified'}, {additionalArtifacts: saved.artifacts});

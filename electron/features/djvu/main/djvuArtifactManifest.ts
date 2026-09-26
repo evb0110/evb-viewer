@@ -22,21 +22,39 @@ import {
     relative,
     resolve,
 } from 'node:path';
-import { isRecord } from '@contracts/runtimeGuards';
 import {getAppTempDir} from '@electron/utils/appTempDir';
+import * as v from 'valibot';
 
 export type TDjvuArtifactRangeStatus = 'pending' | 'running' | 'verified' | 'failed';
 
-export interface IDjvuArtifactRange {
-    startPage: number;
-    endPage: number;
-    outputPath: string;
-    status: TDjvuArtifactRangeStatus;
-    size?: number;
-    sha256?: string;
-    accountedSize?: number;
-    error?: string | undefined;
-}
+const djvuArtifactRangeSchema = v.pipe(v.object({
+    startPage: v.number(),
+    endPage: v.number(),
+    outputPath: v.string(),
+    status: v.picklist([
+        'pending',
+        'running',
+        'verified',
+        'failed',
+    ]),
+    size: v.optional(v.unknown()),
+    sha256: v.optional(v.unknown()),
+    accountedSize: v.optional(v.unknown()),
+    error: v.optional(v.unknown()),
+}), v.check(range => Number.isSafeInteger(range.startPage) && Number.isSafeInteger(range.endPage)), v.transform(range => ({
+    startPage: range.startPage,
+    endPage: range.endPage,
+    outputPath: range.outputPath,
+    status: range.status,
+    ...(typeof range.size === 'number' ? {size: range.size} : {}),
+    ...(typeof range.sha256 === 'string' ? {sha256: range.sha256} : {}),
+    ...(typeof range.accountedSize === 'number' && Number.isSafeInteger(range.accountedSize) && range.accountedSize > 0 ? {accountedSize: range.accountedSize} : {}),
+    ...(typeof range.error === 'string' ? {error: range.error} : {}),
+})));
+export type IDjvuArtifactRange = v.InferOutput<typeof djvuArtifactRangeSchema>;
+type TDjvuArtifactRangeUpdate = {
+    [TKey in keyof IDjvuArtifactRange]?: IDjvuArtifactRange[TKey] | undefined;
+};
 
 export interface IDjvuSourceIdentity {
     sourceSha256: string;
@@ -45,15 +63,16 @@ export interface IDjvuSourceIdentity {
     ctimeMs: number;
 }
 
-interface IDjvuArtifactManifest {
-    version: 2;
-    fingerprint: string;
-    sourcePath: string;
-    sourceSha256: string;
-    createdAtMs: number;
-    updatedAtMs: number;
-    ranges: IDjvuArtifactRange[];
-}
+const djvuArtifactManifestSchema = v.object({
+    version: v.literal(2),
+    fingerprint: v.string(),
+    sourcePath: v.string(),
+    sourceSha256: v.string(),
+    createdAtMs: v.number(),
+    updatedAtMs: v.number(),
+    ranges: v.array(djvuArtifactRangeSchema),
+});
+type IDjvuArtifactManifest = v.InferOutput<typeof djvuArtifactManifestSchema>;
 
 export interface IDjvuArtifactJob {
     directory: string;
@@ -65,7 +84,7 @@ export interface IDjvuArtifactJob {
     cleanup?(): Promise<void>;
     updateRange(
         index: number,
-        update: Partial<IDjvuArtifactRange>,
+        update: TDjvuArtifactRangeUpdate,
         verification?: {additionalArtifacts?: readonly IDjvuArtifactVerification[];},
     ): Promise<void>;
 }
@@ -311,61 +330,6 @@ async function writeManifest(path: string, manifest: IDjvuArtifactManifest) {
     }
 }
 
-function decodeManifest(value: unknown): IDjvuArtifactManifest | null {
-    if (
-        !isRecord(value)
-        || value.version !== 2
-        || typeof value.fingerprint !== 'string'
-        || typeof value.sourcePath !== 'string'
-        || typeof value.sourceSha256 !== 'string'
-        || typeof value.createdAtMs !== 'number'
-        || typeof value.updatedAtMs !== 'number'
-        || !Array.isArray(value.ranges)
-    ) {
-        return null;
-    }
-    const ranges: IDjvuArtifactRange[] = [];
-    for (const range of value.ranges) {
-        if (
-            !isRecord(range)
-            || !Number.isSafeInteger(range.startPage)
-            || !Number.isSafeInteger(range.endPage)
-            || typeof range.outputPath !== 'string'
-            || ![
-                'pending',
-                'running',
-                'verified',
-                'failed',
-            ].includes(String(range.status))
-        ) {
-            return null;
-        }
-        ranges.push({
-            startPage: Number(range.startPage),
-            endPage: Number(range.endPage),
-            outputPath: range.outputPath,
-            status: range.status === 'running' || range.status === 'verified' || range.status === 'failed'
-                ? range.status
-                : 'pending',
-            ...(typeof range.size === 'number' ? {size: range.size} : {}),
-            ...(typeof range.sha256 === 'string' ? {sha256: range.sha256} : {}),
-            ...(typeof range.accountedSize === 'number' && Number.isSafeInteger(range.accountedSize) && range.accountedSize > 0
-                ? {accountedSize: range.accountedSize}
-                : {}),
-            ...(typeof range.error === 'string' ? {error: range.error} : {}),
-        });
-    }
-    return {
-        version: 2,
-        fingerprint: value.fingerprint,
-        sourcePath: value.sourcePath,
-        sourceSha256: value.sourceSha256,
-        createdAtMs: value.createdAtMs,
-        updatedAtMs: value.updatedAtMs,
-        ranges,
-    };
-}
-
 function manifestMatchesRequestedJob(
     manifest: IDjvuArtifactManifest,
     fingerprint: string,
@@ -437,7 +401,10 @@ export async function openDjvuArtifactJob(
             options.maxTotalBytesForTests ?? Number.POSITIVE_INFINITY,
         );
         let manifest = await readFile(manifestPath, 'utf8')
-            .then(value => decodeManifest(JSON.parse(value)))
+            .then(value => {
+                const parsed = v.safeParse(djvuArtifactManifestSchema, JSON.parse(value), {abortEarly: true});
+                return parsed.success ? parsed.output : null;
+            })
             .catch(() => null);
         if (!manifest || !manifestMatchesRequestedJob(
             manifest,
