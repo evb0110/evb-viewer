@@ -432,11 +432,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                 reason: 'persistence-gate',
             });
         }
-        let outcome = await openFileDirect(path);
-        if (outcome.status === 'stale' && !pdfSrc.value) {
-            BrowserLogger.info(RECENT_OPEN_LOG_SECTION, 'Retrying stale direct open once before returning to empty state', { path });
-            outcome = await openFileDirect(path);
-        }
+        const outcome = await openFileDirect(path);
         const opened = didOpenDocument(outcome);
         BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect resolved', {
             path,
