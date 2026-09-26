@@ -1,0 +1,20 @@
+tests/e2e/electron/nightly/large-pdf/largePdfAnnotationSave.e2e.test.ts
+  s_d1dadb9ae0f739::t_fde701154e8df3 1869
+  s_d1dadb9ae0f739::t_1921a6ec951481 2,2793-2802,4251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ea30cd404726bc66136df1110d6ec0ee6168430d",
+  "prompts": {},
+  "sessions": {
+    "s_d1dadb9ae0f739": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ddc5-cab5-7813-8aa7-2c63e73a7a72",
+        "model": "gpt-6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

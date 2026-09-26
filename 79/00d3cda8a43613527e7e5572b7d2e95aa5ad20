@@ -1,0 +1,20 @@
+tests/e2e/electron/nightly/large-pdf/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_d1dadb9ae0f739::t_fde701154e8df3 1071,1221,1326,1364,1395,1425,1447
+  s_d1dadb9ae0f739::t_e757cd05fe542c 578
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "7900d3cda8a43613527e7e5572b7d2e95aa5ad20",
+  "prompts": {},
+  "sessions": {
+    "s_d1dadb9ae0f739": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ddc5-cab5-7813-8aa7-2c63e73a7a72",
+        "model": "gpt-6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
