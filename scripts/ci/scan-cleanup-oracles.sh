@@ -14,6 +14,7 @@ run_catastrophe_oracle() {
 
 build_scan_cleanup_tool() {
   pnpm run build:scan-cleanup
+  pnpm run build:pdf-page-ops
 }
 
 resolve_scan_cleanup_tool() {
