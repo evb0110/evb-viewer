@@ -106,94 +106,13 @@
             @slide-end="isSlidingSidebar = false"
         >
             <template #sidebar>
-                <PdfSidebar
-                    v-if="surfaceMode === 'reader' && driverShowsPdfSidebar"
-                    v-model:active-tab="sidebarTab"
-                    v-model:search-query="searchQuery"
-                    :submitted-search-query="submittedSearchQuery"
-                    :search-options="searchOptions"
+                <WorkspaceDocumentSidebar
+                    :shows-pdf-sidebar="driverShowsPdfSidebar"
                     :is-open="isSidebarPresented"
                     :is-active="isDocumentSidebarActive"
-                    :is-resizing="isPointerResizingSidebar"
-                    :pdf-document="pdfDocument"
-                    :raster-scheduler="pdfRasterScheduler"
-                    :page-geometry="thumbnailPageGeometry"
-                    :current-page="currentPage"
-                    :total-pages="totalPages"
+                    :is-source-resizing="isSourceSidebarResizing"
                     :page-labels="toolbarPageLabels"
-                    :page-label-ranges="pageLabelRanges"
-                    :search-results="results"
-                    :current-result-index="currentResultIndex"
-                    :current-result-navigation-id="currentResultNavigationId"
-                    :is-searching="isSearching"
-                    :search-error="searchError"
-                    :search-focus-request="searchFocusRequest"
-                    :search-progress="searchProgress"
-                    :is-truncated="isTruncated"
-                    :min-query-length="minQueryLength"
-                    :width="sidebarWidth"
-                    :annotation-tool="annotationTool"
-                    :annotation-keep-active="annotationKeepActive"
-                    :annotation-settings="annotationSettings"
-                    :annotation-comments="annotationComments"
-                    :annotation-comments-status="annotationCommentsStatus"
-                    :annotation-inventory="annotationInventory"
-                    :annotation-enrichment-state="annotationEnrichmentState"
-                    :selected-annotations="annotationSession.selectedAnnotations.value"
-                    :can-rotate-annotations="pdfViewerRef?.canRotateSelectedAnnotations"
-                    :bookmark-edit-mode="bookmarkEditMode"
-                    :bookmark-items="bookmarkItems"
-                    :bookmarks-dirty="bookmarksDirty"
-                    :bookmark-navigation-intent-version="bookmarkNavigationIntentVersion"
-                    :is-page-operation-in-progress="isPageOperationInProgress"
-                    :is-djvu-mode="isDjvuMode"
-                    :selected-thumbnail-pages="selectedThumbnailPages"
-                    :selected-page-selection="selectedPageSelection"
-                    :thumbnail-invalidation-request="thumbnailInvalidationRequest"
-                    :thumbnail-hidden-annotation-ids="thumbnailHiddenAnnotationIds"
-                    @update:available-tabs="setAvailableSidebarTabs"
-                    @search="handleSearchWhenDocumentReady"
-                    @cancel-search="cancelSearch"
-                    @next="handleSearchNext"
-                    @previous="handleSearchPrevious"
-                    @update:search-options="searchOptions = $event"
-                    @go-to-page="handleGoToPage"
-                    @go-to-result="handleGoToResult"
-                    @update:page-label-ranges="handlePageLabelRangesUpdate"
-                    @update:annotation-tool="handleAnnotationToolChange"
-                    @update:annotation-keep-active="annotationKeepActive = $event"
-                    @annotation-setting="handleAnnotationSettingChange"
-                    @annotation-edit-text-box="handleAnnotationToolChange('select'); pdfViewerRef?.editAnnotationTextBox?.($event)"
-                    @annotation-properties="pdfViewerRef?.updateSelectedAnnotationProperties?.($event)"
-                    @update:selected-thumbnail-pages="handleSelectedThumbnailPagesUpdate"
-                    @update:selected-page-selection="setSelectedPageSelection"
-                    @annotation-focus-comment="annotationActions.handleAnnotationFocusComment"
-                    @annotation-open-note="annotationActions.handleOpenAnnotationNote"
-                    @annotation-delete-comment="annotationActions.handleDeleteAnnotationComment"
-                    @annotation-retry-enrichment="requestAnnotationEnrichment"
-                    @bookmarks-change="handleBookmarksChange"
-                    @update:bookmark-edit-mode="bookmarkEditMode = $event"
-                    @page-context-menu="showPageContextMenu"
-                    @page-rotate-cw="pageOps.handlePageRotate($event, 90)"
-                    @page-rotate-ccw="pageOps.handlePageRotate($event, 270)"
-                    @page-extract="pageOps.pageOpsExtract($event)"
-                    @page-export="exportWorkflow.handleExportImages($event)"
-                    @page-delete="pageOps.pageOpsDelete($event, totalPages)"
-                    @page-reorder="pageOps.pageOpsReorder($event)"
-                    @page-move="pageOps.pageOpsMove($event)"
-                    @page-file-drop="pageOps.handlePageFileDrop"
-                />
-                <DocumentSourceSidebar
-                    v-else-if="surfaceMode === 'reader'"
-                    v-model:active-tab="sidebarTab"
-                    :is-active="isDocumentSidebarActive"
-                    :source="documentSourceSidebar.source.value"
-                    :current-page="currentPage"
-                    :is-resizing="isSourceSidebarResizing"
-                    :search-session="documentSourceSidebar.searchSession"
-                    :search-focus-request="searchFocusRequest"
-                    @go-to-page="handleSourceSidebarGoToPage"
-                    @update:available-tabs="setAvailableSidebarTabs"
+                    :document-opening="isOpeningDocumentForToolbarDisplay"
                 />
             </template>
             <!-- The document chassis stays laid out while Start covers it, so an
@@ -250,18 +169,17 @@ import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
-import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
-import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import WorkspaceExportProgressOverlay from '@app/modules/workspace-shell/components/WorkspaceExportProgressOverlay.vue';
 import WorkspacePageOpProgressOverlay from '@app/modules/workspace-shell/components/WorkspacePageOpProgressOverlay.vue';
 import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue';
 import WorkspaceSaveDialogHost from '@app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue';
 import WorkspaceShell from '@app/modules/workspace-shell/components/layout/WorkspaceShell.vue';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
+import WorkspaceDocumentSidebar from '@app/modules/workspace-shell/components/WorkspaceDocumentSidebar.vue';
 import WorkspaceScanCleanupSurface from '@app/modules/workspace-shell/components/WorkspaceScanCleanupSurface.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
@@ -285,20 +203,16 @@ import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-s
 import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
-import { useDocumentSourceSidebarSession } from '@app/modules/workspace-shell/composables/useDocumentSourceSidebarSession';
-import { createWorkspacePdfSearchResultNavigation } from '@app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     DESKTOP_EDITOR_READER_COMMAND_SURFACE,
     EMPTY_STATE_READER_COMMAND_SURFACE,
 } from '@app/utils/readerCommandSurface';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/public';
 import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useWorkspaceDocumentLifecycle } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import { DjvuConversionOverlay } from '@app/modules/djvu-viewer/public';
-import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
 import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
@@ -458,9 +372,6 @@ const {
     appMenuOpen,
     selectedThumbnailPages,
     selectedPageSelection,
-    thumbnailInvalidationRequest,
-    setSelectedPageSelection,
-    handleSelectedThumbnailPagesUpdate,
     closeAllDropdowns,
     zoom,
     effectiveZoom,
@@ -470,31 +381,12 @@ const {
     currentPage,
     totalPages,
     pdfDocument,
-    pdfRasterScheduler,
     isLoading,
     continuousScroll,
     showSidebar,
     sidebarTab,
 } = viewerShell;
 const {
-    searchQuery,
-    submittedSearchQuery,
-    searchOptions,
-    results,
-    currentResultIndex,
-    currentResultNavigationId,
-    isSearching,
-    searchError,
-    searchProgress,
-    isTruncated,
-    minQueryLength,
-    cancelSearch,
-    setAvailableSidebarTabs,
-    handleSearch,
-    handleSearchNext,
-    handleSearchPrevious,
-    handleGoToResult: selectPdfSearchResult,
-    searchFocusRequest,
     sidebarWidth,
     sidebarWrapperStyle,
     isResizingSidebar,
@@ -504,17 +396,6 @@ const {
     setSidebarContainerWidth,
     cleanupSidebarResizeListeners,
 } = searchSidebar;
-const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
-    const viewer = pdfViewerRef.value;
-    if (!viewer?.pageMetrics || !viewer.ensurePageMetricsInRange) {
-        return null;
-    }
-    return {
-        ensureRange: viewer.ensurePageMetricsInRange,
-        metrics: toRaw(viewer.pageMetrics),
-        version: viewer.pageMetricsVersion ?? 0,
-    };
-});
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
 const isActiveViewerLayoutResizing = computed(() => (
     isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
@@ -541,18 +422,6 @@ const isDocumentViewerPresentationMounted = computed(() => surfaceMode.value ===
 const isDocumentViewerRenderActive = computed(() => (
     isRenderActive && surfaceMode.value === 'reader'
 ));
-function requestAnnotationEnrichment() {
-    void pdfViewerRef.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');
-}
-watch(
-    () => showSidebar.value && sidebarTab.value === 'annotations',
-    (annotationsVisible) => {
-        if (annotationsVisible) {
-            requestAnnotationEnrichment();
-        }
-    },
-    {flush: 'post'},
-);
 const {
     handleExportImages,
     handleExportMultiPageTiff,
@@ -566,31 +435,23 @@ const {
     handlePageLabelRangesUpdate,
 } = pageLabelState;
 const {
-    bookmarkEditMode,
     bookmarkItems,
     bookmarksDirty,
     handleBookmarksChange,
 } = bookmarkState;
-const {bookmarkNavigationIntentVersion} = context;
 const {
     annotationTool,
-    annotationKeepActive,
-    annotationSettings,
     annotationComments,
     annotationCommentsStatus,
     annotationInventory,
-    annotationEnrichmentState,
-    thumbnailHiddenAnnotationIds,
     markAnnotationCommentsLoading,
     annotationDirty,
     markAnnotationDirty,
     handleAnnotationToolChange,
-    handleAnnotationSettingChange,
     sortedAnnotationNoteWindows,
     updateAnnotationNoteText,
     isSameAnnotationComment,
 } = annotationSession;
-const {showPageContextMenu} = context.pageContextMenu;
 const {
     handleSave,
     handleRepairSave,
@@ -619,10 +480,6 @@ const {
     enableDragMode,
     handleGoToPage,
 } = navigation;
-const handleGoToResult = createWorkspacePdfSearchResultNavigation({
-    results,
-    select: selectPdfSearchResult,
-});
 const {handleCrop} = crop;
 const {handleCaptureRegion} = context;
 const {
@@ -649,7 +506,6 @@ const {
     handleStatusSaveClick,
     handleStatusShowInFolderClick,
 } = statusBar;
-const {isPageOperationInProgress} = pageOps;
 const {
     hasQueuedSplitRestore,
     isExternallyRestoring,
@@ -759,38 +615,18 @@ function handleDocumentInitialVisualReadyWithAutomationEvent() {
     notifyPdfInitialVisualReady();
     return handleDocumentInitialVisualReadyWithAutomationEventBase();
 }
-const documentSourceSidebar = useDocumentSourceSidebarSession({
-    documentRevision: documentRevisionToken,
-    onNavigate: pageIndex => handleGoToPage(pageIndex + 1, {navigationSource: 'search'}),
-});
-/**
- * The source sidebar also reports the click a thumbnail row was activated
- * with, for consumers that resolve multi-select intent from its modifiers.
- * This one only navigates, so the event is dropped here rather than reaching
- * navigation as scroll options.
- */
-function handleSourceSidebarGoToPage(pageNumber: number, _event?: MouseEvent) {
-    handleGoToPage(pageNumber);
-}
-function handlePageSourceUpdate(source: IDocumentPageSource | null) {
-    viewerShell.documentPageSource.value = source;
-    documentSourceSidebar.publishSource(source);
-}
 const {
     activeViewerComponent,
     activeViewerProps,
     activeViewerListeners,
     bindActiveViewerRef,
 } = context.bindDocumentView({
-    documentSourceCurrentResultIndex: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.currentResultIndex.value : -1),
-    documentSourceSearchResults: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.results.value : []),
     mountPresentation: isDocumentViewerPresentationMounted,
     isRenderActive: isDocumentViewerRenderActive,
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
     navigationFeedbackPage,
     onInitialVisualPending: markAnnotationCommentsLoading,
     onInitialVisualReady: handleDocumentInitialVisualReadyWithAutomationEvent,
-    onPageSourceUpdate: handlePageSourceUpdate,
 });
 
 const {
@@ -922,37 +758,6 @@ const documentOpenIdle = computed(() => (
 /** Resolves once no open is in flight and any document shows its first page. */
 async function waitForDocumentOpenSettled() {
     await until(documentOpenIdle).toBe(true);
-}
-const searchDocumentReady = computed(() => Boolean(
-    workingCopyPath.value
-    && pdfDocument.value
-    && totalPages.value > 0
-    && !isLoading.value
-    && !isOpeningDocumentForToolbarDisplay.value,
-));
-let latestSearchRequest = 0;
-// A search typed while the document opens runs once it is searchable.
-async function handleSearchWhenDocumentReady() {
-    const request = ++latestSearchRequest;
-    const identity = [
-        workingCopyPath.value,
-        documentRevisionToken.value,
-    ];
-    const query = searchQuery.value;
-    const options = {...searchOptions.value};
-    await until(searchDocumentReady).toBe(true);
-    if (
-        request !== latestSearchRequest
-        || identity[0] !== workingCopyPath.value
-        || identity[1] !== documentRevisionToken.value
-    ) {
-        return;
-    }
-    if (!searchQuery.value && query) {
-        searchQuery.value = query;
-        searchOptions.value = options;
-    }
-    await handleSearch();
 }
 const {
     runAgentAction,

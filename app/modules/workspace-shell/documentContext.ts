@@ -60,12 +60,12 @@ import {
     useWorkspaceDocumentDriverBinding,
     type IWorkspaceDriverPrintRequest,
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type {
-    IDocumentOpenSurfaceSession,
-    IDocumentPageSource,
-    IDocumentSourceCapabilities,
-    IDocumentSearchMatch,
+import {
+    createDocumentPageSourceSearchBackend,
+    type IDocumentOpenSurfaceSession,
+    type IDocumentSourceCapabilities,
 } from '@app/modules/document-viewer/public';
+import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { getErrorMessage } from '@app/utils/error';
@@ -95,15 +95,12 @@ interface IDocumentContextDeps {
     emitOpenSettings: () => void;
 }
 interface IDocumentViewBindingOptions {
-    documentSourceCurrentResultIndex: Ref<number>;
-    documentSourceSearchResults: Ref<readonly IDocumentSearchMatch[]>;
     mountPresentation: Ref<boolean>;
     isRenderActive: Ref<boolean>;
     isWorkspaceLayoutResizing: Ref<boolean>;
     navigationFeedbackPage: Ref<number | null>;
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
-    onPageSourceUpdate: (source: IDocumentPageSource | null) => void;
 }
 
 /**
@@ -458,6 +455,12 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         clearOcrCache: path => clearOcrCache(path),
         undoHistory: workspaceUndoTimeline.undoTimeline,
         redoHistory: workspaceUndoTimeline.redoTimeline,
+    });
+    // Search over a non-PDF page source (DjVu), shown by the source sidebar.
+    const sourceSearch = useDocumentSearchSession({
+        backend: computed(() => createDocumentPageSourceSearchBackend(view.documentPageSource.value)),
+        documentRevision: documentRevisionToken,
+        onNavigate: match => navigation.handleGoToPage(match.pageIndex + 1, {navigationSource: 'search'}),
     });
     const history = {
         isHistoryBusy,
@@ -924,8 +927,10 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             continuousScroll: view.continuousScroll,
             currentResultNavigationId: search.currentResultNavigationId,
             currentSearchMatch: computed(() => searchShown.value ? search.currentResult.value : null),
-            documentSourceCurrentResultIndex: options.documentSourceCurrentResultIndex,
-            documentSourceSearchResults: options.documentSourceSearchResults,
+            documentSourceCurrentResultIndex: computed(() => (
+                searchShown.value ? sourceSearch.currentResultIndex.value : -1
+            )),
+            documentSourceSearchResults: computed(() => searchShown.value ? sourceSearch.results.value : []),
             currentPage,
             dragMode: view.dragMode,
             isAnySaving: saveService.isAnySaving,
@@ -974,7 +979,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
                     sourceCapabilities.value = capabilities;
                 }
             },
-            onPageSourceUpdate: options.onPageSourceUpdate,
+            onPageSourceUpdate: (source) => { view.documentPageSource.value = source; },
             onTotalPagesUpdate: (value) => {
                 if (activeDriver.value || value === 0) {
                     handleTotalPages(value);
@@ -995,6 +1000,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         file,
         view,
         search,
+        sourceSearch,
         driver,
         bindDocumentView,
         viewerCapabilities,
