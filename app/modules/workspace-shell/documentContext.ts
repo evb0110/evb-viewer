@@ -3,7 +3,6 @@ import type {
     Ref,
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
-import { ZOOM } from '@app/constants/pdfLayout';
 import { clamp } from 'es-toolkit/math';
 import {
     useOcrTextContent,
@@ -18,6 +17,7 @@ import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-she
 import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
+import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
@@ -710,14 +710,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         openSearch: search.openSearch,
         handleAnnotationToolChange: annotations.handleAnnotationToolChange,
-        handleZoomIn: () => viewerDefaults.setCustomZoomFromDisplay(viewerDefaults.resolveDisplayZoom() + ZOOM.STEP),
-        handleZoomOut: () => {
-            const displayZoom = viewerDefaults.resolveDisplayZoom();
-            if (displayZoom > ZOOM.MIN) {
-                viewerDefaults.setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
-            }
-        },
-        handleActualSize: () => viewerDefaults.setCustomZoomFromDisplay(1),
+        handleZoomIn: viewerDefaults.handleZoomIn,
+        handleZoomOut: viewerDefaults.handleZoomOut,
+        handleActualSize: viewerDefaults.handleActualSize,
         handleFitMode: navigation.handleFitMode,
         navigationPage,
         totalPages,
@@ -795,6 +790,21 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             docx.clearDocxExportError();
         }
     }
+
+    const djvuProjection = useDjvuProjectionActions({
+        isDjvuMode: file.isDjvuMode,
+        currentPage,
+        documentViewerRef,
+        ensureProjection: file.ensureDjvuPdfProjection,
+        saveAs: save.handleSaveAs,
+        exportDocx: handleExportDocx,
+        isExportingDocx: docx.isExportingDocx,
+        cancelExportDocx: cancelDocxExport,
+        handleDropdownOpen,
+        insertImageFromFile: annotationActions.insertImageFromFile,
+        pasteImageFromClipboard: annotationActions.pasteImageFromClipboard,
+        createQuickNote: annotationActions.handleQuickNoteAction,
+    });
 
     const {handleOcrComplete} = useWorkspaceDocumentLifecycleEffects({
         currentPage,
@@ -1008,7 +1018,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         splitPayload,
         viewerDefaults,
         handleCaptureRegion,
-        handleDropdownOpen,
+        djvuProjection,
         handleOcrComplete,
     };
 };

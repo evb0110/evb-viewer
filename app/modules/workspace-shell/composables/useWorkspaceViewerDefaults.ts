@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { ZOOM } from '@app/constants/pdfLayout';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type {
@@ -91,7 +92,13 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     }, {immediate: true});
 
     return {
-        resolveDisplayZoom,
-        setCustomZoomFromDisplay,
+        handleZoomIn: () => setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP),
+        handleZoomOut: () => {
+            const displayZoom = resolveDisplayZoom();
+            if (displayZoom > ZOOM.MIN) {
+                setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
+            }
+        },
+        handleActualSize: () => setCustomZoomFromDisplay(1),
     };
 };

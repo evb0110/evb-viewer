@@ -277,7 +277,6 @@ import {
     createDocumentContext,
     provideDocumentContext,
 } from '@app/modules/workspace-shell/documentContext';
-import { ZOOM } from '@app/constants/pdfLayout';
 import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
 import { useWorkspaceSplitCache } from '@app/modules/workspace-shell/composables/useWorkspaceSplitCache';
 import { useWorkspaceViewerVisibility } from '@app/modules/workspace-shell/composables/useWorkspaceViewerVisibility';
@@ -298,7 +297,6 @@ import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspac
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { useWorkspaceDocumentLifecycle } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle';
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
-import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import { DjvuConversionOverlay } from '@app/modules/djvu-viewer/public';
 import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
 import {
@@ -445,7 +443,6 @@ const {
     showConvertDialog,
     openConvertDialog,
     djvuDismissBanner,
-    ensureDjvuPdfProjection,
     handleDjvuCancel,
     openBatchProgress,
     hasPdf,
@@ -627,26 +624,16 @@ const handleGoToResult = createWorkspacePdfSearchResultNavigation({
     select: selectPdfSearchResult,
 });
 const {handleCrop} = crop;
-const {
-    handleCaptureRegion,
-    handleDropdownOpen: handleDropdownOpenDirect,
-} = context;
+const {handleCaptureRegion} = context;
 const {
     captureSplitPayload,
     restoreSplitPayload,
 } = splitPayload;
 const {
-    setCustomZoomFromDisplay,
-    resolveDisplayZoom,
+    handleZoomIn,
+    handleZoomOut,
+    handleActualSize,
 } = context.viewerDefaults;
-const handleZoomIn = () => setCustomZoomFromDisplay(resolveDisplayZoom() + ZOOM.STEP);
-const handleZoomOut = () => {
-    const displayZoom = resolveDisplayZoom();
-    if (displayZoom > ZOOM.MIN) {
-        setCustomZoomFromDisplay(displayZoom - ZOOM.STEP);
-    }
-};
-const handleActualSize = () => setCustomZoomFromDisplay(1);
 const {
     statusFilePath,
     statusFileSizeLabel,
@@ -872,21 +859,8 @@ const {
     handleQuickNoteAction,
     handleSaveAs,
     runEdit: runPdfEditAction,
-} = useDjvuProjectionActions({
-    isDjvuMode,
-    currentPage,
-    documentViewerRef,
-    ensureProjection: ensureDjvuPdfProjection,
-    saveAs: save.handleSaveAs,
-    saveAsThroughDriver: save.handleSaveAs,
-    exportDocx: docxExport.handleExportDocx,
-    isExportingDocx,
-    cancelExportDocx: cancelDocxExportDirect,
-    handleDropdownOpen: handleDropdownOpenDirect,
-    insertImageFromFile: annotationActions.insertImageFromFile,
-    pasteImageFromClipboard: annotationActions.pasteImageFromClipboard,
-    createQuickNote: annotationActions.handleQuickNoteAction,
-});
+} = context.djvuProjection;
+
 
 const canExportDocx = computed(() => Boolean(workingCopyPath.value) && !isAnySaving.value && !isHistoryBusy.value);
 const handleCropAction = () => runPdfEditAction(handleCrop);
