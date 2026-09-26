@@ -1,0 +1,50 @@
+.github/workflows/ci.yml
+  s_ecea10291e4b09::t_18d1450ea32668 28-33,133-140,151,173-175,228,233-237,240,252,254-255,258-263,265-266,268-270,272
+scripts/ci/push-diff-base.sh
+  s_ecea10291e4b09::t_6c22134c7ec409 13-16,21
+  s_ecea10291e4b09::t_997a8e5762dae2 35
+.github/workflows/ci-extended.yml
+  s_ecea10291e4b09::t_6f5625c57bfe53 1-120,138-592
+  s_ecea10291e4b09::t_dcf7b22052282f 121-137
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_ecea10291e4b09::t_24bc7f7f4ebd63 321
+  s_ecea10291e4b09::t_aa70c7b0aa98a1 289-291,293-309,312-318
+.github/workflows/ci-nightly.yml
+  s_ecea10291e4b09::t_0929be2c7ac354 1-221
+docs/contributing/local-gates.md
+  s_ecea10291e4b09::t_1db1de02c6a327 118-119
+  s_ecea10291e4b09::t_38d980500e1dd8 59-104
+docs/contributing/ci.md
+  s_ecea10291e4b09::t_354bb060fde750 198,204
+  s_ecea10291e4b09::t_4f8dc550e4a1c7 7-31,34-37,41-81,83-105
+  s_ecea10291e4b09::t_750b39ab0c60c8 135-139
+  s_ecea10291e4b09::t_be4fe55132cf8b 128
+  s_ecea10291e4b09::t_8a0f69f530cd15 154-156,158-191
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_ecea10291e4b09::t_b0cd872b866af0 293-305
+  s_ecea10291e4b09::t_e11c734780b16c 40,51
+  s_ecea10291e4b09::t_c12cfc76574ef1 42,49
+  s_ecea10291e4b09::t_8e5362ab664cfa 581
+  s_ecea10291e4b09::t_91eecce676ef10 179
+  s_ecea10291e4b09::t_44453c1ce342e2 306-310
+  s_ecea10291e4b09::t_c1a17e47030fbd 178,211-228
+  s_ecea10291e4b09::t_577c1118ed1e48 525-531,533,536-537,540,551-553
+  s_ecea10291e4b09::t_d6309bcded9cee 260,267-268,273-274,276-292,311-331,334,524,582,584
+  s_ecea10291e4b09::t_85349decc627c1 50,52,58,180-183,188-191,229-235,247-248,332-333,335-339,554-557,583,585-589
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1bb8db948f0a18a43525c0d994cc0bbb9864ad03",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

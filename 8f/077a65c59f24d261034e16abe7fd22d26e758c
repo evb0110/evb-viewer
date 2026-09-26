@@ -1,0 +1,24 @@
+tests/e2e/electron/zoomMenuLayout.e2e.test.ts
+  s_e92dfd8ea76161::t_8de9dac101ddb8 25-29,108-110,112-118,175-178
+  s_e92dfd8ea76161::t_c9df5a3a6f6b44 106-107
+  s_e92dfd8ea76161::t_3356ce30758376 179
+app/modules/pdf-viewer/components/PdfZoomDropdown.vue
+  s_e92dfd8ea76161::t_89cefef23ac097 492-493
+  s_e92dfd8ea76161::t_b13c7263673b63 59,410-411,521-533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8f077a65c59f24d261034e16abe7fd22d26e758c",
+  "prompts": {},
+  "sessions": {
+    "s_e92dfd8ea76161": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "927d6f3d-1c97-4c76-91d7-a91aad063773",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

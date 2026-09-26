@@ -1,0 +1,27 @@
+tests/e2e/electron/helpers/workspaceExpose.ts
+  s_ecea10291e4b09::t_2fd082d62d04e6 476-494
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_ecea10291e4b09::t_039e0db421ca7d 2476-2575
+  s_ecea10291e4b09::t_1dddd0bdda65a4 1222-1258,1263,1265-1266,1269-1286,1288-1309,1313-1322
+  s_ecea10291e4b09::t_591fdd671088ce 271-284
+  s_ecea10291e4b09::t_5e170bca219b92 1259-1262,1264,1267-1268
+  s_ecea10291e4b09::t_486c4484cf2435 1287
+  s_ecea10291e4b09::t_441fe2d7c465db 1310-1312
+  s_ecea10291e4b09::t_e9cd5e2fd3f01d 42,45-53,58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e654464319b662e08b31b4dadd5018c3d6b7e4b1",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

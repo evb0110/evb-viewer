@@ -1,0 +1,39 @@
+tests/unit/scripts/ciHealthAttribution.test.ts
+  s_ecea10291e4b09::t_26dfa17380a609 245-264
+  s_ecea10291e4b09::t_f19767be53fd32 6,10
+  s_ecea10291e4b09::t_d28cf799536931 7-9
+  s_ecea10291e4b09::t_6976ef47ccdbd5 65-72
+  s_ecea10291e4b09::t_6c3c1ab7fd2e2a 1-5,11-64,73-244,265-271
+scripts/ci/ci-health.mjs
+  s_ecea10291e4b09::t_0d0d4407d0d0c5 658
+  s_ecea10291e4b09::t_20312a7298a27c 714
+  s_ecea10291e4b09::t_a77e5ca053adcb 733-737
+  s_ecea10291e4b09::t_9b3d5578c87243 35-37
+  s_ecea10291e4b09::t_c7aa440edcd3f2 13-22,27
+  s_ecea10291e4b09::t_34ca5ca9b30385 110-111,120
+  s_ecea10291e4b09::t_f4ee2c895915a2 78-81
+  s_ecea10291e4b09::t_bcd4b6fa2f09b5 603-606,608-651,673-700,702-705,709
+  s_ecea10291e4b09::t_bd07e04fc30591 39-51,54-57
+  s_ecea10291e4b09::t_e7b475f1b80402 433-436
+  s_ecea10291e4b09::t_0138eb771a6c28 601-602,607
+  s_ecea10291e4b09::t_78119e9bf529b8 652-653,656-657,664-672
+  s_ecea10291e4b09::t_65ffaa4dc0e217 654-655,659-663
+  s_ecea10291e4b09::t_3fe7e8000ba9eb 406-432,437-518
+  s_ecea10291e4b09::t_f9a62bb79be4ef 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "69c4f49236112c381bc2d8ed8b85d3f7557f00d0",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

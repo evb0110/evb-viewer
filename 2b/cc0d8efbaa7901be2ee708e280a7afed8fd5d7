@@ -1,0 +1,22 @@
+app/modules/viewer-invariants/waitForViewerSettled.ts
+  s_ecea10291e4b09::t_c2dc492e188e8a 129,143-146
+  s_ecea10291e4b09::t_cacce39ea99d11 91-111,114-116
+  s_ecea10291e4b09::t_fe590664ae2d57 90
+  s_ecea10291e4b09::t_850adc5c40eb88 147-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2bcc0d8efbaa7901be2ee708e280a7afed8fd5d7",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+CONTRIBUTING.md
+  s_ecea10291e4b09::t_9246f72daaf0fe 67-82,84-86
+docs/architecture/design-principles.md
+  s_ecea10291e4b09::t_f0234ba74367f5 24-27
+docs/architecture/behavior-contract.md
+  s_ecea10291e4b09::t_09b97d962ca995 1-124
+AGENTS.md
+  s_ecea10291e4b09::t_6e307dd738d564 9-12
+docs/internal/methodology-review-2026-09-19.md
+  s_ecea10291e4b09::t_d7a8c8d04ab67f 1-212
+docs/internal/agents/fix-evidence.md
+  s_ecea10291e4b09::t_6dedb2db257d09 1-95
+docs/architecture/design-charter.md
+  s_ecea10291e4b09::t_817a2d7cafaa7f 26-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "197b67269943c09ac018fb517477fc3d646f9b73",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

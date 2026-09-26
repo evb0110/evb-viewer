@@ -1,0 +1,55 @@
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_ecea10291e4b09::t_6c1fb9ba1467be 69,1295,1861,2756
+tests/e2e/electron/annotationStrokeParity.e2e.test.ts
+  s_ecea10291e4b09::t_823836226450a3 24,221
+tests/e2e/electron/compactPageLabelsStructuralOperations.e2e.test.ts
+  s_ecea10291e4b09::t_3142f2e778dd18 21,254,256,261
+tests/e2e/electron/flingNavigationHandoff.e2e.test.ts
+  s_ecea10291e4b09::t_7a24947679c7ee 22,251,269,271
+tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts
+  s_ecea10291e4b09::t_0e17ab4e981c9e 31,481,525,529,627,631
+tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts
+  s_ecea10291e4b09::t_87d11a6a7976fb 54,505,519,537
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_ecea10291e4b09::t_5c358595c06557 95,98-99,3969,3976,3983
+tests/e2e/electron/largePdfNativePreview.e2e.test.ts
+  s_ecea10291e4b09::t_4bd8d703f1f12b 23,187,385,448,465,476
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_ecea10291e4b09::t_737d8c20ce19f6 39,497,505,661,669,734
+tests/e2e/electron/prBlockingSmoke.e2e.test.ts
+  s_ecea10291e4b09::t_f16066d43184e0 40-41,1119,1122,1162,1165,1179,1182,1187,1190,1239-1240,1285,1305,1324,1344,1459-1463,1522-1523,1560-1561,1580-1581,1609-1610,1641-1642,1671-1672,1779,1784,2401,2490-2492,2652,2810
+tests/e2e/electron/project8RecoveryCloseAcceptance.e2e.test.ts
+  s_ecea10291e4b09::t_e8b5d4704f7ef0 32,79
+tests/e2e/electron/rapidPdfNavigation.e2e.test.ts
+  s_ecea10291e4b09::t_d8eb2acfce7c0a 28,721,729,832,852,886,893,1056,1420,1591,1710,1826,1837
+tests/e2e/electron/savePipeline.e2e.test.ts
+  s_ecea10291e4b09::t_a714bcea7cb93c 55,671,803-806
+tests/e2e/electron/searchMatchScrolling.e2e.test.ts
+  s_ecea10291e4b09::t_d40c75285fbe35 25,152
+tests/e2e/electron/squigglyMarkup.e2e.test.ts
+  s_ecea10291e4b09::t_2c7ed0714858c9 33,438
+tests/e2e/electron/stampPicker.e2e.test.ts
+  s_ecea10291e4b09::t_a13b6fba0c3733 24,62
+tests/e2e/electron/standardPdfFitModeContinuity.e2e.test.ts
+  s_ecea10291e4b09::t_f4bc8d2b5bc4bc 30,871,1005,1145,1359,1384,1412
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_ecea10291e4b09::t_8aaa2210176152 1124,1138,2588,3316,4777-4778,4917,4919,5018,5021,5023,5159,5223,5239
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_ecea10291e4b09::t_b459d7275c7a4c 60,1440,1450,1494,1502
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "24031fba44c78f279ea343ec63cebf21e6cd9506",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

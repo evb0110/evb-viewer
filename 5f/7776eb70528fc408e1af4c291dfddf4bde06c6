@@ -1,0 +1,33 @@
+scripts/electron-run/electronRunProtocol.ts
+  s_ecea10291e4b09::t_b7abc2b278e7d3 17-20
+scripts/electron-run/createCommandHandler.ts
+  s_ecea10291e4b09::t_d9d9fcd7954b0d 30
+  s_ecea10291e4b09::t_7f21250bdcb2fe 121-132
+  s_ecea10291e4b09::t_9e12fed63c668f 18
+  s_ecea10291e4b09::t_9526cb68a0529b 923-924,930-935,937-941,943
+  s_ecea10291e4b09::t_0b361d7f00ddaf 925-929
+tests/unit/scripts/electronRunWindowResizeCommand.test.ts
+  s_ecea10291e4b09::t_6a7d9fba9473dd 1-185
+  s_ecea10291e4b09::t_446fe667b4b844 186
+scripts/electron-run/resizeElectronWindow.ts
+  s_ecea10291e4b09::t_06d8990d00e6b1 1-54,56-81
+  s_ecea10291e4b09::t_7b8914bcf8673d 55
+scripts/electron-run/runCli.ts
+  s_ecea10291e4b09::t_e6e0912d312a13 63-64,416-419,431-432,764-765
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5f7776eb70528fc408e1af4c291dfddf4bde06c6",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

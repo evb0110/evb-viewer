@@ -1,0 +1,31 @@
+tests/e2e/electron/helpers/createElectronE2ESessionFixture.ts
+  s_ecea10291e4b09::t_90cfa26ac3cdb8 131
+  s_ecea10291e4b09::t_8407fdcb34e3e5 29-31,33-36
+  s_ecea10291e4b09::t_3e6d4507f6a7c9 67-69,78,82,84
+tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts
+  s_ecea10291e4b09::t_4d2a991776b986 471-472,613-614,714-715
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_ecea10291e4b09::t_02eb3d02db5603 1118,1413
+tests/e2e/electron/macOsPrintAcceptance.e2e.test.ts
+  s_ecea10291e4b09::t_d7159664a22198 379
+tests/e2e/electron/rapidPdfNavigation.e2e.test.ts
+  s_ecea10291e4b09::t_625478a1cf61ad 686-687,828-829,844-845,883-884,1132-1133,1194,1225-1226,1297-1298,1341-1342,1420-1421,1592-1593,1712-1713,1829-1830,1876-1877
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_ecea10291e4b09::t_918215970220d1 3732-3733,3812-3813,5197-5198,5320,5368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "551ff1a0a7de4fd0a4ed11a75a58ab035ea80174",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

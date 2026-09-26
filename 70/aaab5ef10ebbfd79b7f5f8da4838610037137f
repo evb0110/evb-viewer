@@ -1,0 +1,61 @@
+tests/e2e/electron/helpers/viewerInvariants.ts
+  s_ecea10291e4b09::t_e8eacf751a4583 182-197
+tests/e2e/electron/calibration/calibrationEvidence.ts
+  s_ecea10291e4b09::t_da88d1c2696949 1-125
+vitest.shared.config.ts
+  s_ecea10291e4b09::t_8cd8507b6fde5d 48
+  s_ecea10291e4b09::t_013ecad9c6f04b 128-130,132
+  s_ecea10291e4b09::t_7270f2b0fcb495 328
+  s_ecea10291e4b09::t_f2a678b0eab164 131
+tests/e2e/electron/calibration/noteWindowFollowsAnchorCalibration.e2e.test.ts
+  s_ecea10291e4b09::t_9d476fbc872c90 1
+  s_ecea10291e4b09::t_7f5727bdc4e419 24
+  s_ecea10291e4b09::t_65d47b57795635 30,38,43-85
+  s_ecea10291e4b09::t_709aecdfd60133 89-101
+  s_ecea10291e4b09::t_5c364772c7fbc9 113,118-138,174
+  s_ecea10291e4b09::t_9ebee0a05de427 110,176-188,202,207-209
+  s_ecea10291e4b09::t_9eb8034fceaa60 199-200,203
+  s_ecea10291e4b09::t_debd41b2db2a18 2-4,21-23
+  s_ecea10291e4b09::t_f905fc479b6d34 25-29
+  s_ecea10291e4b09::t_1a39110513a73f 31-33,35-37
+  s_ecea10291e4b09::t_8501279fa9a56e 39-42
+  s_ecea10291e4b09::t_5c3ea6b5ecdae5 86-88
+  s_ecea10291e4b09::t_10da5bcc56e827 102-104,107-109
+  s_ecea10291e4b09::t_a81919547908e2 111-112
+  s_ecea10291e4b09::t_0e4bce002e6d6a 114-117
+  s_ecea10291e4b09::t_c10e7f3bf1c983 139-141,171-173
+  s_ecea10291e4b09::t_76fc807b19b1a8 175
+  s_ecea10291e4b09::t_67f49ba338eb4d 189-191,196-198
+  s_ecea10291e4b09::t_669f5030ae15df 201
+  s_ecea10291e4b09::t_a75a08ad48903c 204-206
+  s_ecea10291e4b09::t_4e3cfbbe510323 210-211
+  s_97a0cad7bc1b5a::t_9118b30f56a6cb 5-20,34,105-106,142-170,192-195
+tests/e2e/electron/calibration/resizeKeepsHorizontalPlaceCalibration.e2e.test.ts
+  s_ecea10291e4b09::t_e4d5da7b281b53 1-209
+tests/e2e/electron/calibration/shapePastPageEdgeSaveCalibration.e2e.test.ts
+  s_ecea10291e4b09::t_b020a00f8f54e0 1-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "70aaab5ef10ebbfd79b7f5f8da4838610037137f",
+  "prompts": {},
+  "sessions": {
+    "s_97a0cad7bc1b5a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ac5c0a6ce7741794d",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

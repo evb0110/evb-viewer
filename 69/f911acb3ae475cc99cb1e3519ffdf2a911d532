@@ -1,0 +1,22 @@
+.github/workflows/dependency-audit.yml
+  s_ecea10291e4b09::t_536ef3e7fd18e6 75-87
+  s_ecea10291e4b09::t_9d25de26d071e3 104
+docs/contributing/release-guardrails.md
+  s_ecea10291e4b09::t_f154c0a02e9d6d 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "69f911acb3ae475cc99cb1e3519ffdf2a911d532",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

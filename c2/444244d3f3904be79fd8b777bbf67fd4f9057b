@@ -1,0 +1,27 @@
+tests/integration/browser/viewerInvariantsEntry.ts
+  s_ecea10291e4b09::t_94811929ceb707 1-11
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_77f33db5d49959 1-463
+app/modules/pdf-viewer/public/domContracts.ts
+  s_ecea10291e4b09::t_d3cf74f94e6bcb 1-8
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_0441164724e621 1
+app/modules/viewer-invariants/readViewerSurface.ts
+  s_ecea10291e4b09::t_e3bbd0260da523 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c2444244d3f3904be79fd8b777bbf67fd4f9057b",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

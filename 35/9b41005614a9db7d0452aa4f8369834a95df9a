@@ -1,0 +1,45 @@
+tests/e2e/electron/helpers/viewportPageObservation.ts
+  s_ecea10291e4b09::t_d99933117e6219 131
+  s_ecea10291e4b09::t_5f9322229d47b4 34,39-52
+  s_ecea10291e4b09::t_d47d887f03b756 118
+  s_ecea10291e4b09::t_30906a18305bbf 14-15,18-24
+  s_9931b204d2fa24::t_77d6f7a2aff568 25,53-54
+tests/e2e/electron/flingNavigationHandoff.e2e.test.ts
+  s_ecea10291e4b09::t_53f9b927d203b8 357-406
+  s_ecea10291e4b09::t_f7871bb6e1f7fa 354-356
+  s_50d93e3e7fbef3::t_b8a03a9ef80f92 27,60-64,300,350-353
+tests/e2e/electron/helpers/startTrustedWheelFling.ts
+  s_ecea10291e4b09::t_35c543c40f01bb 37-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "359b41005614a9db7d0452aa4f8369834a95df9a",
+  "prompts": {},
+  "sessions": {
+    "s_50d93e3e7fbef3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a783ab4b3e9a92c52",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_9931b204d2fa24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e5a68b73-c7d7-40df-bcf7-26513af331dd",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,55 @@
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_c4516e6bd07ba1::t_020d47ebe02999 388-391,394
+  s_c4516e6bd07ba1::t_5c5615d098b44b 99,392
+app/modules/document-viewer/input/createWheelGestureStream.ts
+  s_c4516e6bd07ba1::t_41d58d02d9088b 16-18,53-55,77-78
+  s_c4516e6bd07ba1::t_7576af56beb5c0 19-21,27,30-43,57,62,66-67,75-76,79
+  s_c4516e6bd07ba1::t_97514d33550080 15
+tests/unit/app/modules/document-viewer/documentViewerRuntime.test.ts
+  s_c4516e6bd07ba1::t_0ad5621c6a7023 383-386,393-395
+  s_c4516e6bd07ba1::t_ebb31718c5eb8d 310-312,362-375,377-382,387-392,396-408,410-429,431-436
+  s_c4516e6bd07ba1::t_76fd7dacad4932 376,409,430,437-493
+  s_c4516e6bd07ba1::t_2a6a3ab9b24c68 494
+tests/unit/contracts/hostPlatformFeature.test.ts
+  s_c4516e6bd07ba1::t_c19de70178770c 21,37,57-59
+electron/hostEnvironment.ts
+  s_c4516e6bd07ba1::t_020d47ebe02999 399-405
+  s_c4516e6bd07ba1::t_007feff7971b32 406-408,410,423
+  s_c4516e6bd07ba1::t_5c5615d098b44b 398
+tests/helpers/createTestPdfViewportWritePort.ts
+  s_c4516e6bd07ba1::t_020d47ebe02999 42
+docs/architecture/pdf-viewer-architecture.md
+  s_c4516e6bd07ba1::t_64d0518e4fd6d7 102-127,148-149
+app/modules/document-viewer/runtime/documentViewportWritePort.ts
+  s_c4516e6bd07ba1::t_f0a229a2082aa4 343-347
+  s_c4516e6bd07ba1::t_41d58d02d9088b 40-41,107-109,142-153,190-193,199,206-215,321,325,335-340,361-373,381
+  s_c4516e6bd07ba1::t_5c5615d098b44b 99-106,136-140,154-181,189,326-327,332-333,351-353,374-377,384
+  s_c4516e6bd07ba1::t_0ad5621c6a7023 378-380,382-383,385-388
+  s_c4516e6bd07ba1::t_e34e1d63dfa634 389
+app/platform/browser-api/browserHostCapability.ts
+  s_c4516e6bd07ba1::t_020d47ebe02999 93-94
+app/platform/generated/browserPlatformPathDescriptorsGenerated.ts
+  s_c4516e6bd07ba1::t_020d47ebe02999 254
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
+  s_c4516e6bd07ba1::t_020d47ebe02999 236,513
+packages/contracts/hostPlatformFeature.ts
+  s_c4516e6bd07ba1::t_f733fab6d105dd 129-132
+  s_c4516e6bd07ba1::t_007feff7971b32 121,133
+  s_c4516e6bd07ba1::t_020d47ebe02999 122-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "40f7b14830d14572160c018b38d4b61e03f7fe39",
+  "prompts": {},
+  "sessions": {
+    "s_c4516e6bd07ba1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d419ea80-167c-456e-9e7f-3baf2f744ed5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

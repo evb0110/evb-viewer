@@ -1,0 +1,24 @@
+tests/unit/scripts/waitForExactShaCi.test.ts
+  s_ecea10291e4b09::t_5f2eff30b4c359 488-530
+scripts/ci/ci-health.mjs
+  s_ecea10291e4b09::t_739d3f8ccfcc77 99-116,119-139,1002
+  s_ecea10291e4b09::t_46271584b5a2f0 1001,1003-1010
+scripts/release/wait-for-exact-sha-ci.mjs
+  s_ecea10291e4b09::t_6089874b7b1ffe 290-293,299-301,303,310-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1e132437c4907120224e3c03489ee7f22831376d",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

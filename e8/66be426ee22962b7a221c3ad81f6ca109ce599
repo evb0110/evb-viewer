@@ -1,0 +1,34 @@
+electron/writeHostBugReportBundle.ts
+  s_ecea10291e4b09::t_947912b85ad052 78-79
+  s_ecea10291e4b09::t_2fed5643d26ea4 3-4
+  s_ecea10291e4b09::t_4b7d0a082abd0f 38-56
+  s_c4516e6bd07ba1::t_3f23e46e347c28 37
+  s_ecea10291e4b09::t_398c824a26aac4 106-113
+  s_ecea10291e4b09::t_818d58c6f22948 21-24
+packages/contracts/hostPlatformFeature.ts
+  s_ecea10291e4b09::t_5ec9b268e6bcdc 84-89,96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e866be426ee22962b7a221c3ad81f6ca109ce599",
+  "prompts": {},
+  "sessions": {
+    "s_c4516e6bd07ba1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d419ea80-167c-456e-9e7f-3baf2f744ed5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

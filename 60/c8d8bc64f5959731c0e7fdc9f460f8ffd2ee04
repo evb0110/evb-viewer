@@ -1,0 +1,21 @@
+AGENTS.md
+  s_9931b204d2fa24::t_7a62324e573e22 11
+docs/internal/agents/fix-evidence.md
+  s_9931b204d2fa24::t_5cc2e93b8e6666 98-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "60c8d8bc64f5959731c0e7fdc9f460f8ffd2ee04",
+  "prompts": {},
+  "sessions": {
+    "s_9931b204d2fa24": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e5a68b73-c7d7-40df-bcf7-26513af331dd",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

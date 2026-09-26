@@ -1,0 +1,19 @@
+docs/internal/methodology-review-2026-09-19-implementation-ledger.md
+  s_ecea10291e4b09::t_ff04df6ba170b9 24-38,54-67,69-89,103-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "36b030ea6c5ea334c937d04fe8fd26916dbca2a4",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

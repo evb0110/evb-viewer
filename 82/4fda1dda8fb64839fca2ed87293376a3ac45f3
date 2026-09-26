@@ -1,0 +1,37 @@
+tests/unit/app/modules/document-viewer/documentViewerRuntime.test.ts
+  s_c4516e6bd07ba1::t_958484453b7c5f 506-533,535-549,553-563,565-603,612-614,617-618,620-621,623,626,675-752,792-793
+  s_c4516e6bd07ba1::t_0cff22d278c5aa 604-611,615-616,619,622,624-625,627-649,753-785,788-789
+  s_c4516e6bd07ba1::t_e8a2a37203c86f 786-787,790-791
+  s_c4516e6bd07ba1::t_0a754c260b91a6 534,550-552,564
+  s_c4516e6bd07ba1::t_316bb3db210355 650-674
+  s_c4516e6bd07ba1::t_ccb9e93683ee81 39,44-47,49,226,245,345,348-354,379,416,438
+app/modules/document-viewer/runtime/documentViewportWritePort.ts
+  s_c4516e6bd07ba1::t_035b80ae3314ab 166,402-406,409
+  s_c4516e6bd07ba1::t_ccb9e93683ee81 157-160,473,476-478,480
+  s_c4516e6bd07ba1::t_981608a63b19dd 167-170,173-176,178-180,190,428,431,434
+  s_c4516e6bd07ba1::t_3c699b444f1771 39,128-132,134,148-154,156,161-165,177,181-189,191-209,238,245-249,252-257,260,263-270,273-278,281,285-294,398-401,411,413-419,424-427,429,432-433,435-446,450-453,472,479,481-486,490-493
+app/modules/document-viewer/input/createWheelGestureStream.ts
+  s_c4516e6bd07ba1::t_981608a63b19dd 26-31,49-50,52-62,112,136
+  s_c4516e6bd07ba1::t_74b828a8579951 87-88
+  s_c4516e6bd07ba1::t_54338c9d08cd95 2-3,7-11,17,20-25,32,35-36,41-44,46-48,51,63-70,75-76,85-86,89-94,97-99,105-106,108-109,111,113-114,117-118,121-124,131-135,137
+  s_c4516e6bd07ba1::t_16bdd57461f090 100
+docs/architecture/pdf-viewer-architecture.md
+  s_c4516e6bd07ba1::t_9cd5bd4edf1595 100-107,110-111,122-147,154-160,166-168
+  s_c4516e6bd07ba1::t_f2731377fd18b6 108-109,112-121,148-153,161-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "824fda1dda8fb64839fca2ed87293376a3ac45f3",
+  "prompts": {},
+  "sessions": {
+    "s_c4516e6bd07ba1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d419ea80-167c-456e-9e7f-3baf2f744ed5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": null
+    }
+  }
+}

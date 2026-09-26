@@ -1,0 +1,33 @@
+app/modules/viewer-invariants/readViewerSurface.ts
+  s_ecea10291e4b09::t_855906369ab718 130
+app/modules/pdf-viewer/components/PdfNoteAnnotation.vue
+  s_ecea10291e4b09::t_7a450463dc9653 18
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_3e4bf4a7ad136e 65-66
+  s_ecea10291e4b09::t_0212313de3c58b 113-121,125
+  s_ecea10291e4b09::t_24dbd7577f9b84 473-511
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_21596fb92d3cd8 376-380
+  s_ecea10291e4b09::t_3f2cc24b7c11a6 43-44,47
+  s_ecea10291e4b09::t_3f77557bf18bc0 409
+  s_ecea10291e4b09::t_3e4109d6346288 340-341,344,350-368
+  s_ecea10291e4b09::t_ab3bd55ef310a5 369-370
+app/modules/viewer-invariants/viewerInvariantTypes.ts
+  s_ecea10291e4b09::t_d76027d46f8cf1 55-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ff8e8cf7f88ba380f6368577690ba7c1ddf14e48",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

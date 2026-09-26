@@ -1,0 +1,49 @@
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_dacca90f9e3739 361,365
+  s_ecea10291e4b09::t_0ff6996b6d7d7d 652
+  s_ecea10291e4b09::t_c4a92492b4e57a 88,94-96
+  s_ecea10291e4b09::t_9cdc0e1c6ab416 65,71,78,82-87,89-93
+  s_ecea10291e4b09::t_4052fbe731e2da 406-420
+  s_ecea10291e4b09::t_625fb645619af8 97-98
+packages/contracts/hostPlatformFeature.ts
+  s_ecea10291e4b09::t_5ec9b268e6bcdc 84-89,96
+app/modules/viewer-invariants/readViewerSurface.ts
+  s_ecea10291e4b09::t_55be246b63597d 236
+electron/writeHostBugReportBundle.ts
+  s_ecea10291e4b09::t_947912b85ad052 78-79
+  s_ecea10291e4b09::t_398c824a26aac4 106-113
+  s_ecea10291e4b09::t_818d58c6f22948 21-24
+  s_ecea10291e4b09::t_2fed5643d26ea4 3-4
+  s_ecea10291e4b09::t_4b7d0a082abd0f 38-56
+  s_c4516e6bd07ba1::t_3f23e46e347c28 37
+app/modules/viewer-invariants/viewerInvariantTypes.ts
+  s_ecea10291e4b09::t_445b68814453ea 79-80
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_ba88c947b9ccf9 87
+  s_ecea10291e4b09::t_035e5e1d320c5c 165-166
+  s_ecea10291e4b09::t_3bc34a23253584 423-468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "424531798b4d7296a82c24600b5c61c578f22aaf",
+  "prompts": {},
+  "sessions": {
+    "s_c4516e6bd07ba1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d419ea80-167c-456e-9e7f-3baf2f744ed5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+app/assets/css/main.css
+  s_dfb3d1b523f4ec::t_6248199074b8af 263-265
+app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue
+  s_ecea10291e4b09::t_aa422f65dc8589 190-193
+tests/e2e/electron/annotationControls.e2e.test.ts
+  s_ecea10291e4b09::t_05565eefa2c8a8 588-597
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6d9dcddadf229af3b2574ecd8bc1d6b84c0d1f28",
+  "prompts": {},
+  "sessions": {
+    "s_dfb3d1b523f4ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b9df-8304-7220-ae83-9f040978b24c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

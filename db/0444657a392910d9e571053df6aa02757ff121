@@ -1,0 +1,39 @@
+app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue
+  s_1e007b198ae212::t_eeecbb786b8f5a 45-51
+  s_1e007b198ae212::t_50c8216300997e 190
+  s_1e007b198ae212::t_e6e6f3c127e784 3-4,6,8-17,33-44,52-54,169,174-180,193,195-204,208
+tests/e2e/electron/helpers/fixtures.ts
+  s_1e007b198ae212::t_bf21ebd4f759b6 1994-2001,2003-2006,2008-2011,2013-2024,2027-2036,2039-2048,2051-2060,2063-2080,2082-2084,2086-2094,2096-2101,2104-2113
+  s_1e007b198ae212::t_34c16360e25900 2002,2007,2012,2025-2026,2037-2038,2049-2050,2061-2062,2081,2085,2095,2102-2103
+tests/e2e/electron/annotationControls.e2e.test.ts
+  s_1e007b198ae212::t_bf21ebd4f759b6 13,15,449-455,457-493
+  s_1e007b198ae212::t_516caea52563a0 14,456,494-508
+app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue
+  s_1e007b198ae212::t_50c8216300997e 2-5,94,717
+  s_1e007b198ae212::t_3374caa4141f89 658,713
+  s_1e007b198ae212::t_aa5d87e7644818 100,108-109,716,726,750-751,763-768,787,806-808,835-836,864-867
+app/assets/css/main.css
+  s_1e007b198ae212::t_309d95c7b9f486 263
+app/modules/pdf-viewer/annotations/usePdfAnnotationCommentActions.ts
+  s_1e007b198ae212::t_ed6ecf8fccc48a 58
+app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue
+  s_1e007b198ae212::t_1bb7547eb76b3c 121-123,135-137
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationsPanel.test.ts
+  s_1e007b198ae212::t_078f509fe7d668 143,148,151,154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "db0444657a392910d9e571053df6aa02757ff121",
+  "prompts": {},
+  "sessions": {
+    "s_1e007b198ae212": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b867-726f-7f52-afea-ebaae570d8e3",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

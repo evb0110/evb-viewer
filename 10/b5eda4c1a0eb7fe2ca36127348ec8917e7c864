@@ -1,0 +1,23 @@
+docs/contributing/release-guardrails.md
+  s_ecea10291e4b09::t_d97a4ae4f3ae2c 48
+docs/contributing/releasing.md
+  s_ecea10291e4b09::t_ae10d3b74485e6 49
+scripts/release/policy.mjs
+  s_ecea10291e4b09::t_04f637945dec55 49,247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "10b5eda4c1a0eb7fe2ca36127348ec8917e7c864",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,42 @@
+app/modules/viewer-invariants/viewerActionLog.ts
+  s_ecea10291e4b09::t_4d78faf67e4ddd 1-15,17-18,26-27,36-94,96-97,149-248,250,253-309,334-336,340-343,345-351
+app/modules/viewer-invariants/buildViewerBugReport.ts
+  s_ecea10291e4b09::t_58bc9a99307e9f 40-41,43-48
+  s_ecea10291e4b09::t_179dd6001651d8 70,73-77,79-88
+  s_ecea10291e4b09::t_2c6f2ba361ef63 5,7-9,37-39,71,95,107,122
+packages/contracts/hostPlatformFeature.ts
+  s_ecea10291e4b09::t_c9c21381dccf6e 98-99
+  s_ecea10291e4b09::t_1cc23846846bcf 75-83
+  s_ecea10291e4b09::t_de727dd45ab880 136-139
+  s_ecea10291e4b09::t_2efe1c4f816222 107-108,112-115
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_1aa449ee6ca6af 759-763
+  s_ecea10291e4b09::t_103067747d861b 736-757,764-768,770-777,779-784
+  s_ecea10291e4b09::t_cac2c004280bf8 699,713-715,721-722,725-730
+  s_ecea10291e4b09::t_b3ea777aab2e06 758
+  s_ecea10291e4b09::t_8b8e8ac45553ea 731-735,778
+app/modules/viewer-invariants/captureViewerBugReport.ts
+  s_ecea10291e4b09::t_fed8ecd1c98944 2-5
+  s_ecea10291e4b09::t_6fc98bec8cb52e 17-20
+electron/writeHostBugReportBundle.ts
+  s_ecea10291e4b09::t_064cab37da54e3 42-96
+  s_ecea10291e4b09::t_57e0a1b3585b1e 4,8
+  s_ecea10291e4b09::t_ac3ef7f3235a6e 27-29
+  s_ecea10291e4b09::t_b5fcc1e3f3ed23 141-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "22d3599a5ca495d7377d4033ef28bc99114672df",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

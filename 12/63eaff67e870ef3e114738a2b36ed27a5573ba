@@ -1,0 +1,63 @@
+app/modules/viewer-invariants/checkViewerInvariants.ts
+  s_ecea10291e4b09::t_816230f7101b27 730,737
+  s_ecea10291e4b09::t_5984f803622c37 626
+  s_ecea10291e4b09::t_32870f249219fc 56
+  s_ecea10291e4b09::t_00e59cb03c3352 702,714
+  s_ecea10291e4b09::t_faac8c1c0f9b76 605
+  s_ecea10291e4b09::t_7e0e22157b6eda 559,564-565
+  s_ecea10291e4b09::t_9fe31fe5e7ff03 681
+  s_ecea10291e4b09::t_1b5d73de295908 16
+  s_ecea10291e4b09::t_61d0ff06593569 438-456,460,464,469-470,472-486,489-525
+tests/e2e/electron/helpers/viewerInvariants.ts
+  s_ecea10291e4b09::t_9d92fdd16599f4 48-49
+  s_ecea10291e4b09::t_26c3e244169eb9 4
+  s_ecea10291e4b09::t_62d938429198c6 71-74
+  s_ecea10291e4b09::t_29eafe925347ed 146
+docs/internal/agents/viewer-invariants.md
+  s_ecea10291e4b09::t_a5bea9b1c97fe8 12-13,22,27-34
+  s_ecea10291e4b09::t_38c84b0af09a44 99-100
+  s_ecea10291e4b09::t_10957af83308da 35
+app/modules/viewer-invariants/installViewerInvariantMonitor.ts
+  s_ecea10291e4b09::t_358adfafa4b235 90-102
+  s_ecea10291e4b09::t_df6587ae1bcade 187,191
+  s_ecea10291e4b09::t_538cc3345e1f8b 23
+  s_ecea10291e4b09::t_f6d93ea976249e 71
+  s_ecea10291e4b09::t_865b92542f4d43 37
+docs/architecture/behavior-contract.md
+  s_ecea10291e4b09::t_1d14149a8802c1 92-99
+app/modules/viewer-invariants/viewerInvariantTypes.ts
+  s_ecea10291e4b09::t_12373c35649128 72-77,79-80
+  s_ecea10291e4b09::t_dbbb2c3a024585 110-117,121-122
+  s_ecea10291e4b09::t_f15de7348c0300 15,21-26
+  s_ecea10291e4b09::t_f82ba5f2fcae89 27
+app/modules/viewer-invariants/public.ts
+  s_ecea10291e4b09::t_09eea7351ff1a3 26,30
+tests/e2e/electron/viewerInvariantJourney.e2e.test.ts
+  s_ecea10291e4b09::t_545152a59bd1ec 191-193,198
+  s_ecea10291e4b09::t_b5baf24999febc 43-48,54-57,59,62-63,67,70-71
+  s_ecea10291e4b09::t_e5a62b01483621 164-167,170,175-181
+tests/integration/browser/viewerInvariants.test.ts
+  s_ecea10291e4b09::t_7cc3c125c9b63b 364-377,385-397,404-406,408-412
+  s_ecea10291e4b09::t_feef7207076482 398-403,407
+app/modules/viewer-invariants/readViewerSurface.ts
+  s_ecea10291e4b09::t_ccf7310cf4c01b 3
+  s_ecea10291e4b09::t_550f0cb963de25 25-35
+  s_ecea10291e4b09::t_f5e822e8e2621e 163-186
+  s_ecea10291e4b09::t_709057af099fcc 263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1263eaff67e870ef3e114738a2b36ed27a5573ba",
+  "prompts": {},
+  "sessions": {
+    "s_ecea10291e4b09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a9fcd756-b0a1-4c49-9b2d-368af98aff78",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
