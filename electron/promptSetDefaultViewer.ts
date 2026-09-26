@@ -184,17 +184,17 @@ const MAC_CONTENT_TYPES = [
     'com.lizardtech.djvu',
 ] as const;
 
-/** Makes the app the LaunchServices handler for PDF and DjVu, and proves it. */
+/**
+ * Asks LaunchServices to make the app the handler for PDF and DjVu. macOS 27
+ * applies each change only after the user confirms it in a system dialog, so
+ * the new handler cannot be read back here; only a refused request fails.
+ */
 async function setMacDefaultViewer() {
     const script = `
         ObjC.import('CoreServices');
-        const types = ${JSON.stringify(MAC_CONTENT_TYPES)};
-        for (const type of types) {
-            $.LSSetDefaultRoleHandlerForContentType($(type), $.kLSRolesAll, $('${MAC_BUNDLE_ID}'));
-        }
-        JSON.stringify(types.map(type => ObjC.unwrap(ObjC.castRefToObject(
-            $.LSCopyDefaultRoleHandlerForContentType($(type), $.kLSRolesAll),
-        )) ?? null));
+        JSON.stringify(${JSON.stringify(MAC_CONTENT_TYPES)}.map(type => (
+            $.LSSetDefaultRoleHandlerForContentType($(type), $.kLSRolesAll, $('${MAC_BUNDLE_ID}'))
+        )));
     `;
     const {stdout} = await execFileAsync('osascript', [
         '-l',
@@ -202,12 +202,9 @@ async function setMacDefaultViewer() {
         '-e',
         script,
     ], {timeout: 10_000});
-    const handlers: unknown = JSON.parse(stdout.trim());
-    if (
-        !Array.isArray(handlers)
-        || handlers.some(handler => typeof handler !== 'string' || handler.toLowerCase() !== MAC_BUNDLE_ID)
-    ) {
-        throw new Error(`Default handlers are ${stdout.trim()}`);
+    const statuses: unknown = JSON.parse(stdout.trim());
+    if (!Array.isArray(statuses) || statuses.some(status => status !== 0)) {
+        throw new Error(`LaunchServices returned ${stdout.trim()}`);
     }
 }
 
