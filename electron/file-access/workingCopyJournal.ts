@@ -288,13 +288,16 @@ async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
     }
 }
 
-/** Removes the journal and every backup it names. */
+/**
+ * Removes the journal, then every backup it named. A crash in between leaves
+ * only an unreferenced backup, never a journal whose backup is gone.
+ */
 export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal) {
+    await rm(getWorkingCopyJournalPath(journal.workingCopyPath), {force: true});
     await Promise.all([
         rm(journal.backupPath, {force: true}),
         ...(journal.original ? [rm(journal.original.backupPath, {force: true})] : []),
     ]);
-    await rm(getWorkingCopyJournalPath(journal.workingCopyPath), {force: true});
 }
 
 /**
