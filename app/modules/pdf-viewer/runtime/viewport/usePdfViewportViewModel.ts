@@ -9,7 +9,6 @@ import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-view
 import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
 import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type {
     TFitMode,
     TPdfViewRotation,
@@ -44,8 +43,6 @@ interface IUsePdfViewportViewModelOptions {
     navigationAnchorPage: ComputedRef<number | null>;
     navigationVisualHandoffTargetPage?: ComputedRef<number | null> | undefined;
     getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
-    resizeTransitionAnchorPage: Ref<number | null>;
-    zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
     selectionMarkupStyle: ComputedRef<Record<string, string> | null>;
     viewportWritePort: IPdfViewportWritePort;
@@ -57,8 +54,6 @@ interface IUsePdfViewportViewModelOptions {
         isTextSelectionModeActive: ComputedRef<boolean>;
         fitMode: ComputedRef<TFitMode>;
         zoomMode: ComputedRef<TZoomMode>;
-        resizeTransitionVisible: Ref<boolean>;
-        zoomSnapSuppressed: Ref<boolean>;
     };
 }
 
@@ -116,8 +111,6 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         navigationAnchorPage: options.navigationAnchorPage,
         navigationVisualHandoffTargetPage: options.navigationVisualHandoffTargetPage,
         getCommittedPageScale: options.getCommittedPageScale,
-        resizeTransitionAnchorPage: options.resizeTransitionAnchorPage,
-        zoomVirtualizationFreeze: options.zoomVirtualizationFreeze,
     });
 
     const containerStyle = computed(() => ({
@@ -180,8 +173,6 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         'pdfViewer--fit-height-overflow': options.classState.zoomMode.value === 'fit-height'
             && !isActiveSpreadHorizontalScrollLocked.value,
         'pdfViewer--active-spread-fits-width': isActiveSpreadHorizontalScrollLocked.value,
-        'pdfViewer--resize-transition': options.classState.resizeTransitionVisible.value,
-        'pdfViewer--zoom-snap-suppressed': options.classState.zoomSnapSuppressed.value,
     }));
 
     function resolveActiveSpreadHorizontalScrollLock() {

@@ -339,16 +339,8 @@ function expectVisiblePdfPagesStayedPainted(
             && visiblePages.length > 0
             && visiblePages.every(pageVisual => (
                 !pageVisual.skeletonVisible
-                && (
-                    (
-                        pageVisual.canonicalCanvasVisible
-                        && pageVisual.canonicalCanvasNonblank
-                    )
-                    || (
-                        pageVisual.resizeSnapshotVisible
-                        && pageVisual.resizeSnapshotNonblank
-                    )
-                )
+                && pageVisual.canonicalCanvasVisible
+                && pageVisual.canonicalCanvasNonblank
             ));
         return stayedPainted
             ? []

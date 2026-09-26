@@ -12,7 +12,8 @@
         }"
         :data-page="page"
         :data-document-page-number="page"
-        :data-page-visual="pageVisualState"
+        :data-page-visual="rendered ? 'ready' : 'none'"
+        :data-page-raster="raster ?? undefined"
         :style="[
             placeholderStyle ?? undefined,
             pageScaleStyle,
@@ -25,7 +26,7 @@
                 :class="{'document-page-visual--committed': rendered}"
             ></div>
             <DocumentPageSkeleton
-                v-if="showPageSkeleton && !rendered && !renderFailed"
+                v-if="showSkeleton && !rendered && !renderFailed"
                 :padding="pageSkeletonPadding"
                 :content-height="pageSkeletonContentHeight"
             />
@@ -76,7 +77,8 @@ interface IProps {
     renderErrorLabel?: string;
     spreadSingle?: boolean;
     buffered?: boolean;
-    rendered?: boolean;
+    /** A committed raster, at the current scale or stretched from an older one. */
+    raster?: 'current' | 'stale' | null;
     pageScale: IPdfPageScale | null;
     placeholderStyle?: Record<string, string> | null;
     placedImage?: IPdfImagePlacementDraft | null;
@@ -90,7 +92,7 @@ const {
     renderErrorLabel = '',
     spreadSingle = false,
     buffered = false,
-    rendered = false,
+    raster = null,
     pageScale,
     placeholderStyle = null,
     placedImage = null,
@@ -120,16 +122,13 @@ const fallbackSkeletonPadding = Object.freeze({
 const pageSkeletonPadding = computed(() => scaledSkeletonPadding.value ?? fallbackSkeletonPadding);
 const pageSkeletonContentHeight = computed(() => scaledPageHeight.value ?? 760);
 
-const showPageSkeleton = computed(() => showSkeleton);
-const pageVisualState = computed(() => rendered ? 'ready' : 'none');
+const rendered = computed(() => raster !== null);
 const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
 
 function handlePageClick(event: MouseEvent) {
-    const target = event.target;
-    if (!shouldClearPdfPageSelection(target)) {
-        return;
+    if (shouldClearPdfPageSelection(event.target)) {
+        annotationEditorSurface?.clearSelection();
     }
-    annotationEditorSurface?.clearSelection();
 }
 
 onMounted(() => {

@@ -26,7 +26,7 @@ import {
     type TPdfAnnotationSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
-import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
+import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import { usePdfViewerNavigationDiagnostics } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
@@ -208,12 +208,6 @@ export const usePdfViewerFeatureController = (
             isTextSelectionModeActive,
             fitMode,
             zoomMode,
-            resizeTransitionVisible: computed(
-                () => viewportSessionRef.value?.resizeTransitionVisible.value ?? false,
-            ),
-            zoomSnapSuppressed: computed(
-                () => viewportSessionRef.value?.zoomSnapSuppressedForClass.value ?? false,
-            ),
         },
         emitCurrentPage: viewerEvents.updateCurrentPage,
         emitNavigationFeedbackPage: viewerEvents.updateNavigationFeedbackPage,
@@ -224,49 +218,18 @@ export const usePdfViewerFeatureController = (
     });
     viewportSessionRef.value = viewportSession;
 
-    const {
-        zoomSnapSuppressed: wheelZoomSnapSuppressed,
-        handleViewerWheel,
-        consumeZoomViewportAnchor,
-        isZoomInteractionLocked,
-        setZoomRerenderBusy,
-    } = usePdfViewerWheelZoom({
+    const { handleViewerWheel } = usePdfViewerWheelZoom({
         viewerContainer,
-        src,
-        isLoading: documentSession.isLoading,
-        zoom,
+        isReady: () => Boolean(src.value) && !documentSession.isLoading.value,
         effectiveScale: viewportSession.scale.effectiveScale,
-        currentPage: viewportSession.currentPage,
-        visibleRange: viewportSession.visibleRange,
-        virtualizedContinuousMode: viewportSession.viewModel.virtualizedContinuousMode,
-        virtualWindowStart: viewportSession.viewModel.virtualWindowStart,
-        virtualWindowEnd: viewportSession.viewModel.virtualWindowEnd,
-        zoomVirtualizationFreeze: viewportSession.zoomVirtualizationFreeze,
-        singlePageScroll: {
-            handleWheel: viewportSession.singlePageScroll.handleWheel,
-            cancelProgrammaticNavigation: viewportSession.singlePageScroll.cancelProgrammaticNavigation,
-        },
+        zoomMode,
+        handlePagedWheel: viewportSession.singlePageScroll.handleWheel,
         cancelPendingSearchScroll: () => renderingSessionRef.value?.cancelPendingSearchScroll(),
         markUserViewportInteraction: viewportSession.markUserViewportInteraction,
-        captureZoomVisualSnapshots: () => renderingSessionRef.value?.captureZoomVisualSnapshots(),
-        submitZoomIntent: (intent) => {
-            viewportSession.markAnchoredZoomSubmitted(intent.zoom);
-            void viewportSession.singlePageScroll.submitViewportStateIntent('zoom', {
-                zoom: intent.zoom,
-                viewportPoint: {
-                    x: intent.x,
-                    y: intent.y,
-                },
-            });
-        },
+        captureRelayoutAnchor: viewportSession.singlePageScroll.captureRelayoutAnchor,
+        relayout: viewportSession.singlePageScroll.relayout,
         isSnipActive: () => regionSnip.isActive.value || cropSelection.isSelecting.value,
         emit,
-    });
-    watch(wheelZoomSnapSuppressed, (value) => {
-        viewportSession.zoomSnapSuppressedForClass.value = value;
-    }, {
-        flush: 'sync',
-        immediate: true,
     });
 
     let markDelayedSkeletonPageRendered = (_pageNumber: TPageNumber) => {};
@@ -280,12 +243,8 @@ export const usePdfViewerFeatureController = (
         isActive,
         isResizing,
         isAnySaving,
-        zoom,
-        zoomMode,
-        fitMode,
         viewMode,
         viewRotation,
-        continuousScroll,
         outputScale,
         rasterDisplayProfile,
         bufferPages,
@@ -296,9 +255,6 @@ export const usePdfViewerFeatureController = (
         workingCopyPath,
         documentRevisionToken,
         maxBufferCanvasPixels: performanceProfile.maxBufferCanvasPixels,
-        consumeZoomViewportAnchor,
-        isZoomInteractionLocked,
-        setZoomRerenderBusy,
         markDelayedSkeletonPageRendered: pageNumber => markDelayedSkeletonPageRendered(pageNumber),
         emitInitialVisualReady: viewerEvents.initialVisualReady,
         emitLoadError: viewerEvents.loadError,
@@ -459,29 +415,6 @@ export const usePdfViewerFeatureController = (
         summarizeViewerStateForLog,
     });
 
-    const { applyFitWidthToCurrentPage } = usePdfViewerFitWidthController({
-        viewerContainer,
-        currentPage: viewportSession.currentPage,
-        pdfDocument: documentSession.pdfDocument,
-        isLoading: documentSession.isLoading,
-        continuousScroll,
-        fitMode,
-        zoomMode,
-        zoom,
-        effectiveScale: viewportSession.scale.effectiveScale,
-        fitWidthScale: viewportSession.scale.fitWidthScale,
-        viewMode,
-        numPages: documentSession.numPages,
-        pageMetricsVersion: documentSession.pageMetricsVersion,
-        visibleRange: viewportSession.visibleRange,
-        getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
-        syncHorizontalScrollForZoomMode: viewportSession.viewModel.syncHorizontalScrollForZoomMode,
-        computeFitWidthScale: viewportSession.scale.computeFitWidthScale,
-        isFitWidthScaleCurrent: viewportSession.scale.isFitWidthScaleCurrent,
-        cancelInFlightRenders: renderingSession.cancelInFlightRenders,
-        reRenderAllVisiblePages: renderingSession.reRenderAllVisiblePages,
-        emitZoomState: viewerEvents.updateZoomState,
-    });
     async function renderLoadedPdfPagesForBrowserPrint(
         targetDocument: IBrowserPrintDocument,
         pageNumbers: TPageNumber[],
@@ -495,23 +428,21 @@ export const usePdfViewerFeatureController = (
         await renderPdfDocumentPagesForBrowserPrint(targetDocument, pdfDocument, pageNumbers, renderOptions);
     }
 
+    // Rotated pages change size (and Fit Width may change the scale) under
+    // the reader. The relayout keeps the committed page in place, the same
+    // placement the revision swap restores.
     function updatePageMutationFitWidth() {
-        if (zoomMode.value === 'fit-width') {
-            viewportSession.scale.invalidateScaleCache();
-            const page = requirePageNumber(
-                viewportSession.currentPage.value,
-                documentSession.numPages.value,
-            );
-            viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
-            viewportSession.reloadTransition.commitEffectiveZoom(viewportSession.scale.layoutScale.value);
-        }
-        // Rotated pages change size (and Fit Width may change the scale) under
-        // the reader. A fit intent keeps the committed page in place, the same
-        // placement the revision swap restores; without it the old pixel offset
-        // would be read against the new sizes and show a different page.
-        const zoomValue = viewportSession.scale.layoutScale.value;
-        viewportSession.markAnchoredZoomSubmitted(zoomValue);
-        void viewportSession.singlePageScroll.submitViewportStateIntent('fit', {zoom: zoomValue});
+        const page = requirePageNumber(
+            viewportSession.currentPage.value,
+            documentSession.numPages.value,
+        );
+        viewportSession.singlePageScroll.relayout(() => {
+            if (zoomMode.value === 'fit-width') {
+                viewportSession.scale.invalidateScaleCache();
+                viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
+                viewportSession.reloadTransition.commitEffectiveZoom(viewportSession.scale.effectiveScale.value);
+            }
+        }, getRequestAnchor(undefined, page));
     }
 
     async function beginPageRotationPreview(input: {
@@ -543,7 +474,6 @@ export const usePdfViewerFeatureController = (
         getUserViewportInteractionEpoch: () => viewportSession.userViewportInteractionEpoch.value,
         cancelPendingSearchScroll: () => renderingSession.cancelPendingSearchScroll(),
         annotationSession,
-        applyFitWidthToCurrentPage,
         waitForViewerLoadSettled: documentSession.waitForLoadSettled,
         renderVisiblePages: renderingSession.renderVisiblePages,
         renderLoadedPdfPagesForBrowserPrint,
@@ -598,7 +528,12 @@ export const usePdfViewerFeatureController = (
         isPageRenderFailed,
         isSpreadSingle: (page: number) => isStandaloneSpreadPage(page, viewMode.value, documentSession.numPages.value),
         isPageBuffered,
-        isPageRenderedForClass,
+        pageRaster: (pageNumber: TPageNumber) => {
+            if (!isPageRenderedForClass(pageNumber)) {
+                return null;
+            }
+            return renderingSession.isPageVisualReady(pageNumber) ? 'current' as const : 'stale' as const;
+        },
         getPageScale: viewportSession.viewModel.getPageScale,
         getPagePlaceholderStyle: viewportSession.viewModel.getPagePlaceholderStyle,
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,

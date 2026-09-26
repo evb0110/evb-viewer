@@ -25,10 +25,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/public';
 
-interface IFitScalePageOptions {
-    page?: number | null | undefined;
-    preview?: boolean | undefined;
-}
+interface IFitScalePageOptions {page?: number | null | undefined;}
 
 export const usePdfScale = (
     zoom: MaybeRefOrGetter<number>,
@@ -45,9 +42,7 @@ export const usePdfScale = (
     continuousScroll: MaybeRefOrGetter<boolean> = false,
 ) => {
     const fitWidthScale = ref(1);
-    const previewFitScale = ref<number | null>(null);
     const lastFitScaleSignature = ref<string | null>(null);
-    const lastPreviewFitScaleSignature = ref<string | null>(null);
 
     const effectiveScale = computed(() => resolvePdfZoomScale({
         zoomMode: toValue(zoomMode),
@@ -55,11 +50,6 @@ export const usePdfScale = (
         manualZoom: toValue(zoom),
         fitScale: fitWidthScale.value,
     }).effectiveScale);
-    const layoutScale = computed(() => (
-        toValue(zoomMode) !== 'custom' && previewFitScale.value !== null
-            ? previewFitScale.value
-            : effectiveScale.value
-    ));
 
     const containerStyle = computed(() => {
         return {
@@ -306,10 +296,7 @@ export const usePdfScale = (
             totalPages,
         });
 
-        const signature = options?.preview
-            ? lastPreviewFitScaleSignature
-            : lastFitScaleSignature;
-        if (signature.value === fitScaleSignature) {
+        if (lastFitScaleSignature.value === fitScaleSignature) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: dimensions unchanged mode=${mode}`, {
                 rawSize,
                 availableSize,
@@ -319,14 +306,12 @@ export const usePdfScale = (
             return false;
         }
 
-        signature.value = fitScaleSignature;
+        lastFitScaleSignature.value = fitScaleSignature;
 
         const newScale = clampFitScale(availableSize / baseDimension);
 
-        const targetScale = options?.preview ? previewFitScale : fitWidthScale;
-        const currentScale = targetScale.value ?? fitWidthScale.value;
-        const scaleIsCurrent = newScale === currentScale;
-        if (scaleIsCurrent) {
+        const currentScale = fitWidthScale.value;
+        if (newScale === currentScale) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: scale unchanged mode=${mode}`, {
                 currentScale,
                 newScale,
@@ -354,27 +339,7 @@ export const usePdfScale = (
             previousScale: fitWidthScale.value,
             nextScale: newScale,
         });
-        targetScale.value = newScale;
-        if (!options?.preview) {
-            previewFitScale.value = null;
-            lastPreviewFitScaleSignature.value = null;
-        }
-        return true;
-    }
-
-    function settlePreviewFitScale(commit = false) {
-        const previewScale = previewFitScale.value;
-        previewFitScale.value = null;
-        lastPreviewFitScaleSignature.value = null;
-        if (
-            !commit
-            || previewScale === null
-            || Math.abs(previewScale - fitWidthScale.value) < 0.001
-        ) {
-            return false;
-        }
-        fitWidthScale.value = previewScale;
-        lastFitScaleSignature.value = null;
+        fitWidthScale.value = newScale;
         return true;
     }
 
@@ -421,7 +386,6 @@ export const usePdfScale = (
 
     function invalidateScaleCache() {
         lastFitScaleSignature.value = null;
-        lastPreviewFitScaleSignature.value = null;
     }
 
     function seedOpeningFitScale(scale: number) {
@@ -429,7 +393,6 @@ export const usePdfScale = (
             return false;
         }
         const nextScale = clampFitScale(scale);
-        settlePreviewFitScale();
         invalidateScaleCache();
         if (Math.abs(nextScale - fitWidthScale.value) < 0.001) {
             return false;
@@ -440,20 +403,16 @@ export const usePdfScale = (
 
     function resetScale() {
         fitWidthScale.value = 1;
-        settlePreviewFitScale();
         invalidateScaleCache();
     }
 
     return {
         fitWidthScale,
-        previewFitScale: readonly(previewFitScale),
         effectiveScale,
-        layoutScale,
         containerStyle,
         scaledMargin,
         computeFitWidthScale,
         doesFitHeightSpreadFitWidth,
-        settlePreviewFitScale,
         isFitWidthScaleCurrent,
         invalidateScaleCache,
         seedOpeningFitScale,

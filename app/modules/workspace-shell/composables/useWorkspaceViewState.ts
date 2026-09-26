@@ -40,11 +40,7 @@ interface IWorkspaceViewStateDeps {
     totalPages: Ref<number>;
     invalidateBookmarkNavigationRequests?: (() => void) | undefined;
     requestPageNavigation?: ((request: IDocumentNavigationRequest) => IDocumentNavigationTicket | null) | undefined;
-    documentViewerRef: Ref<(
-        IDocumentViewerExpose & {applyFitWidthToCurrentPage?: (
-            options?: {page?: number | null | undefined},
-        ) => Promise<boolean>;}
-    ) | null>;
+    documentViewerRef: Ref<IDocumentViewerExpose | null>;
 }
 
 export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
@@ -100,18 +96,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         deps.zoom.value = 1;
         deps.fitMode.value = mode;
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
-
-        if (mode === 'width') {
-            const fitPage = deps.documentViewerRef.value?.getPendingNavigationTargetPage?.()
-                ?? deps.currentPage.value;
-            void nextTick(async () => {
-                try {
-                    await deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.({page: fitPage});
-                } catch (error) {
-                    BrowserLogger.warn('workspace', 'Failed to apply fit-width to the current page', { error });
-                }
-            });
-        }
     }
 
     function enableDragMode() {

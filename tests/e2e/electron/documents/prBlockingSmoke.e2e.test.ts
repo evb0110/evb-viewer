@@ -490,11 +490,10 @@ async function waitForCommittedFitHeightGeometry(
             const pageContainer = viewport?.querySelector<HTMLElement>(
                 `.page_container[data-page="${String(targetPage)}"]`,
             ) ?? null;
-            // A fit change preserves the pre-fit pixels in a resize snapshot
-            // canvas until the new-scale raster commits. Measuring that
-            // snapshot would report the previous fit's raster resolution, so
-            // read the live render layer and require the preserved copy to be
-            // retired before this geometry counts as committed.
+            // A fit change stretches the pre-fit raster until the new-scale
+            // raster commits. Measuring it would report the previous fit's
+            // raster resolution, so the page has to present a current raster
+            // before this geometry counts as committed.
             const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
                 '.page_canvas .page_canvas__render-layer canvas',
             ) ?? null;
@@ -506,7 +505,7 @@ async function waitForCommittedFitHeightGeometry(
             || canvas.width <= 0
             || canvas.height <= 0
             || !pageContainer.classList.contains('page_container--rendered')
-            || pageContainer.querySelector('.pdf-resize-canvas-snapshot') !== null
+            || pageContainer.dataset.pageRaster !== 'current'
             || pageContainer.querySelector('.document-page-skeleton') !== null
             ) {
                 return false;
@@ -623,7 +622,7 @@ async function waitForCommittedFitHeightGeometry(
                     left: pageRect.left,
                     top: pageRect.top,
                     width: pageRect.width,
-                    hasResizeSnapshot: pageContainer?.querySelector('.pdf-resize-canvas-snapshot') !== null,
+                    raster: pageContainer?.dataset.pageRaster ?? null,
                     hasSkeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
                     isRendered: pageContainer?.classList.contains('page_container--rendered') ?? false,
                 } : null,
@@ -1342,7 +1341,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 const page = pages?.[0];
                 return Boolean(viewport && page && pages?.length === 1
                     && page.dataset.page === '7'
-                    && page.querySelector('.pdf-resize-canvas-snapshot') === null
                     && Math.abs(page.getBoundingClientRect().width - (viewport.clientWidth - 40)) <= 1);
             }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
         }

@@ -169,46 +169,6 @@
         }
     }
 
-    .pdf-layer-preserve-snapshot {
-        display: block !important;
-        visibility: visible !important;
-        pointer-events: none !important;
-        user-select: none !important;
-
-        * {
-            pointer-events: none !important;
-            user-select: none !important;
-        }
-    }
-
-    .canvasWrapper svg.pdf-layer-preserve-snapshot {
-        visibility: visible !important;
-    }
-
-    .pdf-layer-preserve-hidden-source {
-        visibility: hidden !important;
-        pointer-events: none !important;
-    }
-
-    .annotationLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
-    .annotation-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
-    .annotationEditorLayer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot),
-    .annotation-editor-layer.pdf-layer-preserve-active > :not(.pdf-layer-preserve-snapshot) {
-        visibility: hidden !important;
-        pointer-events: none !important;
-    }
-
-    .page_canvas.pdf-layer-preserve-active,
-    .canvasWrapper.pdf-layer-preserve-active {
-        > svg.highlight:not(.pdf-layer-preserve-snapshot),
-        > svg.highlightOutline:not(.pdf-layer-preserve-snapshot),
-        > svg.draw:not(.pdf-layer-preserve-snapshot),
-        > svg.pdf-highlight-composite-overlay:not(.pdf-layer-preserve-snapshot) {
-            visibility: hidden !important;
-            pointer-events: none !important;
-        }
-    }
-
     /* Suppress ALL highlight outline SVGs — selected, hover, and idle.
        PDF.js renders dual-stroke outlines (.mainOutline + .secondaryOutline)
        via the DrawLayer; the app uses its own floating indicator system. */
@@ -255,8 +215,8 @@
         .annotationEditorLayer.highlightEditing:not([hidden]) .highlightEditor,
         .annotation-editor-layer.highlightEditing:not([hidden]) .highlightEditor
     ) {
-        .annotationLayer:not(.pdf-layer-preserve-snapshot),
-        .annotation-layer:not(.pdf-layer-preserve-snapshot) {
+        .annotationLayer,
+        .annotation-layer {
             .editorAnnotation {
                 opacity: 0 !important;
                 pointer-events: none !important;

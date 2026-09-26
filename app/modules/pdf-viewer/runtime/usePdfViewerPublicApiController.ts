@@ -50,7 +50,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
     getUserViewportInteractionEpoch: () => number;
     cancelPendingSearchScroll: () => void;
     annotationSession: TPdfAnnotationSession;
-    applyFitWidthToCurrentPage: NonNullable<IPdfViewerExpose['applyFitWidthToCurrentPage']>;
     waitForViewerLoadSettled: NonNullable<IPdfViewerExpose['waitForViewerLoadSettled']>;
     renderVisiblePages: (
         range: {
@@ -180,7 +179,6 @@ export const usePdfViewerPublicApiController = (
             options.cancelPendingSearchScroll();
             viewportSession.singlePageScroll.cancelProgrammaticNavigation('public-api');
         },
-        applyFitWidthToCurrentPage: options.applyFitWidthToCurrentPage,
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         getPageMetricsSnapshot: () => cloneSparsePageMetrics(documentSession.pageMetrics.value),
         pageMetrics: documentSession.pageMetrics,

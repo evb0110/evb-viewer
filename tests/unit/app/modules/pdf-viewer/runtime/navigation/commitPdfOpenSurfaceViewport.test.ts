@@ -66,8 +66,8 @@ describe('PDF open-surface viewport callbacks', () => {
         const callbacks = createCallbacks(surface, emittedPages, []);
 
         expect(callbacks.onViewportPositionCommitted({
-            intentId: 'fit-observation',
-            intentKind: 'fit',
+            intentId: 'relayout-observation',
+            intentKind: 'relayout',
             documentRevision: 1,
             geometryRevision: 8,
             interactionEpoch: 0,

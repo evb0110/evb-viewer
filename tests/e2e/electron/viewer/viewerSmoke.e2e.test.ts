@@ -2623,10 +2623,6 @@ describe('Electron E2E - Viewer Smoke', () => {
                         })
                     : [];
                 const hasVisual = visiblePages.some((page) => {
-                    const snapshot = page.querySelector<HTMLCanvasElement>('.pdf-resize-canvas-snapshot');
-                    if (snapshot && snapshot.width > 0 && snapshot.height > 0) {
-                        return true;
-                    }
                     const renderLayer = page.querySelector<HTMLElement>('.page_canvas__render-layer');
                     const renderedCanvas = renderLayer?.querySelector<HTMLCanvasElement>('canvas');
                     return page.classList.contains('page_container--rendered')
@@ -4075,7 +4071,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                     });
                 const occupied = visiblePages.some((page) => {
                     const canvas = Array.from(page.querySelectorAll<HTMLCanvasElement>(
-                        '.page_canvas__render-layer canvas, .pdf-resize-canvas-snapshot',
+                        '.page_canvas__render-layer canvas',
                     )).find(candidate => candidate.width > 0 && candidate.height > 0);
                     const skeleton = page.querySelector<HTMLElement>('.document-page-skeleton');
                     const skeletonRect = skeleton?.getBoundingClientRect() ?? null;

@@ -1,5 +1,4 @@
 import type { Page } from 'puppeteer-core';
-import {PDF_RESIZE_RERENDER_DEBOUNCE_MS} from '@app/constants/timeouts';
 import {
     evaluateInPage,
     waitForFunctionInPage,
@@ -267,7 +266,8 @@ export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 1
         }
         throw new Error(`Visible PDF canvases did not stabilize within ${String(timeout)}ms`);
     }, {
-        stabilityMs: PDF_RESIZE_RERENDER_DEBOUNCE_MS + 34,
+        // Canvases unchanged across roughly fourteen frames.
+        stabilityMs: 234,
         timeout: timeoutMs,
         viewportSelector: VIEWPORT_SELECTOR,
     });

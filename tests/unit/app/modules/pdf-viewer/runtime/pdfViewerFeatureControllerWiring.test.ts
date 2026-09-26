@@ -171,7 +171,7 @@ describe('usePdfViewerFeatureController wiring', () => {
 
         expect(harness.controller.isPageBuffered).toBe(options.isPageBuffered);
         expect(harness.controller.isPageRenderFailed).toBe(options.isPageRenderFailed);
-        expect(harness.controller.isPageRenderedForClass).toBe(options.isPageRenderedForClass);
+        expect(harness.controller.pageRaster(requirePageNumber(5))).toBeNull();
 
         for (const predicateName of [
             'isPageBuffered',

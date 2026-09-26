@@ -20,7 +20,7 @@
                 :page-render-error-label="t('errors.file.open')"
                 :is-spread-single="isSpreadSingle"
                 :is-buffered-page="isPageBuffered"
-                :is-rendered-page="isPageRenderedForClass"
+                :page-raster="pageRaster"
                 :get-page-scale="getPageScale"
                 :get-page-placeholder-style="getPagePlaceholderStyle"
                 :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
@@ -153,7 +153,7 @@ const {
     isPageRenderFailed,
     isSpreadSingle,
     isPageBuffered,
-    isPageRenderedForClass,
+    pageRaster,
     getPageScale,
     getPagePlaceholderStyle,
     getExactPagePlaceholderStyle,

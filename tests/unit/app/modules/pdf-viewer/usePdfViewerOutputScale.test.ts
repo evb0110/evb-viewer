@@ -9,10 +9,7 @@ import {
     vi,
 } from 'vitest';
 import { effectScope } from 'vue';
-import {
-    shouldDeferPdfDprRerenderForResize,
-    usePdfViewerOutputScale,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
+import {usePdfViewerOutputScale} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const performancePolicy = resolvePdfRenderPerformancePolicy({
@@ -43,10 +40,6 @@ function setDevicePixelRatio(value: number) {
 }
 
 describe('usePdfViewerOutputScale', () => {
-    it('routes DPR changes through the active resize settle gate', () => {
-        expect(shouldDeferPdfDprRerenderForResize(true)).toBe(true);
-        expect(shouldDeferPdfDprRerenderForResize(false)).toBe(false);
-    });
     const mediaQueries: IMediaQueryListDouble[] = [];
     let originalDevicePixelRatio = 1;
     let originalMatchMedia: typeof window.matchMedia | undefined;

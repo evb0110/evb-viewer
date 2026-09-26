@@ -1,4 +1,3 @@
-import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type {
     IDocumentNavigationRequest,
@@ -8,8 +7,7 @@ import type {
 import type { IResolvedPdfNavigationTarget } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 
 export type TPdfViewportIntentKind =
-    | 'navigate' | 'user-scroll' | 'wheel-page' | 'zoom' | 'fit'
-    | 'view-mode' | 'resize' | 'search' | 'activation' | 'document-restore' | 'dpr';
+    | 'navigate' | 'user-scroll' | 'wheel-page' | 'search' | 'document-restore' | 'relayout';
 type TPdfViewportPhase =
     | 'idle' | 'resolving' | 'awaiting-metrics'
     | 'applying' | 'awaiting-visual' | 'settled' | 'cancelled';
@@ -34,22 +32,12 @@ export interface IPdfViewportIntent {
         resolvedTarget?: IResolvedPdfNavigationTarget | undefined;
     };
     anchor?: IPdfSemanticAnchor;
-    /** Cursor position in viewport pixels, retained across scrollbar changes. */
-    viewportPoint?: {
-        x: number;
-        y: number
-    };
-    zoom?: number;
-    viewMode?: TPdfViewMode;
-    dpr?: number;
 }
 
 interface IPdfViewportResolvedCommit {
     anchor: IPdfSemanticAnchor;
     left: number;
     top: number;
-    zoom?: number;
-    viewMode?: TPdfViewMode;
 }
 
 export interface IPdfViewportPositionCommit {
@@ -65,12 +53,12 @@ export interface IPdfViewportPositionCommit {
 }
 
 /**
- * Layout work that moves the viewport without a placement intent of its own:
- * a reload, a resize or zoom re-render, a search reveal, or a render-stall
- * recovery. It shares the authority's single in-flight slot, so a navigation
- * supersedes it and it is never current while a navigation owns the viewport.
+ * Work that moves the viewport without a placement intent of its own: a
+ * reload or a search reveal. It shares the authority's single in-flight slot,
+ * so a navigation supersedes it and it is never current while a navigation
+ * owns the viewport.
  */
-export type TPdfViewportWorkKind = 'reload' | 'resize' | 'zoom' | 'search' | 'recovery';
+export type TPdfViewportWorkKind = 'reload' | 'search';
 
 /** `cancelRasters` cancels the in-flight rasters of the superseded layout. */
 export interface IPdfViewportWorkCancellation {cancelRasters: boolean;}
@@ -188,10 +176,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     }
 
     function beginWork(kind: TPdfViewportWorkKind, page: number | null = null) {
-        // A stall recovery never displaces a navigation or other layout work.
-        if (kind === 'recovery' && (ownsNavigation.value || (work.value && work.value.kind !== 'recovery'))) {
-            return null;
-        }
         if (ownsNavigation.value) {
             // Work begun under a navigation is superseded from the start.
             return ++workSequence;

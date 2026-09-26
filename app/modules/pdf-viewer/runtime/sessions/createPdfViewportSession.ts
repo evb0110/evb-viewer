@@ -1,4 +1,3 @@
-import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import {
     clampPageNumber,
     requirePageNumber,
@@ -15,6 +14,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type { TPdfZoomState } from '@contracts/shared';
+import {useResizeObserver} from '@vueuse/core';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ILinkAnnotation } from '@app/types/annotations';
 import {
@@ -24,7 +24,6 @@ import {
 } from '@app/modules/document-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { runGuardedTask } from '@app/utils/asyncGuard';
 import { createPageNavigationRequest } from '@app/modules/document-viewer/public';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
@@ -52,12 +51,8 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 import { useViewportPagePin } from '@app/modules/pdf-viewer/runtime/composables/pdf/useViewportPagePin';
 import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
 import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerReloadTransition';
-import { usePdfViewerCurrentPageSync } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
-import {
-    usePdfViewerPreservedVisibleContent,
-    type IPreservedVisibleContentRequest,
-    type IPreservedVisibleContentState,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerPreservedVisibleContent';
+import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
+import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
 import { usePdfOpenVirtualSurfaceGeometry } from '@app/modules/pdf-viewer/runtime/viewport/usePdfOpenVirtualSurfaceGeometry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
@@ -67,8 +62,6 @@ import { reconcilePdfOpeningViewportCommit } from '@app/modules/pdf-viewer/runti
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createPdfViewportUserNavigationEpochs } from '@app/modules/pdf-viewer/runtime/viewport/createPdfViewportUserNavigationEpochs';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
-import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 import type { IPdfViewportReloadPlacement } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportReloadPlacement';
@@ -147,10 +140,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     const pageSlots = createPdfPageSlotRegistry();
     const navigationEpochs = createPdfViewportUserNavigationEpochs();
     const { userViewportInteractionEpoch } = navigationEpochs;
-    const zoomVirtualizationFreeze = ref<IZoomVirtualizationFreeze | null>(null);
-    const resizeTransitionVisible = ref(false);
-    const resizeTransitionAnchorPage = ref<number | null>(null);
-    const zoomSnapSuppressedForClass = ref(false);
     const cancelPendingSearchRevision = ref(0);
     const cancelRasterRevision = ref(0);
     const visualReadySignal = shallowRef<IPdfViewportPageSignal>({
@@ -189,7 +178,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         summarizeViewerStateForLog: options.summarizeViewerStateForLog,
     });
     watch(
-        () => scale.layoutScale.value,
+        () => scale.effectiveScale.value,
         value => reloadTransition.emitEffectiveZoom(value),
         { immediate: true },
     );
@@ -270,16 +259,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         setupPagePlaceholders();
         await nextTick();
     }
-    const {
-        capturePreservedVisibleContentState,
-        releasePreservedVisualSnapshotNow,
-        schedulePreservedVisualSnapshotRelease,
-    } = usePdfViewerPreservedVisibleContent({
-        viewerContainer: options.viewerContainer,
-        currentPage,
-    });
-    let nextPreservedVisibleContentState: IPreservedVisibleContentState | null = null;
-    let activePreservedVisibleContent: IPreservedVisibleContentState | null = null;
+    // The reading point a same-document rewrite restores once it reloads.
+    let nextReloadAnchor: IPdfSemanticAnchor | null = null;
+    let activeReloadAnchor: IPdfSemanticAnchor | null = null;
     let resolvedPageToRestore = requirePageNumber(1);
     let activeReloadTransactionId: number | null = null;
     let visualReloadTransitionToken: number | null = null;
@@ -367,7 +349,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         scaledMargin: scale.scaledMargin,
         viewMode: options.viewMode,
         continuousScroll: options.continuousScroll,
-        isResizeTransitionActive: computed(() => options.isResizing.value || resizeTransitionVisible.value),
         isLoading,
         pdfDocument,
         getMostVisiblePage: scroll.getMostVisiblePage,
@@ -425,23 +406,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         cancelWork: viewportAuthority.cancelWork,
         commitVisibleRange,
     };
-    const {
-        summarizeViewerMetricsForLog,
-        summarizeVisiblePageSnapshotForLog,
-        syncCurrentPageFromViewport,
-    } = usePdfViewerCurrentPageSync({
-        viewerContainer: options.viewerContainer,
-        numPages,
-        visibleRange,
-        currentPage,
-        pdfDocument,
-        isLoading,
-        getMostVisiblePage: scroll.getMostVisiblePage,
-        updateCurrentPage: scroll.updateCurrentPage,
-        emitCurrentPage: options.emitCurrentPage,
-        canSyncCurrentPageFromViewport: () => singlePageScroll.currentPageAuthority.canSyncFromViewport(),
-        commitCurrentPageFromViewport: page => singlePageScroll.currentPageAuthority.commitViewportPage(page),
-    });
     watch(
         () => {
             const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
@@ -461,7 +425,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 && previousViewportSession?.[0] !== 'ready'
             ) {
                 options.emitCurrentPage(currentPage.value);
-                reloadTransition.emitEffectiveZoom(scale.layoutScale.value);
+                reloadTransition.emitEffectiveZoom(scale.effectiveScale.value);
             }
         },
         {
@@ -483,15 +447,13 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         basePageHeight,
         pageMetrics,
         pageMetricsVersion,
-        effectiveScale: scale.layoutScale,
+        effectiveScale: scale.effectiveScale,
         doesFitHeightSpreadFitWidth: scale.doesFitHeightSpreadFitWidth,
         scaledMargin: scale.scaledMargin,
         visibleRange,
         navigationAnchorPage: singlePageScroll.navigationAnchorPage,
         navigationVisualHandoffTargetPage: singlePageScroll.navigationVisualHandoffTargetPage,
         getCommittedPageScale: options.getCommittedPageScale,
-        resizeTransitionAnchorPage,
-        zoomVirtualizationFreeze,
         scaleContainerStyle: scale.containerStyle,
         selectionMarkupStyle: options.selectionMarkupStyle,
         viewportWritePort,
@@ -714,6 +676,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             options.bufferPages.value,
             scale.effectiveScale.value,
             options.outputScale.value,
+            options.isResizing.value,
             options.isActive.value,
             isLoading.value,
             Boolean(pdfDocument.value),
@@ -755,14 +718,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     function beginReloadPlacement(transition: IPdfDocumentTransition): IPdfViewportReloadPlacement {
         const plan = transition.plan;
-        const preservedRequest = plan.preserveVisibleContent ? nextPreservedVisibleContentState : null;
-        if (nextPreservedVisibleContentState && !preservedRequest) {
-            releasePreservedVisualSnapshotNow(nextPreservedVisibleContentState);
-        }
-        nextPreservedVisibleContentState = null;
-        activePreservedVisibleContent = preservedRequest;
+        activeReloadAnchor = plan.preserveVisibleContent ? nextReloadAnchor : null;
+        nextReloadAnchor = null;
         const pageToRestore = plan.isReload
-            ? preservedRequest?.pageToRestore ?? currentPage.value
+            ? activeReloadAnchor?.page ?? currentPage.value
             : 1;
         resolvedPageToRestore = clampPageNumber(pageToRestore, numPages.value);
         const displayZoomToRestore = plan.isReload && options.zoomMode.value === 'custom'
@@ -847,27 +806,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         options.emitCurrentPage(currentPage.value);
         return true;
     }
-    function handleResizeTransitionSignal(payload: IResizeTransitionSignal) {
-        const nextAnchorPage = payload.active ? payload.anchorPage : null;
-        if (
-            resizeTransitionVisible.value === payload.active
-            && resizeTransitionAnchorPage.value === nextAnchorPage
-        ) {
-            return;
-        }
-        resizeTransitionVisible.value = payload.active;
-        resizeTransitionAnchorPage.value = nextAnchorPage;
-        BrowserLogger.diagnostic('pdf-nav', `[resize-transition-ui] active=${payload.active}`, {
-            ...payload,
-            storedAnchorPage: resizeTransitionAnchorPage.value,
-            viewer: options.summarizeViewerStateForLog(),
-            currentPage: currentPage.value,
-            visibleRange: {
-                start: visibleRange.value.start,
-                end: visibleRange.value.end,
-            },
-        });
-    }
     function handleTrustedScroll(_event: Event) {
         const container = options.viewerContainer.value;
         if (!container) {
@@ -888,7 +826,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
         if (
             wasAuthorityScroll
-            || zoomSnapSuppressedForClass.value
             // The compositor can apply one more inertial delta before scroll
             // suppression reaches it. That offset belongs to the superseded
             // gesture, not to the user taking the viewport.
@@ -944,10 +881,27 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         }
         projectViewportVisibleRange(container, numPages.value);
     }
+    // A custom zoom that lands on the continuous fit-width scale is Fit Width.
+    function snapCustomZoomToFitWidth() {
+        if (
+            options.zoomMode.value === 'custom'
+            && options.continuousScroll.value
+            && pdfDocument.value
+            && !isLoading.value
+            && Math.abs(scale.effectiveScale.value - scale.fitWidthScale.value) < 0.001
+            && scale.isFitWidthScaleCurrent(options.viewerContainer.value)
+        ) {
+            options.emitZoomState({
+                kind: 'fit',
+                axis: 'width',
+            });
+        }
+    }
     watch(
         () => [
             options.zoomMode.value,
             options.fitMode.value,
+            options.continuousScroll.value,
             currentPage.value,
             scale.effectiveScale.value,
             options.viewMode.value,
@@ -956,6 +910,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             pageMetricsVersion.value,
         ] as const,
         () => {
+            snapCustomZoomToFitWidth();
             void nextTick(viewModel.syncHorizontalScrollForZoomMode);
             scheduleMountedVisibilityProjection();
         },
@@ -976,8 +931,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         viewportPin.clearPinnedViewportPage('before-unmount');
         options.clearPendingImagePlacement();
         scroll.setPageLayoutMetrics(null);
-        resizeTransitionVisible.value = false;
-        resizeTransitionAnchorPage.value = null;
     });
     function markUserViewportInteraction() {
         navigationEpochs.markPhysicalNavigation();
@@ -997,34 +950,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         request.alignment = 'page-top';
         request.readiness = 'page-canvas';
         singlePageScroll.submitNavigationRequest(request);
-    }
-    let anchoredZoomAlreadySubmitted: number | null = null;
-    function submitZoomViewportStateIntent(value: number, anchor?: IPdfSemanticAnchor | null) {
-        if (
-            anchoredZoomAlreadySubmitted !== null
-            && Math.abs(anchoredZoomAlreadySubmitted - value) < 0.000_001
-        ) {
-            anchoredZoomAlreadySubmitted = null;
-            return;
-        }
-        anchoredZoomAlreadySubmitted = null;
-        submitAmbientViewportStateIntent('zoom', {
-            zoom: value,
-            ...(anchor ? {anchor} : {}),
-        });
-    }
-    function submitAmbientViewportStateIntent(
-        kind: 'zoom' | 'fit' | 'view-mode' | 'dpr' | 'activation',
-        state: Parameters<typeof singlePageScroll.submitViewportStateIntent>[1] = {},
-    ) {
-        if (chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening') {
-            return;
-        }
-        runGuardedTask(() => singlePageScroll.submitViewportStateIntent(kind, state), {
-            category: 'background-diagnostic',
-            scope: 'pdf-navigation',
-            message: `PDF viewport ${kind} transition failed`,
-        });
     }
     const openingViewportStallDiagnostic = createPdfOpeningViewportStallDiagnostic({
         getSurface: () => chassisAuthority?.openSurface ?? null,
@@ -1077,22 +1002,78 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         () => chassisAuthority?.openSurface.snapshot.value.committedViewport,
         viewportLayoutMetrics,
     ], reconcileIdleOpenSurfaceViewport, {flush: 'post'});
-    watch(options.fitMode, () => submitAmbientViewportStateIntent('fit'));
+    function fitToViewport() {
+        scale.computeFitWidthScale(options.viewerContainer.value, {page: currentPage.value});
+    }
+    function pageTopAnchor() {
+        return getRequestAnchor(undefined, clampPageNumber(currentPage.value, numPages.value));
+    }
+    // Zoom keeps the point under the viewport centre; a fit, view mode,
+    // rotation or scroll mode change keeps the top of the committed page,
+    // because every row's height is rewritten under it.
+    watch([
+        options.zoom,
+        options.zoomMode,
+    ], ([
+        , zoomMode,
+    ]) => {
+        singlePageScroll.relayout(fitToViewport, zoomMode === 'custom' ? undefined : pageTopAnchor());
+    }, {flush: 'sync'});
     watch([
         options.viewMode,
         viewRotation,
-    ], ([value]) => {
-        submitAmbientViewportStateIntent('view-mode', { viewMode: value });
-    });
-    watch(options.outputScale, value => {
-        submitAmbientViewportStateIntent('dpr', { dpr: value });
+        options.continuousScroll,
+    ], () => {
+        singlePageScroll.relayout(fitToViewport, pageTopAnchor());
+    }, {flush: 'sync'});
+    // A resize keeps the point that was under the old viewport centre at the
+    // new centre (contract R3). A pane drag or split keeps the point it
+    // started with: moving a pane can reset the native scroll offset before
+    // any size change is observed.
+    let resizeGestureAnchor: ReturnType<typeof singlePageScroll.captureRelayoutAnchor> = null;
+    watch(options.isResizing, (resizing) => {
+        if (resizing) {
+            resizeGestureAnchor = singlePageScroll.captureRelayoutAnchor();
+            return;
+        }
+        const anchor = resizeGestureAnchor;
+        resizeGestureAnchor = null;
+        if (anchor) {
+            singlePageScroll.relayout(fitToViewport, anchor);
+        }
+    }, {flush: 'sync'});
+    let observedViewportSize: {
+        width: number;
+        height: number;
+    } | null = null;
+    useResizeObserver(options.viewerContainer, () => {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            return;
+        }
+        const previous = observedViewportSize;
+        observedViewportSize = {
+            width: container.clientWidth,
+            height: container.clientHeight,
+        };
+        if (
+            !previous
+            || !options.isActive.value
+            || (previous.width === container.clientWidth && previous.height === container.clientHeight)
+        ) {
+            return;
+        }
+        singlePageScroll.relayout(fitToViewport, resizeGestureAnchor ?? singlePageScroll.captureRelayoutAnchor({
+            x: previous.width / 2,
+            y: previous.height / 2,
+        }, previous));
     });
     watch(options.isActive, (active) => {
         if (!active) {
             singlePageScroll.viewportAuthority.suspend();
             return;
         }
-        submitAmbientViewportStateIntent('activation');
+        singlePageScroll.relayout(fitToViewport, singlePageScroll.viewportAuthority.committedAnchor.value);
     });
     let activeDocumentPlacement: IPdfViewportReloadPlacement | null = null;
     async function applyReadyDocumentTransition(transition: IPdfDocumentTransition) {
@@ -1122,7 +1103,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 // revision. Publish it now instead of letting the visual
                 // reload transition defer the toolbar/readout until the
                 // replacement raster has warmed and the transition settles.
-                reloadTransition.commitEffectiveZoom(scale.layoutScale.value);
+                reloadTransition.commitEffectiveZoom(scale.effectiveScale.value);
             }
             if (!transition.plan.isSelectiveReload) {
                 await applyRestoredReloadZoom(placement.displayZoomToRestore);
@@ -1144,23 +1125,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 return;
             }
             if (isPreservedSelectiveReload) {
-                const preserved = activePreservedVisibleContent;
-                const anchor = preserved?.semanticAnchor;
-                applyReloadViewport(resolvedPageToRestore, {
-                    navigationSource: 'restore',
-                    preferExactDom: true,
-                    ...(anchor
-                        ? {
-                            pageYRatio: anchor.yRatio,
-                            markerRect: {
-                                left: anchor.xRatio,
-                                top: anchor.yRatio,
-                                width: 0,
-                                height: 0,
-                            },
-                        }
-                        : {}),
-                });
+                applyReloadAnchor();
                 await nextTick();
             } else if (transition.plan.isReload && currentPage.value > 1) {
                 applyReloadViewport(clampPageNumber(currentPage.value, numPages.value));
@@ -1191,35 +1156,16 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (!transition.isCurrent()) {
             return;
         }
-        if (transition.plan.preserveVisibleContent) {
-            const preserved = activePreservedVisibleContent;
-            if (!isPreservedSelectiveReload) {
-                const anchor = preserved?.semanticAnchor;
-                applyReloadViewport(resolvedPageToRestore, {
-                    navigationSource: 'restore',
-                    preferExactDom: true,
-                    ...(anchor
-                        ? {
-                            pageYRatio: anchor.yRatio,
-                            markerRect: {
-                                left: anchor.xRatio,
-                                top: anchor.yRatio,
-                                width: 0,
-                                height: 0,
-                            },
-                        }
-                        : {}),
-                });
-            }
-            schedulePreservedVisualSnapshotRelease({
-                preservedVisibleContent: preserved,
-                resolvedPageToRestore,
-            });
+        if (transition.plan.preserveVisibleContent && !isPreservedSelectiveReload) {
+            applyReloadAnchor();
         }
         if (placement.shouldPinReloadPage) {
             pinCurrentPageToRestoreTarget();
         } else {
-            await syncCurrentPageFromViewport({source: 'load-from-source'});
+            const page = scroll.getMostVisiblePage(options.viewerContainer.value, numPages.value);
+            if (page !== currentPage.value) {
+                singlePageScroll.currentPageAuthority.commitViewportPage(page);
+            }
         }
         if (!transition.isCurrent()) {
             return;
@@ -1235,8 +1181,26 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             viewportAuthority.settleWork(transactionId);
         }
     }
-    function preserveNextSourceReloadVisibleContent(request?: IPreservedVisibleContentRequest) {
-        nextPreservedVisibleContentState = capturePreservedVisibleContentState(request);
+    function applyReloadAnchor() {
+        const anchor = activeReloadAnchor;
+        applyReloadViewport(resolvedPageToRestore, {
+            navigationSource: 'restore',
+            preferExactDom: true,
+            ...(anchor
+                ? {
+                    pageYRatio: anchor.pageYFraction,
+                    markerRect: {
+                        left: anchor.pageXFraction,
+                        top: anchor.pageYFraction,
+                        width: 0,
+                        height: 0,
+                    },
+                }
+                : {}),
+        });
+    }
+    function preserveNextSourceReloadVisibleContent() {
+        nextReloadAnchor = singlePageScroll.captureCurrentSemanticAnchor();
         documentSession.preserveNextReloadVisibleContent(true);
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
@@ -1260,10 +1224,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             const holdsVisibleContent = transition.isSameDocumentRewrite;
             if (holdsVisibleContent) {
                 preserveNextSourceReloadVisibleContent();
-            }
-            const preserved = activePreservedVisibleContent;
-            if (preserved && !holdsVisibleContent) {
-                releasePreservedVisualSnapshotNow(preserved);
             }
             settleVisualReloadTransition(transition.reason);
             const transactionId = activeReloadTransactionId;
@@ -1303,12 +1263,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         navigationCommittedSignal: shallowReadonly(navigationCommittedSignal),
         pageSlots,
         userViewportInteractionEpoch,
-        userPhysicalNavigationEpoch: navigationEpochs.userPhysicalNavigationEpoch,
-        beginLayoutGeometryReplacement: navigationEpochs.beginLayoutGeometryReplacement,
-        resizeTransitionVisible,
-        resizeTransitionAnchorPage,
-        zoomVirtualizationFreeze,
-        zoomSnapSuppressedForClass,
         scroll,
         scale,
         viewportPin,
@@ -1320,24 +1274,17 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         singlePageScroll,
         viewportWork,
         viewportWritePort,
-        summarizeViewerMetricsForLog,
-        summarizeVisiblePageSnapshotForLog,
+        summarizeViewerMetricsForLog: summarizeViewerMetrics,
         getVisibleRange,
         getProtectedVisibleRange,
         isVisibleRenderRangeCurrent,
         setupPagePlaceholders,
-        syncCurrentPageFromViewport,
         markUserViewportInteraction,
         handleLinkDestination,
-        handleResizeTransitionSignal,
         handleTrustedScroll,
         handleViewerContainerRef: (element: HTMLElement | null) => {
             options.viewerContainer.value = element;
         },
-        markAnchoredZoomSubmitted: (zoom: number) => {
-            anchoredZoomAlreadySubmitted = zoom;
-        },
-        submitZoomViewportStateIntent,
         markPageMounted(pageNumber: TPageNumber) {
             pageSlots.markMounted(pageNumber);
             if (options.continuousScroll.value) {
@@ -1353,7 +1300,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         requestMandatoryRaster,
         settleMandatoryRaster,
         commitVisibleRange,
-        preserveNextSourceReloadVisibleContent,
     };
 };
 export type TPdfViewportSession = ReturnType<typeof createPdfViewportSession>;

@@ -38,7 +38,7 @@
                     :render-error-label="pageRenderErrorLabel"
                     :spread-single="isSpreadSingle(pageItem.page)"
                     :buffered="isBufferedPage(pageItem.page)"
-                    :rendered="isRenderedPage(pageItem.page)"
+                    :raster="pageRaster(pageItem.page)"
                     :page-scale="getPageScale(pageItem.page)"
                     :placeholder-style="getEffectivePagePlaceholderStyle(pageItem.page)"
                     :placed-image="pendingImagePlacement?.pageNumber === pageItem.page ? pendingImagePlacement : null"
@@ -58,7 +58,7 @@
                 :render-error-label="pageRenderErrorLabel"
                 :spread-single="isSpreadSingle(item.page)"
                 :buffered="isBufferedPage(item.page)"
-                :rendered="isRenderedPage(item.page)"
+                :raster="pageRaster(item.page)"
                 :page-scale="getPageScale(item.page)"
                 :placeholder-style="getEffectivePagePlaceholderStyle(item.page)"
                 :placed-image="pendingImagePlacement?.pageNumber === item.page ? pendingImagePlacement : null"
@@ -119,7 +119,7 @@ interface IProps {
     pageRenderErrorLabel: string;
     isSpreadSingle: (page: TPageNumber) => boolean;
     isBufferedPage: (page: TPageNumber) => boolean;
-    isRenderedPage: (page: TPageNumber) => boolean;
+    pageRaster: (page: TPageNumber) => 'current' | 'stale' | null;
     getPageScale: (page: TPageNumber) => IPdfPageScale | null;
     getPagePlaceholderStyle: (page: TPageNumber) => Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
@@ -142,7 +142,7 @@ const {
     pageRenderErrorLabel,
     isSpreadSingle,
     isBufferedPage,
-    isRenderedPage,
+    pageRaster,
     getPageScale,
     getPagePlaceholderStyle,
     bottomVirtualSpacerStyle = null,

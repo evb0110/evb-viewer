@@ -101,8 +101,6 @@ describe('usePdfViewportViewModel', () => {
                 end: 1,
             }),
             navigationAnchorPage: computed(() => null),
-            resizeTransitionAnchorPage: ref(null),
-            zoomVirtualizationFreeze: ref(null),
             scaleContainerStyle: computed(() => ({})),
             selectionMarkupStyle: computed(() => null),
             classState: {
@@ -113,8 +111,6 @@ describe('usePdfViewportViewModel', () => {
                 isTextSelectionModeActive: computed(() => false),
                 fitMode: computed(() => 'width' as const),
                 zoomMode: computed(() => 'fit-width' as const),
-                resizeTransitionVisible: ref(false),
-                zoomSnapSuppressed: ref(false),
             },
         }));
         if (!viewModel) {
@@ -191,8 +187,6 @@ describe('usePdfViewportViewModel', () => {
             }),
             navigationAnchorPage: computed(() => navigationAnchorPage.value),
             getCommittedPageScale: pageNumber => pageNumber <= 2 ? 1 : null,
-            resizeTransitionAnchorPage: ref(null),
-            zoomVirtualizationFreeze: ref(null),
             scaleContainerStyle: computed(() => ({})),
             selectionMarkupStyle: computed(() => null),
             classState: {
@@ -203,8 +197,6 @@ describe('usePdfViewportViewModel', () => {
                 isTextSelectionModeActive: computed(() => false),
                 fitMode: computed(() => 'width' as const),
                 zoomMode: computed(() => 'fit-width' as const),
-                resizeTransitionVisible: ref(false),
-                zoomSnapSuppressed: ref(false),
             },
         }));
         try {
@@ -268,8 +260,6 @@ describe('usePdfViewportViewModel', () => {
                 end: 1,
             }),
             navigationAnchorPage: computed(() => null),
-            resizeTransitionAnchorPage: ref(null),
-            zoomVirtualizationFreeze: ref(null),
             scaleContainerStyle: computed(() => ({})),
             selectionMarkupStyle: computed(() => null),
             classState: {
@@ -280,8 +270,6 @@ describe('usePdfViewportViewModel', () => {
                 isTextSelectionModeActive: computed(() => false),
                 fitMode: computed(() => 'width' as const),
                 zoomMode: computed(() => 'fit-width' as const),
-                resizeTransitionVisible: ref(false),
-                zoomSnapSuppressed: ref(false),
             },
         }));
         try {

@@ -48,7 +48,7 @@ describe('ViewportAuthority', () => {
 
         const pending = authority.submit({
             id: 'fit-page-2',
-            kind: 'fit',
+            kind: 'document-restore',
             documentRevision: 1,
             anchor: {
                 ...anchor,
@@ -225,7 +225,7 @@ describe('ViewportAuthority', () => {
 
         const pending = authority.submit({
             id: 'held-visual',
-            kind: 'fit',
+            kind: 'document-restore',
             documentRevision: 1,
             anchor: {
                 ...anchor,

@@ -39,13 +39,6 @@ import {
 import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { createAnchorPageWindow } from '@app/modules/document-viewer/public';
 
-export interface IZoomVirtualizationFreeze {
-    sessionId: number | null;
-    capturedAtMs: number;
-    windowStart: number;
-    windowEnd: number;
-}
-
 export interface IPdfVirtualPageSegment {
     end: number;
     key: string;
@@ -78,8 +71,6 @@ interface IUsePdfViewerVirtualizationOptions {
     navigationAnchorPage: Ref<number | null>;
     navigationVisualHandoffTargetPage?: Readonly<Ref<number | null>> | undefined;
     getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
-    resizeTransitionAnchorPage: Ref<number | null>;
-    zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
 }
 
 const VIRTUAL_MOUNT_BUFFER_MIN = 6;
@@ -146,8 +137,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         navigationAnchorPage,
         navigationVisualHandoffTargetPage,
         getCommittedPageScale,
-        resizeTransitionAnchorPage,
-        zoomVirtualizationFreeze,
     } = options;
     const viewRotation = providedViewRotation ?? computed<TPdfViewRotation>(() => 0);
 
@@ -452,54 +441,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         });
     });
 
-    const resizeTransitionWindow = computed<{
-        start: number;
-        end: number;
-    } | null>(() => {
-        if (!virtualizedContinuousMode.value || numPages.value <= 0) {
-            return null;
-        }
-
-        // A fit change rewrites every row top before the viewport is
-        // re-anchored, so the visible range can briefly name a page hundreds
-        // of rows away from the anchor. Keep the anchor as its own window;
-        // spanning the gap would mount every page in between.
-        return createAnchorPageWindow({
-            anchorPage: resizeTransitionAnchorPage.value,
-            totalPages: numPages.value,
-            radiusPages: virtualMountBuffer.value,
-        });
-    });
-
-    /**
-     * Keeps the zoom freeze only while it still contains the active navigation
-     * anchor and the live visible range. Otherwise a stale frozen window can
-     * hide a bookmark target row, or a page the user scrolled to while the
-     * zoom rerender was still settling.
-     */
-    const activeZoomVirtualizationFreeze = computed(() => {
-        const freeze = zoomVirtualizationFreeze.value;
-        if (!virtualizedContinuousMode.value || !freeze) {
-            return null;
-        }
-
-        const anchorPage = navigationAnchorPage.value;
-        if (
-            anchorPage !== null
-            && (anchorPage < freeze.windowStart || anchorPage > freeze.windowEnd)
-        ) {
-            return null;
-        }
-        if (
-            visibleRange.value.start < freeze.windowStart
-            || visibleRange.value.end > freeze.windowEnd
-        ) {
-            return null;
-        }
-
-        return freeze;
-    });
-
     const virtualWindowStart = computed(() => {
         if (!virtualizedContinuousMode.value) {
             return pagedWindowBounds.value.start;
@@ -507,15 +448,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (navigationAnchorWindow.value) {
             return Math.min(baseVirtualWindowStart.value, navigationAnchorWindow.value.start);
         }
-        if (activeZoomVirtualizationFreeze.value) {
-            return activeZoomVirtualizationFreeze.value.windowStart;
-        }
-
-        let nextStart = baseVirtualWindowStart.value;
-        if (resizeTransitionWindow.value) {
-            nextStart = Math.min(nextStart, resizeTransitionWindow.value.start);
-        }
-        return nextStart;
+        return baseVirtualWindowStart.value;
     });
 
     const virtualWindowEnd = computed(() => {
@@ -525,15 +458,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (navigationAnchorWindow.value) {
             return Math.max(baseVirtualWindowEnd.value, navigationAnchorWindow.value.end);
         }
-        if (activeZoomVirtualizationFreeze.value) {
-            return activeZoomVirtualizationFreeze.value.windowEnd;
-        }
-
-        let nextEnd = baseVirtualWindowEnd.value;
-        if (resizeTransitionWindow.value) {
-            nextEnd = Math.max(nextEnd, resizeTransitionWindow.value.end);
-        }
-        return nextEnd;
+        return baseVirtualWindowEnd.value;
     });
 
     const topVirtualSpacerStyle = computed<Record<string, string> | null>(() => {
@@ -596,7 +521,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                 return getPagedPagesToRender();
             }
             const anchorPage = clampPageNumber(navigationAnchorPage.value
-                ?? resizeTransitionAnchorPage.value
                 ?? currentPage.value, numPages.value);
             const window = createAnchorPageWindow({
                 anchorPage,
@@ -623,8 +547,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             return getPagedPagesToRender();
         }
 
-        const anchorWindow = navigationAnchorWindow.value
-            ?? (activeZoomVirtualizationFreeze.value ? null : resizeTransitionWindow.value);
+        const anchorWindow = navigationAnchorWindow.value;
         if (anchorWindow) {
             // This list is intentionally non-contiguous. Consumers that need
             // DOM spacing use virtualPageSegments below; raster demand may
@@ -697,22 +620,11 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                     },
                     navigationAnchorWindow.value,
                 ];
-        } else if (activeZoomVirtualizationFreeze.value) {
-            requestedWindows = [{
-                start: activeZoomVirtualizationFreeze.value.windowStart,
-                end: activeZoomVirtualizationFreeze.value.windowEnd,
-            }];
         } else {
-            requestedWindows = [
-                {
-                    start: baseVirtualWindowStart.value,
-                    end: baseVirtualWindowEnd.value,
-                },
-                resizeTransitionWindow.value,
-            ].filter((window): window is {
-                start: number;
-                end: number;
-            } => window !== null);
+            requestedWindows = [{
+                start: baseVirtualWindowStart.value,
+                end: baseVirtualWindowEnd.value,
+            }];
         }
 
         const mergedWindows = mergePdfRowWindows(layout, requestedWindows);
@@ -794,7 +706,6 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         getPagePlaceholderStyle,
         virtualizedContinuousMode,
         navigationAnchorWindow,
-        resizeTransitionWindow,
         virtualWindowStart,
         virtualWindowEnd,
         virtualWindowStartPage,

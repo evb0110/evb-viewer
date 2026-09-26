@@ -129,6 +129,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     let navigationReplayTicket: IDocumentNavigationTicket | null = null;
     let navigationReplayCount = 0;
     let settledAnchorReapplySequence = 0;
+    // The anchor of the layout change being flushed; undefined when none is.
+    const pendingRelayoutAnchor = shallowRef<IPdfSemanticAnchor | null | undefined>();
+    let heldRelayoutAnchor: {
+        anchor: IPdfSemanticAnchor;
+        left: number;
+        top: number;
+    } | null = null;
     function isNavigationTicketCurrent(ticket: IDocumentNavigationTicket) {
         return navigationRuntime?.openSurface.isNavigationCurrent(ticket) ?? false;
     }
@@ -311,46 +318,23 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             if (!container || !snapshot) {
                 throw new DOMException('PDF viewport geometry unavailable', 'AbortError');
             }
-            const scroll = intent.kind === 'dpr'
-                ? {
-                    left: container.scrollLeft,
-                    top: container.scrollTop,
-                }
-                : resolveScrollForViewport(snapshot, anchor);
             return Promise.resolve({
                 anchor,
-                ...scroll,
-                ...(intent.zoom === undefined ? {} : {zoom: intent.zoom}),
-                ...(intent.viewMode === undefined ? {} : {viewMode: intent.viewMode}),
+                ...resolveScrollForViewport(snapshot, anchor),
             });
         },
         refine: async (intent, commit, signal) => {
-            if (intent.navigation) {
-                // The target row is retained in the virtual window as the
-                // navigation target; one render flush mounts it, and its
-                // mounted bounds place the destination.
-                if (!hasMatchingOpeningRenderFence(intent, requireIntentPage(intent, signal))) {
-                    await nextTick();
-                    requireIntentDocument(intent, signal);
-                }
-                return refineNavigationCommit(intent, commit);
+            if (!intent.navigation) {
+                return commit;
             }
-            if (intent.kind === 'dpr') return Promise.resolve(commit);
-            // Slots now carry the committed layout, including padding and
-            // scrollbar admission. Resolve the semantic point once against
-            // those mounted bounds before the authority writes the viewport.
-            const snapshot = refreshGeometry();
-            const container = options.viewerContainer.value;
-            const anchor = intent.viewportPoint && container ? {
-                ...commit.anchor,
-                viewportXFraction: intent.viewportPoint.x / Math.max(1, container.clientWidth),
-                viewportYFraction: intent.viewportPoint.y / Math.max(1, container.clientHeight),
-            } : commit.anchor;
-            return Promise.resolve(snapshot ? {
-                ...commit,
-                anchor,
-                ...resolveNavigationScrollForViewport(snapshot, anchor),
-            } : commit);
+            // The target row is retained in the virtual window as the
+            // navigation target; one render flush mounts it, and its
+            // mounted bounds place the destination.
+            if (!hasMatchingOpeningRenderFence(intent, requireIntentPage(intent, signal))) {
+                await nextTick();
+                requireIntentDocument(intent, signal);
+            }
+            return refineNavigationCommit(intent, commit);
         },
         refineAfterVisual: (intent, commit) => (
             intent.navigation
@@ -360,7 +344,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         apply: (intent, commit) => {
             requireIntentDocument(intent);
             const container = options.viewerContainer.value;
-            if (!container || intent.kind === 'dpr') {
+            if (!container) {
                 return;
             }
             const applied = options.viewportWritePort.apply(container, {
@@ -520,6 +504,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             resolvedTargets.delete(intentId);
         },
     });
+    // Restores after Vue has patched the new layout, before the browser paints.
+    watch(pendingRelayoutAnchor, restoreRelayoutAnchor, {flush: 'post'});
     getGeometryAnchorPage = () => (
         viewportAuthority.pendingTargetPage.value
         ?? navigationAnchorPage.value
@@ -583,10 +569,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         );
     }
 
-    async function submitNavigationIntent(
-        ticket: IDocumentNavigationTicket,
-        extras: Pick<IPdfViewportIntent, 'anchor' | 'zoom' | 'viewMode' | 'dpr' | 'viewportPoint'> = {},
-    ) {
+    async function submitNavigationIntent(ticket: IDocumentNavigationTicket) {
         if (!isNavigationTicketCurrent(ticket) || !isNavigationRuntimeReady()) {
             return null;
         }
@@ -598,7 +581,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             documentRevision: options.getDocumentRevision(),
             navigation: ticket.request,
             navigationTicket: ticket,
-            ...extras,
         };
         const captured = captureIntentDocument(intent, ticket);
         if (!captured) return null;
@@ -631,12 +613,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 )
                 || options.viewportWritePort.getInteractionEpoch() !== interactionEpoch
                 || framesRemaining <= 0
-                // A resize, sidebar toggle or zoom that starts afterwards owns
-                // the place from then on (contract R3). Re-projecting the older
-                // navigation anchor on its layout frames would fight that
-                // operation's own anchor and decide the final position by
-                // whichever write happened last.
-                || options.isResizeTransitionActive?.value === true
+                // A relayout that starts afterwards commits its own anchor and
+                // owns the place from then on (contract R3).
                 || viewportAuthority.committedAnchor.value !== anchor
             ) {
                 return;
@@ -802,109 +780,115 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return true;
     }
 
-    function submitViewportStateIntent(
-        kind: Exclude<TPdfViewportIntentKind, 'navigate' | 'search' | 'wheel-page' | 'user-scroll'>,
-        state: {
-            zoom?: number;
-            viewMode?: IUsePdfSinglePageScrollOptions['viewMode']['value'];
-            dpr?: number;
-            viewportPoint?: {
-                x: number;
-                y: number
-            };
-            anchor?: IPdfSemanticAnchor;
-        } = {},
-    ) {
-        const documentRevision = options.getDocumentRevision();
-        if (!navigationRuntimeReady.value || documentRevision <= 0) {
-            // ResizeObserver and reactive layout watchers can run while a PDF
-            // surface is being mounted or torn down. At that boundary there
-            // is deliberately no live document generation to own a viewport
-            // write, so treat the transient intent as cancelled instead of
-            // violating the viewport authority's revision invariant.
-            logPdfRenderTrace('navigation-viewport-state-intent-cancelled', () => ({
-                kind,
-                documentRevision,
-                reason: 'inactive-revision',
-            }));
-            return Promise.resolve({
-                outcome: 'cancelled' as const,
-                intent: null,
-                positionCommit: null,
-            });
-        }
-        intentSequence += 1;
+    /**
+     * Captures the document point under a viewport point before a layout
+     * change, to be placed at the same fraction of the viewport afterwards.
+     * The anchor the last relayout placed is reused while the viewport has not
+     * moved since, so a burst of resize packets or zoom steps cannot drift.
+     */
+    function captureRelayoutAnchor(
+        point?: {
+            x: number;
+            y: number;
+        },
+        viewportSize?: {
+            width: number;
+            height: number;
+        },
+    ): IPdfSemanticAnchor | null {
         const container = options.viewerContainer.value;
-        const snapshot = refreshGeometry();
-        const ticket = currentNavigationTicket();
-        const ticketPage = ticket
-            ? getNavigationRequestPage(ticket.request)
-                ?? navigationRuntime?.navigationPage.value
-                ?? viewportAuthority.pendingTargetPage.value
-            : null;
-        const anchor = state.anchor ?? (container && snapshot && state.viewportPoint
-            ? captureCurrentSemanticAnchor(state.viewportPoint) ?? getRequestAnchor(undefined, viewportAuthority.currentPage.value)
-            : ticket && ticketPage !== null
-                ? getRequestAnchor(undefined, ticketPage)
-                : container && snapshot
-                    ? resolveGeometryChangeAnchor(snapshot, kind)
-                    : viewportAuthority.committedAnchor.value
-                        ?? getRequestAnchor(undefined, options.currentPage.value));
-        logPdfRenderTrace('navigation-viewport-state-intent-submitted', () => ({
-            kind,
-            ticketPage,
-            committedPage: viewportAuthority.currentPage.value,
-            anchorPage: anchor.page,
-        }));
-        if (ticket && isNavigationTicketCurrent(ticket)) {
-            return submitNavigationIntent(ticket, {
-                anchor,
-                ...(state.zoom === undefined ? {} : {zoom: state.zoom}),
-                ...(state.viewportPoint === undefined ? {} : {viewportPoint: state.viewportPoint}),
-                ...(state.viewMode === undefined ? {} : {viewMode: state.viewMode}),
-                ...(state.dpr === undefined ? {} : {dpr: state.dpr}),
-            });
+        if (!container) {
+            return null;
         }
-        const viewportStateIntentId = `viewport-state-${intentSequence}`;
-        const intent: Omit<IPdfViewportIntent, 'interactionEpoch'> = {
-            id: viewportStateIntentId,
-            kind,
-            documentRevision,
-            anchor,
-            ...(state.zoom === undefined ? {} : {zoom: state.zoom}),
-            ...(state.viewportPoint === undefined ? {} : {viewportPoint: state.viewportPoint}),
-            ...(state.viewMode === undefined ? {} : {viewMode: state.viewMode}),
-            ...(state.dpr === undefined ? {} : {dpr: state.dpr}),
+        const width = viewportSize?.width ?? container.clientWidth;
+        const height = viewportSize?.height ?? container.clientHeight;
+        const x = point?.x ?? width / 2;
+        const y = point?.y ?? height / 2;
+        const viewportXFraction = clamp(x / Math.max(1, width), 0, 1);
+        const viewportYFraction = clamp(y / Math.max(1, height), 0, 1);
+        const held = heldRelayoutAnchor;
+        if (
+            held
+            && held.left === container.scrollLeft
+            && held.top === container.scrollTop
+            && Math.abs(held.anchor.viewportXFraction - viewportXFraction) < 0.001
+            && Math.abs(held.anchor.viewportYFraction - viewportYFraction) < 0.001
+        ) {
+            return held.anchor;
+        }
+        const anchor = captureCurrentSemanticAnchor({
+            x,
+            y,
+        });
+        return anchor && {
+            ...anchor,
+            viewportXFraction,
+            viewportYFraction,
         };
-        if (!captureIntentDocument(intent)) {
-            return Promise.resolve({
-                outcome: 'cancelled' as const,
-                intent: null,
-                positionCommit: null,
-            });
-        }
-        return viewportAuthority.submit(intent);
     }
 
-    // Geometry changes retain the committed page instead of reinterpreting an old pixel offset.
-    function resolveGeometryChangeAnchor(
-        snapshot: IPdfViewportGeometry,
-        kind: TPdfViewportIntentKind,
-    ): IPdfSemanticAnchor {
-        const semanticPage = toBoundedPageNumber(viewportAuthority.currentPage.value);
-        if (kind === 'fit' || kind === 'view-mode') {
-            // These replace row heights: keep the committed page, not the old pixel offset.
-            return getRequestAnchor(undefined, semanticPage);
+    /**
+     * Every layout change goes through here: zoom, fit, view mode, rotation
+     * and viewport resize. The anchor is taken before the change, while the
+     * DOM still shows the old layout, and restored once Vue has patched the
+     * new one, before the browser paints. A navigation that has not placed
+     * its page yet resolves against the new layout on its own.
+     */
+    function relayout(change?: () => void, anchor?: IPdfSemanticAnchor | null) {
+        if (pendingRelayoutAnchor.value === undefined && isNavigationRuntimeReady()) {
+            const ticket = currentNavigationTicket();
+            pendingRelayoutAnchor.value = ticket
+                ? (isPlacedNavigationAnchor(viewportAuthority.committedAnchor.value)
+                    ? viewportAuthority.committedAnchor.value
+                    : null)
+                : anchor ?? captureRelayoutAnchor();
         }
-        const liveAnchor = resolveAnchorForViewport(snapshot, semanticPage);
-        // Zoom keeps the live point fractions but not the old pixel scroll,
-        // which new-scale rows would map to an earlier page.
-        return kind === 'zoom'
-            ? {
-                ...liveAnchor,
-                page: semanticPage,
-            }
-            : liveAnchor;
+        change?.();
+    }
+
+    function restoreRelayoutAnchor(anchor: IPdfSemanticAnchor | null | undefined) {
+        if (anchor === undefined) {
+            return;
+        }
+        pendingRelayoutAnchor.value = undefined;
+        const container = options.viewerContainer.value;
+        const snapshot = refreshGeometry();
+        if (!anchor || !container || !snapshot || !isNavigationRuntimeReady()) {
+            return;
+        }
+        const placedNavigation = isPlacedNavigationAnchor(anchor);
+        if (viewportAuthority.activeIntent.value !== null && !placedNavigation) {
+            return;
+        }
+        const applied = options.viewportWritePort.apply(container, {
+            intent: options.viewportWritePort.beginIntent(`pdf-relayout-${String(++intentSequence)}`),
+            reason: 'relayout',
+            ...resolveScrollForViewport(snapshot, anchor),
+        });
+        options.updateVisibleRange(container, options.numPages.value);
+        if (!applied || placedNavigation) {
+            return;
+        }
+        heldRelayoutAnchor = {
+            anchor,
+            left: container.scrollLeft,
+            top: container.scrollTop,
+        };
+        const centered = anchor.affinity === 'start'
+            || (anchor.viewportXFraction === 0.5 && anchor.viewportYFraction === 0.5);
+        const committed = centered
+            ? anchor
+            : resolveAnchorForViewport(snapshot, toBoundedPageNumber(anchor.page));
+        viewportAuthority.commitSettledPosition({
+            intentId: `pdf-relayout-${String(intentSequence)}`,
+            intentKind: 'relayout',
+            documentRevision: options.getDocumentRevision(),
+            geometryRevision: options.getGeometryRevision(),
+            page: committed.page,
+            left: container.scrollLeft,
+            top: container.scrollTop,
+            anchor: committed,
+        });
     }
 
     function isUnplacedOpeningTicket(ticket: IDocumentNavigationTicket | null) {
@@ -1242,47 +1226,38 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         flush: 'post',
         immediate: true,
     });
-    // A view-mode change keeps its page mounted like a navigation target.
-    const navigationAnchorPage = computed(() => viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value
-        ?? (viewportAuthority.activeIntent.value?.kind === 'view-mode' ? viewportAuthority.activeIntent.value.anchor?.page : null)
-        ?? null);
+    const navigationAnchorPage = computed(() => viewportAuthority.pendingTargetPage.value ?? ticketTargetPage.value);
     const searchNavigationTargetPage = computed(() => currentNavigationTicket()?.request.source === 'search'
         ? navigationAnchorPage.value
         : null);
     const searchNavigationState = computed(() => searchNavigationTargetPage.value === null ? 'idle' : 'navigating');
-    const currentPageAuthority = {
-        canSyncFromViewport: () => (
-            viewportAuthority.activeIntent.value === null
-            && options.isResizeTransitionActive?.value !== true
-        ),
-        commitViewportPage: (page: number) => {
-            if (viewportAuthority.activeIntent.value !== null) {
-                logPdfRenderTrace('viewport-current-page-commit-rejected', {
-                    page,
-                    activeIntentId: viewportAuthority.activeIntent.value.id,
-                    activeIntentKind: viewportAuthority.activeIntent.value.kind,
-                });
-                return false;
-            }
-            const container = options.viewerContainer.value;
-            const snapshot = refreshGeometry();
-            const anchor = container && snapshot
-                ? resolveAnchorForViewport(snapshot, toPageNumber(page))
-                : getRequestAnchor(undefined, page);
-            viewportAuthority.observeUserScroll({
-                ...anchor,
-                page: toPageNumber(page),
-            });
-            logPdfRenderTrace('viewport-current-page-commit-observed', () => ({
+    const currentPageAuthority = {commitViewportPage: (page: number) => {
+        if (viewportAuthority.activeIntent.value !== null) {
+            logPdfRenderTrace('viewport-current-page-commit-rejected', {
                 page,
-                anchorPage: anchor.page,
-                scrollLeft: container?.scrollLeft ?? null,
-                scrollTop: container?.scrollTop ?? null,
-            }));
-            if (container) options.viewportWritePort.observeUserScroll(container);
-            return true;
-        },
-    };
+                activeIntentId: viewportAuthority.activeIntent.value.id,
+                activeIntentKind: viewportAuthority.activeIntent.value.kind,
+            });
+            return false;
+        }
+        const container = options.viewerContainer.value;
+        const snapshot = refreshGeometry();
+        const anchor = container && snapshot
+            ? resolveAnchorForViewport(snapshot, toPageNumber(page))
+            : getRequestAnchor(undefined, page);
+        viewportAuthority.observeUserScroll({
+            ...anchor,
+            page: toPageNumber(page),
+        });
+        logPdfRenderTrace('viewport-current-page-commit-observed', () => ({
+            page,
+            anchorPage: anchor.page,
+            scrollLeft: container?.scrollLeft ?? null,
+            scrollTop: container?.scrollTop ?? null,
+        }));
+        if (container) options.viewportWritePort.observeUserScroll(container);
+        return true;
+    }};
     return {
         currentPageAuthority,
         handleWheel,
@@ -1300,12 +1275,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         resetContinuousScrollState,
         viewportAuthority,
         submitNavigationRequest,
-        submitViewportStateIntent,
+        relayout,
+        captureRelayoutAnchor,
         captureCurrentSemanticAnchor,
         applyOpeningViewportAnchor: (pageNumber: TPageNumber) => applyViewportAnchorPreview(
             getRequestAnchor(undefined, pageNumber),
         ),
-        applyResizeAnchorPreview: applyViewportAnchorPreview,
         commitCurrentViewportPosition,
         commitCurrentViewportIfSettled,
         captureViewportCommitDiagnostics,

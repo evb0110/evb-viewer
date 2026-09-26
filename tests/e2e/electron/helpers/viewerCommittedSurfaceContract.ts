@@ -50,9 +50,6 @@ export interface ICommittedSurfaceVisiblePdfPageVisual {
     canonicalCanvasNonblank: boolean;
     canonicalCanvasVisible: boolean;
     pageNumber: number | null;
-    resizeSnapshotId: number | null;
-    resizeSnapshotNonblank: boolean;
-    resizeSnapshotVisible: boolean;
     skeletonVisible: boolean;
 }
 
@@ -1187,9 +1184,6 @@ export async function installCommittedSurfaceSampler(
                         const canonicalCanvas = candidate.querySelector<HTMLCanvasElement>(
                             '.page_canvas__render-layer canvas',
                         );
-                        const resizeSnapshot = candidate.querySelector<HTMLCanvasElement>(
-                            '.pdf-resize-canvas-snapshot',
-                        );
                         const skeleton = candidate.querySelector<HTMLElement>(
                             '.document-page-skeleton',
                         );
@@ -1199,10 +1193,6 @@ export async function installCommittedSurfaceSampler(
                                 && canvasHasNonblankPixels(canonicalCanvas),
                             canonicalCanvasVisible: isVisible(canonicalCanvas),
                             pageNumber: Number(candidate.dataset.page ?? 0) || null,
-                            resizeSnapshotId: getElementId(resizeSnapshot),
-                            resizeSnapshotNonblank: sampleCanvasPixels
-                                && canvasHasNonblankPixels(resizeSnapshot),
-                            resizeSnapshotVisible: isVisible(resizeSnapshot),
                             skeletonVisible: isVisible(skeleton),
                         };
                     });

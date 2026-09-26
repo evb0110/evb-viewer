@@ -57,9 +57,6 @@ function findPageRenderPending() {
     if (!track || !viewport) {
         return 'the viewer has no page track';
     }
-    if (track.classList.contains('pdfViewer--resize-transition')) {
-        return 'the page track was mid-resize';
-    }
     const viewportRect = viewport.getBoundingClientRect();
     const pending = [...track.querySelectorAll<HTMLElement>(VISIBLE_PAGE_SELECTOR)]
         .filter((container) => {

@@ -42,10 +42,7 @@ interface IWorkspaceHostPressure {
     popups: number;
 }
 
-interface IRightFileFlashProbeResult {
-    flashCount: number;
-    snapshotSeen: boolean;
-}
+interface IRightFileFlashProbeResult {flashCount: number;}
 
 interface IRightFileFlashProbe {finish: () => IRightFileFlashProbeResult;}
 
@@ -270,15 +267,11 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             }
             const state = {
                 flashCount: 0,
-                snapshotSeen: false,
                 stopped: false,
             };
             const sample = () => {
                 const page = rightPane.querySelector<HTMLElement>('.page_container');
                 const viewport = rightPane.querySelector<HTMLElement>('#pdf-viewer')?.getBoundingClientRect();
-                if (page?.querySelector('.page_canvas--resize-visual-snapshot')) {
-                    state.snapshotSeen = true;
-                }
                 if (!page || !viewport) {
                     return;
                 }
@@ -333,10 +326,8 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             return probe.finish();
         });
 
-        // Activating a sibling Scan Cleanup pane does not necessarily change
-        // the PDF pane's geometry, so a resize snapshot is optional here. The
-        // user-visible invariant is that the already-rendered right PDF never
-        // exposes a skeleton flash during that activation.
+        // The already-rendered right PDF never exposes a skeleton flash while
+        // a sibling Scan Cleanup pane activates.
         expect(result.flashCount).toBe(0);
     }, 180_000);
 

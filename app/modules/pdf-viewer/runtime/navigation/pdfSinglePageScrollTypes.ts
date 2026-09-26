@@ -20,7 +20,6 @@ export interface IUsePdfSinglePageScrollOptions {
     scaledMargin: Ref<number>;
     viewMode: Ref<TPdfViewMode>;
     continuousScroll: Ref<boolean>;
-    isResizeTransitionActive?: Ref<boolean> | undefined;
     isLoading: Ref<boolean>;
     pdfDocument: ShallowRef<IPdfDocument | null>;
     getMostVisiblePage: (
