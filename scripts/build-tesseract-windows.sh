@@ -23,7 +23,8 @@ trap 'rm -rf -- "$BUILD_DIR"' EXIT
 
 git clone --quiet --filter=blob:none https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
 git -C "$VCPKG_ROOT" checkout --quiet "$VCPKG_COMMIT"
-cmd.exe /c "$(cygpath -w "$VCPKG_ROOT/scripts/bootstrap-vcpkg.bat")" -disableMetrics
+bootstrap_script="$(cygpath -w "$VCPKG_ROOT/scripts/bootstrap-vcpkg.bat")"
+MSYS2_ARG_CONV_EXCL='/c' cmd.exe /c "\"$bootstrap_script\" -disableMetrics"
 "$VCPKG_ROOT/vcpkg.exe" install \
   giflib \
   libjpeg-turbo \
@@ -47,6 +48,7 @@ cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-buil
   -G "Visual Studio 17 2022" \
   -A "$vs_arch" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/leptonica-install" \
   -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
   -DVCPKG_TARGET_TRIPLET="$triplet" \

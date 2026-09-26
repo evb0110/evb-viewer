@@ -32,6 +32,7 @@ tar -xzf "$BUILD_DIR/tesseract.tar.gz" -C "$BUILD_DIR"
 
 cmake -S "$BUILD_DIR/leptonica-$LEPTONICA_VERSION" -B "$BUILD_DIR/leptonica-build" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_INSTALL_PREFIX="$BUILD_DIR/leptonica-install" \
   -DBUILD_SHARED_LIBS=OFF \
   -DBUILD_PROG=OFF
