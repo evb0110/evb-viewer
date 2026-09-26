@@ -10,6 +10,7 @@ permissions:
 env:
   NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TSX_TSCONFIG_PATH: tsconfig.base.json
 
 jobs:
   build:
