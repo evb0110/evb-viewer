@@ -615,10 +615,12 @@ async function commitSession(
                 originalPath: session.targetPath,
                 reason: 'save-sync',
                 senderId: session.senderId,
+                signal: session.lifecycleOperation.signal,
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     session.workingPath,
                     session.targetPath,
                     session.senderId,
+                    session.lifecycleOperation.signal,
                 ),
                 publishOriginal: async assertDestinationCurrent => {
                     await commitPdfTempFile(session.tempPath, session.targetPath, {

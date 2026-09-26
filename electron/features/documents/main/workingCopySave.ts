@@ -152,6 +152,7 @@ async function replaceOriginalWithValidatedTemp(
     writeTemp: (tempPath: string) => Promise<void>,
     options: {
         optimize?: 'large' | 'force';
+        signal?: AbortSignal;
         validation?: TPdfSaveValidation;
     } = {},
 ): Promise<IReplaceOriginalWithValidatedTempResult> {
@@ -186,7 +187,9 @@ async function replaceOriginalWithValidatedTemp(
                 workingPath,
                 originalPath,
                 senderWebContentsId,
+                options.signal,
             ),
+            ...(options.signal === undefined ? {} : {signal: options.signal}),
             publishOriginal: assertDestinationCurrent => atomicReplace(tempPath, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
             afterWorkingCopySync: () => refreshWorkingCopyOriginalFileExpectationForSave(
                 workingPath,
@@ -274,7 +277,10 @@ async function runNativePdfSaveMutation(
                 normalizedWorkingPath,
                 senderId,
                 tempPath => writeTemp(normalizedWorkingPath, tempPath, operation),
-                { optimize },
+                {
+                    optimize,
+                    signal: operation.signal,
+                },
             );
             return queuedSave.validation;
         });
@@ -299,7 +305,7 @@ export async function handleFileSaveStructured(
 
         const normalizedWorkingPath = workingPath.trim();
         const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
-        const saveResult = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        const saveResult = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {
             await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
             await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
                 ownerWebContentsId: senderId,
@@ -312,7 +318,10 @@ export async function handleFileSaveStructured(
                 normalizedWorkingPath,
                 senderId,
                 tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
-                { validation: 'structural' },
+                {
+                    validation: 'structural',
+                    signal: operation.signal,
+                },
             );
             if (queuedSave.validation.isValid) {
                 return {

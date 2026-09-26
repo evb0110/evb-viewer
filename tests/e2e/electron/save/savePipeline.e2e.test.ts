@@ -38,6 +38,7 @@ import {
     readPdfHasEncryptDictionary,
     readPdfAnnotationSummary,
     readPdfPageSnapshots,
+    readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     startElectronE2ESession,
@@ -748,6 +749,65 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         }).catch(() => null)).toBeNull();
         expect(await isSaveButtonEnabled(page)).toBe(true);
     }, E2E_TIMEOUT_MS);
+
+    it('saves after another program atomically replaces the original with identical bytes', async () => {
+        const pdfPath = await createMultiPageTextFixturePdf(`save-identical-replace-${Date.now()}.pdf`, 2);
+        const originalBytes = await readFile(pdfPath);
+        session = await startElectronE2ESession(`e2e-save-identical-replace-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session.page, pdfPath);
+        await openAnnotationsTab(session.page, 30_000);
+        await createFreeTextAnnotationWithPointer(session.page, `Preserved edit ${Date.now()}`, {
+            x: 0.4,
+            y: 0.3,
+        });
+        await waitForSaveFrontierReady(session.page);
+
+        const stagedExternalPath = `${pdfPath}.external`;
+        await writeFile(stagedExternalPath, originalBytes);
+        await rename(stagedExternalPath, pdfPath);
+
+        const afterEventId = await getLatestAutomationEventId(session.page);
+        await clickEnabledSaveButton(session.page);
+        const saveOutcome = await Promise.race([
+            waitForAutomationEvent(session.page, 'save-committed', {
+                afterEventId,
+                path: pdfPath,
+                timeoutMs: SAVE_TIMEOUT_MS,
+            }).then(() => 'saved' as const),
+            session.page.waitForSelector('[aria-label="Last save failed"]', {
+                timeout: SAVE_TIMEOUT_MS,
+                visible: true,
+            }).then(() => 'refused' as const),
+        ]);
+        expect(saveOutcome).toBe('saved');
+        expect((await readPdfTextAnnotationRecords(pdfPath)).some(annotation => (
+            annotation.contents.startsWith('Preserved edit ')
+        ))).toBe(true);
+
+        await session.stop();
+        session = await startElectronE2ESession(`e2e-save-identical-replace-reopen-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session.page, pdfPath);
+        await session.page.waitForFunction(() => {
+            const expose = (window as Window & {__evbFindWorkspaceExpose?: (options: {requiredProperties: string[]}) => {annotationComments?: unknown[] | {value?: unknown[]};} | null;}).__evbFindWorkspaceExpose?.({requiredProperties: ['annotationComments']});
+            const comments = Array.isArray(expose?.annotationComments)
+                ? expose.annotationComments
+                : expose?.annotationComments?.value;
+            return comments?.some(comment => (
+                typeof comment === 'object'
+                && comment !== null
+                && 'text' in comment
+                && typeof comment.text === 'string'
+                && comment.text.startsWith('Preserved edit ')
+            )) ?? false;
+        }, {timeout: SAVE_TIMEOUT_MS});
+    }, E2E_TIMEOUT_MS);
+
 
     it('uses the configured Unicode display name as the native annotation author', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-author-${Date.now()}.pdf`, 1);

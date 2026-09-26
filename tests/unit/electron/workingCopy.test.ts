@@ -171,34 +171,32 @@ describe('workingCopy', () => {
         )).rejects.toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
     });
 
-    it('publishes unsupported durable PDFs as lazy without copying or fingerprinting', async () => {
+    it('publishes unsupported durable PDFs as lazy while hashing the original in the background', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
-        const fingerprintHash = vi.fn();
-        vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', () => ({createOriginalFileContentFingerprintHash: fingerprintHash}));
-        try {
-            const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
-            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-            const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
-            const originalPath = join(tempRoot, 'lazy-original.pdf');
-            writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 17));
-            const trustedOriginalPath = allowOpenPath(originalPath);
-            expect(trustedOriginalPath).not.toBeNull();
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {
+            getWorkingCopyBackingEntry,
+            getWorkingCopyOriginalFileExpectation,
+        } = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'lazy-original.pdf');
+        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 17));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
 
-            const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
 
-            expect(existsSync(workingPath)).toBe(false);
-            expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
-                admissionSnapshot: {size: BigInt(2 * 1024 * 1024)},
-                backingState: 'lazy-original',
-                originalPath: realpathSync.native(originalPath),
-            });
-            // Windows admission fingerprints a bounded original by design;
-            // mtime and file identity alone are too weak there.
-            expect(fingerprintHash).toHaveBeenCalledTimes(process.platform === 'win32' ? 1 : 0);
-        } finally {
-            vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');
-        }
+        expect(existsSync(workingPath)).toBe(false);
+        expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
+            admissionSnapshot: {size: BigInt(2 * 1024 * 1024)},
+            backingState: 'lazy-original',
+            originalPath: realpathSync.native(originalPath),
+        });
+        await vi.waitFor(() => {
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint)
+                .toMatch(/^sha256-full-v1:[0-9a-f]{64}$/u);
+        });
     });
 
     it('serializes explicit directory ensures with background materialization', async () => {
@@ -415,8 +413,7 @@ describe('workingCopy', () => {
         }
     });
 
-    it('captures a bounded content fingerprint for small Windows mapped working copies', async () => {
-        setPlatform('win32');
+    it('captures a full content fingerprint for mapped working copies', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
@@ -428,10 +425,13 @@ describe('workingCopy', () => {
 
         const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
 
-        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({contentFingerprint: 'sha256-full-v1:48af473d28c041d4a5de15465f1768fefbfedda7c449580c2f2eb1f7941ad95f'});
+        await vi.waitFor(() => {
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint)
+                .toBe('sha256-full-v1:48af473d28c041d4a5de15465f1768fefbfedda7c449580c2f2eb1f7941ad95f');
+        });
     });
 
-    it('keeps large Windows mapped working copies on the bounded stat witness', async () => {
+    it('captures a full content fingerprint above 64 MiB', async () => {
         setPlatform('win32');
         const {
             getWorkingCopyOriginalFileExpectation,
@@ -449,15 +449,18 @@ describe('workingCopy', () => {
         try {
             await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
-            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({size: largeSize});
-            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBeUndefined();
+            await vi.waitFor(() => {
+                expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({
+                    contentFingerprint: expect.stringMatching(/^sha256-full-v1:[0-9a-f]{64}$/u),
+                    size: largeSize,
+                });
+            });
         } finally {
             await clearAllWorkingCopies();
         }
     });
 
-    it('fails closed when a Windows source mutates during fingerprinting', async () => {
-        setPlatform('win32');
+    it('discards the content baseline when a source mutates during hashing', async () => {
         const originalPath = join(tempRoot, 'windows-mutating-original.pdf');
         const workingPath = join(tempRoot, 'windows-mutating-working.pdf');
         const sourceBytes = Buffer.alloc(2 * 1024 * 1024, 7);
@@ -491,13 +494,17 @@ describe('workingCopy', () => {
 
         try {
             const {
+                getWorkingCopyBackingEntry,
                 getWorkingCopyOriginalFileExpectation,
                 setWorkingCopyOriginalPath,
             } = await import('@electron/file-access/workingCopyStore');
 
             await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
-            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toBeNull();
+            await vi.waitFor(() => {
+                expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBeUndefined();
+                expect(getWorkingCopyBackingEntry(workingPath, 7)?.originalFileExpectationAbortController).toBeUndefined();
+            });
         } finally {
             await clearAllWorkingCopies();
             vi.doUnmock('fs/promises');
@@ -664,8 +671,7 @@ describe('workingCopy', () => {
             }
 
             expect(getPdfPageCount).not.toHaveBeenCalled();
-            // At most one bounded fingerprint per admission, and only on Windows.
-            expect(fingerprintHash).toHaveBeenCalledTimes(process.platform === 'win32' ? 3 : 0);
+            await vi.waitFor(() => expect(fingerprintHash).toHaveBeenCalledTimes(3));
             await clearAllWorkingCopies();
         } finally {
             vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');

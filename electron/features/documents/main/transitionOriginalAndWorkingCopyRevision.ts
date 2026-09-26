@@ -32,6 +32,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     originalPath: string;
     reason: TDocumentRevisionChangeReason;
     senderId?: number;
+    signal?: AbortSignal;
     captureOriginalWitness?: () => Promise<IOriginalPathSaveWitness | null>;
     publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
     afterWorkingCopySync?: () => Promise<void>;
@@ -51,6 +52,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 input.captureOriginalWitness,
             )
             : null;
+        input.signal?.throwIfAborted();
         if (input.captureOriginalWitness && !witness) {
             return null;
         }
@@ -62,6 +64,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         let originalRestoredByRollback = false as boolean;
         let journal = null as IWorkingCopyJournal | null;
         try {
+            input.signal?.throwIfAborted();
             try {
                 await measureTransitionPhase('transition-backup-original', input.onPhase, () =>
                     linkOrCopyFileDurably(input.originalPath, originalBackupPath));
@@ -92,7 +95,11 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                     );
                     shouldRestoreOriginal = true;
                     await measureTransitionPhase('transition-publish-original', input.onPhase, () =>
-                        input.publishOriginal(witness ? () => witness.assertCurrent() : undefined));
+                        input.publishOriginal(witness ? async () => {
+                            input.signal?.throwIfAborted();
+                            await witness.assertCurrent();
+                            input.signal?.throwIfAborted();
+                        } : undefined));
                     await measureTransitionPhase(
                         'transition-rebase-original-witness-after-publish',
                         input.onPhase,

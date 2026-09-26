@@ -4,6 +4,7 @@ import {
     mkdtemp,
     rm,
     stat,
+    symlink,
     utimes,
     writeFile,
 } from 'fs/promises';
@@ -23,6 +24,8 @@ import type * as FsPromises from 'node:fs/promises';
 
 const mocks = vi.hoisted(() => ({
     getWorkingCopyOriginalFileExpectation: vi.fn(),
+    mutateDuringWitnessPath: '',
+    mutateDuringWitnessReplacementPath: '',
     mutatePostHashStatPath: '',
 }));
 
@@ -32,11 +35,14 @@ vi.mock('node:fs/promises', async importOriginal => {
         ...original,
         open: async (...args: Parameters<typeof original.open>) => {
             const handle = await original.open(...args);
-            if (String(args[0]) !== mocks.mutatePostHashStatPath) {
+            if (String(args[0]) !== mocks.mutatePostHashStatPath
+                && String(args[0]) !== mocks.mutateDuringWitnessPath) {
                 return handle;
             }
             const originalStat = handle.stat.bind(handle);
+            const originalRead = handle.read.bind(handle);
             let statCallCount = 0;
+            let readCallCount = 0;
             handle.stat = (async (...statArgs: Parameters<typeof handle.stat>) => {
                 const fileStat = await originalStat(...statArgs) as BigIntStats;
                 statCallCount += 1;
@@ -49,6 +55,17 @@ vi.mock('node:fs/promises', async importOriginal => {
                 }
                 return fileStat;
             }) as typeof handle.stat;
+            if (String(args[0]) === mocks.mutateDuringWitnessPath) {
+                handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
+                    const result = await originalRead(...readArgs);
+                    readCallCount += 1;
+                    if (readCallCount === 2) {
+                        await original.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
+                        await original.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
+                    }
+                    return result;
+                }) as typeof handle.read;
+            }
             return handle;
         },
     };
@@ -61,7 +78,6 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
 
 const {
     captureOriginalPathSaveWitness,
-    capturePathSaveWitness,
     originalPathSaveBaseMatches,
 } = await import('@electron/file-access/originalPathSaveWitness');
 
@@ -82,6 +98,8 @@ describe('originalPathSaveBaseMatches', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        mocks.mutateDuringWitnessPath = '';
+        mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
         tempDir = await mkdtemp(join(tmpdir(), 'save-base-matches-test-'));
     });
@@ -114,7 +132,70 @@ describe('originalPathSaveBaseMatches', () => {
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
     });
 
-    it('rejects an atomic replacement with the same bytes', async () => {
+    it('accepts an atomic replacement with identical bytes using the admitted full baseline', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        const replacementPath = join(tempDir, 'replacement.pdf');
+        const bytes = Buffer.from('base');
+        await writeFile(originalPath, bytes);
+        const originalExpectation = await captureExpectation(originalPath);
+        const hash = createOriginalFileContentFingerprintHash(bytes.byteLength);
+        hash.update(bytes);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...originalExpectation,
+            contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+        });
+        await writeFile(replacementPath, Buffer.from('base'));
+        await rm(originalPath);
+        const {rename} = await import('fs/promises');
+        await rename(replacementPath, originalPath);
+
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+        await expect(witness!.assertCurrent()).resolves.toBeUndefined();
+        await witness!.close();
+    });
+
+    it('rejects an atomic replacement with an interior byte changed', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        const replacementPath = join(tempDir, 'replacement.pdf');
+        const bytes = Buffer.alloc(256 * 1024, 7);
+        await writeFile(originalPath, bytes);
+        const expected = await captureExpectation(originalPath);
+        const hash = createOriginalFileContentFingerprintHash(bytes.byteLength);
+        hash.update(bytes);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+        });
+        bytes[70_000] = 8;
+        await writeFile(replacementPath, bytes);
+        await rm(originalPath);
+        const {rename} = await import('fs/promises');
+        await rename(replacementPath, originalPath);
+
+        await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
+            .resolves.toBeNull();
+    });
+
+    it.skipIf(process.platform === 'win32')('rejects an identical replacement when it changes during the save comparison', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        const bytes = Buffer.from('base');
+        await writeFile(originalPath, bytes);
+        const expected = await captureExpectation(originalPath);
+        const hash = createOriginalFileContentFingerprintHash(bytes.byteLength);
+        hash.update(bytes);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+        });
+        mocks.mutateDuringWitnessPath = originalPath;
+        mocks.mutateDuringWitnessReplacementPath = join(tempDir, 'during-comparison.pdf');
+
+        await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
+            .resolves.toBeNull();
+    });
+
+    it('rejects an identical replacement when the full baseline is not available', async () => {
         const originalPath = join(tempDir, 'original.pdf');
         const replacementPath = join(tempDir, 'replacement.pdf');
         await writeFile(originalPath, Buffer.from('base'));
@@ -124,40 +205,28 @@ describe('originalPathSaveBaseMatches', () => {
         const {rename} = await import('fs/promises');
         await rename(replacementPath, originalPath);
 
-        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+        await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
+            .resolves.toBeNull();
     });
 
-    it('records a bounded full hash for small Windows witnesses', async () => {
-        const originalPlatform = process.platform;
-        Object.defineProperty(process, 'platform', {
-            configurable: true,
-            value: 'win32',
+    it.skipIf(process.platform === 'win32')('rejects a symlink replacement even when its target has identical bytes', async () => {
+        const originalPath = join(tempDir, 'original.pdf');
+        const targetPath = join(tempDir, 'target.pdf');
+        const bytes = Buffer.from('base');
+        await writeFile(originalPath, bytes);
+        const expected = await captureExpectation(originalPath);
+        const hash = createOriginalFileContentFingerprintHash(bytes.byteLength);
+        hash.update(bytes);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
         });
-        try {
-            const originalPath = join(tempDir, 'original.pdf');
-            const bytes = Buffer.alloc(256 * 1024, 7);
-            await writeFile(originalPath, bytes);
-            const admitted = await capturePathSaveWitness(originalPath);
-            expect(admitted).not.toBeNull();
-            const admittedSnapshot = admitted!.getSnapshotForJournal();
-            await admitted!.close();
+        await writeFile(targetPath, bytes);
+        await rm(originalPath);
+        await symlink(targetPath, originalPath);
 
-            bytes[70_000] = 8;
-            await writeFile(originalPath, bytes);
-            const changed = await capturePathSaveWitness(originalPath);
-            expect(changed).not.toBeNull();
-            const changedSnapshot = changed!.getSnapshotForJournal();
-            await changed!.close();
-
-            expect(admittedSnapshot.sampleSha256).toBe(changedSnapshot.sampleSha256);
-            expect(admittedSnapshot.fullSha256).toMatch(/^[0-9a-f]{64}$/u);
-            expect(changedSnapshot.fullSha256).not.toBe(admittedSnapshot.fullSha256);
-        } finally {
-            Object.defineProperty(process, 'platform', {
-                configurable: true,
-                value: originalPlatform,
-            });
-        }
+        await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
+            .resolves.toBeNull();
     });
 
     it('rejects a Windows content change when the stat witness is unchanged', async () => {

@@ -444,8 +444,9 @@ async function runNativeNoteCommand(
                 originalPath,
                 reason: 'native-mutation',
                 senderId,
+                signal: mutationOperation.signal,
                 captureOriginalWitness: () => measureNativeNotePhase(phaseTimings, 'assert-original-base', () =>
-                    captureOriginalPathSaveWitness(normalizedWorkingPath, originalPath, senderId)),
+                    captureOriginalPathSaveWitness(normalizedWorkingPath, originalPath, senderId, mutationOperation.signal)),
                 publishOriginal: assertDestinationCurrent => measureNativeNotePhase(
                     phaseTimings,
                     'atomic-replace-original',
@@ -627,7 +628,7 @@ export async function handleCommitStagedPdfNativeMutations(
     let result: IPdfNativeNoteTextSaveResult | null = null;
     let stagedArtifactCleaned = false as boolean;
     try {
-        result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
+        result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {
             await assertQueuedWorkingCopyMutationPreconditions(
                 normalizedWorkingPath,
                 expectedDocumentRevisionToken,
@@ -644,10 +645,12 @@ export async function handleCommitStagedPdfNativeMutations(
                 originalPath,
                 reason: 'native-mutation',
                 senderId,
+                signal: operation.signal,
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     normalizedWorkingPath,
                     originalPath,
                     senderId,
+                    operation.signal,
                 ),
                 publishOriginal: async assertDestinationCurrent => {
                     const currentArtifact = await resolveTypedStagedArtifact(context, stagedOutput);

@@ -11,6 +11,7 @@ import {
 } from 'fs';
 import {spawnSync} from 'node:child_process';
 import {
+    lstat,
     open,
     stat,
 } from 'fs/promises';
@@ -113,8 +114,7 @@ const RETIRED_WORKING_COPY_TTL_MS = (() => {
     }
     return Math.min(parsed, 60 * 60 * 1000);
 })();
-const WINDOWS_CONTENT_FINGERPRINT_MAX_BYTES = 64 * 1024 * 1024;
-const WINDOWS_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
+const ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 
 interface IWindowsDirectoryLookup {
@@ -293,29 +293,67 @@ async function createOriginalFileExpectation(
         if (!originalStat.isFile()) {
             return undefined;
         }
-        const expectation = createOriginalFileExpectationFromStat(originalStat);
-        if (
-            process.platform !== 'win32'
-            || originalStat.size > BigInt(WINDOWS_CONTENT_FINGERPRINT_MAX_BYTES)
-        ) {
-            return expectation;
-        }
+        return createOriginalFileExpectationFromStat(originalStat);
+    } catch {
+        return undefined;
+    }
+}
 
+function expectationMatchesStat(expectation: IWorkingCopyOriginalFileExpectation, fileStat: BigIntStats) {
+    return fileStat.isFile()
+        && (expectation.deviceId === undefined || fileStat.dev.toString() === expectation.deviceId)
+        && (expectation.inode === undefined || fileStat.ino.toString() === expectation.inode)
+        && fileStat.size === BigInt(expectation.size)
+        && (expectation.mtimeNs === undefined
+            ? Math.abs(Number(fileStat.mtimeNs) / 1_000_000 - expectation.mtimeMs) < 1
+            : fileStat.mtimeNs.toString() === expectation.mtimeNs)
+        && (expectation.ctimeNs === undefined || fileStat.ctimeNs.toString() === expectation.ctimeNs);
+}
+
+function sameOriginalFileExpectation(
+    left: IWorkingCopyOriginalFileExpectation | undefined,
+    right: IWorkingCopyOriginalFileExpectation,
+) {
+    return left !== undefined
+        && left.deviceId === right.deviceId
+        && left.inode === right.inode
+        && left.size === right.size
+        && left.mtimeNs === right.mtimeNs
+        && left.ctimeNs === right.ctimeNs
+        && left.mtimeMs === right.mtimeMs;
+}
+
+function withoutOriginalFileContentFingerprint(
+    expectation: IWorkingCopyOriginalFileExpectation | undefined,
+): IWorkingCopyOriginalFileExpectation | undefined {
+    if (!expectation) {
+        return undefined;
+    }
+    const statExpectation = {...expectation};
+    delete statExpectation.contentFingerprint;
+    return statExpectation;
+}
+
+async function createOriginalFileContentFingerprint(
+    originalPath: string,
+    expectation: IWorkingCopyOriginalFileExpectation,
+    signal?: AbortSignal,
+) {
+    try {
+        signal?.throwIfAborted();
         const handle = await open(originalPath, 'r');
         try {
             const before = await handle.stat({bigint: true});
-            if (
-                !before.isFile()
-                || before.size !== originalStat.size
-                || before.dev !== originalStat.dev
-                || before.ino !== originalStat.ino
-            ) {
+            const namedBefore = await lstat(originalPath, {bigint: true});
+            if (!Number.isSafeInteger(Number(before.size))
+                || !expectationMatchesStat(expectation, before)
+                || !expectationMatchesStat(expectation, namedBefore)) {
                 return undefined;
             }
             const hash = createOriginalFileContentFingerprintHash(Number(before.size));
             const buffer = Buffer.allocUnsafe(Math.max(
                 1,
-                Math.min(Number(before.size), WINDOWS_CONTENT_FINGERPRINT_CHUNK_BYTES),
+                Math.min(Number(before.size), ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES),
             ));
             let offset = 0;
             while (offset < Number(before.size)) {
@@ -338,9 +376,13 @@ async function createOriginalFileExpectation(
                 offset += length;
             }
             const after = await handle.stat({bigint: true});
+            const pathStat = await stat(originalPath, {bigint: true});
+            const namedAfter = await lstat(originalPath, {bigint: true});
             signal?.throwIfAborted();
             if (
-                !after.isFile()
+                !expectationMatchesStat(expectation, after)
+                || !expectationMatchesStat(expectation, pathStat)
+                || !expectationMatchesStat(expectation, namedAfter)
                 || after.size !== before.size
                 || after.dev !== before.dev
                 || after.ino !== before.ino
@@ -349,10 +391,7 @@ async function createOriginalFileExpectation(
             ) {
                 return undefined;
             }
-            return {
-                ...createOriginalFileExpectationFromStat(after),
-                contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
-            };
+            return `sha256-full-v1:${hash.digest('hex')}`;
         } finally {
             await handle.close().catch(() => undefined);
         }
@@ -602,7 +641,9 @@ export async function setWorkingCopyOriginalPath(
 
         const role = options.role ?? 'current';
         const admissionSnapshot = copyAdmissionSnapshot(options.admissionSnapshot);
-        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
+        const originalFileExpectation = withoutOriginalFileContentFingerprint(
+            copyOriginalFileExpectation(options.originalFileExpectation),
+        );
         entry = {
             ...(admissionSnapshot ? {admissionSnapshot} : {}),
             backingState: options.backingState ?? 'eager',
@@ -619,38 +660,74 @@ export async function setWorkingCopyOriginalPath(
         setCurrentWorkingCopyForOriginal(workingPath, entry);
     });
 
-    // Normal mapped working copies capture a stat witness here. Small Windows
-    // sources also get a bounded content fingerprint, while routes that
-    // explicitly defer the witness remain fail-closed until they refresh it.
-    if (options.deferOriginalFileExpectation || options.originalFileExpectation) {
+    if (options.deferOriginalFileExpectation) {
         return;
     }
 
     const expectationAbortController = new AbortController();
     entry.originalFileExpectationAbortController = expectationAbortController;
-    const expectationPromise = createOriginalFileExpectation(
-        originalPath,
-        expectationAbortController.signal,
-    );
-    const originalFileExpectation = await expectationPromise;
-    applyOriginalFileExpectation(entry, workingPath, originalFileExpectation);
+    const expectation = withoutOriginalFileContentFingerprint(options.originalFileExpectation)
+        ?? await createOriginalFileExpectation(
+            originalPath,
+            expectationAbortController.signal,
+        );
+    if (!applyOriginalFileExpectation(entry, workingPath, expectation)) {
+        return;
+    }
+    captureOriginalFileContentFingerprint(entry, workingPath, expectation, expectationAbortController);
 }
 
 function applyOriginalFileExpectation(
     entry: IWorkingCopyOriginalEntry,
     workingPath: string,
     originalFileExpectation: IWorkingCopyOriginalFileExpectation | undefined,
-) {
+): boolean {
     const activeEntry = workingCopyMap.get(workingPath);
     if (!activeEntry || activeEntry !== entry || !isSameWorkingCopyEntry(activeEntry, entry)) {
-        return;
+        return false;
     }
-    delete activeEntry.originalFileExpectationAbortController;
     if (originalFileExpectation) {
         activeEntry.originalFileExpectation = originalFileExpectation;
     } else {
         delete activeEntry.originalFileExpectation;
     }
+    return true;
+}
+
+function captureOriginalFileContentFingerprint(
+    entry: IWorkingCopyOriginalEntry,
+    workingPath: string,
+    expectation: IWorkingCopyOriginalFileExpectation | undefined,
+    controller: AbortController,
+) {
+    if (!expectation) {
+        delete entry.originalFileExpectationAbortController;
+        return;
+    }
+    void createOriginalFileContentFingerprint(entry.originalPath, expectation, controller.signal)
+        .then(contentFingerprint => {
+            const activeEntry = workingCopyMap.get(workingPath);
+            if (
+                !contentFingerprint
+                || controller.signal.aborted
+                || activeEntry !== entry
+                || activeEntry.originalFileExpectationAbortController !== controller
+                || !isSameWorkingCopyEntry(activeEntry, entry)
+                || !sameOriginalFileExpectation(activeEntry.originalFileExpectation, expectation)
+            ) {
+                return;
+            }
+            activeEntry.originalFileExpectation = {
+                ...expectation,
+                contentFingerprint,
+            };
+        })
+        .catch(() => undefined)
+        .finally(() => {
+            if (entry.originalFileExpectationAbortController === controller) {
+                delete entry.originalFileExpectationAbortController;
+            }
+        });
 }
 
 export function rememberRetiredWorkingCopyOriginal(
@@ -982,9 +1059,15 @@ export function transitionWorkingCopyBackingState(
     }
     activeEntry.backingState = backingState;
     if (options.originalFileExpectation) {
-        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
+        activeEntry.originalFileExpectationAbortController?.abort();
+        const originalFileExpectation = withoutOriginalFileContentFingerprint(
+            copyOriginalFileExpectation(options.originalFileExpectation),
+        );
         if (originalFileExpectation) {
             activeEntry.originalFileExpectation = originalFileExpectation;
+            const controller = new AbortController();
+            activeEntry.originalFileExpectationAbortController = controller;
+            captureOriginalFileContentFingerprint(activeEntry, workingPath, originalFileExpectation, controller);
         }
     }
     if (options.sourceBackingErrorCode === null) {
@@ -1048,7 +1131,10 @@ export async function refreshWorkingCopyOriginalFileExpectation(
         return false;
     }
 
-    const expectation = await createOriginalFileExpectation(activeEntry.originalPath);
+    activeEntry.originalFileExpectationAbortController?.abort();
+    const controller = new AbortController();
+    activeEntry.originalFileExpectationAbortController = controller;
+    const expectation = await createOriginalFileExpectation(activeEntry.originalPath, controller.signal);
     const currentEntry = workingCopyMap.get(workingPath);
     if (
         !currentEntry
@@ -1060,8 +1146,10 @@ export async function refreshWorkingCopyOriginalFileExpectation(
     }
     if (expectation) {
         currentEntry.originalFileExpectation = expectation;
+        captureOriginalFileContentFingerprint(currentEntry, workingPath, expectation, controller);
     } else {
         delete currentEntry.originalFileExpectation;
+        delete currentEntry.originalFileExpectationAbortController;
     }
     return true;
 }
