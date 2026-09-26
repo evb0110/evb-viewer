@@ -1,12 +1,8 @@
-import {
-    runtimeSchema,
-    type TInferSchema,
-} from '@contracts/platformFeature';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import * as v from 'valibot';
 
-const s = runtimeSchema;
-const progress = s.refine(s.object({
-    stage: s.oneOf([
+const progress = v.message(v.pipe(v.object({
+    stage: v.picklist([
         'queued',
         'normalizing',
         'probing',
@@ -18,58 +14,22 @@ const progress = s.refine(s.object({
         'assembling',
         'handoff',
         'detecting',
-    ] as const, 'invalid scan-cleanup progress'),
-    completedUnits: s.number({
-        integer: true,
-        min: 0,
-        message: 'invalid scan-cleanup progress',
-    }),
-    totalUnits: s.number({
-        integer: true,
-        min: 0,
-        message: 'invalid scan-cleanup progress',
-    }),
-    percent: s.number({
-        min: 0,
-        max: 100,
-        message: 'invalid scan-cleanup progress',
-    }),
-    stageIndex: s.optional(s.number({
-        integer: true,
-        min: 1,
-        message: 'invalid scan-cleanup progress stage index',
-    })),
-    stageCount: s.optional(s.number({
-        integer: true,
-        min: 1,
-        message: 'invalid scan-cleanup progress stage count',
-    })),
-    etaSeconds: s.optional(s.number({
-        integer: true,
-        min: 0,
-        message: 'invalid scan-cleanup progress ETA',
-    })),
+    ] as const),
+    completedUnits: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    totalUnits: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    percent: v.pipe(v.number(), v.minValue(0), v.maxValue(100)),
+    stageIndex: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+    stageCount: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+    etaSeconds: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     // Pages whose analysis image exists during this detection job.
-    rasterizedUnits: s.optional(s.number({
-        integer: true,
-        min: 0,
-        message: 'invalid scan-cleanup rasterized units',
-    })),
+    rasterizedUnits: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     // Pages re-read during document reconciliation and MediaBox retries.
-    recheckedUnits: s.optional(s.number({
-        integer: true,
-        min: 0,
-        message: 'invalid scan-cleanup rechecked units',
-    })),
-    completedPageNumbers: s.optional(s.array(s.number({
-        integer: true,
-        min: 1,
-        message: 'invalid scan-cleanup completed page numbers',
-    }))),
+    recheckedUnits: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+    completedPageNumbers: v.optional(v.array(v.pipe(v.number(), v.integer(), v.minValue(1)))),
     // A long detection run reports a bounded list in verdict-arrival order.
     // Consumers use completedUnits for the authoritative distinct-page count.
-    completedPageNumbersTruncated: s.optional(s.boolean()),
-}), value =>
+    completedPageNumbersTruncated: v.optional(v.boolean()),
+}), v.check(value =>
     value.completedUnits <= value.totalUnits
     && (
         value.rasterizedUnits === undefined
@@ -95,8 +55,8 @@ const progress = s.refine(s.object({
         value.completedPageNumbersTruncated !== true
         || value.completedPageNumbers !== undefined
     ),
-'invalid scan-cleanup progress');
+)), 'invalid scan-cleanup progress');
 
 export const SCAN_CLEANUP_PROGRESS_SCHEMA = progress;
-export type TScanCleanupProgress = TInferSchema<typeof progress>;
+export type TScanCleanupProgress = v.InferOutput<typeof progress>;
 export type TScanCleanupProgressStage = TScanCleanupProgress['stage'];

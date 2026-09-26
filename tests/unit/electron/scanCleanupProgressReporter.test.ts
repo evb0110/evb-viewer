@@ -16,6 +16,7 @@ import {
 } from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
+import * as v from 'valibot';
 
 describe('scan cleanup progress reporter', () => {
     it('keeps completed-page progress bounded for a long document', () => {
@@ -41,7 +42,7 @@ describe('scan cleanup progress reporter', () => {
         expect(reports[0]!.completedPageNumbers).toHaveLength(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES);
         expect(reports[0]!.completedPageNumbers?.[0]).toBe(1);
         expect(reports[0]!.completedPageNumbersTruncated).toBe(true);
-        expect(SCAN_CLEANUP_PROGRESS_SCHEMA.decode(reports[0])).toEqual(reports[0]);
+        expect(v.parse(SCAN_CLEANUP_PROGRESS_SCHEMA, reports[0])).toEqual(reports[0]);
     });
 
     it('uses one monotonic rendering band for a streaming raster pipeline', () => {
