@@ -82,7 +82,7 @@ flowchart LR
   Desktop assistant panel with Codex install/update, ChatGPT sign-in, workspace/document empty states, and chat composer.
 
 - `scripts/evb-mcp-proxy.mjs`
-  Compatibility stdio proxy for development/manual MCP clients. It mirrors the MCP descriptors and forwards JSON-RPC to the local HTTP endpoint.
+  Compatibility stdio proxy for MCP clients that connect over stdio. It relays JSON-RPC to the local HTTP endpoint.
 
 - Tests:
   `tests/unit/electron/agentMcpServer.test.ts`,
@@ -101,7 +101,7 @@ The server binds to loopback only:
 
 The identity is derived in `createLocalMcpServerIdentity()` from Electron `app.isPackaged`, `app.getName()`, `app.getVersion()`, and `app.getPath('userData')`.
 
-The `/health` endpoint returns identity plus available tools, resources, and prompts. MCP JSON-RPC requests are accepted by `POST` to the same HTTP server.
+The `/health` endpoint returns identity plus available tools, resources, and prompts. MCP JSON-RPC requests are accepted by `POST` to the same HTTP server. Both routes require the app's bearer token in the `Authorization` header.
 
 ## Settings, Assistant Visibility, And Codex Registration
 
@@ -126,34 +126,12 @@ When the user enables MCP:
 7. The local MCP server starts.
 8. EVB Viewer runs:
    - `codex mcp remove <server-name>` as a best-effort cleanup
-   - `codex mcp add <server-name> --url <server-url>`
-9. `agentMcpEnabled` is saved as `true`.
+   - `codex mcp add` with the stdio proxy command and its URL/token environment.
+9. The app replaces the token placeholder in Codex configuration with the stored token and saves `agentMcpEnabled` as `true`.
 
 When disabling, EVB Viewer asks permission, removes the Codex MCP entry, shuts down the local server, and saves `agentMcpEnabled` as `false`.
 
-The current registration target is direct Streamable HTTP in Codex, not stdio:
-
-```toml
-[mcp_servers.evb_viewer_dev]
-url = "http://127.0.0.1:38672"
-```
-
-Manual setup for common external clients uses the same server name and URL:
-
-```bash
-codex mcp add evb_viewer_dev --url http://127.0.0.1:38672
-claude mcp add --transport http --scope user evb_viewer_dev http://127.0.0.1:38672
-```
-
-```json
-{
-  "mcpServers": {
-    "evb_viewer_dev": {
-      "url": "http://127.0.0.1:38672"
-    }
-  }
-}
-```
+The current Codex registration uses the stdio proxy. The proxy forwards each message to the authenticated HTTP endpoint; the app's setup snippets provide the command and bearer token to compatible clients.
 
 Renderer settings saves intentionally preserve `agentMcpEnabled` in `electron/platform-ipc/registerIpcHandlers.ts` so stale renderer settings snapshots cannot clobber a value managed by the Codex mutation flow. `assistantPanelEnabled` is allowed through normal settings saves because it does not mutate external Codex configuration; when it is saved as `false`, the main process shuts down the embedded assistant runtime.
 
@@ -433,7 +411,7 @@ Platform API:
 - Renderer bridge responses are accepted only from the window that received the request.
 - MCP tools are scoped to current EVB Viewer windows and open tabs.
 - The embedded assistant MCP server uses a random loopback port and bearer token known only to the sandboxed Codex app-server process.
-- The external fixed-port MCP server has no authentication on the loopback HTTP server today, so only enable it when local agent access is desired.
+- The external fixed-port MCP server requires a bearer token stored by the app and passed to its stdio client configuration.
 
 ## Stdio Proxy
 
@@ -443,18 +421,16 @@ Behavior:
 
 - Resolves target URL from `EVB_MCP_URL` or `EVB_MCP_HOST`/`EVB_MCP_PORT`, defaulting to dev port `38672`.
 - Accepts newline-delimited JSON-RPC and `Content-Length` framed input.
-- Writes newline-delimited JSON-RPC responses.
-- Handles `initialize`, `tools/list`, `resources/templates/list`, and `prompts/list` locally for better discoverability.
-- Forwards tool calls and resource reads to the local HTTP server.
-
-Because descriptors are duplicated between the proxy and `mcpServer.ts`, any tool/resource/prompt descriptor changes should update both files or replace the duplication with a shared generator.
+- Sends each message to the local HTTP server with the configured bearer token and writes its response to stdout.
+- Emits a generic JSON-RPC error when the local server cannot be reached.
+- Leaves `initialize`, `tools/list`, resources, prompts, and all tool definitions to the server.
 
 ## Manual Checks
 
 Inspect app status from the local server:
 
 ```bash
-curl http://127.0.0.1:38672/health
+curl -H "Authorization: Bearer $EVB_MCP_TOKEN" http://127.0.0.1:38672/health
 ```
 
 Inspect Codex registration:
@@ -507,18 +483,14 @@ pnpm run release:verify
 
 ## Known Limitations
 
-- The external local HTTP MCP server has no token/auth layer.
 - Web runtime has no MCP server; it only has no-op typed APIs.
 - File-picker-driven actions such as opening arbitrary files, opening recent files, region capture to clipboard, and inserting images from file or clipboard are intentionally not advertised as public MCP capabilities.
 - PDF readiness starts as `unknown` until `evb_inspect_document_text` builds or reads the index.
 - Port collisions are logged as server errors; there is no automatic fallback port.
-- The stdio proxy duplicates descriptor metadata.
 - The MCP server does not stream partial results; it returns normal JSON-RPC responses.
 
 ## Good Next Iterations
 
-- Add token-based local authorization or a per-session secret if we want stronger loopback safety.
-- Share MCP tool/resource/prompt descriptors between HTTP server and stdio proxy.
 - Add MCP actions for OCR all pages and convert to PDF once the user-confirmation model is designed.
 - Add a status indicator outside Settings if users need to know MCP is active during normal document work.
 - Expand resource support for selected text if agents need selection inspection beyond current annotation context actions.
