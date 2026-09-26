@@ -1,0 +1,19 @@
+scripts/test-ocr-quality-corpus.mjs
+  s_017c7f918c05eb::t_a0ccad18389cd8 1120-1123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "befa020f3caed7d61411e5f0e396e09944424ea5",
+  "prompts": {},
+  "sessions": {
+    "s_017c7f918c05eb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ded2-d310-7671-b02c-c7dc523b9d64",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
