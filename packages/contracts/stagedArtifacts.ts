@@ -79,7 +79,7 @@ export interface IContentFingerprintStagedArtifact extends ITypedStagedArtifactB
  */
 export interface IOpaqueNativeStagedArtifact extends ITypedStagedArtifactBase {
     receiptVersion: 2;
-    fileIdentity: Extract<TArtifactFileIdentity, {platform: 'posix'}>;
+    fileIdentity: Extract<TArtifactFileIdentity, {platform: 'posix' | 'win32'}>;
 }
 
 export type ITypedStagedArtifact =
@@ -173,12 +173,6 @@ function decodeFileIdentity(value: unknown): TArtifactFileIdentity | null {
     return decodeBrowserStoreFileIdentity(value);
 }
 
-function isPosixFileIdentity(
-    value: TArtifactFileIdentity,
-): value is Extract<TArtifactFileIdentity, {platform: 'posix'}> {
-    return value.platform === 'posix';
-}
-
 function decodeValidations(value: unknown): IStagedArtifactValidations | null {
     if (
         !isRecord(value)
@@ -261,11 +255,8 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
     ) {
         return null;
     }
-    if (value.receiptVersion === 2 && fileIdentity.platform !== 'posix') {
-        return null;
-    }
     if (value.receiptVersion === 2) {
-        if (!isPosixFileIdentity(fileIdentity)) {
+        if (fileIdentity.platform === 'browser') {
             return null;
         }
         return {

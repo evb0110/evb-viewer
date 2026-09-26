@@ -429,10 +429,10 @@ export async function createTypedStagedArtifact(
 }
 
 /**
- * Creates a POSIX-only native staging capability without reading the whole
- * artifact to manufacture a reusable content digest. The authoritative lease
- * keeps the private stat witness; callers can only resolve the exact file
- * object produced and validated by the main-process native operation.
+ * Creates a native staging capability without reading the whole artifact to
+ * manufacture a reusable content digest. The lease keeps the private stat
+ * witness; callers can only resolve the exact file object produced and
+ * validated by the main-process native operation.
  */
 export async function createOpaqueNativePdfStagedArtifact(
     context: IDocumentsSenderIdContext,
@@ -440,9 +440,6 @@ export async function createOpaqueNativePdfStagedArtifact(
     validations: IStagedArtifactValidations,
     options: {cleanupOnRelease?: boolean} = {},
 ): Promise<ITypedStagedArtifact> {
-    if (process.platform === 'win32') {
-        return createTypedStagedArtifact(context, filePath, validations, options);
-    }
     const path = await resolveExistingReadableBinaryPath(filePath, context.senderId);
     const beforeStat = await statRegularArtifact(path);
     const currentRevision = await readWorkingCopyRevision(path);
@@ -460,8 +457,8 @@ export async function createOpaqueNativePdfStagedArtifact(
         throw new Error('Native staged artifact changed while its lease was being created');
     }
     const fileIdentity = createArtifactFileIdentity(fileStat);
-    if (fileIdentity.platform !== 'posix') {
-        throw new Error('Opaque native staged artifacts require POSIX file identity');
+    if (fileIdentity.platform === 'browser') {
+        throw new Error('Native staged artifacts require operating-system file identity');
     }
     const size = Number(fileStat.size);
     if (!Number.isSafeInteger(size) || size < 0) {
@@ -596,11 +593,7 @@ export async function resolveTypedStagedArtifact(
         invalidateStagedArtifactLease(artifact.leaseId);
         throw new Error('Staged artifact content, identity, or revision changed after staging');
     }
-    if (process.platform === 'win32') {
-        if (lease.artifact.receiptVersion !== 1) {
-            invalidateStagedArtifactLease(artifact.leaseId);
-            throw new Error('Opaque native staged artifacts are not supported on Windows');
-        }
+    if (process.platform === 'win32' && lease.artifact.receiptVersion === 1) {
         const inspection = await fingerprintFileWithUtilityProcess(lease.path);
         if (
             inspection.bytes !== lease.artifact.size
@@ -612,65 +605,6 @@ export async function resolveTypedStagedArtifact(
     }
     lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
     return cloneTypedStagedArtifact(lease.artifact);
-}
-
-export async function rebindTypedStagedArtifactPath(
-    context: IDocumentsSenderIdContext,
-    artifact: ITypedStagedArtifact,
-    nextFilePath: unknown,
-): Promise<ITypedStagedArtifact> {
-    sweepExpiredLeases();
-    const lease = leases.get(artifact.leaseId);
-    if (
-        !lease
-        || lease.invalidated
-        || !('artifact' in lease)
-        || lease.ownerId !== context.senderId
-        || !isDeepStrictEqual(artifact, lease.artifact)
-    ) {
-        throw new Error('Staged artifact lease is missing, expired, altered, or belongs to another renderer');
-    }
-    const nextPath = await resolveExistingReadableBinaryPath(nextFilePath, context.senderId);
-    const [
-        fileStat,
-        currentRevision,
-    ] = await Promise.all([
-        statRegularArtifact(nextPath),
-        readWorkingCopyRevision(nextPath),
-    ]);
-    const statWitness = createArtifactStatWitness(fileStat);
-    const witnessMatches = isSameArtifactStatWitness(statWitness, lease.statWitness);
-    if (
-        !isDeepStrictEqual(createArtifactFileIdentity(fileStat), lease.artifact.fileIdentity)
-        || (currentRevision?.token ?? null) !== lease.artifact.revision
-    ) {
-        invalidateStagedArtifactLease(artifact.leaseId);
-        throw new Error('Renamed staged artifact no longer matches its authoritative receipt');
-    }
-    if (!witnessMatches || process.platform === 'win32') {
-        if (lease.artifact.receiptVersion !== 1) {
-            invalidateStagedArtifactLease(artifact.leaseId);
-            throw new Error('Renamed opaque native staged artifact changed after staging');
-        }
-        const inspection = await fingerprintFileWithUtilityProcess(nextPath);
-        if (
-            inspection.bytes !== lease.artifact.size
-            || inspection.sha256 !== lease.artifact.sha256
-        ) {
-            invalidateStagedArtifactLease(artifact.leaseId);
-            throw new Error('Renamed staged artifact no longer matches its authoritative receipt');
-        }
-    }
-    const reboundArtifact = cloneTypedStagedArtifact({
-        ...lease.artifact,
-        path: requireDocumentRef(nextPath),
-    });
-    lease.path = nextPath;
-    registerLeasePath(artifact.leaseId, nextPath);
-    lease.artifact = freezeTypedStagedArtifact(cloneTypedStagedArtifact(reboundArtifact));
-    lease.statWitness = statWitness;
-    lease.expiresAt = Date.now() + MANAGED_HANDLE_TTL_MS;
-    return reboundArtifact;
 }
 
 export function clearManagedTempFileHandlesForTests() {

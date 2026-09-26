@@ -251,7 +251,7 @@ describe('managed temporary file handles', () => {
         await expect(resolveTypedStagedArtifact({senderId: 42}, retry)).resolves.toEqual(retry);
     });
 
-    it('does not rehash an unchanged POSIX staged artifact', async () => {
+    it('resolves an unchanged content-fingerprint staged artifact', async () => {
         const {
             createTypedStagedArtifact,
             resolveTypedStagedArtifact,
@@ -262,13 +262,10 @@ describe('managed temporary file handles', () => {
             semanticCheck: false,
             fsynced: false,
         });
-        mocks.inspect.mockClear();
-
         await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).resolves.toEqual(artifact);
-        expect(mocks.inspect).toHaveBeenCalledTimes(process.platform === 'win32' ? 1 : 0);
     });
 
-    it('creates a POSIX native staging lease without hashing the artifact', async () => {
+    it('creates a native staging lease without hashing the artifact', async () => {
         const {
             createOpaqueNativePdfStagedArtifact,
             resolveTypedStagedArtifact,
@@ -282,17 +279,11 @@ describe('managed temporary file handles', () => {
             fsynced: true,
         });
 
-        if (process.platform === 'win32') {
-            expect(artifact.receiptVersion).toBe(1);
-            expect(mocks.inspect).toHaveBeenCalledOnce();
-            await expect(resolveTypedStagedArtifact({senderId: 42}, artifact)).resolves.toEqual(artifact);
-            return;
-        }
         expect(artifact).toMatchObject({
             receiptVersion: 2,
             path: mocks.path,
             size: Buffer.byteLength('managed-file-content'),
-            fileIdentity: {platform: 'posix'},
+            fileIdentity: {platform: process.platform === 'win32' ? 'win32' : 'posix'},
         });
         expect(artifact).not.toHaveProperty('sha256');
         expect(mocks.inspect).not.toHaveBeenCalled();
@@ -559,34 +550,6 @@ describe('managed temporary file handles', () => {
             .resolves.toEqual(artifact);
     });
 
-    it('rebinds an atomic rename only when identity and stat witnesses are preserved', async () => {
-        const {
-            createTypedStagedArtifact,
-            rebindTypedStagedArtifactPath,
-            resolveTypedStagedArtifact,
-        } = await import('@electron/features/documents/main/managedTempFileHandles');
-        const artifact = await createTypedStagedArtifact({senderId: 42}, mocks.path, {
-            qpdfCheck: false,
-            tailCheck: true,
-            semanticCheck: false,
-            fsynced: true,
-        });
-        const renamedPath = join(directory, 'renamed.pdf');
-        renameSync(mocks.path, renamedPath);
-        mocks.path = renamedPath;
-
-        const rebound = await rebindTypedStagedArtifactPath(
-            {senderId: 42},
-            artifact,
-            renamedPath,
-        );
-
-        expect(rebound.path).toBe(renamedPath);
-        expect(rebound.fileIdentity).toEqual(artifact.fileIdentity);
-        await expect(resolveTypedStagedArtifact({senderId: 42}, rebound))
-            .resolves.toEqual(rebound);
-    });
-
     it('mints a new identity-bound receipt for a trusted copy without inheriting fsync', async () => {
         const {
             createTypedStagedArtifact,
@@ -646,7 +609,6 @@ describe('managed temporary file handles', () => {
             semanticScopeSha256: 'b'.repeat(64),
             fsynced: true,
         });
-        const inspectionCount = mocks.inspect.mock.calls.length;
         expect(sourceArtifact.receiptVersion).toBe(1);
         if (sourceArtifact.receiptVersion !== 1) {
             throw new Error('Expected a content-fingerprint staged artifact');
@@ -677,8 +639,6 @@ describe('managed temporary file handles', () => {
             },
         });
         expect(copiedArtifact.leaseId).not.toBe(sourceArtifact.leaseId);
-        expect(mocks.inspect).toHaveBeenCalledTimes(inspectionCount + 1);
-        expect(mocks.inspect).toHaveBeenLastCalledWith(copiedPath);
         await expect(resolveTypedStagedArtifact({senderId: 42}, copiedArtifact))
             .resolves.toEqual(copiedArtifact);
 

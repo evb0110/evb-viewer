@@ -91,6 +91,26 @@ describe('typed staged artifact contracts', () => {
         expect(decodeTypedStagedArtifact(opaqueArtifact)).toEqual(opaqueArtifact);
     });
 
+    it('accepts an opaque Windows native receipt with NTFS identity', () => {
+        const {
+            sha256: _sha256,
+            ...artifact
+        } = {
+            ...createArtifact(),
+            fileIdentity: {
+                platform: 'win32' as const,
+                volumeId: '4061859196',
+                fileId: '3659174697834523',
+            },
+        };
+        const opaqueArtifact = {
+            ...artifact,
+            receiptVersion: 2,
+        } as const;
+
+        expect(decodeTypedStagedArtifact(opaqueArtifact)).toEqual(opaqueArtifact);
+    });
+
     it('decodes browser-store identity without manufacturing an OS identity', () => {
         const artifact = {
             ...createArtifact(),
