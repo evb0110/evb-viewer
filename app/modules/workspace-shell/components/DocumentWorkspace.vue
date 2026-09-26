@@ -45,39 +45,39 @@
                 @open-file="fileOps.handleOpenFileFromUi"
                 @open-settings="emit('open-settings')"
                 @open-scan-cleanup="openScanCleanup"
-                @save="handleToolbarSave"
-                @repair-save="handleToolbarRepairSave"
-                @optimize-pdf-for-interaction="handleToolbarOptimizePdfForInteraction"
-                @save-as="handleToolbarSaveAs"
+                @save="runToolbarAction(handleSaveWithAutomationEvent)"
+                @repair-save="runToolbarAction(handleRepairSave)"
+                @optimize-pdf-for-interaction="runToolbarAction(openOptimizePdfForInteractionDialog)"
+                @save-as="runToolbarAction(handleSaveAs)"
                 @print="handlePrint"
                 @print-current-page="handlePrintCurrentPage"
                 @combine-files="emit('open-combine')"
-                @export-docx="handleToolbarExportDocx"
+                @export-docx="runToolbarAction(handleExportDocx)"
                 @ocr-export-docx="handleExportDocx"
                 @ocr-cancel-docx-export="cancelDocxExportDirect"
                 @export-images="handleExportImages()"
                 @export-multi-page-tiff="handleExportMultiPageTiff()"
                 @convert-to-pdf="openConvertDialog"
-                @undo="handleToolbarUndo"
-                @redo="handleToolbarRedo"
+                @undo="runToolbarAction(handleUndo)"
+                @redo="runToolbarAction(handleRedo)"
                 @insert-image-from-file="handleInsertImageFromFile"
                 @paste-image-from-clipboard="handlePasteImageFromClipboard"
-                @delete-pages="handleDeletePages"
-                @extract-pages="handleExtractPages"
-                @rotate-cw="handleRotateCw"
-                @rotate-ccw="handleRotateCcw"
-                @insert-pages="handleInsertPages"
-                @toggle-sidebar="handleToolbarToggleSidebar"
-                @fit-width="handleToolbarFitWidth"
-                @fit-height="handleToolbarFitHeight"
-                @toggle-continuous-scroll="handleToolbarToggleContinuousScroll"
-                @enable-drag="handleToolbarEnableDrag"
-                @disable-drag="handleToolbarDisableDrag"
-                @capture-region="handleToolbarCaptureRegion"
-                @crop="handleToolbarCrop"
-                @quick-note="handleToolbarQuickNote"
+                @delete-pages="workspaceExpose.handleDeletePages()"
+                @extract-pages="workspaceExpose.handleExtractPages()"
+                @rotate-cw="workspaceExpose.handleRotateCw()"
+                @rotate-ccw="workspaceExpose.handleRotateCcw()"
+                @insert-pages="workspaceExpose.handleInsertPages()"
+                @toggle-sidebar="runToolbarAction(workspaceExpose.handleToggleSidebar)"
+                @fit-width="runToolbarAction(workspaceExpose.handleFitWidth)"
+                @fit-height="runToolbarAction(workspaceExpose.handleFitHeight)"
+                @toggle-continuous-scroll="runToolbarAction(toggleContinuousScroll)"
+                @enable-drag="runToolbarAction(enableDragMode)"
+                @disable-drag="runToolbarAction(workspaceExpose.handleDisableDragMode)"
+                @capture-region="runToolbarAction(handleCaptureRegion)"
+                @crop="runToolbarAction(handleCropAction)"
+                @quick-note="runToolbarAction(handleQuickNoteAction)"
                 @toggle-fullscreen="emit('toggle-fullscreen')"
-                @set-view-mode="handleOverflowSetViewMode"
+                @set-view-mode="runToolbarAction(() => setViewMode($event))"
                 @go-to-page="handleGoToPage"
                 @ocr-complete="handleOcrComplete"
             />
@@ -174,13 +174,13 @@
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
                     @page-context-menu="showPageContextMenu"
-                    @page-rotate-cw="handlePageRotateCw"
-                    @page-rotate-ccw="handlePageRotateCcw"
-                    @page-extract="handlePageExtract"
-                    @page-export="handlePageExport"
-                    @page-delete="handlePageDelete"
-                    @page-reorder="handlePageReorder"
-                    @page-move="handlePageMove"
+                    @page-rotate-cw="pageOps.handlePageRotate($event, 90)"
+                    @page-rotate-ccw="pageOps.handlePageRotate($event, 270)"
+                    @page-extract="pageOps.pageOpsExtract($event)"
+                    @page-export="exportWorkflow.handleExportImages($event)"
+                    @page-delete="pageOps.pageOpsDelete($event, totalPages)"
+                    @page-reorder="pageOps.pageOpsReorder($event)"
+                    @page-move="pageOps.pageOpsMove($event)"
                     @page-file-drop="pageOps.handlePageFileDrop"
                 />
                 <DocumentSourceSidebar
@@ -332,7 +332,8 @@ import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout
 import { useDocumentWorkspaceScanCleanupSurface } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
 import { useDocumentWorkspaceSplitRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore';
-import { useDocumentWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceToolbar';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import type { TPdfViewMode } from '@contracts/shared';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     useDocumentWorkspaceAgent,
@@ -351,7 +352,6 @@ import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/
 import { useDocumentWorkspacePageSessionRestore } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageSessionRestore';
 import { useDocumentWorkspaceViewerPresentation } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceViewerPresentation';
 import { useDocumentWorkspaceVisualOpeningState } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceVisualOpeningState';
-import { useDocumentWorkspacePageOperationHandlers } from '@app/modules/workspace-shell/composables/useDocumentWorkspacePageOperationHandlers';
 import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 import { useDocumentSourceSidebarSession } from '@app/modules/workspace-shell/composables/useDocumentSourceSidebarSession';
 import { createWorkspacePdfSearchResultNavigation } from '@app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation';
@@ -1013,80 +1013,29 @@ const {
     createQuickNote: annotationActions.handleQuickNoteAction,
 });
 
-const {
-    canExportDocx,
-    handleOverflowSetViewMode,
-    handleToolbarCaptureRegion,
-    handleToolbarCrop,
-    handleToolbarDisableDrag,
-    handleToolbarEnableDrag,
-    handleToolbarExportDocx,
-    handleToolbarFitHeight,
-    handleToolbarFitWidth,
-    handleToolbarQuickNote,
-    handleToolbarRedo,
-    handleToolbarSave,
-    handleToolbarRepairSave,
-    handleToolbarOptimizePdfForInteraction,
-    handleToolbarSaveAs,
-    handleToolbarToggleContinuousScroll,
-    handleToolbarToggleSidebar,
-    handleToolbarUndo,
-} = useDocumentWorkspaceToolbar({
-    tabId: tabId,
-    emitOpenSettings: () => emit('open-settings'),
-    closeAllDropdowns,
-    handleSave: handleSaveWithAutomationEvent,
-    handleRepairSave,
-    handleOptimizePdfForInteraction: openOptimizePdfForInteractionDialog,
-    handleSaveAs,
-    handleExportDocx,
-    handleUndo,
-    handleRedo,
-    handleCaptureRegion,
-    handleCrop: () => runPdfEditAction(handleCrop),
-    handleQuickNoteAction,
-    handleFitMode,
-    handleAnnotationToolChange,
-    enableDragMode,
-    handleRemoveCrop: pageOps.handleRemoveCrop,
-    handleCropPages: pageOps.handleCropPages,
-    workingCopyPath,
-    isAnySaving,
-    isHistoryBusy,
-    isExportingDocx,
-    showSidebar,
-    sidebarTab,
-    currentPage,
-    totalPages,
-    isLoading,
-    continuousScroll,
-    fitMode,
-    viewMode,
-    zoom,
-    pdfViewerRef,
-    isResizingSidebar,
-});
-const {
-    handleDeletePages,
-    handleExtractPages,
-    handleInsertPages,
-    handlePageDelete,
-    handlePageExport,
-    handlePageExtract,
-    handlePageMove,
-    handlePageReorder,
-    handlePageRotateCcw,
-    handlePageRotateCw,
-    handleRotateCcw,
-    handleRotateCw,
-} = useDocumentWorkspacePageOperationHandlers({
-    documentControls: pageOps,
-    handleExportImages,
-    selectedThumbnailPages,
-    selectedPageSelection,
-    totalPages,
-});
+const canExportDocx = computed(() => Boolean(workingCopyPath.value) && !isAnySaving.value && !isHistoryBusy.value);
+const handleCropAction = () => runPdfEditAction(handleCrop);
+// A toolbar action closes the open menus and logs its failure.
+function runToolbarAction(action: () => unknown) {
+    const result = action();
+    if (result instanceof Promise) {
+        void result.catch((error: unknown) => {
+            BrowserLogger.error('workspace', 'Toolbar action failed', {
+                tabId,
+                error,
+            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+        });
+    }
+    closeAllDropdowns();
+}
+function toggleContinuousScroll() {
+    continuousScroll.value = !continuousScroll.value;
+}
+function setViewMode(mode: TPdfViewMode) {
+    viewMode.value = mode;
+}
+
+
 watch(pdfSrc, (src) => {
     navigationFeedbackPage.value = null;
     if (src) {
@@ -1242,15 +1191,12 @@ const {
 });
 const workspaceExpose = createWorkspaceExpose(context, {
     ensurePdfProjectionForEdit: ensureEditProjection,
-    handlePageDelete,
-    handlePageReorder,
-    handlePageMove,
     handleSave: handleSaveWithAutomationEvent,
     handleOptimizePdfForInteraction: () => Promise.resolve(openOptimizePdfForInteractionDialog()),
     handleSaveAs,
     handleExportDocx,
     handleGoToPage: (page, options) => documentLifecycle.goToPage(page, options),
-    handleCrop: () => { void handleToolbarCrop(); },
+    handleCrop: () => { void handleCropAction(); },
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
     initialVisualReady: initialDocumentVisualReady,

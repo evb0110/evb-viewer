@@ -1,10 +1,7 @@
 import type { Ref } from 'vue';
 import { ZOOM } from '@app/constants/pdfLayout';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
-import type {
-    TPageMoveOperation,
-    TPageSelection,
-} from '@pdf-core/pdfPageSelection';
+import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     pageSelectionCount,
     parsePageNumber,
@@ -27,9 +24,6 @@ export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
     | 'captureSplitPayload' | 'restoreSplitPayload' | 'waitForDocumentOpenSettled'
     | 'runAgentAction' | 'readAgentResource'> {
     handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
-    handlePageDelete: (pages: number[]) => void;
-    handlePageReorder: (order: number[]) => void;
-    handlePageMove: (move: TPageMoveOperation) => void;
     ensurePdfProjectionForEdit: () => Promise<boolean>;
     initialVisualReady: Readonly<Ref<boolean>>;
     isOpeningDocument: Readonly<Ref<boolean>>;
@@ -289,9 +283,15 @@ export function createWorkspaceExpose(
         handleQuickNote: () => { void context.annotationActions.handleQuickNoteAction(); },
         handleInsertImageFromFile: owners.handleInsertImageFromFile,
         handlePasteImageFromClipboard: owners.handlePasteImageFromClipboard,
-        handlePageDelete: owners.handlePageDelete,
-        handlePageReorder: owners.handlePageReorder,
-        handlePageMove: owners.handlePageMove,
+        handlePageDelete: (pages) => {
+            void runPageOperation(() => pageOps.pageOpsDelete(pages, view.totalPages.value));
+        },
+        handlePageReorder: (order) => {
+            void runPageOperation(() => pageOps.pageOpsReorder(order));
+        },
+        handlePageMove: (move) => {
+            void runPageOperation(() => pageOps.pageOpsMove(move));
+        },
         captureSplitPayload: owners.captureSplitPayload,
         restoreSplitPayload: owners.restoreSplitPayload,
         closeAllDropdowns: view.closeAllDropdowns,
@@ -369,13 +369,13 @@ export function createWorkspaceExpose(
         handleDeletePages: () => {
             const pages = getSelectedPagePayload();
             if (selectedPagePayloadCount(pages) > 0) {
-                void pageOps.pageOpsDelete(pages, view.totalPages.value);
+                void runPageOperation(() => pageOps.pageOpsDelete(pages, view.totalPages.value));
             }
         },
         handleExtractPages: () => {
             const pages = getSelectedPagePayload();
             if (selectedPagePayloadCount(pages) > 0) {
-                void pageOps.pageOpsExtract(pages);
+                void runPageOperation(() => pageOps.pageOpsExtract(pages));
             }
         },
         handleRotateCw: (explicitPages?: number[]) => {
@@ -393,7 +393,7 @@ export function createWorkspaceExpose(
             return runPageOperation(() => pageOps.handlePageRotate(pages, 270));
         },
         handleInsertPages: () => {
-            void pageOps.pageOpsInsert(view.totalPages.value, view.totalPages.value);
+            void runPageOperation(() => pageOps.pageOpsInsert(view.totalPages.value, view.totalPages.value));
         },
         handleConvertToPdf: () => {
             if (viewerCapabilities().conversionDialog) {
