@@ -2513,9 +2513,9 @@ fn same_page_free_text_batch_indexes_initial_annots_once_and_preserves_order() {
         .collect();
     let mut annotation_visits = 0;
 
-    upsert_free_text_notes_with_counter(
+    upsert_text_notes_with_counter(
         &mut document,
-        &notes,
+        notes.iter(),
         "D:20260609123456Z",
         &mut annotation_visits,
         &mut None,
@@ -2567,9 +2567,9 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
         .collect();
     let mut annotation_visits = 0;
 
-    upsert_free_text_notes_incremental_with_counter(
+    upsert_text_notes_incremental_with_counter(
         &mut incremental,
-        &notes,
+        notes.iter(),
         "D:20260609123456Z",
         &mut annotation_visits,
         &mut None,

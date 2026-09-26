@@ -35,11 +35,7 @@ pub(crate) fn validate_appended_revision_postconditions_with_page_ids(
         modified_at,
     )?;
     validate_text_note_document_postconditions(document, &mutations.notes, modified_at)?;
-    validate_free_text_note_document_postconditions(
-        document,
-        &mutations.free_text_notes,
-        modified_at,
-    )?;
+    validate_text_note_document_postconditions(document, &mutations.free_text_notes, modified_at)?;
     validate_text_box_document_postconditions(document, &mutations.text_boxes, modified_at)?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
     validate_page_rotation_document_postconditions(
@@ -342,14 +338,6 @@ fn note_geometry_target_modified_at(
         })
         .map(|editor| shape_pdf_date(editor.modified_at, modified_at))
         .unwrap_or_else(|| modified_at.to_string())
-}
-
-pub(crate) fn validate_free_text_note_document_postconditions(
-    document: &impl PdfObjectSource,
-    notes: &[FreeTextNote],
-    modified_at: &str,
-) -> Result<()> {
-    validate_text_note_document_postconditions(document, notes, modified_at)
 }
 
 pub(crate) fn validate_text_note_document_postconditions(
@@ -952,37 +940,9 @@ fn validate_annotation_modified_at(
     Ok(())
 }
 
-#[allow(dead_code)]
-pub(crate) fn validate_free_text_annotation_fields(
-    document: &impl PdfObjectSource,
-    dict: &Dictionary,
-    note: &FreeTextNote,
-    note_name: &str,
-    expected_rect: PdfRect,
-    modified_at: &str,
-) -> Result<()> {
-    if annotation_subtype(dict) != "freetext" {
-        return Err("FreeText annotation has the wrong subtype".into());
-    }
-    validate_annotation_text_fields(dict, &note.text, modified_at, "FreeText annotation")?;
-    validate_optional_author(dict, note.author.as_deref(), "FreeText annotation")?;
-    let actual_name = dict
-        .get(b"NM")
-        .ok()
-        .and_then(pdf_string_to_text)
-        .ok_or("FreeText annotation is missing NM")?;
-    if actual_name != note_name {
-        return Err("FreeText annotation NM did not match requested note name".into());
-    }
-    let actual_rect = parse_rect(dict.get(b"Rect")?)?;
-    validate_rect_approximately(actual_rect, expected_rect, "FreeText annotation Rect")?;
-    validate_appearance(document, dict)?;
-    Ok(())
-}
-
 pub(crate) fn validate_popup_annotation_fields(
     dict: &Dictionary,
-    note: &FreeTextNote,
+    note: &TextNote,
     expected_rect: PdfRect,
     modified_at: &str,
     expected_parent: ObjectId,

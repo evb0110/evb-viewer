@@ -52,9 +52,9 @@
         // Full-document path.
         let (mut document, page_id) = create_test_document();
         let mut bindings = Vec::new();
-        upsert_free_text_notes_with_counter(
+        upsert_text_notes_with_counter(
             &mut document,
-            &[binding_note()],
+            [binding_note()].iter(),
             "D:20260830130000Z",
             &mut 0,
             &mut Some(&mut bindings),
@@ -84,9 +84,9 @@
         let (document, _) = create_test_document();
         let mut incremental = IncrementalDocument::from_document(document, 0, None);
         let mut bindings = Vec::new();
-        upsert_free_text_notes_incremental_with_counter(
+        upsert_text_notes_incremental_with_counter(
             &mut incremental,
-            &[binding_note()],
+            [binding_note()].iter(),
             "D:20260830130000Z",
             &mut 0,
             &mut Some(&mut bindings),
@@ -108,9 +108,9 @@
     #[test]
     fn writers_create_annotations_when_no_report_is_requested() {
         let (mut document, page_id) = create_test_document();
-        upsert_free_text_notes_with_counter(
+        upsert_text_notes_with_counter(
             &mut document,
-            &[binding_note()],
+            [binding_note()].iter(),
             "D:20260830130000Z",
             &mut 0,
             &mut None,

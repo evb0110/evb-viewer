@@ -563,25 +563,6 @@ fn report_annotation_identity_binding(
     append_annotation_identity_binding(identity_bindings, Some(stable_key), None, annot_ref);
 }
 
-/// Keep the legacy Rust entry point for callers and tests while routing both
-/// field names through the canonical `/Text` writer.
-#[allow(dead_code)]
-pub(crate) fn upsert_free_text_notes_with_counter(
-    document: &mut Document,
-    notes: &[FreeTextNote],
-    modified_at: &str,
-    annotation_visits: &mut usize,
-    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()> {
-    upsert_text_notes_with_counter(
-        document,
-        notes.iter(),
-        modified_at,
-        annotation_visits,
-        identity_bindings,
-    )
-}
-
 pub(crate) fn upsert_text_notes_incremental_with_counter<'a, I>(
     incremental: &mut IncrementalDocument,
     notes: I,
@@ -735,23 +716,6 @@ where
         write_page_annotation_index_incremental(incremental, page_id, index)?;
     }
     Ok(())
-}
-
-#[allow(dead_code)]
-pub(crate) fn upsert_free_text_notes_incremental_with_counter(
-    incremental: &mut IncrementalDocument,
-    notes: &[FreeTextNote],
-    modified_at: &str,
-    annotation_visits: &mut usize,
-    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
-) -> Result<()> {
-    upsert_text_notes_incremental_with_counter(
-        incremental,
-        notes.iter(),
-        modified_at,
-        annotation_visits,
-        identity_bindings,
-    )
 }
 
 pub(crate) fn upsert_text_boxes_with_counter(
@@ -1347,45 +1311,6 @@ fn set_text_box_fields(
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn ensure_free_text_annotation_fields(
-    document: &mut Document,
-    annot_id: ObjectId,
-    popup_ref: Option<ObjectId>,
-    note: &FreeTextNote,
-    note_name: &str,
-    pdf_rect: PdfRect,
-    modified_at: &str,
-    blank_ap_ref: &mut Option<ObjectId>,
-) -> Result<Option<ObjectId>> {
-    let popup_ref = match popup_ref {
-        Some(popup_id) => Some(popup_id),
-        None => Some(document.new_object_id()),
-    };
-    let ap_ref = get_or_create_blank_appearance_ref(document, blank_ap_ref);
-    {
-        let annot_dict = document.get_dictionary_mut(annot_id)?;
-        set_free_text_annotation_fields(
-            annot_dict,
-            note,
-            note_name,
-            pdf_rect,
-            modified_at,
-            ap_ref,
-            popup_ref,
-        );
-    }
-    if let Some(popup_id) = popup_ref {
-        if document.get_object(popup_id).is_err() {
-            let popup_dict = build_popup_annotation_dict(note, pdf_rect, modified_at, annot_id);
-            document.set_object(popup_id, Object::Dictionary(popup_dict));
-        } else if let Ok(popup_dict) = document.get_dictionary_mut(popup_id) {
-            set_popup_annotation_fields(popup_dict, note, pdf_rect, modified_at, annot_id);
-        }
-    }
-    Ok(popup_ref)
-}
-
 /// Populate the fields owned by the canonical sticky-note writer. The
 /// caller owns the page and Popup references, so this helper deliberately
 /// leaves those keys alone.
@@ -1486,123 +1411,8 @@ pub(crate) fn convert_free_text_marker_to_text(
     dict.remove(b"DA");
 }
 
-#[allow(dead_code)]
-pub(crate) fn ensure_free_text_incremental_annotation_fields(
-    incremental: &mut IncrementalDocument,
-    annot_id: ObjectId,
-    popup_ref: Option<ObjectId>,
-    note: &FreeTextNote,
-    note_name: &str,
-    pdf_rect: PdfRect,
-    modified_at: &str,
-    blank_ap_ref: &mut Option<ObjectId>,
-) -> Result<Option<ObjectId>> {
-    let popup_ref = match popup_ref {
-        Some(popup_id) => {
-            if incremental
-                .get_prev_documents()
-                .get_object(popup_id)
-                .is_ok()
-            {
-                incremental.opt_clone_object_to_new_document(popup_id)?;
-            }
-            Some(popup_id)
-        }
-        None => Some(incremental.new_document.new_object_id()),
-    };
-    let ap_ref = get_or_create_blank_appearance_ref(&mut incremental.new_document, blank_ap_ref);
-    {
-        let annot_dict = incremental.new_document.get_dictionary_mut(annot_id)?;
-        set_free_text_annotation_fields(
-            annot_dict,
-            note,
-            note_name,
-            pdf_rect,
-            modified_at,
-            ap_ref,
-            popup_ref,
-        );
-    }
-    if let Some(popup_id) = popup_ref {
-        if incremental.new_document.get_object(popup_id).is_err() {
-            let popup_dict = build_popup_annotation_dict(note, pdf_rect, modified_at, annot_id);
-            incremental
-                .new_document
-                .set_object(popup_id, Object::Dictionary(popup_dict));
-        } else if let Ok(popup_dict) = incremental.new_document.get_dictionary_mut(popup_id) {
-            set_popup_annotation_fields(popup_dict, note, pdf_rect, modified_at, annot_id);
-        }
-    }
-    Ok(popup_ref)
-}
-
-#[allow(dead_code)]
-pub(crate) fn build_free_text_annotation_dict(
-    note: &FreeTextNote,
-    note_name: &str,
-    pdf_rect: PdfRect,
-    modified_at: &str,
-    ap_ref: ObjectId,
-    popup_ref: Option<ObjectId>,
-) -> Dictionary {
-    let mut dict = Dictionary::new();
-    dict.set("Type", Object::Name(b"Annot".to_vec()));
-    dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
-    dict.set("F", Object::Integer(4));
-    set_free_text_annotation_fields(
-        &mut dict,
-        note,
-        note_name,
-        pdf_rect,
-        modified_at,
-        ap_ref,
-        popup_ref,
-    );
-    dict
-}
-
-#[allow(dead_code)]
-pub(crate) fn set_free_text_annotation_fields(
-    dict: &mut Dictionary,
-    note: &FreeTextNote,
-    note_name: &str,
-    pdf_rect: PdfRect,
-    modified_at: &str,
-    ap_ref: ObjectId,
-    popup_ref: Option<ObjectId>,
-) {
-    dict.set("Rect", rect_object(pdf_rect));
-    dict.set(
-        "Contents",
-        Object::String(
-            encode_pdf_text_string(&note.text),
-            StringFormat::Hexadecimal,
-        ),
-    );
-    dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
-    dict.set(
-        "T",
-        Object::String(
-            encode_pdf_text_string(note.author.as_deref().unwrap_or("")),
-            StringFormat::Hexadecimal,
-        ),
-    );
-    let mut ap_dict = Dictionary::new();
-    ap_dict.set("N", Object::Reference(ap_ref));
-    dict.set("AP", Object::Dictionary(ap_dict));
-    dict.set(
-        "NM",
-        Object::String(encode_pdf_text_string(note_name), StringFormat::Hexadecimal),
-    );
-    if let Some(popup_id) = popup_ref {
-        dict.set("Popup", Object::Reference(popup_id));
-    }
-    set_rgb_color(dict, "C", note.color.as_deref());
-    set_rgb_color(dict, "IC", note.color.as_deref());
-}
-
 pub(crate) fn build_popup_annotation_dict(
-    note: &FreeTextNote,
+    note: &TextNote,
     pdf_rect: PdfRect,
     modified_at: &str,
     parent_ref: ObjectId,
@@ -1617,7 +1427,7 @@ pub(crate) fn build_popup_annotation_dict(
 
 pub(crate) fn set_popup_annotation_fields(
     dict: &mut Dictionary,
-    note: &FreeTextNote,
+    note: &TextNote,
     pdf_rect: PdfRect,
     modified_at: &str,
     parent_ref: ObjectId,
@@ -1639,44 +1449,6 @@ pub(crate) fn set_popup_annotation_fields(
             StringFormat::Hexadecimal,
         ),
     );
-}
-
-#[allow(dead_code)]
-pub(crate) fn get_or_create_blank_appearance_ref(
-    document: &mut Document,
-    blank_ap_ref: &mut Option<ObjectId>,
-) -> ObjectId {
-    if let Some(object_id) = *blank_ap_ref {
-        return object_id;
-    }
-
-    let mut dict = Dictionary::new();
-    dict.set("Type", Object::Name(b"XObject".to_vec()));
-    dict.set("Subtype", Object::Name(b"Form".to_vec()));
-    dict.set(
-        "BBox",
-        Object::Array(vec![
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(0),
-        ]),
-    );
-    dict.set(
-        "Matrix",
-        Object::Array(vec![
-            Object::Integer(1),
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(1),
-            Object::Integer(0),
-            Object::Integer(0),
-        ]),
-    );
-    dict.set("Resources", Object::Dictionary(Dictionary::new()));
-    let object_id = document.add_object(Stream::new(dict, Vec::new()));
-    *blank_ap_ref = Some(object_id);
-    object_id
 }
 
 pub(crate) fn replayable_free_text_note_name_from_parts(
