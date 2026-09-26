@@ -14,7 +14,7 @@ export class JobTimeoutError extends Error {
     }
 }
 
-interface IJobEvent {readonly requestId: TRequestId;}
+interface IJobEvent {readonly requestId?: TRequestId;}
 
 export interface IJobChannel<TProgress extends IJobEvent, TResult extends IJobEvent, TCancelResult> {
     onProgress(listener: (progress: TProgress) => void): () => void;

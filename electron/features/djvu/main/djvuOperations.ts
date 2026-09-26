@@ -14,7 +14,6 @@ import {
 } from '@electron/features/djvu/main/metadata';
 import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
-    awaitDurableDjvuConvertJob,
     awaitDurableDjvuOpenJob,
     handleDjvuCancel,
     handleDjvuPrintPath,
@@ -609,10 +608,6 @@ export function handleDjvuStartConvertToPdfOperation(
         jobId,
         requestId,
     });
-}
-
-export function handleDjvuAwaitConvertJobOperation(context: IDjvuOperationContext, jobId: TJobId) {
-    return awaitDurableDjvuConvertJob(context, jobId);
 }
 
 export function handleDjvuPrintPathOperation(

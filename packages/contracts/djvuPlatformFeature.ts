@@ -1271,13 +1271,6 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
                 normalizeDjvuConvertOptions(options),
             ],
         }),
-        awaitConvertJob: defineDjvuMethod({
-            name: 'awaitConvertJob',
-            channel: 'djvu:convert:await',
-            args: jobArgs,
-            result: convertResult,
-            timeout: true,
-        }),
         printDjvuPath: defineDjvuClientMethod({
             name: 'printDjvuPath',
             channel: 'djvu:printDjvuPath',
@@ -1466,6 +1459,13 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
                 replay: progressReplay,
             },
             browser: {method: 'onProgress'},
+            lazy: 'forwarded',
+        },
+        onConvertComplete: {
+            kind: 'event',
+            channel: 'djvu:convert:complete',
+            payload: convertResult,
+            browser: {method: 'onConvertComplete'},
             lazy: 'forwarded',
         },
         onTextSearchProgress: {

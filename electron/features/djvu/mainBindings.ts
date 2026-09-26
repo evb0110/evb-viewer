@@ -9,7 +9,6 @@ import {
     subscribeDjvuProgress,
 } from '@electron/features/djvu/main/pdfExport';
 import {
-    handleDjvuAwaitConvertJobOperation,
     handleDjvuAwaitOpenJobOperation,
     handleDjvuCancelOperation,
     handleDjvuCancelPagePreview,
@@ -37,7 +36,6 @@ export const djvuMainBindings = {
     awaitOpenJob: handleDjvuAwaitOpenJobOperation,
     releaseViewingPath: handleDjvuReleaseViewingPath,
     startConvertToPdf: handleDjvuStartConvertToPdfOperation,
-    awaitConvertJob: handleDjvuAwaitConvertJobOperation,
     printDjvuPath: handleDjvuPrintPathOperation,
     cancel: handleDjvuCancelOperation,
     getJobState: getDjvuOutputJobState,

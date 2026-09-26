@@ -4,6 +4,7 @@ import {PDFDocument} from 'pdf-lib';
 import {browserDjvuCapability} from '@app/platform/browser-api/browserDjvuCapability';
 import {browserDurableDjvuJobs} from '@app/platform/browser-api/browserDurableDjvuJobs';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import type {IDjvuConvertResult} from '@contracts/electronApiDjvu';
 import {requireRequestId} from '@contracts/shared';
 
 async function runBrowserDjvuFinalizationAcceptance() {
@@ -43,17 +44,26 @@ async function runBrowserDjvuFinalizationAcceptance() {
         if (!openResult.success) {
             throw new Error(`Browser DjVu open did not succeed: ${openResult.error ?? 'unknown error'}`);
         }
+        const requestId = requireRequestId('browser-djvu-finalization');
+        const completion = new Promise<IDjvuConvertResult>((resolve) => {
+            const stop = browserDjvuCapability.onConvertComplete((result) => {
+                if (result.requestId === requestId) {
+                    stop();
+                    resolve(result);
+                }
+            });
+        });
         const handle = await browserDjvuCapability.startConvertToPdf(
             sourcePath,
             outputPath,
             {
                 pdfStrategy: 'direct',
                 preserveBookmarks: false,
-                requestId: requireRequestId('browser-djvu-finalization'),
+                requestId,
                 subsample: 4,
             },
         );
-        const result = await browserDjvuCapability.awaitConvertJob(handle.jobId);
+        const result = await completion;
         const terminalState = browserDurableDjvuJobs.getState(handle.jobId);
         const generatedPdfPath = result.pdfPath;
         if (!result.success || !generatedPdfPath) {

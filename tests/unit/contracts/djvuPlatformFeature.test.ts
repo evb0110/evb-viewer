@@ -36,7 +36,6 @@ describe('DjVu platform feature', () => {
             awaitOpenJob: 'djvu:open:await',
             releaseViewingPath: 'djvu:releaseViewingPath',
             startConvertToPdf: 'djvu:convert:start',
-            awaitConvertJob: 'djvu:convert:await',
             printDjvuPath: 'djvu:printDjvuPath',
             cancel: 'djvu:cancel',
             getJobState: 'djvu:job:getState',
@@ -56,6 +55,7 @@ describe('DjVu platform feature', () => {
         });
         expect(eventChannels).toEqual({
             onProgress: 'djvu:progress',
+            onConvertComplete: 'djvu:convert:complete',
             onTextSearchProgress: 'djvu:text:progress',
             onMenuConvertToPdf: 'menu:convertToPdf',
         });
@@ -225,44 +225,6 @@ describe('DjVu platform feature', () => {
             requestId: requireRequestId('djvu-search-2'),
             pageCount: 0,
         })).toThrow('searchText.options.pageCount must be a positive safe integer');
-    });
-
-    it('preserves conversion failure identity and rejects malformed outcomes at the IPC boundary', async () => {
-        const invoke = vi.fn().mockResolvedValue({
-            success: false,
-            jobId: 'djvu-convert-1',
-            error: 'native conversion failed',
-            failure: conversionFailure,
-        });
-        const ipcRenderer = {
-            invoke,
-            on: vi.fn(),
-            removeListener: vi.fn(),
-            send: vi.fn(),
-        } satisfies TIpcRendererFixture;
-        const client = createPlatformFeaturePreloadClient(
-            ipcRenderer,
-            DJVU_PLATFORM_FEATURE,
-        );
-
-        await expect(client.awaitConvertJob(requireJobId('djvu-convert-1'))).resolves.toEqual({
-            success: false,
-            jobId: 'djvu-convert-1',
-            error: 'native conversion failed',
-            failure: conversionFailure,
-        });
-
-        invoke.mockResolvedValueOnce({
-            success: false,
-            jobId: 'djvu-convert-1',
-            error: 'malformed receipt',
-            failure: {
-                ...conversionFailure,
-                eventId: 'not-an-event-id',
-            },
-        });
-        await expect(client.awaitConvertJob(requireJobId('djvu-convert-1')))
-            .rejects.toThrow('DjVu conversion result has an invalid failure receipt');
     });
 
     it('preserves a conversion receipt and expected cancellation in durable job state', async () => {

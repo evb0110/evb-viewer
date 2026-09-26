@@ -1,6 +1,9 @@
 import { getErrorMessage } from '@app/utils/error';
 import type { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import type { IDjvuOpenResult } from '@contracts/electronApiDjvu';
+import type {
+    IDjvuConvertResult,
+    IDjvuOpenResult,
+} from '@contracts/electronApiDjvu';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     createJobId,
@@ -71,6 +74,8 @@ async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuO
     }
 }
 
+const convertCompleteListeners = new Set<(result: IDjvuConvertResult) => void>();
+
 export const browserDjvuCapability = {
     startOpenForViewing(djvuPath, requestId) {
         const jobId = createJobId('djvu-open');
@@ -94,7 +99,7 @@ export const browserDjvuCapability = {
     startConvertToPdf(djvuPath, outputPath, options) {
         const requestId = options.requestId ?? createRequestId('djvu-convert');
         const jobId: TJobId = options.jobId ?? createJobId('djvu-convert');
-        return Promise.resolve(browserDurableDjvuJobs.startConvert(
+        const handle = browserDurableDjvuJobs.startConvert(
             jobId,
             requestId,
             () => runBrowserDjvuConversion(djvuPath, outputPath, {
@@ -102,10 +107,16 @@ export const browserDjvuCapability = {
                 jobId,
                 requestId,
             }),
-        ));
-    },
-    awaitConvertJob(jobId) {
-        return browserDurableDjvuJobs.awaitConvert(jobId);
+        );
+        void browserDurableDjvuJobs.awaitConvert(jobId).then((result) => {
+            for (const listener of convertCompleteListeners) {
+                listener({
+                    ...result,
+                    requestId,
+                });
+            }
+        });
+        return Promise.resolve(handle);
     },
     printDjvuPath() {
         return Promise.resolve({
@@ -178,5 +189,11 @@ export const browserDjvuCapability = {
         }
     },
     onProgress: onBrowserDjvuConversionProgress,
+    onConvertComplete(listener) {
+        convertCompleteListeners.add(listener);
+        return () => {
+            convertCompleteListeners.delete(listener);
+        };
+    },
     onMenuConvertToPdf: noopUnsubscribe,
 } satisfies TFeatureBrowserBindings<typeof DJVU_PLATFORM_FEATURE>;

@@ -1379,22 +1379,31 @@ export async function handleDjvuConvertToPdf(
         };
 }
 
+/** Starts a conversion that survives its renderer and reports one terminal result on `onConvertComplete`. */
 export function startDurableDjvuConvertJob(
     context: IDjvuOperationContext,
     djvuPath: TOpenPath,
     outputPath: string,
     options: IDjvuConvertOptions,
 ) {
-    return startDjvuConvertJob(context, djvuPath, outputPath, options, true);
-}
-
-export async function awaitDurableDjvuConvertJob(context: IDjvuOperationContext, jobId: TJobId) {
-    const result = await awaitDjvuJob(context, jobId, 'convert');
-    const value = result as IDjvuConvertResult;
-    if (value.success && value.pdfPath) {
-        allowOpenPath(value.pdfPath, context.sender);
-    }
-    return value;
+    const handle = startDjvuConvertJob(context, djvuPath, outputPath, options, true);
+    void awaitDjvuJob(context, requireJobId(handle.jobId), 'convert').then((result) => {
+        const value = result as IDjvuConvertResult;
+        if (value.success && value.pdfPath) {
+            allowOpenPath(value.pdfPath, context.sender);
+        }
+        safeSendToWindow(
+            BrowserWindow.fromWebContents(context.sender),
+            DJVU_PLATFORM_FEATURE.eventChannels.onConvertComplete,
+            {
+                ...value,
+                ...(options.requestId === undefined ? {} : {requestId: options.requestId}),
+            },
+        );
+    }, (error: unknown) => {
+        logger.warn(`[${handle.jobId}] DjVu conversion result was not delivered: ${getErrorMessage(error)}`);
+    });
+    return handle;
 }
 
 export function startDurableDjvuOpenJob(
