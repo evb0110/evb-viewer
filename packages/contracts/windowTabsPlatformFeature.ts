@@ -158,21 +158,6 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'menu:splitEditor',
             payload: windowTabPaneDirectionSchema,
         }),
-        onMenuFocusEditorPane: defineForwardedPlatformEvent({
-            name: 'onMenuFocusEditorPane',
-            channel: 'menu:focusEditorPane',
-            payload: windowTabPaneDirectionSchema,
-        }),
-        onMenuMoveTabToPane: defineForwardedPlatformEvent({
-            name: 'onMenuMoveTabToPane',
-            channel: 'menu:moveTabToPane',
-            payload: windowTabPaneDirectionSchema,
-        }),
-        onMenuCopyTabToPane: defineForwardedPlatformEvent({
-            name: 'onMenuCopyTabToPane',
-            channel: 'menu:copyTabToPane',
-            payload: windowTabPaneDirectionSchema,
-        }),
     },
 });
 

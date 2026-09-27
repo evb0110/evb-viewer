@@ -107,8 +107,8 @@ const SPLIT_DIRECTION_ORDER = [
     'right',
     'down',
 ] as const satisfies readonly TPaneDirection[];
-type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'focus' | 'move' | 'copy';
-type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-empty' | 'focus' | 'move' | 'copy'>;
+type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'move';
+type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-empty'>;
 
 interface IContextMenuAction {
     key: string;
@@ -266,7 +266,7 @@ function isCommandEnabled(command: TTabContextCommand) {
 }
 
 function buildDirectionalActions(
-    kind: 'split' | 'split-empty' | 'focus' | 'move' | 'copy',
+    kind: 'split' | 'split-empty',
     labels: Record<TPaneDirection, string>,
     icons: Record<TPaneDirection, string>,
 ) {

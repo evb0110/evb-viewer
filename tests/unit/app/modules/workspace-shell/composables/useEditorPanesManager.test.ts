@@ -308,44 +308,7 @@ describe('useEditorPanesManager', () => {
         expect(manager.panes.value.map(pane => pane.paneId)).toContain(sourcePane.paneId);
     });
 
-    it('moves and copies active tabs by direction while updating pane focus', async () => {
-        const manager = useEditorPanesManager({isTabEmpty});
-        manager.ensureAtLeastOneTab();
-
-        const sourcePane = manager.activePane.value!;
-        const firstTabId = sourcePane.activeTabId!;
-        const secondTab = manager.createTab({
-            paneId: sourcePane.paneId,
-            activate: true,
-        });
-        manager.activateTab(sourcePane.paneId, firstTabId);
-        const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
-        expect(targetPaneId).toBeTruthy();
-
-        const moved = manager.moveActiveTabToDirection('right');
-
-        expect(moved).toEqual({
-            tabId: firstTabId,
-            targetPaneId,
-            createdPane: false,
-        });
-        expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(secondTab.id);
-        expect(manager.getPaneById(targetPaneId)?.activeTabId).toBe(firstTabId);
-        expect(manager.activePaneId.value).toBe(targetPaneId);
-
-        manager.activatePane(sourcePane.paneId);
-        manager.activateTab(sourcePane.paneId, secondTab.id);
-        const copied = manager.copyActiveTabToDirection('down');
-
-        expect(copied?.sourceTabId).toBe(secondTab.id);
-        expect(copied?.createdPane).toBe(true);
-        expect(copied?.targetPaneId).not.toBe(sourcePane.paneId);
-        expect(manager.getPaneById(copied!.targetPaneId)?.activeTabId).toBe(copied?.targetTabId);
-        expect(copied?.targetTabId).not.toBe(secondTab.id);
-        expect(manager.activePaneId.value).toBe(copied?.targetPaneId);
-    });
-
-    it('clamps split ratios and focuses directional panes', async () => {
+    it('clamps split ratios', async () => {
         const manager = useEditorPanesManager({isTabEmpty});
         manager.ensureAtLeastOneTab();
 
@@ -361,10 +324,6 @@ describe('useEditorPanesManager', () => {
         manager.setSplitRatio(splitNode!.id, 0.01);
         expect((manager.layout.value as Extract<TEditorLayoutNode, { type: 'split' }>).ratio).toBe(0.15);
 
-        const focusedPaneId = manager.focusPane('right');
-
-        expect(focusedPaneId).toBe(targetPaneId);
-        expect(manager.activePaneId.value).toBe(targetPaneId);
     });
 
     it('restores the exact checkpoint pane, tab, layout, and active graph', async () => {

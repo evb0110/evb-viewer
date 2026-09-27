@@ -191,9 +191,6 @@ export interface ITabsMenuBindingDeps {
     loadRecentFiles: () => Promise<void>;
     checkForUpdates: () => Promise<void> | void;
     splitEditor: (direction: TPaneDirection) => Promise<void> | void;
-    focusPane: (direction: TPaneDirection) => void;
-    moveActiveTab: (direction: TPaneDirection) => Promise<void> | void;
-    copyActiveTab: (direction: TPaneDirection) => Promise<void> | void;
     handleWindowTabsAction: (action: TWindowTabsAction) => Promise<void> | void;
     toggleAssistant: () => void;
 }
@@ -353,15 +350,6 @@ export function registerTabsMenuBindings(
         }),
         api.windowTabs?.onMenuSplitEditor?.((direction) => {
             runMenuAction('split-editor', () => deps.splitEditor(direction));
-        }),
-        api.windowTabs?.onMenuFocusEditorPane?.((direction) => {
-            runMenuAction('focus-editor-pane', () => deps.focusPane(direction));
-        }),
-        api.windowTabs?.onMenuMoveTabToPane?.((direction) => {
-            runMenuAction('move-tab-to-pane', () => deps.moveActiveTab(direction));
-        }),
-        api.windowTabs?.onMenuCopyTabToPane?.((direction) => {
-            runMenuAction('copy-tab-to-pane', () => deps.copyActiveTab(direction));
         }),
         api.windowTabs?.onWindowAction?.((action) => {
             runMenuAction('window-action', () => deps.handleWindowTabsAction(action));

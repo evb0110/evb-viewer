@@ -98,9 +98,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         loadRecentFiles,
         checkForUpdates,
         splitEditor,
-        focusPane,
-        moveActiveTab,
-        copyActiveTab,
         handleWindowTabsAction,
         toggleAssistant,
     } = options;
@@ -546,9 +543,6 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 loadRecentFiles,
                 checkForUpdates,
                 splitEditor,
-                focusPane,
-                moveActiveTab,
-                copyActiveTab,
                 handleWindowTabsAction,
                 toggleAssistant,
             });

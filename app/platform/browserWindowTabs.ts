@@ -1180,7 +1180,4 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     onMenuNewTab: noopUnsubscribe,
     onMenuCloseTab: noopUnsubscribe,
     onMenuSplitEditor: noopUnsubscribe,
-    onMenuFocusEditorPane: noopUnsubscribe,
-    onMenuMoveTabToPane: noopUnsubscribe,
-    onMenuCopyTabToPane: noopUnsubscribe,
 };

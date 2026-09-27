@@ -71,11 +71,8 @@ describe('window tabs platform feature schemas', () => {
             onMenuNewTab: 'menu:newTab',
             onMenuCloseTab: 'menu:closeTab',
             onMenuSplitEditor: 'menu:splitEditor',
-            onMenuFocusEditorPane: 'menu:focusEditorPane',
-            onMenuMoveTabToPane: 'menu:moveTabToPane',
-            onMenuCopyTabToPane: 'menu:copyTabToPane',
         });
-        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(19);
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(16);
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods)
             .not.toContainEqual(expect.objectContaining({path: [
                 'windowTabs',

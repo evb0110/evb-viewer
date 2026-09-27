@@ -247,7 +247,6 @@ const {
     splitPane,
     closePane,
     setSplitRatio,
-    focusPane,
     findDirectionalPane,
     moveTabToPane,
 } = editorPanesManager;
@@ -538,7 +537,6 @@ onMounted(() => {
 
     if (isAutomationSession()) {
         cleanupAppShellE2EHooks = installAppShellE2EHooks({
-            copyActiveTab,
             setTabMemoryPolicy: (policy) => {
                 updateSetting('tabMemoryPolicy', policy);
             },
@@ -592,8 +590,6 @@ const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
 }));
 
 const {
-    captureWorkspacePayload,
-    restoreWorkspacePayload,
     handleIncomingTabTransfer,
     moveTabToNewWindow,
     moveTabToWindow,
@@ -782,9 +778,6 @@ const {
     tabContextAvailabilityByPane,
     splitEditor,
     splitEditorEmpty,
-    focusEditorPane,
-    moveActiveTab,
-    copyActiveTab,
     handleTabContextCommand,
     handleTabMoveDirection,
     cleanup: cleanupDirectionalTabs,
@@ -795,22 +788,15 @@ const {
     documentSessionsByTabId,
     isTabTransitionBusy,
     getPaneById,
-    getTabById,
     findDirectionalPane,
-    focusPane,
     splitPane,
     moveTabToPane,
     createTab,
     activatePane,
     activateTab,
-    removeTabFromState,
-    cleanupEmptyPanes,
-    workspaceSplitCache,
     isSingletonPlaceholderCloseBlocked,
     enqueueTabTransition,
     setWorkspaceLayoutResizing: value => { isEditorPanesResizing.value = value; },
-    captureWorkspacePayload,
-    restoreWorkspacePayload,
     moveTabToNewWindow,
     moveTabToWindow,
     handleCloseTab,
@@ -923,9 +909,6 @@ useTabsShellBindings({
     isStartupOpenClaimPending,
     checkForUpdates,
     splitEditor,
-    focusPane: focusEditorPane,
-    moveActiveTab,
-    copyActiveTab,
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });

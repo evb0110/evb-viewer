@@ -372,13 +372,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function captureWorkspacePayload(
-        tabId: string,
-        timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
-    ): Promise<TSplitPayload | null> {
-        return (await captureWorkspaceTransferItem(tabId, timeoutMs))?.payload ?? null;
-    }
-
     async function tryRestoreWorkspacePayload(tabId: string, payload: TSplitPayload) {
         try {
             const workspace = await waitForWorkspace(tabId);
@@ -742,8 +735,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     return {
-        captureWorkspacePayload,
-        restoreWorkspacePayload,
         handleIncomingTabTransfer,
         moveTabToNewWindow,
         moveTabToWindow,

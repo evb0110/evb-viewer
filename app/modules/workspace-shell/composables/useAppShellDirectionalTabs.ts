@@ -3,7 +3,6 @@ import type {
     Ref,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { TSplitPayload } from '@contracts/windowTabs';
 import { parseTabId } from '@contracts/windowTabs';
 import type {
     IEditorPaneState,
@@ -20,7 +19,6 @@ import { hasElectronAPI } from '@app/utils/platform';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const DIRECTION_ORDER = [
@@ -37,9 +35,7 @@ interface IUseAppShellDirectionalTabsOptions {
     documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
     isTabTransitionBusy: ComputedRef<boolean>;
     getPaneById: (paneId: string | null | undefined) => IEditorPaneState | null;
-    getTabById: (tabId: string | null | undefined) => ITab | null;
     findDirectionalPane: (sourcePaneId: string, direction: TPaneDirection, wrap?: boolean) => IEditorPaneState | null;
-    focusPane: (direction: TPaneDirection, wrap?: boolean) => string | null;
     splitPane: (sourcePaneId: string, direction: TPaneDirection) => string | null;
     moveTabToPane: (
         tabId: string,
@@ -53,14 +49,9 @@ interface IUseAppShellDirectionalTabsOptions {
     }) => ITab;
     activatePane: (paneId: string) => void;
     activateTab: (paneId: string, tabId: string) => void;
-    removeTabFromState: (tabId: string) => void;
-    cleanupEmptyPanes: () => void;
-    workspaceSplitCache: IWorkspaceSplitCacheLike;
     isSingletonPlaceholderCloseBlocked: (paneId: string, tabId: string) => boolean;
     enqueueTabTransition: <T>(task: () => Promise<T>) => Promise<T>;
     setWorkspaceLayoutResizing?: ((value: boolean) => void) | undefined;
-    captureWorkspacePayload: (tabId: string) => Promise<TSplitPayload | null>;
-    restoreWorkspacePayload: (tabId: string, payload: TSplitPayload | null) => Promise<boolean>;
     moveTabToNewWindow: (tabId: string) => Promise<void>;
     moveTabToWindow: (windowId: number, tabId: string) => Promise<void>;
     handleCloseTab: (paneId: string, tabId: string) => Promise<void>;
@@ -89,20 +80,14 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         tabs,
         isTabTransitionBusy,
         getPaneById,
-        getTabById,
         findDirectionalPane,
-        focusPane,
         splitPane,
         moveTabToPane,
         createTab,
         activatePane,
         activateTab,
-        removeTabFromState,
-        cleanupEmptyPanes,
         isSingletonPlaceholderCloseBlocked,
         enqueueTabTransition,
-        captureWorkspacePayload,
-        restoreWorkspacePayload,
         moveTabToNewWindow,
         moveTabToWindow,
         handleCloseTab,
@@ -119,26 +104,17 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         hasActiveTab: boolean,
         transitionsBusy: boolean,
     ) {
-        const focus = createDirectionalAvailability(false);
         const move = createDirectionalAvailability(false);
-        const copy = createDirectionalAvailability(false);
 
         for (const direction of DIRECTION_ORDER) {
-            const focusTarget = findDirectionalPane(pane.paneId, direction, true);
             const directionalTarget = getDirectionalTargetPane(pane.paneId, direction);
             const hasUsableDirectionalPane = hasTabs(directionalTarget);
             const canUseDirectionalPane = hasActiveTab && hasUsableDirectionalPane && !transitionsBusy;
 
-            focus[direction] = panes.value.length > 1 && hasTabs(focusTarget) && !transitionsBusy;
             move[direction] = canUseDirectionalPane;
-            copy[direction] = canUseDirectionalPane;
         }
 
-        return {
-            focus,
-            move,
-            copy,
-        };
+        return {move};
     }
 
     function buildTabContextAvailabilityForPane(
@@ -150,43 +126,16 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const closeBlocked = activeTabIdForPane
             ? isSingletonPlaceholderCloseBlocked(pane.paneId, activeTabIdForPane)
             : false;
-        const {
-            focus,
-            move,
-            copy,
-        } = buildDirectionalCommandAvailability(pane, hasActiveTab, transitionsBusy);
+        const {move} = buildDirectionalCommandAvailability(pane, hasActiveTab, transitionsBusy);
 
         return {
             split: createDirectionalAvailability(hasActiveTab && !transitionsBusy),
             splitEmpty: createDirectionalAvailability(!transitionsBusy),
-            focus,
             move,
-            copy,
             canClose: hasActiveTab && !transitionsBusy && !closeBlocked,
             canCreate: true,
             canMoveToNewWindow: canTransferTabsAcrossWindows.value && tabs.value.length > 1 && !transitionsBusy,
             canMoveToWindow: canTransferTabsAcrossWindows.value && !transitionsBusy,
-        };
-    }
-
-    async function captureActiveTabPayload() {
-        const sourcePane = getPaneById(activePaneId.value);
-        const sourceTabId = sourcePane?.activeTabId ?? null;
-        const sourceTab = getTabById(sourceTabId);
-        if (!sourcePane || !sourceTabId || !sourceTab) {
-            return null;
-        }
-
-        const payload = await captureWorkspacePayload(sourceTabId);
-        if (!payload) {
-            return null;
-        }
-
-        return {
-            payload,
-            sourcePane,
-            sourceTab,
-            sourceTabId,
         };
     }
 
@@ -242,13 +191,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         await splitEditor(direction);
     }
 
-    function focusEditorPane(direction: TPaneDirection) {
-        if (isTabTransitionBusy.value) {
-            return;
-        }
-        focusPane(direction, true);
-    }
-
     function ensureTargetPaneForDirection(direction: TPaneDirection) {
         const sourcePane = getPaneById(activePaneId.value);
         if (!sourcePane) {
@@ -285,40 +227,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 moveTabToPane(sourceTabId, route.targetPaneId, true, targetIndex);
             }
             return Promise.resolve();
-        });
-    }
-
-    async function copyActiveTab(direction: TPaneDirection) {
-        await enqueueTabTransition(async () => {
-            const route = ensureTargetPaneForDirection(direction);
-            if (!route) {
-                return;
-            }
-
-            const activeTabPayload = await captureActiveTabPayload();
-            if (!activeTabPayload) {
-                return;
-            }
-            const {
-                payload,
-                sourcePane,
-                sourceTabId,
-            } = activeTabPayload;
-
-            const targetTab = createTab({
-                paneId: route.targetPaneId,
-                activate: true,
-            });
-
-            const restored = await restoreWorkspacePayload(targetTab.id, payload);
-            if (!restored) {
-                removeTabFromState(targetTab.id);
-                activateTab(sourcePane.paneId, sourceTabId);
-                return;
-            }
-
-            activateTab(route.targetPaneId, targetTab.id);
-            cleanupEmptyPanes();
         });
     }
 
@@ -419,12 +327,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         const handlers = {
             split: splitEditor,
             'split-empty': splitEditorEmpty,
-            focus: (direction) => {
-                focusEditorPane(direction);
-                return Promise.resolve();
-            },
-            move: moveActiveTab,
-            copy: copyActiveTab,
         } satisfies Record<TDirectionalTabContextCommand['kind'], (direction: TPaneDirection) => Promise<void>>;
 
         await handlers[command.kind](command.direction);
@@ -483,9 +385,6 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         tabContextAvailabilityByPane,
         splitEditor,
         splitEditorEmpty,
-        focusEditorPane,
-        moveActiveTab,
-        copyActiveTab,
         handleTabContextCommand,
         handleTabMoveDirection,
         cleanup,

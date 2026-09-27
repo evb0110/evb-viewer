@@ -577,21 +577,6 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         normalizeManagerState();
     }
 
-    function focusPane(direction: TPaneDirection, wrap = true) {
-        const sourcePane = getPaneById(activePaneId.value) ?? panes.value[0] ?? null;
-        if (!sourcePane) {
-            return null;
-        }
-
-        const target = findDirectionalPane(sourcePane.paneId, direction, wrap);
-        if (!target) {
-            return null;
-        }
-
-        activatePane(target.paneId);
-        return target.paneId;
-    }
-
     function moveTabToPane(
         tabId: string,
         targetPaneId: string,
@@ -641,90 +626,6 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         return true;
     }
 
-    function copyTabToPane(tabId: string, targetPaneId: string, activate = true) {
-        const sourceTab = getTabById(tabId);
-        const targetPane = getPaneById(targetPaneId);
-        if (!sourceTab || !targetPane) {
-            return null;
-        }
-
-        const copied = createTab({
-            paneId: targetPane.paneId,
-            activate,
-        });
-
-        return copied;
-    }
-
-    function ensureTargetPaneForDirection(sourcePaneId: string, direction: TPaneDirection) {
-        const existing = findDirectionalPane(sourcePaneId, direction, false);
-        if (existing) {
-            return {
-                pane: existing,
-                created: false,
-            };
-        }
-
-        const paneId = splitPane(sourcePaneId, direction);
-        const pane = getPaneById(paneId);
-        if (!pane) {
-            return null;
-        }
-
-        return {
-            pane,
-            created: true,
-        };
-    }
-
-    function moveActiveTabToDirection(direction: TPaneDirection) {
-        const sourcePane = getPaneById(activePaneId.value);
-        if (!sourcePane || !sourcePane.activeTabId) {
-            return null;
-        }
-        const sourceTabId = sourcePane.activeTabId;
-
-        const target = ensureTargetPaneForDirection(sourcePane.paneId, direction);
-        if (!target) {
-            return null;
-        }
-
-        const moved = moveTabToPane(sourceTabId, target.pane.paneId, true);
-        if (!moved) {
-            return null;
-        }
-
-        return {
-            tabId: sourceTabId,
-            targetPaneId: target.pane.paneId,
-            createdPane: target.created,
-        };
-    }
-
-    function copyActiveTabToDirection(direction: TPaneDirection) {
-        const sourcePane = getPaneById(activePaneId.value);
-        if (!sourcePane || !sourcePane.activeTabId) {
-            return null;
-        }
-
-        const target = ensureTargetPaneForDirection(sourcePane.paneId, direction);
-        if (!target) {
-            return null;
-        }
-
-        const copied = copyTabToPane(sourcePane.activeTabId, target.pane.paneId, true);
-        if (!copied) {
-            return null;
-        }
-
-        return {
-            sourceTabId: sourcePane.activeTabId,
-            targetTabId: copied.id,
-            targetPaneId: target.pane.paneId,
-            createdPane: target.created,
-        };
-    }
-
     const activePane = computed(() => getPaneById(activePaneId.value));
     const activeTabId = computed(() => activePane.value?.activeTabId ?? null);
 
@@ -749,11 +650,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
         splitPane,
         closePane,
         setSplitRatio,
-        focusPane,
         findDirectionalPane,
         moveTabToPane,
-        copyTabToPane,
-        moveActiveTabToDirection,
-        copyActiveTabToDirection,
     };
 };
