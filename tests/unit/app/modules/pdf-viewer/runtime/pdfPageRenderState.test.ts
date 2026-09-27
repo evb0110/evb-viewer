@@ -28,11 +28,13 @@ describe('pdfPageRenderState', () => {
             documentToken: 'document-a',
             targetScale: 2,
             targetOutputScale: 1,
+            targetViewRotation: 0,
             container: null,
             committedRasterQuality: null,
             pendingDocumentToken: 'document-a',
             pendingTargetScale: 2,
             pendingTargetOutputScale: 1,
+            pendingTargetViewRotation: 0,
             pendingContainer: null,
         });
         expect(state.renderedPages.has(requirePageNumber(4))).toBe(false);
@@ -48,6 +50,27 @@ describe('pdfPageRenderState', () => {
         expect(state.getSlot(requirePageNumber(1)).visual).toBe('none');
         expect(state.commitCanvas(requirePageNumber(1), 2, 11)).toBe(true);
         expect(state.getSlot(requirePageNumber(1)).visual).toBe('ready');
+    });
+
+    it('keeps the committed rotation until the replacement raster commits', () => {
+        const state = createPdfPageRenderState();
+        const pageNumber = requirePageNumber(2);
+        const container = {} as HTMLElement;
+        state.beginRender(pageNumber, 1, 10, 'document-a', 1, 1, container, {targetViewRotation: 0});
+        expect(state.commitCanvas(pageNumber, 1, 10)).toBe(true);
+
+        state.beginRender(pageNumber, 2, 11, 'document-a', 1, 1, container, {
+            preserveCommittedVisual: true,
+            targetViewRotation: 90,
+        });
+
+        expect(state.getSlot(pageNumber)).toEqual(expect.objectContaining({
+            canvasReadiness: 'ready',
+            targetViewRotation: 0,
+            pendingTargetViewRotation: 90,
+        }));
+        expect(state.commitCanvas(pageNumber, 2, 11)).toBe(true);
+        expect(state.getSlot(pageNumber).targetViewRotation).toBe(90);
     });
 
     it('keeps a failed replacement not ready for skeleton or error presentation', () => {
@@ -70,11 +93,13 @@ describe('pdfPageRenderState', () => {
             documentToken: 'document-a',
             targetScale: 2,
             targetOutputScale: 1,
+            targetViewRotation: 0,
             container: null,
             committedRasterQuality: null,
             pendingDocumentToken: 'document-a',
             pendingTargetScale: 2,
             pendingTargetOutputScale: 1,
+            pendingTargetViewRotation: 0,
             pendingContainer: null,
         });
     });

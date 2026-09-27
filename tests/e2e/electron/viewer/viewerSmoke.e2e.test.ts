@@ -13,9 +13,13 @@ import {
     readFile,
     rm,
     truncate,
+    writeFile,
 } from 'node:fs/promises';
 import { decode as decodePng } from 'fast-png';
-import { PDFDocument } from 'pdf-lib';
+import {
+    PDFDocument,
+    rgb,
+} from 'pdf-lib';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
     existsSync,
@@ -6335,4 +6339,114 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         )), JSON.stringify(focusState)).toBe(true);
         expect(await session.page.$('.app-toast')).not.toBeNull();
     }, 120_000);
+
+    it('rotates the mounted page raster when view rotation changes at fixed zoom', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-view-rotation-raster-${Date.now()}`,
+        });
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 1_000,
+            width: 1_200,
+        });
+
+        const fixturePath = resolve(process.cwd(), '.devkit', 'tmp', `viewer-view-rotation-${Date.now()}.pdf`);
+        const pdfDocument = await PDFDocument.create();
+        const page = pdfDocument.addPage([
+            400,
+            600,
+        ]);
+        page.drawRectangle({
+            x: 40,
+            y: 460,
+            width: 100,
+            height: 100,
+            color: rgb(1, 0, 0),
+        });
+        page.drawRectangle({
+            x: 260,
+            y: 40,
+            width: 100,
+            height: 100,
+            color: rgb(0, 0, 1),
+        });
+        await mkdir(dirname(fixturePath), {recursive: true});
+        await writeFile(fixturePath, await pdfDocument.save());
+        onTestFinished(() => rm(fixturePath, {force: true}));
+
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await requireWorkspaceCommand(session.page, 'handleActualSize');
+        await waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'custom'}, {timeoutMs: 10_000});
+        await waitForFunctionInPage(session.page, () => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .page_canvas canvas',
+            );
+            return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+        }, {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+
+        const readRaster = () => session.page.evaluate(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .page_canvas canvas',
+            );
+            const context = canvas?.getContext('2d', {willReadFrequently: true});
+            if (!canvas || !context || canvas.width === 0 || canvas.height === 0) {
+                throw new Error('The asymmetric PDF page raster is not painted');
+            }
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            const center = (matches: (red: number, green: number, blue: number) => boolean) => {
+                let count = 0;
+                let xTotal = 0;
+                let yTotal = 0;
+                for (let index = 0; index < pixels.length; index += 4) {
+                    const red = pixels[index]!;
+                    const green = pixels[index + 1]!;
+                    const blue = pixels[index + 2]!;
+                    if (!matches(red, green, blue)) continue;
+                    const pixel = index / 4;
+                    count += 1;
+                    xTotal += pixel % canvas.width;
+                    yTotal += Math.floor(pixel / canvas.width);
+                }
+                return {
+                    count,
+                    x: count ? xTotal / count / canvas.width : null,
+                    y: count ? yTotal / count / canvas.height : null,
+                };
+            };
+            return {
+                height: canvas.height,
+                red: center((red, green, blue) => red > 200 && green < 80 && blue < 80),
+                width: canvas.width,
+                blue: center((red, green, blue) => blue > 200 && red < 80 && green < 80),
+            };
+        });
+        const before = await readRaster();
+        expect(before.red.count).toBeGreaterThan(100);
+        expect(before.blue.count).toBeGreaterThan(100);
+        expect(before.red.x).toBeLessThan(0.4);
+        expect(before.blue.x).toBeGreaterThan(0.6);
+        const zoomBefore = (await getWorkspaceToolbarSnapshot(session.page))?.effectiveZoom;
+
+        await requireWorkspaceCommand(session.page, 'setViewRotation', [90]);
+        await waitForFunctionInPage(session.page, () => {
+            const pageElement = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"]',
+            );
+            const bounds = pageElement?.getBoundingClientRect();
+            return Boolean(bounds && bounds.width > bounds.height);
+        }, {timeout: 10_000});
+        await expect.poll(async () => {
+            const raster = await readRaster();
+            return raster.width > raster.height;
+        }, {timeout: 15_000}).toBe(true);
+
+        const after = await readRaster();
+        expect(after.red.count).toBeGreaterThan(100);
+        expect(after.blue.count).toBeGreaterThan(100);
+        expect(after.red.x).toBeGreaterThan(0.6);
+        expect(after.blue.x).toBeLessThan(0.4);
+        expect((await getWorkspaceToolbarSnapshot(session.page))?.effectiveZoom).toBe(zoomBefore);
+    }, 90_000);
 });

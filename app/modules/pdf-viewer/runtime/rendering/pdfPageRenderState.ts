@@ -1,4 +1,5 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
+import type { TPdfViewRotation } from '@contracts/shared';
 
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -70,11 +71,13 @@ interface IPdfPageRenderSlot {
     readonly documentToken: string | null;
     readonly targetScale: number | null;
     readonly targetOutputScale: number | null;
+    readonly targetViewRotation: TPdfViewRotation | null;
     readonly container: HTMLElement | null;
     readonly committedRasterQuality: IPdfCommittedRasterQuality | null;
     readonly pendingDocumentToken: string | null;
     readonly pendingTargetScale: number | null;
     readonly pendingTargetOutputScale: number | null;
+    readonly pendingTargetViewRotation: TPdfViewRotation | null;
     readonly pendingContainer: HTMLElement | null;
 }
 
@@ -116,11 +119,13 @@ const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
     documentToken: null,
     targetScale: null,
     targetOutputScale: null,
+    targetViewRotation: null,
     container: null,
     committedRasterQuality: null,
     pendingDocumentToken: null,
     pendingTargetScale: null,
     pendingTargetOutputScale: null,
+    pendingTargetViewRotation: null,
     pendingContainer: null,
 };
 
@@ -288,6 +293,7 @@ export function createPdfPageRenderState() {
             pendingDocumentToken: null,
             pendingTargetScale: null,
             pendingTargetOutputScale: null,
+            pendingTargetViewRotation: null,
             pendingContainer: null,
         }),
     });
@@ -305,6 +311,7 @@ export function createPdfPageRenderState() {
             pendingDocumentToken: null,
             pendingTargetScale: null,
             pendingTargetOutputScale: null,
+            pendingTargetViewRotation: null,
             pendingContainer: null,
         }),
     });
@@ -339,9 +346,13 @@ export function createPdfPageRenderState() {
             targetScale: number,
             targetOutputScale = 1,
             container: HTMLElement | null = null,
-            beginOptions: {preserveCommittedVisual?: boolean} = {},
+            beginOptions: {
+                preserveCommittedVisual?: boolean;
+                targetViewRotation?: TPdfViewRotation
+            } = {},
         ) {
             const current = getSlot(pageNumber);
+            const targetViewRotation = beginOptions.targetViewRotation ?? current.targetViewRotation ?? 0;
             const preserveCommittedVisual = beginOptions.preserveCommittedVisual === true
                 && current.canvasReadiness === 'ready'
                 && current.container === container;
@@ -360,6 +371,7 @@ export function createPdfPageRenderState() {
                 targetOutputScale: preserveCommittedVisual
                     ? current.targetOutputScale
                     : targetOutputScale,
+                targetViewRotation: preserveCommittedVisual ? current.targetViewRotation : targetViewRotation,
                 committedRasterQuality: preserveCommittedVisual
                     ? current.committedRasterQuality
                     : null,
@@ -367,6 +379,7 @@ export function createPdfPageRenderState() {
                 pendingDocumentToken: documentToken,
                 pendingTargetScale: targetScale,
                 pendingTargetOutputScale: targetOutputScale,
+                pendingTargetViewRotation: targetViewRotation,
                 pendingContainer: container,
             });
             logPdfRenderTrace('renderer-single-page-begin', {
@@ -395,7 +408,10 @@ export function createPdfPageRenderState() {
                 targetScale,
                 targetOutputScale,
                 container,
-                {preserveCommittedVisual: true},
+                {
+                    preserveCommittedVisual: true,
+                    targetViewRotation: getSlot(pageNumber).targetViewRotation ?? 0,
+                },
             );
         },
         commitVisual(
@@ -421,6 +437,7 @@ export function createPdfPageRenderState() {
                 documentToken: current.pendingDocumentToken,
                 targetScale: current.pendingTargetScale,
                 targetOutputScale: current.pendingTargetOutputScale,
+                targetViewRotation: current.pendingTargetViewRotation,
                 container: current.pendingContainer,
                 committedRasterQuality,
             });
@@ -623,6 +640,7 @@ export function createPdfPageRenderState() {
                     pendingDocumentToken: null,
                     pendingTargetScale: null,
                     pendingTargetOutputScale: null,
+                    pendingTargetViewRotation: null,
                     pendingContainer: null,
                 } : {}),
             });
@@ -646,6 +664,7 @@ export function createPdfPageRenderState() {
                 pendingDocumentToken: null,
                 pendingTargetScale: null,
                 pendingTargetOutputScale: null,
+                pendingTargetViewRotation: null,
                 pendingContainer: null,
             });
             return true;
@@ -672,6 +691,7 @@ export function createPdfPageRenderState() {
                 pendingDocumentToken: null,
                 pendingTargetScale: null,
                 pendingTargetOutputScale: null,
+                pendingTargetViewRotation: null,
                 pendingContainer: null,
             });
             return true;
