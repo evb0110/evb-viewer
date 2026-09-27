@@ -2792,12 +2792,26 @@ describe('Electron E2E - Viewer Smoke', () => {
             const indicator = await readToolbarPageIndicator(session.page);
             const viewportPages = await readViewportPageObservation(session.page);
             const layout = await readWindowLayoutObservation(session, anchor);
+            const workspaceBottomGap = await session.page.evaluate(() => {
+                const workspace = [...document.querySelectorAll<HTMLElement>('.workspace-main')].find(element => {
+                    const rect = element.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                });
+                const status = document.querySelector<HTMLElement>('#editor-global-status-host');
+                if (!workspace || !status) {
+                    throw new Error('Workspace main or status bar is missing');
+                }
+                return status.getBoundingClientRect().top - workspace.getBoundingClientRect().bottom;
+            });
             const evidence = JSON.stringify({
                 label,
                 layout,
+                workspaceBottomGap,
                 indicator: describeToolbarPageIndicator(indicator),
                 viewportPages: viewportPages.pages,
             });
+
+            expect(Math.abs(workspaceBottomGap), evidence).toBeLessThanOrEqual(1);
 
             // R1 and R3's weak form: the page the reader was on is still the
             // page the toolbar names and still the page the window shows.

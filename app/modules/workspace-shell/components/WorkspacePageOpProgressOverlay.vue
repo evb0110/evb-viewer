@@ -1,18 +1,17 @@
 <template>
-    <div v-if="hasDocument" class="page-op-progress-reserved-row">
-        <AppProgressOverlay
-            class="workspace-page-op-progress-overlay"
-            :open="showProgress"
-            :title="operationTitle"
-            :detail="detailText"
-            :sub-detail="subDetailText"
-            :value="progress?.percent ?? null"
-            :show-indeterminate-bar="false"
-            :cancel-label="cancelLabel"
-            :cancel-disabled="cancelState !== 'idle'"
-            @cancel="requestCancel"
-        />
-    </div>
+    <AppProgressOverlay
+        v-if="showProgress"
+        class="workspace-page-op-progress-overlay"
+        :open="showProgress"
+        :title="operationTitle"
+        :detail="detailText"
+        :sub-detail="subDetailText"
+        :value="progress?.percent ?? null"
+        :show-indeterminate-bar="false"
+        :cancel-label="cancelLabel"
+        :cancel-disabled="cancelState !== 'idle'"
+        @cancel="requestCancel"
+    />
 </template>
 
 <script setup lang="ts">
@@ -28,7 +27,6 @@ import {
 import type { IPageOperationPresentation } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
 
-const { hasDocument } = defineProps<{hasDocument: boolean;}>();
 const {
     pageOpBatchProgress: progress,
     isPageOperationInProgress,
@@ -168,24 +166,17 @@ const subDetailText = computed(() => {
 </script>
 
 <style scoped>
-.page-op-progress-reserved-row {
+:global(.workspace-page-op-progress-overlay.app-progress-overlay) {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: auto;
     display: flex;
-    flex: 0 0 var(--app-toolbar-row-height);
+    height: var(--app-toolbar-row-height);
     align-items: center;
     justify-content: flex-end;
     box-sizing: border-box;
-    padding-inline: var(--app-space-md) calc(var(--app-toolbar-control-size) + var(--app-space-9xl) + (2 * var(--app-space-3xl)) + var(--app-space-md));
-}
-
-:global(.workspace-page-op-progress-overlay.app-progress-overlay) {
-    position: static;
-    inset: auto;
-    z-index: auto;
-    display: flex;
     width: 100%;
-    height: 100%;
-    align-items: center;
-    justify-content: flex-end;
+    padding-inline: var(--app-space-md) calc(var(--app-toolbar-control-size) + var(--app-space-9xl) + (2 * var(--app-space-3xl)) + var(--app-space-md));
     pointer-events: none;
     background: transparent;
 }

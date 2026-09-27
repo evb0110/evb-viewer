@@ -128,7 +128,7 @@
             </div>
         </WorkspaceSidebarHost>
         <WorkspaceScanCleanupSurface :can-teleport-toolbar="canTeleportToolbar" />
-        <WorkspacePageOpProgressOverlay v-show="surfaceMode === 'reader'" :has-document="toolbarHasPdf" />
+        <WorkspacePageOpProgressOverlay v-show="surfaceMode === 'reader'" />
         <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" />
         <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
             <PdfStatusBar
