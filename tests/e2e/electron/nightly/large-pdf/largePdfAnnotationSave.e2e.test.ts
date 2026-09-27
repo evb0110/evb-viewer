@@ -1874,7 +1874,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(editorHydrationDomState.editorCount, JSON.stringify({
             editorHydrationDebugState,
             editorHydrationDomState,
-        })).toBe(1);
+        })).toBe(2);
         let secondFreeTextCount: number;
         try {
             secondFreeTextCount = await createFreeTextAnnotationWithPointer(

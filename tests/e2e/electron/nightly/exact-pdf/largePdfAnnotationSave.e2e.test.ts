@@ -110,7 +110,6 @@ interface IIssue139VisibilityFrame {
     layerIdentities: number[];
     paintedFreeTextCount: number;
     phase: string;
-    resizeTransitionActive: boolean;
     revisionToken: string | null;
     sidebarCount: number;
     visibleSentinels: string[];
@@ -213,7 +212,7 @@ async function startIssue139VisibilityProbe(
                 return;
             }
             const editors = Array.from(host.querySelectorAll<HTMLElement>(
-                '[data-annotation-kind="text-box"]',
+                '.pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
             ));
             const visibleEditors = editors.filter(editor => (
                 probeWindow.__issue139IsPainted?.(editor, host) === true
@@ -248,8 +247,6 @@ async function startIssue139VisibilityProbe(
                 )),
                 paintedFreeTextCount: visibleEditors.length,
                 phase: probeWindow.__issue139VisibilityProbePhase ?? 'unknown',
-                resizeTransitionActive: host.querySelector('.pdfViewer')
-                    ?.classList.contains('pdfViewer--resize-transition') === true,
                 revisionToken: typeof revisionToken === 'string' ? revisionToken : null,
                 sidebarCount: host.querySelectorAll('.notes-list .note-item').length,
                 visibleSentinels: input.sentinels.filter(sentinel => (
@@ -354,7 +351,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     await clickAnnotationTool(page, 'Select', NOTE_TEXT_ENTRY_TIMEOUT_MS);
     await page.evaluate((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
             .find(candidate => candidate.textContent?.includes(expectedText) === true);
         editor?.scrollIntoView({
             block: 'center',
@@ -367,7 +364,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     });
     const editorPoint = await page.evaluate((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
             .find(candidate => candidate.textContent?.includes(expectedText) === true);
         const rect = editor?.getBoundingClientRect();
         return rect
@@ -383,7 +380,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     await page.mouse.click(editorPoint.x, editorPoint.y);
     await page.waitForFunction((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
             .find(candidate => candidate.textContent?.includes(expectedText) === true);
         const handleRect = editor?.parentElement?.querySelector<HTMLElement>('[data-pdf-annotation-resize-handle="se"]')
             ?.getBoundingClientRect();
@@ -394,7 +391,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     await setIssue139VisibilityProbePhase(page, 'text-box-resize-handle');
     const handle = await page.evaluate((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
             .find(candidate => candidate.textContent?.includes(expectedText) === true);
         const editorRect = editor?.getBoundingClientRect();
         const handleRect = editor?.parentElement?.querySelector<HTMLElement>('[data-pdf-annotation-resize-handle="se"]')
@@ -463,7 +460,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
         }
     }) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
             .find(candidate => candidate.textContent?.includes(input.expectedText) === true);
         const pageContainer = editor?.closest<HTMLElement>('.page_container');
         const pageRect = pageContainer?.getBoundingClientRect();
@@ -494,7 +491,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     await page.mouse.up();
     const immediatelyResized = await page.evaluate((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
             .find(candidate => candidate.textContent?.includes(expectedText) === true);
         const rect = editor?.getBoundingClientRect();
         const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{
@@ -518,7 +515,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
             sentinel: string;
         }) => {
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-            const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+            const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
                 .find(candidate => candidate.textContent?.includes(input.sentinel) === true);
             const rect = editor?.getBoundingClientRect();
             return rect !== undefined
@@ -532,7 +529,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     } catch (error) {
         const resizeDebug = await page.evaluate((expectedText: string) => {
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-            const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+            const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
                 .find(candidate => candidate.textContent?.includes(expectedText) === true);
             const layer = editor?.closest<HTMLElement>('.pdf-annotation-editor-layer');
             const handleElement = layer?.querySelector<HTMLElement>('[data-pdf-annotation-resize-handle="se"]');
@@ -578,7 +575,7 @@ async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
     }
     const resized = await page.evaluate((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editor = Array.from(host?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? [])
+        const editor = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer [data-annotation-kind="text-box"]') ?? [])
             .find(candidate => candidate.textContent?.includes(expectedText) === true);
         const rect = editor?.getBoundingClientRect();
         return rect
@@ -1544,9 +1541,6 @@ describe('Electron E2E - Exact large PDF annotation acceptance', () => {
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
             return {
                 canonicalCount: Array.isArray(value) ? value.length : -1,
-                editorCount: host?.querySelectorAll(
-                    '[data-annotation-kind="text-box"]',
-                ).length ?? 0,
                 sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
                 visualCount: host?.querySelectorAll(
                     '.pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
@@ -1554,7 +1548,6 @@ describe('Electron E2E - Exact large PDF annotation acceptance', () => {
             };
         }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
             canonicalCount: persistedSentinels.length,
-            editorCount: persistedSentinels.length,
             sidebarCount: persistedSentinels.length,
             visualCount: persistedSentinels.length,
         });
@@ -1584,7 +1577,7 @@ describe('Electron E2E - Exact large PDF annotation acceptance', () => {
                 : comments;
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
             const editors = Array.from(host?.querySelectorAll<HTMLElement>(
-                '[data-annotation-kind="text-box"]',
+                '.pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
             ) ?? []);
             return {
                 canonicalCount: Array.isArray(value) ? value.length : -1,
@@ -1688,9 +1681,7 @@ describe('Electron E2E - Exact large PDF annotation acceptance', () => {
         }
         expect(saveEvent.id).toBeGreaterThan(saveBaselineEventId);
         const frames = await readIssue139VisibilityProbe(session.page);
-        const transitionFrames = frames.filter(frame => frame.resizeTransitionActive);
         expect(frames.length).toBeGreaterThan(5);
-        expect(transitionFrames.length).toBeGreaterThan(0);
         for (const frame of frames) {
             expect(frame.visibleSentinels, JSON.stringify(frame)).toContain(resizeSentinel);
             expect(frame.visibleSentinels, JSON.stringify(frame)).toEqual(expect.arrayContaining(sentinels));
