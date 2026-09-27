@@ -372,7 +372,7 @@ export async function runNativeCommand(
                     ...(manifestPath === undefined ? {} : {manifestPath}),
                     scratchPath,
                 })).catch(error => {
-                    options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
+                    if (isProcessTreeAlive(pid)) options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
                     return null;
                 });
                 options.onSpawn?.(pid);

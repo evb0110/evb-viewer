@@ -162,31 +162,21 @@ async function readLinuxProcessIdentity(pid: number): Promise<IManagedProcessIde
 
 async function readMacProcessIdentity(pid: number): Promise<IManagedProcessIdentity | null> {
     try {
-        const [
-            {stdout: startTimeOutput},
-            {stdout: commandLineOutput},
-        ] = await Promise.all([
-            execFileForIdentity('/bin/ps', [
-                '-o',
-                'lstart=',
-                '-p',
-                String(pid),
-            ], {
-                timeout: 1_000,
-                maxBuffer: 16 * 1024,
-            }),
-            execFileForIdentity('/bin/ps', [
-                '-o',
-                'command=',
-                '-p',
-                String(pid),
-            ], {
-                timeout: 1_000,
-                maxBuffer: 16 * 1024,
-            }),
-        ]);
-        const startTime = normalizeProcessStartTime(String(startTimeOutput));
-        const argumentsList = parseCommandLine(String(commandLineOutput));
+        const {stdout} = await execFileForIdentity('/bin/ps', [
+            '-o',
+            'lstart=',
+            '-o',
+            'command=',
+            '-p',
+            String(pid),
+        ], {
+            timeout: 1_000,
+            maxBuffer: 16 * 1024,
+        });
+        const match = /^(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/u.exec(String(stdout).trim());
+        if (match === null) return null;
+        const startTime = normalizeProcessStartTime(match[1]!);
+        const argumentsList = parseCommandLine(match[2]!);
         const executablePath = argumentsList[0];
         if (startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
             return null;
