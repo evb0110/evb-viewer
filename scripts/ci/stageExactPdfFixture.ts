@@ -85,8 +85,8 @@ export interface IStageExactPdfFixtureOptions extends IExactPdfIdentityOptions, 
 /**
  * These are the only large-PDF identities admitted by the exact-fixture lane.
  * The local 882-page artifact is retained because it is the fixture used by
- * the existing developer and Linux E2E runs. Required CI selects the public
- * VPS mirror by setting EVB_EXACT_FIXTURE_PROFILE.
+ * the existing developer and Linux E2E runs. Hosted CI does not run the
+ * exact-fixture lane, so each local run selects its profile explicitly.
  */
 export const EXACT_PDF_FIXTURE_MANIFEST = Object.freeze({
     auditedZaliznyak882: {

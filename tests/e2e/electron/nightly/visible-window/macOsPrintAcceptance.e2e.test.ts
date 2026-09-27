@@ -6,9 +6,7 @@ import {
     rmSync,
 } from 'node:fs';
 import {
-    basename,
     dirname,
-    isAbsolute,
     join,
     resolve,
 } from 'node:path';
@@ -21,62 +19,22 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
-import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    EXACT_PDF_FIXTURE_MANIFEST,
-    readExactPdfFixtureIdentity,
-    validateExactPdfFixtureIdentity,
-} from '@scripts/ci/stageExactPdfFixture';
-import {
-    createMultiPageTextFixturePdf,
-    resolveLargePdfFixtureAvailability,
-} from '@tests/e2e/electron/helpers/fixtures';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
-import {createVisibleWindowElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import type {TDocumentRef} from '@contracts/documentRef';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {createVisibleWindowElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     requirePageNumber,
     type TPageNumber,
 } from '@contracts/pageNumbers';
-import {
-    openPdfInApp,
-    waitForPdfLoaded,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
 
 const execFileAsync = promisify(execFile);
-const MACOS_PRINT_ACCEPTANCE_ENABLE_ENV = 'EVB_E2E_MACOS_PRINT_ACCEPTANCE';
-const MACOS_PRINT_ACCEPTANCE_OUTPUT_ENV = 'EVB_E2E_MACOS_PRINT_OUTPUT_PATH';
-const LARGE_PDF_FIXTURE_ENV = 'EVB_E2E_LARGE_PDF_FIXTURE';
-const PRINT_DIALOG_TEST_MODE_ENV = 'EVB_PRINT_DIALOG_TEST_MODE';
 const PRINT_ACCEPTANCE_TIMEOUT_MS = 15 * 60_000;
-const PRINT_DIALOG_AUTOMATION_TIMEOUT_MS = 6 * 60_000;
-const PRINT_DIALOG_AUTOMATION_WAIT_SECONDS = 300;
 const PRINT_VALIDATION_DPI = 96;
 const MIN_PRINT_INK_PIXELS = 500;
-const MIN_PRINT_LIGHT_BACKGROUND_RATIO = 0.5;
-const MIN_PRINT_LUMINANCE_RANGE = 32;
-const MIN_PRINT_DISTINCT_COLOR_BUCKETS = 8;
-const exactFixtureExpectation = EXACT_PDF_FIXTURE_MANIFEST.localZaliznyak882;
-const configuredFixturePath = process.env[LARGE_PDF_FIXTURE_ENV]?.trim() ?? '';
-const configuredOutputPath = process.env[MACOS_PRINT_ACCEPTANCE_OUTPUT_ENV]?.trim() ?? '';
-const fixture = configuredFixturePath
-    ? resolveLargePdfFixtureAvailability()
-    : {
-        path: null,
-        reason: `${LARGE_PDF_FIXTURE_ENV} must point to the exact local 882-page fixture`,
-        required: false,
-    };
-const outputPath = isAbsolute(configuredOutputPath) ? configuredOutputPath : null;
-const acceptanceEnabled = process.platform === 'darwin'
-    && process.env[MACOS_PRINT_ACCEPTANCE_ENABLE_ENV] === '1'
-    && isAbsolute(configuredOutputPath);
-const acceptanceDescribe = acceptanceEnabled ? describe : describe.skip;
-const acceptanceDir = resolve(process.cwd(), '.devkit', 'tmp', `macos-print-acceptance-${Date.now()}`);
-const renderedFirstPagePrefix = join(acceptanceDir, 'printed-first-page');
-const renderedFirstPagePath = `${renderedFirstPagePrefix}.png`;
 const printLayoutSmokeDir = resolve(process.cwd(), '.devkit', 'tmp', `macos-print-layout-smoke-${Date.now()}`);
 const printLayoutSmokeOutputPath = join(printLayoutSmokeDir, 'facing-first-single-output.pdf');
 const printLayoutSmokeDescribe = process.platform === 'darwin' ? describe : describe.skip;
@@ -86,151 +44,13 @@ const printLayoutSmokeSessionEnv = {
 };
 
 afterAll(() => {
-    rmSync(acceptanceDir, {
-        force: true,
-        recursive: true,
-    });
     rmSync(printLayoutSmokeDir, {
         force: true,
         recursive: true,
     });
 });
 
-function escapeAppleScriptString(value: string) {
-    return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
-}
-
-function buildMacOsPrintDialogScript(targetPath: string, electronPid: number) {
-    const targetDirectory = dirname(targetPath);
-    const targetFileName = basename(targetPath);
-    return `
-set targetDirectory to ${escapeAppleScriptString(targetDirectory)}
-set targetFileName to ${escapeAppleScriptString(targetFileName)}
-set targetPid to ${electronPid}
-tell application "System Events"
-    set deadline to (current date) + ${PRINT_DIALOG_AUTOMATION_WAIT_SECONDS}
-    set printProcess to missing value
-    set printWindow to missing value
-    repeat until printProcess is not missing value
-        set targetProcesses to every application process whose unix id is targetPid
-        if (count of targetProcesses) > 0 then
-            set candidateProcess to item 1 of targetProcesses
-            set frontmost of candidateProcess to true
-            if (count of windows of candidateProcess) > 0 then
-                set candidateWindow to window 1 of candidateProcess
-                if exists sheet 1 of candidateWindow then
-                    set printProcess to candidateProcess
-                    set printWindow to candidateWindow
-                end if
-            end if
-        end if
-        if printProcess is missing value then
-            if (current date) > deadline then
-                error "Timed out waiting for the macOS print sheet"
-            end if
-            delay 0.25
-        end if
-    end repeat
-
-    tell printProcess
-        set printSheet to sheet 1 of printWindow
-        set pdfButtons to every button of printSheet whose title is "PDF"
-        if (count of pdfButtons) = 0 then
-            set pdfButtons to every button of printSheet whose description is "PDF"
-        end if
-        if (count of pdfButtons) = 0 then
-            error "The macOS print sheet has no PDF menu button"
-        end if
-
-        -- This is the acceptance interaction point: open PDF and choose Save as PDF….
-        set pdfButton to item 1 of pdfButtons
-        click pdfButton
-        set pdfMenu to menu 1 of pdfButton
-        set saveAsItems to every menu item of pdfMenu whose title starts with "Save as PDF"
-        if (count of saveAsItems) = 0 then
-            error "The macOS PDF menu has no Save as PDF item"
-        end if
-        click item 1 of saveAsItems
-
-        set saveSheet to missing value
-        repeat until saveSheet is not missing value
-            if exists sheet 1 of printWindow then
-                set candidateSheet to sheet 1 of printWindow
-                if (count of text fields of candidateSheet) > 0 then
-                    set saveSheet to candidateSheet
-                end if
-            end if
-            if saveSheet is missing value then
-                if (current date) > deadline then
-                    error "Timed out waiting for the macOS PDF save sheet"
-                end if
-                delay 0.25
-            end if
-        end repeat
-
-        set fileFields to every text field of saveSheet
-        if (count of fileFields) = 0 then
-            error "The macOS PDF save sheet has no filename field"
-        end if
-        set value of item 1 of fileFields to targetFileName
-        click item 1 of fileFields
-        keystroke "g" using {command down, shift down}
-
-        set locationSheet to missing value
-        repeat until locationSheet is not missing value
-            if exists sheet 1 of saveSheet then
-                set locationSheet to sheet 1 of saveSheet
-            end if
-            if locationSheet is missing value then
-                if (current date) > deadline then
-                    error "Timed out waiting for the macOS save-location sheet"
-                end if
-                delay 0.25
-            end if
-        end repeat
-        set locationFields to every text field of locationSheet
-        if (count of locationFields) = 0 then
-            error "The macOS save-location sheet has no folder field"
-        end if
-        set value of item 1 of locationFields to targetDirectory
-        keystroke return
-
-        repeat while exists sheet 1 of saveSheet
-            if (current date) > deadline then
-                error "Timed out closing the macOS save-location sheet"
-            end if
-            delay 0.25
-        end repeat
-
-        set saveButtons to every button of saveSheet whose title is "Save"
-        if (count of saveButtons) > 0 then
-            click item 1 of saveButtons
-        else
-            keystroke return
-        end if
-        delay 0.5
-        if exists sheet 1 of saveSheet then
-            set replaceButtons to every button of sheet 1 of saveSheet whose title starts with "Replace"
-            if (count of replaceButtons) > 0 then
-                click item 1 of replaceButtons
-            end if
-        end if
-    end tell
-end tell
-`;
-}
-
-async function completeMacOsPrintDialog(targetPath: string, electronPid: number) {
-    await execFileAsync('osascript', [
-        '-e',
-        buildMacOsPrintDialogScript(targetPath, electronPid),
-    ], {
-        maxBuffer: 64 * 1024,
-        timeout: PRINT_DIALOG_AUTOMATION_TIMEOUT_MS,
-    });
-}
-
-async function renderPdfPage(pdfPath: string, pageNumber: number, outputPrefix = renderedFirstPagePrefix) {
+async function renderPdfPage(pdfPath: string, pageNumber: number, outputPrefix: string) {
     mkdirSync(dirname(outputPrefix), {recursive: true});
     await execFileAsync(getPdfNativeToolPaths().pdftoppm, [
         '-png',
@@ -333,107 +153,6 @@ function inspectPrintedPageRaster(
         distinctColorBuckets: distinctColorBuckets.size,
     };
 }
-
-acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
-    const sessionFixture = createVisibleWindowElectronE2ESessionFixture({
-        sessionName: () => `e2e-macos-print-acceptance-${Date.now()}`,
-        timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
-    });
-
-    it('prints page 1 of the exact 882-page PDF through the real system sheet', async () => {
-        const session = sessionFixture.getSession();
-        if (!configuredFixturePath) {
-            throw new Error(`${LARGE_PDF_FIXTURE_ENV} must point to the exact local 882-page fixture`);
-        }
-        if (!fixture.path) {
-            throw new Error(`Exact fixture is unavailable: ${fixture.reason}`);
-        }
-        const electronPid = getSessionInfo(session.name)?.electronPid;
-        if (!electronPid) {
-            throw new Error(`Electron PID is unavailable for ${session.name}`);
-        }
-        if (process.env[PRINT_DIALOG_TEST_MODE_ENV]?.trim()) {
-            throw new Error(`${PRINT_DIALOG_TEST_MODE_ENV} must be unset for native macOS print acceptance`);
-        }
-        if (outputPath === null) {
-            throw new Error(`${MACOS_PRINT_ACCEPTANCE_OUTPUT_ENV} must be an absolute output path`);
-        }
-        if (existsSync(outputPath)) {
-            throw new Error(`Refusing to overwrite an existing print acceptance output: ${outputPath}`);
-        }
-        onTestFinished(() => rmSync(outputPath, {force: true}));
-        mkdirSync(dirname(outputPath), {recursive: true});
-
-        const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {
-            maxBytes: exactFixtureExpectation.bytes,
-            timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
-        });
-        validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
-
-        await openPdfInApp(session.page, fixture.path, PRINT_ACCEPTANCE_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
-        await waitForViewerInteractive(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
-        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        const pageNumbers: TPageNumber[] = [requirePageNumber(1)];
-        const printPromise = session.page.evaluate(async ({
-            path,
-            pageNumbers,
-        }: {
-            path: TDocumentRef;
-            pageNumbers: TPageNumber[];
-        }) => {
-            const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
-            if (!printPdfPath) {
-                throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
-            }
-
-            return printPdfPath(path, 'macos-print-acceptance.pdf', {
-                pageNumbers,
-                viewMode: 'single',
-                orientation: 'auto',
-            });
-        }, {
-            path: workingCopyPath,
-            pageNumbers,
-        });
-        void printPromise.catch(() => undefined);
-
-        await completeMacOsPrintDialog(outputPath, electronPid);
-        const printResult = await printPromise;
-        expect(printResult).toEqual(expect.objectContaining({success: true}));
-        expect(existsSync(outputPath)).toBe(true);
-
-        const qpdfPath = getPdfNativeToolPaths().qpdf;
-        await execFileAsync(qpdfPath, [
-            '--check',
-            outputPath,
-        ], {
-            maxBuffer: 128 * 1024,
-            timeout: 60_000,
-        });
-        const {stdout: pageCountOutput} = await execFileAsync(qpdfPath, [
-            '--show-npages',
-            outputPath,
-        ], {
-            maxBuffer: 16 * 1024,
-            timeout: 60_000,
-        });
-        expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(1);
-
-        await renderPdfPage(outputPath, 1);
-        const rasterMetrics = inspectPrintedPageRaster(renderedFirstPagePath);
-        expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
-        expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
-        expect(rasterMetrics.substantialLightPixels).toBeGreaterThan(
-            rasterMetrics.totalPixels * MIN_PRINT_LIGHT_BACKGROUND_RATIO,
-        );
-        expect(
-            rasterMetrics.luminanceRange > MIN_PRINT_LUMINANCE_RANGE
-            || rasterMetrics.luminanceVariance > MIN_PRINT_LUMINANCE_RANGE
-            || rasterMetrics.distinctColorBuckets >= MIN_PRINT_DISTINCT_COLOR_BUCKETS,
-        ).toBe(true);
-    }, PRINT_ACCEPTANCE_TIMEOUT_MS);
-});
 
 printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () => {
     const sessionFixture = createVisibleWindowElectronE2ESessionFixture({

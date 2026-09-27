@@ -130,11 +130,12 @@ fully green run; dispatched runs do not touch the issue.
 | Public release mirror health | Current GitHub latest release, updater channel, mirror manifest and served asset |
 | Electron E2E macOS (lane) | The `ci.yml` lanes on macOS with timing budgets enforced |
 | Electron E2E Search Match Scroll | High-zoom native search over a generated large document |
-| Manual Electron E2E Large PDF | Large-PDF lane against the local exact fixture (dispatch only) |
-| Manual Electron E2E Visible Window | Visible-window lifecycle (dispatch only) |
+| Electron E2E Large PDF | Large-PDF lane against generated fixtures |
+| Electron E2E Visible Window | Visible-window lifecycle |
 
-These run the lanes under `tests/e2e/electron/nightly/`: `e2e-search`,
-`e2e-large-pdf` and `e2e-visible-window`.
+These run the hosted lanes under `tests/e2e/electron/nightly/`: `e2e-search`,
+`e2e-large-pdf` and `e2e-visible-window`. The `e2e-exact-pdf` lane requires
+the private fixture and runs only on a machine where that fixture is staged.
 
 ## Other workflows
 

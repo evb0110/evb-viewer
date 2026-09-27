@@ -10,9 +10,8 @@ name: CI Nightly
 # its own five-target packaging and packaged verification for the exact target
 # SHA in release.yml; the jobs here are early warning, not release evidence.
 #
-# The manual lanes need a local fixture profile or a visible window, so they
-# stay on workflow_dispatch: a scheduled red from a missing fixture
-# would teach everyone to ignore this workflow.
+# The exact-fixture lane runs only where its private fixture lives. Hosted
+# large-PDF and visible-window lanes use generated fixtures and run nightly.
 
 concurrency:
   group: ci-nightly-${{ github.ref_name }}
@@ -254,8 +253,7 @@ jobs:
           artifact-name: electron-search-match-scroll-${{ github.run_attempt }}
 
   nightly_electron_e2e_large_pdf:
-    name: Manual Electron E2E Large PDF
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    name: Electron E2E Large PDF
     runs-on: macos-14
     timeout-minutes: 90
 
@@ -274,9 +272,6 @@ jobs:
 
       - name: Electron E2E large PDF
         env:
-          # Manual lanes opt in to the local exact fixture explicitly; the
-          # staging script refuses an unnamed profile so absence cannot pass.
-          EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882
           EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE: '1'
         run: pnpm run test:e2e e2e-large-pdf --reporter verbose
 
@@ -287,8 +282,7 @@ jobs:
           artifact-name: electron-large-pdf-${{ github.run_attempt }}
 
   nightly_electron_e2e_visible_window:
-    name: Manual Electron E2E Visible Window
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    name: Electron E2E Visible Window
     runs-on: macos-14
     timeout-minutes: 30
 
@@ -327,6 +321,8 @@ jobs:
       - electron_e2e_lanes
       - nightly_electron_e2e_macos
       - nightly_electron_e2e_search_match_scroll
+      - nightly_electron_e2e_large_pdf
+      - nightly_electron_e2e_visible_window
     if: ${{ always() && github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -66,8 +66,8 @@ import {
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import { readWorkspaceRecoveryRecords } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {
+    EXACT_PDF_FIXTURE_MANIFEST,
     readExactPdfFixtureIdentity,
-    resolveExactPdfFixtureExpectation,
     validateExactPdfFixtureIdentity,
 } from '@scripts/ci/stageExactPdfFixture';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
@@ -105,7 +105,7 @@ const IMPORTED_MARKUP_NOTE_STAGE_TIMEOUT_MS = 60_000;
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const execFileAsync = promisify(execFile);
 const EXACT_ZALIZNYAK_REQUIRED_ENV = 'EVB_E2E_REQUIRE_EXACT_ZALIZNYAK';
-const EXACT_ZALIZNYAK_EXPECTATION = resolveExactPdfFixtureExpectation();
+const EXACT_ZALIZNYAK_EXPECTATION = EXACT_PDF_FIXTURE_MANIFEST.localZaliznyak882;
 const LARGE_PDF_ARTIFACT_ROOT_ENV = 'EVB_E2E_LARGE_PDF_ARTIFACT_ROOT';
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
