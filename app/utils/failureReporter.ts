@@ -54,6 +54,10 @@ let hostedConfig: IHostedSentryConfig | null = null;
 // consent, and failures before that keep a local Error ID and are not sent.
 let sdk: ISentrySdk | null = null;
 let sdkLoad: Promise<void> | null = null;
+let pendingCaptures: Array<{
+    input: CaptureFailureInput;
+    eventId: string
+}> = [];
 let suppressionDepth = 0;
 
 function isElectronRenderer() {
@@ -94,6 +98,7 @@ async function loadSdk() {
         const Sentry = await import('@sentry/electron/renderer');
         Sentry.init(sdkOptions());
         sdk = Sentry;
+        flushPendingCaptures();
         return;
     }
     if (hostedConfig?.dsn) {
@@ -103,6 +108,17 @@ async function loadSdk() {
             ...hostedConfig,
         });
         sdk = Sentry;
+        flushPendingCaptures();
+    }
+}
+
+function flushPendingCaptures() {
+    const pending = pendingCaptures;
+    pendingCaptures = [];
+    if (preference === 'granted') {
+        for (const capture of pending) {
+            sendToSentry(capture.input, capture.eventId);
+        }
     }
 }
 
@@ -115,6 +131,7 @@ function applyPreference() {
     if (preference === 'granted' && sdkLoad === null) {
         sdkLoad = loadSdk().catch(() => {
             sdkLoad = null;
+            pendingCaptures = [];
         });
     }
 }
@@ -127,6 +144,9 @@ export function initializeRendererDiagnostics(config: IHostedSentryConfig | null
 
 export function setRendererDiagnosticsPreference(value: unknown) {
     preference = parseClientDiagnosticsPreference(value);
+    if (preference !== 'granted') {
+        pendingCaptures = [];
+    }
     applyPreference();
 }
 
@@ -140,6 +160,13 @@ function createEventId() {
 
 /** The Error ID is chosen here so a held report can be resent under the ID the user already saw. */
 function sendToSentry(input: CaptureFailureInput, eventId = createEventId()) {
+    if (sdk === null && preference === 'granted' && sdkLoad !== null) {
+        pendingCaptures.push({
+            input,
+            eventId,
+        });
+        return eventId;
+    }
     const cause = input.local.cause;
     sdk?.captureException(cause instanceof Error ? cause : new Error(input.local.message), {
         event_id: eventId,

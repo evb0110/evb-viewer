@@ -12,7 +12,10 @@ import {
     type TClientDiagnosticsPreference,
 } from '@contracts/diagnostics/diagnosticsPreference';
 import { beforeSendSentryEvent } from '@contracts/diagnostics/scrubSentryEvent';
-import { captureMainFailure } from '@electron/utils/captureMainFailure';
+import {
+    captureMainFailure,
+    setMainFailureCaptureState,
+} from '@electron/utils/captureMainFailure';
 
 declare const __EVB_SENTRY_DSN__: string | undefined;
 
@@ -56,6 +59,15 @@ async function loadSdk() {
         integrations: defaults => defaults.filter(integration => MAIN_INTEGRATIONS.has(integration.name)),
         beforeSend: beforeSendSentryEvent,
         beforeBreadcrumb: () => null,
+        transport: options => {
+            const transport = Sentry.makeElectronTransport(options);
+            return {
+                send: envelope => isReportingEnabled()
+                    ? transport.send(envelope)
+                    : Promise.resolve({}),
+                flush: timeout => transport.flush(timeout),
+            };
+        },
     });
 }
 
@@ -65,13 +77,20 @@ export function setMainDiagnosticsPreference(value: unknown) {
     const client = getClient();
     if (client) {
         client.getOptions().enabled = isReportingEnabled();
+        setMainFailureCaptureState(preference, null);
         return;
     }
     if (isReportingEnabled() && sdkLoad === null) {
-        sdkLoad = loadSdk().catch(() => {
-            sdkLoad = null;
+        const loading = loadSdk();
+        sdkLoad = loading;
+        void loading.catch(() => {
+            if (sdkLoad === loading) {
+                sdkLoad = null;
+                setMainFailureCaptureState(preference, null);
+            }
         });
     }
+    setMainFailureCaptureState(preference, isReportingEnabled() ? sdkLoad : null);
 }
 
 export function getMainDiagnosticsPreference() {
