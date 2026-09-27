@@ -235,6 +235,13 @@ export function createWorkspaceDocumentController(options: {
         settleWaiters.delete(transaction.id);
     }
 
+    function settleMountWaiters(workspace: IWorkspaceExpose | null) {
+        for (const resolve of mountWaiters) {
+            resolve(workspace);
+        }
+        mountWaiters.clear();
+    }
+
     function restingPhase() {
         return identityHasDocument(snapshot.value.identity) ? 'presented' as const : 'empty' as const;
     }
@@ -377,7 +384,7 @@ export function createWorkspaceDocumentController(options: {
     /** A null failure is a cancelled open: the tab returns to what it held. */
     function markFailed(failure: IWorkspaceOpenFailure | null) {
         const transaction = snapshot.value.activeTransaction;
-        if (!transaction) {
+        if (!transaction && !failure) {
             return;
         }
         update({
@@ -387,11 +394,18 @@ export function createWorkspaceDocumentController(options: {
             failure: failure
                 ? {
                     ...failure,
-                    fileName: transaction.target?.fileName ?? null,
+                    fileName: transaction
+                        ? transaction.target?.fileName ?? null
+                        : snapshot.value.identity.fileName,
                 }
                 : null,
         }, true);
-        settle(transaction, false);
+        if (transaction) {
+            settle(transaction, false);
+        }
+        if (failure) {
+            settleMountWaiters(null);
+        }
     }
 
     function dismissFailure() {
@@ -421,11 +435,16 @@ export function createWorkspaceDocumentController(options: {
 
     function attachWorkspace(workspace: IWorkspaceExpose) {
         mountedWorkspace.value = workspace;
-        update({mounted: true});
-        for (const resolve of mountWaiters) {
-            resolve(workspace);
-        }
-        mountWaiters.clear();
+        update({
+            mounted: true,
+            ...(snapshot.value.phase === 'failed'
+                ? {
+                    phase: restingPhase(),
+                    failure: null,
+                }
+                : {}),
+        });
+        settleMountWaiters(workspace);
     }
 
     function detachWorkspace(workspace: IWorkspaceExpose) {
@@ -450,6 +469,9 @@ export function createWorkspaceDocumentController(options: {
     function whenMounted() {
         if (mountedWorkspace.value) {
             return Promise.resolve(mountedWorkspace.value);
+        }
+        if (snapshot.value.phase === 'failed') {
+            return Promise.resolve(null);
         }
         return new Promise<IWorkspaceExpose | null>((resolve) => {
             mountWaiters.add(resolve);
@@ -512,10 +534,7 @@ export function createWorkspaceDocumentController(options: {
 
     function dispose() {
         supersedeActiveTransaction();
-        for (const resolve of mountWaiters) {
-            resolve(null);
-        }
-        mountWaiters.clear();
+        settleMountWaiters(null);
     }
 
     function getTargetDocumentBackend(documentRef: string | null) {
