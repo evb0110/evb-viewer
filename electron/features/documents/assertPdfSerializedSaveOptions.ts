@@ -25,8 +25,8 @@ export default function assertPdfSerializedSaveOptions(value: unknown, label: st
     )) {
         throw new TypeError(`${label}.changedObjectRefs must contain at most 128 canonical PDF object references`);
     }
-    if (value.workingCopyOnly !== undefined && value.workingCopyOnly !== true) {
-        throw new TypeError(`${label}.workingCopyOnly must be true when provided`);
+    if (value.workingCopyOnly !== true) {
+        throw new TypeError(`${label}.workingCopyOnly must be true`);
     }
     return {
         expectedDocumentRevisionToken: parsedToken,

@@ -176,7 +176,7 @@ import {
     handleReplaceWorkingCopyFromStagedPdfNativeMutation,
 } from '@electron/features/documents/main/stagedPdfNativeMutationHandlers';
 import {
-    beginSerializedPdfSaveToOriginal,
+    beginSerializedPdfSaveToWorkingCopy,
     cancelStagedSerializedPdf,
     commitStagedSerializedPdf,
 } from '@electron/features/documents/main/serializedPdfPersistence';
@@ -676,7 +676,7 @@ export function registerDocumentsDirectIpc(
         workingPath: TDocumentRef,
         totalBytes: number,
         options?: IPdfSerializedSaveOptions,
-    ) => beginSerializedPdfSaveToOriginal(senderContext(event), workingPath, totalBytes, options));
+    ) => beginSerializedPdfSaveToWorkingCopy(senderContext(event), workingPath, totalBytes, options));
     registrar.handle(DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf, (
         event,
         sessionId: TSessionId,

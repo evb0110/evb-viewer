@@ -25,7 +25,6 @@ import {
     type TSessionId,
 } from '@contracts/shared';
 import type {IPdfSerializedSaveOptions} from '@contracts/electronApiDocuments';
-import { createWorkingCopySyncWarning } from '@contracts/electronApiDocuments';
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -53,15 +52,10 @@ import {
     isPdfPersistencePreloadToMainPayload,
     normalizePdfPersistencePreloadToMainPayload,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
-import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
+import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
-import {
-    getWorkingCopyOriginalPath,
-    refreshWorkingCopyOriginalFileExpectation,
-} from '@electron/file-access/workingCopyStore';
-import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
 import {
     allowOpenPath,
@@ -70,9 +64,6 @@ import {
 import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import { assertQueuedWorkingCopyMutationPreconditions } from '@electron/file-access/documentMutationGuards';
-import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
-import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
 import type {
     IDocumentsSenderIdContext,
@@ -83,9 +74,7 @@ import {
     type IRegisteredMainOperation,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {
-    createTypedStagedArtifact,
-    createTypedStagedArtifactForTrustedSiblingCopy,
-    releaseManagedTempFileHandle,
+    createTypedStagedArtifact, releaseManagedTempFileHandle,
 } from '@electron/features/documents/main/managedTempFileHandles';
 
 const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
@@ -96,11 +85,8 @@ const SERIALIZED_PDF_RESULT_TIMEOUT_MS = PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_
 const MAX_SERIALIZED_PDF_SESSIONS_PER_SENDER = 4;
 const PDF_EOF_TAIL_BYTES = 64 * 1024;
 
-type TSerializedPdfPersistenceMode = 'save' | 'working_copy';
-
 interface ISerializedPdfPersistenceSession {
     id: TSessionId;
-    mode: TSerializedPdfPersistenceMode;
     senderId: number;
     sender: WebContents;
     workingPath: string;
@@ -136,8 +122,6 @@ interface ISerializedPdfPersistenceSession {
 interface ISerializedPdfPersistenceCommitResult {
     validation: IPdfValidationResult;
     targetWriteCommitted: boolean;
-    workingCopyRefreshed: boolean;
-    workingCopySyncError: string | null;
 }
 
 interface ISerializedPdfPersistenceStageResult {
@@ -164,10 +148,6 @@ function requireDocumentRef(value: unknown): TDocumentRef {
         throw new Error('Expected an absolute document ref');
     }
     return documentRef;
-}
-
-function createOriginalChangedValidationResult() {
-    return createEmptyPdfValidationResult('Original file changed on disk; save skipped to avoid overwriting external edits');
 }
 
 function normalizeExpectedDocumentRevisionToken(
@@ -214,18 +194,6 @@ function normalizeTotalBytes(totalBytes: unknown) {
     }
 
     return totalBytes;
-}
-
-function getValidatedOriginalPath(workingPath: string, senderWebContentsId: number) {
-    const originalPath = getWorkingCopyOriginalPath(workingPath, senderWebContentsId)?.originalPath;
-    if (!originalPath) {
-        throw new Error('No original path found for this working copy');
-    }
-    if (!isAllowedOriginalSavePath(originalPath)) {
-        throw new Error('Invalid original path for this working copy');
-    }
-
-    return originalPath;
 }
 
 function clearSessionTimeout(session: ISerializedPdfPersistenceSession) {
@@ -332,7 +300,6 @@ function registerSessionSenderCleanup(sender: WebContents, getSession: () => ISe
 }
 
 async function createSession(options: {
-    mode: TSerializedPdfPersistenceMode;
     sender: WebContents;
     workingPath: string;
     targetPath: string;
@@ -363,7 +330,6 @@ async function createSession(options: {
 
     const session: ISerializedPdfPersistenceSession = {
         id,
-        mode: options.mode,
         senderId: options.sender.id,
         sender: options.sender,
         workingPath: options.workingPath,
@@ -400,7 +366,7 @@ async function createSession(options: {
     return session;
 }
 
-export async function beginSerializedPdfSaveToOriginal(
+export async function beginSerializedPdfSaveToWorkingCopy(
     context: IDocumentsWebContentsContext,
     workingPath: unknown,
     totalBytes: unknown,
@@ -408,20 +374,18 @@ export async function beginSerializedPdfSaveToOriginal(
 ): Promise<IBeginSerializedPdfPersistenceResult> {
     const normalizedWorkingPath = normalizeWorkingPath(workingPath);
     const normalizedTotalBytes = normalizeTotalBytes(totalBytes);
-    const workingCopyOnly = serializedSaveOptions?.workingCopyOnly === true;
-    const targetPath = workingCopyOnly
-        ? normalizedWorkingPath
-        : getValidatedOriginalPath(normalizedWorkingPath, context.senderId);
+    if (serializedSaveOptions?.workingCopyOnly !== true) {
+        throw new Error('Serialized PDF persistence only stages managed working copies');
+    }
 
     await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
         ownerWebContentsId: context.senderId,
         reason: 'serialized-persistence',
     });
     const session = await createSession({
-        mode: workingCopyOnly ? 'working_copy' : 'save',
         sender: context.sender,
         workingPath: normalizedWorkingPath,
-        targetPath,
+        targetPath: normalizedWorkingPath,
         serializedSaveOptions,
         totalBytes: normalizedTotalBytes,
     });
@@ -532,10 +496,6 @@ async function commitSession(
         throw new Error('Serialized PDF persistence session does not match the staged artifact');
     }
     const committedValidation = session.stagedValidation;
-    let conflictValidation = null as IPdfValidationResult | null;
-    let targetWriteCommitted = false;
-    let workingCopyRefreshed = false;
-    const workingCopySyncError: string | null = null;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
         await assertQueuedWorkingCopyMutationPreconditions(
             session.workingPath,
@@ -545,111 +505,27 @@ async function commitSession(
             ownerWebContentsId: session.senderId,
             reason: 'serialized-persistence',
         });
-
-        let commitArtifact = stagedOutput;
-        if (session.mode === 'save') {
-            const currentTargetPath = getValidatedOriginalPath(session.workingPath, session.senderId);
-            if (currentTargetPath !== session.targetPath) {
-                const reboundTempPath = `${makeSiblingTempPath(currentTargetPath)}.pdf`;
-                try {
-                    await copyFileCopyOnWrite(session.tempPath, reboundTempPath);
-                    const reboundHandle = await open(reboundTempPath, 'r+');
-                    try {
-                        await syncFileHandleForDurability(reboundHandle);
-                    } finally {
-                        await reboundHandle.close();
-                    }
-                    if (allowOpenPath(reboundTempPath, session.sender) === null) {
-                        throw new Error('Rebound serialized PDF staging path could not be granted for verification');
-                    }
-                    commitArtifact = await createTypedStagedArtifactForTrustedSiblingCopy(
-                        {senderId: session.senderId},
-                        stagedOutput,
-                        reboundTempPath,
-                        currentTargetPath,
-                        stagedOutput.validations,
-                    );
-                } catch (error) {
-                    removeAllowedOpenPath(reboundTempPath);
-                    await rm(reboundTempPath, {force: true}).catch(() => undefined);
-                    throw error;
-                }
-                releaseManagedTempFileHandle({senderId: session.senderId}, stagedOutput.leaseId);
-                removeAllowedOpenPath(session.tempPath);
-                await rm(session.tempPath, {force: true}).catch(() => undefined);
-                session.tempPath = reboundTempPath;
-                session.targetPath = currentTargetPath;
-                session.stagedOutput = commitArtifact;
-            }
-        }
-        const receipt = {
-            artifact: commitArtifact,
-            context: {senderId: session.senderId},
-        };
-
-        if (session.mode === 'working_copy') {
-            await transitionWorkingCopyContentRevision(
-                session.workingPath,
-                'replace-working-copy',
-                async () => {
-                    await commitPdfTempFile(session.tempPath, session.workingPath, {
-                        signal: session.lifecycleOperation.signal,
-                        ownerId: `serialized-pdf:${session.id}`,
-                        receipt,
-                        ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-                    });
-                },
-                session.senderId,
-            );
-            targetWriteCommitted = true;
-            workingCopyRefreshed = true;
-        } else {
-            const transition = await transitionOriginalAndWorkingCopyRevision({
-                workingCopyPath: session.workingPath,
-                originalPath: session.targetPath,
-                reason: 'save-sync',
-                senderId: session.senderId,
-                signal: session.lifecycleOperation.signal,
-                captureOriginalWitness: () => captureOriginalPathSaveWitness(
-                    session.workingPath,
-                    session.targetPath,
-                    session.senderId,
-                    session.lifecycleOperation.signal,
-                ),
-                publishOriginal: async assertDestinationCurrent => {
-                    await commitPdfTempFile(session.tempPath, session.targetPath, {
-                        signal: session.lifecycleOperation.signal,
-                        ownerId: `serialized-pdf:${session.id}`,
-                        receipt,
-                        ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                    });
-                },
-                afterWorkingCopySync: async () => {
-                    if (!await refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId)) {
-                        throw new Error('Working copy registration changed before original expectation refresh completed');
-                    }
-                    workingCopyRefreshed = true;
-                },
-                afterOriginalRestore: async () => {
-                    if (!await refreshWorkingCopyOriginalFileExpectation(session.workingPath, session.senderId)) {
-                        throw new Error('Working copy registration changed after original restore');
-                    }
-                },
-            });
-            if (!transition) {
-                conflictValidation = createOriginalChangedValidationResult();
-            } else {
-                targetWriteCommitted = true;
-            }
-        }
+        await transitionWorkingCopyContentRevision(
+            session.workingPath,
+            'replace-working-copy',
+            async () => {
+                await commitPdfTempFile(session.tempPath, session.workingPath, {
+                    signal: session.lifecycleOperation.signal,
+                    ownerId: `serialized-pdf:${session.id}`,
+                    receipt: {
+                        artifact: stagedOutput,
+                        context: {senderId: session.senderId},
+                    },
+                    ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+                });
+            },
+            session.senderId,
+        );
     }, {ownerWebContentsId: session.senderId});
 
     return {
-        validation: conflictValidation ?? committedValidation,
-        targetWriteCommitted,
-        workingCopyRefreshed,
-        workingCopySyncError,
+        validation: committedValidation,
+        targetWriteCommitted: true,
     };
 }
 
@@ -709,7 +585,6 @@ export async function commitStagedSerializedPdf(
             return {
                 path,
                 validation: result.validation,
-                ...(result.workingCopySyncError === null ? {} : {warning: createWorkingCopySyncWarning(result.workingCopySyncError)}),
             };
         } catch (error) {
             await cleanupSession(session);

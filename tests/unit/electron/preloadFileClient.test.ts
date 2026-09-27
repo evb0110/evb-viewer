@@ -50,7 +50,10 @@ class FakeMessagePort {
 }
 
 describe('createDocumentsPreloadStreams', () => {
-    const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save') };
+    const revisionOptions = {
+        expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save'),
+        workingCopyOnly: true as const,
+    };
 
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -234,6 +237,22 @@ describe('createDocumentsPreloadStreams', () => {
         expect(chunks[1]?.bytes[2]).toBe(3);
         expect(port1.postedTransfers[1]).toEqual([]);
         expect(port1.postedTransfers[1]).not.toContain(sourceBytes.buffer);
+    });
+
+    it('rejects original-mode PDF persistence before opening an IPC session', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            send: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>;
+        const client = createDocumentsPreloadStreams(ipcRenderer);
+
+        await expect(client.savePdfData(
+            requireDocumentRef('/tmp/working.pdf'),
+            Uint8Array.of(1),
+            {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save')},
+        )).rejects.toThrow('workingCopyOnly must be true');
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('keeps a bounded pair of PDF persistence chunks in flight', async () => {
