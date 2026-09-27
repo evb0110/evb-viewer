@@ -467,10 +467,23 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const rasterState = committedRasterState === 'current' && renderOptions.forceRerender === true
                 ? 'stale-scale'
                 : committedRasterState;
-            const retainedJob = rasterState === 'current'
-                && renderOptions.contentIntent !== 'canvas-only-refine'
-                ? [...viewportRasterJobs.values()].find(job => job.demand.pageNumber === pageNumber)
-                : undefined;
+            const rasterIdentity = [
+                renderVersion,
+                pageNumber,
+                outputScale,
+                getRenderDocumentToken(),
+                pageRenderOptions.contentIntent ?? 'full-visible',
+                pageRenderOptions.maxCanvasPixels ?? '',
+                pageRenderOptions.openSurfaceGeneration ?? '',
+                pageRenderOptions.openSurfaceRevision ?? '',
+            ].join(':');
+            // An in-flight raster is already scale-current within tolerance.
+            // Keep its key so float drift in a recomputed fit cannot orphan it.
+            const retainedJob = [...viewportRasterJobs.values()].find(job => job.demand.pageNumber === pageNumber && (
+                rasterState === 'in-flight'
+                    ? job.rasterIdentity === rasterIdentity
+                    : rasterState === 'current' && renderOptions.contentIntent !== 'canvas-only-refine'
+            ));
             const demand: IPdfRasterDemand = {
                 consumerGeneration: renderVersion,
                 documentFence: scheduler.documentFence,
@@ -481,22 +494,13 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     ? pageNumber - range.start
                     : distance,
                 pageNumber,
-                renderKey: retainedJob?.demand.renderKey ?? [
-                    renderVersion,
-                    pageNumber,
-                    scale,
-                    outputScale,
-                    getRenderDocumentToken(),
-                    pageRenderOptions.contentIntent ?? 'full-visible',
-                    pageRenderOptions.maxCanvasPixels ?? '',
-                    pageRenderOptions.openSurfaceGeneration ?? '',
-                    pageRenderOptions.openSurfaceRevision ?? '',
-                ].join(':'),
+                renderKey: retainedJob?.demand.renderKey ?? `${rasterIdentity}:${String(scale)}`,
                 retention: 'render-cache',
             };
             const existing = viewportRasterJobs.get(demand.renderKey);
             const job = existing ?? {
                 demand,
+                rasterIdentity,
                 rasterState: rasterState === 'in-flight' ? 'absent' : rasterState,
                 renderOptions: pageRenderOptions,
                 targetOutputScale: outputScale,

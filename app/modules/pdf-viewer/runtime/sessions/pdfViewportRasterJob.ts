@@ -5,6 +5,8 @@ export type TPdfPageRasterState = 'current' | 'absent' | 'in-flight' | 'stale-sc
 
 export interface IPdfViewportRasterJob {
     demand: IPdfRasterDemand;
+    /** The render key without its scale. */
+    rasterIdentity: string;
     rasterState: TPdfPageRasterState;
     renderOptions: IRenderVisiblePagesOptions;
     targetOutputScale: number;
