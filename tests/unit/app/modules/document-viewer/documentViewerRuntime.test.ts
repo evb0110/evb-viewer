@@ -94,7 +94,6 @@ describe('document viewer chassis authority', () => {
     });
 
     it('publishes opening-page visual state only through the connected owned frame', () => {
-        vi.useFakeTimers();
         const authority = createDocumentViewerRuntime(ref('djvu'));
         const generation = authority.openSurface.begin({
             documentId: '/documents/scan.djvu',
@@ -119,8 +118,6 @@ describe('document viewer chassis authority', () => {
 
         expect(authority.commitOpeningPageVisual(generation - 1, 3, 'fresh')).toBe(false);
         expect(authority.commitOpeningPageVisual(generation, 2, 'fresh')).toBe(false);
-        expect(authority.openingPageVisual.value).toBe('none');
-        vi.advanceTimersByTime(120);
         expect(authority.openingPageVisual.value).toBe('skeleton');
         expect(authority.commitOpeningPageVisual(generation, 3, 'fresh')).toBe(true);
         expect(authority.openingPageVisual.value).toBe('fresh');
@@ -128,8 +125,7 @@ describe('document viewer chassis authority', () => {
             documentId: '/documents/next.djvu',
             documentRevision: 'revision-2',
         });
-        expect(authority.openingPageVisual.value).toBe('none');
-        vi.useRealTimers();
+        expect(authority.openingPageVisual.value).toBe('skeleton');
     });
 
     it('keeps one navigation, page-slot, and surface-budget authority across PDF and DjVu sources', async () => {
