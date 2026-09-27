@@ -14,6 +14,7 @@ const MAX_PAGE_ANNOTATIONS: usize = 100_000;
 const MAX_ANNOTATION_REPLIES: usize = 4_096;
 const MAX_HIGHLIGHT_QUADS: usize = 512;
 const MAX_STAMP_IMAGE_GRAPH_NODES: usize = 32;
+const MAX_STAMP_APPEARANCE_STREAM_BYTES: usize = 1024 * 1024;
 const MARKER_RECT_THRESHOLD: f64 = 0.02;
 const MARKER_RECT_EPSILON: f64 = f64::EPSILON * 16.0;
 
@@ -273,7 +274,7 @@ pub(crate) fn write_annotation_parse_path(
         ));
     }
 
-    let incremental = load_annotation_index_pdf_path(input_path, qpdf_path)
+    let mut incremental = load_annotation_index_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     if incremental.get_prev_documents().is_encrypted() {
         return Err(domain_error(
@@ -281,6 +282,7 @@ pub(crate) fn write_annotation_parse_path(
             "Encrypted PDFs are not supported by the annotation parse operation",
         ));
     }
+    materialize_managed_stamp_streams(&mut incremental, input_path, qpdf_path)?;
 
     let mut output = AtomicOutput::create(output_path)?;
     #[cfg(unix)]
@@ -308,6 +310,85 @@ pub(crate) fn write_annotation_parse_path(
         },
     )?;
     output.publish()?;
+    Ok(())
+}
+
+/// The bounded structural reader omits stream bytes from path-backed PDFs
+/// above the eager-load ceiling. Annotation parsing still needs the small
+/// appearance form and JPEG stream for managed placed images, so restore only
+/// those reachable streams through qpdf before parsing the annotation graph.
+fn materialize_managed_stamp_streams(
+    incremental: &mut IncrementalDocument,
+    input_path: &Path,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let Some(qpdf_path) = qpdf_path else {
+        return Ok(());
+    };
+
+    let stream_refs = {
+        let document = AppendedRevision::new(incremental);
+        let mut stream_refs = Vec::new();
+        let mut seen_streams = HashSet::new();
+        for page_id in document.page_ids().into_values() {
+            for annotation in get_page_annots(&document, page_id)? {
+                let Ok(annotation) = document.resolved(&annotation) else {
+                    continue;
+                };
+                let Ok(dictionary) = annotation.as_dict() else {
+                    continue;
+                };
+                if !is_managed_placed_image_stamp(dictionary) {
+                    continue;
+                }
+                if let Ok(graph) = stamp_image_graph(&document, dictionary) {
+                    for (object_id, stream) in graph {
+                        let is_image = stream
+                            .dict
+                            .get(b"Subtype")
+                            .ok()
+                            .and_then(|value| value.as_name().ok())
+                            == Some(b"Image".as_slice());
+                        if !seen_streams.insert(object_id) {
+                            continue;
+                        }
+                        stream_refs.push((
+                            object_id,
+                            if is_image {
+                                MAX_PLACED_IMAGE_BYTES as usize
+                            } else {
+                                MAX_STAMP_APPEARANCE_STREAM_BYTES
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        stream_refs
+    };
+
+    let mut remaining = MAX_PLACED_IMAGE_AGGREGATE_BYTES as usize;
+    for (object_id, stream_limit) in stream_refs {
+        if remaining == 0 {
+            break;
+        }
+        let max_bytes = remaining.min(stream_limit);
+        // Keep an unsupported or oversized image foreign without withholding
+        // otherwise readable annotations from the same document.
+        if incremental
+            .materialize_base_stream(input_path, qpdf_path, object_id, max_bytes)
+            .is_err()
+        {
+            continue;
+        }
+        let size = incremental
+            .get_prev_documents()
+            .get_object(object_id)?
+            .as_stream()?
+            .content
+            .len();
+        remaining = remaining.saturating_sub(size);
+    }
     Ok(())
 }
 
@@ -841,7 +922,7 @@ fn stamp_appearance_cm_matrix(
         return None;
     };
     let bytes = appearance_stream
-        .decompressed_content_with_limit(1024 * 1024)
+        .decompressed_content_with_limit(MAX_STAMP_APPEARANCE_STREAM_BYTES)
         .ok()?;
     let content = std::str::from_utf8(&bytes).ok()?;
     let mut values: Vec<f64> = Vec::with_capacity(6);
@@ -872,6 +953,17 @@ fn resolve_stamp_image(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
 ) -> std::result::Result<PdfAnnotationParseStampImage, String> {
+    let graph = stamp_image_graph(document, dict)?;
+    let Some((object_id, stream)) = graph.last().copied() else {
+        return Err("Stamp has no JPEG image in its appearance graph".to_string());
+    };
+    stamp_image_reference(document, object_id, stream)
+}
+
+fn stamp_image_graph<'a>(
+    document: &'a impl PdfObjectSource,
+    dict: &Dictionary,
+) -> std::result::Result<Vec<(ObjectId, &'a Stream)>, String> {
     let appearance = dict
         .get(b"AP")
         .ok()
@@ -885,6 +977,7 @@ fn resolve_stamp_image(
 
     let mut visited = HashSet::new();
     let mut pending = vec![appearance_id];
+    let mut streams = Vec::new();
     while let Some(object_id) = pending.pop() {
         if visited.contains(&object_id) {
             continue;
@@ -896,6 +989,7 @@ fn resolve_stamp_image(
         let Ok(Object::Stream(stream)) = document.object(object_id) else {
             continue;
         };
+        streams.push((object_id, stream));
         if stream
             .dict
             .get(b"Subtype")
@@ -903,7 +997,7 @@ fn resolve_stamp_image(
             .and_then(|value| value.as_name().ok())
             == Some(b"Image".as_slice())
         {
-            return stamp_image_reference(document, object_id, stream);
+            return Ok(streams);
         }
         if let Some(xobjects) = stream
             .dict
