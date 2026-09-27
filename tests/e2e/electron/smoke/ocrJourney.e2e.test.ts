@@ -1,4 +1,5 @@
 import {join} from 'node:path';
+import {stat} from 'node:fs/promises';
 import {GlobalFonts} from '@napi-rs/canvas';
 import type {
     ElementHandle,
@@ -8,7 +9,9 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {createScannedTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {assertOcrPdfSemanticOutput} from '@tests/e2e/electron/helpers/electronApiHelpers';
@@ -27,8 +30,18 @@ GlobalFonts.registerFromPath(
 
 const SCANNED_TEXT = 'Harbor lantern signal';
 const SEARCHED_WORD = 'lantern';
+const LATE_RESULT_TEXT = 'Copper weather beacon';
+const LATE_RESULT_WORD = 'beacon';
 const OCR_TIMEOUT_MS = 180_000;
 const ACTIVE_HOST = '.workspace-host[data-workspace-active="true"]';
+
+interface ILateOcrCompletionControl {
+    result: IOcrCompleteResult | null;
+    cancelClicked: boolean;
+    restore: () => void;
+}
+
+type TOcrControlWindow = Window & {__lateOcrCompletionControl?: ILateOcrCompletionControl};
 
 const sessionFixture = createElectronE2ESessionFixture({
     sessionName: () => `e2e-ocr-journey-${Date.now()}`,
@@ -52,6 +65,41 @@ async function waitForTextLayerWord(page: Page) {
         document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
             ?.textContent?.toLocaleLowerCase().includes(word) === true
     ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
+}
+
+async function installLateOcrCompletionControl(page: Page) {
+    await page.evaluate(() => {
+        const testWindow = window as TOcrControlWindow;
+        const ocr = window.electronAPI?.ocr;
+        if (!ocr) {
+            throw new Error('OCR capability unavailable in the renderer');
+        }
+        let stopObserving = () => {};
+        const control: ILateOcrCompletionControl = {
+            result: null,
+            cancelClicked: false,
+            restore() {
+                stopObserving();
+                delete testWindow.__lateOcrCompletionControl;
+            },
+        };
+        stopObserving = ocr.onComplete((result) => {
+            if (result.success && result.requiresCleanupAck === true && result.pdfPath) {
+                control.result = result;
+                const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                    .find(button => (
+                        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Cancel OCR'
+                        && !button.disabled
+                        && button.checkVisibility()
+                    ));
+                if (cancelButton) {
+                    control.cancelClicked = true;
+                    cancelButton.click();
+                }
+            }
+        });
+        testWindow.__lateOcrCompletionControl = control;
+    });
 }
 
 describe('Electron E2E - OCR journey', () => {
@@ -115,5 +163,79 @@ describe('Electron E2E - OCR journey', () => {
         ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
         await page.click(`${ACTIVE_HOST} .document-search-result`);
         await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
+    }, 300_000);
+
+    it('acknowledges a real OCR result that arrives after the user cancels', async () => {
+        const session = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            sessionName: () => `e2e-ocr-late-result-${Date.now()}`,
+        });
+        const {page} = session;
+        const sourcePath = await createScannedTextFixturePdf(
+            'ocr-late-result-scan.pdf',
+            LATE_RESULT_TEXT,
+            '60px EvbOcrJourneySans',
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await installLateOcrCompletionControl(page);
+
+        try {
+            await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+            await page.waitForSelector('[role="dialog"]', {visible: true});
+            await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+            await waitForFunctionInPage(page, () => {
+                const control = (window as TOcrControlWindow).__lateOcrCompletionControl;
+                return control?.result?.success === true;
+            }, {timeout: 30_000});
+            const completionControl = await page.evaluate(() => {
+                const control = (window as TOcrControlWindow).__lateOcrCompletionControl;
+                return control?.cancelClicked ?? false;
+            });
+            expect(completionControl).toBe(true);
+
+            const stagedResult = await page.evaluate(() => (
+                (window as TOcrControlWindow).__lateOcrCompletionControl?.result ?? null
+            ));
+            expect(stagedResult).toMatchObject({
+                success: true,
+                requiresCleanupAck: true,
+            });
+            expect(stagedResult?.pdfPath).toBeTruthy();
+
+            await waitForFunctionInPage(page, () => (
+                Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                    .some(button => (
+                        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Start OCR'
+                        && !button.disabled
+                        && button.checkVisibility()
+                    ))
+            ), {timeout: 30_000});
+
+            const stagedTextWasApplied = await page.evaluate((host: string, word: string) => (
+                document.querySelector(`${host} .page_container[data-page="1"] .text-layer`)
+                    ?.textContent?.toLocaleLowerCase().includes(word) === true
+            ), ACTIVE_HOST, LATE_RESULT_WORD);
+            expect(stagedTextWasApplied).toBe(false);
+
+            await vi.waitFor(async () => {
+                await expect(stat(stagedResult!.pdfPath!)).rejects.toMatchObject({code: 'ENOENT'});
+            }, {timeout: 30_000});
+
+            const textAfterLateCompletion = await page.evaluate((host: string, word: string) => (
+                document.querySelector(`${host} .page_container[data-page="1"] .text-layer`)
+                    ?.textContent?.toLocaleLowerCase().includes(word) === true
+            ), ACTIVE_HOST, LATE_RESULT_WORD);
+            expect(textAfterLateCompletion).toBe(false);
+        } finally {
+            await page.evaluate(() => {
+                (window as TOcrControlWindow).__lateOcrCompletionControl?.restore();
+            });
+        }
     }, 300_000);
 });
