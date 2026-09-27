@@ -6,14 +6,21 @@ import {
     it,
     vi,
 } from 'vitest';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import type { IPagePreviewSource } from '@app/modules/document-viewer/pagePreviewSource';
+import {createDjvuPagePreviewSourceFromPath} from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
 import {
     createDocumentProjectionSession,
     ensurePdfProjection,
 } from '@app/modules/document-viewer/session/documentProjectionSession';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import {requireDocumentRef} from '@contracts/documentRef';
+
+const djvuRouteMocks = vi.hoisted(() => ({loadDjvuJs: vi.fn()}));
+
+vi.mock('@app/platform/browser-api/djvujsLoader', () => ({loadDjvuJs: djvuRouteMocks.loadDjvuJs}));
 
 describe('document page sources', () => {
     it('exposes one cancellable full-document DjVu search provider with the known page count', async () => {
@@ -157,6 +164,87 @@ describe('document page sources', () => {
         expect(getPageSize).toHaveBeenCalledWith(3);
         expect(getPageSizes).not.toHaveBeenCalled();
         source.dispose();
+    });
+
+    it('keeps small DjVu documents native above the browser page limit', async () => {
+        let pageCount = 10_000;
+        const nativeGetInfo = vi.fn(async () => ({
+            pageCount,
+            sourceDpi: 300,
+            hasBookmarks: false,
+            hasText: false,
+            metadata: {},
+        }));
+        const nativeGetPageSourceInfo = vi.fn(async (_path: string, pageNumber: number) => ({
+            pageCount,
+            pageNumber: requirePageNumber(pageNumber),
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
+            },
+        }));
+        const nativeGetPageSizes = vi.fn(async () => []);
+        const browserPageSizes = Array.from({length: 10_000}, () => ({
+            width: 600,
+            height: 800,
+            dpi: 300,
+        }));
+        const browserGetPageSizes = vi.fn(async () => browserPageSizes);
+        const worker = {
+            doc: {
+                getPagesQuantity: () => ({run: async () => 10_000}),
+                getPagesSizes: () => ({run: browserGetPageSizes}),
+            },
+            createDocument: vi.fn(async () => undefined),
+            terminate: vi.fn(),
+            revokeObjectURL: vi.fn(),
+        };
+        function TestWorker() {
+            return worker;
+        }
+        djvuRouteMocks.loadDjvuJs.mockResolvedValue({Worker: TestWorker});
+        const electronApi = createElectronPlatformApiFixture({
+            documentFiles: {
+                readFile: vi.fn(async () => Uint8Array.of(1)),
+                statFile: vi.fn(async () => ({size: 1})),
+            },
+            djvu: {
+                getInfo: nativeGetInfo,
+                getPageSourceInfo: nativeGetPageSourceInfo,
+                getPageSizes: nativeGetPageSizes,
+            },
+        });
+        vi.stubGlobal('window', {electronAPI: electronApi});
+
+        try {
+            const browserPreview = await createDjvuPagePreviewSourceFromPath(
+                requireDocumentRef('/tmp/small-many-pages.djvu'),
+            );
+            await expect(browserPreview.getPageSizes()).resolves.toHaveLength(10_000);
+            expect(nativeGetInfo).toHaveBeenCalledOnce();
+            expect(browserGetPageSizes).toHaveBeenCalledOnce();
+            browserPreview.terminate();
+
+            pageCount = 10_001;
+            const nativePreview = await createDjvuPagePreviewSourceFromPath(
+                requireDocumentRef('/tmp/small-many-pages.djvu'),
+            );
+            const source = await createDjvuPageSource(
+                requireDocumentRef('/tmp/small-many-pages.djvu'),
+                nativePreview,
+                createWorkspaceSurfaceBudgetController(),
+            );
+
+            expect(source.pageCount).toBe(10_001);
+            expect(nativeGetInfo).toHaveBeenCalledTimes(2);
+            expect(nativeGetPageSourceInfo).toHaveBeenCalledWith('/tmp/small-many-pages.djvu', 1);
+            expect(nativeGetPageSizes).not.toHaveBeenCalled();
+            expect(djvuRouteMocks.loadDjvuJs).toHaveBeenCalledOnce();
+            source.dispose();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it('exposes leased raster, thumbnail, text, outline, and annotation providers', async () => {

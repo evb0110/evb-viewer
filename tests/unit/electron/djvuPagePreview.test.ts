@@ -69,7 +69,6 @@ const {
     getDjvuPageSizeForViewing,
     getDjvuPageSizeWindowsForViewing,
     getDjvuPageSizesForViewing,
-    DjvuPageSizeArrayLimitError,
     parseDjvuPageSizeOutput,
     renderDjvuPagePreview,
 } = await import('@electron/features/djvu/main/pagePreview');
@@ -317,7 +316,11 @@ describe('DjVu native page preview helpers', () => {
 
     it('refuses dense page-size arrays above the bounded compatibility ceiling', async () => {
         await expect(getDjvuPageSizesForViewing('/tmp/too-many-pages.djvu', 10_001))
-            .rejects.toBeInstanceOf(DjvuPageSizeArrayLimitError);
+            .rejects.toMatchObject({
+                code: 'too-large',
+                maxPages: 10_000,
+                pageCount: 10_001,
+            });
 
         expect(mocks.runNativeCommand).not.toHaveBeenCalled();
     });
