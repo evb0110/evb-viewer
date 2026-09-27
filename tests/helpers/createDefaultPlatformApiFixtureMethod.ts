@@ -127,6 +127,15 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     'search.warmIndex': true,
     'search.cancel': {canceled: false},
     'search.resetCache': true,
+    'imageExport.exportPdfToImages': {
+        success: true,
+        outputPaths: [],
+    },
+    'imageExport.exportPdfToMultiPageTiff': {
+        success: true,
+        outputPath: '/tmp/fixture.tiff',
+        outputPaths: ['/tmp/fixture.tiff'],
+    },
     'windowTabs.transfer': {
         transferId: 'transfer-1',
         success: true,
@@ -301,9 +310,7 @@ function createAsyncDefault(path: string) {
     });
 }
 
-export function createDefaultPlatformApiFixtureMethod(
-    descriptor: IPlatformMethodDescriptor, example?: () => unknown,
-) {
+export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMethodDescriptor) {
     if (descriptor.kind === 'event') {
         const subscribers = new Set<(payload: unknown) => void>();
         const method = cast<TPlatformApiFixtureEventFunction & IPlatformApiFixtureEventMethod>(vi.fn((callback: (payload: unknown) => void) => {
@@ -337,11 +344,6 @@ export function createDefaultPlatformApiFixtureMethod(
         };
         Object.assign(method, controls);
         return method;
-    }
-    if (example !== undefined) {
-        return descriptor.kind === 'async'
-            ? vi.fn(async () => example())
-            : vi.fn(() => example());
     }
     const path = descriptor.path.join('.');
     if (Object.hasOwn(FEATURE_RESULTS, path)) {

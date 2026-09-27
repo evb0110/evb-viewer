@@ -17,7 +17,7 @@ import type {
     IImageExportProgress,
     TDocumentImageExportSourceKind,
     TImageExportProgressFormat,
-} from '@contracts/electronApiDocuments';
+} from '@contracts/imageExportPlatformFeature';
 import {
     getDocumentWorkingCopyCapability,
     getImageExportCapability,

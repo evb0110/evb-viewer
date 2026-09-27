@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { requireRequestId } from '@contracts/shared';
+import * as v from 'valibot';
 
 describe('image export platform feature schemas', () => {
     const channels = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
@@ -102,17 +103,17 @@ describe('image export platform feature schemas', () => {
             status: 'running' as const,
         };
 
-        expect(event.payload.decode(progress)).toEqual(progress);
+        expect(v.parse(event.payload, progress, {abortEarly: true})).toEqual(progress);
         expect(event.subscription.replay.key(progress)).toBe('export-1');
         expect(event.subscription.replay.terminal(progress)).toBe(false);
         expect(event.subscription.replay.terminal({
             ...progress,
             status: 'success',
         })).toBe(true);
-        expect(() => event.payload.decode({
+        expect(() => v.parse(event.payload, {
             ...progress,
             processed: '1',
-        }))
+        }, {abortEarly: true}))
             .toThrow('invalid image export progress');
     });
 });

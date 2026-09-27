@@ -23,11 +23,11 @@ import {
     normalizeImageExportPath,
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/te';
-import type {
-    IImageExportProgress,
-    TImageExportProgressFormat,
-} from '@contracts/electronApiDocuments';
-import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+import {
+    IMAGE_EXPORT_PLATFORM_FEATURE,
+    type IImageExportProgress,
+    type TImageExportProgressFormat,
+} from '@contracts/imageExportPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';

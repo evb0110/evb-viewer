@@ -545,23 +545,6 @@ export function createWorkingCopySyncWarning(detail: string): IPdfSaveAsWarning 
 
 export interface IPdfCommittedSaveAsResult extends IPdfSaveAsResult {readonly validation: IPdfValidationResult;}
 
-export type TImageExportProgressFormat = 'images' | 'multipage-tiff';
-export type TImageExportProgressPhase = 'rendering' | 'combining';
-export type TImageExportProgressStatus = 'running' | 'success' | 'canceled' | 'failed';
-
-export interface IImageExportProgress {
-    readonly requestId: TRequestId;
-    readonly format: TImageExportProgressFormat;
-    readonly phase: TImageExportProgressPhase;
-    readonly processed: number;
-    readonly total: number;
-    readonly percent: number;
-    readonly status?: TImageExportProgressStatus;
-    readonly error?: string;
-}
-
-export type TDocumentImageExportSourceKind = 'pdf' | 'djvu';
-
 export interface IDocumentsMenuCapability {
     setMenuDocumentState: (state: boolean | TPlatformApplicationMenuDocumentState) => Promise<void>;
     setMenuTabCount: (tabCount: number) => Promise<void>;

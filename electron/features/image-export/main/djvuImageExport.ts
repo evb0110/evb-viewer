@@ -11,7 +11,7 @@ import {
     extname,
     join,
 } from 'node:path';
-import type { IImageExportProgress } from '@contracts/electronApiDocuments';
+import type { IImageExportProgress } from '@contracts/imageExportPlatformFeature';
 import {
     convertDjvuPageToImage,
     getDjvuPageCount,

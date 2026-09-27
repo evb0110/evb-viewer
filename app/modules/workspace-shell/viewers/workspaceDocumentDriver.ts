@@ -38,7 +38,7 @@ import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
-import type {TDocumentImageExportSourceKind} from '@contracts/electronApiDocuments';
+import type {TDocumentImageExportSourceKind} from '@contracts/imageExportPlatformFeature';
 import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,

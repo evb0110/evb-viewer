@@ -1,10 +1,7 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import type { TPlatformBackend } from '@contracts/platformDescriptorTypes';
 import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
-import {
-    PLATFORM_FEATURE_REGISTRY,
-    type IPlatformMethodDescriptor,
-} from '@contracts/platformApiDescriptor';
+import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
 import { isRecord } from '@contracts/runtimeGuards';
 import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 
@@ -80,21 +77,11 @@ function deepMerge(
 function createBasePlatformApiFixture() {
     const api: Record<string, unknown> = {};
     const methods: readonly IPlatformMethodDescriptor[] = PLATFORM_API_DESCRIPTOR.methods;
-    const migratedExamples = new Map(
-        PLATFORM_FEATURE_REGISTRY.flatMap(feature =>
-            feature.fixtureMethods.map(fixture => [
-                fixture.descriptor.path.join('.'),
-                fixture.example,
-            ] as const)),
-    );
     for (const descriptor of methods) {
         setPath(
             api,
             descriptor.path,
-            createDefaultPlatformApiFixtureMethod(
-                descriptor,
-                migratedExamples.get(descriptor.path.join('.')),
-            ),
+            createDefaultPlatformApiFixtureMethod(descriptor),
         );
     }
     return api;

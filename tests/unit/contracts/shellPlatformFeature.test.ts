@@ -39,9 +39,4 @@ describe('shell platform feature schemas', () => {
         expect(() => codec.decodeResult(null))
             .toThrow('expected an undefined IPC result');
     });
-
-    it('does not store an example factory in the production descriptor', () => {
-        expect(SHELL_PLATFORM_FEATURE.fixtureMethods).toEqual([]);
-        expect(codec.decodeResult(undefined)).toBeUndefined();
-    });
 });

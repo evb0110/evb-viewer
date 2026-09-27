@@ -30,7 +30,7 @@ import {
 } from 'es-toolkit/math';
 import { encode as encodePng } from 'fast-png';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import type { TImageExportProgressPhase } from '@contracts/electronApiDocuments';
+import type { TImageExportProgressPhase } from '@contracts/imageExportPlatformFeature';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     buildPopplerEnv,

@@ -351,6 +351,18 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         pdfPath: '/tmp/search.pdf',
         query: 'needle',
     }],
+    'pdfExport:images': [
+        '/tmp/fixture.pdf',
+        undefined,
+        'image-export-fixture',
+        'pdf',
+    ],
+    'pdfExport:multipage-tiff': [
+        '/tmp/fixture.pdf',
+        undefined,
+        'image-export-fixture',
+        'pdf',
+    ],
     'pdf:search:warmIndex': [{pdfPath: '/tmp/search.pdf'}],
     'pdf:search:cancel': ['search-fixture'],
     'tabs:transfer': [{
@@ -490,8 +502,7 @@ export function createFeatureRegistrarCases(feature: TAnyDefinedPlatformFeature)
         if (spec.kind === 'sync' || 'local' in spec) {
             return [];
         }
-        const validArgs = schemaArgsExamples[spec.channel]
-            ?? ('example' in spec.ipc.args ? spec.ipc.args.example() : []);
+        const validArgs = schemaArgsExamples[spec.channel] ?? [];
         return [{
             channel: spec.channel,
             validArgs,

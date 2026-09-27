@@ -56,9 +56,4 @@ describe('settings platform feature schemas', () => {
             version: Number.NaN,
         })).toThrow('invalid settings result field: version');
     });
-
-    it('leaves result fixtures in tests instead of the production descriptor', () => {
-        expect(SETTINGS_PLATFORM_FEATURE.fixtureMethods).toEqual([]);
-        expect(codecs[channels.get]!.decodeResult(DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS);
-    });
 });

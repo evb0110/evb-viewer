@@ -7,12 +7,10 @@ import {
     clamp,
 } from 'es-toolkit/math';
 import type {
-    IImageExportProgress,
-    TImageExportProgressFormat,
-} from '@contracts/electronApiDocuments';
-import type {
     IMAGE_EXPORT_PLATFORM_FEATURE,
     IImageExportCapability,
+    IImageExportProgress,
+    TImageExportProgressFormat,
 } from '@contracts/imageExportPlatformFeature';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
 import {
