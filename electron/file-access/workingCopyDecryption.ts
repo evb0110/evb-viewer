@@ -17,8 +17,8 @@ import {getAppTempDir} from '@electron/utils/appTempDir';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
-import { isRecord } from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
+import * as v from 'valibot';
 
 const DECRYPT_TIMEOUT_MS = 2 * 60 * 1000;
 const logger = createLogger('working-copy-decryption');
@@ -45,13 +45,33 @@ export type TWorkingCopyDecryptionResult =
         revision: null;
     };
 
-interface IDecryptOutcomeSidecar {
-    format: 'evb-pdf-decrypt';
-    schemaVersion: 1;
-    outcome: 'opened' | 'rewritten';
-    wasEncrypted: boolean;
-    revision: number | null;
-}
+const decryptOutcomeBaseSchema = v.object({
+    format: v.literal('evb-pdf-decrypt'),
+    schemaVersion: v.literal(1),
+    outcome: v.picklist([
+        'opened',
+        'rewritten',
+    ]),
+    wasEncrypted: v.boolean(),
+    revision: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
+});
+const decryptOutcomeSchema = v.variant('outcome', [
+    v.object({
+        format: v.literal('evb-pdf-decrypt'),
+        schemaVersion: v.literal(1),
+        outcome: v.literal('opened'),
+        wasEncrypted: v.literal(false),
+        revision: v.null(),
+    }),
+    v.object({
+        format: v.literal('evb-pdf-decrypt'),
+        schemaVersion: v.literal(1),
+        outcome: v.literal('rewritten'),
+        wasEncrypted: v.literal(true),
+        revision: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+    }),
+]);
+type IDecryptOutcomeSidecar = v.InferOutput<typeof decryptOutcomeSchema>;
 
 /** Error used only inside the main-process open attempt. */
 export class PdfDecryptAttemptError extends Error {
@@ -65,30 +85,17 @@ export class PdfDecryptAttemptError extends Error {
 }
 
 function parseOutcomeSidecar(value: unknown): IDecryptOutcomeSidecar {
-    if (!isRecord(value)
-        || value.format !== 'evb-pdf-decrypt'
-        || value.schemaVersion !== 1
-        || (value.outcome !== 'opened' && value.outcome !== 'rewritten')
-        || typeof value.wasEncrypted !== 'boolean'
-        || (value.revision !== null
-            && (typeof value.revision !== 'number'
-                || !Number.isSafeInteger(value.revision)
-                || value.revision <= 0))) {
+    const base = v.safeParse(decryptOutcomeBaseSchema, value, {abortEarly: true});
+    if (!base.success) {
         throw new Error('Native PDF decrypt returned an invalid outcome receipt');
     }
-    if (value.outcome === 'opened' && (value.wasEncrypted || value.revision !== null)) {
-        throw new Error('Native PDF decrypt returned an inconsistent plain outcome');
+    const parsed = v.safeParse(decryptOutcomeSchema, value, {abortEarly: true});
+    if (!parsed.success) {
+        throw new Error(base.output.outcome === 'opened'
+            ? 'Native PDF decrypt returned an inconsistent plain outcome'
+            : 'Native PDF decrypt returned an inconsistent rewritten outcome');
     }
-    if (value.outcome === 'rewritten' && (!value.wasEncrypted || value.revision === null)) {
-        throw new Error('Native PDF decrypt returned an inconsistent rewritten outcome');
-    }
-    return {
-        format: 'evb-pdf-decrypt',
-        schemaVersion: 1,
-        outcome: value.outcome,
-        wasEncrypted: value.wasEncrypted,
-        revision: value.revision ?? null,
-    };
+    return parsed.output;
 }
 
 function failureOutcome(error: unknown): TPdfDecryptFailureOutcome | null {

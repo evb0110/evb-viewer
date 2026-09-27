@@ -24,7 +24,6 @@ import type {
     IDjvuConversionPageMetrics,
     TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
-import { isRecord } from '@contracts/runtimeGuards';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import {
@@ -61,6 +60,7 @@ import {
     isPdfCombineOutputTooLargeError,
     PDF_COMBINE_OUTPUT_POLICY,
 } from '@contracts/pdfCombineOutputPolicy';
+import * as v from 'valibot';
 
 interface ICompactDjvuPdfExportOptions {
     jobId: string;
@@ -102,31 +102,40 @@ interface IPbmMaskStats extends INetpbmInfo {
     maxBlackRunRatio: number;
 }
 
-interface IDjvuPageInfo {
-    width: number;
-    height: number;
-    dpi: number;
-}
+const DJVU_COMPACT_MAX_PAGE_BYTES = 0xffffffff;
+const positiveIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const boundedPageBytesSchema = v.pipe(
+    v.number(),
+    v.safeInteger(),
+    v.minValue(0),
+    v.maxValue(DJVU_COMPACT_MAX_PAGE_BYTES),
+);
+const djvuPageInfoSchema = v.object({
+    width: positiveIntegerSchema,
+    height: positiveIntegerSchema,
+    dpi: positiveIntegerSchema,
+});
+const djvuLayerInfoSchema = v.object({
+    present: v.boolean(),
+    kind: v.string(),
+    bytes: boundedPageBytesSchema,
+    width: v.optional(v.fallback(v.nullable(positiveIntegerSchema), null)),
+    height: v.optional(v.fallback(v.nullable(positiveIntegerSchema), null)),
+    subsample: v.optional(v.fallback(v.nullable(positiveIntegerSchema), null)),
+});
+const djvuPageStructureSchema = v.object({
+    pageNumber: positiveIntegerSchema,
+    pageBytes: v.nullable(boundedPageBytesSchema),
+    info: v.fallback(v.nullable(djvuPageInfoSchema), null),
+    hasMask: v.boolean(),
+    maskBytes: v.nullable(boundedPageBytesSchema),
+    background: v.fallback(v.nullable(djvuLayerInfoSchema), null),
+    foreground: v.fallback(v.nullable(djvuLayerInfoSchema), null),
+});
 
-interface IDjvuLayerInfo {
-    present: boolean;
-    kind: string;
-    bytes: number;
-    width?: number;
-    height?: number;
-    subsample?: number;
-}
-
-interface IDjvuPageStructure {
-    pageNumber: number;
-    pageBytes: number | null;
-    info: IDjvuPageInfo | null;
-    hasMask: boolean;
-    maskBytes: number | null;
-    background: IDjvuLayerInfo | null;
-    foreground: IDjvuLayerInfo | null;
-}
-
+type IDjvuPageInfo = v.InferOutput<typeof djvuPageInfoSchema>;
+type IDjvuLayerInfo = v.InferOutput<typeof djvuLayerInfoSchema>;
+type IDjvuPageStructure = v.InferOutput<typeof djvuPageStructureSchema>;
 interface IMutableDjvuPageStructure extends IDjvuPageStructure { hasPageChunk: boolean; }
 
 const logger = createLogger('djvu-compact-pdf');
@@ -163,7 +172,6 @@ const DJVU_NATIVE_LAYER_DEFAULT_SUBSAMPLE = 1;
 const DJVU_COMPACT_MIN_SUBSAMPLE = 1;
 const DJVU_COMPACT_MAX_SUBSAMPLE = 64;
 const DJVU_COMPACT_LAYER_DIMENSION_MATCH_TOLERANCE = 0.25;
-const DJVU_COMPACT_MAX_PAGE_BYTES = 0xffffffff;
 const DJVU_COMPACT_INFO_REGEX = /\bINFO\b.*?(\d+)x(\d+).*?(\d+)\s*dpi/u;
 const DJVU_COMPACT_CHUNK_REGEX = /^\s+([A-Za-z0-9]{4})\s+\[(\d+)\]/u;
 const DJVU_COMPACT_DIMENSIONS_REGEX = /(\d+)x(\d+)/gu;
@@ -679,98 +687,8 @@ async function* iterateDjvuPageStructureWindows(
 }
 
 function decodeDjvuPageStructure(value: unknown): IDjvuPageStructure | null {
-    if (!isRecord(value)
-        || !isSafeBoundedInteger(value.pageNumber, 1, Number.MAX_SAFE_INTEGER)
-        || typeof value.hasMask !== 'boolean') {
-        return null;
-    }
-    const pageBytes = readNullableBoundedInteger(value.pageBytes, 0, DJVU_COMPACT_MAX_PAGE_BYTES);
-    const maskBytes = readNullableBoundedInteger(value.maskBytes, 0, DJVU_COMPACT_MAX_PAGE_BYTES);
-    if (pageBytes === undefined || maskBytes === undefined) {
-        return null;
-    }
-    return {
-        pageNumber: value.pageNumber,
-        pageBytes,
-        info: decodeDjvuPageInfo(value.info),
-        hasMask: value.hasMask,
-        maskBytes,
-        background: decodeDjvuLayerInfo(value.background),
-        foreground: decodeDjvuLayerInfo(value.foreground),
-    };
-}
-
-function decodeDjvuPageInfo(value: unknown): IDjvuPageInfo | null {
-    if (value === null) {
-        return null;
-    }
-    if (!isRecord(value)) {
-        return null;
-    }
-    const width = readPositiveInteger(value.width);
-    const height = readPositiveInteger(value.height);
-    const dpi = readPositiveInteger(value.dpi);
-    if (width === null || height === null || dpi === null) {
-        return null;
-    }
-    return {
-        width,
-        height,
-        dpi,
-    };
-}
-
-function decodeDjvuLayerInfo(value: unknown): IDjvuLayerInfo | null {
-    if (value === null) {
-        return null;
-    }
-    if (!isRecord(value) || typeof value.present !== 'boolean' || typeof value.kind !== 'string') {
-        return null;
-    }
-    const bytes = readSafeBoundedInteger(value.bytes, 0, DJVU_COMPACT_MAX_PAGE_BYTES);
-    const width = readOptionalPositiveInteger(value.width);
-    const height = readOptionalPositiveInteger(value.height);
-    const subsample = readOptionalPositiveInteger(value.subsample);
-    if (bytes === null || width === null || height === null || subsample === null) {
-        return null;
-    }
-    return {
-        present: value.present,
-        kind: value.kind,
-        bytes,
-        ...(width === undefined ? {} : {width}),
-        ...(height === undefined ? {} : {height}),
-        ...(subsample === undefined ? {} : {subsample}),
-    };
-}
-
-function isSafeBoundedInteger(value: unknown, minValue: number, maxValue: number): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= minValue
-        && value <= maxValue;
-}
-
-function readSafeBoundedInteger(value: unknown, minValue: number, maxValue: number): number | null {
-    return isSafeBoundedInteger(value, minValue, maxValue) ? value : null;
-}
-
-function readNullableBoundedInteger(value: unknown, minValue: number, maxValue: number): number | null | undefined {
-    if (value === null) {
-        return null;
-    }
-    return isSafeBoundedInteger(value, minValue, maxValue) ? value : undefined;
-}
-
-function readPositiveInteger(value: unknown): number | null {
-    return readSafeBoundedInteger(value, 1, Number.MAX_SAFE_INTEGER);
-}
-
-function readOptionalPositiveInteger(value: unknown): number | null | undefined {
-    if (value === undefined) {
-        return undefined;
-    }
-    return readPositiveInteger(value) ?? null;
+    const result = v.safeParse(djvuPageStructureSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 function createDjvuLayerInfo(

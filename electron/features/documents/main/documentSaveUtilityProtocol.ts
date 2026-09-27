@@ -3,50 +3,95 @@ import {
     isAbsolute,
     dirname,
 } from 'node:path';
-import { isRecord } from '@contracts/runtimeGuards';
 import {
     isBrowserStoreFileIdentity,
     TYPED_STAGED_ARTIFACT_SCHEMA,
-    type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 
 import * as v from 'valibot';
 
-export interface IDocumentSaveUtilityCommitRequest {
-    type: 'commit';
-    sourcePath: string;
-    targetPath: string;
-    expectedBytes: number;
-    validationBinary?: string;
-    changedObjectRefs?: string[];
-    stagedArtifact?: ITypedStagedArtifact;
-    validateOnly?: true;
-}
-
-export interface IDocumentSaveUtilityInspectRequest {
-    type: 'inspect';
-    sourcePath: string;
-    expectedBytes: number;
-}
-
-export type TDocumentSaveUtilityRequest =
-    | IDocumentSaveUtilityCommitRequest
-    | IDocumentSaveUtilityInspectRequest;
-
-export interface IDocumentSaveUtilityShutdownRequest {
-    type: 'shutdown';
-    requestId: string;
-}
-
-export interface IDocumentSaveUtilityShutdownResult {
-    type: 'shutdown-complete';
-    requestId: string;
-    terminated: boolean;
-}
-
 const PDF_OBJECT_REF_PATTERN = /^\d+ \d+ R$/u;
 const MAX_CHANGED_OBJECT_REFS = 128;
+
+const positiveSafeIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const absolutePathSchema = v.pipe(v.string(), v.check(isAbsolute));
+const stagedArtifactSchema = TYPED_STAGED_ARTIFACT_SCHEMA;
+const commitRequestSchema = v.pipe(v.object({
+    type: v.literal('commit'),
+    sourcePath: absolutePathSchema,
+    targetPath: absolutePathSchema,
+    expectedBytes: positiveSafeIntegerSchema,
+    validationBinary: v.optional(absolutePathSchema),
+    changedObjectRefs: v.optional(v.pipe(
+        v.array(v.pipe(v.string(), v.regex(PDF_OBJECT_REF_PATTERN))),
+        v.maxLength(MAX_CHANGED_OBJECT_REFS),
+    )),
+    stagedArtifact: v.optional(stagedArtifactSchema),
+    validateOnly: v.optional(v.literal(true)),
+}),
+v.check(({
+    sourcePath,
+    targetPath,
+    expectedBytes,
+    stagedArtifact,
+}) => (
+    dirname(sourcePath) === dirname(targetPath)
+    && sourcePath !== targetPath
+    && (stagedArtifact === undefined
+        || stagedArtifact.path === sourcePath && stagedArtifact.size === expectedBytes)
+)),
+// Keep optional protocol keys absent when in-process callers supply undefined.
+v.transform(({
+    type,
+    sourcePath,
+    targetPath,
+    expectedBytes,
+    validationBinary,
+    changedObjectRefs,
+    stagedArtifact,
+    validateOnly,
+}) => ({
+    type,
+    sourcePath,
+    targetPath,
+    expectedBytes,
+    ...(validationBinary === undefined ? {} : {validationBinary}),
+    ...(changedObjectRefs === undefined ? {} : {changedObjectRefs}),
+    ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
+    ...(validateOnly === undefined ? {} : {validateOnly}),
+})));
+const inspectRequestSchema = v.object({
+    type: v.literal('inspect'),
+    sourcePath: absolutePathSchema,
+    expectedBytes: positiveSafeIntegerSchema,
+});
+const documentSaveUtilityRequestSchema = v.variant('type', [
+    inspectRequestSchema,
+    commitRequestSchema,
+]);
+
+export type IDocumentSaveUtilityCommitRequest = Extract<
+    v.InferOutput<typeof documentSaveUtilityRequestSchema>,
+    {type: 'commit'}
+>;
+export type IDocumentSaveUtilityInspectRequest = Extract<
+    v.InferOutput<typeof documentSaveUtilityRequestSchema>,
+    {type: 'inspect'}
+>;
+export type TDocumentSaveUtilityRequest = v.InferOutput<typeof documentSaveUtilityRequestSchema>;
+
+const shutdownRequestSchema = v.object({
+    type: v.literal('shutdown'),
+    requestId: v.pipe(v.string(), v.minLength(1)),
+});
+const shutdownResultSchema = v.object({
+    type: v.literal('shutdown-complete'),
+    requestId: v.pipe(v.string(), v.minLength(1)),
+    terminated: v.boolean(),
+});
+export type IDocumentSaveUtilityShutdownRequest = v.InferOutput<typeof shutdownRequestSchema>;
+export type IDocumentSaveUtilityShutdownResult = v.InferOutput<typeof shutdownResultSchema>;
 
 export interface IDocumentSaveUtilityReusePlan {
     fingerprint: boolean;
@@ -57,77 +102,24 @@ export interface IDocumentSaveUtilityReusePlan {
     fileSync: boolean;
 }
 
-export type TDocumentSaveUtilityResult =
-    | {
-        type: 'result';
-        ok: true;
-        bytes: number;
-        sha256: string
-    }
-    | {
-        type: 'result';
-        ok: false;
-        error: string
-    };
+const documentSaveUtilityResultSchema = v.variant('ok', [
+    v.object({
+        type: v.literal('result'),
+        ok: v.literal(true),
+        bytes: positiveSafeIntegerSchema,
+        sha256: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
+    }),
+    v.object({
+        type: v.literal('result'),
+        ok: v.literal(false),
+        error: v.string(),
+    }),
+]);
+export type TDocumentSaveUtilityResult = v.InferOutput<typeof documentSaveUtilityResultSchema>;
 
 export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveUtilityRequest | null {
-    if (isRecord(value)
-        && value.type === 'inspect'
-        && typeof value.sourcePath === 'string'
-        && isAbsolute(value.sourcePath)
-        && typeof value.expectedBytes === 'number'
-        && Number.isSafeInteger(value.expectedBytes)
-        && value.expectedBytes > 0) {
-        return {
-            type: 'inspect',
-            sourcePath: value.sourcePath,
-            expectedBytes: value.expectedBytes,
-        };
-    }
-    if (!isRecord(value)
-        || value.type !== 'commit'
-        || typeof value.sourcePath !== 'string'
-        || typeof value.targetPath !== 'string'
-        || !isAbsolute(value.sourcePath)
-        || !isAbsolute(value.targetPath)
-        || dirname(value.sourcePath) !== dirname(value.targetPath)
-        || value.sourcePath === value.targetPath
-        || (value.validateOnly !== undefined && value.validateOnly !== true)
-        || (value.validationBinary !== undefined && (typeof value.validationBinary !== 'string' || !isAbsolute(value.validationBinary)))
-        || (value.changedObjectRefs !== undefined && (
-            !Array.isArray(value.changedObjectRefs)
-            || value.changedObjectRefs.length > MAX_CHANGED_OBJECT_REFS
-            || !value.changedObjectRefs.every(ref => typeof ref === 'string' && PDF_OBJECT_REF_PATTERN.test(ref))
-        ))
-        || typeof value.expectedBytes !== 'number'
-        || !Number.isSafeInteger(value.expectedBytes)
-        || value.expectedBytes <= 0) {
-        return null;
-    }
-    const stagedArtifactResult = value.stagedArtifact === undefined
-        ? undefined
-        : v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, value.stagedArtifact, {abortEarly: true});
-    if (value.stagedArtifact !== undefined && (
-        !stagedArtifactResult?.success
-        || stagedArtifactResult.output.path !== value.sourcePath
-        || stagedArtifactResult.output.size !== value.expectedBytes
-    )) {
-        return null;
-    }
-    const stagedArtifact = stagedArtifactResult?.success ? stagedArtifactResult.output : undefined;
-    return {
-        type: 'commit',
-        sourcePath: value.sourcePath,
-        targetPath: value.targetPath,
-        expectedBytes: value.expectedBytes,
-        ...(typeof value.validationBinary === 'string' ? {validationBinary: value.validationBinary} : {}),
-        ...(Array.isArray(value.changedObjectRefs)
-            && value.changedObjectRefs.every((entry): entry is string => typeof entry === 'string')
-            ? {changedObjectRefs: [...value.changedObjectRefs]}
-            : {}),
-        ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
-        ...(value.validateOnly === true ? {validateOnly: true as const} : {}),
-    };
+    const result = v.safeParse(documentSaveUtilityRequestSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 export function createChangedObjectRefsSha256(changedObjectRefs: readonly string[]) {
@@ -177,44 +169,16 @@ export function getDocumentSaveUtilityReusePlan(
 }
 
 export function decodeDocumentSaveUtilityResult(value: unknown): TDocumentSaveUtilityResult | null {
-    if (!isRecord(value) || value.type !== 'result' || typeof value.ok !== 'boolean') {
-        return null;
-    }
-    if (value.ok) {
-        if (typeof value.bytes !== 'number'
-            || !Number.isSafeInteger(value.bytes)
-            || value.bytes <= 0
-            || typeof value.sha256 !== 'string'
-            || !/^[a-f0-9]{64}$/u.test(value.sha256)) {
-            return null;
-        }
-        return {
-            type: 'result',
-            ok: true,
-            bytes: value.bytes,
-            sha256: value.sha256,
-        };
-    }
-    return typeof value.error === 'string'
-        ? {
-            type: 'result',
-            ok: false,
-            error: value.error,
-        }
-        : null;
+    const result = v.safeParse(documentSaveUtilityResultSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }
 
 export function decodeDocumentSaveUtilityShutdownResult(value: unknown): IDocumentSaveUtilityShutdownResult | null {
-    if (!isRecord(value)
-        || value.type !== 'shutdown-complete'
-        || typeof value.requestId !== 'string'
-        || value.requestId.length === 0
-        || typeof value.terminated !== 'boolean') {
-        return null;
-    }
-    return {
-        type: 'shutdown-complete',
-        requestId: value.requestId,
-        terminated: value.terminated,
-    };
+    const result = v.safeParse(shutdownResultSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
+}
+
+export function decodeDocumentSaveUtilityShutdownRequest(value: unknown): IDocumentSaveUtilityShutdownRequest | null {
+    const result = v.safeParse(shutdownRequestSchema, value, {abortEarly: true});
+    return result.success ? result.output : null;
 }

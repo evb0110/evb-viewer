@@ -38,14 +38,33 @@ import {
     decodeSerializableErrorEnvelope,
     SerializableError,
 } from '@contracts/serializableError';
+import * as v from 'valibot';
 
-interface INativePdfImageCombineProgress {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
-}
+// The native record is reduced to its callback fields and normalizes missing estimates to null.
+const nativePdfImageCombineProgressSchema = v.pipe(v.object({
+    type: v.literal('progress'),
+    processed: v.number(),
+    total: v.number(),
+    percent: v.number(),
+    elapsedMs: v.number(),
+    estimatedRemainingMs: v.optional(v.unknown()),
+}), v.transform(({
+    processed,
+    total,
+    percent,
+    elapsedMs,
+    estimatedRemainingMs,
+}) => ({
+    processed,
+    total,
+    percent,
+    elapsedMs,
+    estimatedRemainingMs: typeof estimatedRemainingMs === 'number'
+        ? estimatedRemainingMs
+        : null,
+})));
+
+type INativePdfImageCombineProgress = v.InferOutput<typeof nativePdfImageCombineProgressSchema>;
 
 interface INativePdfImageCombineOptions {
     maxPages?: number;
@@ -61,7 +80,6 @@ interface INativePdfImageCombineOptions {
     onTerminationProof?: (proof: Promise<boolean>) => void;
 }
 
-type TNativeProgressPayload = INativePdfImageCombineProgress & {type: 'progress';};
 type TNativePdfImageCombineRetainCleanup = (
     proof: Promise<boolean>,
     childPid: number | null,
@@ -123,33 +141,9 @@ export function isNativePdfImageCombineBitmapPath(inputPath: string) {
     return SUPPORTED_NATIVE_BITMAP_EXTENSIONS.has(extname(inputPath).toLowerCase());
 }
 
-function parseProgressPayload(value: unknown): TNativeProgressPayload | null {
-    if (!value || typeof value !== 'object') {
-        return null;
-    }
-    const payload = value as Record<string, unknown>;
-    if (payload.type !== 'progress') {
-        return null;
-    }
-    if (
-        typeof payload.processed !== 'number'
-        || typeof payload.total !== 'number'
-        || typeof payload.percent !== 'number'
-        || typeof payload.elapsedMs !== 'number'
-    ) {
-        return null;
-    }
-
-    return {
-        type: 'progress',
-        processed: payload.processed,
-        total: payload.total,
-        percent: payload.percent,
-        elapsedMs: payload.elapsedMs,
-        estimatedRemainingMs: typeof payload.estimatedRemainingMs === 'number'
-            ? payload.estimatedRemainingMs
-            : null,
-    };
+function parseProgressPayload(value: unknown): INativePdfImageCombineProgress | null {
+    const parsed = v.safeParse(nativePdfImageCombineProgressSchema, value, {abortEarly: true});
+    return parsed.success ? parsed.output : null;
 }
 
 function canRepresentPathInNativeInputsFile(inputPath: string) {
@@ -667,13 +661,7 @@ async function runNativePdfImageCombine(
         try {
             const payload = parseProgressPayload(JSON.parse(line));
             if (payload) {
-                options.onProgress({
-                    processed: payload.processed,
-                    total: payload.total,
-                    percent: payload.percent,
-                    elapsedMs: payload.elapsedMs,
-                    estimatedRemainingMs: payload.estimatedRemainingMs,
-                });
+                options.onProgress(payload);
             }
         } catch {
             return;

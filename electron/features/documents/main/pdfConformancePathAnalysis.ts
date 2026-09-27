@@ -10,7 +10,6 @@ import {
     hasPdfSignatureMarkersInPdfText,
 } from '@pdf-core';
 import type {IPdfConformanceProfile} from '@contracts/pdfConformance';
-import {isRecord} from '@contracts/runtimeGuards';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
@@ -23,6 +22,7 @@ import {
     PdfConformanceCapabilityError,
     type TPdfConformanceCapabilityErrorCode,
 } from '@electron/features/documents/main/pdfConformanceCapabilityError';
+import * as v from 'valibot';
 
 const PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
 const PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES = 4 * 1024;
@@ -38,13 +38,15 @@ interface IPdfMarkerEvidence {
     pdfaLevel: ReturnType<typeof detectPdfaLevelFromPdfText>;
 }
 
-interface IQpdfStructuralFacts {
-    isSigned: boolean;
-    isEncrypted: boolean;
-    isTagged: boolean;
-    hasAcroForm: boolean;
-    hasXfa: boolean;
-}
+const qpdfStructuralFactsSchema = v.object({
+    isSigned: v.boolean(),
+    isEncrypted: v.boolean(),
+    isTagged: v.boolean(),
+    hasAcroForm: v.boolean(),
+    hasXfa: v.boolean(),
+});
+
+type IQpdfStructuralFacts = v.InferOutput<typeof qpdfStructuralFactsSchema>;
 
 export interface IPdfConformancePathAnalysisOptions {
     signal?: AbortSignal;
@@ -219,27 +221,6 @@ async function readPdfMarkerEvidenceFromPath(
     }
 }
 
-function parseStructuralFacts(value: unknown): IQpdfStructuralFacts {
-    if (!isRecord(value)
-        || typeof value.isSigned !== 'boolean'
-        || typeof value.isEncrypted !== 'boolean'
-        || typeof value.isTagged !== 'boolean'
-        || typeof value.hasAcroForm !== 'boolean'
-        || typeof value.hasXfa !== 'boolean') {
-        throw capabilityError(
-            'native-failure',
-            'Native PDF conformance output has an invalid structural facts payload',
-        );
-    }
-    return {
-        isSigned: value.isSigned,
-        isEncrypted: value.isEncrypted,
-        isTagged: value.isTagged,
-        hasAcroForm: value.hasAcroForm,
-        hasXfa: value.hasXfa,
-    };
-}
-
 async function readPdfStructuralFactsFromPath(
     filePath: string,
     options: IPdfConformancePathAnalysisOptions = {},
@@ -306,7 +287,14 @@ async function readPdfStructuralFactsFromPath(
             error,
         );
     }
-    return parseStructuralFacts(parsed);
+    const facts = v.safeParse(qpdfStructuralFactsSchema, parsed, {abortEarly: true});
+    if (!facts.success) {
+        throw capabilityError(
+            'native-failure',
+            'Native PDF conformance output has an invalid structural facts payload',
+        );
+    }
+    return facts.output;
 }
 
 export async function analyzePdfConformancePath(

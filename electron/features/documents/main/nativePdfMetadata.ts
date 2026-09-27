@@ -31,11 +31,7 @@ import { registerMainOperation } from '@electron/operation-lifecycle/mainOperati
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import {
-    isErrnoException,
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { requireEpochMs } from '@contracts/timestamps';
@@ -49,6 +45,8 @@ import {
 } from '@electron/file-access/documentRevisionStore';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { readPdfNativePageGeometry } from '@electron/pdf/pdfPageSizes';
+import * as v from 'valibot';
+
 type IPdfNativePageSize = Pick<IPdfOpeningGeometry, 'width' | 'height'>;
 
 const PDFINFO_TIMEOUT_MS = 20_000;
@@ -376,39 +374,37 @@ export async function handlePdfNativePageSizes(
     }
 }
 
-export function parseNativePdfPageLabelRanges(value: unknown): IPdfPageLabelRange[] {
-    if (!isRecord(value) || !Array.isArray(value.pageLabels)) {
+const nativePdfPageLabelRangeSchema = v.pipe(v.object({
+    pageIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    start: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
+    style: v.optional(v.picklist(PDF_PAGE_LABEL_STYLE_VALUES)),
+    prefix: v.optional(v.string()),
+}), v.transform(({
+    pageIndex,
+    start,
+    style,
+    prefix,
+}) => ({
+    // Native zero-based indices and omitted defaults become renderer label ranges here.
+    startPage: pageIndex + 1,
+    style: style ?? null,
+    prefix: prefix ?? '',
+    startNumber: start ?? 1,
+})));
+
+export function parseNativePdfPageLabelRanges(
+    value: unknown,
+): Array<v.InferOutput<typeof nativePdfPageLabelRangeSchema>> {
+    const catalog = v.safeParse(v.object({pageLabels: v.array(v.unknown())}), value, {abortEarly: true});
+    if (!catalog.success) {
         throw new Error('Native PDF catalog read returned invalid page labels');
     }
-    return value.pageLabels.map((rawRange, index) => {
-        if (!isRecord(rawRange)) {
+    return catalog.output.pageLabels.map((rawRange, index) => {
+        const parsed = v.safeParse(nativePdfPageLabelRangeSchema, rawRange, {abortEarly: true});
+        if (!parsed.success) {
             throw new Error(`Native PDF catalog page label ${index} is invalid`);
         }
-        const pageIndex = rawRange.pageIndex;
-        const start = rawRange.start;
-        const style = rawRange.style;
-        const prefix = rawRange.prefix;
-        if (
-            typeof pageIndex !== 'number'
-            || !Number.isSafeInteger(pageIndex)
-            || pageIndex < 0
-            || typeof start !== 'undefined' && (
-                typeof start !== 'number'
-                || !Number.isSafeInteger(start)
-                || start < 1
-            )
-            || typeof style !== 'undefined'
-                && !isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, style)
-            || typeof prefix !== 'undefined' && typeof prefix !== 'string'
-        ) {
-            throw new Error(`Native PDF catalog page label ${index} is invalid`);
-        }
-        return {
-            startPage: pageIndex + 1,
-            style: style ?? null,
-            prefix: prefix ?? '',
-            startNumber: start ?? 1,
-        };
+        return parsed.output;
     });
 }
 

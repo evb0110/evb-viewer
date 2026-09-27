@@ -4,6 +4,7 @@ import {
     stat,
 } from 'node:fs/promises';
 import {
+    decodeDocumentSaveUtilityShutdownRequest,
     decodeDocumentSaveUtilityRequest,
     getDocumentSaveUtilityReusePlan,
     type TDocumentSaveUtilityResult,
@@ -149,21 +150,13 @@ async function validatePdf(path: string, validationBinary?: string) {
 }
 
 utilityParentPort.on('message', (event) => {
-    if (
-        typeof event.data === 'object'
-        && event.data !== null
-        && 'type' in event.data
-        && event.data.type === 'shutdown'
-        && 'requestId' in event.data
-        && typeof event.data.requestId === 'string'
-        && event.data.requestId.length > 0
-    ) {
+    const shutdown = decodeDocumentSaveUtilityShutdownRequest(event.data);
+    if (shutdown) {
         shutdownRequested = true;
-        const requestId = event.data.requestId;
         void cancelActiveValidationGroupsAndWait().then(terminated => {
             utilityParentPort.postMessage({
                 type: 'shutdown-complete',
-                requestId,
+                requestId: shutdown.requestId,
                 terminated,
             });
         });

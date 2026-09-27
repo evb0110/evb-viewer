@@ -1,63 +1,46 @@
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 
-interface INativeNetpbmProbe {
-    magic: 'P4' | 'P5' | 'P6';
-    width: number;
-    height: number;
-    dataOffset: number;
-    nonWhiteRatio: number;
-    darkRatio: number;
-    colorRatio: number;
-    maxDarkRunRatio: number;
-    minChannel: number;
-    maxChannel: number;
-    blackRatio: number;
-    maxBlackRunRatio: number;
-    dominantColor: [number, number, number];
-}
+import * as v from 'valibot';
+
+const finiteNumber = v.pipe(v.number(), v.finite());
+const nativeNetpbmProbeSchema = v.object({
+    magic: v.picklist([
+        'P4',
+        'P5',
+        'P6',
+    ]),
+    width: finiteNumber,
+    height: finiteNumber,
+    dataOffset: finiteNumber,
+    nonWhiteRatio: finiteNumber,
+    darkRatio: finiteNumber,
+    colorRatio: finiteNumber,
+    maxDarkRunRatio: finiteNumber,
+    minChannel: finiteNumber,
+    maxChannel: finiteNumber,
+    blackRatio: finiteNumber,
+    maxBlackRunRatio: finiteNumber,
+    dominantColor: v.tuple([
+        v.pipe(v.number(), v.integer()),
+        v.pipe(v.number(), v.integer()),
+        v.pipe(v.number(), v.integer()),
+    ]),
+});
+
+type INativeNetpbmProbe = v.InferOutput<typeof nativeNetpbmProbeSchema>;
 
 function parseNativeNetpbmProbe(value: unknown): INativeNetpbmProbe {
     if (!value || typeof value !== 'object') {
         throw new Error('Native Netpbm probe returned an invalid payload');
     }
-    const probe = value as Record<string, unknown>;
-    const numericFields = [
-        'width',
-        'height',
-        'dataOffset',
-        'nonWhiteRatio',
-        'darkRatio',
-        'colorRatio',
-        'maxDarkRunRatio',
-        'minChannel',
-        'maxChannel',
-        'blackRatio',
-        'maxBlackRunRatio',
-    ] as const;
-    if ((probe.magic !== 'P4' && probe.magic !== 'P5' && probe.magic !== 'P6')
-        || numericFields.some(field => typeof probe[field] !== 'number' || !Number.isFinite(probe[field]))) {
-        throw new Error('Native Netpbm probe returned invalid metrics');
+    const parsed = v.safeParse(nativeNetpbmProbeSchema, value, {abortEarly: true});
+    if (parsed.success) {
+        return parsed.output;
     }
-    if (!Array.isArray(probe.dominantColor)
-        || probe.dominantColor.length !== 3
-        || probe.dominantColor.some(channel => typeof channel !== 'number' || !Number.isInteger(channel))) {
-        throw new Error('Native Netpbm probe returned an invalid dominant color');
-    }
-    return {
-        blackRatio: probe.blackRatio as number,
-        colorRatio: probe.colorRatio as number,
-        darkRatio: probe.darkRatio as number,
-        dataOffset: probe.dataOffset as number,
-        dominantColor: probe.dominantColor as [number, number, number],
-        height: probe.height as number,
-        magic: probe.magic,
-        maxBlackRunRatio: probe.maxBlackRunRatio as number,
-        maxChannel: probe.maxChannel as number,
-        maxDarkRunRatio: probe.maxDarkRunRatio as number,
-        minChannel: probe.minChannel as number,
-        nonWhiteRatio: probe.nonWhiteRatio as number,
-        width: probe.width as number,
-    };
+    const dominantColorIssue = parsed.issues[0]?.path?.some(path => path.key === 'dominantColor') === true;
+    throw new Error(dominantColorIssue
+        ? 'Native Netpbm probe returned an invalid dominant color'
+        : 'Native Netpbm probe returned invalid metrics');
 }
 
 export async function probeNativeNetpbm(binaryPath: string | null, path: string) {

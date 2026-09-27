@@ -4,8 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
     SEARCH_RESULT_LIMIT,
-    SEARCH_WIRE_CODEC,
-    type IPdfSearchResult,
+    pdfSearchResultSchema,
 } from '@contracts/search';
 import { isRecord } from '@contracts/runtimeGuards';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
@@ -16,16 +15,21 @@ import {
     getWorkingCopyDerivedPath,
     isWorkingCopyDocumentPath,
 } from '@electron/file-access/workingCopyDirectory';
+import * as v from 'valibot';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export interface ISearchIndexCoverage {
-    pageCount: number;
-    pagesScanned: number;
-    pagesWritten: number;
-    truncated: boolean;
-    missingTextPageSample: number[];
-}
+const safeInteger = v.pipe(v.number(), v.safeInteger());
+
+const searchIndexCoverageSchema = v.looseObject({
+    pageCount: safeInteger,
+    pagesScanned: safeInteger,
+    pagesWritten: safeInteger,
+    truncated: v.boolean(),
+    missingTextPageSample: v.array(safeInteger),
+});
+
+export type ISearchIndexCoverage = v.InferOutput<typeof searchIndexCoverageSchema>;
 
 /**
  * A document whose text is indexed for search. The index file is a derived
@@ -48,12 +52,23 @@ export interface ISearchQueryOptions {
     limit?: number;
 }
 
-export interface ISearchIndexResponse {
-    results: IPdfSearchResult[];
-    truncated: boolean;
-    pageCount: number;
-    coverage: ISearchIndexCoverage;
-}
+// Search replies also expose coverage.pageCount at the response top level.
+const searchIndexResponseSchema = v.pipe(v.object({
+    results: v.array(pdfSearchResultSchema),
+    truncated: v.boolean(),
+    coverage: searchIndexCoverageSchema,
+}), v.transform(({
+    results,
+    truncated,
+    coverage,
+}) => ({
+    results,
+    truncated,
+    pageCount: coverage.pageCount,
+    coverage,
+})));
+
+export type ISearchIndexResponse = v.InferOutput<typeof searchIndexResponseSchema>;
 
 /**
  * Names how page text is extracted. Changing extraction changes this, so
@@ -82,16 +97,6 @@ function resolvePdfSearchBinary() {
         throw new Error('evb-pdf-search is unavailable');
     }
     return binaryPath;
-}
-
-function isCoverage(value: unknown): value is ISearchIndexCoverage {
-    return isRecord(value)
-        && Number.isSafeInteger(value.pageCount)
-        && Number.isSafeInteger(value.pagesScanned)
-        && Number.isSafeInteger(value.pagesWritten)
-        && typeof value.truncated === 'boolean'
-        && Array.isArray(value.missingTextPageSample)
-        && value.missingTextPageSample.every(page => Number.isSafeInteger(page));
 }
 
 function parseOutput(stdout: string) {
@@ -158,11 +163,11 @@ export function buildSearchIndex(
                 }
             }),
         })).then((result) => {
-            const coverage = parseOutput(result.stdout);
-            if (!isCoverage(coverage)) {
+            const parsed = v.safeParse(searchIndexCoverageSchema, parseOutput(result.stdout), {abortEarly: true});
+            if (!parsed.success) {
                 throw new Error('evb-pdf-search index returned an invalid coverage report');
             }
-            return coverage;
+            return parsed.output;
         }).finally(() => {
             operation.complete();
             builds.delete(key);
@@ -256,24 +261,11 @@ export async function searchIndexedDocument(
         await awaitWithSignal(buildSearchIndex(document, context.onIndexProgress), context.signal);
         response = await runIndexQuery('search', args, context.signal);
     }
-    const results = isRecord(response) && Array.isArray(response.results)
-        ? response.results.map(result => SEARCH_WIRE_CODEC.decodeResult(result))
-        : null;
-    if (
-        !isRecord(response)
-        || results === null
-        || results.some(result => result === null)
-        || typeof response.truncated !== 'boolean'
-        || !isCoverage(response.coverage)
-    ) {
+    const parsed = v.safeParse(searchIndexResponseSchema, response, {abortEarly: true});
+    if (!parsed.success) {
         throw new Error('evb-pdf-search returned an invalid search response');
     }
-    return {
-        results: results.filter(result => result !== null),
-        truncated: response.truncated,
-        pageCount: response.coverage.pageCount,
-        coverage: response.coverage,
-    };
+    return parsed.output;
 }
 
 /** Reports the index coverage, building the index first when needed. */
@@ -290,8 +282,9 @@ export async function ensureSearchIndex(
         '--document-revision',
         indexRevision(document),
     ], context.signal);
-    if (isCoverage(coverage)) {
-        return coverage;
+    const parsed = v.safeParse(searchIndexCoverageSchema, coverage, {abortEarly: true});
+    if (parsed.success) {
+        return parsed.output;
     }
     return awaitWithSignal(buildSearchIndex(document, context.onIndexProgress), context.signal);
 }
