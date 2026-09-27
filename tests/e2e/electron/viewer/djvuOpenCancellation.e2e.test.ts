@@ -102,7 +102,7 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
                 };
                 return (host?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) === 0
                     && Array.from(host?.querySelectorAll(
-                        '.document-viewer-chassis__opening-page, .document-source-viewer__skeleton, [data-document-page-visual="skeleton"]',
+                        '[data-document-open-surface="neutral"], .document-viewer-chassis__opening-page, .document-source-viewer__skeleton, [data-document-page-visual="skeleton"]',
                     ) ?? []).some(visible);
             }, {timeout: DJVU_OPEN_TIMEOUT_MS});
             await triggerOpenPathInApp(session.page, djvuFixturePath, DJVU_OPEN_TIMEOUT_MS);

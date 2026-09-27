@@ -49,6 +49,15 @@
             @selectstart="chassisAuthority.dispatchViewportEvent('selectstart', $event)"
         >
             <div
+                v-if="shouldShowNeutralOpeningSurface"
+                class="absolute inset-0 z-[var(--app-workspace-transition-overlay-z-index)] overflow-hidden pointer-events-none bg-[var(--app-document-viewer-bg)]"
+                data-document-open-surface="neutral"
+                :aria-label="t('common.loading')"
+                role="status"
+            >
+                <DocumentPageSkeleton :content-height="null" />
+            </div>
+            <div
                 v-if="chassisOpeningPageShell && shouldShowChassisOpeningPageSkeleton"
                 class="document-viewer-chassis__opening-layer"
             >
@@ -131,6 +140,7 @@ const props = defineProps<{
     mountPresentation?: boolean;
     isResizing?: boolean;
 }>();
+const { t } = useTypedI18n();
 const emit = defineEmits<{
     'feature-pack-ready': [authority: ReturnType<typeof createDocumentOpeningPageFrame>];
     'update:current-page': [pageNumber: number];
@@ -417,54 +427,45 @@ watch(
 function bindChassisOpeningPageElement(element: Element | ComponentPublicInstance | null) {
     chassisAuthority.bindOpeningPageElement(element instanceof HTMLElement ? element : null);
 }
+const isOpening = computed(() => [
+    'pending',
+    'geometry-committed',
+    'canvas-committed',
+    'viewport-committed',
+].includes(chassisAuthority.openSurface.snapshot.value.phase));
 const chassisOpeningPageShell = computed(() => {
     void openingFrameLayoutRevision.value;
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const frame = snapshot.openingPageFrame;
-    const isPdf = rendererKind.value !== 'page-source';
-    const isOpening = snapshot.phase === 'pending'
-        || snapshot.phase === 'geometry-committed'
-        || snapshot.phase === 'canvas-committed'
-        || snapshot.phase === 'viewport-committed';
-    if (!isOpening || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
+    if (!isOpening.value || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
         return null;
     }
     const currentPage = chassisAuthority.currentPage.value;
-    const hasStaleFrame = frame !== null && frame.pageNumber !== currentPage;
-    const viewport = readOpeningViewportSize();
-    const provisionalWidth = viewport.width > 40 ? viewport.width - 40 : 612;
-    const provisionalStyle = {
-        width: `${String(provisionalWidth)}px`,
-        height: `${String(provisionalWidth * (792 / 612))}px`,
-    };
     const geometry = snapshot.openingPageGeometry;
     const {
         zoom,
         zoomMode,
     } = readZoomPolicy();
-    const policy = {
+    const viewport = readOpeningViewportSize();
+    // PDF Fit Width follows the widest page, which only the prepared frame knows.
+    const liveFrame = rendererKind.value === 'page-source' && geometry?.pageNumber === currentPage ? resolveDocumentPageSourceOpeningFrame({
+        geometry,
+        viewportWidth: viewport.width,
+        viewportHeight: viewport.height,
         zoom,
         zoomMode,
-    };
-    const liveFrame = !isPdf && geometry !== null ? resolveDocumentPageSourceOpeningFrame({
-        geometry,
-        viewportWidth: readOpeningViewportSize().width,
-        viewportHeight: readOpeningViewportSize().height,
-        ...policy,
     }) : null;
-    // A queued navigation can supersede the page-1 opening frame while the
-    // viewport is still opening. Keep one host-owned skeleton in that gap,
-    // but do not reuse page 1's dimensions for the requested page.
-    const style = liveFrame?.style ?? (
-        hasStaleFrame ? provisionalStyle : frame?.style ?? provisionalStyle
-    );
+    const style = liveFrame?.style ?? (frame?.pageNumber === currentPage ? frame.style : null);
+    if (style === null) {
+        return null;
+    }
     const liveWidth = Number.parseFloat(style.width);
     const liveHeight = Number.parseFloat(style.height);
     if (
-        !Number.isFinite(liveWidth)
-        || liveWidth <= 0
-        || !Number.isFinite(liveHeight)
-        || liveHeight <= 0
+        ![
+            liveWidth,
+            liveHeight,
+        ].every(value => Number.isFinite(value) && value > 0)
     ) {
         return null;
     }
@@ -473,10 +474,8 @@ const chassisOpeningPageShell = computed(() => {
         generation: snapshot.generation,
         height: liveHeight,
         id: resolveDocumentOpeningPageShellId(chassisAuthority.instanceId, snapshot.generation),
-        isPdf,
         ownerId: frame?.ownerId ?? 'chassis-provisional',
         pageNumber: currentPage,
-        provisional: frame === null,
         style: {
             ...style,
             top: `${String(margin)}px`,
@@ -485,6 +484,7 @@ const chassisOpeningPageShell = computed(() => {
     };
 });
 const shouldShowChassisOpeningPageSkeleton = computed(() => chassisAuthority.openingPageVisual.value !== 'fresh');
+const shouldShowNeutralOpeningSurface = computed(() => isOpening.value && chassisOpeningPageShell.value === null);
 
 watch(
     [

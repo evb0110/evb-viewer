@@ -94,17 +94,20 @@ interface IRecentOpenTransitionResult {
     shellInteractiveAtMs: number | null;
     recentRowVisibleAtShell: boolean;
     sawVisibleDisabledTargetRow: boolean;
-    shellAtMs: number | null;
-    shellElapsedMs: number | null;
-    shellFound: boolean;
+    openingSurfaceAtMs: number | null;
+    openingSurfaceElapsedMs: number | null;
+    openingSurfaceFound: boolean;
     targetReadyAtClick: boolean;
     targetActionableAtClick: boolean;
     firstOpenSurfaceFrame: {
         activeTabTitle: string;
         openSurfacePhase: string | null;
         openSurfacePresentation: string | null;
+        openingGeometryKnown: boolean;
         viewportVisualPresentation: string | null;
         recentRowVisible: boolean;
+        neutralVisible: boolean;
+        neutralFillsViewport: boolean;
         shellVisible: boolean;
         skeletonVisible: boolean;
     } | null;
@@ -330,7 +333,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
     sourcePath: string,
 ): Promise<IRecentOpenTransitionResult> {
     // A Recent click first validates that the persisted path still exists. The
-    // IPC/stat preflight has variable duration, so page-shell paint budgets
+    // IPC/stat preflight has variable duration, so opening-surface budgets
     // start with the first positive open-surface snapshot—not the raw click or
     // the tab/session bookkeeping that may precede that snapshot.
     return evaluateInPage(session.page, (
@@ -390,10 +393,23 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             ) ?? null;
             return isVisible(pageCanvas) ? pageCanvas : null;
         };
+        const getNeutralOpeningSurface = () => {
+            const neutral = getActiveHost()?.querySelector<HTMLElement>(
+                '[data-document-open-surface="neutral"]',
+            ) ?? null;
+            return isVisible(neutral) ? neutral : null;
+        };
         const readOpenSurfaceFrame = (): NonNullable<IRecentOpenTransitionResult['firstOpenSurfaceFrame']> => {
             const activeHost = getActiveHost();
             const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
             const exactPageShell = getExactPageShell();
+            const neutral = getNeutralOpeningSurface();
+            const viewport = activeHost?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+            const neutralRect = neutral?.getBoundingClientRect();
+            const viewportRect = viewport?.getBoundingClientRect();
+            if (neutral) {
+                neutral.dataset.e2eRecentOpeningShell = 'stable';
+            }
             return {
                 activeTabTitle: document.querySelector<HTMLElement>(
                     '.tab-list .tab.is-active .tab-label',
@@ -402,11 +418,23 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                     '[data-document-viewer-chassis-viewport]',
                 )?.dataset.openSurfacePhase ?? null,
                 openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
+                openingGeometryKnown: chassis?.dataset.openSurfaceHasOpeningGeometry === 'true',
                 viewportVisualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
                 recentRowVisible: isVisible(getRecentRow()),
+                neutralVisible: neutral !== null,
+                neutralFillsViewport: Boolean(
+                    neutralRect
+                    && viewport
+                    && viewportRect
+                    && neutralRect.left === viewportRect.left
+                    && neutralRect.top === viewportRect.top
+                    && neutralRect.width === viewport.clientWidth
+                    && neutralRect.height === viewportRect.height,
+                ),
                 shellVisible: exactPageShell !== null,
                 skeletonVisible: Boolean(
-                    exactPageShell?.querySelector('.document-page-skeleton'),
+                    exactPageShell?.querySelector('.document-page-skeleton')
+                    || neutral?.querySelector('.document-page-skeleton'),
                 ),
             };
         };
@@ -422,7 +450,7 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             || (frame.openSurfacePresentation !== null && frame.openSurfacePresentation !== 'idle')
             || frame.shellVisible
         );
-        const finish = (shellAtMs: number | null) => {
+        const finish = (openingSurfaceAtMs: number | null) => {
             const activeTabId = document.querySelector<HTMLElement>(
                 '.tab-list .tab.is-active[data-tab-id]',
             )?.dataset.tabId ?? null;
@@ -438,11 +466,11 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
                 shellInteractiveAtMs,
                 recentRowVisibleAtShell: isVisible(getRecentRow()),
                 sawVisibleDisabledTargetRow,
-                shellAtMs,
-                shellElapsedMs: clickAtMs !== null && shellAtMs !== null
-                    ? Math.round(shellAtMs - clickAtMs)
+                openingSurfaceAtMs,
+                openingSurfaceElapsedMs: clickAtMs !== null && openingSurfaceAtMs !== null
+                    ? Math.round(openingSurfaceAtMs - clickAtMs)
                     : null,
-                shellFound: shellAtMs !== null,
+                openingSurfaceFound: openingSurfaceAtMs !== null,
                 targetReadyAtClick,
                 targetActionableAtClick,
                 firstOpenSurfaceFrame,
@@ -476,7 +504,9 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             } else if (firstOpenSurfaceFrame === null) {
                 preSurfaceFrames += 1;
             }
-            if (getExactPageShell()) {
+            const openingSurface = getExactPageShell() ?? getNeutralOpeningSurface();
+            if (openingSurface) {
+                openingSurface.dataset.e2eRecentOpeningShell = 'stable';
                 finish(sampledAtMs);
                 return;
             }
@@ -606,10 +636,13 @@ describe('Electron E2E - Recent Files', () => {
 
     const sessionFixture = createElectronE2ESessionFixture({sessionName});
 
-    it('opens Recent from the current empty startup tab with an exact page-shell as its first document surface', async () => {
+    it('opens Recent with a neutral surface until first page geometry is available', async () => {
         let session = sessionFixture.getSession();
 
-        const fixturePath = await createLargeScannedFixturePdf(`recent-file-${Date.now()}.pdf`);
+        const fixturePath = await createScannedTextFixturePdf(
+            `recent-file-${Date.now()}.pdf`,
+            'NON-LETTER PAGE',
+        );
         const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
@@ -626,69 +659,8 @@ describe('Electron E2E - Recent Files', () => {
             session,
             fixturePath,
         );
-        expect(immediateOpen.shellFound, JSON.stringify(immediateOpen)).toBe(true);
-        const openingShellState = await evaluateInPage(session.page, () => {
-            const shell = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .document-viewer-chassis__opening-page',
-            ) ?? document.querySelector<HTMLElement>(
-                '.editor-pane.is-active #pdf-viewer .page_container[data-page="1"] .page_canvas',
-            );
-            if (!shell) {
-                return {
-                    found: false,
-                    hasSkeleton: false,
-                    rect: null,
-                    borderRadius: '',
-                    boxShadow: '',
-                    livePageMounted: false,
-                    livePageBoxShadow: '',
-                };
-            }
-            shell.dataset.e2eRecentOpeningShell = 'stable';
-            const rect = shell.getBoundingClientRect();
-            const style = window.getComputedStyle(shell);
-            const livePage = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active #pdf-viewer .page_canvas',
-            );
-            const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
-            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
-            const track = document.querySelector<HTMLElement>('[data-pdf-page-track]');
-            return {
-                found: true,
-                hasSkeleton: shell.querySelector('.document-page-skeleton') !== null,
-                rect: {
-                    height: rect.height,
-                    left: rect.left,
-                    top: rect.top,
-                    width: rect.width,
-                },
-                borderRadius: style.borderRadius,
-                boxShadow: style.boxShadow,
-                livePageMounted: livePage !== null,
-                livePageBoxShadow: livePage ? window.getComputedStyle(livePage).boxShadow : '',
-                diagnostics: {
-                    frameOwner: shell.dataset.openSurfaceFrameOwner ?? '',
-                    hostClientWidth: host?.clientWidth ?? 0,
-                    viewportClientWidth: viewport?.clientWidth ?? 0,
-                    viewportOffsetWidth: viewport?.offsetWidth ?? 0,
-                    viewportScrollTop: viewport?.scrollTop ?? 0,
-                    viewportTop: viewport?.getBoundingClientRect().top ?? 0,
-                    workspaceTop: workspace?.getBoundingClientRect().top ?? 0,
-                    trackTop: track?.getBoundingClientRect().top ?? 0,
-                    shellOffsetTop: shell.offsetTop,
-                    shellStyleTop: style.top,
-                    shellPageNumber: shell.dataset.pageNumber ?? '',
-                },
-            };
-        });
-        expect(openingShellState.found).toBe(true);
-        expect(openingShellState.rect).not.toBeNull();
-        if (openingShellState.livePageMounted) {
-            expect(openingShellState.livePageBoxShadow).toBe('none');
-        } else {
-            expect(openingShellState.livePageBoxShadow).toBe('');
-        }
+        expect(immediateOpen.openingSurfaceFound, JSON.stringify(immediateOpen)).toBe(true);
+        expect(immediateOpen.firstOpenSurfaceFrame?.neutralFillsViewport).toBe(true);
         await delay(130);
         const debouncedSkeletonVisible = await evaluateInPage(session.page, () => {
             const shell = document.querySelector<HTMLElement>('[data-e2e-recent-opening-shell="stable"]');
@@ -714,8 +686,10 @@ describe('Electron E2E - Recent Files', () => {
         expect(immediateOpen.recentRowVisibleAtShell, JSON.stringify(immediateOpen)).toBe(false);
         expect(immediateOpen.firstOpenSurfaceFrame, JSON.stringify(immediateOpen)).toMatchObject({
             activeTabTitle: basename(fixturePath),
+            openingGeometryKnown: false,
             recentRowVisible: false,
-            shellVisible: true,
+            neutralVisible: true,
+            shellVisible: false,
         });
         const initialOpenSurfaceFrame = immediateOpen.firstOpenSurfaceFrame;
         expect(
@@ -785,23 +759,7 @@ describe('Electron E2E - Recent Files', () => {
         });
         expect(committedCanvasState.found).toBe(true);
         expect(committedCanvasState.hasSkeleton).toBe(false);
-        expect(committedCanvasState.borderRadius).toBe(openingShellState.borderRadius);
-        expect(committedCanvasState.boxShadow).toBe(openingShellState.boxShadow);
         expect(committedCanvasState.rect).not.toBeNull();
-        for (const key of [
-            'height',
-            'left',
-            'top',
-            'width',
-        ] as const) {
-            expect(Math.abs(
-                committedCanvasState.rect![key] - openingShellState.rect![key],
-            ), JSON.stringify({
-                key,
-                committedCanvasState,
-                openingShellState,
-            })).toBeLessThanOrEqual(0.5);
-        }
         assertToolbarTransitionStable(await stopToolbarTransitionSampling(session), immediateOpen.clickAtMs);
         await delay(250);
         const committedSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
@@ -828,16 +786,55 @@ describe('Electron E2E - Recent Files', () => {
                 elapsedMs: Math.max(0, frame.elapsedMs - firstOpenSurfaceElapsedMs),
             })),
         };
-        const causalViolations = findCommittedSurfaceCausalOpenViolations(openSurfaceTrace, {
+        const firstGeometryIndex = openSurfaceTrace.frames.findIndex(frame => (
+            frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true'
+        ));
+        expect(firstGeometryIndex, JSON.stringify(openSurfaceTrace.frames)).toBeGreaterThanOrEqual(0);
+        const firstGeometryFrame = openSurfaceTrace.frames[firstGeometryIndex]!;
+        const geometryTrace = {
+            ...(openSurfaceTrace.errors ? {errors: openSurfaceTrace.errors} : {}),
+            frames: openSurfaceTrace.frames.slice(firstGeometryIndex).map(frame => ({
+                ...frame,
+                elapsedMs: Math.max(0, frame.elapsedMs - firstGeometryFrame.elapsedMs),
+            })),
+        };
+        const causalViolations = findCommittedSurfaceCausalOpenViolations(geometryTrace, {
             maxFirstCanvasMs: RECENT_FIRST_CANVAS_BUDGET_MS,
             maxFirstPageShellMs: RECENT_FIRST_PAGE_SHELL_BUDGET_MS,
             maxReadyAfterCanvasMs: RECENT_READY_AFTER_CANVAS_BUDGET_MS,
             requirePageShell: true,
         });
-        const firstOpenSurfaceFrame = openSurfaceTrace.frames[0];
+        const firstGeometryTraceFrame = geometryTrace.frames[0];
         const firstVisiblePageShellFrame = openSurfaceTrace.frames.find(frame => frame.kind === 'page-shell');
-        const visiblePageShellFrameDelta = firstOpenSurfaceFrame && firstVisiblePageShellFrame
-            ? firstVisiblePageShellFrame.frame - firstOpenSurfaceFrame.frame
+        expect(firstVisiblePageShellFrame, JSON.stringify(openSurfaceTrace.frames)).toBeDefined();
+        expect(
+            firstVisiblePageShellFrame?.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry,
+            JSON.stringify(firstVisiblePageShellFrame),
+        ).toBe('true');
+        expect(
+            firstVisiblePageShellFrame?.shellRect
+                ? firstVisiblePageShellFrame.shellRect.width / firstVisiblePageShellFrame.shellRect.height
+                : null,
+            JSON.stringify(firstVisiblePageShellFrame),
+        ).toBeCloseTo(2.4, 2);
+        expect(committedCanvasState.borderRadius).toBe(firstVisiblePageShellFrame?.shellStyle?.borderRadius);
+        expect(committedCanvasState.boxShadow).toBe(firstVisiblePageShellFrame?.shellStyle?.boxShadow);
+        for (const key of [
+            'height',
+            'left',
+            'top',
+            'width',
+        ] as const) {
+            expect(Math.abs(
+                committedCanvasState.rect![key] - firstVisiblePageShellFrame!.shellRect![key],
+            ), JSON.stringify({
+                key,
+                committedCanvasState,
+                openingPageShell: firstVisiblePageShellFrame,
+            })).toBeLessThanOrEqual(0.5);
+        }
+        const visiblePageShellFrameDelta = firstGeometryTraceFrame && firstVisiblePageShellFrame
+            ? firstVisiblePageShellFrame.frame - firstGeometryTraceFrame.frame
             : null;
         console.info('[E2E recent PDF open timing]', JSON.stringify({
             actionableElapsedMs: immediateOpen.actionableElapsedMs,
@@ -856,7 +853,7 @@ describe('Electron E2E - Recent Files', () => {
                     outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
                     topElementPath: frame.topElementPath,
                 })),
-            shellElapsedMs: immediateOpen.shellElapsedMs,
+            openingSurfaceElapsedMs: immediateOpen.openingSurfaceElapsedMs,
             timing: summarizeCommittedSurfaceTiming(openSurfaceTrace),
             visiblePageShellFrameDelta,
         }));

@@ -39,7 +39,10 @@ function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
     if (
         frame.kind === 'blank'
         || frame.kind === 'loader'
-        || frame.kind === 'neutral'
+        || frame.kind === 'neutral' && (
+            frame.openSurfacePhase !== 'pending'
+            || frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry !== 'false'
+        )
     ) {
         return `frame ${String(frame.frame)} exposed ${frame.kind} instead of one viewport owner: ${JSON.stringify({
             navigation: frame.pdfNavigationDiagnostic,

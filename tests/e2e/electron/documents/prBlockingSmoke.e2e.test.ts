@@ -2353,14 +2353,14 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         )));
         expect(committedCanvasSizes.size, JSON.stringify(result)).toBe(1);
 
-        // The empty-to-document contract requires one page-frame skeleton in
-        // the exact `.page_canvas` that receives the first canvas. A neutral
-        // overlay, spinner, or detached skeleton is never valid.
         const transitionSamples = result.samples.filter(sample => (
             sample.sampleSource === 'raf'
             && (sample.openSurfaceVisible || sample.hostLoaderCount > 0)
         ));
-        expect(transitionSamples, JSON.stringify(result)).toEqual([]);
+        expect(
+            transitionSamples.every(sample => sample.openSurfaceVisible && sample.hostLoaderCount === 0),
+            JSON.stringify(result),
+        ).toBe(true);
         for (const sample of result.samples) {
             expect(
                 sample.visibleCanvasReady && sample.pageSkeletonVisible,

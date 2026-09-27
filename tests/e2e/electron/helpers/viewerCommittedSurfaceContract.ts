@@ -212,7 +212,12 @@ export function findCommittedSurfaceContractViolations(
             && frame.openSurfacePhase === 'pending'
             && frame.pdfNavigationDiagnostic?.openingSurfaceDeferred === 'true';
         if (
-            (frame.kind === 'blank' || frame.kind === 'loader' || frame.kind === 'neutral')
+            (frame.kind === 'blank'
+            || frame.kind === 'loader'
+            || frame.kind === 'neutral' && (
+                frame.openSurfacePhase !== 'pending'
+                || frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry !== 'false'
+            ))
             && !isExplicitDeferredOpening
         ) {
             violations.push(`frame ${String(frame.frame)} exposed ${frame.kind}`);
@@ -1038,7 +1043,7 @@ export async function installCommittedSurfaceSampler(
                 const skeletonCandidates = Array.from(host?.querySelectorAll<HTMLElement>(
                     '.document-page-skeleton, .document-source-viewer__skeleton',
                 ) ?? [])
-                    .filter(isVisible);
+                    .filter(candidate => isVisible(candidate) && !visibleNeutral?.contains(candidate));
                 // The page-source skeleton wrapper renders the shared
                 // DocumentPageSkeleton inside itself, so both selectors match
                 // one logical skeleton. Keep only the outermost element of
