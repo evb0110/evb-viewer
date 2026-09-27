@@ -4,10 +4,14 @@ import {
     spawn,
 } from 'node:child_process';
 import {
+    copyFileSync,
     mkdirSync,
+    mkdtempSync,
     readFileSync,
+    rmSync,
     writeFileSync,
 } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
     fileURLToPath,
@@ -69,24 +73,47 @@ export function getStrictBuildEnv(env = process.env) {
 export const STRICT_BUILD_SCRIPT_NAME = 'build:desktop';
 const strictBuildStampPath = path.join(projectRoot, '.devkit', 'cache', 'build', 'strict.txt');
 
-/** @param {string} [root] @returns {string} */
+/**
+ * The tree `git add --all` would record for the working copy, so any content
+ * edit, including a second edit to an already-dirty file, changes the stamp.
+ * @param {string} [root]
+ * @returns {string}
+ */
 export function getStrictBuildStamp(root = projectRoot) {
-    const tree = execFileSync('git', [
-        'rev-parse',
-        'HEAD^{tree}',
-    ], {
-        cwd: root,
-        encoding: 'utf8',
-    }).trim();
-    const status = execFileSync('git', [
-        'status',
-        '--porcelain=v1',
-        '--untracked-files=all',
-    ], {
-        cwd: root,
-        encoding: 'utf8',
-    });
-    return `${tree}\n${status}`;
+    const indexDir = mkdtempSync(path.join(os.tmpdir(), 'evb-strict-stamp-'));
+    const env = {
+        ...process.env,
+        GIT_INDEX_FILE: path.join(indexDir, 'index'),
+    };
+    try {
+        // A copy of the real index keeps stat data, so only changed files are rehashed.
+        copyFileSync(execFileSync('git', [
+            'rev-parse',
+            '--path-format=absolute',
+            '--git-path',
+            'index',
+        ], {
+            cwd: root,
+            encoding: 'utf8',
+        }).trim(), env.GIT_INDEX_FILE);
+        execFileSync('git', [
+            'add',
+            '--all',
+        ], {
+            cwd: root,
+            env,
+        });
+        return execFileSync('git', ['write-tree'], {
+            cwd: root,
+            env,
+            encoding: 'utf8',
+        }).trim();
+    } finally {
+        rmSync(indexDir, {
+            force: true,
+            recursive: true,
+        });
+    }
 }
 
 /** @param {string} [root] */

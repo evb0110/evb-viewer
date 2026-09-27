@@ -1,4 +1,11 @@
-import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import path, {join} from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
     describe,
@@ -14,13 +21,17 @@ interface IPnpmInvocation {
 interface IBuildStrictModule {
     getPnpmInvocation: (args: string[], platform?: NodeJS.Platform) => IPnpmInvocation;
     getStrictBuildEnv: (env?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
+    isStrictBuildStampFresh: (root?: string) => boolean;
     shouldWriteErrorOutputToBuildLog: (error: unknown) => boolean;
+    writeStrictBuildStamp: (root?: string) => void;
 }
 
 const {
     getPnpmInvocation,
     getStrictBuildEnv,
+    isStrictBuildStampFresh,
     shouldWriteErrorOutputToBuildLog,
+    writeStrictBuildStamp,
 } = await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/run-build-strict.mjs')).href
 ) as IBuildStrictModule;
@@ -89,5 +100,50 @@ describe('run-build-strict', () => {
             output: 'warning checker diagnostics',
             preserveExistingBuildLog: true,
         })).toBe(false);
+    });
+
+    it('invalidates the strict build stamp when an already-dirty tracked file changes again', () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-strict-build-stamp-'));
+        const sourcePath = path.join(root, 'source.ts');
+        try {
+            execFileSync('git', [
+                'init',
+                '--quiet',
+            ], {cwd: root});
+            execFileSync('git', [
+                'config',
+                'user.email',
+                'build-stamp@example.test',
+            ], {cwd: root});
+            execFileSync('git', [
+                'config',
+                'user.name',
+                'Build Stamp Test',
+            ], {cwd: root});
+            writeFileSync(path.join(root, '.gitignore'), '.devkit/\n', 'utf8');
+            writeFileSync(sourcePath, 'export const source = "committed";\n', 'utf8');
+            execFileSync('git', [
+                'add',
+                '--all',
+            ], {cwd: root});
+            execFileSync('git', [
+                'commit',
+                '--quiet',
+                '-m',
+                'baseline',
+            ], {cwd: root});
+
+            writeFileSync(sourcePath, 'export const source = "first edit";\n', 'utf8');
+            writeStrictBuildStamp(root);
+            expect(isStrictBuildStampFresh(root)).toBe(true);
+
+            writeFileSync(sourcePath, 'export const source = "second edit";\n', 'utf8');
+            expect(isStrictBuildStampFresh(root)).toBe(false);
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });
