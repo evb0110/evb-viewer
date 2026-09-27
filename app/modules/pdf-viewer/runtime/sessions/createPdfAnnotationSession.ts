@@ -944,12 +944,28 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             { syncAnnotationComments: annotations.commentSync.syncAnnotationComments },
         );
     }
+    const getDeletedCanonicalAnnotationIds = () => Array.from(new Set([
+        ...retiredPdfAnnotationIds.value,
+        ...annotationApplication.value.store.deletedAnnotationIds(),
+        ...annotationApplication.value.store
+            .list({includeDeleted: true})
+            .filter(entity => entity.deleted)
+            .flatMap(entity => [
+                entity.identity.id,
+                entity.identity.pdfRef,
+            ].filter((value): value is string => Boolean(value))),
+    ]));
+    const thumbnailHiddenAnnotationIds = computed(() => {
+        void annotationProjection.value;
+        return new Set(getDeletedCanonicalAnnotationIds());
+    });
     const canvasHiddenAnnotationIds = computed(() => new Set(hiddenPdfAnnotationIds.value));
     const annotationProjectionReady = ref(!(options.workingCopyPath.value && options.documentRevisionToken.value && documentSession.pdfDocument.value));
     const detachProjection = rendering.attachAnnotationProjection({
         hiddenAnnotationIds: hiddenPdfAnnotationIds,
         annotationProjectionReady,
         canvasHiddenAnnotationIds,
+        thumbnailHiddenAnnotationIds,
         pageCommitted: () => undefined,
     });
     const stopStoreOwnershipRefreshWatch = createPdfAnnotationOwnershipRefreshWatch({
@@ -1258,17 +1274,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             void annotationProjection.value;
             return annotationApplication.value.store.hasChangesSinceSavedBaseline('shape');
         },
-        getDeletedCanonicalAnnotationIds: () => Array.from(new Set([
-            ...retiredPdfAnnotationIds.value,
-            ...annotationApplication.value.store.deletedAnnotationIds(),
-            ...annotationApplication.value.store
-                .list({includeDeleted: true})
-                .filter(entity => entity.deleted)
-                .flatMap(entity => [
-                    entity.identity.id,
-                    entity.identity.pdfRef,
-                ].filter((value): value is string => Boolean(value))),
-        ])),
+        getDeletedCanonicalAnnotationIds,
         getDeletedPersistedCanonicalAnnotationCount: () => annotationApplication.value.store
             .countDirtyPersistedDeletions(),
         annotationCommentModel,

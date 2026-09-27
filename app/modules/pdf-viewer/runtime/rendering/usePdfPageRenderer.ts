@@ -30,6 +30,7 @@ interface IPdfAnnotationProjection {
     readonly hiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly annotationProjectionReady: Readonly<Ref<boolean>>;
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
+    readonly thumbnailHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     pageCommitted(pageNumber: TPageNumber): void;
 }
 
@@ -55,6 +56,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const hiddenAnnotationIds = computed(() => projection.value?.hiddenAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
     const annotationProjectionReady = computed(() => projection.value?.annotationProjectionReady.value ?? true);
     const canvasHiddenAnnotationIds = computed(() => projection.value?.canvasHiddenAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
+    const thumbnailHiddenAnnotationIds = computed(() => projection.value?.thumbnailHiddenAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
     const {
         pdfDocument,
         numPages,
@@ -654,6 +656,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         // overlay is mounted — as the annotation layer does, where the decision is
         // revisited on every DOM sync — would bake native ink under the overlay.
         canvasHiddenAnnotationIds,
+        thumbnailHiddenAnnotationIds,
         attachAnnotationProjection(attached: IPdfAnnotationProjection) {
             projection.value = attached;
             return () => {

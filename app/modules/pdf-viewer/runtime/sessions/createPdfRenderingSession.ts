@@ -1130,14 +1130,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     async function renderThumbnail(request: IDocumentPageRenderRequest) {
         await waitForLoadedDocument(request.signal);
         const scheduler = documentSession.rasterScheduler;
-        if (!scheduler) {
-            throw new DOMException('The PDF document closed', 'AbortError');
-        }
+        if (!scheduler) throw new DOMException('The PDF document closed', 'AbortError');
         return renderPdfDocumentThumbnail({
             scheduler,
             request,
             rotation: documentSession.pageMetrics.value[request.pageNumber - 1]?.rotation,
-            hiddenAnnotationIds: pageRenderer.canvasHiddenAnnotationIds.value,
+            hiddenAnnotationIds: pageRenderer.thumbnailHiddenAnnotationIds.value,
         });
     }
     // The chassis page source. A reload of the same document keeps the bound

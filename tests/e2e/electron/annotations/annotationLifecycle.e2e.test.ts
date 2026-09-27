@@ -57,6 +57,7 @@ import {
 import {
     goToPageViaToolbar,
     openAnnotationsTab,
+    openDocumentSidebarTab,
     openPdfInApp,
     saveViaVisibleToolbar,
     saveViaWindowHandle,
@@ -205,6 +206,50 @@ async function maxPageCanvasHighlightPixelsAcrossFrames(page: Page, rect: {
         ...rect,
         pageNumber,
     });
+}
+
+async function maxThumbnailHighlightPixelsAcrossFrames(page: Page, rect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}) {
+    return page.evaluate(async (input: {
+        left: number;
+        top: number;
+        width: number;
+        height: number;
+    }) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(
+            '.editor-pane.is-active [data-thumbnail-page="1"] .document-thumbnail-list__canvas-host canvas',
+        );
+        if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+            throw new Error('Page one thumbnail canvas is not painted');
+        }
+        const context = canvas.getContext('2d', {willReadFrequently: true});
+        if (!context) throw new Error('Thumbnail canvas has no 2d context');
+        const x = Math.max(0, Math.floor((input.left - input.width * 0.05) * canvas.width));
+        const y = Math.max(0, Math.floor((input.top - input.height * 0.4) * canvas.height));
+        const right = Math.min(canvas.width, Math.ceil((input.left + input.width * 1.05) * canvas.width));
+        const bottom = Math.min(canvas.height, Math.ceil((input.top + input.height * 1.4) * canvas.height));
+        const count = () => {
+            const pixels = context.getImageData(x, y, Math.max(1, right - x), Math.max(1, bottom - y)).data;
+            let highlighted = 0;
+            for (let index = 0; index < pixels.length; index += 4) {
+                const red = pixels[index]!;
+                const green = pixels[index + 1]!;
+                const blue = pixels[index + 2]!;
+                if (red > 175 && green > 95 && red - blue > 45 && green - blue > 20) highlighted += 1;
+            }
+            return highlighted;
+        };
+        let maximum = count();
+        for (let frame = 0; frame < 90; frame += 1) {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            maximum = Math.max(maximum, count());
+        }
+        return maximum;
+    }, rect);
 }
 
 async function annotationPointerTarget(page: Page, selector = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"], .editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]') {
@@ -2786,6 +2831,58 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await saveViaVisibleToolbar(reopenedPage, 30_000);
         await waitForPdfAnnotationSubtypeCount(reopenPath, 'Highlight', 1);
         await waitForActiveTabDirtyState(reopenedPage, false);
+    }, 120_000);
+
+    it('keeps saved highlights visible in thumbnails and hides them after deletion', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixturePath = await createMultiPageTextFixturePdf(`annotation-thumbnail-${Date.now()}.pdf`, 1);
+        onTestFinished(() => rmSync(fixturePath, {force: true}));
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await createTextMarkupWithPointer(page);
+        await saveViaVisibleToolbar(page, 30_000);
+        await waitForPdfAnnotationSubtypeCount(fixturePath, 'Highlight', 1);
+
+        const reopenPath = preserveFixtureAcrossRestart(fixturePath);
+        const restarted = await sessionFixture.restart({hard: true});
+        const reopenedPage = restarted.page;
+        await openPdfInApp(reopenedPage, reopenPath);
+        await waitForPdfLoaded(reopenedPage);
+        await waitForViewerInteractive(reopenedPage);
+        await openAnnotationsTab(reopenedPage);
+        await expectCanonicalCountsAcrossFrames(reopenedPage, {
+            markup: 1,
+            notes: 0,
+            cards: 1,
+        });
+        const persistedHighlight = await readPaintedAnnotation(reopenedPage);
+        if (!persistedHighlight) throw new Error('Saved highlight was not painted after reopening');
+
+        await openDocumentSidebarTab(reopenedPage, 'Pages');
+        await reopenedPage.waitForFunction(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active [data-thumbnail-page="1"] .document-thumbnail-list__canvas-host canvas',
+            );
+            return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+        }, undefined, {timeout: 20_000});
+        expect(await maxThumbnailHighlightPixelsAcrossFrames(reopenedPage, persistedHighlight)).toBeGreaterThan(0);
+
+        await openAnnotationsTab(reopenedPage);
+        await clickFirstSidebarAnnotationDelete(reopenedPage);
+        await expectCanonicalCountsAcrossFrames(reopenedPage, {
+            markup: 0,
+            notes: 0,
+            cards: 0,
+        });
+        await openDocumentSidebarTab(reopenedPage, 'Pages');
+        await reopenedPage.waitForFunction(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>(
+                '.editor-pane.is-active [data-thumbnail-page="1"] .document-thumbnail-list__canvas-host canvas',
+            );
+            return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+        }, undefined, {timeout: 20_000});
+        expect(await maxThumbnailHighlightPixelsAcrossFrames(reopenedPage, persistedHighlight)).toBe(0);
     }, 120_000);
 
     // Replaces the retired PDF.js deferred-sync proofs for both create kinds.
