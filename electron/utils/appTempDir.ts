@@ -78,11 +78,11 @@ function getAppTempNamespace() {
     return `${getAppTempUserId()}-fallback`;
 }
 
+// os.tmpdir(), not app.getPath('temp'): worker threads and the native
+// command runner resolve the same base, and on macOS Electron's temp path
+// ignores TMPDIR while os.tmpdir() honors it.
 function getOperatingSystemTempDir() {
-    // Electron is unavailable inside Node worker_threads. Keep this utility
-    // worker-safe because native document operations use it for managed
-    // scratch output before publishing changes to a working copy.
-    return (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('temp') ?? tmpdir();
+    return tmpdir();
 }
 
 function joinTempDirectory(tempDir: string, directoryName: string) {

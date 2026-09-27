@@ -21,10 +21,7 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const paths: Record<string, string> = {
-        temp: '/tmp',
-        userData: '/profiles/default',
-    };
+    const paths: Record<string, string> = {userData: '/profiles/default'};
     return {paths};
 });
 
@@ -42,6 +39,7 @@ const {
 describe('app temp directory namespace', () => {
     afterEach(() => {
         delete process.env.EVB_APP_TEMP_NAMESPACE;
+        vi.unstubAllEnvs();
     });
 
     it('derives a stable opaque namespace per userData profile', () => {
@@ -53,6 +51,7 @@ describe('app temp directory namespace', () => {
     });
 
     it('propagates the profile namespace for worker-safe temp resolution', () => {
+        vi.stubEnv('TMPDIR', '/tmp');
         const namespace = initializeAppTempNamespace('/profiles/automation-a');
 
         expect(process.env.EVB_APP_TEMP_NAMESPACE).toBe(namespace);
@@ -67,7 +66,6 @@ describe('app temp directory namespace', () => {
     });
 
     it.runIf(process.platform !== 'win32')('replaces an owner-marker symlink without writing through to its target', () => {
-        const previousTempPath = mocks.paths.temp ?? '/tmp';
         const previousUserDataPath = mocks.paths.userData ?? '/profiles/default';
         const previousNamespace = process.env.EVB_APP_TEMP_NAMESPACE;
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-marker-'));
@@ -77,7 +75,7 @@ describe('app temp directory namespace', () => {
         const markerTarget = join(tempRoot, 'marker-target');
 
         try {
-            mocks.paths.temp = tempRoot;
+            vi.stubEnv('TMPDIR', tempRoot);
             mocks.paths.userData = userDataPath;
             initializeAppTempNamespace(userDataPath);
             mkdirSync(namespacePath, {recursive: true});
@@ -94,7 +92,6 @@ describe('app temp directory namespace', () => {
             } else {
                 process.env.EVB_APP_TEMP_NAMESPACE = previousNamespace;
             }
-            mocks.paths.temp = previousTempPath;
             mocks.paths.userData = previousUserDataPath;
             rmSync(tempRoot, {
                 force: true,
@@ -104,7 +101,6 @@ describe('app temp directory namespace', () => {
     });
 
     it('removes only old namespaces with valid dead owners and keeps legacy data', async () => {
-        const previousTempPath = mocks.paths.temp ?? '/tmp';
         const previousUserDataPath = mocks.paths.userData ?? '/profiles/default';
         const previousNamespace = process.env.EVB_APP_TEMP_NAMESPACE;
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-cleanup-'));
@@ -138,7 +134,7 @@ describe('app temp directory namespace', () => {
                 deadOwner.once('error', reject);
                 deadOwner.once('exit', () => resolve());
             });
-            mocks.paths.temp = tempRoot;
+            vi.stubEnv('TMPDIR', tempRoot);
             mocks.paths.userData = '/profiles/current';
             initializeAppTempNamespace('/profiles/current');
             getAppTempDir();
@@ -215,7 +211,6 @@ describe('app temp directory namespace', () => {
             } else {
                 process.env.EVB_APP_TEMP_NAMESPACE = previousNamespace;
             }
-            mocks.paths.temp = previousTempPath;
             mocks.paths.userData = previousUserDataPath;
             rmSync(tempRoot, {
                 force: true,

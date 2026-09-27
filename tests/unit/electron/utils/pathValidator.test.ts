@@ -30,6 +30,11 @@ vi.mock('electron', () => ({app: {getPath: (name: string) => {
     throw new Error(`Unknown path name: ${name}`);
 }}}));
 
+vi.mock('os', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
+    tmpdir: () => mocks.tempDir,
+}));
+
 vi.mock('fs', () => ({
     existsSync: (path: string) => mocks.existsSync(path),
     lstatSync: (path: string) => mocks.lstatSync(path),

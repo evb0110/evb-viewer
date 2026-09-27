@@ -84,9 +84,13 @@ beforeEach(async () => {
     clearWorkingCopyOriginalPaths();
     electronPaths.userData = await createManagedTempDir('scan-cleanup-app-data-');
     electronPaths.temp = await createManagedTempDir('scan-cleanup-os-temp-');
+    vi.stubEnv('TMPDIR', electronPaths.temp);
+    vi.stubEnv('TEMP', electronPaths.temp);
+    vi.stubEnv('TMP', electronPaths.temp);
 });
 
 afterEach(async () => {
+    vi.unstubAllEnvs();
     clearWorkingCopyOriginalPaths();
     const {rm} = await import('fs/promises');
     await Promise.all(tempDirs.splice(0).map(path => rm(path, {

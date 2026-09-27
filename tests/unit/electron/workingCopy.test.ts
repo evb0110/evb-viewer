@@ -63,10 +63,14 @@ describe('workingCopy', () => {
         vi.resetModules();
         vi.clearAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-working-copy-test-'));
+        vi.stubEnv('TMPDIR', tempRoot);
+        vi.stubEnv('TEMP', tempRoot);
+        vi.stubEnv('TMP', tempRoot);
     });
 
     afterEach(() => {
         setPlatform(originalPlatform);
+        vi.unstubAllEnvs();
         delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
         delete process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE;
         vi.useRealTimers();
