@@ -118,7 +118,9 @@ or failed run did not prove is selected again.
 ## Nightly
 
 `ci-nightly.yml` runs daily at 02:30 UTC and on dispatch. It reports and never
-gates a commit or a release.
+gates a commit or a release. A scheduled run keeps one open
+`ci-nightly-failure` issue listing its failed jobs and closes it on the first
+fully green run; dispatched runs do not touch the issue.
 
 | Job | What it checks |
 | --- | --- |

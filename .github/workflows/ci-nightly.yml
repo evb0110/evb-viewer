@@ -37,9 +37,6 @@ jobs:
     name: Public release mirror health
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: write
 
     steps:
       - name: Checkout main
@@ -49,48 +46,12 @@ jobs:
           ref: main
 
       - name: Setup CI environment
-        id: setup
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Check latest public release and updater mirror
-        id: mirror_check
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: node --import tsx scripts/release/verifyReleaseMirror.mjs --latest
-
-      - name: Report through the release-mirror-health issue
-        if: ${{ always() && steps.setup.outcome == 'success' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHECK_OUTCOME: ${{ steps.mirror_check.outcome }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          label='release-mirror-health'
-          if ! gh label list --json name --jq '.[].name' | grep -Fxq "$label"; then
-            gh label create "$label" --color E11D48 --description 'Public release mirror health failures'
-          fi
-          issue_number="$(gh issue list --label "$label" --state open --limit 1 --json number --jq '.[0].number // empty')"
-
-          if [ "$CHECK_OUTCOME" = 'success' ]; then
-            if [ -n "$issue_number" ]; then
-              gh issue close "$issue_number" --comment "$(printf 'The current GitHub release and updater mirror agree and serve a release asset again.\n\nRun: %s' "$RUN_URL")"
-            fi
-            exit 0
-          fi
-
-          latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || echo unavailable)"
-          body="$(printf '%s\n' \
-            "The public release mirror health check failed for latest release $latest_tag." \
-            "The GitHub latest release, updater channel, release manifest, and served asset must name the same tag." \
-            "Run: $RUN_URL")"
-          if [ -n "$issue_number" ]; then
-            gh issue comment "$issue_number" --body "$body"
-          else
-            gh issue create --title 'Public release mirror health check failed' --label "$label" --body "$body"
-          fi
-          exit 1
 
   nightly_scan_cleanup_heavy:
     name: Scan Cleanup Heavy Gates
@@ -350,3 +311,51 @@ jobs:
         uses: ./.github/actions/upload-electron-e2e-artifacts
         with:
           artifact-name: electron-visible-window-${{ github.run_attempt }}
+
+  # A scheduled red nobody sees is no check at all: every scheduled run keeps
+  # one ci-nightly-failure issue open while any job fails and closes it on
+  # the first fully green run.
+  report:
+    name: Report nightly result
+    needs:
+      - release_mirror_health
+      - nightly_scan_cleanup_heavy
+      - nightly_rust_tests_arm64
+      - nightly_rust_fuzz
+      - electron_e2e_lanes
+      - nightly_electron_e2e_macos
+      - nightly_electron_e2e_search_match_scroll
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+
+    steps:
+      - name: Update the ci-nightly-failure issue
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          label='ci-nightly-failure'
+          failed="$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "- \(.key): \(.value.result)"' <<<"$NEEDS")"
+          if ! gh label list --limit 200 --json name --jq '.[].name' | grep -Fxq "$label"; then
+            gh label create "$label" --color E11D48 --description 'Scheduled CI Nightly failures'
+          fi
+          issue="$(gh issue list --label "$label" --state open --limit 1 --json number --jq '.[0].number // empty')"
+          if [ -z "$failed" ]; then
+            if [ -n "$issue" ]; then
+              gh issue close "$issue" --comment "CI Nightly is green again on $SHA. Run: $RUN_URL"
+            fi
+            exit 0
+          fi
+          body="$(printf 'CI Nightly failed on %s.\n\n%s\n\nRun: %s\n' "$SHA" "$failed" "$RUN_URL")"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title 'CI Nightly is failing' --label "$label" --body "$body"
+          fi

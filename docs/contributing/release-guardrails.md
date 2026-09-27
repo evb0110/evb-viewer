@@ -44,7 +44,7 @@ here is required reading for an ordinary cut.
 
 - Every release package runs its platform's native-tool, content, version, and packaged smoke checks before the finalization job can promote the draft.
 - The packaged core-PDF smoke runs on all five release targets and includes OCR of a one-page English image PDF with `lantern` required in the searchable output. Windows NSIS install journeys run on x64 and ARM64, and macOS signing, notarization, startup, and updater metadata checks run on the Apple Silicon target.
-- After promotion, the release workflow verifies GitHub latest, the app's updater channel URL, the release manifest and a served mirror asset. The daily CI Nightly workflow checks the same public routes for the current latest release and reports through one `release-mirror-health` issue, which it closes after recovery.
+- After promotion, the release workflow verifies GitHub latest, the app's updater channel URL, the release manifest and a served mirror asset. The daily CI Nightly workflow checks the same public routes for the current latest release and reports a failure through its `ci-nightly-failure` issue.
 - The workflow-dispatch dry run keeps a draft, writes to an isolated mirror prefix and channel, verifies the drill route publicly when available or checks the objects through S3 otherwise, and removes its draft, tag, and prefix. It does not replace post-promotion installed-client updater acceptance.
 
 ## Dependency advisories

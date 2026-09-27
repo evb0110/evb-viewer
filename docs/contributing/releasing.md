@@ -26,7 +26,7 @@ The Microsoft Store AppX lane remains manual. Dispatch `store-appx.yml` for the 
 
 Dispatch `Release` with `dry_run=true` to run the same five package jobs, exact-SHA lookup, draft validation and mirror transaction under a unique drill version. If the candidate has no exact-SHA push run on main, the lookup reports a notice; API, authentication and permission errors fail the run. The drill keeps its GitHub release as a draft, uses a run-specific mirror prefix and channel, verifies the stable channel was not changed, checks the public updater route when it serves the drill prefix (otherwise it reads the isolated objects through the mirror client), and cleans up the draft, drill tag and mirror prefix. The packaged core smoke includes an English OCR job and requires the recognized word `lantern` on each target.
 
-After a real release becomes public, the workflow fetches GitHub's latest release and the same updater channel, release manifest and asset route used by the app. All must name the new tag and serve an asset. The daily public mirror health check reports failures through one `release-mirror-health` issue and closes it after recovery.
+After a real release becomes public, the workflow fetches GitHub's latest release and the same updater channel, release manifest and asset route used by the app. All must name the new tag and serve an asset. The daily CI Nightly run repeats this check for the current latest release and reports a failure through its `ci-nightly-failure` issue.
 
 ## Status and recovery
 
