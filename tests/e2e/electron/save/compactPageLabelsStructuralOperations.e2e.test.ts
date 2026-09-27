@@ -66,6 +66,7 @@ interface IPageMutationFrame {
     targetThumbnailPainted: boolean;
     targetThumbnail: {
         frameLandscape: boolean | null;
+        contained: boolean;
         bitmapLandscape: boolean | null;
     };
     pageSkeletonVisible: boolean;
@@ -846,8 +847,9 @@ describe('Electron E2E, compact page labels through structural operations', () =
                         frameLandscape: targetThumbnailFrameRect && targetThumbnailFrameRect.height > 0
                             ? targetThumbnailFrameRect.width > targetThumbnailFrameRect.height
                             : null,
-                        // The frame is laid out from the page geometry; a bitmap
-                        // of the other orientation is drawn squeezed or cropped.
+                        contained: targetThumbnailCanvas !== null
+                            && getComputedStyle(targetThumbnailCanvas).objectFit === 'contain',
+                        // The portrait slot stays fixed while the contained bitmap rotates.
                         bitmapLandscape: targetThumbnailPaint.contentAspect === null
                             ? null
                             : targetThumbnailPaint.contentAspect > 1,
@@ -1037,7 +1039,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         expect(maximumBlankThumbnailFrames).toBeLessThanOrEqual(1);
         const distortedThumbnailFrames = postClickFrames.filter(frame => (
             frame.targetThumbnailPainted
-            && frame.targetThumbnail.bitmapLandscape !== frame.targetThumbnail.frameLandscape
+            && !frame.targetThumbnail.contained
         ));
         expect(distortedThumbnailFrames, JSON.stringify(distortedThumbnailFrames.slice(0, 6).map(frame => ({
             msSinceClick: frame.msSinceClick,
@@ -1045,7 +1047,9 @@ describe('Electron E2E, compact page labels through structural operations', () =
             targetThumbnail: frame.targetThumbnail,
         })))).toEqual([]);
         expect(initialFrame.targetThumbnail.frameLandscape).toBe(false);
-        expect(finalFrame.targetThumbnail.frameLandscape).toBe(true);
+        expect(finalFrame.targetThumbnail.frameLandscape).toBe(false);
+        expect(initialFrame.targetThumbnail.bitmapLandscape).toBe(false);
+        expect(finalFrame.targetThumbnail.bitmapLandscape).toBe(true);
         const firstFinalScaleFrame = postClickFrames.find(frame => (
             frame.pageRect !== null
             && frame.pageRect.width > frame.pageRect.height

@@ -22,7 +22,6 @@ import {
     mountDocumentThumbnailList,
     restoreDocumentThumbnailListEnvironment,
     scrollDocumentThumbnailRail,
-    scrollToRenderedPage,
     settleDocumentThumbnailList,
     widenDocumentThumbnailFrames,
 } from '@tests/helpers/document-viewer/documentThumbnailListHarness';
@@ -114,7 +113,7 @@ describe('DocumentThumbnailList render errors', () => {
         expect(failedRow?.getAttribute('aria-label')).toBe('Go to page 3. Page preview unavailable.');
         expect(failedRow?.querySelector('.document-thumbnail-list__error-text')?.textContent)
             .toBe(englishMessages.common.pageRenderFailed);
-        expect(failedRow?.querySelector('.document-thumbnail-list__placeholder')).toBeNull();
+        expect(failedRow?.querySelector('.document-thumbnail-list__placeholder')).not.toBeNull();
 
         const attempts = countDocumentThumbnailCalls(harness.renderCalls, 3);
         expect(attempts).toBe(3);
@@ -210,110 +209,47 @@ describe('DocumentThumbnailList render errors', () => {
 
     it('gives a failed page a fresh run once it leaves and re-enters the window', async () => {
         const harness = createDocumentThumbnailSourceHarness(400);
+        harness.behaviors.set(3, 'fail');
         const {host} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
-
-        const target = await scrollToRenderedPage(harness, host, 10_000);
-        await scrollDocumentThumbnailRail(host, 0);
-
-        harness.behaviors.set(target, 'fail');
+        expect(documentThumbnailRow(host, 3)?.hasAttribute('data-thumbnail-render-error')).toBe(true);
+        const attempts = countDocumentThumbnailCalls(harness.renderCalls, 3);
         await scrollDocumentThumbnailRail(host, 10_000);
-        expect(documentThumbnailRow(host, target)?.hasAttribute('data-thumbnail-render-error')).toBe(true);
-        const attemptsWhileVisible = countDocumentThumbnailCalls(harness.renderCalls, target);
-
+        harness.behaviors.set(3, 'succeed');
         await scrollDocumentThumbnailRail(host, 0);
-        expect(host.querySelectorAll('[data-thumbnail-render-error]')).toHaveLength(0);
-
-        harness.behaviors.set(target, 'succeed');
-        await scrollDocumentThumbnailRail(host, 10_000);
-
-        expect(countDocumentThumbnailCalls(harness.renderCalls, target)).toBeGreaterThan(attemptsWhileVisible);
-        expect(host.querySelectorAll('[data-thumbnail-render-error]')).toHaveLength(0);
-        expect(documentThumbnailRow(host, target)?.querySelector('.document-thumbnail-list__canvas-host'))
-            .not.toBeNull();
+        expect(countDocumentThumbnailCalls(harness.renderCalls, 3)).toBe(attempts + 1);
+        expect(documentThumbnailRow(host, 3)?.hasAttribute('data-thumbnail-render-error')).toBe(false);
+        expect(documentThumbnailRow(host, 3)?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
     });
 
-    it('keeps an already rendered thumbnail when a wider re-render keeps failing', async () => {
+    it('shows the same placeholder after a failed resize without looping on the smaller cached raster', async () => {
         const harness = createDocumentThumbnailSourceHarness();
         const {host} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
-        expect(documentThumbnailRow(host, 1)?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
-
-        harness.behaviors.set(1, 'fail');
-        widenDocumentThumbnailFrames(400);
-        await scrollDocumentThumbnailRail(host, 40);
-        await scrollDocumentThumbnailRail(host, 0);
-
-        // The wider render never arrives, but the row still has a thumbnail to
-        // show, so it keeps it instead of trading it for a failure tile.
-        const row = documentThumbnailRow(host, 1);
-        expect(row?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
-        expect(row?.querySelector('.document-thumbnail-list__error')).toBeNull();
-        expect(row?.hasAttribute('data-thumbnail-render-error')).toBe(false);
-        expect(row?.getAttribute('aria-label')).toBe('Go to page 1');
-
-        // One accepted render plus an exhausted run of failed upgrades, so the
-        // row is holding its thumbnail past the retry limit rather than before it.
-        const attempts = countDocumentThumbnailCalls(harness.renderCalls, 1);
-        expect(attempts).toBeGreaterThanOrEqual(4);
-
-        await settleDocumentThumbnailList();
-
-        // Retries still stop: the page holds its surface without re-queueing.
-        expect(countDocumentThumbnailCalls(harness.renderCalls, 1)).toBe(attempts);
-        expect(documentThumbnailRow(host, 1)?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
-
-        // The row is still a retry gesture even while it looks healthy, which is
-        // only true because the failure was recorded behind the retained surface.
-        documentThumbnailRow(host, 1)?.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-        await settleDocumentThumbnailList();
-
-        expect(countDocumentThumbnailCalls(harness.renderCalls, 1)).toBeGreaterThan(attempts);
-        expect(documentThumbnailRow(host, 1)?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
-        expect(documentThumbnailRow(host, 1)?.hasAttribute('data-thumbnail-render-error')).toBe(false);
-    });
-
-    it('holds an exhausted page at the width its committed render asked for', async () => {
-        const harness = createDocumentThumbnailSourceHarness();
-        const {host} = mountDocumentThumbnailList(harness.source);
-        await settleDocumentThumbnailList();
-
-        // Page 2 is not the current page, so its demand follows the shared row
-        // width rather than the current-page width, and the provider answered it
-        // with a raster of its own size. Committed request width, leased raster
-        // width, and the width the rail wants after the resize are therefore
-        // three different numbers, and only one of them is settled demand.
-        const committedWidthPx = requestedWidths(harness, 2).at(0);
-        expect(committedWidthPx).toBeDefined();
-        expect(committedWidthPx).not.toBe(LEASED_THUMBNAIL_RASTER_WIDTH);
+        const committedWidth = requestedWidths(harness, 2)[0];
+        expect(committedWidth).not.toBe(LEASED_THUMBNAIL_RASTER_WIDTH);
         expect(documentThumbnailRow(host, 2)?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
-
         harness.behaviors.set(2, 'fail');
         widenDocumentThumbnailFrames(400);
         await scrollDocumentThumbnailRail(host, 40);
         await scrollDocumentThumbnailRail(host, 0);
-
-        // The rail asked for a wider raster and burned its whole retry budget on
-        // it, so page 2 is now an exhausted page that still has a surface.
-        const upgradeWidths = requestedWidths(harness, 2).slice(1);
-        expect(upgradeWidths).toHaveLength(3);
-        expect(upgradeWidths.every(width => width !== committedWidthPx)).toBe(true);
-
-        const row = documentThumbnailRow(host, 2);
-        expect(row?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
-        expect(row?.hasAttribute('data-thumbnail-render-error')).toBe(false);
-
-        // Demand pinned to the committed request width reads as satisfied, so
-        // the page neither renders again nor loses the surface it is showing.
-        // Pinning it to the width the rail now wants, or to the leased raster,
-        // would look unsatisfied and spin the scheduler instead.
+        expect(requestedWidths(harness, 2).slice(1)).toHaveLength(3);
+        expect(requestedWidths(harness, 2).slice(1).every(width => width > committedWidth!)).toBe(true);
+        expect(documentThumbnailRow(host, 2)?.querySelector('.document-thumbnail-list__canvas-host')).toBeNull();
+        expect(documentThumbnailRow(host, 2)?.querySelector('.document-thumbnail-list__placeholder')).not.toBeNull();
+        expect(documentThumbnailRow(host, 2)?.hasAttribute('data-thumbnail-render-error')).toBe(true);
         await settleDocumentThumbnailList();
         expect(requestedWidths(harness, 2)).toHaveLength(4);
         expect([...harness.runawayPages]).toEqual([]);
+        harness.behaviors.set(2, 'succeed');
+        documentThumbnailRow(host, 2)?.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        await settleDocumentThumbnailList();
+        expect(requestedWidths(harness, 2)).toHaveLength(5);
         expect(documentThumbnailRow(host, 2)?.querySelector('.document-thumbnail-list__canvas-host')).not.toBeNull();
+        expect(documentThumbnailRow(host, 2)?.hasAttribute('data-thumbnail-render-error')).toBe(false);
     });
 
-    it('measures each page once while the demand window stays hot', async () => {
+    it('renders retries without loading page geometry', async () => {
         const harness = createDocumentThumbnailSourceHarness();
         harness.behaviors.set(3, 'fail');
         const {host} = mountDocumentThumbnailList(harness.source);
@@ -324,7 +260,6 @@ describe('DocumentThumbnailList render errors', () => {
         await settleDocumentThumbnailList();
 
         expect(countDocumentThumbnailCalls(harness.renderCalls, 3)).toBeGreaterThan(1);
-        expect(harness.metricsCalls.filter(page => page === 3)).toHaveLength(1);
-        expect(new Set(harness.metricsCalls).size).toBe(harness.metricsCalls.length);
+        expect(harness.metricsCalls).toEqual([]);
     });
 });

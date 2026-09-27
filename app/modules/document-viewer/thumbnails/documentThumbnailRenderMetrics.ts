@@ -80,9 +80,6 @@ export function resolveThumbnailRasterWidth(
     );
 }
 
-export function resolveThumbnailOutputScale(devicePixelRatio: number, maxOutputScale = 2) {
-    return Math.min(
-        Math.max(1, maxOutputScale),
-        Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1,
-    );
+export function resolveThumbnailOutputScale(devicePixelRatio: number) {
+    return Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
 }

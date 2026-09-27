@@ -101,7 +101,7 @@ const {
     padding: var(--app-thumbnail-frame-inset);
     border: 1px solid var(--ui-border);
     border-radius: var(--app-space-3xs);
-    background: var(--app-document-page-bg);
+    background: var(--ui-bg-accented);
     box-shadow: var(--app-document-page-shadow);
 
     /* box-shadow stays untransitioned: animating it repaints every frame. */
@@ -136,6 +136,7 @@ const {
     min-height: var(--app-thumbnail-min-label-height);
     flex: 0 0 auto;
     color: var(--ui-text-muted);
+    white-space: nowrap;
     font-size: var(--app-sidebar-caption-font-size);
     line-height: var(--app-thumbnail-min-label-height);
     font-variant-numeric: tabular-nums;

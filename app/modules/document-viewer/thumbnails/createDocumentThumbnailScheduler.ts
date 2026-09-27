@@ -4,13 +4,10 @@ import type {
     TDocumentRenderPriority,
 } from '@app/modules/document-viewer/source/documentPageSource';
 
-export type TDocumentThumbnailQuality = 'transient' | 'settled';
-
 export interface IDocumentThumbnailDemand {
     distance: number;
     pageNumber: number;
     priority: TDocumentRenderPriority;
-    quality: TDocumentThumbnailQuality;
     rank: number;
     /** The page's render key; a changed key re-renders a committed page. */
     revision: string;
@@ -83,9 +80,9 @@ function isCommittedDemandSatisfied(entry: ICommittedEntry, demand: IDocumentThu
     if (entry.revision !== demand.revision) {
         return false;
     }
-    return demand.quality === 'transient'
-        ? entry.requestWidthPx >= demand.widthPx
-        : entry.requestWidthPx === demand.widthPx;
+    // A larger committed raster is already sharp at this size. Keep it through
+    // temporary pane narrowing, so widening back can reuse the same pixels.
+    return entry.requestWidthPx >= demand.widthPx;
 }
 
 function isAbortError(error: unknown) {
@@ -125,15 +122,15 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         committed.delete(pageNumber);
         entry.unsubscribe?.();
         entry.unsubscribe = null;
-        entry.releaseOnce.release();
         options.onStateChange(pageNumber, null);
+        entry.releaseOnce.release();
         return true;
     }
 
     function enqueueIfNeeded(demand: IDocumentThumbnailDemand) {
         const existing = committed.get(demand.pageNumber);
         if (existing) {
-            existing.lease.promotePriority?.(demand.priority);
+            existing.lease.setPriority?.(demand.priority);
             if (isCommittedDemandSatisfied(existing, demand)) {
                 queued.delete(demand.pageNumber);
                 return;
@@ -233,7 +230,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 return;
             }
 
-            lease.promotePriority?.(latestDemand.priority);
+            lease.setPriority?.(latestDemand.priority);
             const entry: ICommittedEntry = {
                 pageNumber,
                 widthPx: lease.widthPx,
@@ -324,8 +321,14 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         ] of [...active.entries()]) {
             if (!desired.has(pageNumber)) entry.controller.abort();
         }
-        for (const pageNumber of [...committed.keys()]) {
-            if (!desired.has(pageNumber)) releaseCommitted(pageNumber);
+        // Departure cancels work, not completed pixels. The existing surface
+        // budget can reclaim demoted entries through their lease invalidation.
+        // Promote every visible lease before a new render can admit surfaces.
+        for (const [
+            pageNumber,
+            entry,
+        ] of committed) {
+            entry.lease.setPriority?.(desired.get(pageNumber)?.priority ?? 'prefetch');
         }
         for (const demand of desired.values()) enqueueIfNeeded(demand);
         pumpQueue();

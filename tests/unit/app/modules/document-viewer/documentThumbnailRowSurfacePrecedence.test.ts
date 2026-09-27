@@ -10,7 +10,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/documentThumbnailScheduler';
+import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScheduler';
 import type {IDocumentThumbnailVirtualItem} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import {
     documentThumbnailRow,
@@ -39,7 +39,15 @@ const controller = vi.hoisted(() => ({
 
 vi.mock(
     '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController',
-    () => ({useDocumentThumbnailController: () => controller}),
+    async () => {
+        const {ref} = await import('vue');
+        return {useDocumentThumbnailController: () => ({
+            ...controller,
+            rasterWidth: ref(192),
+            outputScale: ref(1),
+            userScrollSuppressed: ref(false),
+        })};
+    },
 );
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -115,7 +123,7 @@ describe('DocumentThumbnailList row surface precedence', () => {
 
         const failed = documentThumbnailRow(host, 3);
         expect(failed?.querySelector('.document-thumbnail-list__error')).not.toBeNull();
-        expect(failed?.querySelector('.document-thumbnail-list__placeholder')).toBeNull();
+        expect(failed?.querySelector('.document-thumbnail-list__placeholder')).not.toBeNull();
         expect(failed?.hasAttribute('data-thumbnail-render-error')).toBe(true);
         expect(failed?.getAttribute('aria-label')).toBe('documentSourceSidebar.goToPageRenderFailed');
     });

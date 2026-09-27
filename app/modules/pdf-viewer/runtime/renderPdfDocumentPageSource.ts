@@ -117,6 +117,7 @@ interface IPreparedPdfThumbnail {
 export async function renderPdfDocumentThumbnail(options: {
     scheduler: IPdfPageRasterScheduler;
     request: IDocumentPageRenderRequest;
+    surfaceBudget: IWorkspaceSurfaceBudgetController;
     rotation: number | undefined;
     hiddenAnnotationIds: ReadonlySet<string>;
 }): Promise<IDocumentRenderLease> {
@@ -126,6 +127,9 @@ export async function renderPdfDocumentThumbnail(options: {
     } = options;
     const pageNumber = requirePageNumber(request.pageNumber);
     let lease: IDocumentRenderLease | null = null;
+    let priority = request.priority;
+    let invalidate: (() => void) | undefined;
+    let budgetLease: ReturnType<IWorkspaceSurfaceBudgetController['reserve']> | null = null;
     const cancel = () => scheduler.invalidate({
         pages: [pageNumber],
         reason: 'thumbnail-demand-cancelled',
@@ -209,7 +213,17 @@ export async function renderPdfDocumentThumbnail(options: {
                         heightPx: canvas.height,
                         bytes: canvas.width * canvas.height * 4,
                         surface: canvas,
+                        onInvalidated(listener) {
+                            invalidate = listener;
+                            return () => { invalidate = undefined; };
+                        },
+                        setPriority(nextPriority) {
+                            priority = nextPriority;
+                            budgetLease?.setPriority?.(nextPriority === 'visible' ? 100 : nextPriority === 'thumbnail' ? 20 : 0);
+                        },
                         release() {
+                            invalidate = undefined;
+                            budgetLease?.release();
                             canvas.width = 0;
                             canvas.height = 0;
                         },
@@ -229,10 +243,32 @@ export async function renderPdfDocumentThumbnail(options: {
         if (outcome.status !== 'committed' || !lease) {
             throw new DOMException('Thumbnail render was cancelled', 'AbortError');
         }
+        // Transfer the temporary raster reservation to the rail's retained
+        // lease before publication. Keeping a scheduler resident as well would
+        // duplicate ownership; releasing an old canvas must not invalidate a
+        // newer request for the same page.
+        cancel();
+        const reservation = {
+            scopeId: PDF_THUMBNAIL_SOURCE_ID,
+            category: 'pdf-thumbnail-canvas',
+            bytes: (lease as IDocumentRenderLease).bytes,
+            priority: priority === 'visible' ? 100 : 20,
+            canEvict: () => priority !== 'visible',
+            evict: () => {
+                invalidate?.();
+                lease?.release();
+            },
+        } as const;
+        budgetLease = priority === 'visible'
+            ? options.surfaceBudget.reserve(reservation)
+            : options.surfaceBudget.tryReserve(reservation);
+        if (!budgetLease) {
+            (lease as IDocumentRenderLease).release();
+            throw new RangeError('PDF thumbnail exceeds the available workspace surface budget');
+        }
         return lease;
     } finally {
         request.signal.removeEventListener('abort', cancel);
-        // The rail owns the committed canvas from here on.
         cancel();
     }
 }

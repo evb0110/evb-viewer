@@ -64,7 +64,7 @@ export {
     DEFAULT_DOCUMENT_SEARCH_OPTIONS, type IDocumentSearchMatch,
 } from '@app/modules/document-viewer/providers/documentSearch';
 export {
-    DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT, DocumentThumbnailLayout, type IDocumentThumbnailLayoutAnchor, type IDocumentThumbnailScrollSegmentTransition,
+    DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT, DocumentThumbnailLayout, type IDocumentThumbnailScrollSegmentTransition,
 } from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 export { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 export {

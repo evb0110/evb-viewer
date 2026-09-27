@@ -8,7 +8,7 @@ import type {IDocumentRenderLease} from '@app/modules/document-viewer/source/doc
 import {
     createDocumentThumbnailScheduler,
     type IDocumentThumbnailDemand,
-} from '@app/modules/document-viewer/thumbnails/documentThumbnailScheduler';
+} from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScheduler';
 
 interface IDeferred<T> {
     promise: Promise<T>;
@@ -39,7 +39,6 @@ function demand(
         distance: pageNumber,
         pageNumber,
         priority: rank === 0 ? 'navigation' : 'visible',
-        quality: 'settled',
         rank,
         revision: '',
         widthPx,
@@ -210,7 +209,7 @@ describe('createDocumentThumbnailScheduler', () => {
         expect(releases[1]).toHaveBeenCalledTimes(1);
     });
 
-    it('releases retained leases exactly once when demand disappears', async () => {
+    it('reuses a departed page and releases its lease exactly once on disposal', async () => {
         const release = vi.fn();
         const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 2,
@@ -222,8 +221,12 @@ describe('createDocumentThumbnailScheduler', () => {
         scheduler.reconcile([demand(7, 128)]);
         await scheduler.whenIdle();
         scheduler.reconcile([]);
+        expect(release).not.toHaveBeenCalled();
+        expect(scheduler.getSnapshot().committedPages).toEqual([7]);
+        scheduler.reconcile([demand(7, 128)]);
+        await scheduler.whenIdle();
+        expect(release).not.toHaveBeenCalled();
         scheduler.dispose();
-
         expect(release).toHaveBeenCalledTimes(1);
     });
 
@@ -350,18 +353,18 @@ describe('createDocumentThumbnailScheduler', () => {
         scheduler.reconcile([demand(3, 256)]);
         await provider.whenIdle(scheduler);
 
-        // Asking again for the width the committed render asked for is settled
-        // work, which is what lets a caller park a page it has stopped retrying
-        // on its existing surface instead of losing it.
         expect(provider.render).toHaveBeenCalledTimes(1);
         expect(release).not.toHaveBeenCalled();
         expect(scheduler.getSnapshot().committedPages).toEqual([3]);
-
-        // The leased raster width is a different demand from the one that
-        // committed, so parking a page there would start a render instead.
+        // Narrowing keeps the sharper cache entry, including providers whose
+        // native raster is capped below the requested width.
         scheduler.reconcile([demand(3, 180)]);
         await provider.whenIdle(scheduler);
-
+        scheduler.reconcile([demand(3, 256)]);
+        await provider.whenIdle(scheduler);
+        expect(provider.render).toHaveBeenCalledTimes(1);
+        scheduler.reconcile([demand(3, 288)]);
+        await provider.whenIdle(scheduler);
         expect(provider.render).toHaveBeenCalledTimes(2);
         scheduler.dispose();
     });

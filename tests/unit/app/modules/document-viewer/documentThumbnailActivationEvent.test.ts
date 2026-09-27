@@ -10,7 +10,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/documentThumbnailScheduler';
+import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScheduler';
 import type {IDocumentThumbnailVirtualItem} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import {
     documentThumbnailRow,

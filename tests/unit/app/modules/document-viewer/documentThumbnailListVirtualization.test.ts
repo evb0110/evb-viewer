@@ -53,6 +53,7 @@ describe('DocumentThumbnailList virtualization', () => {
         await settleDocumentThumbnailList();
 
         for (let attempt = 0; attempt < 10; attempt += 1) {
+            await vi.advanceTimersByTimeAsync(200);
             await scrollDocumentThumbnailRail(host, 34_637_992);
         }
 

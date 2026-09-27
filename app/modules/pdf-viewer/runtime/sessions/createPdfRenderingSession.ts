@@ -16,7 +16,6 @@ import {
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import {
     createPdfPageSource,
-    type IDocumentPageRenderRequest,
     type IDocumentViewerRuntime,
     type IDocumentOpenSurfaceRenderOwner,
 } from '@app/modules/document-viewer/public';
@@ -1127,17 +1126,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             signal.addEventListener('abort', abort, {once: true});
         });
     }
-    async function renderThumbnail(request: IDocumentPageRenderRequest) {
-        await waitForLoadedDocument(request.signal);
-        const scheduler = documentSession.rasterScheduler;
-        if (!scheduler) throw new DOMException('The PDF document closed', 'AbortError');
-        return renderPdfDocumentThumbnail({
-            scheduler,
-            request,
-            rotation: documentSession.pageMetrics.value[request.pageNumber - 1]?.rotation,
-            hiddenAnnotationIds: pageRenderer.thumbnailHiddenAnnotationIds.value,
-        });
-    }
     // The chassis page source. A reload of the same document keeps the bound
     // source until its successor is ready, so the rail keeps its thumbnails
     // through a save.
@@ -1194,9 +1182,18 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     surfaceBudget: authority.surfaceBudget,
                     scopeId: `pdf-page-source:${sourceIdentifier}`,
                 }),
-                renderThumbnail: (request) => {
+                renderThumbnail: async (request) => {
                     refuseReplaced();
-                    return renderThumbnail(request);
+                    await waitForLoadedDocument(request.signal);
+                    const scheduler = documentSession.rasterScheduler;
+                    if (!scheduler) throw new DOMException('The PDF document closed', 'AbortError');
+                    return renderPdfDocumentThumbnail({
+                        surfaceBudget: authority.surfaceBudget,
+                        scheduler,
+                        request,
+                        rotation: documentSession.pageMetrics.value[request.pageNumber - 1]?.rotation,
+                        hiddenAnnotationIds: pageRenderer.thumbnailHiddenAnnotationIds.value,
+                    });
                 },
             });
             authority.bindSource(pageSource);

@@ -1349,6 +1349,201 @@ async function readWindowLayoutObservation(session: IElectronE2ESession, anchor:
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
+    it('shows only placeholders or sharp thumbnails and honors a click during a wheel tail', async () => {
+        const {page} = sessionFixture.getSession();
+        await page.setViewport({
+            width: 1400,
+            height: 900,
+            deviceScaleFactor: 2,
+        });
+        const fixture = process.env.EVB_E2E_THUMBNAIL_STRESS_PDF
+            ?? await createLargeScannedFixturePdf(`thumbs-two-state-${Date.now()}.pdf`, 348, 0);
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const sash = await page.$('.editor-pane.is-active .sidebar-resizer');
+        const sashBox = await sash!.boundingBox();
+        await page.mouse.move(sashBox!.x + sashBox!.width / 2, sashBox!.y + 200);
+        await page.mouse.down();
+        await page.mouse.move(502, sashBox!.y + 200, {steps: 20});
+        await page.mouse.up();
+        await waitForFunctionInPage(page, () => Boolean(document.querySelector('.pdf-thumbnails canvas')), {timeout: 20_000});
+        // Start in known nonblank pages, past the scan's blank front matter.
+        await page.mouse.move(250, 450);
+        await page.mouse.wheel({deltaY: 12_000});
+        await waitForFunctionInPage(page, () => {
+            const rail = document.querySelector<HTMLElement>('.pdf-thumbnails')!;
+            const r = rail.getBoundingClientRect();
+            return rail.scrollTop >= 11_900 && [...rail.querySelectorAll<HTMLCanvasElement>('canvas')].some(canvas => {
+                const box = canvas.getBoundingClientRect();
+                return box.top < r.top + r.height / 2 && box.bottom > r.top + r.height / 2
+                    && canvas.width >= box.width * devicePixelRatio;
+            });
+        }, {timeout: 30_000});
+        await page.evaluate(() => {
+            const rail = document.querySelector<HTMLElement>('.pdf-thumbnails')!;
+            const probe = {
+                running: true,
+                phase: 'forward',
+                rows: [] as Array<{
+                    page: number;
+                    state: string;
+                    width: number;
+                    needed: number;
+                    top: number;
+                    height: number;
+                    surface: number;
+                    phase: string
+                }>,
+                blankFrames: 0,
+                downPage: 0,
+                pressTop: 0,
+                initialTop: rail.scrollTop,
+            };
+            const surfaces = new Map<HTMLCanvasElement, {
+                id: number;
+                ink: boolean
+            }>();
+            Object.assign(window, {__thumbsRegression: probe});
+            rail.addEventListener('pointerdown', event => {
+                probe.downPage = Number((event.target as Element).closest<HTMLElement>('[data-thumbnail-page]')?.dataset.thumbnailPage);
+                probe.pressTop = rail.scrollTop;
+            }, {
+                capture: true,
+                once: true,
+            });
+            const sample = () => {
+                if (!probe.running) return;
+                const r = rail.getBoundingClientRect();
+                const visible = [...rail.querySelectorAll<HTMLElement>('[data-thumbnail-page]')].filter(row => {
+                    const box = row.getBoundingClientRect(); return box.bottom > r.top && box.top < r.bottom;
+                });
+                const intervals = visible.map(row => row.getBoundingClientRect()).sort((a, b) => a.top - b.top);
+                let bottom = r.top;
+                for (const interval of intervals) {
+                    if (interval.top - bottom > 10) probe.blankFrames++;
+                    bottom = Math.max(bottom, interval.bottom);
+                }
+                if (r.bottom - bottom > 10) probe.blankFrames++;
+                for (const row of visible) {
+                    const canvas = row.querySelector('canvas');
+                    const width = canvas?.width ?? 0;
+                    const needed = (canvas?.getBoundingClientRect().width ?? 0) * devicePixelRatio;
+                    if (canvas && width > 0 && !surfaces.has(canvas)) {
+                        const pixels = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+                        const ink = pixels?.some((value, index) => index % 4 !== 3 && value < 230) ?? false;
+                        surfaces.set(canvas, {
+                            id: surfaces.size + 1,
+                            ink,
+                        });
+                    }
+                    const state = canvas ? width === 0 || !surfaces.get(canvas)?.ink ? 'blank' : width + 1 < needed ? 'low' : 'final'
+                        : row.querySelector('.document-thumbnail-list__placeholder') ? 'placeholder' : 'blank';
+                    const bounds = row.getBoundingClientRect();
+                    probe.rows.push({
+                        page: Number(row.dataset.thumbnailPage),
+                        state,
+                        width,
+                        needed,
+                        top: bounds.top - r.top + rail.scrollTop,
+                        height: bounds.height,
+                        surface: canvas ? surfaces.get(canvas)?.id ?? 0 : 0,
+                        phase: probe.phase,
+                    });
+                }
+                requestAnimationFrame(sample);
+            };
+            sample();
+        });
+        const box = await (await page.$('.pdf-thumbnails'))!.boundingBox();
+        await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+        for (let i = 0; i < 12; i++) {
+            await page.mouse.wheel({deltaY: 650});
+            await new Promise(resolve => setTimeout(resolve, 40));
+        }
+        // A decaying tail keeps the same pages visible long enough to reveal a low-quality pass.
+        for (let i = 0; i < 50; i++) {
+            await page.mouse.wheel({deltaY: 3});
+            await new Promise(resolve => setTimeout(resolve, 45));
+        }
+        const returnDelta = await page.evaluate(() => {
+            const probe = (window as Window & {__thumbsRegression?: {
+                phase: string;
+                initialTop: number
+            }}).__thumbsRegression!;
+            probe.phase = 'return';
+            return probe.initialTop - document.querySelector<HTMLElement>('.pdf-thumbnails')!.scrollTop;
+        });
+        await page.mouse.wheel({deltaY: returnDelta});
+        await waitForAnimationFrames(page, 4);
+        await page.mouse.down();
+        await page.mouse.wheel({deltaY: -750});
+        await new Promise(resolve => setTimeout(resolve, 80));
+        await page.mouse.up();
+        await page.mouse.wheel({deltaY: -50});
+        await new Promise(resolve => setTimeout(resolve, 1_000));
+        const observed = await page.evaluate(() => {
+            const probe = (window as Window & {__thumbsRegression?: {
+                running: boolean;
+                rows: Array<{
+                    page: number;
+                    state: string;
+                    width: number;
+                    needed: number;
+                    top: number;
+                    height: number;
+                    surface: number;
+                    phase: string
+                }>;
+                blankFrames: number;
+                downPage: number;
+                pressTop: number
+            }}).__thumbsRegression!;
+            probe.running = false;
+            const current = Number(document.querySelector<HTMLElement>('.pdf-thumbnails .is-current')?.dataset.thumbnailPage);
+            return {
+                ...probe,
+                current,
+                afterTop: document.querySelector<HTMLElement>('.pdf-thumbnails')!.scrollTop,
+            };
+        });
+        const indicator = await readToolbarPageIndicator(page);
+        // After the old tail ends, a new gesture must scroll normally again.
+        await page.mouse.wheel({deltaY: 400});
+        await waitForFunctionInPage(page, (top: number) => document.querySelector<HTMLElement>('.pdf-thumbnails')!.scrollTop > top, {}, observed.afterTop);
+        const initial = observed.rows.find(row => row.phase === 'forward' && row.state === 'final' && row.page > 1)!;
+        expect(initial, 'the initial cached page was painted before departure').toBeDefined();
+        const returned = observed.rows.find(row => row.phase === 'return' && row.page === initial?.page);
+        expect.soft(returned, 'cached page returns with its existing sharp pixels').toMatchObject({
+            state: 'final',
+            surface: initial.surface,
+        });
+        const geometry = new Map<number, {
+            top: number;
+            height: number
+        }>();
+        for (const row of observed.rows) {
+            const before = geometry.get(row.page);
+            if (before) {
+                expect.soft(Math.abs(row.height - before.height), 'raster arrival does not resize a row').toBeLessThanOrEqual(1);
+                expect.soft(Math.abs(row.top - before.top), 'raster arrival does not move a row').toBeLessThanOrEqual(1);
+            } else geometry.set(row.page, row);
+        }
+        expect.soft(observed.afterTop, 'the pressed row stays under the pointer through the tail').toBe(observed.pressTop);
+        await import('node:fs/promises').then(fs => fs.writeFile(resolve('.devkit/thumbs-e2e-observed.json'), JSON.stringify({
+            observed,
+            indicator,
+        }, null, 2)));
+        expect.soft(observed.rows.length).toBeGreaterThan(0);
+        expect.soft(observed.rows.filter(row => row.state === 'low'), 'no low-resolution stage').toEqual([]);
+        expect.soft(observed.rows.filter(row => row.state === 'blank'), 'no empty thumbnail canvas').toEqual([]);
+        expect.soft(observed.blankFrames, 'no empty rail').toBe(0);
+        expect.soft(observed.downPage).toBeGreaterThan(0);
+        expect.soft(observed.current, 'clicked row must become current within 1 s').toBe(observed.downPage);
+        expect.soft(indicator.renderedPage, 'visible toolbar acknowledges clicked page').toBe(observed.downPage);
+    }, 120_000);
+
     it('selects a bookmark on the first activation and follows later page navigation', async () => {
         const {page} = sessionFixture.getSession();
         const fixture = await createOutlinePageLabelFixturePdf(`bookmark-selection-${Date.now()}.pdf`, [
@@ -5271,16 +5466,16 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                     const record = aspects.get(pageNumber) ?? {};
                     // The frame owns placeholder geometry before paint and
                     // must keep that exact aspect after its renderer arrives.
-                    record.placeholderRatio = frameRect.width / frameRect.height;
+                    record.placeholderRatio ??= frameRect.width / frameRect.height;
                     record.placeholderSeen ||= Boolean(
                         item.querySelector('.document-thumbnail-list__placeholder'),
                     );
                     const image = item.querySelector<HTMLImageElement>('img');
                     const canvas = item.querySelector<HTMLCanvasElement>('canvas');
                     if (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
-                        record.renderedRatio = image.naturalWidth / image.naturalHeight;
+                        record.renderedRatio = frameRect.width / frameRect.height;
                     } else if (canvas && canvas.width > 0 && canvas.height > 0) {
-                        record.renderedRatio = canvas.width / canvas.height;
+                        record.renderedRatio = frameRect.width / frameRect.height;
                     }
                     aspects.set(pageNumber, record);
                 }
@@ -5355,6 +5550,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(thumbnailProbe.matchedAspects.length, thumbnailDetail).toBeGreaterThanOrEqual(3);
         expect(thumbnailProbe.matchedAspects.every(sample => (
             Math.abs(sample.placeholderRatio - sample.renderedRatio) <= 0.03
+            && Math.abs(sample.renderedRatio - 210 / 297) <= 0.03
         )), thumbnailDetail).toBe(true);
 
         const errorSurface = await session.page.evaluate(() => ({

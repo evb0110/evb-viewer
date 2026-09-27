@@ -3,8 +3,9 @@
         :set-root="setScrollRoot"
         class="document-thumbnail-list"
         data-testid="document-thumbnail-list"
+        :style="{overflow: userScrollSuppressed ? 'hidden' : undefined}"
         @scroll.passive="handleScroll"
-        @wheel.passive="handleWheel"
+        @wheel="handleWheel"
         @pointerdown="handlePointerDown"
     >
         <div
@@ -42,27 +43,25 @@
                     <slot name="overlay" :page-number="item.pageNumber" />
                 </template>
                 <img
-                    v-if="typeof states.get(item.pageNumber)?.surface === 'string'"
-                    :src="states.get(item.pageNumber)?.surface as string"
+                    v-if="typeof surfaceState(item.pageNumber)?.surface === 'string'"
+                    :src="surfaceState(item.pageNumber)?.surface as string"
+                    :style="surfaceStyle(item.pageNumber)"
                     alt=""
                     draggable="false"
                 >
                 <span
-                    v-else-if="states.get(item.pageNumber)?.surface"
+                    v-else-if="surfaceState(item.pageNumber)?.surface"
                     :ref="element => setCanvasHost(item.pageNumber, element)"
                     class="document-thumbnail-list__canvas-host"
+                    :style="surfaceStyle(item.pageNumber)"
                 />
-                <span
-                    v-else-if="showsRenderError(item.pageNumber)"
-                    class="document-thumbnail-list__error"
-                    aria-hidden="true"
-                >
-                    <UIcon name="i-ph-warning-circle" class="size-5" />
-                    <span class="document-thumbnail-list__error-text">{{ t('common.pageRenderFailed') }}</span>
-                </span>
                 <span v-else class="document-thumbnail-list__placeholder" />
                 <template #label>
                     <slot name="label" :page-number="item.pageNumber">{{ item.pageNumber }}</slot>
+                    <span v-if="showsRenderError(item.pageNumber)" class="document-thumbnail-list__error" aria-hidden="true">
+                        <UIcon name="i-ph-warning-circle" />
+                        <span class="sr-only document-thumbnail-list__error-text">{{ t('common.pageRenderFailed') }}</span>
+                    </span>
                 </template>
             </DocumentThumbnailItem>
         </div>
@@ -103,6 +102,9 @@ const {
     handlePointerDown,
     handleScroll,
     handleWheel,
+    userScrollSuppressed,
+    outputScale,
+    rasterWidth,
     renderErrors,
     retryRender,
     revealPage,
@@ -129,6 +131,21 @@ defineExpose({
     scrollRoot,
 });
 
+// A resize never stretches an old, smaller raster. Capped source images are
+// contained at their native density, while the portrait slot stays unchanged.
+function surfaceState(pageNumber: number) {
+    const state = states.get(pageNumber);
+    return state && state.requestWidthPx >= rasterWidth.value ? state : undefined;
+}
+
+function surfaceStyle(pageNumber: number) {
+    const state = surfaceState(pageNumber);
+    return state ? {
+        maxWidth: `${String(state.widthPx / outputScale.value)}px`,
+        maxHeight: `${String(state.heightPx / outputScale.value)}px`,
+    } : undefined;
+}
+
 function setCanvasHost(
     pageNumber: number,
     value: Element | ComponentPublicInstance | null,
@@ -139,7 +156,7 @@ function setCanvasHost(
     if (!host) {
         return;
     }
-    const surface = states.get(pageNumber)?.surface;
+    const surface = surfaceState(pageNumber)?.surface;
     if (surface && typeof surface !== 'string' && host.firstChild !== surface) {
         host.replaceChildren(surface);
     }
@@ -151,7 +168,7 @@ function setCanvasHost(
  * holding an older thumbnail keeps its plain name and no failure marker.
  */
 function showsRenderError(pageNumber: number) {
-    return renderErrors.has(pageNumber) && !states.get(pageNumber)?.surface;
+    return renderErrors.has(pageNumber) && !surfaceState(pageNumber)?.surface;
 }
 
 function handleItemClick(pageNumber: number, event: MouseEvent) {
@@ -177,48 +194,9 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
     left: 0;
 }
 
-.document-thumbnail-list__error {
-    display: flex;
-    box-sizing: border-box;
-    width: 100%;
-    height: 100%;
-    flex-direction: column;
-    gap: var(--app-space-3xs);
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    padding: var(--app-space-2xs);
-    color: var(--ui-text-muted);
-    text-align: center;
-}
-
-.document-thumbnail-list__error-text {
-    font-size: var(--app-sidebar-caption-font-size);
-    line-height: 1.2;
-}
-
 .document-thumbnail-list__placeholder {
     width: 100%;
     height: 100%;
-    background: var(--ui-bg-elevated);
-    animation:
-        document-thumbnail-pulse
-        var(--app-animation-duration-skeleton)
-        ease-in-out infinite alternate;
-}
-
-:global(html.app-low-graphics) .document-thumbnail-list__placeholder {
-    animation: none;
-}
-
-@keyframes document-thumbnail-pulse {
-    from { opacity: 0.52; }
-    to { opacity: 0.86; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .document-thumbnail-list__placeholder {
-        animation: none;
-    }
+    background: var(--ui-bg-accented);
 }
 </style>
