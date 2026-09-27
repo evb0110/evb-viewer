@@ -20,6 +20,11 @@ review instructions here.
 - Test observable invariants with shared harnesses, at the layer that can see the
   defect: geometry, lifecycle and interaction defects need the real app with real
   input, and one adequate real-app proof per scenario is enough.
+- Deleting a guard, rollback, watcher or piece of bookkeeping removes the
+  protection it gave, which the normal-path tests rarely exercise. The commit
+  message names the invariant it kept (for example "no event is sent after
+  consent is withdrawn", "a rotated page is re-rendered") and what now keeps it,
+  or states that nothing depends on it any more.
 - Revert failed approaches instead of patching around them. After a fix, delete
   what it made dead. When the same file has taken three fix commits in seven
   days, the next change there removes a path or reverts; it does not add another
