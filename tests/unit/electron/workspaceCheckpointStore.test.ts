@@ -468,6 +468,176 @@ describe('workspace checkpoint store', () => {
         await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(0);
     });
 
+    it('retains unacknowledged annotation recovery through ordinary saves and a store restart', async () => {
+        const payload = {
+            version: 1,
+            annotationMutationGeneration: 7,
+            entities: [{
+                id: 'annotation-1',
+                text: 'Unsaved note',
+            }],
+            foreign: [],
+            drafts: [],
+        };
+        const recoveryCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                annotationRecovery: {
+                    artifactId: 'capture-tab-1',
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: tab.workingCopyRef,
+                    workingByteRevision: 'revision-1',
+                    annotationMutationGeneration: 7,
+                    payload,
+                },
+            })),
+        };
+        const secondWorkingCopyRef = '/tmp/evb-working/unrelated.pdf';
+        const checkpointWithUnrelatedTab = (capturedAt: number): IWorkspaceCheckpoint => ({
+            ...checkpoint,
+            capturedAt: requireEpochMs(capturedAt),
+            panes: [{
+                ...checkpoint.panes[0]!,
+                tabIds: [
+                    requireTabId('tab-1'),
+                    requireTabId('tab-2'),
+                ],
+                activeTabId: requireTabId('tab-2'),
+            }],
+            tabs: [
+                {...checkpoint.tabs[0]!},
+                {
+                    ...checkpoint.tabs[0]!,
+                    tabId: requireTabId('tab-2'),
+                    fileName: 'unrelated.pdf',
+                    sourceRef: requireDocumentRef('/documents/unrelated.pdf'),
+                    workingCopyRef: requireDocumentRef(secondWorkingCopyRef),
+                    currentPage: 1,
+                },
+            ],
+        });
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const initialRecord = await readRecoveryRecord();
+        const recoveryRef = initialRecord.checkpoint.tabs[0].annotationRecovery;
+        const artifactPath = join(
+            state.userDataPath,
+            'workspace-annotation-recovery',
+            `${recoveryRef.artifactId}.json`,
+        );
+        const originalBytes = await readFile(artifactPath);
+
+        await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({tabs: [{annotationRecovery: {payload}}]});
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(124),
+        }, 22);
+        await flushPendingWorkspaceCheckpointSave();
+
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery).toEqual(recoveryRef);
+        expect(await readFile(artifactPath)).toEqual(originalBytes);
+
+        state.owners.set(secondWorkingCopyRef, 22);
+        state.originalPaths.set(secondWorkingCopyRef, '/documents/unrelated.pdf');
+        await saveWorkspaceCheckpoint(checkpointWithUnrelatedTab(125), 22);
+        await flushPendingWorkspaceCheckpointSave();
+
+        vi.resetModules();
+        const restartedStore = await import('@electron/workspaceCheckpointStore');
+        const restored = await restartedStore.claimWorkspaceCheckpoint(33);
+        expect(restored?.tabs[0]?.annotationRecovery).toMatchObject({
+            ...recoveryRef,
+            payload,
+        });
+        expect(restored?.tabs.map(tab => tab.tabId)).toEqual([
+            requireTabId('tab-1'),
+            requireTabId('tab-2'),
+        ]);
+        expect(await readFile(artifactPath)).toEqual(originalBytes);
+    });
+
+    it('drops unacknowledged annotation recovery after the renderer acknowledges it', async () => {
+        const recoveryCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                annotationRecovery: {
+                    artifactId: 'capture-tab-1',
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: tab.workingCopyRef,
+                    workingByteRevision: 'revision-1',
+                    annotationMutationGeneration: 7,
+                    payload: {
+                        version: 1,
+                        entities: [],
+                        foreign: [],
+                        drafts: [],
+                    },
+                },
+            })),
+        };
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+
+        await saveWorkspaceCheckpoint(recoveryCheckpoint, 11);
+        const recoveryRef = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        await claimWorkspaceCheckpoint(22);
+        await acknowledgeWorkspaceCheckpoint(22);
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(124),
+        }, 22);
+        await flushPendingWorkspaceCheckpointSave();
+
+        expect((await readRecoveryRecord()).checkpoint.tabs[0]).not.toHaveProperty('annotationRecovery');
+        await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toHaveLength(0);
+        expect(recoveryRef).toBeDefined();
+    });
+
+    it('replaces an unacknowledged annotation artifact with a newer capture', async () => {
+        const recoveryCheckpoint = (generation: number): IWorkspaceCheckpoint => ({
+            ...checkpoint,
+            capturedAt: requireEpochMs(generation),
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                annotationRecovery: {
+                    artifactId: `capture-tab-${generation}`,
+                    documentInstanceId: 'document-1',
+                    workingCopyRef: tab.workingCopyRef,
+                    workingByteRevision: `revision-${generation}`,
+                    annotationMutationGeneration: generation,
+                    payload: {
+                        version: 1,
+                        generation,
+                        entities: [],
+                        foreign: [],
+                        drafts: [],
+                    },
+                },
+            })),
+        });
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+
+        await saveWorkspaceCheckpoint(recoveryCheckpoint(7), 11);
+        const oldRef = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        await claimWorkspaceCheckpoint(22);
+        await saveWorkspaceCheckpoint(recoveryCheckpoint(8), 22);
+        await flushPendingWorkspaceCheckpointSave();
+
+        const stored = (await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery;
+        expect(stored).toMatchObject({
+            documentInstanceId: 'document-1',
+            workingByteRevision: 'revision-8',
+            annotationMutationGeneration: 8,
+        });
+        expect(stored.artifactId).not.toBe(oldRef.artifactId);
+        await expect(readdir(join(state.userDataPath, 'workspace-annotation-recovery'))).resolves.toEqual([`${stored.artifactId}.json`]);
+    });
+
     it('does not retain artifacts from superseded trailing saves', async () => {
         const recoveryPayload = {
             version: 1,

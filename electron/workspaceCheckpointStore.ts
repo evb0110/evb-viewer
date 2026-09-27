@@ -925,29 +925,26 @@ function retainUnresolvedCheckpointTabs(
     if (!durable) {
         return checkpoint;
     }
-    const previousByTabId = new Map(
-        durable.checkpoint.tabs.map(tab => [
-            tab.tabId,
-            tab,
-        ]),
-    );
     return {
         ...checkpoint,
         tabs: checkpoint.tabs.map((tab) => {
-            if (!tab.isDirty || tab.workingCopyRef) {
+            const previous = durable.checkpoint.tabs.find(candidate => candidate.tabId === tab.tabId);
+            if (!tab.isDirty || !previous?.workingCopyRef
+                || (tab.workingCopyRef && tab.workingCopyRef !== previous.workingCopyRef)) {
                 return tab;
             }
-            const previous = previousByTabId.get(tab.tabId);
-            if (!previous?.workingCopyRef) {
-                return tab;
-            }
+            const annotationRecovery = !tab.annotationRecovery && previous.isDirty ? previous.annotationRecovery : undefined;
+            if (tab.workingCopyRef && !annotationRecovery) {return tab;}
             return {
                 ...tab,
-                sourceRef: tab.sourceRef ?? previous.sourceRef,
-                workingCopyRef: previous.workingCopyRef,
-                ...(previous.requiresSaveAsOnFirstSave && tab.requiresSaveAsOnFirstSave === undefined
-                    ? {requiresSaveAsOnFirstSave: true}
-                    : {}),
+                ...(!tab.workingCopyRef ? {
+                    sourceRef: tab.sourceRef ?? previous.sourceRef,
+                    workingCopyRef: previous.workingCopyRef,
+                    ...(previous.requiresSaveAsOnFirstSave && tab.requiresSaveAsOnFirstSave === undefined
+                        ? {requiresSaveAsOnFirstSave: true}
+                        : {}),
+                } : {}),
+                ...(annotationRecovery ? {annotationRecovery} : {}),
             };
         }),
     } satisfies IWorkspaceCheckpoint;
