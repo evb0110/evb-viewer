@@ -194,7 +194,7 @@ function buildAgentTabSnapshot(
         workspaceAttached: session.mountedWorkspace.value !== null,
         hasPdf: toolbarSnapshot.hasPdf,
         isDjvu: tab.isDjvu || toolbarSnapshot.isDjvuMode,
-        isOpeningDocument: snapshot.phase === 'opening' || toolbarSnapshot.isOpeningDocument,
+        isOpeningDocument: snapshot.phase === 'opening',
         hasOpenError: snapshot.phase === 'failed' || toolbarSnapshot.hasOpenError,
         currentPage: toolbarSnapshot.currentPage,
         totalPages: toolbarSnapshot.totalPages,

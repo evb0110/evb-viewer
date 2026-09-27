@@ -14,6 +14,7 @@ import {
 import type { ITab } from '@app/types/tabs';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type { TWorkspaceDocumentPhase } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
@@ -33,6 +34,7 @@ const mockPlatformApi = createElectronPlatformApiFixture({documentMenu: {
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
 interface IActiveDocumentState {
+    phase: TWorkspaceDocumentPhase;
     tab: {fileName: string | null};
     toolbarSnapshot: IWorkspaceToolbarSnapshot;
 }
@@ -40,15 +42,21 @@ interface IActiveDocumentState {
 function createWorkspaceDocumentRecord(options: {
     tab?: {fileName: string | null};
     toolbarSnapshot?: Partial<IWorkspaceToolbarSnapshot>;
+    phase?: TWorkspaceDocumentPhase;
 } = {}): IActiveDocumentState {
     const toolbarSnapshot = {
         ...createDefaultWorkspaceToolbarSnapshot(),
         ...options.toolbarSnapshot,
     };
+    const phase = options.phase ?? (toolbarSnapshot.hasPdf ? 'presented' : 'empty');
+    if (phase === 'presented' && toolbarSnapshot.hasPdf && options.toolbarSnapshot?.initialVisualReady === undefined) {
+        toolbarSnapshot.initialVisualReady = true;
+    }
     if (toolbarSnapshot.hasPdf) {
         toolbarSnapshot.totalPages = Math.max(toolbarSnapshot.totalPages, toolbarSnapshot.currentPage);
     }
     return {
+        phase,
         tab: {fileName: options.tab?.fileName ?? null},
         toolbarSnapshot,
     };
@@ -66,6 +74,19 @@ function sessionOf(state: Ref<IActiveDocumentState>) {
                 isDjvu: false,
             },
         });
+        if (state.value.phase === 'opening') {
+            void session.runOpen({
+                kind: 'open',
+                target: null,
+            }, () => Promise.resolve(true));
+        } else if (state.value.phase === 'presented') {
+            const settled = session.runOpen({
+                kind: 'open',
+                target: null,
+            }, () => Promise.resolve(true));
+            session.markPresented();
+            void settled;
+        }
         session.publishToolbarSnapshot(state.value.toolbarSnapshot);
         return session;
     });
@@ -266,16 +287,18 @@ describe('useMenuSync', () => {
         }));
     });
 
-    it('syncs document readiness and continuous-scroll capability independently from the tab hint', async () => {
-        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({toolbarSnapshot: {
-            hasPdf: true,
-            isOpeningDocument: true,
-            continuousScroll: true,
-            viewerCapabilities: {
-                ...createDefaultWorkspaceViewerCapabilities(),
+    it('uses the document phase for readiness and keeps continuous-scroll capability independent', async () => {
+        const activeDocumentRecord = ref(createWorkspaceDocumentRecord({
+            toolbarSnapshot: {
+                hasPdf: true,
                 continuousScroll: true,
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    continuousScroll: true,
+                },
             },
-        }}));
+            phase: 'opening',
+        }));
 
         useMenuSync({
             activeDocumentSession: sessionOf(activeDocumentRecord),
@@ -291,11 +314,14 @@ describe('useMenuSync', () => {
             continuousScroll: true,
         }));
 
-        activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: {
-            ...activeDocumentRecord.value.toolbarSnapshot,
-            isOpeningDocument: false,
-            totalPages: 4,
-        }});
+        activeDocumentRecord.value = createWorkspaceDocumentRecord({
+            toolbarSnapshot: {
+                ...activeDocumentRecord.value.toolbarSnapshot,
+                initialVisualReady: true,
+                totalPages: 4,
+            },
+            phase: 'presented',
+        });
         await nextTick();
 
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({interactive: true}));

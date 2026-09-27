@@ -45,7 +45,7 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
     const activeWorkspaceInteractive = computed(() => (
         activeWorkspaceHasDocument.value
         && options.activeDocumentSession.value?.snapshot.value.phase === 'presented'
-        && activeToolbarSnapshot.value?.isOpeningDocument !== true
+        && activeToolbarSnapshot.value?.initialVisualReady === true
         && (activeToolbarSnapshot.value?.totalPages ?? 0) > 0
     ));
     const hasDocument = computed(() => {

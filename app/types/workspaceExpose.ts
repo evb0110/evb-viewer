@@ -28,7 +28,6 @@ export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
     initialVisualReady: boolean;
     viewerCapabilities: IWorkspaceViewerCapabilities;
-    isOpeningDocument: boolean;
     hasOpenError: boolean;
     isPreparingPrint: boolean;
     isPreparingCurrentPagePrint: boolean;
@@ -111,7 +110,6 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
         hasPdf: false,
         initialVisualReady: false,
         viewerCapabilities: createDefaultWorkspaceViewerCapabilities(),
-        isOpeningDocument: false,
         hasOpenError: false,
         isPreparingPrint: false,
         isPreparingCurrentPagePrint: false,

@@ -308,7 +308,6 @@ export async function waitForWorkspaceHistorySettled(page: Page, timeoutMs = DEF
         if (
             toolbar
             && !toolbar.isHistoryBusy
-            && !toolbar.isOpeningDocument
             && toolbar.initialVisualReady
             && toolbar.totalPages > 0
         ) {

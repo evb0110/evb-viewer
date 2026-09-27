@@ -539,11 +539,16 @@ async function readOpenRouteCapabilitySpan(
 async function waitForNoWorkspaceOpening(session: IElectronE2ESession) {
     try {
         await waitForFunctionInPage(session.page, () => {
-            const debugState = (window as {__evbTestApi?: {collectWorkspaceDebugState?: () => {workspaces: Array<{toolbarSnapshot: {isOpeningDocument?: boolean} | null}>} | null}})
+            const debugState = (window as {__evbTestApi?: {collectWorkspaceDebugState?: () => {workspaces: Array<{toolbarSnapshot: {
+                hasPdf: boolean;
+                initialVisualReady: boolean;
+                hasOpenError: boolean
+            } | null}>} | null}})
                 .__evbTestApi?.collectWorkspaceDebugState?.();
             return debugState !== undefined
                 && debugState !== null
-                && debugState.workspaces.every(workspace => workspace.toolbarSnapshot?.isOpeningDocument !== true);
+                && debugState.workspaces.every(({toolbarSnapshot}) => !toolbarSnapshot?.hasPdf
+                    || toolbarSnapshot.initialVisualReady || toolbarSnapshot.hasOpenError);
         }, {timeout: SETTLE_TIMEOUT_MS});
     } catch (error) {
         const stuckState = await evaluateInPage(session.page, () => {

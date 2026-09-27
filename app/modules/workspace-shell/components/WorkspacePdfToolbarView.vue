@@ -13,7 +13,7 @@
         :is-any-saving="snapshot.isAnySaving"
         :is-history-busy="snapshot.isHistoryBusy"
         :is-exporting-docx="snapshot.isExportingDocx"
-        :is-opening-document="snapshot.isOpeningDocument"
+        :is-opening-document="toolbarIsOpeningDocument"
         :is-preparing-print="snapshot.isPreparingPrint"
         :is-preparing-current-page-print="snapshot.isPreparingCurrentPagePrint"
         :is-fit-width-active="snapshot.isFitWidthActive"
@@ -324,6 +324,7 @@ const {
     fullscreenSupported,
     hasPdf = undefined,
     isDesktopRuntime,
+    isOpeningDocument = undefined,
     isFullscreen,
     ocrExternalError = null,
     ocrDocumentRevision = null,
@@ -354,6 +355,7 @@ const {
     isFullscreen: boolean;
     fullscreenSupported: boolean;
     documentBusy?: boolean | undefined;
+    isOpeningDocument?: boolean | undefined;
     controlsDisabled?: boolean | undefined;
     pageDropdownTotalPages?: number | undefined;
     pageLabels?: TDocumentPageLabelLookup | undefined;
@@ -431,7 +433,8 @@ const {
     toggle: toggleAssistantPanel,
 } = useAssistantPanel();
 const toolbarHasPdf = computed(() => hasPdf ?? snapshot.hasPdf);
-const toolbarDocumentBusy = computed(() => documentBusy ?? snapshot.isOpeningDocument);
+const toolbarIsOpeningDocument = computed(() => isOpeningDocument ?? (toolbarHasPdf.value && !snapshot.initialVisualReady && !snapshot.hasOpenError));
+const toolbarDocumentBusy = computed(() => documentBusy ?? toolbarIsOpeningDocument.value);
 const toolbarCanToggleSidebar = computed(() => canToggleSidebar ?? true);
 const toolbarControlsDisabled = computed(() => (
     controlsDisabled

@@ -16,6 +16,7 @@ export function resolveTabLifecycleStates(options: {
     tabs: ITab[];
     /** Tabs with unsaved changes stay mounted so they can be saved. */
     dirtyTabIds: ReadonlySet<string>;
+    documentTabIds: ReadonlySet<string>;
     panes: IEditorPaneState[];
     activationOrder: string[];
     policy: TTabMemoryPolicy;
@@ -54,7 +55,7 @@ export function resolveTabLifecycleStates(options: {
             temperature,
             viewerResidency: resolveTabTemperatureResidency(temperature),
             isReclaimCandidate: isTabTemperatureReclaimCandidate(temperature, { isSaveProtected }),
-            shouldMountHost: temperature !== 'cold',
+            shouldMountHost: isHot || isWarm && (options.documentTabIds.has(tab.id) || isSaveProtected),
         };
     });
 }

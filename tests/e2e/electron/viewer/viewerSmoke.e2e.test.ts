@@ -6122,7 +6122,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(await session.page.$('.editor-pane.is-active .djvu-banner')).toBeNull();
         const switchedSnapshot = await getWorkspaceToolbarSnapshot(session.page);
         expect(switchedSnapshot?.hasPdf).toBe(true);
-        expect(switchedSnapshot?.isOpeningDocument).toBe(false);
+        expect(switchedSnapshot?.initialVisualReady).toBe(true);
 
     }, 120_000);
 

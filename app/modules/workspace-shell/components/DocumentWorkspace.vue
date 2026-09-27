@@ -477,7 +477,6 @@ const workspaceExpose = createWorkspaceExpose(context, {
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
     initialVisualReady: presentation.initialDocumentVisualReady,
-    isOpeningDocument: isOpeningDocumentForDisplay,
     canRepairSave: presentation.canRepairSave,
     canOptimizePdf: presentation.canOptimizePdf,
     canExportDocx,

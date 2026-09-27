@@ -22,11 +22,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     // the workspace fills in its toolbar snapshot only once it has mounted.
     const isActiveTabOpening = computed(() => options.activeDocumentSession.value?.snapshot.value.phase === 'opening');
     const shellToolbarSnapshot = computed<IWorkspaceToolbarSnapshot>(() => {
-        const snapshot = options.activeDocumentSession.value?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot();
-        return isActiveTabOpening.value ? {
-            ...snapshot,
-            isOpeningDocument: true,
-        } : snapshot;
+        return options.activeDocumentSession.value?.toolbarSnapshot.value ?? createDefaultWorkspaceToolbarSnapshot();
     });
     const shellToolbarHasPdf = computed(() => shellToolbarSnapshot.value.hasPdf || isActiveTabOpening.value);
     const shellToolbarOcrWorkingCopyPath = computed<TDocumentRef | null>(() => (
@@ -54,6 +50,7 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
         shellToolbarEffectiveZoom: createSnapshotFieldModel('effectiveZoom'),
         shellToolbarFitMode: createSnapshotFieldModel('fitMode'),
         shellToolbarHasPdf,
+        isActiveTabOpening,
         shellToolbarOcrDocumentRevision,
         shellToolbarOcrPopupOpen,
         shellToolbarOcrWorkingCopyPath,

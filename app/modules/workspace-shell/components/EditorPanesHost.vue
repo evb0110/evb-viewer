@@ -141,9 +141,6 @@ watchEffect(() => {
 });
 
 let paneRelocationRestoreGeneration = 0;
-function waitForPaneRelocationFrame() {
-    return new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-}
 
 watch(
     () => layout,
@@ -153,23 +150,12 @@ watch(
             return;
         }
         const generation = ++paneRelocationRestoreGeneration;
-        void (async () => {
-            await nextTick();
+        void nextTick(() => {
             if (generation !== paneRelocationRestoreGeneration) {
                 return;
             }
             restorePaneRelocationScroll(snapshots);
-            await waitForPaneRelocationFrame();
-            if (generation !== paneRelocationRestoreGeneration) {
-                return;
-            }
-            restorePaneRelocationScroll(snapshots);
-            await waitForPaneRelocationFrame();
-            if (generation !== paneRelocationRestoreGeneration) {
-                return;
-            }
-            restorePaneRelocationScroll(snapshots);
-        })();
+        });
     },
     {flush: 'sync'},
 );

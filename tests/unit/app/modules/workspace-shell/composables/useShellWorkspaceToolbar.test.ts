@@ -168,7 +168,6 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
         expect(createDefaultWorkspaceToolbarSnapshot()).toEqual({
             hasPdf: false,
             initialVisualReady: false,
-            isOpeningDocument: false,
             hasOpenError: false,
             isPreparingPrint: false,
             isPreparingCurrentPagePrint: false,

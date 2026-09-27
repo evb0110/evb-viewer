@@ -37,7 +37,6 @@ describe('tab session memory policy', () => {
                 pdfDocument: true,
                 sidebar: true,
             },
-            isOpeningDocument: false,
             hasOpenError: false,
             isPreparingPrint: false,
             isPreparingCurrentPagePrint: false,
@@ -147,6 +146,12 @@ describe('tab session memory policy', () => {
     }) => {
         const states = resolveTabLifecycleStates({
             dirtyTabIds: new Set(),
+            documentTabIds: new Set([
+                'a',
+                'b',
+                'c',
+                'd',
+            ]),
             tabs: [
                 tab('a'),
                 tab('b'),
@@ -182,6 +187,11 @@ describe('tab session memory policy', () => {
     ])('cools non-active tabs aggressively at a target of %i except visible split panes', (targetWarmViewers) => {
         const states = resolveTabLifecycleStates({
             dirtyTabIds: new Set(),
+            documentTabIds: new Set([
+                'a',
+                'b',
+                'c',
+            ]),
             tabs: [
                 tab('a'),
                 tab('b'),
@@ -222,6 +232,10 @@ describe('tab session memory policy', () => {
                 tab('c'),
             ],
             dirtyTabIds: new Set(['b']),
+            documentTabIds: new Set([
+                'a',
+                'b',
+            ]),
             panes: [pane('pane-1', 'a', [
                 'a',
                 'b',
@@ -282,6 +296,12 @@ describe('tab session memory policy', () => {
     }) => {
         const states = resolveTabLifecycleStates({
             dirtyTabIds: new Set(),
+            documentTabIds: new Set([
+                'a',
+                'b',
+                'c',
+                'd',
+            ]),
             tabs: [
                 tab('a'),
                 tab('b'),

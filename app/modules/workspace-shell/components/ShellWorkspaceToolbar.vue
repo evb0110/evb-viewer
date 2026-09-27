@@ -2,6 +2,7 @@
     <WorkspacePdfToolbarView
         :snapshot="snapshot"
         :has-pdf="hasPdf"
+        :is-opening-document="isOpeningDocument"
         :ocr-document-revision="ocrDocumentRevision"
         :ocr-working-copy-path="ocrWorkingCopyPath"
         :can-use-ocr="canUseOcr"
@@ -9,8 +10,6 @@
         :surface="toolbarSurface"
         :is-fullscreen="isFullscreen"
         :fullscreen-supported="fullscreenSupported"
-        :document-busy="shellDocumentBusy"
-        :controls-disabled="shellControlsDisabled"
         :ocr-popup-open="ocrPopupOpen"
         :zoom-dropdown-open="zoomDropdownOpen"
         :page-dropdown-open="pageDropdownOpen"
@@ -79,12 +78,14 @@ import {
 
 const {
     hasPdf,
+    isOpeningDocument,
     ocrDocumentRevision = null,
     ocrWorkingCopyPath = null,
     snapshot,
 } = defineProps<{
     snapshot: IWorkspaceToolbarSnapshot;
     hasPdf: boolean;
+    isOpeningDocument: boolean;
     ocrDocumentRevision?: TDocumentRevisionToken | null;
     ocrWorkingCopyPath?: TDocumentRef | null;
     ocrPopupOpen: boolean;
@@ -101,8 +102,6 @@ const canUseOcr = computed(() => isDesktopRuntime.value);
 const toolbarSurface = computed(() => hasPdf
     ? DESKTOP_EDITOR_READER_COMMAND_SURFACE
     : EMPTY_STATE_READER_COMMAND_SURFACE);
-const shellDocumentBusy = computed(() => snapshot.isOpeningDocument);
-const shellControlsDisabled = computed(() => !hasPdf || shellDocumentBusy.value || snapshot.totalPages <= 0);
 
 const emit = defineEmits<{
     'update:ocrPopupOpen': [open: boolean];

@@ -30,6 +30,7 @@
                 v-show="showShellToolbar"
                 :snapshot="shellToolbarSnapshot"
                 :has-pdf="shellToolbarHasPdf"
+                :is-opening-document="isActiveTabOpening"
                 :ocr-document-revision="shellToolbarOcrDocumentRevision"
                 :ocr-popup-open="shellToolbarOcrPopupOpen"
                 :ocr-working-copy-path="shellToolbarOcrWorkingCopyPath"
@@ -359,6 +360,9 @@ const tabLifecycleById = computed(() => Object.fromEntries(
         panes: panes.value,
         policy: appSettings.value.tabMemoryPolicy,
         tabs: tabs.value,
+        documentTabIds: new Set(Object.values(documentSessionsByTabId.value).flatMap(
+            session => snapshotOccupiesTab(session.snapshot.value) ? [session.tabId] : [],
+        )),
         dirtyTabIds: new Set(Object.values(documentSessionsByTabId.value)
             .filter(session => session.snapshot.value.dirty)
             .map(session => session.tabId)),
@@ -559,6 +563,7 @@ const {
     shellToolbarEffectiveZoom,
     shellToolbarFitMode,
     shellToolbarHasPdf,
+    isActiveTabOpening,
     shellToolbarOcrDocumentRevision,
     shellToolbarOcrPopupOpen,
     shellToolbarOcrWorkingCopyPath,

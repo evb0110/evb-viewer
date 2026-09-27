@@ -343,7 +343,6 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             canSave: true,
             hasOpenError: false,
             hasPdf: true,
-            isOpeningDocument: false,
             totalPages: 2,
         });
     }, BLOCKING_SMOKE_TIMEOUT_MS);

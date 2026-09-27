@@ -26,7 +26,6 @@ export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
     handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     ensurePdfProjectionForEdit: () => Promise<boolean>;
     initialVisualReady: Readonly<Ref<boolean>>;
-    isOpeningDocument: Readonly<Ref<boolean>>;
     canRepairSave: Readonly<Ref<boolean>>;
     canOptimizePdf: Readonly<Ref<boolean>>;
     canExportDocx: Readonly<Ref<boolean>>;
@@ -86,6 +85,7 @@ export function createWorkspaceExpose(
         search,
         save,
         history,
+        isOpeningDocument,
         annotations,
         metadata: {
             pageLabelState, bookmarkState,
@@ -127,15 +127,15 @@ export function createWorkspaceExpose(
     }
 
     function getToolbarSnapshot(): IWorkspaceToolbarSnapshot {
-        const isOpeningDocument = owners.isOpeningDocument.value;
+        const isOpening = isOpeningDocument.value;
         // While a document opens, page one prevents stale position from the
         // replaced document leaking into the new open.
-        const currentPage = isOpeningDocument
+        const currentPage = isOpening
             ? 1
             : normalizeToolbarSnapshotPage(view.currentPage.value);
         const totalPages = normalizeToolbarSnapshotTotalPages(
             view.totalPages.value,
-            isOpeningDocument ? 0 : currentPage,
+            isOpening ? 0 : currentPage,
         );
         const zoom = view.zoom.value;
         // A custom zoom is the user's requested display value. The viewer can
@@ -147,7 +147,6 @@ export function createWorkspaceExpose(
         return {
             hasPdf: file.hasPdf.value,
             initialVisualReady: owners.initialVisualReady.value,
-            isOpeningDocument,
             hasOpenError: hasOpenError(),
             isPreparingPrint: print.isPreparingPrint.value,
             isPreparingCurrentPagePrint: print.isPreparingCurrentPagePrint.value,

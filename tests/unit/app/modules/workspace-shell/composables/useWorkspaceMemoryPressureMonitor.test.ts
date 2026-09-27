@@ -128,6 +128,11 @@ describe('workspace memory pressure monitor', () => {
             },
         ] satisfies IEditorPaneState[];
         const lifecycleById = computed(() => Object.fromEntries(resolveTabLifecycleStates({
+            documentTabIds: new Set([
+                'active',
+                'warm',
+                'cold',
+            ]),
             activationOrder: [
                 requireTabId('active'),
                 requireTabId('inactive'),

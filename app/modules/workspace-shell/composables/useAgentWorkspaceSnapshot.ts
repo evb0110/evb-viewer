@@ -68,7 +68,6 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         return {
             hasPdf: snapshot.hasPdf,
             isDjvuMode: snapshot.isDjvuMode,
-            isOpeningDocument: snapshot.isOpeningDocument,
             hasOpenError: snapshot.hasOpenError,
             currentPage: snapshot.currentPage,
             totalPages: snapshot.totalPages,

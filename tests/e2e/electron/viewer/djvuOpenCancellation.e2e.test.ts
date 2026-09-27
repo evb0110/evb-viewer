@@ -91,7 +91,6 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
             const logPath = join(electronFileLogDir(session.name), 'app.ndjson');
             const initialLogLength = readFileSync(logPath, 'utf8').length;
             const openingSurface = waitForFunctionInPage(session.page, () => {
-                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
                 const host = document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
                 );
@@ -101,8 +100,7 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
                     return rect.width > 0 && rect.height > 0
                         && style.display !== 'none' && style.visibility !== 'hidden';
                 };
-                return toolbar?.isOpeningDocument === true
-                    && (host?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) === 0
+                return (host?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) === 0
                     && Array.from(host?.querySelectorAll(
                         '.document-viewer-chassis__opening-page, .document-source-viewer__skeleton, [data-document-page-visual="skeleton"]',
                     ) ?? []).some(visible);
