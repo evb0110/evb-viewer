@@ -19,6 +19,7 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
+import {inspectPdf} from '@scripts/verify-interop-corpus.mjs';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     collectAnnotationOwnershipDebugState,
@@ -147,6 +148,17 @@ async function expectImportedCanonicalKinds(page: Page) {
     expect(debug.legacyEditorLayerCount).toBe(0);
     expect(debug.staticNonLinkAnnotationCount).toBeGreaterThan(0);
     expect(debug.staticLinkHrefs).toContain('https://example.com/evb-interop-corpus');
+    const comments = debug.workspaceState.annotationComments as Array<Record<string, unknown>> | undefined;
+    const legacyNote = comments?.find(comment => comment.text === 'Legacy note to edit');
+    expect(legacyNote).toMatchObject({
+        source: 'pdf',
+        annotationKind: 'note',
+        text: 'Legacy note to edit',
+    });
+    expect(debug.canonicalEntities).toContainEqual(expect.objectContaining({
+        id: legacyNote?.appAnnotationId,
+        kind: 'note',
+    }));
     return debug;
 }
 
@@ -244,6 +256,13 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
             corpusDirectory: CORPUS_DIRECTORY,
             inputPaths: [fixturePath],
         });
+        const savedAnnotations = await inspectPdf(fixturePath);
+        expect(savedAnnotations.annotations).toContainEqual(expect.objectContaining({
+            kind: 'note',
+            legacyFreeTextPopup: true,
+            name: 'interop-marker-edited-legacy-note',
+            subtype: 'FreeText',
+        }));
 
         const reopenOne = copyFreshFixture(fixturePath, 'reopen-one');
         await openPdfInApp(session.page, reopenOne, SAVE_TIMEOUT_MS);
