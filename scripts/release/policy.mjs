@@ -174,6 +174,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'resources/**',
                 'tests/e2e/electron/**',
                 'scripts/build-electron.mjs',
+                'scripts/electron-e2e-lanes.mjs',
                 'scripts/electron-run/**',
                 'scripts/electron-run-headless.sh',
                 'scripts/electronRun.ts',
