@@ -10,9 +10,12 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname, join,
+} from 'node:path';
 import type * as WorkingCopyManifestModule from '@electron/file-access/workingCopyManifest';
 import type * as WorkingCopyJournalModule from '@electron/file-access/workingCopyJournal';
+import type * as DocumentFileWriteAtomicModule from '@electron/file-access/documentFileWriteAtomic';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -241,6 +244,61 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             stat(workingCopyPath, {bigint: true}),
         ]);
         expect(originalStat.ino).not.toBe(workingStat.ino);
+    });
+
+    it('retains combined recovery evidence when working-copy rollback fails', async () => {
+        let failWorkingRollback = false;
+        vi.doMock('@electron/file-access/documentFileWriteAtomic', async (importOriginal) => {
+            const actual = await importOriginal<typeof DocumentFileWriteAtomicModule>();
+            return {
+                ...actual,
+                copyFileAtomic: async (source: string, destination: string, options?: Parameters<typeof actual.copyFileAtomic>[2]) => {
+                    if (failWorkingRollback && destination.endsWith('working.pdf')) {
+                        throw new Error('working rollback publication failed');
+                    }
+                    return actual.copyFileAtomic(source, destination, options);
+                },
+            };
+        });
+        let workingCopyPath = '';
+        try {
+            const prepared = await prepare('old-original', 'old-working');
+            workingCopyPath = prepared.workingCopyPath;
+            const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath: prepared.originalPath,
+                reason: 'native-mutation',
+                senderId: 7,
+                publishOriginal: () => publishImmutableFileAtomic(prepared.stagedPath, prepared.originalPath),
+                afterWorkingCopySync: async () => {
+                    failWorkingRollback = true;
+                    throw new Error('post-sync failure');
+                },
+            })).rejects.toThrow('working rollback publication failed');
+            await expect(readFile(prepared.originalPath, 'utf8')).resolves.toBe('old-original');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
+            const journalPath = join(dirname(workingCopyPath), 'journal.json');
+            const journal = JSON.parse(await readFile(journalPath, 'utf8')) as {
+                backupPath: string;
+                original: {
+                    backupPath: string;
+                    state: string
+                }
+            };
+            await expect(readFile(journal.backupPath, 'utf8')).resolves.toBe('old-working');
+            await expect(readFile(journal.original.backupPath, 'utf8')).resolves.toBe('old-original');
+
+            failWorkingRollback = false;
+            vi.resetModules();
+            const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            await expect(readFile(prepared.originalPath, 'utf8')).resolves.toBe('old-original');
+        } finally {
+            vi.doUnmock('@electron/file-access/documentFileWriteAtomic');
+        }
     });
 
     it('does not restore over an external replacement after publication', async () => {

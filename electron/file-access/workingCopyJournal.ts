@@ -58,6 +58,7 @@ const originalSchema = v.object({
     state: v.picklist([
         'prepared',
         'published',
+        'restored',
     ]),
     preparedSnapshot: v.optional(snapshotSchema),
     publishedSnapshot: v.optional(snapshotSchema),
@@ -228,6 +229,17 @@ async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
  * snapshot is overwritten, so a third-party replacement always wins.
  */
 async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
+    if (original.state === 'restored') {
+        return;
+    }
+    if (original.preparedSnapshot !== undefined) {
+        try {
+            await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true});
+            return;
+        } catch {
+            // The original still contains the published bytes.
+        }
+    }
     const expectedSnapshot = original.state === 'prepared'
         ? original.preparedSnapshot
         : original.publishedSnapshot;
@@ -294,7 +306,7 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     }
     const manifest = await readWorkingCopyManifest(workingCopyPath);
     if (manifest?.revision.token !== journal.nextRevisionToken) {
-        if (journal.original) {
+        if (journal.original && journal.original.state !== 'restored') {
             await restoreOriginal(journal.original);
         }
         await restoreWorkingCopyContent(journal);

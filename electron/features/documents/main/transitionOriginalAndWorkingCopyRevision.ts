@@ -7,8 +7,8 @@ import {
 } from '@electron/file-access/documentFileWriteAtomic';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {
-    completeWorkingCopyTransition,
     recordWorkingCopyJournalOriginal,
+    recoverWorkingCopyTransition,
     type IWorkingCopyJournal,
 } from '@electron/file-access/workingCopyJournal';
 import {withOriginalPathMutationLock} from '@electron/features/documents/main/withOriginalPathMutationLock';
@@ -157,6 +157,12 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                     await copyFileAtomic(originalBackupPath, input.originalPath, restoreOptions);
                     originalRestored = true;
                     originalRestoredByRollback = true;
+                    if (journal?.original) {
+                        await recordWorkingCopyJournalOriginal(journal, {
+                            ...journal.original,
+                            state: 'restored',
+                        });
+                    }
                 }
             } finally {
                 try {
@@ -166,8 +172,10 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 } finally {
                     try {
                         if (!committed && originalRestored) {
+                            // Recovery finishes a clean rollback now; if the working copy
+                            // cannot be restored, the journal stays for the next attempt.
                             await (journal
-                                ? completeWorkingCopyTransition(journal)
+                                ? recoverWorkingCopyTransition(input.workingCopyPath).catch(() => undefined)
                                 : rm(originalBackupPath, {force: true}));
                         }
                     } finally {
