@@ -717,6 +717,7 @@ describe('runNativeCommand', () => {
         const onStdout = vi.fn();
         const onStderr = vi.fn();
         mocks.spawn.mockReturnValue(proc);
+        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
         const {
             cancelNativeCommandGroup,
             runNativeCommand,

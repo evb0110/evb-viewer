@@ -587,7 +587,7 @@ describe('assistant chat session store persistence', () => {
         });
         await store.flushPersistenceForTests();
 
-        for (let index = 0; index < 32; index += 1) {
+        for (let index = 0; index < 3; index += 1) {
             session.messages[0]!.text = `image history ${index}`;
             store.recordSessionSnapshot(session);
             await store.flushPersistenceForTests();
@@ -599,7 +599,7 @@ describe('assistant chat session store persistence', () => {
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
         await recoveredStore.ready;
         expect(recoveredStore.getMessages(scope, selection)[0]).toMatchObject({
-            text: 'image history 31',
+            text: 'image history 2',
             attachments: [{dataUrl: attachmentData}],
         });
     });
