@@ -91,8 +91,9 @@ function replace(source: string, target: string) {
     return mocks.realReplace!(source, target);
 }
 
-function gatedReplace(gate: Promise<void>) {
+function gatedReplace(gate: Promise<void>, started: ReturnType<typeof deferred>) {
     return async (source: string, target: string) => {
+        started.resolve();
         await gate;
         await replace(source, target);
     };
@@ -159,20 +160,22 @@ describe('workspace checkpoint latest-only writer', () => {
     it('commits the active save and only the latest pending checkpoint', async () => {
         const firstGate = deferred();
         const secondGate = deferred();
+        const firstStarted = deferred();
+        const secondStarted = deferred();
         const committed: number[] = [];
         mocks.atomicReplace
             .mockImplementationOnce(async (source: string, target: string) => {
-                await gatedReplace(firstGate.promise)(source, target);
+                await gatedReplace(firstGate.promise, firstStarted)(source, target);
                 committed.push((await capturedAtOf(10))!);
             })
             .mockImplementationOnce(async (source: string, target: string) => {
-                await gatedReplace(secondGate.promise)(source, target);
+                await gatedReplace(secondGate.promise, secondStarted)(source, target);
                 committed.push((await capturedAtOf(10))!);
             });
         const {saveWorkspaceCheckpoint} = await import('@electron/workspaceCheckpointStore');
 
         const first = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledTimes(1));
+        await firstStarted.promise;
         const second = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
         const third = saveWorkspaceCheckpoint(createCheckpoint(3), 10);
         let secondSettled = false;
@@ -181,7 +184,7 @@ describe('workspace checkpoint latest-only writer', () => {
         });
 
         firstGate.resolve();
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledTimes(2));
+        await secondStarted.promise;
         expect(secondSettled).toBe(false);
         secondGate.resolve();
         await Promise.all([
@@ -290,8 +293,10 @@ describe('workspace checkpoint latest-only writer', () => {
 
     it('continues with the latest pending checkpoint after an active save fails', async () => {
         const firstGate = deferred();
+        const firstStarted = deferred();
         mocks.atomicReplace
             .mockImplementationOnce(async () => {
+                firstStarted.resolve();
                 await firstGate.promise;
                 throw new Error('replace failed');
             })
@@ -303,7 +308,7 @@ describe('workspace checkpoint latest-only writer', () => {
             () => null,
             (error: unknown) => error,
         );
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledTimes(1));
+        await firstStarted.promise;
         const second = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
         const third = saveWorkspaceCheckpoint(createCheckpoint(3), 10);
 
@@ -320,9 +325,11 @@ describe('workspace checkpoint latest-only writer', () => {
     it('drains pending saves before claim retains the checkpoint for acknowledgement', async () => {
         const firstGate = deferred();
         const secondGate = deferred();
+        const firstStarted = deferred();
+        const secondStarted = deferred();
         mocks.atomicReplace
-            .mockImplementationOnce(gatedReplace(firstGate.promise))
-            .mockImplementationOnce(gatedReplace(secondGate.promise));
+            .mockImplementationOnce(gatedReplace(firstGate.promise, firstStarted))
+            .mockImplementationOnce(gatedReplace(secondGate.promise, secondStarted));
         const {
             acknowledgeWorkspaceCheckpoint,
             claimWorkspaceCheckpoint,
@@ -330,12 +337,12 @@ describe('workspace checkpoint latest-only writer', () => {
         } = await import('@electron/workspaceCheckpointStore');
 
         const first = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledTimes(1));
+        await firstStarted.promise;
         const latest = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
         const claim = claimWorkspaceCheckpoint(20);
 
         firstGate.resolve();
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledTimes(2));
+        await secondStarted.promise;
         secondGate.resolve();
 
         await Promise.all([
@@ -349,14 +356,15 @@ describe('workspace checkpoint latest-only writer', () => {
 
     it('drains pending saves before clear removes the checkpoint', async () => {
         const firstGate = deferred();
-        mocks.atomicReplace.mockImplementationOnce(gatedReplace(firstGate.promise));
+        const firstStarted = deferred();
+        mocks.atomicReplace.mockImplementationOnce(gatedReplace(firstGate.promise, firstStarted));
         const {
             clearWorkspaceCheckpoint,
             saveWorkspaceCheckpoint,
         } = await import('@electron/workspaceCheckpointStore');
 
         const save = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledOnce());
+        await firstStarted.promise;
         const clear = clearWorkspaceCheckpoint();
         firstGate.resolve();
 
@@ -367,8 +375,9 @@ describe('workspace checkpoint latest-only writer', () => {
 
     it('suppresses late saves from a discarded renderer until its token-bound resume', async () => {
         const firstGate = deferred();
+        const firstStarted = deferred();
         mocks.atomicReplace
-            .mockImplementationOnce(gatedReplace(firstGate.promise))
+            .mockImplementationOnce(gatedReplace(firstGate.promise, firstStarted))
             .mockImplementation(replace);
         const {
             discardWorkspaceCheckpoint,
@@ -377,7 +386,7 @@ describe('workspace checkpoint latest-only writer', () => {
         } = await import('@electron/workspaceCheckpointStore');
 
         const activeSave = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledOnce());
+        await firstStarted.promise;
         const discard = discardWorkspaceCheckpoint(10);
         const lateSave = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
         firstGate.resolve();
@@ -401,8 +410,9 @@ describe('workspace checkpoint latest-only writer', () => {
 
     it('does not let a claim already behind the write barrier resume a later discard', async () => {
         const firstGate = deferred();
+        const firstStarted = deferred();
         mocks.atomicReplace
-            .mockImplementationOnce(gatedReplace(firstGate.promise))
+            .mockImplementationOnce(gatedReplace(firstGate.promise, firstStarted))
             .mockImplementation(replace);
         const {
             claimWorkspaceCheckpoint,
@@ -412,7 +422,7 @@ describe('workspace checkpoint latest-only writer', () => {
         } = await import('@electron/workspaceCheckpointStore');
 
         const activeSave = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
-        await vi.waitFor(() => expect(mocks.atomicReplace).toHaveBeenCalledOnce());
+        await firstStarted.promise;
         const staleClaim = claimWorkspaceCheckpoint(10);
         const discard = discardWorkspaceCheckpoint(10);
         const retiringRendererSave = saveWorkspaceCheckpoint(createCheckpoint(2), 10);

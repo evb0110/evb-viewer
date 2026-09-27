@@ -1,5 +1,6 @@
 import {
     mkdtemp,
+    open,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -290,11 +291,26 @@ describe('page-size sidecar reader', () => {
 
     it('keeps concurrent sparse windows independent', async () => {
         const pageCount = 4_097;
+        let secondChunkReaders = 0;
+        let releaseSecondChunk: () => void = () => undefined;
+        let signalSecondChunkReaders: () => void = () => undefined;
+        const secondChunkBarrier = new Promise<void>((resolve) => {
+            releaseSecondChunk = resolve;
+        });
+        const bothReadersReachedSecondChunk = new Promise<void>((resolve) => {
+            signalSecondChunkReaders = resolve;
+        });
         const store = new PdfPageSizeStore(async function* () {
             for (let firstPageNumber = 1, chunkIndex = 0;
                 firstPageNumber <= pageCount;
                 firstPageNumber += 1_024, chunkIndex += 1) {
-                await new Promise(resolve => setTimeout(resolve, 0));
+                if (chunkIndex === 1) {
+                    secondChunkReaders += 1;
+                    if (secondChunkReaders === 2) {
+                        signalSecondChunkReaders();
+                    }
+                    await secondChunkBarrier;
+                }
                 yield {
                     pageCount,
                     chunkIndex,
@@ -309,14 +325,19 @@ describe('page-size sidecar reader', () => {
             }
         });
 
+        const firstPage = store.getPage(1);
+        const lastPage = store.getPage(pageCount);
+        const rangePages = store.readRange(2_047, 2_050);
+        await bothReadersReachedSecondChunk;
+        releaseSecondChunk();
         const [
             first,
             last,
             range,
         ] = await Promise.all([
-            store.getPage(1),
-            store.getPage(pageCount),
-            store.readRange(2_047, 2_050),
+            firstPage,
+            lastPage,
+            rangePages,
         ]);
 
         expect(first.pageNumber).toBe(1);
@@ -363,6 +384,8 @@ describe('page-size sidecar reader', () => {
     it('uses a fixed-width index for sparse result reads without a document map', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-result-store-'));
         const pageCount = 100_003;
+        let cacheIndexReads = false;
+        let cachedIndex: Buffer | null = null;
         const store = await createFileBackedScanCleanupResultStore<{
             classification: string;
             pageNumber: number;
@@ -371,6 +394,50 @@ describe('page-size sidecar reader', () => {
             pageCount,
             pageNumberOf: (result: {pageNumber: number}) => result.pageNumber,
             maxReadPages: 1_024,
+            fileSystem: {
+                mkdtemp,
+                rm,
+                open: async (path, flags) => {
+                    const handle = await open(path, flags);
+                    if (!path.endsWith('index.bin')) return handle;
+                    return new Proxy(handle, {get(target, property) {
+                        if (property === 'read') {
+                            return async (
+                                buffer: Buffer,
+                                offset: number,
+                                length: number,
+                                position: number,
+                            ) => {
+                                if (!cacheIndexReads) {
+                                    return target.read(buffer, offset, length, position);
+                                }
+                                if (cachedIndex === null) {
+                                    cachedIndex = Buffer.alloc(pageCount * 8);
+                                    const {bytesRead} = await target.read(
+                                        cachedIndex,
+                                        0,
+                                        cachedIndex.byteLength,
+                                        0,
+                                    );
+                                    cachedIndex = cachedIndex.subarray(0, bytesRead);
+                                }
+                                const bytesRead = cachedIndex.copy(
+                                    buffer,
+                                    offset,
+                                    position,
+                                    position + length,
+                                );
+                                return {
+                                    bytesRead,
+                                    buffer,
+                                };
+                            };
+                        }
+                        const value = Reflect.get(target, property, target);
+                        return typeof value === 'function' ? value.bind(target) : value;
+                    }});
+                },
+            },
         });
         await store.append({
             pageNumber: 1,
@@ -391,11 +458,16 @@ describe('page-size sidecar reader', () => {
         }]);
         let largestChunk = 0;
         let visitedChunks = 0;
-        await store.forEachChunk((results, firstPageNumber) => {
-            visitedChunks += 1;
-            largestChunk = Math.max(largestChunk, results.length);
-            expect(firstPageNumber).toBeGreaterThanOrEqual(1);
-        });
+        cacheIndexReads = true;
+        try {
+            await store.forEachChunk((results, firstPageNumber) => {
+                visitedChunks += 1;
+                largestChunk = Math.max(largestChunk, results.length);
+                expect(firstPageNumber).toBeGreaterThanOrEqual(1);
+            });
+        } finally {
+            cacheIndexReads = false;
+        }
         expect(visitedChunks).toBe(98);
         expect(largestChunk).toBe(1);
         await store.replace(pageCount, {
@@ -408,5 +480,5 @@ describe('page-size sidecar reader', () => {
         });
         await store.close();
         await expect(store.getPage(1)).rejects.toThrow('Scan cleanup result store is closed');
-    }, 15_000);
+    });
 });
