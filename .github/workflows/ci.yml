@@ -311,10 +311,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh qpdf
-
       - name: Build native PDF page operations
         run: pnpm run build:pdf-page-ops
 
