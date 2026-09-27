@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import type {
     IHostResourceProfileSnapshot,
@@ -65,15 +66,17 @@ describe('resolveOcrRuntimePolicy', () => {
     });
 
     it('gives environment overrides highest precedence', () => {
-        expect(resolveOcrRuntimePolicy(
-            createResourceProfile(2, 4 * GIB, 'low'),
-            {
-                OCR_GLOBAL_PAGE_SLOTS: '12',
-                EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY: '12',
-            },
-        )).toEqual({
-            globalPageSlots: 8,
-            modelDownloadConcurrency: 8,
-        });
+        vi.stubEnv('EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY', '12');
+        try {
+            expect(resolveOcrRuntimePolicy(
+                createResourceProfile(2, 4 * GIB, 'low'),
+                {OCR_GLOBAL_PAGE_SLOTS: '12'},
+            )).toEqual({
+                globalPageSlots: 8,
+                modelDownloadConcurrency: 8,
+            });
+        } finally {
+            vi.unstubAllEnvs();
+        }
     });
 });

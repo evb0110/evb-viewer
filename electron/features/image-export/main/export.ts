@@ -57,7 +57,6 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     isNativePdfImageCombineDisabled,
     resolveNativePdfImageCombinePath,
@@ -129,30 +128,18 @@ const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 const DEFAULT_RENDER_DPI = 300;
 const PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES = 8;
-const PDF_EXPORT_PPM_CONVERT_CONCURRENCY = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_CONVERT_CONCURRENCY', 4, 1, 16);
-const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
-const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_PNG_RENDER_CHUNK_PAGES', 5, 1, 25);
+const PDF_EXPORT_PPM_CONVERT_CONCURRENCY = 4;
+const PDF_EXPORT_RENDER_CHUNK_PAGES = 25;
+const PDF_EXPORT_PNG_RENDER_CHUNK_PAGES = 5;
 const TIFF_COMBINE_WORKER_TIMEOUT_MS = 10 * 60 * 1000;
 const TIFF_COMBINE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['image-export-tiff'].fileName;
 const TIFF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
-    maxOldGenerationSizeMb: parseIntegerEnv('EVB_TIFF_COMBINE_WORKER_MAX_OLD_MB', 384, 128, 2048),
-    maxYoungGenerationSizeMb: parseIntegerEnv('EVB_TIFF_COMBINE_WORKER_MAX_YOUNG_MB', 64, 16, 256),
-    stackSizeMb: parseIntegerEnv('EVB_TIFF_COMBINE_WORKER_STACK_MB', 8, 2, 64),
+    maxOldGenerationSizeMb: 384,
+    maxYoungGenerationSizeMb: 64,
+    stackSizeMb: 8,
 };
-const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_FALLBACK_MAX_PAGES ?? '2', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 2;
-    }
-    return Math.min(parsed, 16);
-})();
-const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_FALLBACK_MAX_TOTAL_MB ?? '16', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 16 * 1024 * 1024;
-    }
-    return Math.min(parsed, 128) * 1024 * 1024;
-})();
+const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = 2;
+const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 function resolveFormatExtension(format: TImageExportFormat) {
     if (format === 'jpeg') {
         return '.jpg';

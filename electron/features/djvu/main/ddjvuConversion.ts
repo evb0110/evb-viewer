@@ -54,34 +54,10 @@ interface IDjvuConversionResult {
 const MAX_RANGE_WORKERS = 12;
 const MIN_PAGES_FOR_RANGE_PARALLELISM = 24;
 const PROGRESS_CAP = 90;
-const DJVU_PROCESS_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_PROCESS_TIMEOUT_MS ?? `${4 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 5_000) {
-        return 4 * 60 * 1000;
-    }
-    return parsed;
-})();
-const DJVU_IMAGE_PROCESS_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_IMAGE_PROCESS_TIMEOUT_MS ?? `${2 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 5_000) {
-        return 2 * 60 * 1000;
-    }
-    return parsed;
-})();
-const DJVU_KILL_GRACE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_KILL_GRACE_MS ?? '2000', 10);
-    if (!Number.isFinite(parsed) || parsed < 250) {
-        return 2_000;
-    }
-    return parsed;
-})();
-const DJVU_MAX_STDERR_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_MAX_STDERR_BYTES ?? '262144', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 262_144;
-    }
-    return parsed;
-})();
+const DJVU_PROCESS_TIMEOUT_MS = 4 * 60 * 1000;
+const DJVU_IMAGE_PROCESS_TIMEOUT_MS = 2 * 60 * 1000;
+const DJVU_KILL_GRACE_MS = 2_000;
+const DJVU_MAX_STDERR_BYTES = 262_144;
 const activeProcessIds = new Set<string>();
 const canceledProcessIds = new Set<string>();
 const logger = createLogger('djvu-convert');

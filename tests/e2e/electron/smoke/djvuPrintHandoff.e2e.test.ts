@@ -34,7 +34,7 @@ const PRINT_HANDOFF_SELECTED_PAGES = [
     1,
     2,
 ];
-const PRINT_VALIDATION_DPI = 96;
+const PRINT_VALIDATION_DPI = 180;
 const smokeDir = resolve(process.cwd(), '.devkit', 'tmp', `djvu-print-handoff-${Date.now()}`);
 const capturedPdfPath = join(smokeDir, 'captured-print.pdf');
 const renderedFirstPagePrefix = join(smokeDir, 'captured-first-page');
@@ -52,7 +52,6 @@ const runDjvuPrintHandoffOrSkip = selectFixtureDescribe(describe, djvuFixture);
 const printHandoffSessionEnv = {
     EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
     EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: capturedPdfPath,
-    EVB_PRINT_RASTER_DPI: String(PRINT_VALIDATION_DPI),
 };
 
 afterAll(() => {

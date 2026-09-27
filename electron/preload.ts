@@ -30,9 +30,7 @@ installDebugLogListener(ipcRenderer);
 const forwardPreloadLogToMain = createPreloadMainLogger(ipcRenderer);
 
 function isRendererAutomationFileOpenHelperEnabled() {
-    return process.env.EVB_AUTOMATION_USER_DATA_DIR
-        && process.env.EVB_AUTOMATION_SESSION_NAME
-        && process.env.EVB_ENABLE_RENDERER_FILE_OPEN_HELPER === '1';
+    return process.argv.includes('--evb-renderer-file-open-helper');
 }
 
 const deferredAutomationDocumentOpens = new Map<string, {

@@ -32,69 +32,15 @@ interface IRendererLogRateState {
 }
 
 const rendererLogger = createLogger('renderer-bridge', {broadcastToRenderers: false});
-const RENDERER_LOG_MAX_SECTION_CHARS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_MAX_SECTION_CHARS ?? '128', 10);
-    if (!Number.isFinite(parsed) || parsed < 16) {
-        return 128;
-    }
-    return Math.min(parsed, 512);
-})();
-const RENDERER_LOG_MAX_MESSAGE_CHARS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_MAX_MESSAGE_CHARS ?? '2000', 10);
-    if (!Number.isFinite(parsed) || parsed < 128) {
-        return 2_000;
-    }
-    return Math.min(parsed, 16_000);
-})();
-const RENDERER_LOG_MAX_DATA_CHARS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_MAX_DATA_CHARS ?? '8000', 10);
-    if (!Number.isFinite(parsed) || parsed < 256) {
-        return 8_000;
-    }
-    return Math.min(parsed, 64_000);
-})();
-const RENDERER_LOG_SERIALIZE_MAX_NODES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_NODES ?? '256', 10);
-    if (!Number.isFinite(parsed) || parsed < 16) {
-        return 256;
-    }
-    return Math.min(parsed, 8_192);
-})();
-const RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS ?? '16', 10);
-    if (!Number.isFinite(parsed) || parsed < 4) {
-        return 16;
-    }
-    return Math.min(parsed, 1_024);
-})();
-const RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS ?? '16', 10);
-    if (!Number.isFinite(parsed) || parsed < 4) {
-        return 16;
-    }
-    return Math.min(parsed, 2_048);
-})();
-const RENDERER_LOG_RATE_LIMIT_PER_SECOND = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_PER_SECOND ?? '60', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 60;
-    }
-    return Math.min(parsed, 5_000);
-})();
-const RENDERER_LOG_RATE_LIMIT_BURST = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_RATE_LIMIT_BURST ?? '120', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 120;
-    }
-    return Math.min(parsed, 10_000);
-})();
-const RENDERER_LOG_DROP_NOTICE_INTERVAL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RENDERER_LOG_DROP_NOTICE_INTERVAL_MS ?? '5000', 10);
-    if (!Number.isFinite(parsed) || parsed < 250) {
-        return 5_000;
-    }
-    return parsed;
-})();
+const RENDERER_LOG_MAX_SECTION_CHARS = 128;
+const RENDERER_LOG_MAX_MESSAGE_CHARS = 2_000;
+const RENDERER_LOG_MAX_DATA_CHARS = 8_000;
+const RENDERER_LOG_SERIALIZE_MAX_NODES = 256;
+const RENDERER_LOG_SERIALIZE_MAX_ARRAY_ITEMS = 16;
+const RENDERER_LOG_SERIALIZE_MAX_OBJECT_KEYS = 16;
+const RENDERER_LOG_RATE_LIMIT_PER_SECOND = 60;
+const RENDERER_LOG_RATE_LIMIT_BURST = 120;
+const RENDERER_LOG_DROP_NOTICE_INTERVAL_MS = 5_000;
 const rendererLogRateStateBySender = new Map<number, IRendererLogRateState>();
 const rendererLogCleanupRegisteredBySender = new Set<number>();
 function clampString(value: unknown, maxChars: number, fallback = '') {

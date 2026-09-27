@@ -1029,15 +1029,6 @@ fn calibrate_paper_field(
     let apply_paper_shoulder = shoulder_count
         .saturating_mul(MIN_MATERIAL_SHOULDER_COVERAGE_DENOMINATOR)
         >= sampled_outside;
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_PAPER").is_some() {
-        eprintln!(
-            "{{\"event\":\"paper-calibration\",\"width\":{width},\"height\":{height},\
-             \"paperLuminance\":{paper_luminance},\"sampleCount\":{sampled_outside},\
-             \"shoulderCount\":{shoulder_count},\"shoulderFraction\":{:.8},\
-             \"shoulderApplied\":{apply_paper_shoulder}}}",
-            shoulder_count as f64 / sampled_outside as f64,
-        );
-    }
     normalized_luminance
         .data_mut()
         .par_chunks_mut(width)

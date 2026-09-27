@@ -7,7 +7,6 @@ import { isRecord } from '@contracts/runtimeGuards';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
 import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     createDetachedChildProcessSpawnOptions,
     terminateDetachedChildProcess,
@@ -17,14 +16,10 @@ import { resolveCodexProcessLaunch } from '@electron/features/agent/codexProcess
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
-const APP_SERVER_MAX_STDOUT_RECORD_BYTES = parseIntegerEnv(
-    'EVB_CODEX_APP_SERVER_MAX_STDOUT_RECORD_BYTES',
-    32 * 1024 * 1024,
-    1_024,
-);
-const APP_SERVER_MAX_STDERR_BYTES = parseIntegerEnv('EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES', 262_144, 1_024);
-const APP_SERVER_SHUTDOWN_GRACE_MS = parseIntegerEnv('EVB_CODEX_APP_SERVER_SHUTDOWN_GRACE_MS', 1_000, 250);
-const APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS = parseIntegerEnv('EVB_CODEX_APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS', 500, 100);
+const APP_SERVER_MAX_STDOUT_RECORD_BYTES = 32 * 1024 * 1024;
+const APP_SERVER_MAX_STDERR_BYTES = 262_144;
+const APP_SERVER_SHUTDOWN_GRACE_MS = 1_000;
+const APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS = 500;
 
 type TAppServerJsonRpcId = number;
 

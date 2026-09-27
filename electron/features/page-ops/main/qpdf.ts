@@ -48,9 +48,9 @@ import type {
     IPageMoveRanges,
 } from '@contracts/pageNumbers';
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const log = createLogger('page-ops-qpdf');
-const E2E_SELECTED_PAGE_QPDF_HOLD_MARKER_ENV = 'EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER';
 export {
     getPdfPageCount,
     QPDF_OUTPUT_SUCCESS_EXIT_CODES,
@@ -138,9 +138,9 @@ function formatPageRangeList(ranges: readonly IPageMoveRangeSegment[]) {
 }
 
 function createSelectedPagePrintQpdfSpawnHold(argsPath: string, cancelGroup?: string) {
-    const markerPath = process.env[E2E_SELECTED_PAGE_QPDF_HOLD_MARKER_ENV]?.trim();
+    const markerPath = runtimeConfig.test.holdSelectedPageQpdfMarker;
     if (
-        process.env.EVB_E2E_ISSUE_124_ACCEPTANCE !== '1'
+        !runtimeConfig.test.issue124Acceptance
         || !markerPath
         || !cancelGroup?.startsWith('print-selected-pages:')
     ) {

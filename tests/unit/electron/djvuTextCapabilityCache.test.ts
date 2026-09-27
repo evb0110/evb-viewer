@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({detectDjvuHasText: vi.fn()}));
 
 vi.mock('@electron/features/djvu/main/textSearch', () => ({detectDjvuHasText: mocks.detectDjvuHasText}));
 
-const originalCacheLimit = process.env.EVB_DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES;
 const temporaryDirectories: string[] = [];
 
 function createDeferred<T>() {
@@ -44,8 +43,7 @@ async function createSource(name: string, contents = 'djvu') {
     return filePath;
 }
 
-async function loadCacheModule(maxEntries = 2) {
-    process.env.EVB_DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES = String(maxEntries);
+async function loadCacheModule() {
     vi.resetModules();
     return import('@electron/features/djvu/main/getCachedDjvuHasText');
 }
@@ -56,11 +54,6 @@ describe('DjVu text capability cache', () => {
     });
 
     afterAll(async () => {
-        if (originalCacheLimit === undefined) {
-            delete process.env.EVB_DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES;
-        } else {
-            process.env.EVB_DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES = originalCacheLimit;
-        }
         await Promise.all(temporaryDirectories.map(directory => rm(directory, {
             force: true,
             recursive: true,
@@ -85,21 +78,21 @@ describe('DjVu text capability cache', () => {
     });
 
     it('uses bounded least-recently-used retention', async () => {
-        const sources = await Promise.all([
-            createSource('one.djvu'),
-            createSource('two.djvu'),
-            createSource('three.djvu'),
-        ]);
+        const sources = await Promise.all(Array.from({length: 65}, (_unused, index) => (
+            createSource(`${String(index)}.djvu`)
+        )));
         mocks.detectDjvuHasText.mockResolvedValue(true);
-        const {getCachedDjvuHasText} = await loadCacheModule(2);
+        const {getCachedDjvuHasText} = await loadCacheModule();
 
         await getCachedDjvuHasText(sources[0]!);
         await getCachedDjvuHasText(sources[1]!);
         await getCachedDjvuHasText(sources[0]!);
-        await getCachedDjvuHasText(sources[2]!);
+        for (const source of sources.slice(2)) {
+            await getCachedDjvuHasText(source);
+        }
         await getCachedDjvuHasText(sources[1]!);
 
-        expect(mocks.detectDjvuHasText).toHaveBeenCalledTimes(4);
+        expect(mocks.detectDjvuHasText).toHaveBeenCalledTimes(66);
     });
 
     it('deduplicates concurrent scans for the same source fingerprint', async () => {

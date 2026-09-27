@@ -35,13 +35,7 @@ const EXTERNAL_OPEN_RETRY_DISPATCH_MS = 1_000;
 const EXTERNAL_OPEN_MAX_DISPATCH_FAILURES
     = Math.ceil(EXTERNAL_OPEN_MAX_BATCH_WAIT_MS / EXTERNAL_OPEN_RETRY_DISPATCH_MS);
 const EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS = 300;
-const EXTERNAL_OPEN_PENDING_MAX_PATHS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_EXTERNAL_OPEN_PENDING_MAX_PATHS ?? '256', 10);
-    if (!Number.isFinite(parsed) || parsed < 8) {
-        return 256;
-    }
-    return Math.min(parsed, 4_096);
-})();
+const EXTERNAL_OPEN_PENDING_MAX_PATHS = 256;
 
 interface IExternalOpenManagerSink {
     queueOpenRequest(paths: string[]): void;

@@ -234,7 +234,6 @@ describe('native PDF image combiner output validation', () => {
 
     it('does not let an early close settle a timeout before tree proof', async () => {
         vi.useFakeTimers();
-        vi.stubEnv('EVB_PDF_IMAGE_COMBINE_TIMEOUT_MS', '10000');
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
         const proc = new MockProcess();
         mocks.spawn.mockReturnValueOnce(proc);
@@ -246,7 +245,7 @@ describe('native PDF image combiner output validation', () => {
         await vi.waitFor(() => {
             expect(mocks.spawn).toHaveBeenCalled();
         });
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
         proc.emit('close', null, 'SIGTERM');
 
         const error = await result;

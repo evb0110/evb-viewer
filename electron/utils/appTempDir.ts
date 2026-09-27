@@ -34,8 +34,8 @@ import {
     isErrnoException,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
-const APP_TEMP_NAMESPACE_ENV = 'EVB_APP_TEMP_NAMESPACE';
 const APP_TEMP_NAMESPACE_OWNER_FILE = '.evb-app-temp-owner.json';
 const APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const APP_TEMP_NAMESPACE_SCAN_LIMIT = 512;
@@ -56,7 +56,7 @@ export function createAppTempNamespace(userDataPath: string) {
 
 export function initializeAppTempNamespace(userDataPath: string) {
     const namespace = createAppTempNamespace(userDataPath);
-    process.env[APP_TEMP_NAMESPACE_ENV] = namespace;
+    process.env.EVB_APP_TEMP_NAMESPACE = namespace;
     initializedAppTempNamespace = namespace;
     initializedAppTempUserDataPath = userDataPath;
     initializedAppTempNamespaceStartedAt = Date.now();
@@ -65,7 +65,7 @@ export function initializeAppTempNamespace(userDataPath: string) {
 }
 
 function getAppTempNamespace() {
-    const configuredNamespace = process.env[APP_TEMP_NAMESPACE_ENV]?.trim().toLowerCase();
+    const configuredNamespace = runtimeConfig.appTempNamespace;
     if (configuredNamespace && SAFE_NAMESPACE_PATTERN.test(configuredNamespace)) {
         return configuredNamespace;
     }

@@ -33,6 +33,7 @@ import {
 } from '@electron/bootstrap/requestShutdownSaveFlush';
 import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
 import { config } from '@electron/config';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
 import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
@@ -169,7 +170,7 @@ if (process.platform === 'win32') {
 
 // Explicitly set userData path to ensure it uses our app name
 // This fixes a race condition where imports above may cache the default "Electron" path
-const automationUserDataDir = process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim();
+const automationUserDataDir = runtimeConfig.automationUserDataDir;
 if (automationUserDataDir) {
     app.setPath('userData', automationUserDataDir);
 } else {
@@ -735,7 +736,7 @@ function broadcastUpdateStatus(status: IAppUpdateStatus) {
     }
 }
 
-const allowMultipleAutomationSessions = process.env.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS === '1';
+const allowMultipleAutomationSessions = runtimeConfig.allowMultipleAutomationSessions;
 
 function isPerformanceMode(value: unknown): value is TPerformanceMode {
     return value === 'auto'
@@ -748,7 +749,7 @@ function readLaunchPerformanceMode(value: unknown) {
     // Automation-only override; remove if the E2E harness gains a settings
     // handoff that survives session relaunches.
     const automationMode = automationUserDataDir
-        ? process.env.EVB_TEST_PERFORMANCE_MODE
+        ? runtimeConfig.test.performanceMode
         : undefined;
     if (isPerformanceMode(automationMode)) {
         return automationMode;

@@ -78,7 +78,6 @@ describe('recentFiles persistence', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         delete process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE;
-        delete process.env.EVB_RECENT_FILE_STAT_TIMEOUT_MS;
         mocks.resetStat();
         appDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-app-data-'));
         userDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-'));
@@ -629,8 +628,12 @@ describe('recentFiles persistence', () => {
     });
 
     it('keeps timed-out recent paths without waiting indefinitely for stat', async () => {
-        vi.stubEnv('EVB_RECENT_FILE_STAT_TIMEOUT_MS', '100');
+        vi.useFakeTimers();
         const filePath = join(userDataDir, 'network-share.pdf');
+        let resolveStatStarted: (() => void) | undefined;
+        const statStarted = new Promise<void>((resolve) => {
+            resolveStatStarted = resolve;
+        });
         writeFileSync(join(userDataDir, 'recentFiles.json'), JSON.stringify({
             version: 1,
             files: [{
@@ -642,13 +645,17 @@ describe('recentFiles persistence', () => {
         }));
         mocks.stat.mockImplementation((path: unknown) => {
             if (path === filePath) {
+                resolveStatStarted?.();
                 return new Promise(() => {});
             }
             return Promise.reject(new Error(`Unexpected stat path: ${path}`));
         });
 
         const recentFiles = await loadRecentFilesModule();
-        await expect(recentFiles.getRecentFiles()).resolves.toMatchObject([{
+        const pendingRecentFiles = recentFiles.getRecentFiles();
+        await statStarted;
+        await vi.advanceTimersByTimeAsync(1_500);
+        await expect(pendingRecentFiles).resolves.toMatchObject([{
             originalPath: filePath,
             fileName: 'network-share.pdf',
         }]);

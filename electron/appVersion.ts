@@ -1,7 +1,8 @@
 import packageJson from '@root-package';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const bundledApplicationVersion = packageJson.version.trim();
-const embeddedBuildGitSha = normalizeGitSha(process.env.EVB_BUILD_GIT_SHA);
+const embeddedBuildGitSha = normalizeGitSha(runtimeConfig.buildGitSha);
 
 if (!bundledApplicationVersion) {
     throw new Error('The root package.json must define the canonical application version.');

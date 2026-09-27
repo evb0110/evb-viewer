@@ -17,6 +17,7 @@ import type {
 } from '@contracts/hostPlatformFeature';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('bug-report');
 const BUG_REPORT_ROOT_DIRECTORY = 'bug-reports';
@@ -64,7 +65,7 @@ async function hashDocumentSource(sourcePath: string) {
  * when the tree was clean, so a missing sha is itself the dirty flag.
  */
 function describeBuild() {
-    const gitSha = process.env.EVB_BUILD_GIT_SHA?.trim() ?? '';
+    const gitSha = runtimeConfig.buildGitSha;
     return {
         dirty: gitSha.length === 0,
         gitSha: gitSha.length > 0 ? gitSha : null,

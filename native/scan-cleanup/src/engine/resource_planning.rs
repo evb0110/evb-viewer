@@ -111,17 +111,8 @@ pub(crate) fn processing_worker_threads() -> usize {
     capped_worker_threads(logical_cpus().unwrap_or(1))
 }
 
-/// Replaces the detected logical CPU count the sidecar sizes its pools for.
-/// Memory limits still bound the page pool. Tests set it to exercise a
-/// multi-worker pool on a two-CPU host, where half the CPUs is one worker.
-pub const LOGICAL_CPUS_ENV: &str = "EVB_SCAN_CLEANUP_LOGICAL_CPUS";
-
 fn logical_cpus() -> Option<usize> {
-    std::env::var(LOGICAL_CPUS_ENV)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|&cpus| (1..=1024).contains(&cpus))
-        .or_else(|| std::thread::available_parallelism().ok().map(usize::from))
+    std::thread::available_parallelism().ok().map(usize::from)
 }
 
 fn capped_worker_threads(available: usize) -> usize {

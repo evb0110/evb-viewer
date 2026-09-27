@@ -15,6 +15,7 @@ import {
 } from '@contracts/documentRef';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
 import { resolveApplicationVersion } from '@electron/appVersion';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 interface IShutdownCoordinator {
     isGracefulQuitInProgress(): boolean;
@@ -54,7 +55,7 @@ interface IRegisterIpcHandlersOptions {
 }
 
 function shouldWaitForInitialRendererReady() {
-    return process.env.EVB_WAIT_RENDERER_READY === '1';
+    return runtimeConfig.automationWaitRendererReady;
 }
 
 const STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS = 30_000;

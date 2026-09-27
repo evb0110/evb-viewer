@@ -26,20 +26,8 @@ const logger = createLogger('djvu-estimate');
 const DJVU_ESTIMATE_MAX_SAMPLE_PIXELS = 12_000_000;
 const DJVU_ESTIMATE_MAX_SAMPLE_BYTES = 48 * 1024 * 1024;
 const DJVU_ESTIMATE_LOCAL_FALLBACK_MAX_BYTES = 8 * 1024 * 1024;
-const DJVU_ESTIMATE_CACHE_MAX_ENTRIES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_ESTIMATE_CACHE_MAX_ENTRIES ?? '64', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 64;
-    }
-    return Math.min(parsed, 512);
-})();
-const DJVU_ESTIMATE_CACHE_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_ESTIMATE_CACHE_TTL_MS ?? `${10 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 10 * 60 * 1000;
-    }
-    return parsed;
-})();
+const DJVU_ESTIMATE_CACHE_MAX_ENTRIES = 64;
+const DJVU_ESTIMATE_CACHE_TTL_MS = 10 * 60 * 1000;
 
 interface IDjvuEstimateCacheEntry {
     estimates: IDjvuSizeEstimate[];

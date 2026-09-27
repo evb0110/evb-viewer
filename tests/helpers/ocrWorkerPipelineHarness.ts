@@ -32,7 +32,6 @@ export async function createOcrWorkerPipelineHarness(options: {
     growOutputKb?: number;
     jobMaxTempMb?: number;
     stallPage?: number;
-    storagePollMs?: number;
     tempRoot?: string;
 } = {}): Promise<IOcrWorkerPipelineHarness> {
     const root = options.tempRoot ?? await mkdtemp(join(tmpdir(), 'evb-ocr-worker-pipeline-'));
@@ -87,8 +86,6 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
         OCR_CONCURRENCY: String(options.concurrency ?? 1),
         OCR_TESSERACT_THREADS: '1',
         EVB_OCR_JOB_MAX_TEMP_MB: String(options.jobMaxTempMb ?? 4_096),
-        EVB_OCR_MIN_FREE_SPACE_MB: '1',
-        EVB_OCR_STORAGE_POLL_MS: String(options.storagePollMs ?? 250),
         EVB_FAKE_OCR_CALL_LOG: callLogPath,
         EVB_FAKE_OCR_FAIL_PAGE: options.failPage === undefined ? '' : String(options.failPage),
         EVB_FAKE_OCR_GROW_KB: options.growOutputKb === undefined ? '' : String(options.growOutputKb),

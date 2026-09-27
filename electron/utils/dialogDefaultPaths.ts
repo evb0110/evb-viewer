@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { dirname } from 'path';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 export function getDocumentsDialogDefaultPath() {
     return app.getPath('documents');
@@ -15,9 +16,9 @@ export function getWorkingCopyDialogDefaultPath(workingCopyPath: string) {
  * always show the dialog.
  */
 export function getAutomationSaveDialogPath() {
-    if (!process.env.EVB_AUTOMATION_USER_DATA_DIR) {
+    if (!runtimeConfig.automationUserDataDir) {
         return null;
     }
-    const targetPath = process.env.EVB_E2E_SAVE_DIALOG_PATH?.trim() ?? '';
+    const targetPath = runtimeConfig.test.e2eSaveDialogPath ?? '';
     return targetPath.length > 0 ? targetPath : null;
 }

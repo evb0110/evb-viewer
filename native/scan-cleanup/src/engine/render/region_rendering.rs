@@ -1510,7 +1510,6 @@ struct ContentDetectionInput<'a> {
     source_effectively_blank: bool,
     cache: Option<&'a PageCache>,
     deskew_key: Option<&'a StageCacheKey>,
-    source_page_index: usize,
     calibration: PageCalibration,
     local_scale_x: f64,
     local_scale_y: f64,
@@ -1537,7 +1536,6 @@ fn detect_region_content(
         source_effectively_blank,
         cache,
         deskew_key,
-        source_page_index,
         calibration,
         local_scale_x,
         local_scale_y,
@@ -1603,11 +1601,6 @@ fn detect_region_content(
                 diagnostics: None,
             }
         } else {
-            if let Some(dir) = std::env::var_os("EVB_SCAN_CLEANUP_DUMP_CONTENT_INPUT") {
-                let path = std::path::Path::new(&dir)
-                    .join(format!("content-input-{source_page_index}.pgm"));
-                let _ = crate::io::raster::write_gray_pgm_atomic(&path, content_analysis);
-            }
             let detected_result = detect_content_and_margins_calibrated_with_crop_authority(
                 content_analysis,
                 content_picture_mask,
@@ -1617,14 +1610,6 @@ fn detect_region_content(
                 Some([0.0; 4]),
                 calibration,
             );
-            if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
-                eprintln!(
-                    "{{\"event\":\"content-call\",\"page\":{source_page_index},\"dpi\":{},\"pictureMask\":{},\"detected\":{:?}}}",
-                    calibration.effective_dpi,
-                    content_picture_mask.is_some(),
-                    detected_result.content,
-                );
-            }
             let detected_content = detected_result.content.map(|rect| {
                 map_analysis_rect_to_source_support(
                     rect,
@@ -3592,7 +3577,6 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
         source_effectively_blank,
         cache,
         deskew_key: deskew_key.as_ref(),
-        source_page_index,
         calibration,
         local_scale_x,
         local_scale_y,

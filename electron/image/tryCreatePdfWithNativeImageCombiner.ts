@@ -33,6 +33,7 @@ import {
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     decodeSerializableErrorEnvelope,
     SerializableError,
@@ -81,30 +82,15 @@ const SUPPORTED_NATIVE_NETPBM_EXTENSIONS = new Set([
     '.pgm',
     '.ppm',
 ]);
-const NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_IMAGE_COMBINE_TIMEOUT_MS ?? `${5 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 5 * 60 * 1000;
-    }
-    return parsed;
-})();
+const NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS = 5 * 60 * 1000;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES = 64 * 1024;
-const NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV = 'EVB_PDF_IMAGE_COMBINE_ENABLE';
 const PDF_HEADER_SCAN_BYTES = 1024;
 const PDF_EOF_SCAN_BYTES = 1024 * 1024;
-const JPEG_ORIENTATION_SCAN_MAX_BYTES = 4 * 1024 * 1024;
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
+const JPEG_ORIENTATION_SCAN_MAX_BYTES = 4 * 1024 * 1024;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_INPUT_MB = 4_096;
 const FILE_BACKED_NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = Number.MAX_SAFE_INTEGER;
-const NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? String(
-        PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
-    ), 10);
-    const megabytes = Number.isFinite(parsed) && parsed >= 1
-        ? Math.min(parsed, PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE)
-        : PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE;
-    return megabytes * BYTES_PER_MEBIBYTE;
-})();
+const NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
 
 function getBinaryName() {
     return process.platform === 'win32'
@@ -113,8 +99,7 @@ function getBinaryName() {
 }
 
 export function isNativePdfImageCombineDisabled() {
-    return process.env.EVB_PDF_IMAGE_COMBINE_DISABLE === '1'
-        || (process.env.VITEST === 'true' && process.env[NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV] !== '1');
+    return process.env.VITEST === 'true' && !runtimeConfig.test.nativePdfImageCombineEnabled;
 }
 
 export function resolveNativePdfImageCombinePath() {
@@ -122,7 +107,7 @@ export function resolveNativePdfImageCombinePath() {
         binaryName: getBinaryName(),
         crateName: 'pdf-image-combine',
         currentDir: __dirname,
-        envOverridePath: process.env.EVB_PDF_IMAGE_COMBINE_PATH,
+        envOverridePath: runtimeConfig.pdfImageCombinePath,
         isPackaged,
     });
 }
@@ -269,7 +254,7 @@ async function handleInvalidNativePdfOutput<T>(
 ) {
     await rm(outputPath, { force: true }).catch(() => undefined);
     const testFailure = createNativeFallbackTestError(
-        NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+        runtimeConfig.test.nativePdfImageCombineEnabled,
         'Native image PDF combine',
         fallbackDetail,
         fallbackCause,
@@ -547,7 +532,7 @@ async function createPdfWithNativeImageCombiner(
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
         const testFailure = createNativeFallbackTestError(
-            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            runtimeConfig.test.nativePdfImageCombineEnabled,
             'Native image PDF combine',
             'native binary path could not be resolved',
         );
@@ -595,7 +580,7 @@ async function writePdfWithNativeImageCombiner(
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
         const testFailure = createNativeFallbackTestError(
-            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            runtimeConfig.test.nativePdfImageCombineEnabled,
             'Native image PDF combine',
             'native binary path could not be resolved',
         );
@@ -785,7 +770,7 @@ async function runNativePdfImageCombine(
                     ? 'native process failed to start'
                     : 'native process exited with code ' + exitCode + (stderr.trim() ? ': ' + stderr.trim() : '');
         const failure = createNativeFallbackTestError(
-            NATIVE_PDF_IMAGE_COMBINE_TEST_ENABLE_ENV,
+            runtimeConfig.test.nativePdfImageCombineEnabled,
             'Native image PDF combine',
             detail,
             error,

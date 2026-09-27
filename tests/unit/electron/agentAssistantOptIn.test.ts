@@ -1936,11 +1936,9 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('evicts least-recently-used idle document chat sessions', async () => {
-        vi.stubEnv('EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES', '2');
         const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
         const documentA = createDocumentScope('a.pdf');
         const documentB = createDocumentScope('b.pdf');
-        const documentC = createDocumentScope('c.pdf');
         enableAssistantRuntime();
 
         try {
@@ -1965,10 +1963,10 @@ describe('agent assistant opt-in gating', () => {
             nowSpy.mockReturnValue(1_000_200);
             await getAgentAssistantState({ scope: documentA });
             nowSpy.mockReturnValue(1_000_300);
-            await sendAgentAssistantMessage({
-                text: 'Question for C',
-                scope: documentC,
-            });
+            for (let index = 0; index < 31; index += 1) {
+                nowSpy.mockReturnValue(1_000_300 + index);
+                await getAgentAssistantState({scope: createDocumentScope(`document-${index}.pdf`)});
+            }
 
             nowSpy.mockReturnValue(1_000_400);
             const restoredDocumentA = await getAgentAssistantState({ scope: documentA });

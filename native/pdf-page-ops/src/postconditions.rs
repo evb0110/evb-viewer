@@ -1,16 +1,6 @@
 use super::*;
 
-const FULL_POSTCONDITION_AUDIT_ENV: &str = "EVB_PDF_PAGE_OPS_FULL_POSTCONDITION_AUDIT";
-
-/// Production saves validate the pages named by the mutation projection. A
-/// full page-tree audit is still available for explicit diagnostics and test
-/// runs, but it must never be an accidental cost of a sparse save.
-fn full_postcondition_audit_requested() -> bool {
-    matches!(
-        std::env::var_os(FULL_POSTCONDITION_AUDIT_ENV).as_deref(),
-        Some(value) if value == "1"
-    )
-}
+const FULL_POSTCONDITION_AUDIT: bool = false;
 
 #[cfg(test)]
 pub(crate) fn validate_appended_revision_postconditions(
@@ -692,7 +682,7 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
         Ok(())
     };
 
-    if full_postcondition_audit_requested() {
+    if FULL_POSTCONDITION_AUDIT {
         page_resolver.for_each_page_id(document, &mut validate_page)?;
     } else {
         for page_id in touched_page_ids {
@@ -1364,7 +1354,7 @@ pub(crate) fn validate_shapes_document_postconditions(
         }
         Ok(())
     };
-    if full_postcondition_audit_requested() {
+    if FULL_POSTCONDITION_AUDIT {
         page_resolver.for_each_page_id(document, &mut validate_page)?;
     } else {
         for page_id in touched_page_ids {

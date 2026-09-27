@@ -27,13 +27,11 @@ import {
     tryWritePdfFromInputPathsNative,
 } from '@electron/image/tryCreatePdfFromInputPathsNative';
 import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { assertNever } from '@contracts/assertNever';
 import {
     createPdfCombineOutputTooLargeError,
-    normalizePdfCombineOutputLimit,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 
@@ -115,49 +113,19 @@ type TCombineWorkerPayload =
 const logger = createLogger('pdfConversion');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMBINE_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-combine'].fileName;
-const PDF_COMBINE_WORKER_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_WORKER_TIMEOUT_MS ?? `${5 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 5 * 60 * 1000;
-    }
-    return parsed;
-})();
+const PDF_COMBINE_WORKER_TIMEOUT_MS = 5 * 60 * 1000;
 const PDF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
-    maxOldGenerationSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_MAX_OLD_MB', 512, 128, 2048),
-    maxYoungGenerationSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_MAX_YOUNG_MB', 64, 16, 256),
-    stackSizeMb: parseIntegerEnv('EVB_PDF_COMBINE_WORKER_STACK_MB', 8, 2, 64),
+    maxOldGenerationSizeMb: 512,
+    maxYoungGenerationSizeMb: 64,
+    stackSizeMb: 8,
 };
 // These limits belong only to the small in-memory compatibility route. The
 // path-backed route switches to the native file writer before it can consult
 // them.
-const PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_INPUT_MB ?? '512', 10);
-    if (!Number.isFinite(parsed) || parsed < 16) {
-        return 512 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
-const PDF_COMBINE_SMALL_MEMORY_MAX_TOTAL_INPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_TOTAL_INPUT_MB ?? '1024', 10);
-    if (!Number.isFinite(parsed) || parsed < 16) {
-        return 1024 * 1024 * 1024;
-    }
-    return parsed * 1024 * 1024;
-})();
-const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_MB ?? '16', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 16 * 1024 * 1024;
-    }
-    return Math.min(parsed, 256) * 1024 * 1024;
-})();
-const PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_PDF_COMBINE_MAX_OUTPUT_MB ?? '16', 10);
-    return normalizePdfCombineOutputLimit(
-        (Number.isFinite(parsed) && parsed >= 1 ? parsed : PDF_COMBINE_MAX_OUTPUT_BYTES / (1024 * 1024))
-            * 1024 * 1024,
-    );
-})();
+const PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES = 512 * 1024 * 1024;
+const PDF_COMBINE_SMALL_MEMORY_MAX_TOTAL_INPUT_BYTES = 1024 * 1024 * 1024;
+const PDF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+const PDF_COMBINE_SMALL_MEMORY_MAX_OUTPUT_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
 const WORKER_SUPPORTED_IMAGE_EXTENSIONS = new Set<string>(
     [
         '.png',

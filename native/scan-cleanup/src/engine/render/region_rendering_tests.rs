@@ -234,7 +234,6 @@ fn content_stage_maps_manual_content_to_source_and_preserves_diagnostics() {
         source_effectively_blank: false,
         cache: None,
         deskew_key: None,
-        source_page_index: 0,
         calibration: PageCalibration::estimate(&source, 300.0, CalibrationConfig::default()),
         local_scale_x: 1.0,
         local_scale_y: 1.0,

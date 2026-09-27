@@ -28,7 +28,7 @@ import {
 } from '@electron/native-tools/toolRegistry';
 import { getErrorMessage } from '@electron/utils/error';
 import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     registerManagedProcess,
     type IManagedProcessRegistration,
@@ -74,25 +74,17 @@ export interface IRunCommandOptions {
     terminationGraceMs?: number;
 }
 
-const DEFAULT_MAX_STDOUT_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDOUT_BYTES', 262_144, 1_024);
-const DEFAULT_MAX_STDERR_BYTES = parseIntegerEnv('EVB_NATIVE_TOOL_MAX_STDERR_BYTES', 262_144, 1_024);
-const DEFAULT_TERMINATION_GRACE_MS = parseIntegerEnv('EVB_NATIVE_TOOL_TERMINATION_GRACE_MS', 1_000, 250);
+const DEFAULT_MAX_STDOUT_BYTES = 262_144;
+const DEFAULT_MAX_STDERR_BYTES = 262_144;
+const DEFAULT_TERMINATION_GRACE_MS = 1_000;
 const NATIVE_PROCESS_WATCHDOG_MS = 5_000;
 const NATIVE_COMMAND_SCRATCH_PREFIX = 'native-command-';
 const nativeProcessTelemetryLog = createLogger('native-process-telemetry');
 let activeNativeProcessCount = 0;
-const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = parseIntegerEnv(
-    'EVB_NATIVE_COMMAND_TIMEOUT_MS',
-    15 * 60 * 1_000,
-    1_000,
-);
-const MAX_CONCURRENT_NATIVE_COMMANDS = parseIntegerEnv('EVB_NATIVE_COMMAND_MAX_CONCURRENCY', 8, 1);
-const MAX_QUEUED_NATIVE_COMMANDS = parseIntegerEnv('EVB_NATIVE_COMMAND_MAX_QUEUED', 128, 1);
-const NATIVE_COMMAND_ADMISSION_TIMEOUT_MS = parseIntegerEnv(
-    'EVB_NATIVE_COMMAND_ADMISSION_TIMEOUT_MS',
-    30_000,
-    1_000,
-);
+const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
+const MAX_CONCURRENT_NATIVE_COMMANDS = 8;
+const MAX_QUEUED_NATIVE_COMMANDS = 128;
+const NATIVE_COMMAND_ADMISSION_TIMEOUT_MS = 30_000;
 
 interface INativeCommandAdmissionWaiter {
     resolve: (release: () => void) => void;
@@ -324,7 +316,7 @@ export async function runNativeCommand(
     args: string[],
     options: IRunCommandOptions = {},
 ): Promise<IProcessResult> {
-    const appTempNamespace = process.env.EVB_APP_TEMP_NAMESPACE?.trim().toLowerCase();
+    const appTempNamespace = runtimeConfig.appTempNamespace;
     if (!appTempNamespace || !/^[a-z\d][a-z\d-]{0,63}$/u.test(appTempNamespace) || !isAbsolute(command)) {
         return runNativeCommandCore(command, args, options);
     }

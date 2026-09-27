@@ -89,18 +89,17 @@ describe('runNativeCommand', () => {
         vi.useRealTimers();
     });
 
-    it('applies a bounded default timeout when a caller omits one', async () => {
+    it('applies the production timeout when a caller omits one', async () => {
         vi.useFakeTimers();
-        vi.stubEnv('EVB_NATIVE_COMMAND_TIMEOUT_MS', '1000');
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', []);
         const rejection = resultPromise.catch((error: unknown) => error);
-        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
-        await expect(rejection).resolves.toMatchObject({message: '/bin/tool timed out after 1000ms'});
+        await expect(rejection).resolves.toMatchObject({message: '/bin/tool timed out after 900000ms'});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
     });
 

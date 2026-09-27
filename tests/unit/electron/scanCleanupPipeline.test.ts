@@ -1604,7 +1604,6 @@ describe('scan cleanup pipeline', () => {
     it('preserves an unchanged compact Auto Color source page', async () => {
         const fixture = await setup();
         const evidenceDir = join(fixture.dir, 'evidence');
-        vi.stubEnv('EVB_SCAN_CLEANUP_EVIDENCE_DIR', evidenceDir);
         let pageOpsInstructions: unknown = null;
         let qpdfArgs: readonly string[] = [];
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
@@ -1668,6 +1667,7 @@ describe('scan cleanup pipeline', () => {
             }));
         });
         const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.evidenceDirectory = evidenceDir;
         pipelineDependencies.getPageCount = vi.fn(async () => 1);
         pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(360, [[
             1,

@@ -36,8 +36,7 @@ import {
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {
     AssistantChatPersistence,
-    readBoundedIntegerEnv,
-    readAssistantChatMaxSessionBytes,
+    DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES,
 } from '@electron/features/agent/assistantChatPersistence';
 
 export interface IAssistantChatSession {
@@ -80,20 +79,7 @@ const DEFAULT_SELECTION = {
     effort: ASSISTANT_DEFAULT_EFFORT,
     speedMode: ASSISTANT_DEFAULT_SPEED_MODE,
 } as const satisfies IAssistantSelection;
-
-function readAssistantChatSessionMaxEntries() {
-    return readBoundedIntegerEnv('EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES', 32, 1, 512);
-}
-
-function readAssistantChatSessionTtlMs() {
-    // Session retention is bounded by maxEntries, not by wall-clock inactivity.
-    // A backgrounded window must not turn a visible conversation into a new one.
-    const configured = process.env.EVB_ASSISTANT_CHAT_SESSION_TTL_MS;
-    if (configured === undefined || configured.trim() === '') {
-        return Number.POSITIVE_INFINITY;
-    }
-    return readBoundedIntegerEnv('EVB_ASSISTANT_CHAT_SESSION_TTL_MS', Number.POSITIVE_INFINITY, 60_000);
-}
+const DEFAULT_ASSISTANT_CHAT_SESSION_MAX_ENTRIES = 32;
 
 export function normalizeAssistantScope(scope: IAgentAssistantChatScope | null | undefined) {
     if (!scope) {
@@ -187,12 +173,12 @@ function boundAssistantMessages(messages: IAgentAssistantChatMessage[], maxBytes
 }
 
 export function createAssistantChatSessionStore(options: IAssistantChatSessionStoreOptions = {}) {
-    const maxEntries = options.maxEntries ?? readAssistantChatSessionMaxEntries();
-    const ttlMs = options.ttlMs ?? readAssistantChatSessionTtlMs();
+    const maxEntries = options.maxEntries ?? DEFAULT_ASSISTANT_CHAT_SESSION_MAX_ENTRIES;
+    const ttlMs = options.ttlMs ?? Number.POSITIVE_INFINITY;
     const persistence = options.persistence === false
         ? null
         : options.persistence ?? new AssistantChatPersistence();
-    const maxSessionBytes = persistence?.getMaxSessionBytes() ?? readAssistantChatMaxSessionBytes();
+    const maxSessionBytes = persistence?.getMaxSessionBytes() ?? DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES;
     const chatSessions = new Map<string, IAssistantChatSession>();
     let activeChatKey: string | null = null;
     let lastStateScope: IAgentAssistantChatScope | null = null;

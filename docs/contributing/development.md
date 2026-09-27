@@ -233,7 +233,7 @@ The desktop OCR pipeline supports two common concurrency knobs:
 | `OCR_CONCURRENCY` | `min(cpuCount, 8)` | Max pages processed in parallel |
 | `OCR_TESSERACT_THREADS` | `floor(cpuCount / OCR_CONCURRENCY)` | Thread limit per Tesseract process |
 
-There are also advanced queue/worker controls under `EVB_OCR_*` for release and stress scenarios.
+Release and stress runs can set `EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY` from 1 to 8; unset or `0` uses the tier default of 1 for low-tier machines and 3 otherwise.
 
 Measure OCR quality with the shipped engine and pinned language corpus:
 

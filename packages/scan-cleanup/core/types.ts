@@ -503,6 +503,7 @@ export interface IRunScanCleanupPipelineRequest {
 }
 
 export interface IRunScanCleanupPipelineDependencies {
+    evidenceDirectory?: string | undefined;
     getPageCount: TScanCleanupGetPageCount;
     getPageSizeStore: TScanCleanupGetPageSizeStore;
     detectSourceDpi: TScanCleanupDetectSourceDpi;

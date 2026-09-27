@@ -24,13 +24,7 @@ import {
 import { isAllowedDjvuViewingPath } from '@electron/features/djvu/public';
 import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
 
-const MAX_IPC_READ_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_MAX_IPC_READ_BYTES ?? `${16 * 1024 * 1024}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 1024) {
-        return 16 * 1024 * 1024;
-    }
-    return parsed;
-})();
+const MAX_IPC_READ_BYTES = 16 * 1024 * 1024;
 const ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS = new Set([
     '.pdf',
     '.djvu',

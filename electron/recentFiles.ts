@@ -42,7 +42,7 @@ import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import {
@@ -56,9 +56,9 @@ import {
 } from '@electron/utils/appTempDir';
 
 const logger = createLogger('recentFiles');
-const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-const BOOTSTRAP_DEV_PROFILE_ENABLED = process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE === '1';
-const RECENT_FILE_STAT_TIMEOUT_MS = parseIntegerEnv('EVB_RECENT_FILE_STAT_TIMEOUT_MS', 1_500, 100, 60_000);
+const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
+const BOOTSTRAP_DEV_PROFILE_ENABLED = runtimeConfig.automationBootstrapDevProfile;
+const RECENT_FILE_STAT_TIMEOUT_MS = 1_500;
 const BOOTSTRAP_RECENT_FILES_DIR_NAMES = [
     'EVB Viewer Dev',
     'EVB Viewer',

@@ -50,7 +50,6 @@ describe('OCR worker aggregate storage enforcement', () => {
             concurrency: 3,
             growOutputKb: 2_048,
             jobMaxTempMb: 1,
-            storagePollMs: 50,
         });
 
         const completion = await harness.start('storage-budget-growth');

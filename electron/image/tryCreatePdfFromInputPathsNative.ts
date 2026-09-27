@@ -33,8 +33,8 @@ import {
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     isNativePdfImageCombineBitmapPath,
     tryWritePdfWithNativeImageCombiner,
@@ -55,7 +55,6 @@ import {
 import {
     createPdfCombineOutputTooLargeError,
     isPdfCombineOutputTooLargeError,
-    normalizePdfCombineOutputLimit,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 import {requirePageIndex} from '@contracts/pageNumbers';
@@ -100,7 +99,6 @@ interface INativePdfAssemblerResourceLimits {
 const IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES = 500;
 const FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES = Number.MAX_SAFE_INTEGER;
 const FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES = Number.MAX_SAFE_INTEGER;
-const PDF_COMBINE_SMALL_MEMORY_MAX_PAGES_LIMIT = 10_000;
 const BYTES_PER_MEBIBYTE = 1024 * 1024;
 const NATIVE_IMAGE_COMBINER_MAX_INPUT_BYTES = 4_096 * BYTES_PER_MEBIBYTE;
 const MIN_NATIVE_DISK_RESERVATION_BYTES = 16 * BYTES_PER_MEBIBYTE;
@@ -132,8 +130,7 @@ function throwNativeCapabilityError(
 }
 
 function isNativePdfAssemblerDisabled() {
-    return process.env.EVB_PDF_NATIVE_ASSEMBLER_DISABLE === '1'
-        || (process.env.VITEST === 'true' && process.env.EVB_PDF_NATIVE_ASSEMBLER_ENABLE !== '1');
+    return process.env.VITEST === 'true' && !runtimeConfig.test.nativePdfAssemblerEnabled;
 }
 
 function isPdfPath(inputPath: string) {
@@ -209,34 +206,15 @@ function getResourceLimits(
             // back into JavaScript and must remain bounded.
             maxOutputBytes: allowLargeOutput
                 ? FILE_BACKED_NATIVE_ASSEMBLER_MAX_OUTPUT_BYTES
-                : normalizePdfCombineOutputLimit(
-                    parseIntegerEnv(
-                        'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
-                        PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
-                        1,
-                        PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
-                    ) * BYTES_PER_MEBIBYTE,
-                ),
+                : PDF_COMBINE_MAX_OUTPUT_BYTES,
             maxPages: FILE_BACKED_NATIVE_ASSEMBLER_MAX_PAGES,
             outputMode: allowLargeOutput ? 'file-backed' : 'memory',
         };
     }
 
     return {
-        maxOutputBytes: normalizePdfCombineOutputLimit(
-            parseIntegerEnv(
-                'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
-                PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
-                1,
-                PDF_COMBINE_MAX_OUTPUT_BYTES / BYTES_PER_MEBIBYTE,
-            ) * BYTES_PER_MEBIBYTE,
-        ),
-        maxPages: parseIntegerEnv(
-            'EVB_PDF_COMBINE_MAX_PAGES',
-            IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES,
-            1,
-            PDF_COMBINE_SMALL_MEMORY_MAX_PAGES_LIMIT,
-        ),
+        maxOutputBytes: PDF_COMBINE_MAX_OUTPUT_BYTES,
+        maxPages: IN_MEMORY_NATIVE_ASSEMBLER_MAX_PAGES,
         outputMode: 'memory',
     };
 }

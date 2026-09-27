@@ -2914,7 +2914,6 @@ fn filter_soft_shallow_bleed_components(
     let underline_major_extent = (dpi.max(1.0) * 15.0 / 25.4).round().max(24.0) as usize;
     let underline_max_thickness = (dpi.max(1.0) * 2.0 / 25.4).round().max(2.0) as usize;
     let underline_max_gap = (dpi.max(1.0) * 14.0 / 25.4).round().max(8.0) as usize;
-    let trace_bleed = std::env::var_os("EVB_SCAN_CLEANUP_TRACE_BLEED").is_some();
     let underline_components = components.components().iter().fold(
         vec![false; components.components().len() + 1],
         |mut flags, component| {
@@ -2957,21 +2956,12 @@ fn filter_soft_shallow_bleed_components(
         }
         let mean = raw_sums[label] as f64 / raw_counts[label] as f64;
         let crispness = gradient_sums[label] as f64 / gradient_counts[label] as f64;
-        let kept = if component.area <= area_ceiling {
+        if component.area <= area_ceiling {
             !(crispness < crispness_floor && mean >= f64::from(paper.saturating_sub(shallow_depth)))
         } else {
             !(crispness < LARGE_CRISPNESS_FLOOR
                 && mean >= f64::from(paper.saturating_sub(LARGE_SHALLOW_DEPTH)))
-        };
-        if trace_bleed && component.area >= 8 {
-            eprintln!(
-                "{{\"event\":\"bleed-component\",\"left\":{},\"top\":{},\
-                 \"right\":{},\"bottom\":{},\"area\":{},\"mean\":{mean:.2},\
-                 \"crispness\":{crispness:.2},\"paper\":{paper},\"kept\":{kept}}}",
-                component.left, component.top, component.right, component.bottom, component.area,
-            );
         }
-        kept
     });
     // A bleed rule that crosses a running head merges with the glyphs into
     // one component that the verdict above rightly keeps, so the merged
@@ -2991,30 +2981,6 @@ fn filter_soft_shallow_bleed_components(
                     .as_ref()
                     .is_some_and(|mask| mask.get(x, y)))
     });
-    if trace_bleed {
-        let mut erased = vec![0usize; components.components().len() + 1];
-        for y in 0..retained.height() {
-            for x in 0..retained.width() {
-                if retained.get(x, y) && !stripped.get(x, y) {
-                    erased[components.label_at(x, y) as usize] += 1;
-                }
-            }
-        }
-        for component in components.components() {
-            let count = erased[component.label as usize];
-            if count * 4 >= component.area.max(1) {
-                eprintln!(
-                    "{{\"event\":\"bleed-pixel-erase\",\"left\":{},\"top\":{},\
-                     \"right\":{},\"bottom\":{},\"area\":{},\"erased\":{count}}}",
-                    component.left,
-                    component.top,
-                    component.right,
-                    component.bottom,
-                    component.area,
-                );
-            }
-        }
-    }
     stripped
 }
 

@@ -40,6 +40,7 @@ import {
 import {normalizeDetectionProgress} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import type {
     IRetainedDocument,
     IScanCleanupDetectionSubscriber,
@@ -558,6 +559,7 @@ export function scanCleanupDetectionOwner(
                             throw new Error('Scan cleanup detection requires injected filesystem capabilities');
                         }
                         const detectionDependencies: IScanCleanupDetectionDependencies = {
+                            evidenceDirectory: runtimeConfig.test.scanCleanupEvidenceDirectory,
                             fileSystem,
                             ...(dependencies.getAvailableScratchBytes === undefined
                                 ? {}

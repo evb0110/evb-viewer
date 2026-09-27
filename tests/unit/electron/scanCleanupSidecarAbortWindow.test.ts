@@ -73,11 +73,10 @@ describe('scan cleanup sidecar abort window', () => {
     });
 
     it('does not spawn a sidecar canceled while waiting for a native command slot', async () => {
-        vi.stubEnv('EVB_NATIVE_COMMAND_MAX_CONCURRENCY', '1');
         vi.resetModules();
         const { acquireNativeCommandAdmission } = await import('@electron/native-tools/runNativeCommand');
         const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
-        const releaseOccupant = await acquireNativeCommandAdmission();
+        const releaseOccupants = await Promise.all(Array.from({length: 8}, () => acquireNativeCommandAdmission()));
         const controller = new AbortController();
 
         const run = runScanCleanupSidecar(
@@ -94,7 +93,7 @@ describe('scan cleanup sidecar abort window', () => {
         }
         expect(mocks.spawn).not.toHaveBeenCalled();
 
-        releaseOccupant();
+        releaseOccupants.forEach(release => release());
         controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
         await expect(run).rejects.toMatchObject({name: 'AbortError'});
         expect(mocks.spawn).not.toHaveBeenCalled();

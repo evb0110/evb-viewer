@@ -5,6 +5,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 type TElectronAppPackagingState = Pick<typeof app, 'isPackaged'>;
@@ -17,17 +18,16 @@ const isPackaged = resolveIsPackaged();
 // An unpackaged run loads the Nuxt dev server unless it asks for the built
 // renderer in nuxt-output/public, which is what the packaged app serves and
 // what Electron E2E runs against.
-const usesBuiltRenderer = isPackaged || process.env.EVB_BUILT_RENDERER === '1';
-const DEFAULT_SERVER_HOST = normalizeServerHost(process.env.EVB_SERVER_HOST, '127.0.0.1');
-const DEFAULT_SERVER_PORT = parsePositiveInt(process.env.EVB_SERVER_PORT, 3235);
-const DEFAULT_SERVER_PATH = normalizeServerPath(process.env.EVB_SERVER_PATH, '/electron');
+const usesBuiltRenderer = isPackaged || runtimeConfig.builtRenderer;
+const DEFAULT_SERVER_HOST = '127.0.0.1';
+const DEFAULT_SERVER_PORT = runtimeConfig.serverPort;
+const DEFAULT_SERVER_PATH = normalizeServerPath(runtimeConfig.serverPath, '/electron');
 const APP_PROTOCOL_ORIGIN = 'evb-viewer://app';
 const DEFAULT_UPDATES_METADATA_URL = 'https://evb-viewer.com/api/releases/latest';
 const DEFAULT_UPDATES_MIRROR_METADATA_URL = 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/channels/stable.json';
 const DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL = 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases';
-// One week is the longest useful updater interval. It also leaves ample room
-// below Node's signed 32-bit timer limit for the scheduler's poll jitter.
-const UPDATER_INTERVAL_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_UPDATES_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_UPDATES_INITIAL_DELAY_MS = 2 * 60 * 1000;
 let runtimeServerHost = DEFAULT_SERVER_HOST;
 let runtimeServerPort = DEFAULT_SERVER_PORT;
 let runtimeServerPath = DEFAULT_SERVER_PATH;
@@ -43,42 +43,6 @@ function parsePositiveInt(raw: string | undefined, fallback: number) {
     }
 
     return parsed;
-}
-
-function parseUpdaterIntervalMs(raw: string | undefined, fallback: number) {
-    if (!raw || !/^\d+$/.test(raw)) {
-        return fallback;
-    }
-
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed > 0 && parsed <= UPDATER_INTERVAL_MAX_MS
-        ? parsed
-        : fallback;
-}
-
-function normalizeUpdaterUrl(raw: string | undefined, fallback: string) {
-    const trimmed = raw?.trim();
-    const authorityMatch = trimmed?.match(/^https?:\/\/([^/?#]+)/iu);
-    const hasAsciiWhitespaceOrControl = trimmed
-        ? Array.from(trimmed).some((character) => {
-            const codePoint = character.codePointAt(0) ?? 0;
-            return codePoint <= 0x20 || codePoint === 0x7F;
-        })
-        : false;
-    if (!trimmed || !authorityMatch || hasAsciiWhitespaceOrControl) {
-        return fallback;
-    }
-
-    try {
-        const parsed = new URL(trimmed);
-        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname.length > 0) {
-            return parsed.href;
-        }
-    } catch {
-        // Fall through to the endpoint's own default.
-    }
-
-    return fallback;
 }
 
 function normalizeServerPath(raw: string | undefined, fallback: string) {
@@ -102,7 +66,7 @@ function normalizeServerHost(raw: string | undefined, fallback: string) {
         return fallback;
     }
 
-    if (process.env.EVB_ALLOW_UNSAFE_REMOTE_DEV_SERVER !== '1' && !isLoopbackHost(trimmed)) {
+    if (!isLoopbackHost(trimmed)) {
         return fallback;
     }
 
@@ -182,26 +146,15 @@ export const config = {
     },
 
     updates: {
-        metadataUrl: normalizeUpdaterUrl(
-            process.env.EVB_UPDATES_METADATA_URL,
-            DEFAULT_UPDATES_METADATA_URL,
-        ),
-        mirrorMetadataUrl: normalizeUpdaterUrl(
-            process.env.EVB_UPDATES_MIRROR_METADATA_URL,
-            DEFAULT_UPDATES_MIRROR_METADATA_URL,
-        ),
-        mirrorReleaseBaseUrl: normalizeUpdaterUrl(
-            process.env.EVB_UPDATES_MIRROR_RELEASE_BASE_URL,
-            DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL,
-        ).replace(/\/+$/u, ''),
-        pollIntervalMs: parseUpdaterIntervalMs(process.env.EVB_UPDATES_POLL_INTERVAL_MS, 6 * 60 * 60 * 1000),
-        initialDelayMs: parseUpdaterIntervalMs(process.env.EVB_UPDATES_INITIAL_DELAY_MS, 2 * 60 * 1000),
+        metadataUrl: DEFAULT_UPDATES_METADATA_URL,
+        mirrorMetadataUrl: DEFAULT_UPDATES_MIRROR_METADATA_URL,
+        mirrorReleaseBaseUrl: DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL,
+        pollIntervalMs: DEFAULT_UPDATES_POLL_INTERVAL_MS,
+        initialDelayMs: DEFAULT_UPDATES_INITIAL_DELAY_MS,
     },
 
     automation: {
-        noFocus: process.env.EVB_AUTOMATION_NO_FOCUS === '1',
-        hideWindow: process.env.EVB_AUTOMATION_HIDE_WINDOW
-            ? process.env.EVB_AUTOMATION_HIDE_WINDOW === '1'
-            : process.env.EVB_AUTOMATION_NO_FOCUS === '1',
+        noFocus: runtimeConfig.automationNoFocus,
+        hideWindow: runtimeConfig.automationHideWindow,
     },
 } as const;

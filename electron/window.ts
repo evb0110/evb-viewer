@@ -10,10 +10,11 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '@electron/config';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
-import { createWindowRuntime } from '@electron/window/createWindowRuntime';
 import { createWindowSecurity } from '@electron/window/createWindowSecurity';
+import { setupContentSecurityPolicy } from '@electron/security/csp';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     notifyWindowRendererLoadFailure,
@@ -47,14 +48,8 @@ const windowIconPath = !app.isPackaged && !config.isMac
 
 const logger = createLogger('window');
 const windowStartupStartedAt = Date.now();
-const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
-const UNRESPONSIVE_RECOVERY_DELAY_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_WINDOW_UNRESPONSIVE_RECOVERY_MS ?? '15000', 10);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-        return 15_000;
-    }
-    return parsed;
-})();
+const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
+const UNRESPONSIVE_RECOVERY_DELAY_MS = 15_000;
 const RENDERER_RECOVERY_WINDOW_MS = 5 * 60_000;
 const RENDERER_RECOVERY_MAX_ATTEMPTS = 3;
 
@@ -181,11 +176,21 @@ const windowSecurity = createWindowSecurity({
     getTrustedRendererUrl: () => config.renderer.trustedUrl,
     logger,
 });
-const windowRuntime = createWindowRuntime({
-    isDev: config.isDev,
-    logger,
-    logWindowStartup,
-});
+let isCspConfigured = false;
+
+function ensureWindowRuntimeReady() {
+    const runtimeStart = Date.now();
+    try {
+        if (!isCspConfigured) {
+            isCspConfigured = true;
+            setupContentSecurityPolicy();
+        }
+        logWindowStartup(`Window runtime ready (step +${Date.now() - runtimeStart}ms)`);
+        return Promise.resolve();
+    } catch (error) {
+        return Promise.reject(error);
+    }
+}
 
 function showAndFocusMaximizedWindow(window: BrowserWindow) {
     if (window.isDestroyed()) {
@@ -379,7 +384,7 @@ function attachRendererDiagnostics(
         });
         void (async () => {
             try {
-                await windowRuntime.ensureReady();
+                await ensureWindowRuntimeReady();
                 if (window.isDestroyed()) {
                     return;
                 }
@@ -517,6 +522,12 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             additionalArguments: [
                 encodeHostResourceProfileArgument(getHostResourceProfileSnapshot()),
                 encodeDiagnosticsPolicyArgument(getMainDiagnosticsPreference()),
+                ...(runtimeConfig.startupTrace ? ['--evb-startup-trace'] : []),
+                ...(runtimeConfig.automationUserDataDir
+                    && runtimeConfig.automationSessionName
+                    && runtimeConfig.automationEnableRendererFileOpenHelper
+                    ? ['--evb-renderer-file-open-helper']
+                    : []),
             ],
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
@@ -607,7 +618,7 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             logger,
         })
         : Promise.resolve();
-    const runtimeReadyPromise = windowRuntime.ensureReady();
+    const runtimeReadyPromise = ensureWindowRuntimeReady();
     void runtimeReadyPromise.catch(() => {});
 
     const initialLoadPromise = (async () => {

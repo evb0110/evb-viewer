@@ -40,10 +40,10 @@ import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfC
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     getCompactDjvuFidelity,
     openCompactDjvuFidelityManifestWriter,
-    readCompactDjvuIntegerEnv,
 } from '@electron/features/djvu/main/compactDjvuFidelity';
 import {
     loadOrBuildCompactDjvuPage,
@@ -145,24 +145,9 @@ const BACKGROUND_FLAT_CHANNEL_RANGE = 20;
 const BACKGROUND_FLAT_COLOR_RATIO = 0.02;
 const DJVU_COMPACT_MAX_PAGE_WORKERS = 2;
 const DJVU_COMPACT_FOREGROUND_SUBSAMPLE = 12;
-const DJVU_COMPACT_BACKGROUND_JPEG_QUALITY = readCompactDjvuIntegerEnv(
-    'EVB_DJVU_COMPACT_BACKGROUND_JPEG_QUALITY',
-    80,
-    1,
-    100,
-);
-const DJVU_COMPACT_PHOTO_JPEG_QUALITY = readCompactDjvuIntegerEnv(
-    'EVB_DJVU_COMPACT_PHOTO_JPEG_QUALITY',
-    85,
-    1,
-    100,
-);
-const DJVU_COMPACT_PHOTO_PPI_CAP = readCompactDjvuIntegerEnv(
-    'EVB_DJVU_COMPACT_PHOTO_PPI_CAP',
-    300,
-    72,
-    1200,
-);
+const DJVU_COMPACT_BACKGROUND_JPEG_QUALITY = 80;
+const DJVU_COMPACT_PHOTO_JPEG_QUALITY = 85;
+const DJVU_COMPACT_PHOTO_PPI_CAP = 300;
 
 const DJVU_COMPACT_NETPBM_MAX_INPUT_BYTES = 192 * 1024 * 1024;
 const DJVU_COMPACT_REAL_MASK_MIN_BYTES = 128;
@@ -1157,7 +1142,7 @@ function resolveNativePdfImageCombinePath() {
         binaryName,
         crateName: 'pdf-image-combine',
         currentDir: __dirname,
-        envOverridePath: process.env.EVB_PDF_IMAGE_COMBINE_PATH,
+        envOverridePath: runtimeConfig.pdfImageCombinePath,
         isPackaged,
     });
 }

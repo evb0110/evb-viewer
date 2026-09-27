@@ -952,9 +952,9 @@ async function main() {
         const sourcePageNumbers = argumentsValue.pages === undefined
             ? undefined
             : resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
-        process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = detectionEvidenceDirectory;
         const detectionStartedAt = performance.now();
         const detectionDependencies: IScanCleanupDetectionDependencies = {
+            evidenceDirectory: detectionEvidenceDirectory,
             fileSystem: cliDetectionFileSystem,
             getAvailableScratchBytes: readAvailableScratchBytes,
             getTempDir: () => temporaryRoot,
@@ -1018,9 +1018,9 @@ async function main() {
                 }, null, 2) + '\n',
             )));
         }
-        process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = nativeEvidenceDirectory;
         const conversionStartedAt = performance.now();
         const conversionDependencies: IRunScanCleanupPipelineDependencies = {
+            evidenceDirectory: nativeEvidenceDirectory,
             getPageCount,
             getPageSizeStore: (pdfPath, options) => createPdfPageSizeStore(pdfPath, {
                 ...options,
@@ -1142,7 +1142,6 @@ async function main() {
         }
         process.stderr.write(`[scan-cleanup] wrote ${summaryPath}\n`);
     } finally {
-        delete process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
         try {
             await detectionResultStore?.close();
         } finally {

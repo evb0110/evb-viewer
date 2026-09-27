@@ -1,16 +1,12 @@
 import { getErrorMessage } from '@electron/utils/error';
 
-function isNativeFallbackDisallowedInTests(enabledEnvName: string) {
-    return process.env.VITEST === 'true' && process.env[enabledEnvName] === '1';
-}
-
 export function createNativeFallbackTestError(
-    enabledEnvName: string,
+    enabledInTests: boolean,
     label: string,
     detail: string,
     cause?: unknown,
 ) {
-    if (!isNativeFallbackDisallowedInTests(enabledEnvName)) {
+    if (process.env.VITEST !== 'true' || !enabledInTests) {
         return null;
     }
 

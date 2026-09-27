@@ -140,17 +140,7 @@ describe('file-backed scan-cleanup result store', () => {
                 await writeFile(path, data);
             },
         };
-        const previousEvidenceDir = process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
-        process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = evidence;
-        try {
-            await preserveScanCleanupJsonEvidence(scratch, vi.fn(), fileSystem);
-        } finally {
-            if (previousEvidenceDir === undefined) {
-                delete process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
-            } else {
-                process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = previousEvidenceDir;
-            }
-        }
+        await preserveScanCleanupJsonEvidence(scratch, vi.fn(), evidence, fileSystem);
 
         expect(calls).toEqual({
             copyFile: 2,

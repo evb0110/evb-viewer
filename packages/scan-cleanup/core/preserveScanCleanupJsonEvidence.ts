@@ -23,19 +23,17 @@ export interface IScanCleanupEvidenceFileSystem {
     writeFile: (path: string, data: string) => Promise<void>;
 }
 
-const SCAN_CLEANUP_EVIDENCE_DIR_ENV = 'EVB_SCAN_CLEANUP_EVIDENCE_DIR';
-
 export async function preserveScanCleanupJsonEvidence(
     scratch: string,
     log: TScanCleanupLog,
+    evidenceDir: string | undefined,
     injectedFileSystem?: IScanCleanupEvidenceFileSystem,
 ) {
-    const evidenceDir = process.env[SCAN_CLEANUP_EVIDENCE_DIR_ENV]?.trim();
     if (!evidenceDir) {
         return;
     }
     if (!isAbsolute(evidenceDir)) {
-        log('warn', `Ignoring ${SCAN_CLEANUP_EVIDENCE_DIR_ENV} because it is not absolute`);
+        log('warn', 'Ignoring scan cleanup evidence directory because it is not absolute');
         return;
     }
 

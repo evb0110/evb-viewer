@@ -23,6 +23,7 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import type { IOcrPipelinePaths } from '@electron/features/ocr/pipeline/types';
 
 
@@ -125,7 +126,7 @@ export async function resolveOcrPipelinePaths(): Promise<IOcrPipelinePaths> {
         binaryName: process.platform === 'win32' ? 'evb-scan-cleanup.exe' : 'evb-scan-cleanup',
         crateName: 'scan-cleanup',
         currentDir: __dirname,
-        envOverridePath: process.env.EVB_SCAN_CLEANUP_PATH,
+        envOverridePath: runtimeConfig.scanCleanupPath,
         isPackaged: __dirname.includes('app.asar'),
     }) ?? undefined;
     return {

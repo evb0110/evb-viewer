@@ -315,12 +315,6 @@ fn detect_content_at_analysis_scale(
         if (border_shadow || ((solid_rule || isolated_thick_dirt) && !grayscale_supported))
             && !picture_supported
         {
-            if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
-                eprintln!(
-                    "{{\"event\":\"content-candidate-dropped\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"area\":{},\"borderShadow\":{border_shadow},\"solidRule\":{solid_rule},\"dirt\":{isolated_thick_dirt}}}",
-                    component.left, component.top, component.right, component.bottom, component.area,
-                );
-            }
             continue;
         }
         candidates.push(ContentCandidate {
@@ -489,14 +483,7 @@ fn crop_evidence_supports_bounds(
     let text_evidence = text_ink_pixels.saturating_add(picture_area) as f64
         >= area * CROP_TEXT_EVIDENCE_MINIMUM_FRACTION;
     let ink_evidence = retained_ink_pixels as f64 >= area * CROP_RETAINED_INK_MINIMUM_FRACTION;
-    let supported = text_evidence || ink_evidence;
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
-        eprintln!(
-            "{{\"event\":\"crop-evidence\",\"textInk\":{text_ink_pixels},\"retainedInk\":{retained_ink_pixels},\"pictureArea\":{picture_area},\"area\":{},\"supported\":{supported}}}",
-            width.saturating_mul(height),
-        );
-    }
-    supported
+    text_evidence || ink_evidence
 }
 
 /// A folio or short running mark can be genuine page content while remaining
@@ -865,35 +852,6 @@ fn cluster_content_blocks(
                 || block.protected(calibration)
                 || supported_marginalia
                 || top_furniture);
-        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some()
-            && !retained[component.label as usize]
-        {
-            eprintln!(
-                "{{\"event\":\"content-component-unretained\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"blockInk\":{},\"blockCount\":{},\"dominant\":{},\"marginalia\":{supported_marginalia}}}",
-                component.left, component.top, component.right, component.bottom,
-                block.ink_area, block.component_count, dominant[block_label],
-            );
-        }
-    }
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
-        for (label, block) in blocks
-            .iter()
-            .enumerate()
-            .filter(|(_, block)| block.initialized)
-        {
-            eprintln!(
-                "{{\"event\":\"content-block\",\"label\":{label},\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"ink\":{},\"components\":{},\"dominant\":{},\"protected\":{},\"edgeContinuation\":{}}}",
-                block.left,
-                block.top,
-                block.right,
-                block.bottom,
-                block.ink_area,
-                block.component_count,
-                dominant[label],
-                block.protected(calibration),
-                fragmented_edge_continuations[label] != 0,
-            );
-        }
     }
     let crop_artifact_sides = fragmented_edge_continuations
         .iter()
@@ -1084,16 +1042,6 @@ fn qualify_picture_mask_for_crop_with_authority(
             || (crop_artifact_sides & CROP_ARTIFACT_BOTTOM != 0
                 && component.top.saturating_add(vertical_corridor) >= picture_mask.height());
         let excluded = !manually_authoritative && (frame_attached_rail || contaminated_side);
-        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
-            eprintln!(
-                "{{\"event\":\"crop-picture-component\",\"left\":{},\"top\":{},\"right\":{},\"bottom\":{},\"area\":{},\"frameRail\":{frame_attached_rail},\"manual\":{manually_authoritative},\"excluded\":{excluded}}}",
-                component.left,
-                component.top,
-                component.right,
-                component.bottom,
-                component.area,
-            );
-        }
         !excluded
     });
     let excluded = picture_mask.subtract(&included);
@@ -1210,7 +1158,6 @@ fn restore_structured_text_from_rejected_picture_rail(
     if candidates.len() < 2 {
         return restored;
     }
-    let candidate_count = candidates.len();
     for component in &candidates {
         for y in component.top..=component.bottom {
             for x in component.left..=component.right {
@@ -1219,17 +1166,6 @@ fn restore_structured_text_from_rejected_picture_rail(
                 }
             }
         }
-    }
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
-        let left = candidates.iter().map(|component| component.left).min();
-        let right = candidates.iter().map(|component| component.right).max();
-        eprintln!(
-            "{{\"event\":\"crop-structured-text-rescue\",\"components\":{},\"pixels\":{},\"left\":{:?},\"right\":{:?}}}",
-            candidate_count,
-            restored.count_black(),
-            left,
-            right,
-        );
     }
     restored
 }
@@ -1465,12 +1401,6 @@ fn annotate_heading_evidence(
     calibration: PageCalibration,
 ) {
     let nominal_height = heading_nominal_glyph_height(calibration);
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
-        eprintln!(
-            "{{\"event\":\"heading-nominal\",\"nominal\":{nominal_height:.2},\"valid\":{}}}",
-            calibration.valid,
-        );
-    }
     let maximum_gap = (12.0 * nominal_height).round().max(12.0) as usize;
     let alignment_tolerance = (2.0 * nominal_height).round().max(4.0) as usize;
     let heading_flags = blocks
@@ -2600,7 +2530,7 @@ pub(crate) fn checked_content_with_margins_for_dimensions(
 #[cfg(test)]
 mod tests {
     /// Developer diagnostic: run content detection on an external page image.
-    /// `EVB_CONTENT_IMAGE=/path.png EVB_SCAN_CLEANUP_TRACE_CONTENT=1
+    /// `EVB_CONTENT_IMAGE=/path.png
     /// cargo test -p evb-scan-cleanup dump_external_content_box -- --ignored --nocapture`
     #[test]
     #[ignore = "requires EVB_CONTENT_IMAGE"]

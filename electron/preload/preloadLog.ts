@@ -12,7 +12,7 @@ export type TForwardPreloadLogToMain = (
 ) => void;
 
 const preloadScriptStartedAt = Date.now();
-const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const STARTUP_TRACE_ENABLED = process.argv.includes('--evb-startup-trace');
 const STARTUP_TRACE_ENABLED_KEY = '__EVB_STARTUP_TRACE__';
 
 function stringifyDetails(details?: Record<string, unknown>) {

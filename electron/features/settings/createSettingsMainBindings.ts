@@ -15,9 +15,10 @@ import {
 } from '@electron/settings';
 import { setElectronLocale } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('ipc');
-const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
 const SETTINGS_SAVE_COALESCE_MS = 25;
 
 interface IQueuedSettingsSave {

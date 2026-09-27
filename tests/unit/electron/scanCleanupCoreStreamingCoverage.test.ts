@@ -1083,6 +1083,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         });
         const log = vi.fn<TScanCleanupLog>();
         const dependencies: IRunScanCleanupPipelineDependencies = {
+            evidenceDirectory: evidenceDir,
             getPageCount: vi.fn(async () => documentPageCount),
             getPageSizeStore: vi.fn(async () => pageSizeStore),
             detectSourceDpi: vi.fn(async () => sourceDpi),
@@ -1142,8 +1143,6 @@ describe('scan-cleanup-core conversion coverage', () => {
         expect(runSidecar).not.toHaveBeenCalled();
         hashNativeBinary.mockClear();
         dependencies.getAvailableScratchBytes = vi.fn(async () => null);
-        const previousEvidenceDir = process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
-        process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = evidenceDir;
         try {
             const summary = await runScanCleanupConversion(
                 {
@@ -1193,32 +1192,29 @@ describe('scan-cleanup-core conversion coverage', () => {
                 }
                 return sourceDpi;
             });
-            process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = incompleteEvidenceDir;
-            try {
-                await expect(runScanCleanupConversion(
-                    {
-                        sourcePdfPath,
-                        outputPdfPath: join(root, 'incomplete-legacy-output.pdf'),
-                        options: {
-                            ...options,
-                            outputMode: 'auto',
-                        },
-                        detectionResultStore,
+            dependencies.evidenceDirectory = incompleteEvidenceDir;
+            await expect(runScanCleanupConversion(
+                {
+                    sourcePdfPath,
+                    outputPdfPath: join(root, 'incomplete-legacy-output.pdf'),
+                    options: {
+                        ...options,
+                        outputMode: 'auto',
                     },
-                    {
-                        ...paths(root),
-                        pdfimagesBinary: '/pdfimages',
-                    },
-                    new AbortController().signal,
-                    vi.fn(),
-                    policy,
-                    vi.fn<TScanCleanupLog>(),
-                    dependencies,
-                )).rejects.toMatchObject({name: 'ScanCleanupStreamingEvidenceError'});
-            } finally {
-                process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = evidenceDir;
-            }
+                    detectionResultStore,
+                },
+                {
+                    ...paths(root),
+                    pdfimagesBinary: '/pdfimages',
+                },
+                new AbortController().signal,
+                vi.fn(),
+                policy,
+                vi.fn<TScanCleanupLog>(),
+                dependencies,
+            )).rejects.toMatchObject({name: 'ScanCleanupStreamingEvidenceError'});
 
+            dependencies.evidenceDirectory = evidenceDir;
             sourceDpi = {
                 detected: true,
                 documentDpi: 300,
@@ -1228,7 +1224,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             const truncatedEvidenceDir = join(root, 'truncated-evidence');
             truncateBatchSummarySidecar = true;
             thirdRunSidecarCalls = 0;
-            process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = truncatedEvidenceDir;
+            dependencies.evidenceDirectory = truncatedEvidenceDir;
             const truncatedRun = runScanCleanupConversion(
                 {
                     sourcePdfPath,
@@ -1257,11 +1253,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             expect(await readFile(join(truncatedEvidenceDir, 'scan-cleanup-batch-summaries.jsonl'), 'utf8'))
                 .toContain('{"batchIndex":0');
         } finally {
-            if (previousEvidenceDir === undefined) {
-                delete process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR;
-            } else {
-                process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR = previousEvidenceDir;
-            }
+            dependencies.evidenceDirectory = undefined;
             await detectionResultStore.close();
         }
 

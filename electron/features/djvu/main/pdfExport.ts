@@ -124,13 +124,7 @@ const activeDjvuJobSettled = new Map<TJobId, Promise<void>>();
 const DJVU_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
 const DJVU_MAX_TERMINAL_RECORDS = 64;
 const djvuProgressReplay = DJVU_PLATFORM_FEATURE.events.onProgress.subscription.replay;
-const DJVU_SUBSAMPLE_MAX = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_SUBSAMPLE_MAX ?? '16', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 16;
-    }
-    return Math.min(parsed, 64);
-})();
+const DJVU_SUBSAMPLE_MAX = 16;
 const DJVU_CONVERT_PROGRESS_CAP = 94;
 const DJVU_BOOKMARK_PROGRESS_PERCENT = 95;
 const DJVU_OPTIMIZE_PROGRESS_PERCENT = 98;

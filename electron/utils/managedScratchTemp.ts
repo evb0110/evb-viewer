@@ -14,7 +14,6 @@ import {
 } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     isErrnoException,
     isRecord,
@@ -33,17 +32,8 @@ const MANAGED_SCRATCH_PREFIXES = [
     'djvu-tiff-export-',
     'scan-cleanup-preview-',
 ] as const;
-const MANAGED_SCRATCH_STALE_MAX_AGE_MS = parseIntegerEnv(
-    'EVB_MANAGED_SCRATCH_STALE_MAX_AGE_MS',
-    24 * 60 * 60 * 1000,
-    60_000,
-);
-const MANAGED_SCRATCH_SWEEP_MAX_ENTRIES = parseIntegerEnv(
-    'EVB_MANAGED_SCRATCH_SWEEP_MAX_ENTRIES',
-    200,
-    1,
-    5_000,
-);
+const MANAGED_SCRATCH_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const MANAGED_SCRATCH_SWEEP_MAX_ENTRIES = 200;
 
 export type TManagedScratchPrefix = typeof MANAGED_SCRATCH_PREFIXES[number];
 

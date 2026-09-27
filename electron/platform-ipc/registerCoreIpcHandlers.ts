@@ -39,6 +39,7 @@ import {
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
 import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
@@ -74,8 +75,8 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 
 function assertAutomationCheckpointReset() {
     if (
-        !process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim()
-        || !process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
+        !runtimeConfig.automationUserDataDir
+        || !runtimeConfig.automationSessionName
     ) {
         throw new Error('Workspace checkpoint reset is available only to isolated automation sessions');
     }

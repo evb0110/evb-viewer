@@ -35,6 +35,7 @@ import {
     type TLogLevel,
     type TLogProcess,
 } from '@contracts/logRecord';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 interface ILogMessage {
     source: string;
@@ -94,8 +95,8 @@ const RENDER_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.ELECTRON_RENDER_LO
  * launcher sets it and formats the stream, which is how main-process and
  * worker records reach the `pnpm dev` terminal.
  */
-const STDOUT_LOG_ENABLED = process.env.EVB_LOG_STDOUT === 'ndjson';
-const STDOUT_LOG_LEVEL: TLogLevel = parseLogLevel(process.env.EVB_LOG_STDOUT_LEVEL) ?? 'info';
+const STDOUT_LOG_ENABLED = runtimeConfig.logStdout;
+const STDOUT_LOG_LEVEL: TLogLevel = parseLogLevel(runtimeConfig.logStdoutLevel) ?? 'info';
 const LOG_FILE_MAX_BYTES = 16 * 1024 * 1024;
 const LOG_FILE_MAX_BACKUPS = 3;
 const LOG_DIR_MAX_BYTES = 96 * 1024 * 1024;
@@ -111,7 +112,7 @@ const LOG_DIR_PRUNE_INTERVAL_MS = 60 * 1_000;
  * Until then, records stay buffered.
  */
 function getLogDirectory() {
-    const logDirectory = process.env.EVB_FILE_LOG_DIR?.trim();
+    const logDirectory = runtimeConfig.fileLogDir;
     if (!logDirectory) {
         return null;
     }

@@ -3,6 +3,7 @@ import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfil
 import { HOST_TIER_LOW_RAM_MAX_GIB } from '@contracts/hostResourceProfile';
 import { parseBoundedEnvInt } from '@contracts/resourcePolicies';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const MIB = 1024 * 1024;
 const LOW_MEMORY_BYTES = HOST_TIER_LOW_RAM_MAX_GIB * 1024 * MIB;
@@ -55,11 +56,8 @@ export function resolveOcrRuntimePolicy(
         min: 1,
         max: MAX_NORMAL_PAGE_SLOTS,
     });
-    const modelDownloadConcurrency = parseBoundedEnvInt(env.EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY, {
-        fallback: isLowTier ? 1 : 3,
-        min: 1,
-        max: 8,
-    });
+    const configuredModelDownloadConcurrency = runtimeConfig.ocrModelDownloadConcurrency;
+    const modelDownloadConcurrency = configuredModelDownloadConcurrency || (isLowTier ? 1 : 3);
 
     return {
         globalPageSlots,

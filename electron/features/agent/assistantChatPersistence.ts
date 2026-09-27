@@ -54,7 +54,7 @@ const ASSISTANT_CHAT_SESSION_DIR = 'sessions';
 const ASSISTANT_CHAT_ARCHIVE_DIR = 'archive';
 const ASSISTANT_CHAT_SESSION_FILE_PREFIX = 'v2-';
 const ASSISTANT_CHAT_SNAPSHOT_BLOB_DIR = 'blobs';
-const DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES = 2 * 1024 * 1024;
 const DEFAULT_ASSISTANT_CHAT_MAX_SESSIONS = 64;
 const DEFAULT_ASSISTANT_CHAT_MAX_ARCHIVES = 128;
 const DEFAULT_ASSISTANT_CHAT_SNAPSHOT_DEBOUNCE_MS = 300;
@@ -183,41 +183,6 @@ interface IPendingAssistantChatSnapshot {
     takeSnapshot: () => TPersistedAssistantChatRecord;
     timer: ReturnType<typeof setTimeout> | null;
     failure: AssistantChatPersistenceError | undefined;
-}
-
-export function readBoundedIntegerEnv(name: string, fallback: number, minimum: number, maximum?: number) {
-    const parsed = Number.parseInt(process.env[name] ?? `${fallback}`, 10);
-    if (!Number.isFinite(parsed) || parsed < minimum) {
-        return fallback;
-    }
-    return maximum === undefined ? parsed : Math.min(parsed, maximum);
-}
-
-export function readAssistantChatMaxSessionBytes() {
-    return readBoundedIntegerEnv(
-        'EVB_ASSISTANT_CHAT_MAX_SESSION_BYTES',
-        DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES,
-        64 * 1024,
-        128 * 1024 * 1024,
-    );
-}
-
-function readAssistantChatMaxSessions() {
-    return readBoundedIntegerEnv(
-        'EVB_ASSISTANT_CHAT_MAX_SESSIONS',
-        DEFAULT_ASSISTANT_CHAT_MAX_SESSIONS,
-        1,
-        512,
-    );
-}
-
-function readAssistantChatMaxArchives() {
-    return readBoundedIntegerEnv(
-        'EVB_ASSISTANT_CHAT_MAX_ARCHIVES',
-        DEFAULT_ASSISTANT_CHAT_MAX_ARCHIVES,
-        1,
-        4_096,
-    );
 }
 
 function getDefaultAssistantChatPersistenceRoot() {
@@ -589,9 +554,9 @@ export class AssistantChatPersistence {
         this.archiveDir = join(this.rootDir, ASSISTANT_CHAT_ARCHIVE_DIR);
         this.blobsDir = join(this.rootDir, ASSISTANT_CHAT_SNAPSHOT_BLOB_DIR);
         this.indexPath = join(this.rootDir, 'index.json');
-        this.maxSessionBytes = options.maxSessionBytes ?? readAssistantChatMaxSessionBytes();
-        this.maxSessions = options.maxSessions ?? readAssistantChatMaxSessions();
-        this.maxArchives = options.maxArchives ?? readAssistantChatMaxArchives();
+        this.maxSessionBytes = options.maxSessionBytes ?? DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES;
+        this.maxSessions = options.maxSessions ?? DEFAULT_ASSISTANT_CHAT_MAX_SESSIONS;
+        this.maxArchives = options.maxArchives ?? DEFAULT_ASSISTANT_CHAT_MAX_ARCHIVES;
         this.snapshotDebounceMs = options.snapshotDebounceMs ?? DEFAULT_ASSISTANT_CHAT_SNAPSHOT_DEBOUNCE_MS;
         this.now = options.now ?? Date.now;
         this.onError = options.onError ?? ((message, error) => {

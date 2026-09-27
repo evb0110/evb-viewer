@@ -3,6 +3,7 @@ import { join } from 'path';
 import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { createLogger } from '@electron/utils/createLogger';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 interface IResolveNativeToolPathOptions {
     allowPackagedDiagnosticsPaths?: boolean | undefined;
@@ -30,8 +31,6 @@ const RUST_TARGET_BY_PLATFORM_ARCH: Record<string, string> = {
 };
 
 const logger = createLogger('native-tool-paths');
-const PACKAGED_DIAGNOSTICS_PATHS_ENV = 'EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS';
-
 function platformFromPlatformArch(platformArch: string | undefined): NodeJS.Platform | undefined {
     if (platformArch?.startsWith('darwin-')) {
         return 'darwin';
@@ -49,7 +48,7 @@ function platformFromPlatformArch(platformArch: string | undefined): NodeJS.Plat
 function allowPackagedDiagnosticsPaths(options: IResolveNativeToolPathOptions) {
     return !options.isPackaged
         || options.allowPackagedDiagnosticsPaths === true
-        || process.env[PACKAGED_DIAGNOSTICS_PATHS_ENV] === '1';
+        || runtimeConfig.test.nativeToolAllowPackagedDiagnosticPaths;
 }
 
 function getDevNativeToolPathCandidates(options: IResolveNativeToolPathOptions) {
@@ -126,7 +125,7 @@ export function resolveNativeToolPath(options: IResolveNativeToolPathOptions) {
     if (overridePath && !allowDiagnosticsPaths) {
         logger.warn(
             `Ignoring packaged native tool override for ${options.crateName}; `
-            + `set ${PACKAGED_DIAGNOSTICS_PATHS_ENV}=1 only for diagnostics`,
+            + 'diagnostic native tool paths are disabled',
         );
     }
     if (overridePath && allowDiagnosticsPaths && pathExists(overridePath)) {
@@ -145,7 +144,7 @@ export function resolveNativeToolPath(options: IResolveNativeToolPathOptions) {
     if (unsafeFallbackPath) {
         logger.warn(
             `Ignoring packaged native tool fallback for ${options.crateName}: ${unsafeFallbackPath}; `
-            + `set ${PACKAGED_DIAGNOSTICS_PATHS_ENV}=1 only for diagnostics`,
+            + 'diagnostic native tool paths are disabled',
         );
     }
     return null;

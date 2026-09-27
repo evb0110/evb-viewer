@@ -2,21 +2,20 @@ import type { ILogger } from '@electron/utils/createLogger';
 import { withTimeout } from 'es-toolkit/promise';
 import { isTimeoutError } from '@contracts/isTimeoutError';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 
 // Preservation is bounded by the timeout of each preservation step. The cleanup
 // deadline starts only after preservation has settled, so it can never make an
 // exit, update install, or recovery relaunch overtake renderer/checkpoint/write
 // state.
-const SHUTDOWN_CLEANUP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_TIMEOUT_MS', 20_000, 3_000);
-const SHUTDOWN_STEP_TIMEOUT_MS = parseIntegerEnv('EVB_SHUTDOWN_STEP_TIMEOUT_MS', 8_000, 1_000, SHUTDOWN_CLEANUP_TIMEOUT_MS);
-const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = parseIntegerEnv('EVB_GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS', 3_000, 0);
+const SHUTDOWN_CLEANUP_TIMEOUT_MS = 20_000;
+const SHUTDOWN_STEP_TIMEOUT_MS = 8_000;
+const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = 3_000;
 // This covers the 30.5s critical-write drain and the other bounded preservation steps.
 const SHUTDOWN_PRESERVATION_TIMEOUT_MS = 90_000;
 const FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS = SHUTDOWN_PRESERVATION_TIMEOUT_MS
     + SHUTDOWN_CLEANUP_TIMEOUT_MS
     + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS;
-const SYSTEM_SHUTDOWN_TIMEOUT_MS = parseIntegerEnv('EVB_SYSTEM_SHUTDOWN_TIMEOUT_MS', 4_500, 1_000, 15_000);
+const SYSTEM_SHUTDOWN_TIMEOUT_MS = 4_500;
 
 interface IAppLike {
     exit(code: number): void;

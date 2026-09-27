@@ -22,42 +22,35 @@ import { range } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
 import { openMacOsPdfPrintDialog } from '@electron/utils/openMacOsPdfPrintDialog';
 import { getPrintRuntimePlatform } from '@electron/utils/getPrintRuntimePlatform';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
 const PRINT_LOAD_SETTLE_DELAY_MS = 2_000;
-const PRINT_SURFACE_PROBE_INTERVAL_MS = parseIntegerEnv('EVB_PRINT_SURFACE_PROBE_INTERVAL_MS', 250, 50, 2_000);
-const PRINT_SURFACE_READY_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_SURFACE_READY_TIMEOUT_MS', 15_000, 1_000, 120_000);
-const PRINT_PDF_READY_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_PDF_READY_TIMEOUT_MS', 15_000, 1_000, 120_000);
+const PRINT_SURFACE_PROBE_INTERVAL_MS = 250;
+const PRINT_SURFACE_READY_TIMEOUT_MS = 15_000;
+const PRINT_PDF_READY_TIMEOUT_MS = 15_000;
 const PRINT_SURFACE_PROBE_SIZE_PX = 480;
 const PRINT_JOB_RESOURCE_RETENTION_MS = 30_000;
-const PRINT_DIALOG_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_DIALOG_TIMEOUT_MS', 5 * 60 * 1000, 5_000);
-const PRINT_DIALOG_TEST_MODE_ENV = 'EVB_PRINT_DIALOG_TEST_MODE';
+const PRINT_DIALOG_TIMEOUT_MS = 5 * 60 * 1000;
 const PRINT_DIALOG_TEST_MODE_PRINT_TO_PDF = 'print-to-pdf';
-const PRINT_DIALOG_TEST_OUTPUT_PATH_ENV = 'EVB_PRINT_DIALOG_TEST_OUTPUT_PATH';
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
 export const PRINT_DJVU_TEMP_PREFIX = 'print-djvu-';
-const MAX_PRINT_PDF_DATA_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 16, 1, 16) * 1024 * 1024;
-const PRINT_RASTER_DPI = parseIntegerEnv('EVB_PRINT_RASTER_DPI', 180, 72, 300);
-const PRINT_RASTER_CHUNK_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_CHUNK_PAGES', 50, 1, 100);
-const PRINT_RASTER_MAX_PAGES = parseIntegerEnv('EVB_PRINT_RASTER_MAX_PAGES', 100, 1, 1000);
-const PRINT_RASTER_MAX_TOTAL_PIXELS = parseIntegerEnv(
-    'EVB_PRINT_RASTER_MAX_TOTAL_PIXELS',
-    64_000_000,
-    1_000_000,
-    1_000_000_000,
-);
-const PRINT_RASTER_RENDER_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_TIMEOUT_MS', 3 * 60 * 1000, 5_000);
-const PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS', 30_000, 1_000);
-const PRINT_RASTER_METADATA_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_RASTER_METADATA_TIMEOUT_MS', 30_000, 5_000);
+const MAX_PRINT_PDF_DATA_BYTES = 16 * 1024 * 1024;
+const PRINT_RASTER_DPI = 180;
+const PRINT_RASTER_CHUNK_PAGES = 50;
+const PRINT_RASTER_MAX_PAGES = 100;
+const PRINT_RASTER_MAX_TOTAL_PIXELS = 64_000_000;
+const PRINT_RASTER_RENDER_TIMEOUT_MS = 3 * 60 * 1000;
+const PRINT_RASTER_IMAGE_LOAD_TIMEOUT_MS = 30_000;
+const PRINT_RASTER_METADATA_TIMEOUT_MS = 30_000;
 const PRINT_RASTER_METADATA_MAX_STDOUT_BYTES = 64 * 1024;
 const PDF_HEADER_SCAN_BYTES = 1024;
 const PDF_EOF_SCAN_BYTES = 1024 * 1024;
@@ -780,14 +773,14 @@ function schedulePrintWindowClose(printWindow: BrowserWindow, delayMs = PRINT_JO
 }
 
 function shouldRunPrintToPdfSmoke() {
-    return process.env[PRINT_DIALOG_TEST_MODE_ENV]?.trim() === PRINT_DIALOG_TEST_MODE_PRINT_TO_PDF;
+    return runtimeConfig.test.printDialogMode?.trim() === PRINT_DIALOG_TEST_MODE_PRINT_TO_PDF;
 }
 
 async function runPrintToPdfSmoke(printWindow: BrowserWindow): Promise<IPrintPdfResult> {
     try {
         const data = await printWindow.webContents.printToPDF({printBackground: true});
         validatePdfBytesForHandoff(data, 'print smoke');
-        const outputPath = process.env[PRINT_DIALOG_TEST_OUTPUT_PATH_ENV]?.trim();
+        const outputPath = runtimeConfig.test.printDialogOutputPath?.trim();
         if (outputPath) {
             await writeFile(outputPath, data);
         }
@@ -803,7 +796,7 @@ async function runPrintToPdfSmoke(printWindow: BrowserWindow): Promise<IPrintPdf
 async function runPrintPathSmoke(path: string): Promise<IPrintPdfResult> {
     try {
         await assertPdfPathWithinSizeLimit(path);
-        const outputPath = process.env[PRINT_DIALOG_TEST_OUTPUT_PATH_ENV]?.trim();
+        const outputPath = runtimeConfig.test.printDialogOutputPath?.trim();
         if (outputPath) {
             await copyFile(path, outputPath);
         }

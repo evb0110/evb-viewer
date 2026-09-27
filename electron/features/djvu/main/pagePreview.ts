@@ -28,7 +28,6 @@ import {
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
 import { convertDjvuPageToImage } from '@electron/features/djvu/main/ddjvuConversion';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import {
     clearDjvuPageSourceInfoCacheForTests,
     getCachedDjvuPageSizes,
@@ -37,40 +36,12 @@ import {
     storeDjvuPageSourceInfos,
 } from '@electron/features/djvu/main/djvuPageSourceInfoCache';
 
-const DJVU_PAGE_SIZE_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_PAGE_SIZE_TIMEOUT_MS ?? '30000', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_000) {
-        return 30_000;
-    }
-    return parsed;
-})();
-const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_PAGE_SIZE_MAX_STDOUT_BYTES ?? '1048576', 10);
-    if (!Number.isFinite(parsed) || parsed < 16_384) {
-        return 1_048_576;
-    }
-    return parsed;
-})();
-const DJVU_PAGE_SIZE_WINDOW_PAGES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_PAGE_SIZE_WINDOW_PAGES ?? '256', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 256;
-    }
-    return Math.min(parsed, 1_024);
-})();
+const DJVU_PAGE_SIZE_TIMEOUT_MS = 30_000;
+const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = 1_048_576;
+const DJVU_PAGE_SIZE_WINDOW_PAGES = 256;
 const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
-const DJVU_PREVIEW_MAX_PIXELS = parseIntegerEnv(
-    'EVB_DJVU_PREVIEW_MAX_PIXELS',
-    45_000_000,
-    1_000_000,
-    500_000_000,
-);
-const DJVU_PREVIEW_MAX_NETPBM_BYTES = parseIntegerEnv(
-    'EVB_DJVU_PREVIEW_MAX_NETPBM_MB',
-    192,
-    1,
-    1024,
-) * 1024 * 1024;
+const DJVU_PREVIEW_MAX_PIXELS = 45_000_000;
+const DJVU_PREVIEW_MAX_NETPBM_BYTES = 192 * 1024 * 1024;
 
 // The legacy page-size API returns one object per page. Keep that compatibility
 // result bounded; callers that need larger documents must use the windowed API.

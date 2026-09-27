@@ -14,7 +14,6 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { createRequire } from 'node:module';
 import { iterateDecodedTiffFrames } from '@pdf-core/iterateDecodedTiffFrames';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { tryCreatePdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { tryCreatePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
@@ -22,7 +21,6 @@ import { PdfCombineCapabilityError } from '@contracts/pdfCombineErrors';
 import type { IImageDimensions } from '@electron/image/imageDimensions';
 import {
     createPdfCombineOutputTooLargeError,
-    normalizePdfCombineOutputLimit,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 
@@ -78,18 +76,11 @@ const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
 );
 const DEFAULT_RESOURCE_LIMITS: IPdfCombineResourceLimits = {
-    maxInputBytes: parseIntegerEnv('EVB_PDF_COMBINE_MAX_INPUT_MB', 512, 16, 4096) * 1024 * 1024,
-    maxPages: parseIntegerEnv('EVB_PDF_COMBINE_MAX_PAGES', 500, 1, 10_000),
-    maxTiffFrames: parseIntegerEnv('EVB_PDF_COMBINE_MAX_TIFF_FRAMES', 250, 1, 5_000),
-    maxImagePixels: parseIntegerEnv('EVB_PDF_COMBINE_MAX_IMAGE_PIXELS', 80_000_000, 1_000_000),
-    maxOutputBytes: normalizePdfCombineOutputLimit(
-        parseIntegerEnv(
-            'EVB_PDF_COMBINE_MAX_OUTPUT_MB',
-            PDF_COMBINE_MAX_OUTPUT_BYTES / (1024 * 1024),
-            1,
-            PDF_COMBINE_MAX_OUTPUT_BYTES / (1024 * 1024),
-        ) * 1024 * 1024,
-    ),
+    maxInputBytes: 512 * 1024 * 1024,
+    maxPages: 500,
+    maxTiffFrames: 250,
+    maxImagePixels: 80_000_000,
+    maxOutputBytes: PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
 const PNG_SIGNATURE = [
     0x89,

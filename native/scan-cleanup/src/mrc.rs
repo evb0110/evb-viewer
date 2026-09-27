@@ -187,9 +187,7 @@ fn complete_adjacent_dark_zones(
         }
     }
 
-    let trace = std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some();
     let mut absorb = vec![false; component_count + 1];
-    let mut touching_count = 0usize;
     for component in grouped.components() {
         let label = component.label as usize;
         let Some((left, top, right, bottom)) = dark_bounds[label] else {
@@ -209,17 +207,6 @@ fn complete_adjacent_dark_zones(
         let profile_varies = profile_min_width[label] != usize::MAX
             && profile_min_width[label].saturating_mul(5)
                 <= profile_max_width[label].saturating_mul(4);
-        if touches_accepted[label] {
-            touching_count += 1;
-            if trace {
-                eprintln!(
-                    "{{\"event\":\"mrc-dark-component\",\"left\":{left},\"top\":{top},\
-                     \"right\":{right},\"bottom\":{bottom},\"darkPixels\":{},\
-                     \"compact\":{compact},\"profileVaries\":{profile_varies}}}",
-                    dark_counts[label],
-                );
-            }
-        }
         if width >= minimum_span
             && height >= minimum_span
             && compact
@@ -228,17 +215,6 @@ fn complete_adjacent_dark_zones(
         {
             absorb[label] = true;
         }
-    }
-    if trace {
-        eprintln!(
-            "{{\"event\":\"mrc-dark-completion\",\"dark\":{},\
-             \"dense\":{},\"groups\":{},\"touching\":{},\"absorbed\":{}}}",
-            dark_candidates.count_black(),
-            dense_dark.count_black(),
-            component_count,
-            touching_count,
-            absorb.iter().filter(|&&value| value).count(),
-        );
     }
     if !absorb.iter().any(|&value| value) {
         return accepted.clone();
@@ -375,15 +351,6 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
     // both. EDGE DENSITY: hatching, engraving and type are made of strokes
     // — a large share of their pixels sit on strong local gradients —
     // while photographic fields are smooth almost everywhere.
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some() {
-        eprintln!(
-            "{{\"event\":\"halftone-stages\",\"mass\":{},\"smooth\":{},\"clusters\":{},\"candidates\":{}}}",
-            mass_seed.count_black(),
-            smooth_seed.count_black(),
-            cluster_count,
-            candidates.count_black(),
-        );
-    }
     let paper_core_floor = paper_reference.saturating_sub(20);
     let regions = ComponentMap::from_binary(&candidates);
     let mut histograms = vec![[0usize; 256]; regions.components().len() + 1];
@@ -397,30 +364,6 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
                     edge_counts[label] += 1;
                 }
             }
-        }
-    }
-    // Maps carry typeset place labels INSIDE their tonal fills; photographs
-    // do not contain crisp word-shaped marks. Count word-like binarized
-    // components whose centroid lies in a region.
-    let glyph_min_height = (dpi * 1.0 / 25.4).round().max(4.0) as usize;
-    let glyph_max_height = (dpi * 4.0 / 25.4).round().max(8.0) as usize;
-    let glyph_max_width = (dpi * 20.0 / 25.4).round().max(16.0) as usize;
-    let mut label_counts = vec![0usize; regions.components().len() + 1];
-    for component in ComponentMap::from_binary(&binary).components() {
-        let component_width = component.right - component.left + 1;
-        let component_height = component.bottom - component.top + 1;
-        if component_height < glyph_min_height
-            || component_height > glyph_max_height
-            || component_width < component_height
-            || component_width > glyph_max_width
-        {
-            continue;
-        }
-        let center_x = (component.left + component.right) / 2;
-        let center_y = (component.top + component.bottom) / 2;
-        let label = regions.label_at(center_x, center_y) as usize;
-        if label > 0 {
-            label_counts[label] += 1;
         }
     }
     let accepted = regions.retain(|component| {
@@ -446,41 +389,8 @@ pub(crate) fn derive_halftone_zones(gray: &GrayImage, dpi: f64) -> BinaryImage {
             })
             .map(|(_, &count)| count)
             .sum();
-        // Maps and diagrams keep large paper-white tracts between their
-        // lines and fills; photographs have almost none. That paper share
-        // is what lets the spread bar sit low enough for very dark relief
-        // photographs without re-admitting shaded maps.
-        let paper: usize = histogram
-            .iter()
-            .enumerate()
-            .filter(|&(value, _)| value >= usize::from(paper_core_floor))
-            .map(|(_, &count)| count)
-            .sum();
         let spread_fraction = spread as f64 / total as f64;
-        let paper_fraction = paper as f64 / total as f64;
         let edge_fraction = edge_counts[component.label as usize] as f64 / total as f64;
-        // Label density in words per square decimetre at analysis scale.
-        let area_dm2 = total as f64 / (dpi / 25.4 * 100.0).powi(2);
-        let label_density = label_counts[component.label as usize] as f64 / area_dm2.max(1e-6);
-        if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_MRC").is_some() {
-            eprintln!(
-                "{{\"event\":\"halftone-region\",\"left\":{},\"top\":{},\"right\":{},\
-                 \"bottom\":{},\"area\":{},\"inkReference\":{ink_reference},\
-                 \"paperCoreFloor\":{paper_core_floor},\"spreadFraction\":{spread_fraction:.4},\
-                 \"edgeFraction\":{edge_fraction:.4},\"paperFraction\":{paper_fraction:.4},\
-                 \"labelDensity\":{label_density:.2}}}",
-                component.left, component.top, component.right, component.bottom, component.area,
-            );
-        }
-        // Label density stays in the trace for calibration, but it is no
-        // longer a verdict input: with depth-based seeds it stopped
-        // separating the populations — a busy photograph's textures
-        // binarize into the same word-shaped blobs (ship rigging at
-        // 118/dm² vs a shaded map's 98-145/dm²), every tone-shaded map in
-        // the calibrated book is a legitimate keep, and line-art maps
-        // never seed a region at all now because their hatching is pure
-        // strong-edge.
-        let _ = label_density;
         // Two-tier verdict: strong tonal spread tolerates stroke texture
         // (busy halftone prints), while marginal spread must be smooth —
         // that is what separates a dark relief photograph from a line
@@ -834,7 +744,7 @@ mod tests {
     }
 
     /// Developer diagnostic: run the halftone classifier on an external image.
-    /// `EVB_HALFTONE_IMAGE=/path.png EVB_SCAN_CLEANUP_TRACE_MRC=1
+    /// `EVB_HALFTONE_IMAGE=/path.png
     /// cargo test -p evb-scan-cleanup dump_halftone_zones -- --ignored --nocapture`
     #[test]
     #[ignore = "requires EVB_HALFTONE_IMAGE"]

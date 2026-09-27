@@ -15,6 +15,7 @@ import {
     getAutomationSaveDialogPath,
     getDocumentsDialogDefaultPath,
 } from '@electron/utils/dialogDefaultPaths';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
 
 interface IOpenDocumentDialogOptions {
@@ -109,8 +110,8 @@ export async function showOpenDocumentDialogForContext(
     // Automation sessions answer the Open dialog like the Save dialog below:
     // hidden runs cannot drive the native picker, and the path still goes
     // through the same open pipeline as a user's choice.
-    const automationOpenPath = process.env.EVB_AUTOMATION_USER_DATA_DIR
-        && process.env.EVB_E2E_OPEN_DIALOG_PATH?.trim();
+    const automationOpenPath = runtimeConfig.automationUserDataDir
+        && runtimeConfig.test.e2eOpenDialogPath;
     if (automationOpenPath) {
         return {
             canceled: false,

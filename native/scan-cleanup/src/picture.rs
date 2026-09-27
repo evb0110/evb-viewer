@@ -514,33 +514,6 @@ fn refine_tone_preservation_alpha_with_texture(
             nonzero |= alpha != 0;
         }
     }
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_TONE_ALPHA").is_some() {
-        let summarize = |field: &GrayImage| {
-            let maximum = field.data().iter().copied().max().unwrap_or(0);
-            let nonzero = field.data().iter().filter(|&&value| value != 0).count();
-            let material = field.data().iter().filter(|&&value| value >= 128).count();
-            (maximum, nonzero, material)
-        };
-        let (raw_maximum, raw_nonzero, raw_material) = summarize(&raw_alpha);
-        let (texture_maximum, texture_nonzero, texture_material) = summarize(&texture_alpha);
-        let (output_maximum, output_nonzero, output_material) = summarize(&preservation_alpha);
-        eprintln!(
-            "{{\"event\":\"tone-preservation-alpha\",\"width\":{},\"height\":{},\
-             \"paperCenter\":{paper_center:.4},\"noiseSigma\":{noise_sigma:.4},\
-             \"picturePixels\":{},\"coarsePixels\":{},\
-             \"rawMaximum\":{raw_maximum},\"rawNonzero\":{raw_nonzero},\
-             \"rawMaterial\":{raw_material},\"textureMaximum\":{texture_maximum},\
-             \"textureNonzero\":{texture_nonzero},\"textureMaterial\":{texture_material},\
-             \"outputMaximum\":{output_maximum},\"outputNonzero\":{output_nonzero},\
-             \"outputMaterial\":{output_material}}}",
-            layout_normalized.width(),
-            layout_normalized.height(),
-            picture_geometry
-                .as_ref()
-                .map_or(0, BinaryImage::count_black),
-            coarse_geometry.as_ref().map_or(0, BinaryImage::count_black),
-        );
-    }
     nonzero.then_some(preservation_alpha)
 }
 
@@ -602,7 +575,6 @@ pub(crate) fn flat_graphic_tone_preservation_alpha(
     let minimum_area = page_pixels.div_ceil(400); // 0.25% of the page.
     let minimum_width = layout_normalized.width().div_ceil(25).max(8);
     let minimum_height = layout_normalized.height().div_ceil(25).max(8);
-    let trace_components = std::env::var_os("EVB_SCAN_CLEANUP_TRACE_FLAT_GRAPHIC").is_some();
     // Printed contour lines commonly cross a flat fill. Close those narrow
     // gaps before component analysis so the lines do not cut one semantic
     // region into a few large retained slices plus small slices that become
@@ -630,18 +602,6 @@ pub(crate) fn flat_graphic_tone_preservation_alpha(
             }
         }
         if component.area.saturating_mul(4) < component_bounds_area {
-            if trace_components {
-                eprintln!(
-                    "{{\"event\":\"flat-graphic-component\",\"width\":{},\"height\":{},\
-                     \"componentArea\":{},\"boundsOccupancy\":{:.8},\"retained\":false,\
-                     \"originalBandOccupancy\":{:.8},\"rejection\":\"bounds-occupancy\"}}",
-                    component_width,
-                    component_height,
-                    component.area,
-                    component.area as f64 / component_bounds_area as f64,
-                    original_band_pixels as f64 / component.area.max(1) as f64,
-                );
-            }
             return false;
         }
         // Closing is allowed to bridge narrow contour lines through a solid
@@ -649,19 +609,6 @@ pub(crate) fn flat_graphic_tone_preservation_alpha(
         // calibration bars, or dense text into a fake flat graphic.
         let original_band_dense = original_band_pixels * 5 >= component.area * 3;
         if !original_band_dense {
-            if trace_components {
-                eprintln!(
-                    "{{\"event\":\"flat-graphic-component\",\"width\":{},\"height\":{},\
-                     \"componentArea\":{},\"boundsOccupancy\":{:.8},\
-                     \"originalBandOccupancy\":{:.8},\"retained\":false,\
-                     \"rejection\":\"original-band-occupancy\"}}",
-                    component_width,
-                    component_height,
-                    component.area,
-                    component.area as f64 / component_bounds_area as f64,
-                    original_band_pixels as f64 / component.area.max(1) as f64,
-                );
-            }
             return false;
         }
         let mut boundary_pixels = 0usize;
@@ -693,25 +640,7 @@ pub(crate) fn flat_graphic_tone_preservation_alpha(
                 }
             }
         }
-        let retained_component =
-            boundary_pixels >= 16 && strong_boundary_pixels * 5 >= boundary_pixels * 3;
-        if trace_components {
-            eprintln!(
-                "{{\"event\":\"flat-graphic-component\",\"width\":{},\"height\":{},\
-                 \"componentArea\":{},\"boundsOccupancy\":{:.8},\
-                 \"originalBandOccupancy\":{:.8},\"boundaryPixels\":{},\
-                 \"strongBoundaryFraction\":{:.8},\"retained\":{}}}",
-                component_width,
-                component_height,
-                component.area,
-                component.area as f64 / component_bounds_area as f64,
-                original_band_pixels as f64 / component.area.max(1) as f64,
-                boundary_pixels,
-                strong_boundary_pixels as f64 / boundary_pixels.max(1) as f64,
-                retained_component,
-            );
-        }
-        retained_component
+        boundary_pixels >= 16 && strong_boundary_pixels * 5 >= boundary_pixels * 3
     });
     if retained.count_black() == 0 {
         return None;

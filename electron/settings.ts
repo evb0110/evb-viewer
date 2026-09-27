@@ -30,9 +30,10 @@ import {
     parseClientDiagnosticsPreference,
     type TClientDiagnosticsPreference,
 } from '@contracts/diagnostics/diagnosticsPreference';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('settings');
-const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
 
 let settingsCache: ISettingsData | null = null;
 let settingsLoadPromise: Promise<ISettingsData> | null = null;

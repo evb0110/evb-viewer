@@ -29,11 +29,6 @@ export function getCompactDjvuFidelity(preset: TDjvuCompactFidelityPreset | unde
     return COMPACT_FIDELITY[preset ?? 'balanced'];
 }
 
-export function readCompactDjvuIntegerEnv(name: string, defaultValue: number, minValue: number, maxValue: number) {
-    const parsed = Number.parseInt(process.env[name] ?? `${defaultValue}`, 10);
-    return !Number.isFinite(parsed) || parsed < minValue ? defaultValue : Math.min(parsed, maxValue);
-}
-
 export interface ICompactDjvuFidelityPage {
     pageNumber: number;
     kind: string;

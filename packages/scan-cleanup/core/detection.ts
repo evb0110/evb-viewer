@@ -332,6 +332,7 @@ export interface IScanCleanupDetectionRetention<TDocument> {
 }
 
 export interface IScanCleanupDetectionDependencies {
+    evidenceDirectory?: string | undefined;
     fileSystem?: {
         copyFile: (source: string, destination: string) => Promise<void>;
         mkdir: (
@@ -1847,7 +1848,7 @@ export async function runScanCleanupDetection<TDocument>(
             );
         });
         if (scratchDir !== null) {
-            await preserveScanCleanupJsonEvidence(scratchDir, log, fileSystem).catch(error => {
+            await preserveScanCleanupJsonEvidence(scratchDir, log, dependencies.evidenceDirectory, fileSystem).catch(error => {
                 log(
                     'warn',
                     `Could not preserve scan-cleanup detection evidence: ${getErrorMessage(error)}`,

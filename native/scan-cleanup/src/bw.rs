@@ -1015,15 +1015,6 @@ fn trim_added_ink_to_budget(
     (removed, current_width <= maximum_width_px)
 }
 
-fn trace_line_stroke_budget(interventions: &LineStrokeBudgetInterventions) {
-    if std::env::var_os("EVB_STROKE_BUDGET_TRACE").is_some() {
-        eprintln!(
-            "EVB_STROKE_BUDGET {}",
-            serde_json::to_string(interventions).expect("stroke-budget trace must serialize")
-        );
-    }
-}
-
 /// Raw Auto-routing measurements from the canonical, at-most-256px routing
 /// sample. These values intentionally describe the decision basis rather than
 /// the working-resolution raster that receives the selected threshold.
@@ -1237,7 +1228,7 @@ pub(crate) fn binarize_normalized_with_diagnostics(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, interventions) = if dark_background_mask.is_some() {
+    let (binary, despeckle_fallback, _) = if dark_background_mask.is_some() {
         (
             binary.clone(),
             false,
@@ -1258,7 +1249,6 @@ pub(crate) fn binarize_normalized_with_diagnostics(
             None,
         )
     };
-    trace_line_stroke_budget(&interventions);
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
 }
@@ -1333,7 +1323,7 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
     });
     timings.thresholding_ms += thresholding_started.elapsed().as_secs_f64() * 1_000.0;
     let postprocess_started = Instant::now();
-    let (binary, despeckle_fallback, interventions) = if dark_background_mask.is_some() {
+    let (binary, despeckle_fallback, _) = if dark_background_mask.is_some() {
         (
             binary.clone(),
             false,
@@ -1354,7 +1344,6 @@ pub(crate) fn binarize_normalized_with_diagnostics_excluding(
             Some(&protected_picture_mask),
         )
     };
-    trace_line_stroke_budget(&interventions);
     timings.postprocess_ms += postprocess_started.elapsed().as_secs_f64() * 1_000.0;
     (binary, diagnostics, despeckle_fallback, timings)
 }
@@ -1403,7 +1392,7 @@ fn binarize_with_mode(
         calibration,
         None,
     );
-    let (output, _, interventions) = finish_thresholded_with_line_budget(
+    let (output, _, _) = finish_thresholded_with_line_budget(
         &binary,
         normalized,
         raw_source,
@@ -1416,7 +1405,6 @@ fn binarize_with_mode(
         false,
         None,
     );
-    trace_line_stroke_budget(&interventions);
     output
 }
 
@@ -1996,18 +1984,6 @@ pub(crate) fn resolve_spread_binarization_plans(
     } else {
         SpreadBinarizationPlanDecision::SharedJoint
     };
-    if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_SPREAD_PLAN").is_some() {
-        eprintln!(
-            "spread-plan left-anchor={} right-anchor={} left-radius={} right-radius={} left-route={:?} right-route={:?} decision={decision:?}",
-            left_anchor,
-            right_anchor,
-            left_reference_radius,
-            right_reference_radius,
-            left_route,
-            right_route,
-        );
-    }
-
     let shared_x_height = document_x_height_px
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or((left_x_height + right_x_height) / 2.0);

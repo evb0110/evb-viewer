@@ -10,11 +10,11 @@ import {
     basename,
     join,
 } from 'node:path';
-import {parseIntegerEnv} from '@electron/utils/parseIntegerEnv';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
-const DEFAULT_MAX_JOB_BYTES = parseIntegerEnv('EVB_OCR_JOB_MAX_TEMP_MB', 4_096, 1, 65_536) * 1024 * 1024;
-const DEFAULT_MIN_FREE_BYTES = parseIntegerEnv('EVB_OCR_MIN_FREE_SPACE_MB', 512, 1, 65_536) * 1024 * 1024;
-const DEFAULT_POLL_INTERVAL_MS = parseIntegerEnv('EVB_OCR_STORAGE_POLL_MS', 250, 50, 5_000);
+const DEFAULT_MAX_JOB_BYTES = runtimeConfig.test.ocrJobMaxTempMb * 1024 * 1024;
+const DEFAULT_MIN_FREE_BYTES = 512 * 1024 * 1024;
+const DEFAULT_POLL_INTERVAL_MS = 250;
 const CHECKPOINT_RECONCILIATION_BATCH_SIZE = 64;
 
 interface IOcrJobStorageBudgetOptions {

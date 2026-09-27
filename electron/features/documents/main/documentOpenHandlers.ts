@@ -50,6 +50,7 @@ import {
     MAX_COMBINE_INPUT_PATHS,
     MAX_OPEN_INPUT_PATHS,
 } from '@electron/features/documents/public/assertOpenInputPathCount';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('documents-dialogs');
 const E2E_OPEN_IMAGE_PATH_ENV = 'EVB_E2E_OPEN_IMAGE_PATH';
@@ -358,7 +359,7 @@ export async function handleOpenCombineDialog(context: IDocumentsDialogContext):
 }
 
 export async function handleOpenImageDialog(context: IDocumentsDialogContext) {
-    const e2eImagePath = process.env[E2E_OPEN_IMAGE_PATH_ENV]?.trim();
+    const e2eImagePath = runtimeConfig.test.e2eOpenImagePath;
     if (e2eImagePath) {
         if (!isAbsolute(e2eImagePath)) {
             throw new Error(E2E_OPEN_IMAGE_PATH_ENV + ' must be an absolute path');

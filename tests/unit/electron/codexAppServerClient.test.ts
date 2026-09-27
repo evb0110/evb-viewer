@@ -54,8 +54,6 @@ describe('CodexAppServerClient stdin handling', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        delete process.env.EVB_CODEX_APP_SERVER_MAX_STDOUT_RECORD_BYTES;
-        delete process.env.EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES;
         mocks.createDetachedChildProcessSpawnOptions.mockImplementation((options: Record<string, unknown>) => ({
             ...options,
             detached: true,
@@ -108,7 +106,6 @@ describe('CodexAppServerClient stdin handling', () => {
     });
 
     it('rejects pending requests with a typed error and terminates on an oversized stdout record', async () => {
-        process.env.EVB_CODEX_APP_SERVER_MAX_STDOUT_RECORD_BYTES = '1024';
         const fakeProcess = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.();
             return true;
@@ -117,11 +114,11 @@ describe('CodexAppServerClient stdin handling', () => {
         const {CodexAppServerRecordTooLargeError} = await import('@electron/features/agent/codexAppServerClient');
         const request = client.request('thread/start', {});
 
-        fakeProcess.stdout.write('x'.repeat(1025));
+        fakeProcess.stdout.write('x'.repeat(32 * 1024 * 1024 + 1));
 
         await expect(request).rejects.toMatchObject({
             name: 'CodexAppServerRecordTooLargeError',
-            maxBytes: 1024,
+            maxBytes: 32 * 1024 * 1024,
         });
         await vi.waitFor(() => {
             expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(fakeProcess, 1_000);
@@ -177,22 +174,21 @@ describe('CodexAppServerClient stdin handling', () => {
     });
 
     it('reports a bounded stderr tail when the app-server exits after noisy output', async () => {
-        process.env.EVB_CODEX_APP_SERVER_MAX_STDERR_BYTES = '1024';
         const fakeProcess = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.();
             return true;
         });
         const { onExit } = await createClient(fakeProcess);
 
-        fakeProcess.stderr.write(`${'old'.repeat(700)}\nrecent-tail\n`);
+        fakeProcess.stderr.write(`${'old'.repeat(90_000)}\nrecent-tail\n`);
         fakeProcess.emit('close', 7);
 
         expect(onExit).toHaveBeenCalledOnce();
         const message = onExit.mock.calls[0]?.[0] as string;
         expect(message).toContain('with code 7');
-        expect(message).toContain('[stderr truncated to 1024 bytes]');
+        expect(message).toContain('[stderr truncated to 262144 bytes]');
         expect(message).toContain('recent-tail');
-        expect(message.length).toBeLessThan(1400);
+        expect(message.length).toBeLessThan(263_000);
     });
 
     it('awaits detached process-tree termination during shutdown', async () => {

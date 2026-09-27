@@ -72,7 +72,7 @@ import {
 } from '@electron/platform-ipc/coreContract';
 
 const preloadStartupStart = Date.now();
-const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
+const STARTUP_TRACE_ENABLED = process.argv.includes('--evb-startup-trace');
 
 function stringifyDetails(details?: Record<string, unknown>) {
     if (!details) {

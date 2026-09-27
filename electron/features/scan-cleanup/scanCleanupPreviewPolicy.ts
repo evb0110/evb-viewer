@@ -14,6 +14,7 @@ import {isRecord} from '@contracts/runtimeGuards';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {
     SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE,
@@ -37,7 +38,7 @@ export function resolveScanCleanupPreviewPath() {
         binaryName: process.platform === 'win32' ? 'evb-scan-cleanup.exe' : 'evb-scan-cleanup',
         crateName: 'scan-cleanup',
         currentDir,
-        envOverridePath: process.env.EVB_SCAN_CLEANUP_PATH,
+        envOverridePath: runtimeConfig.scanCleanupPath,
         isPackaged: currentDir.includes('app.asar'),
     });
 }

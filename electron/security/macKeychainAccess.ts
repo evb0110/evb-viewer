@@ -6,22 +6,9 @@ interface ICommandLineLike {
 interface IAppLike {commandLine: ICommandLineLike;}
 
 export const MAC_SAFE_STORAGE_KEYCHAIN_SWITCH = 'use-mock-keychain';
-export const MAC_SYSTEM_KEYCHAIN_ENV = 'EVB_USE_SYSTEM_KEYCHAIN';
 
-export function configureMacKeychainAccess(
-    app: IAppLike,
-    options: {
-        env?: NodeJS.ProcessEnv;
-        platform?: NodeJS.Platform;
-    } = {},
-) {
-    const platform = options.platform ?? process.platform;
-    if (platform !== 'darwin') {
-        return false;
-    }
-
-    const env = options.env ?? process.env;
-    if (env[MAC_SYSTEM_KEYCHAIN_ENV] === '1') {
+export function configureMacKeychainAccess(app: IAppLike) {
+    if (process.platform !== 'darwin') {
         return false;
     }
 

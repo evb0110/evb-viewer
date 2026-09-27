@@ -12,27 +12,9 @@ interface IRunResult {
     exitCode: number;
 }
 
-const DJVU_METADATA_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_METADATA_TIMEOUT_MS ?? '20000', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_000) {
-        return 20_000;
-    }
-    return parsed;
-})();
-const DJVU_METADATA_MAX_STDOUT_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_METADATA_MAX_STDOUT_BYTES ?? '262144', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 262_144;
-    }
-    return parsed;
-})();
-const DJVU_METADATA_MAX_STDERR_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DJVU_METADATA_MAX_STDERR_BYTES ?? '131072', 10);
-    if (!Number.isFinite(parsed) || parsed < 1_024) {
-        return 131_072;
-    }
-    return parsed;
-})();
+const DJVU_METADATA_TIMEOUT_MS = 20_000;
+const DJVU_METADATA_MAX_STDOUT_BYTES = 262_144;
+const DJVU_METADATA_MAX_STDERR_BYTES = 131_072;
 interface IDjvuMetadataOptions {signal?: AbortSignal;}
 
 async function runDjvused(args: string[], options: IDjvuMetadataOptions = {}): Promise<IRunResult> {

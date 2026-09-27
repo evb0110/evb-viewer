@@ -51,10 +51,8 @@ export const djvuMainBindings = {
 } satisfies TFeatureMainBindings<typeof DJVU_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 
 export function prepareDjvuMainBindings() {
-    if (process.env.EVB_DJVU_SWEEP_STALE_TEMP !== '0') {
-        void pruneStaleDjvuArtifactJobs().catch((error: unknown) => {
-            logger.warn(`DjVu artifact job cleanup failed: ${String(error)}`);
-        });
-    }
+    void pruneStaleDjvuArtifactJobs().catch((error: unknown) => {
+        logger.warn(`DjVu artifact job cleanup failed: ${String(error)}`);
+    });
     return djvuMainBindings;
 }

@@ -18,15 +18,7 @@ guard let document = PDFDocument(url: sourceURL) else {
 }
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
-let requestedPrinterName = ProcessInfo.processInfo.environment["EVB_PRINT_DIALOG_PRINTER_NAME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
 let printInfo = NSPrintInfo.shared.copy() as! NSPrintInfo
-if let requestedPrinterName, !requestedPrinterName.isEmpty {
-    guard let printer = NSPrinter(name: requestedPrinterName) else {
-        FileHandle.standardError.write(Data("unable to find requested printer\n".utf8))
-        exit(67)
-    }
-    printInfo.printer = printer
-}
 guard let operation = document.printOperation(
     for: printInfo,
     scalingMode: .pageScaleToFit,
@@ -36,8 +28,8 @@ guard let operation = document.printOperation(
     exit(66)
 }
 
-operation.showsPrintPanel = requestedPrinterName == nil || requestedPrinterName?.isEmpty == true
-operation.showsProgressPanel = operation.showsPrintPanel
+operation.showsPrintPanel = true
+operation.showsProgressPanel = true
 application.activate(ignoringOtherApps: true)
 let completed = operation.run()
 exit(completed ? 0 : 2)

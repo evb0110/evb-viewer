@@ -376,13 +376,12 @@ describe('scan cleanup sidecar stage timings', () => {
     });
 
     it('waits for a native command slot before it spawns', async () => {
-        vi.stubEnv('EVB_NATIVE_COMMAND_MAX_CONCURRENCY', '1');
         vi.resetModules();
         const { acquireNativeCommandAdmission } = await import('@electron/native-tools/runNativeCommand');
         const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
-        const releaseOccupant = await acquireNativeCommandAdmission();
+        const releaseOccupants = await Promise.all(Array.from({length: 8}, () => acquireNativeCommandAdmission()));
 
         const run = runScanCleanupSidecar(
             '/native/evb-scan-cleanup',
@@ -398,17 +397,17 @@ describe('scan cleanup sidecar stage timings', () => {
         }
         expect(mocks.spawn).not.toHaveBeenCalled();
 
-        releaseOccupant();
+        releaseOccupants.shift()?.();
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
         child.stdout.write(resultLine('success'));
         await vi.waitFor(() => expect(child.stdout.readableLength).toBe(0));
         child.emit('close', 0, null);
         await run;
+        releaseOccupants.forEach(release => release());
 
         // The slot the sidecar held is handed back, so the next native command
         // is admitted immediately.
         const releaseAfterRun = await acquireNativeCommandAdmission();
         releaseAfterRun();
-        vi.unstubAllEnvs();
     });
 });

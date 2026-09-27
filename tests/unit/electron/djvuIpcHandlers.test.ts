@@ -185,7 +185,6 @@ describe('registerDjvuIpcAdapter', () => {
     beforeEach(() => {
         mocks.handlers.clear();
         vi.clearAllMocks();
-        delete process.env.EVB_DJVU_SWEEP_STALE_TEMP;
         mocks.hostResourceTier = 'high';
 
         mocks.getDjvuPageCount.mockResolvedValue(1);
@@ -232,14 +231,6 @@ describe('registerDjvuIpcAdapter', () => {
         registerDjvuIpcAdapter();
 
         expect(mocks.pruneStaleDjvuArtifactJobs).toHaveBeenCalledOnce();
-    });
-
-    it('allows manifest pruning to be disabled for deterministic hosts', () => {
-        process.env.EVB_DJVU_SWEEP_STALE_TEMP = '0';
-
-        registerDjvuIpcAdapter();
-
-        expect(mocks.pruneStaleDjvuArtifactJobs).not.toHaveBeenCalled();
     });
 
     it('releases viewing paths without requiring the source file to still exist', () => {

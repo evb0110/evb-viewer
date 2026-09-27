@@ -16,21 +16,13 @@ import {
 } from '@electron/utils/atomicReplace';
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('nativeTiffCombine');
-const NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV = 'EVB_TIFF_COMBINE_NATIVE_ENABLE';
-const NATIVE_TIFF_COMBINE_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_TIFF_COMBINE_NATIVE_TIMEOUT_MS ?? `${10 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 10 * 60 * 1000;
-    }
-    return parsed;
-})();
+const NATIVE_TIFF_COMBINE_TIMEOUT_MS = 10 * 60 * 1000;
 
 function isNativeTiffCombineDisabled() {
-    return process.env.EVB_TIFF_COMBINE_NATIVE_DISABLE === '1'
-        || process.env.EVB_PDF_IMAGE_COMBINE_DISABLE === '1'
-        || (process.env.VITEST === 'true' && process.env[NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV] !== '1');
+    return process.env.VITEST === 'true' && !runtimeConfig.test.nativeTiffCombineEnabled;
 }
 
 export async function tryCombinePagesWithNativeTiffCombiner(
@@ -46,7 +38,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
         const testFailure = createNativeFallbackTestError(
-            NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
+            runtimeConfig.test.nativeTiffCombineEnabled,
             'Native TIFF combine',
             'native binary path could not be resolved',
         );
@@ -67,7 +59,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
         const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal, dpi);
         if (!ok || !existsSync(tempOutputPath)) {
             const testFailure = createNativeFallbackTestError(
-                NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
+                runtimeConfig.test.nativeTiffCombineEnabled,
                 'Native TIFF combine',
                 !ok
                     ? 'native command reported failure'
@@ -139,7 +131,7 @@ async function runNativeTiffCombine(
     } catch (error) {
         if (signal?.aborted) throw abortErrorFromSignal(signal);
         const testFailure = createNativeFallbackTestError(
-            NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
+            runtimeConfig.test.nativeTiffCombineEnabled,
             'Native TIFF combine',
             'native command failed',
             error,

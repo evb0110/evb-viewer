@@ -116,7 +116,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             &config.input_paths,
             &config.output_path,
             max_pixels,
-            read_limit("EVB_TIFF_COMBINE_MAX_PAGES", 10_000, 1, 100_000) as usize,
+            10_000,
             config.dpi,
         )?;
         return Ok(());
@@ -162,8 +162,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                     max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
                     max_output_bytes: read_pdf_output_limit(),
                     allow_large_output: is_file_backed_output_mode(),
-                    max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000)
-                        as usize,
+                    max_tiff_frames: 250,
                     provenance_stamp_hex,
                     worker_threads: read_limit(
                         "EVB_PDF_COMBINE_THREADS",
@@ -233,7 +232,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
             max_bilevel_pixels: DEFAULT_MAX_BILEVEL_PIXELS,
             max_output_bytes: read_pdf_output_limit(),
             allow_large_output: is_file_backed_output_mode(),
-            max_tiff_frames: read_limit("EVB_PDF_COMBINE_MAX_TIFF_FRAMES", 250, 1, 5_000) as usize,
+            max_tiff_frames: 250,
             provenance_stamp_hex,
             worker_threads: read_limit(
                 "EVB_PDF_COMBINE_THREADS",

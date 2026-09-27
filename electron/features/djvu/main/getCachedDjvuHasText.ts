@@ -19,16 +19,7 @@ interface ITextCapabilityTask {
     settled: boolean;
 }
 
-const DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES = (() => {
-    const parsed = Number.parseInt(
-        process.env.EVB_DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES ?? '64',
-        10,
-    );
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 64;
-    }
-    return Math.min(parsed, 256);
-})();
+const DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES = 64;
 
 const cachedCapabilitiesByPath = new Map<string, ITextCapabilityCacheEntry>();
 const inFlightTasksByFingerprint = new Map<string, ITextCapabilityTask>();

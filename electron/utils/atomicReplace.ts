@@ -28,6 +28,7 @@ import {
     type IOriginalPathSaveJournalSnapshot,
 } from '@electron/file-access/originalPathSaveWitness';
 import { fsyncFile as fsyncPath } from '@electron/utils/fsyncPath';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('atomicReplace');
 const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -112,10 +113,10 @@ async function pathExists(filePath: string) {
 }
 
 async function waitForAtomicReplaceTestBarrier(stage: string) {
-    if (process.platform !== 'win32' || process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER !== stage) {
+    if (process.platform !== 'win32' || runtimeConfig.test.atomicReplaceBarrier !== stage) {
         return;
     }
-    const barrierPath = process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE;
+    const barrierPath = runtimeConfig.test.atomicReplaceBarrierFile;
     if (!barrierPath) {
         throw new Error('Atomic replace test barrier requires EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE');
     }

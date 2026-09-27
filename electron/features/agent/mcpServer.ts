@@ -45,6 +45,7 @@ import {
     ASSISTANT_MCP_TOKEN_ENV,
 } from '@electron/features/agent/codexAssistantConfig';
 import { ensureSecurePersistentLocalMcpToken } from '@electron/features/agent/localMcpTokenStore';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 export { processMcpRequest } from '@electron/features/agent/mcp/mcpServerCore';
 
@@ -109,14 +110,6 @@ function resolveAgentWindow(windowId?: number) {
         : getWindowByIdFromRegistry(windowId);
 }
 
-function parsePort(value: string | undefined, fallbackPort: number) {
-    const parsed = Number.parseInt(value ?? '', 10);
-    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
-        return fallbackPort;
-    }
-    return parsed;
-}
-
 export function resolveDefaultLocalMcpPort(isPackaged: boolean) {
     return isPackaged ? DEFAULT_PROD_MCP_PORT : DEFAULT_DEV_MCP_PORT;
 }
@@ -145,7 +138,7 @@ export function createLocalMcpServerIdentity(port: number, host = DEFAULT_MCP_HO
 }
 
 function resolveConfiguredLocalMcpPort() {
-    return parsePort(process.env.EVB_MCP_PORT, resolveDefaultLocalMcpPort(app.isPackaged));
+    return runtimeConfig.mcpPort(app.isPackaged);
 }
 
 export function getLocalMcpServerDescriptor(): ILocalMcpServerDescriptor {
@@ -170,7 +163,7 @@ async function ensureLocalMcpServerBearerToken() {
     }
 
     const tokenPromise = (async () => {
-        const configuredToken = process.env[ASSISTANT_MCP_TOKEN_ENV]?.trim();
+        const configuredToken = runtimeConfig.mcpToken;
         const token = configuredToken && configuredToken.length > 0
             ? configuredToken
             : await ensureSecurePersistentLocalMcpToken(app.getPath('userData'));

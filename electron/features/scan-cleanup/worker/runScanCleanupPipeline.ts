@@ -22,6 +22,7 @@ import {
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineDependencies,
@@ -30,6 +31,7 @@ import {
 } from '@evb/scan-cleanup/core/runScanCleanupConversion';
 
 const defaultDependencies: IRunScanCleanupPipelineDependencies = {
+    evidenceDirectory: runtimeConfig.test.scanCleanupEvidenceDirectory,
     getPageCount: getPdfPageCount,
     getPageSizeStore: (pdfPath, options) => createPdfPageSizeStore(pdfPath, options),
     detectSourceDpi: detectSourceDpiDetails,

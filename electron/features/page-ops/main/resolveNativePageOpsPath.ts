@@ -1,6 +1,7 @@
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
@@ -16,7 +17,7 @@ export function resolveNativePageOpsPath() {
         binaryName: getBinaryName(),
         crateName: 'pdf-page-ops',
         currentDir: __dirname,
-        envOverridePath: process.env.EVB_PDF_PAGE_OPS_PATH,
+        envOverridePath: runtimeConfig.pdfPageOpsPath,
         isPackaged,
     });
 }
