@@ -17,6 +17,12 @@ import {
     it,
     vi,
 } from 'vitest';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+
+const OLDER_SETTINGS_FIXTURE = {
+    version: 1,
+    authorName: 'Older user',
+};
 
 const mocks = vi.hoisted(() => ({
     setMainDiagnosticsPreference: vi.fn(),
@@ -145,15 +151,12 @@ describe('settings corruption quarantine', () => {
 
     it('loads an older settings schema with diagnostics disabled', async () => {
         mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-older-schema-'));
-        writeFileSync(join(mocks.userDataPath, 'settings.json'), JSON.stringify({
-            version: 1,
-            authorName: 'Older user',
-        }));
+        writeFileSync(join(mocks.userDataPath, 'settings.json'), JSON.stringify(OLDER_SETTINGS_FIXTURE));
         const {loadSettings} = await import('@electron/settings');
 
-        await expect(loadSettings()).resolves.toMatchObject({
-            authorName: 'Older user',
-            clientDiagnosticsPreference: 'unknown',
+        await expect(loadSettings()).resolves.toEqual({
+            ...DEFAULT_SETTINGS,
+            authorName: OLDER_SETTINGS_FIXTURE.authorName,
         });
     });
 

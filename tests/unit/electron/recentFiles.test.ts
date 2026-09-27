@@ -273,12 +273,15 @@ describe('recentFiles persistence', () => {
         const storagePath = join(userDataDir, 'recentFiles.json');
         const persisted = {
             version: 1,
+            futureStoreField: 'kept on disk until a write',
             files: [
                 {
                     originalPath: validPath,
                     fileName: 'missing-compatible.pdf',
                     timestamp: 123,
                     fileSize: 7,
+                    modifiedAt: 122,
+                    futureEntryField: true,
                 },
                 {
                     originalPath: 'relative.pdf',
@@ -292,7 +295,14 @@ describe('recentFiles persistence', () => {
 
         const recentFiles = await loadRecentFilesModule();
 
-        await expect(recentFiles.getRecentFiles()).resolves.toEqual([expect.objectContaining({originalPath: validPath})]);
+        await expect(recentFiles.getRecentFiles()).resolves.toEqual([{
+            originalPath: validPath,
+            backend: 'electron',
+            fileName: 'missing-compatible.pdf',
+            timestamp: 123,
+            fileSize: 7,
+            modifiedAt: 122,
+        }]);
         expect(JSON.parse(readFileSync(storagePath, 'utf-8'))).toEqual(persisted);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Dropped invalid recent file entry 1');
     });

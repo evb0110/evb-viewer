@@ -5,19 +5,20 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { normalizeVersion } from '@electron/updates/versionCompare';
 
-interface IUpdateHealthMarker {
-    version: 1;
-    pendingVersion: string;
-    installRequestedAt: number;
-    startupAttempts: number;
-}
+const updateHealthMarkerSchema = v.object({
+    version: v.literal(1),
+    pendingVersion: v.string(),
+    installRequestedAt: v.number(),
+    startupAttempts: v.number(),
+});
+type TUpdateHealthMarker = v.InferOutput<typeof updateHealthMarkerSchema>;
 
 export const UPDATE_STARTUP_FAILURE_THRESHOLD = 3;
 export const UPDATE_SUPPRESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -37,33 +38,17 @@ function getMarkerPath() {
     return join(app.getPath('userData'), 'update-health.json');
 }
 
-function decodeMarker(value: unknown): IUpdateHealthMarker | null {
-    if (
-        !isRecord(value)
-        || value.version !== 1
-        || typeof value.pendingVersion !== 'string'
-        || typeof value.installRequestedAt !== 'number'
-        || typeof value.startupAttempts !== 'number'
-    ) {
-        return null;
-    }
-    return {
-        version: 1,
-        pendingVersion: value.pendingVersion,
-        installRequestedAt: value.installRequestedAt,
-        startupAttempts: value.startupAttempts,
-    };
-}
-
 async function readMarker() {
     try {
-        return decodeMarker(JSON.parse(await readFile(getMarkerPath(), 'utf-8')));
+        const content = await readFile(getMarkerPath(), 'utf-8');
+        const parsed = v.safeParse(updateHealthMarkerSchema, JSON.parse(content) as unknown, {abortEarly: true});
+        return parsed.success ? parsed.output : null;
     } catch {
         return null;
     }
 }
 
-async function writeMarker(marker: IUpdateHealthMarker) {
+async function writeMarker(marker: TUpdateHealthMarker) {
     const markerPath = getMarkerPath();
     const tempPath = makeSiblingTempPath(markerPath);
     await writeFile(tempPath, JSON.stringify(marker, null, 2), 'utf-8');

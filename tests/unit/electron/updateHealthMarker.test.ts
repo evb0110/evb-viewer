@@ -1,7 +1,9 @@
 import {
     mkdtempSync,
     readFileSync,
+    readdirSync,
     rmSync,
+    writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,6 +47,42 @@ describe('updateHealthMarker', () => {
         await expect(marker.markPendingUpdateHealthy('1.0.0')).resolves.toBe(false);
         await expect(marker.markPendingUpdateHealthy(`2.0.0+${'a'.repeat(40)}`)).resolves.toBe(true);
         await expect(marker.recordPendingUpdateStartup('2.0.0')).resolves.toBeNull();
+    });
+
+    it('reads a persisted marker into the startup result and strips unknown fields', async () => {
+        const markerPath = join(mocks.userDataPath, 'update-health.json');
+        writeFileSync(markerPath, JSON.stringify({
+            version: 1,
+            pendingVersion: '2.0.0',
+            installRequestedAt: 1234,
+            startupAttempts: 2,
+            futureField: 'ignored',
+        }));
+        const marker = await import('@electron/updateHealthMarker');
+
+        await expect(marker.recordPendingUpdateStartup('1.0.0')).resolves.toEqual({
+            version: 1,
+            pendingVersion: '2.0.0',
+            installRequestedAt: 1234,
+            startupAttempts: 3,
+            installationApplied: false,
+        });
+        expect(JSON.parse(readFileSync(markerPath, 'utf-8'))).toEqual({
+            version: 1,
+            pendingVersion: '2.0.0',
+            installRequestedAt: 1234,
+            startupAttempts: 3,
+        });
+    });
+
+    it('ignores a malformed marker without quarantining it', async () => {
+        const markerPath = join(mocks.userDataPath, 'update-health.json');
+        writeFileSync(markerPath, '{malformed');
+        const marker = await import('@electron/updateHealthMarker');
+
+        await expect(marker.recordPendingUpdateStartup('1.0.0')).resolves.toBeNull();
+        expect(readFileSync(markerPath, 'utf-8')).toBe('{malformed');
+        expect(readdirSync(mocks.userDataPath)).toEqual(['update-health.json']);
     });
 
     it('counts relaunches of the old version when the installer failed to replace the app', async () => {

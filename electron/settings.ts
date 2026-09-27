@@ -31,6 +31,7 @@ import {
     type TClientDiagnosticsPreference,
 } from '@contracts/diagnostics/diagnosticsPreference';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import * as v from 'valibot';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
@@ -54,6 +55,12 @@ type TSettingsUpdateResult = Partial<ISettingsData> | undefined;
 type TSettingsUpdater = (
     settings: ISettingsData,
 ) => TSettingsUpdateResult | Promise<TSettingsUpdateResult>;
+
+// Version migration fills v1 defaults and retains stored extension keys.
+const settingsFileSchema = v.pipe(
+    v.unknown(),
+    v.transform(value => migrateSettings(value)),
+);
 
 /** A revocation takes effect immediately; a grant only once it is on disk. */
 export function recordMainDiagnosticsConsentIntent(value: unknown) {
@@ -106,11 +113,6 @@ function applyElectronDefaults(settings: ISettingsData): ISettingsData {
     } catch {
         return settings;
     }
-}
-
-function parseSettingsPayload(content: string): unknown {
-    const parsed: unknown = JSON.parse(content);
-    return parsed;
 }
 
 function queueSettingsMutation<T>(mutation: () => Promise<T>) {
@@ -180,8 +182,7 @@ async function readSettingsFromStorage(storagePath: string) {
     }
 
     try {
-        const parsed = parseSettingsPayload(content);
-        return applyElectronDefaults(migrateSettings(parsed));
+        return applyElectronDefaults(v.parse(settingsFileSchema, JSON.parse(content) as unknown, {abortEarly: true}));
     } catch (err) {
         if (err instanceof UnsupportedSettingsSchemaError) {
             logger.error(`Failed to load settings: ${getErrorMessage(err)}`, {

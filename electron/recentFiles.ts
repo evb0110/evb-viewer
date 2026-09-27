@@ -25,13 +25,11 @@ import {
 } from '@contracts/documentRef';
 import {
     createEpochMs,
+    isEpochMs,
     parseEpochMs,
     type TEpochMs,
 } from '@contracts/timestamps';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     CACHE_TTL_MS,
     MAX_RECENT_FILES,
@@ -54,6 +52,7 @@ import {
     getAppTempDirPath,
     getLegacyAppTempDirPath,
 } from '@electron/utils/appTempDir';
+import * as v from 'valibot';
 
 const logger = createLogger('recentFiles');
 const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
@@ -72,13 +71,8 @@ let cacheTimestamp = 0;
 let recentFilesRefreshPromise: Promise<IRecentFile[]> | null = null;
 let recentFilesOperationQueue: Promise<unknown> = Promise.resolve();
 
-interface IRecentFilesData {
-    version: number;
-    files: IRecentFile[];
-}
-
-interface IFilteredRecentFiles {
-    files: IRecentFile[];
+interface IFilteredRecentFiles<TFile extends IRecentFile> {
+    files: TFile[];
     removedMissingCount: number;
     unreadableCount: number;
 }
@@ -132,6 +126,47 @@ function getStoragePath() {
     return join(app.getPath('userData'), 'recentFiles.json');
 }
 
+const recentFileSchema = v.object({
+    originalPath: v.custom<TDocumentRef>(value => (
+        isNativeLegacyDocumentRef(value)
+        && inferDocumentRefBackend(value) === 'electron'
+    )),
+    backend: v.optional(v.literal('electron'), 'electron'),
+    fileName: v.string(),
+    timestamp: v.custom<TEpochMs>(isEpochMs),
+    fileSize: v.number(),
+    modifiedAt: v.exactOptional(v.custom<TEpochMs>(isEpochMs)),
+});
+
+const recentFilesDataSchema = v.pipe(
+    v.fallback(
+        v.object({
+            version: v.fallback(v.number(), 1),
+            files: v.fallback(v.array(v.unknown()), []),
+        }),
+        {
+            version: 1,
+            files: [],
+        },
+    ),
+    // Keep the existing partial-read behavior: invalid entries are logged and dropped individually.
+    v.transform(({
+        version,
+        files,
+    }) => ({
+        version,
+        files: files.flatMap((candidate, index) => {
+            const parsed = v.safeParse(recentFileSchema, candidate, {abortEarly: true});
+            if (!parsed.success) {
+                logger.warn(`Dropped invalid recent file entry ${index}`);
+                return [];
+            }
+            return [parsed.output];
+        }),
+    })),
+);
+type TRecentFilesData = v.InferOutput<typeof recentFilesDataSchema>;
+
 function getBootstrapStoragePaths() {
     if (!BOOTSTRAP_DEV_PROFILE_ENABLED) {
         return [];
@@ -142,66 +177,6 @@ function getBootstrapStoragePaths() {
     return uniq(BOOTSTRAP_RECENT_FILES_DIR_NAMES
         .map(dirName => join(appDataPath, dirName, 'recentFiles.json'))
         .filter(candidatePath => candidatePath !== currentStoragePath));
-}
-
-function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
-    if (!raw || typeof raw !== 'object') {
-        return {
-            version: 1,
-            files: [],
-        };
-    }
-
-    const parsed = raw as {
-        version?: unknown;
-        files?: unknown;
-    };
-    const files: IRecentFile[] = [];
-    if (Array.isArray(parsed.files)) {
-        for (const [
-            index,
-            candidate,
-        ] of parsed.files.entries()) {
-            if (!isRecord(candidate)) {
-                logger.warn(`Dropped invalid recent file entry ${index}`);
-                continue;
-            }
-            const originalPath = candidate.originalPath;
-            const fileName = candidate.fileName;
-            const timestamp = parseEpochMs(candidate.timestamp);
-            const fileSize = candidate.fileSize;
-            const modifiedAt = candidate.modifiedAt === undefined
-                ? undefined
-                : parseEpochMs(candidate.modifiedAt);
-            const backend = candidate.backend;
-            if (
-                typeof originalPath === 'string'
-                && isNativeLegacyDocumentRef(originalPath)
-                && typeof fileName === 'string'
-                && timestamp !== null
-                && typeof fileSize === 'number'
-                && modifiedAt !== null
-                && (backend === undefined || backend === 'electron')
-                && inferDocumentRefBackend(originalPath) === 'electron'
-            ) {
-                files.push({
-                    originalPath,
-                    backend: 'electron',
-                    fileName,
-                    timestamp,
-                    fileSize,
-                    ...(modifiedAt === undefined ? {} : {modifiedAt}),
-                });
-                continue;
-            }
-            logger.warn(`Dropped invalid recent file entry ${index}`);
-        }
-    }
-
-    return {
-        version: typeof parsed.version === 'number' ? parsed.version : 1,
-        files,
-    };
 }
 
 async function statWithTimeout(filePath: string) {
@@ -259,10 +234,10 @@ async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
     return {status: 'missing'};
 }
 
-async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecentFiles> {
+async function filterExistingFiles<TFile extends IRecentFile>(files: TFile[]): Promise<IFilteredRecentFiles<TFile>> {
     let removedMissingCount = 0;
     let unreadableCount = 0;
-    const checks: IRecentFile[] = [];
+    const checks: TFile[] = [];
     const nativeFiles = files.filter(file => isNativeLegacyDocumentRef(file.originalPath));
     removedMissingCount += files.length - nativeFiles.length;
     const inspections = await Promise.all(uniqBy(nativeFiles, item => item.originalPath).map(async (file) => ({
@@ -299,18 +274,18 @@ async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecen
     };
 }
 
-function emptyRecentFilesData(): IRecentFilesData {
+function emptyRecentFilesData(): TRecentFilesData {
     return {
         version: 1,
         files: [],
     };
 }
 
-async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<IRecentFilesData | null> {
+async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<TRecentFilesData | null> {
     try {
         const content = await readFile(bootstrapPath, 'utf-8');
         const parsed: unknown = JSON.parse(content);
-        const bootstrapData = normalizeRecentFilesData(parsed);
+        const bootstrapData = v.parse(recentFilesDataSchema, parsed, {abortEarly: true});
         const canonicalized = canonicalizePersistedRecentFiles(bootstrapData.files);
         bootstrapData.files = canonicalized.files;
         const filtered = await filterExistingFiles(bootstrapData.files);
@@ -342,7 +317,7 @@ async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<IRecentFi
     }
 }
 
-async function loadBootstrapRecentFilesData(): Promise<IRecentFilesData | null> {
+async function loadBootstrapRecentFilesData(): Promise<TRecentFilesData | null> {
     for (const bootstrapPath of getBootstrapStoragePaths()) {
         const bootstrapData = await tryBootstrapRecentFiles(bootstrapPath);
         if (bootstrapData) {
@@ -353,7 +328,7 @@ async function loadBootstrapRecentFilesData(): Promise<IRecentFilesData | null> 
     return null;
 }
 
-async function loadRecentFilesData(): Promise<IRecentFilesData> {
+async function loadRecentFilesData(): Promise<TRecentFilesData> {
     const storagePath = getStoragePath();
     let content: string;
     try {
@@ -370,10 +345,10 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         throw attachFailureReceipt(err, receipt);
     }
 
-    let normalizedData: IRecentFilesData;
+    let normalizedData: TRecentFilesData;
     try {
         const parsed: unknown = JSON.parse(content);
-        normalizedData = normalizeRecentFilesData(parsed);
+        normalizedData = v.parse(recentFilesDataSchema, parsed, {abortEarly: true});
     } catch (err) {
         const receipt = logger.error(`Failed to load recent files: ${getErrorMessage(err)}`, {
             code: 'MAIN_RECENT_FILES_LOAD_FAILED',
@@ -409,7 +384,7 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
     return normalizedData;
 }
 
-async function saveRecentFilesData(data: IRecentFilesData) {
+async function saveRecentFilesData(data: TRecentFilesData) {
     const storagePath = getStoragePath();
     const tempPath = makeSiblingTempPath(storagePath);
     try {
@@ -519,8 +494,8 @@ function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: numbe
     return parseDocumentRef(filePath);
 }
 
-function canonicalizePersistedRecentFiles(files: IRecentFile[]) {
-    const canonicalFiles: IRecentFile[] = [];
+function canonicalizePersistedRecentFiles(files: TRecentFilesData['files']) {
+    const canonicalFiles: TRecentFilesData['files'] = [];
     const seenPaths = new Set<string>();
     let changed = false;
     for (const file of files) {
