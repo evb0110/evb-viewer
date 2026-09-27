@@ -235,9 +235,8 @@ pub(crate) fn page_worker_threads<M: PlanningManifest>(manifest: &M) -> Result<u
     page_worker_threads_on(manifest, host_parallelism())
 }
 
-/// Tests that assert a pool width size it for this many logical CPUs rather
-/// than the host's: the product halves the CPU count, so a two-CPU runner (the
-/// Windows VM, small CI machines) legitimately admits a single page worker.
+/// Tests that assert a pool width sized for this many logical CPUs rather
+/// than the host's.
 #[cfg(test)]
 const TEST_PARALLELISM: usize = 8;
 
@@ -366,7 +365,7 @@ pub(crate) fn adaptive_thread_count(
     if page_count == 0 {
         return 1;
     }
-    let cpu_limit = (available_parallelism / 2).max(1).min(page_count.max(1));
+    let cpu_limit = available_parallelism.min(page_count.max(1));
     let memory_limit = if peak_page_bytes == 0 {
         page_count
     } else {
@@ -704,9 +703,9 @@ mod tests {
     #[test]
     fn adaptive_threads_respect_cpu_pages_and_memory() {
         assert_eq!(adaptive_thread_count(1, 20, 10_000, 1_000), 1);
-        assert_eq!(adaptive_thread_count(16, 20, 10_000, 1_000), 8);
+        assert_eq!(adaptive_thread_count(16, 20, 10_000, 1_000), 10);
         assert_eq!(adaptive_thread_count(16, 3, 10_000, 1_000), 3);
-        assert_eq!(adaptive_thread_count(2, 20, 10_000, 1_000), 1);
+        assert_eq!(adaptive_thread_count(2, 20, 10_000, 1_000), 2);
         assert_eq!(adaptive_thread_count(16, 20, 1_500, 1_000), 1);
         assert_eq!(adaptive_thread_count(16, 0, 10_000, 1_000), 1);
     }
