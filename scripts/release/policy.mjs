@@ -248,7 +248,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/wasm-artifacts.mjs',
                 'scripts/fixtures/ocr-quality-corpus.json',
                 'scripts/ocrQualityMetrics.mjs',
-                'scripts/test-ocr-native-smoke.mjs',
                 'scripts/test-ocr-quality-corpus.mjs',
                 'scripts/verify-packaged-native-tools.sh',
                 'scripts/verify-packaged-startup.sh',

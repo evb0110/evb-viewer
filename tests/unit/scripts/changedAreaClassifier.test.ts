@@ -134,7 +134,6 @@ describe('changed-area classifier', () => {
             'scripts/nativeResourceManifest.ts',
             'scripts/fixtures/ocr-quality-corpus.json',
             'scripts/ocrQualityMetrics.mjs',
-            'scripts/test-ocr-native-smoke.mjs',
             'scripts/test-ocr-quality-corpus.mjs',
             'scripts/verify-packaged-startup.sh',
         ]) {
