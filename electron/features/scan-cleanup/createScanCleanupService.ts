@@ -527,7 +527,6 @@ function resolveScanCleanupRuntimePolicy(
     );
     return {
         ...rasterPolicy,
-        rasterStreaming: false,
         logicalCpus: profile.logicalCpus,
         totalRamBytes: profile.totalRamBytes,
     };

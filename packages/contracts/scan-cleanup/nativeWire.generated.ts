@@ -232,11 +232,6 @@ export type ManifestV3 = { version: number, operation: Operation, analysisPurpos
  */
 hostMemoryBytes: number | null, 
 /**
- * Bounded streamed-raster look-ahead. Direct CLI callers that do not
- * coordinate producers retain the one-page acknowledgement turnstile.
- */
-rasterWindow: number, 
-/**
  * Number of Analyze page inputs the owning process keeps staged at once.
  *
  * Present only when that process stages replayable page rasters through

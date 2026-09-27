@@ -4,7 +4,6 @@ export const SCAN_CLEANUP_MAX_RASTER_CONCURRENCY = 64;
 
 export interface IScanCleanupRuntimePolicy {
     rasterConcurrency: number;
-    rasterStreaming: boolean;
     logicalCpus: number;
     totalRamBytes: number;
     /** Optional for compatibility with callers predating low-memory raster admission. */
@@ -69,7 +68,6 @@ export function decodeScanCleanupRuntimePolicy(
             value.rasterConcurrency,
             SCAN_CLEANUP_MAX_RASTER_CONCURRENCY,
         )
-        || typeof value.rasterStreaming !== 'boolean'
         || !isNonNegativeSafeInteger(value.logicalCpus)
         || !isNonNegativeSafeInteger(value.totalRamBytes)
         || (rasterMaxPixels !== undefined && !isPositiveSafeInteger(rasterMaxPixels))
@@ -79,7 +77,6 @@ export function decodeScanCleanupRuntimePolicy(
 
     return {
         rasterConcurrency: value.rasterConcurrency,
-        rasterStreaming: value.rasterStreaming,
         logicalCpus: value.logicalCpus,
         totalRamBytes: value.totalRamBytes,
         ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
