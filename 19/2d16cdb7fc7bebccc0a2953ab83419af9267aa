@@ -1,0 +1,23 @@
+packages/contracts/scan-cleanup/nativeWire.generated.ts
+  ai_agent 233,328
+native/scan-cleanup/src/protocol/manifest_v3.rs
+  s_ab0620b68405ad::t_659ee045cefd62 289,325-326,328-329
+packages/scan-cleanup/core/policy/buildNativeScanCleanupManifest.ts
+  s_ab0620b68405ad::t_e3be6de4dd5fbb 370,422,546
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "192d16cdb7fc7bebccc0a2953ab83419af9267aa",
+  "prompts": {},
+  "sessions": {
+    "s_ab0620b68405ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0dff3-7f64-7290-a8e3-09d00ed7839b",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
