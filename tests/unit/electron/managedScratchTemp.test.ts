@@ -52,6 +52,15 @@ describe('managed scratch temp cleanup', () => {
         });
     });
 
+    it('creates a missing scratch root before creating a managed directory', async () => {
+        const rootPath = join(mocks.appTempDir, 'namespace');
+
+        const scratchPath = await createManagedScratchTempDir('native-command-', rootPath);
+
+        expect(existsSync(scratchPath)).toBe(true);
+        expect(existsSync(rootPath)).toBe(true);
+    });
+
     it('preserves live owners and sweeps only stale dead marked managed prefixes', async () => {
         const liveMarkedPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
         const marker = JSON.parse(await readFile(join(liveMarkedPath, '.evb-managed-scratch.json'), 'utf8')) as {

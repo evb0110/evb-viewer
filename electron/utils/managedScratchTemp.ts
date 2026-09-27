@@ -1,5 +1,6 @@
 import {
     lstat,
+    mkdir,
     mkdtemp,
     readFile,
     readdir,
@@ -103,6 +104,11 @@ export async function createManagedScratchTempDir(
     prefix: TManagedScratchPrefix,
     rootPath: string,
 ) {
+    await mkdir(rootPath, {recursive: true});
+    const rootStat = await lstat(rootPath);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        throw new Error(`Managed scratch root is not a directory: ${rootPath}`);
+    }
     const tempDir = await mkdtemp(join(rootPath, prefix));
     try {
         await writeFile(join(tempDir, MANAGED_SCRATCH_MARKER_FILE), `${JSON.stringify({
