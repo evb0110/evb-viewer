@@ -200,7 +200,7 @@ import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import CombinePdfFileList from '@app/components/combine/CombinePdfFileList.vue';
-import type { ICombineFile } from '@app/modules/combine/combinePdfTypes';
+import type { ICombineFile } from '@app/modules/combine/combineFile';
 import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
 import {useCombinePdfOperation} from '@app/modules/combine/useCombinePdfOperation';
 import {getCombinePdfCapabilities} from '@app/services/pdf/combinePdfFiles';

@@ -1,7 +1,7 @@
 import type { IpcRenderer } from 'electron';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
-export type TPreloadLogLevel = 'debug' | 'info' | 'warn' | 'error';
+type TPreloadLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type TTracePreload = (stage: string, details?: Record<string, unknown>) => void;
 export type TForwardPreloadLogToMain = (

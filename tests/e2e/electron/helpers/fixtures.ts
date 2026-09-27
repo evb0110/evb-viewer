@@ -96,13 +96,6 @@ const GENERATED_DJVU_FIXTURE_FILENAME = [
     `${GENERATED_DJVU_FIXTURE_DPI}dpi.djvu`,
 ].join('-');
 
-/**
- * The resolution the scanned fixtures draw their page rasters at: 1224x1584 px
- * on Letter. Callers that need every analysis stage to land on one pixel grid
- * pass their own DPI instead.
- */
-const SCANNED_FIXTURE_BASE_DPI = 144;
-
 export interface IPdfAnnotationSummary {
     total: number;
     bySubtype: Record<string, number>;
@@ -1412,85 +1405,7 @@ export async function createMixedSizeTextFixturePdf(filename: string) {
 }
 
 
-export async function createSmallCanvasScannedFixturePdf(
-    filename: string,
-    widthPoints: number,
-    heightPoints: number,
-    rasterDpi = SCANNED_FIXTURE_BASE_DPI,
-) {
-    ensureFixtureDir();
-    const filePath = join(getFixtureDir(), filename);
-    const widthPx = Math.round(widthPoints / 72 * rasterDpi);
-    const heightPx = Math.round(heightPoints / 72 * rasterDpi);
-    const cacheKey = createHash('sha256')
-        .update(`small-canvas-scanned-v1:${widthPoints}:${heightPoints}:${rasterDpi}`)
-        .digest('hex');
-    const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
-    if (existsSync(cachePath)) {
-        copyFileSync(cachePath, filePath);
-        return filePath;
-    }
-    const doc = await PDFDocument.create();
-    const images = await Promise.all([
-        {
-            insetXPx: Math.round(widthPx * 0.12),
-            insetYPx: Math.round(heightPx * 0.14),
-            lines: 6,
-        },
-        {
-            insetXPx: Math.round(widthPx * 0.2),
-            insetYPx: Math.round(heightPx * 0.22),
-            lines: 4,
-        },
-    ].map(async ink => doc.embedJpg(drawScannedPageJpeg(widthPx, heightPx, {
-        ...ink,
-        fontPx: Math.max(8, Math.round(heightPx * 0.05)),
-        linePitchPx: Math.max(10, Math.round(heightPx * 0.08)),
-        text: 'Scanned body text',
-    }, 1))));
-    for (const image of images) {
-        const page = doc.addPage([
-            widthPoints,
-            heightPoints,
-        ]);
-        page.drawImage(image, {
-            x: 0,
-            y: 0,
-            width: widthPoints,
-            height: heightPoints,
-        });
-    }
-    const bytes = await doc.save();
-    mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
-    writeFileSync(cachePath, bytes);
-    copyFileSync(cachePath, filePath);
-    return filePath;
-}
 
-function drawScannedPageJpeg(widthPx: number, heightPx: number, ink: {
-    insetXPx: number;
-    insetYPx: number;
-    lines: number;
-    fontPx?: number;
-    linePitchPx?: number;
-    text?: string;
-}, rasterScale: number) {
-    const canvas = createCanvas(Math.round(widthPx * rasterScale), Math.round(heightPx * rasterScale));
-    const context = canvas.getContext('2d');
-    context.scale(rasterScale, rasterScale);
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, widthPx, heightPx);
-    context.fillStyle = '#1a1a1a';
-    context.font = `${String(ink.fontPx ?? 32)}px serif`;
-    for (let line = 0; line < ink.lines; line += 1) {
-        context.fillText(
-            ink.text ?? 'Scanned body text measured by the content detector',
-            ink.insetXPx,
-            ink.insetYPx + (line * (ink.linePitchPx ?? 46)),
-        );
-    }
-    return canvas.toBuffer('image/jpeg', 0.85);
-}
 
 export async function createLargeScannedFixturePdf(
     filename: string,

@@ -60,7 +60,7 @@ class IpcArgumentValidationError extends Error {
     }
 }
 
-export interface IIpcInvokeArgumentValidationPolicy {noArgumentChannels?: ReadonlySet<string>;}
+interface IIpcInvokeArgumentValidationPolicy {noArgumentChannels?: ReadonlySet<string>;}
 
 export interface IValidatedIpcMainRegistrarOptions {
     allowedChannels?: ReadonlySet<string>;

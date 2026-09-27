@@ -1,4 +1,4 @@
-export type TAssistantCodeTokenKind = 'plain' | 'comment' | 'keyword' | 'literal' | 'number' | 'operator';
+type TAssistantCodeTokenKind = 'plain' | 'comment' | 'keyword' | 'literal' | 'number' | 'operator';
 
 export interface IAssistantCodeToken {
     kind: TAssistantCodeTokenKind;

@@ -16,7 +16,7 @@ const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
  * `annotationId` names the subject the tolerated violation must be about; a
  * violation of the same id about anything else is a different defect.
  */
-export interface IViewerInvariantException {
+interface IViewerInvariantException {
     annotationId?: string;
     id: TViewerInvariantId;
     reason: string;
@@ -53,7 +53,7 @@ export interface IAssertViewerInvariantsOptions {
     settleTimeoutMs?: number;
 }
 
-export interface IViewerRequiredIdentities {
+interface IViewerRequiredIdentities {
     /** Overlays that must be mounted. Their pages must be mounted too. */
     annotationIds?: readonly string[];
     /** Annotations whose note window must still be open. */
@@ -231,9 +231,3 @@ export async function readViewerInvariantReport(
 }
 
 /** Starts a new two-observation sequence, for a test that resets the viewer. */
-export async function resetViewerInvariantObservations(page: Page) {
-    await evaluateInPage(page, () => {
-        (window as Window & {__evbViewerInvariants?: {resetMemory: () => void}})
-            .__evbViewerInvariants?.resetMemory();
-    });
-}

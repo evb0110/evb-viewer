@@ -78,7 +78,7 @@ export const createdTextBox: ITextBoxEntity = {
     color: '#111827',
 };
 
-export function createInteractionMethods(
+function createInteractionMethods(
     select: IAnnotationEditorSurface['select'],
     register?: IAnnotationEditorSurface['registerTextBoxDraftCommitter'],
 ) {

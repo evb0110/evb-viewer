@@ -129,7 +129,7 @@ export class LifecycleSender extends EventEmitter {
     }
 }
 
-export function isScanCleanupDetectionSubscriber(sender: LifecycleSender): sender is LifecycleSender & IScanCleanupDetectionSubscriber {
+function isScanCleanupDetectionSubscriber(sender: LifecycleSender): sender is LifecycleSender & IScanCleanupDetectionSubscriber {
     return typeof sender.id === 'number'
         && typeof sender.isDestroyed === 'function'
         && typeof sender.send === 'function'
@@ -164,7 +164,7 @@ export function previewOf(
     return pending;
 }
 
-export async function createScanCleanupPreviewTestDirectory() {
+async function createScanCleanupPreviewTestDirectory() {
     return mkdtemp(join(tmpdir(), 'scan-cleanup-preview-test-'));
 }
 

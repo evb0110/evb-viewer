@@ -20,7 +20,7 @@ import {spawnSync} from 'node:child_process';
 /** @typedef {{path: string, status: string}} INameStatusEntry */
 /** @typedef {(path: string) => string[]} TReadAddedLines */
 
-export const ADDS_CHECKS_TRAILER = 'Adds-Checks';
+const ADDS_CHECKS_TRAILER = 'Adds-Checks';
 
 const TRAILER_PATTERN = /^Adds-Checks:[ \t]*(\S.*)$/imu;
 
@@ -293,7 +293,7 @@ export function findStagedAddedChecks(cwd) {
 }
 
 /** @param {string} commit @param {string} cwd @returns {string[]} */
-export function findCommitAddedChecks(commit, cwd) {
+function findCommitAddedChecks(commit, cwd) {
     const names = git([
         'diff-tree',
         '--no-commit-id',

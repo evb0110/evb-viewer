@@ -10,7 +10,7 @@ import {
     SCANNED_FIXTURE_MARKER_Y,
 } from '@tests/e2e/electron/helpers/fixtures';
 
-export interface IPdfVirtualPageSnapshot {
+interface IPdfVirtualPageSnapshot {
     canvasConnected: boolean;
     canvasHeight: number;
     canvasWidth: number;

@@ -6,7 +6,7 @@ import {
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 
-export function createWorkspaceAutomationStateSnapshot(
+function createWorkspaceAutomationStateSnapshot(
     overrides: Partial<IWorkspaceAutomationStateSnapshot> = {},
 ): IWorkspaceAutomationStateSnapshot {
     return {
@@ -57,7 +57,7 @@ export interface IKeyboardEventFixtureOptions {
     stopImmediatePropagation?: () => void;
 }
 
-export interface IKeyboardEventTargetFixture {
+interface IKeyboardEventTargetFixture {
     closest?: (selector: string) => unknown;
     isContentEditable?: boolean;
     nodeName?: string;

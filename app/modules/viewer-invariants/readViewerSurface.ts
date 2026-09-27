@@ -54,7 +54,7 @@ function toRect(rect: DOMRect): IViewerRect {
  * leaves the rect alone, because a shape this function cannot resolve must not
  * silently shrink the observation.
  */
-export function resolvePaintedRect(rect: IViewerRect, clipPath: string | undefined): IViewerRect {
+function resolvePaintedRect(rect: IViewerRect, clipPath: string | undefined): IViewerRect {
     const inset = /^inset\(([^)]*)\)$/u.exec((clipPath ?? '').trim());
     if (!inset) {
         return rect;

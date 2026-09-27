@@ -19,7 +19,7 @@ import {
  * `HH:MM:SS.mmm LEVEL proc/scope message key=value …`.
  */
 
-export const TERMINAL_LOG_LEVEL_ENV = 'EVB_LOG_LEVEL';
+const TERMINAL_LOG_LEVEL_ENV = 'EVB_LOG_LEVEL';
 const TERMINAL_MAX_DATA_CHARS = 600;
 
 export function resolveTerminalLogLevel(env: NodeJS.ProcessEnv = process.env): TLogLevel {
@@ -411,7 +411,7 @@ const NUXT_BUILD_NOISE_PATTERNS: readonly RegExp[] = [
     /^> /u,
 ];
 
-export function classifyNuxtOutputBlock(lines: readonly string[]): ILogRecord | null {
+function classifyNuxtOutputBlock(lines: readonly string[]): ILogRecord | null {
     const [
         rawHeader = '',
         ...detailLines

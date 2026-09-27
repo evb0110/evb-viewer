@@ -9,7 +9,7 @@ import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 // surface, or a renderer stack in the console. Unhandled rejections are the
 // silent form of the same defect, so they are collected in the page as well.
 
-export interface IVisibleErrorSurface {
+interface IVisibleErrorSurface {
     selector: string;
     text: string;
 }

@@ -50,7 +50,7 @@ export interface IWorkspaceExposeProbeWindow {
     __evbTestApi?: IEvbTestApi;
 }
 
-export interface IWorkspaceExposeDebugState {
+interface IWorkspaceExposeDebugState {
     annotationStates: unknown[];
     componentCount: number;
     componentSamples: Array<{

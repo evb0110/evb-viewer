@@ -25,7 +25,7 @@ import {
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import * as v from 'valibot';
 
-export type TDjvuArtifactRangeStatus = 'pending' | 'running' | 'verified' | 'failed';
+
 
 const djvuArtifactRangeSchema = v.pipe(v.object({
     startPage: v.number(),
@@ -51,7 +51,7 @@ const djvuArtifactRangeSchema = v.pipe(v.object({
     ...(typeof range.accountedSize === 'number' && Number.isSafeInteger(range.accountedSize) && range.accountedSize > 0 ? {accountedSize: range.accountedSize} : {}),
     ...(typeof range.error === 'string' ? {error: range.error} : {}),
 })));
-export type IDjvuArtifactRange = v.InferOutput<typeof djvuArtifactRangeSchema>;
+type IDjvuArtifactRange = v.InferOutput<typeof djvuArtifactRangeSchema>;
 type TDjvuArtifactRangeUpdate = {
     [TKey in keyof IDjvuArtifactRange]?: IDjvuArtifactRange[TKey] | undefined;
 };
@@ -89,7 +89,7 @@ export interface IDjvuArtifactJob {
     ): Promise<void>;
 }
 
-export interface IDjvuArtifactVerification {
+interface IDjvuArtifactVerification {
     path: string;
     size: number;
     sha256: string;
@@ -280,7 +280,7 @@ export async function assertDjvuSourceIdentity(
     }
 }
 
-export async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal) {
+async function captureDjvuSourceIdentity(sourcePath: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
     const sourceBeforeHash = await stat(sourcePath);
     const sourceSha256 = await sha256File(sourcePath, signal);

@@ -121,7 +121,7 @@ function hasLanguageScript(text: string, languages: readonly string[] | undefine
  * it only to EVB-owned OCR, so native authored text is never replaced by a
  * heuristic.
  */
-export function isLikelyUsableOcrText(
+function isLikelyUsableOcrText(
     text: string,
     languages?: readonly string[],
 ) {

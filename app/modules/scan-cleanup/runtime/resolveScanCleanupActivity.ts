@@ -16,9 +16,9 @@ export const SCAN_CLEANUP_ACTIVITY_PHASES = [
     'clean',
     'finish',
 ] as const;
-export type TScanCleanupActivityPhase = typeof SCAN_CLEANUP_ACTIVITY_PHASES[number];
+type TScanCleanupActivityPhase = typeof SCAN_CLEANUP_ACTIVITY_PHASES[number];
 
-export const SCAN_CLEANUP_ACTIVITY_STEPS = [
+const SCAN_CLEANUP_ACTIVITY_STEPS = [
     {
         id: 'read',
         phase: 'analyze',
@@ -58,7 +58,7 @@ export type TScanCleanupActivityStepState = 'done' | 'active' | 'waiting';
  * The sentence for what is happening right now. Analysis has its own
  * activities; a run reports its job stage directly.
  */
-export type TScanCleanupActivityDetail =
+type TScanCleanupActivityDetail =
     | 'queued'
     | 'read'
     | 'detect'
@@ -73,7 +73,7 @@ export interface IScanCleanupActivityCount {
     total?: number;
 }
 
-export interface IScanCleanupActivityStepView {
+interface IScanCleanupActivityStepView {
     id: TScanCleanupActivityStep;
     phase: TScanCleanupActivityPhase;
     state: TScanCleanupActivityStepState;

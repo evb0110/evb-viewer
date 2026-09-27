@@ -1,19 +1,19 @@
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 
-export interface IDjvuPdfBuildTask {
+interface IDjvuPdfBuildTask {
     type: 'buildPdf';
     imagePaths: string[];
     dpi: number;
 }
 
-export interface IDjvuPdfEstimateTask {
+interface IDjvuPdfEstimateTask {
     type: 'estimatePdfSize';
     imagePath: string;
     dpi: number;
 }
 
-export interface IDjvuPdfBookmarkTask {
+interface IDjvuPdfBookmarkTask {
     type: 'embedBookmarksInFile';
     inputPdfPath: string;
     outputPdfPath: string;
@@ -32,13 +32,13 @@ export interface IDjvuPdfWorkerProgressMessage {
     total: number;
 }
 
-export interface IDjvuPdfWorkerSuccessMessage {
+interface IDjvuPdfWorkerSuccessMessage {
     type: 'result';
     ok: true;
     data: Uint8Array | ArrayBuffer | number;
 }
 
-export interface IDjvuPdfWorkerErrorMessage {
+interface IDjvuPdfWorkerErrorMessage {
     type: 'result';
     ok: false;
     error: string;

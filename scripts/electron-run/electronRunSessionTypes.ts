@@ -6,9 +6,9 @@ import type {
     Page,
 } from 'puppeteer-core';
 
-export type TConsoleMessageType = ReturnType<ConsoleMessage['type']>;
+type TConsoleMessageType = ReturnType<ConsoleMessage['type']>;
 
-export interface IConsoleMessage {
+interface IConsoleMessage {
     type: TConsoleMessageType;
     text: string;
     timestamp: number;

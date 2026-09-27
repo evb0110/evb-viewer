@@ -1,7 +1,7 @@
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 
 // fallow-ignore-next-line unused-export
-export const IPC_MAX_BINARY_PAYLOAD_BYTES = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES;
+const IPC_MAX_BINARY_PAYLOAD_BYTES = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES;
 const IPC_MAX_COLLECTION_ITEMS = 100_000;
 
 export function decodeBoundedArray(

@@ -1,9 +1,9 @@
 const WORD_PATTERN = /[\p{L}\p{N}](?:[\p{L}\p{M}\p{N}]|[-./](?=[\p{L}\p{M}\p{N}]))*/gu;
 
-export const FAITHFUL_NORMALIZATION = 'NFC';
-export const COMPATIBILITY_NORMALIZATION = 'NFKC + lowercase(und) + Unicode dash folding';
-export const OCR_WHITESPACE_POLICY = 'collapse Unicode whitespace runs to ASCII spaces and trim the ends';
-export const OCR_WORD_TOKENIZER = 'letters, marks and numbers, with internal hyphen, slash or dot separators';
+const FAITHFUL_NORMALIZATION = 'NFC';
+const COMPATIBILITY_NORMALIZATION = 'NFKC + lowercase(und) + Unicode dash folding';
+const OCR_WHITESPACE_POLICY = 'collapse Unicode whitespace runs to ASCII spaces and trim the ends';
+const OCR_WORD_TOKENIZER = 'letters, marks and numbers, with internal hyphen, slash or dot separators';
 const MARK_PATTERN = /\p{M}/gu;
 
 function normalizeWhitespace(value) {

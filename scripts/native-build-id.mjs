@@ -6,7 +6,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-export const NATIVE_TOOL_CRATES = [
+const NATIVE_TOOL_CRATES = [
     'pdf-image-combine',
     'pdf-page-ops',
     'pdf-search',

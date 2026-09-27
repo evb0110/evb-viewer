@@ -27,13 +27,13 @@ const VIEWPORT_SELECTOR = '[data-document-viewer-chassis-viewport], #pdf-viewer'
 const CONTROL_DESCRIPTOR_LIMIT = 48;
 
 /** The presentation modes the viewer publishes on its own page track. */
-export interface IViewerActionViewerState {
+interface IViewerActionViewerState {
     continuousScroll: boolean | null;
     viewMode: string | null;
     zoomMode: string | null;
 }
 
-export interface IViewerPoint {
+interface IViewerPoint {
     x: number;
     y: number;
 }
@@ -46,7 +46,7 @@ interface IViewerActionBase {
 }
 
 /** One continuous wheel gesture: many packets, one entry. */
-export interface IViewerWheelGestureAction extends IViewerActionBase {
+interface IViewerWheelGestureAction extends IViewerActionBase {
     /** True for a pinch or a ctrl-wheel zoom rather than a scroll. */
     ctrlKey: boolean;
     endedAt: number;
@@ -59,7 +59,7 @@ export interface IViewerWheelGestureAction extends IViewerActionBase {
     type: 'wheel-gesture';
 }
 
-export interface IViewerPointerAction extends IViewerActionBase {
+interface IViewerPointerAction extends IViewerActionBase {
     button: number;
     /** Fractions of the target control's box, so it survives a resize. */
     pointInTarget: IViewerPoint | null;
@@ -69,7 +69,7 @@ export interface IViewerPointerAction extends IViewerActionBase {
 }
 
 /** A navigation key, a shortcut or a function key. Never a typed character. */
-export interface IViewerKeyAction extends IViewerActionBase {
+interface IViewerKeyAction extends IViewerActionBase {
     altKey: boolean;
     code: string;
     ctrlKey: boolean;
@@ -79,7 +79,7 @@ export interface IViewerKeyAction extends IViewerActionBase {
 }
 
 /** That typing happened and how much of it. Never what was typed. */
-export interface IViewerTypingAction extends IViewerActionBase {
+interface IViewerTypingAction extends IViewerActionBase {
     endedAt: number;
     keystrokes: number;
     type: 'typing';

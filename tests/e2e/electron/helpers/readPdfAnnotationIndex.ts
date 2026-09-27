@@ -9,7 +9,7 @@ import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
-export interface IPdfAnnotationObjectRef {
+interface IPdfAnnotationObjectRef {
     objectNumber: number;
     generationNumber: number;
 }

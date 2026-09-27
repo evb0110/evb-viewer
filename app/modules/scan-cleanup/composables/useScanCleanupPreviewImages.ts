@@ -10,7 +10,7 @@ export interface IScanCleanupPreviewPresentationPin {
     transitionKey: string;
 }
 
-export type TScanCleanupPreviewPresentationAction = 'commit' | 'coalesce' | 'reject';
+type TScanCleanupPreviewPresentationAction = 'commit' | 'coalesce' | 'reject';
 
 export interface IScanCleanupPreviewPresentationDecision {
     action: TScanCleanupPreviewPresentationAction;
@@ -67,7 +67,7 @@ export function commitScanCleanupPreviewPresentationSettle(
     } : current;
 }
 
-export function resetScanCleanupPreviewPresentationSettle(
+function resetScanCleanupPreviewPresentationSettle(
     current: IScanCleanupPreviewPresentationPin,
 ): IScanCleanupPreviewPresentationPin {
     return current.settledResultState === 'loading' ? {

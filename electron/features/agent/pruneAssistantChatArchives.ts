@@ -3,11 +3,6 @@ import {
     rm,
     stat,
 } from 'fs/promises';
-import {
-    readdirSync,
-    statSync,
-    unlinkSync,
-} from 'fs';
 import {join} from 'path';
 import {isErrnoException} from '@contracts/runtimeGuards';
 
@@ -60,49 +55,6 @@ export async function pruneAssistantChatArchives(
             } catch {
                 // Error reporting cannot stop the remaining housekeeping work.
             }
-        }
-    }
-}
-
-export function pruneAssistantChatArchivesSync(
-    archiveDir: string,
-    maxArchives: number,
-    onError: (message: string, error: unknown) => void,
-) {
-    let entries: Array<{
-        filePath: string;
-        modifiedAtMs: number;
-    }> = [];
-    try {
-        for (const entry of readdirSync(archiveDir, {withFileTypes: true})) {
-            if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
-                continue;
-            }
-            const filePath = join(archiveDir, entry.name);
-            try {
-                entries.push({
-                    filePath,
-                    modifiedAtMs: statSync(filePath).mtimeMs,
-                });
-            } catch (error) {
-                if (isErrnoException(error) && error.code === 'ENOENT') {
-                    continue;
-                }
-                throw error;
-            }
-        }
-    } catch (error) {
-        if (isErrnoException(error) && error.code === 'ENOENT') {
-            return;
-        }
-        throw error;
-    }
-    entries = entries.sort((left, right) => left.modifiedAtMs - right.modifiedAtMs);
-    for (const entry of entries.slice(0, Math.max(0, entries.length - maxArchives))) {
-        try {
-            unlinkSync(entry.filePath);
-        } catch (error) {
-            onError(`Failed to prune archived assistant chat session "${entry.filePath}"`, error);
         }
     }
 }

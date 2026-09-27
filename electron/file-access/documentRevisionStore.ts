@@ -277,7 +277,7 @@ export async function initializeFreshWorkingCopyRevision(
 }
 
 /** Promotes a fresh revision to durable storage before any mutation commits. */
-export async function awaitWorkingCopyRevisionDurability(workingCopyPath: string) {
+async function awaitWorkingCopyRevisionDurability(workingCopyPath: string) {
     const queueKey = getRevisionQueueKey(workingCopyPath);
     const entry = provisionalWorkingCopyRevisions.get(queueKey);
     if (!entry) {

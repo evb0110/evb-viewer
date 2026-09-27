@@ -106,9 +106,7 @@ export function normalizeRepositoryRelativePath(filePath) {
 }
 
 /** @param {string} filePath */
-export function isTopLevelDocsPath(filePath) {
-    return normalizeRepositoryRelativePath(filePath)[0] === 'docs';
-}
+
 
 /**
  * Returns the canonical instruction file name a basename spells in any ASCII

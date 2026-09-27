@@ -1,4 +1,4 @@
-export type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
+type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 
 export interface ICombineFile {
     id: string;

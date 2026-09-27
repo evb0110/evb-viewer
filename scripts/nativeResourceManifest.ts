@@ -1,13 +1,13 @@
 import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
 import {TESSERACT_PDF_FONT_FILE_NAME} from '@scripts/tesseractPdfFont';
 
-export const NATIVE_RESOURCE_PLATFORMS = [
+const NATIVE_RESOURCE_PLATFORMS = [
     'darwin',
     'linux',
     'win32',
 ] as const;
 
-export const NATIVE_RESOURCE_ARCHES = [
+const NATIVE_RESOURCE_ARCHES = [
     'x64',
     'arm64',
 ] as const;
@@ -21,7 +21,7 @@ export const ELECTRON_BUILDER_PLATFORM_KEYS = {
 export type TNativeResourcePlatform = typeof NATIVE_RESOURCE_PLATFORMS[number];
 export type TNativeResourceArch = typeof NATIVE_RESOURCE_ARCHES[number];
 export type TNativeResourcePlatformArch = `${TNativeResourcePlatform}-${TNativeResourceArch}`;
-export type TNativeResourcePathType = 'directory' | 'file';
+type TNativeResourcePathType = 'directory' | 'file';
 
 export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'tesseract',
@@ -36,7 +36,7 @@ export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
 ] as const;
 
 export type TNativeToolResourceFamilyId = typeof NATIVE_TOOL_RESOURCE_FAMILY_IDS[number];
-export type TGeneratedNativeToolResourceFamilyId = Extract<
+type TGeneratedNativeToolResourceFamilyId = Extract<
     TNativeToolResourceFamilyId,
     'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search' | 'scan-cleanup'
 >;
@@ -57,7 +57,7 @@ export interface INativeToolResourceFamily {
     stagedRootSegments: readonly string[];
 }
 
-export interface IPackagedNativeResourceEntry {
+interface IPackagedNativeResourceEntry {
     id: string;
     label: string;
     pathSegments: readonly string[];
@@ -334,7 +334,7 @@ export function isNativeResourceArch(value: string): value is TNativeResourceArc
     return (NATIVE_RESOURCE_ARCHES as readonly string[]).includes(value);
 }
 
-export function getNativeExecutableSuffix(platform: TNativeResourcePlatform) {
+function getNativeExecutableSuffix(platform: TNativeResourcePlatform) {
     return platform === 'win32' ? '.exe' : '';
 }
 

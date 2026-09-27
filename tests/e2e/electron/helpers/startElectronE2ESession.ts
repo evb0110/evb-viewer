@@ -74,13 +74,13 @@ export interface IElectronE2ESession {
     stop: (options?: IElectronE2ESessionStopOptions) => Promise<void>;
 }
 
-export interface IElectronE2EFailureArtifacts {
+interface IElectronE2EFailureArtifacts {
     diagnosticsPath: string;
     screenshotError: string | null;
     screenshotPath: string | null;
 }
 
-export interface IElectronE2ESessionStopOptions {
+interface IElectronE2ESessionStopOptions {
     preserveArtifacts?: boolean;
     crashElectronBeforeStop?: boolean;
 }

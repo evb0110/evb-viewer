@@ -137,7 +137,7 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
         name: 'djvu',
         feature: DJVU_PLATFORM_FEATURE,
         create: async () => {
-            const {prepareDjvuMainBindings} =
+            const {default: prepareDjvuMainBindings} =
                 await import('@electron/features/djvu/mainBindings');
             return prepareDjvuMainBindings();
         },

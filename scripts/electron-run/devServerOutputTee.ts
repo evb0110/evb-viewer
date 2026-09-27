@@ -31,7 +31,7 @@ import {
 export const DEV_OUTPUT_TEE_DIR_ENV = 'EVB_DEV_OUTPUT_TEE_DIR';
 export const DEV_OUTPUT_TEE_DISABLED_ENV = 'EVB_DEV_OUTPUT_TEE_DISABLED';
 export const DEV_OUTPUT_TEE_STABLE_LOG_DISABLED_ENV = 'EVB_DEV_OUTPUT_TEE_STABLE_LOG_DISABLED';
-export const devServerOutputTeeBaseDir = join(projectRoot, '.devkit', 'scratch', 'dev-server-logs');
+const devServerOutputTeeBaseDir = join(projectRoot, '.devkit', 'scratch', 'dev-server-logs');
 export const DEV_OUTPUT_TEE_TRUNCATION_MARKER = '\n[EVB dev output truncated at file size limit]\n';
 
 type TOutputStreamName = 'stdout' | 'stderr';
@@ -50,7 +50,7 @@ interface ICreateDevServerOutputTeeOptions {
     retentionPolicy?: Partial<IDevServerOutputRetentionPolicy>;
 }
 
-export interface IDevServerLogManifest {
+interface IDevServerLogManifest {
     readonly schemaVersion: 1;
     readonly createdAt: string;
     readonly sessionName: string;
@@ -79,7 +79,7 @@ export interface IDevServerOutputTee {
  * and Nuxt output use this: the launcher prints a formatted line for it, and
  * that line is what the session log should contain.
  */
-export interface ITeeWriteOptions {readonly aggregate?: boolean;}
+interface ITeeWriteOptions {readonly aggregate?: boolean;}
 
 let activeTee: DevServerOutputTee | null = null;
 const openTeeRunDirs = new Set<string>();

@@ -103,7 +103,7 @@ const BYTES_PER_RGBA_PIXEL = 4;
 const MAX_RENDERED_PIXELS = 45_000_000;
 const HIGH_DPI_THRESHOLD = 450;
 
-export interface IOcrJobProgress {
+interface IOcrJobProgress {
     currentPage: number;
     processedCount: number;
     totalPages: number;

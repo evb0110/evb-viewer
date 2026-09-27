@@ -13,7 +13,7 @@ function isOcrPageSegmentationMode(value: unknown): value is number {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 13;
 }
 
-export function normalizeSelectedOcrLanguages(selectedLanguages: string[]) {
+function normalizeSelectedOcrLanguages(selectedLanguages: string[]) {
     return Array.from(new Set(selectedLanguages));
 }
 

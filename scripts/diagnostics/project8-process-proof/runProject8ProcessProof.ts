@@ -1,4 +1,4 @@
-import {runProject8ProcessProof} from '@scripts/diagnostics/project8-process-proof/project8ProcessProofHarness';
+import runProject8ProcessProof from '@scripts/diagnostics/project8-process-proof/project8ProcessProofHarness';
 
 try {
     const evidence = await runProject8ProcessProof();

@@ -7,7 +7,7 @@ import { runDetached } from '@electron/utils/runDetached';
 
 export type TMainOperationKind = 'critical-write' | 'abortable-work' | 'resource-cleanup';
 export type TMainOperationOwnerEndEvent = 'destroyed' | 'renderProcessGone' | 'mainFrameNavigation';
-export type TMainOperationOwnerEndAction = 'cancel' | 'detach';
+type TMainOperationOwnerEndAction = 'cancel' | 'detach';
 export interface IMainOperationOwnerLifecyclePolicy {
     destroyed: TMainOperationOwnerEndAction;
     renderProcessGone?: TMainOperationOwnerEndAction;
@@ -32,7 +32,7 @@ export interface IUserCancelMainOperationsResult {
 }
 
 /** The abort reason of an operation the user asked to stop. */
-export class MainOperationUserCanceledError extends Error {
+class MainOperationUserCanceledError extends Error {
     constructor(message = 'Canceled by the user') {
         super(message);
         this.name = 'MainOperationUserCanceledError';

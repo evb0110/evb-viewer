@@ -18,8 +18,8 @@ export interface IPdfCanvasFidelityMetrics {
     width: number;
 }
 
-export const PDF_CANVAS_INK_RATIO_MIN = 0.01;
-export const PDF_CANVAS_INK_RATIO_MAX = 0.2;
+const PDF_CANVAS_INK_RATIO_MIN = 0.01;
+const PDF_CANVAS_INK_RATIO_MAX = 0.2;
 
 export function isPdfCanvasInkCoverageSane(metrics: IPdfCanvasFidelityMetrics) {
     return metrics.inkPixelRatio >= PDF_CANVAS_INK_RATIO_MIN

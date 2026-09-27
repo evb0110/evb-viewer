@@ -134,7 +134,7 @@ function getDescendantPids(rootPid: number) {
     return collectDescendantPidsUnix(rootPid);
 }
 
-export function getElectronAppUrl() {
+function getElectronAppUrl() {
     return `http://127.0.0.1:${getNuxtPort()}${ELECTRON_SERVER_PATH}`;
 }
 

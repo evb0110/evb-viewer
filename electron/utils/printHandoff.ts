@@ -598,7 +598,7 @@ function lockPrintWindowTitle(printWindow: BrowserWindow, documentTitle: string)
     };
 }
 
-export function isCapturedPrintSurfaceBitmap(bitmap: Buffer, width: number, height: number) {
+function isCapturedPrintSurfaceBitmap(bitmap: Buffer, width: number, height: number) {
     const pixelCount = width * height;
     return Number.isSafeInteger(pixelCount) && pixelCount > 0 && bitmap.byteLength >= pixelCount * 4;
 }

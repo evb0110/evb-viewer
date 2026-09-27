@@ -23,7 +23,7 @@ import {requireDocumentRef} from '@contracts/documentRef';
  */
 
 /** `defer` holds the render open until the scenario fails it by hand. */
-export type TDocumentThumbnailRenderBehavior = 'defer' | 'fail' | 'succeed';
+type TDocumentThumbnailRenderBehavior = 'defer' | 'fail' | 'succeed';
 
 export interface IDocumentThumbnailSourceHarness {
     /** Per-page render outcome; absent pages succeed. */
@@ -42,7 +42,7 @@ export interface IDocumentThumbnailSourceHarness {
     source: IDocumentPageSource;
 }
 
-export interface IDocumentThumbnailRenderRequestRecord {
+interface IDocumentThumbnailRenderRequestRecord {
     pageNumber: number;
     widthPx: number;
 }

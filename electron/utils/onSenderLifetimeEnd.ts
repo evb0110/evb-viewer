@@ -1,6 +1,6 @@
 import type {WebContents} from 'electron';
 
-export type TSenderLifetimeEnd = 'destroyed' | 'render-process-gone' | 'main-frame-navigation';
+type TSenderLifetimeEnd = 'destroyed' | 'render-process-gone' | 'main-frame-navigation';
 
 export type TSenderLifetimeTarget = Pick<WebContents, 'on' | 'removeListener'>;
 

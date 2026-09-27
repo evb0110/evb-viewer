@@ -115,7 +115,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 const {resolveDjvuPreviewBrokerPriority} = await import('@electron/features/djvu/main/djvuOperations');
-const {prepareDjvuMainBindings} = await import('@electron/features/djvu/mainBindings');
+const {default: prepareDjvuMainBindings} = await import('@electron/features/djvu/mainBindings');
 const { configureMainJobBroker } = await import('@electron/resources/jobBroker');
 
 function registerDjvuIpcAdapter() {

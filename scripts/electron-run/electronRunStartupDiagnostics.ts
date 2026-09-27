@@ -140,7 +140,7 @@ function isPnpmProcess(command: string) {
     return /\bpnpm(?:\.cmd)?\b/i.test(command);
 }
 
-export function classifyProcessSnapshotRow(row: IProcessSnapshotRow, root = projectRoot) {
+function classifyProcessSnapshotRow(row: IProcessSnapshotRow, root = projectRoot) {
     const normalizedCommand = normalizePathForMatch(row.command);
     const normalizedRoot = normalizePathForMatch(root);
     return {

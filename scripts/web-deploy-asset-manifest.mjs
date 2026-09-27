@@ -2,7 +2,7 @@ import { REQUIRED_WEB_WASM_ASSETS } from './wasm-artifacts.mjs';
 
 export { REQUIRED_WEB_WASM_ASSETS };
 
-export const REQUIRED_WEB_FILE_ASSETS = [
+const REQUIRED_WEB_FILE_ASSETS = [
     { relativePath: 'pdf/pdf.worker.min.mjs' },
     { relativePath: 'pdf/wasm/openjpeg.wasm' },
     { relativePath: 'pdf/wasm/jbig2.wasm' },

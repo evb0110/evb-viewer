@@ -5,7 +5,7 @@ import {
 import { clampDpi } from '@electron/image/imageDpi';
 
 const IMAGE_EXPORT_MAX_PAGE_FILE_BYTES = 512 * 1024 * 1024;
-export const IMAGE_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
+const IMAGE_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
 const POINTS_PER_INCH = 72;
 const DEFAULT_EXPORT_RENDER_DPI = 300;
 const PPM_HEADER_AND_ROUNDING_RESERVE_BYTES = 64 * 1024;

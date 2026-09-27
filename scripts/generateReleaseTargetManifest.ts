@@ -13,7 +13,7 @@ const generatedRelativePath = 'scripts/release/generated-release-targets.cjs';
 
 export const PACKAGED_ENTRY_FIELD_SEPARATOR = '\u001f';
 
-export function createReleaseTargetManifest() {
+function createReleaseTargetManifest() {
     const families = getPackagedNativeToolFamilies();
     return {
         electronBuilderPlatformKeys: ELECTRON_BUILDER_PLATFORM_KEYS,

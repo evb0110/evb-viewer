@@ -17,7 +17,7 @@ export interface IEvbTestCommandResult<TResult = unknown> {
     value: TResult | null;
 }
 
-export interface IEvbTestWorkspaceSummary {
+interface IEvbTestWorkspaceSummary {
     automationStateKeys: string[];
     exposedKeys: string[];
     isActive: boolean;

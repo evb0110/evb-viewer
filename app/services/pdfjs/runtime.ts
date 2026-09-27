@@ -16,19 +16,7 @@ export function getOptionalString(
         : null;
 }
 
-export function getOptionalNumber(
-    value: unknown,
-    key: PropertyKey,
-) {
-    if (!isRecord(value)) {
-        return null;
-    }
 
-    const candidate = (value as Record<PropertyKey, unknown>)[key];
-    return typeof candidate === 'number' && Number.isFinite(candidate)
-        ? candidate
-        : null;
-}
 
 export function getOptionalArray(
     value: unknown,

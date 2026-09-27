@@ -4,7 +4,7 @@ export interface IProgressPumpTarget<TPayload> {
     send: (channel: string, payload: TPayload) => void;
 }
 
-export type TIpcProgressReplayMode<TPayload> =
+type TIpcProgressReplayMode<TPayload> =
     // Remove internal job retention when every job feature uses the main job registry.
     | {kind: 'internal'}
     | {

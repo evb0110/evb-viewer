@@ -64,7 +64,7 @@ export function isRendererReadinessError(error: unknown) {
         || getErrorMessage(error).includes('Renderer startup timed out');
 }
 
-export function isTransientPageContextError(error: unknown) {
+function isTransientPageContextError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
     }

@@ -59,7 +59,7 @@ function toSearchRegistryError(cause: unknown, kind: TMainJobErrorKind) {
     return toSearchIpcError(cause).errorEnvelope;
 }
 
-export function getSearchPdfPathKey(pdfPath: string) {
+function getSearchPdfPathKey(pdfPath: string) {
     return normalizePathForLookup(pdfPath) || pdfPath;
 }
 

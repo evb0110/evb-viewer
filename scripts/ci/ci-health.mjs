@@ -46,7 +46,7 @@ import {parseArgs} from 'node:util';
 // The workflow a commit is judged by: the one required verdict that branch
 // protection and the release cutter read. Nightly is deliberately absent: it
 // is not about a commit.
-export const TIER_WORKFLOWS = [{
+const TIER_WORKFLOWS = [{
     tier: 'required',
     workflow: 'ci.yml',
 }];
@@ -97,14 +97,14 @@ const NETWORK_FAILURE = /TLS handshake timeout|connection reset|i\/o timeout|EOF
 const NETWORK_ATTEMPTS = 4;
 
 /** @param {unknown} error @returns {string} */
-export function describeGhFailure(error) {
+function describeGhFailure(error) {
     const stderr = error && typeof error === 'object' && 'stderr' in error ? String(error.stderr ?? '') : '';
     const message = error instanceof Error ? error.message : String(error);
     return (stderr.trim() || message).split('\n')[0];
 }
 
 /** @param {unknown} error @returns {boolean} */
-export function isNetworkFailure(error) {
+function isNetworkFailure(error) {
     return NETWORK_FAILURE.test(describeGhFailure(error));
 }
 
@@ -268,7 +268,7 @@ function failureEvidence(runId, jobId) {
 }
 
 /** @param {IRun[]} runs */
-export function summarizeRuns(runs) {
+function summarizeRuns(runs) {
     const byConclusion = new Map();
     const bySha = new Map();
     for (const run of runs) {
@@ -302,7 +302,7 @@ export function summarizeRuns(runs) {
 }
 
 /** @param {{run: IRun, jobs: IJob[]}[]} inspected */
-export function summarizeJobs(inspected) {
+function summarizeJobs(inspected) {
     const failures = new Map();
     const durations = new Map();
     for (const {jobs} of inspected) {
@@ -372,7 +372,7 @@ export function summarizeJobs(inspected) {
 }
 
 /** @param {{run: IRun, jobs: IJob[]}[]} inspected @returns {IRawAttribution[]} */
-export function summarizeAttribution(inspected) {
+function summarizeAttribution(inspected) {
     const chronological = [...inspected].sort(compareInspectedRuns);
     const current = chronological[chronological.length - 1];
     if (!current) {
@@ -837,7 +837,7 @@ function percent(part, whole) {
 }
 
 /** @param {ReturnType<typeof summarizeRuns>} runs @param {ReturnType<typeof summarizeJobs>} jobs @param {{branch: string, days: number, workflow: string}} scope @param {IAttribution[]} [attribution] */
-export function formatReport(runs, jobs, scope, attribution = []) {
+function formatReport(runs, jobs, scope, attribution = []) {
     const lines = [`CI health: ${scope.workflow} push runs on ${scope.branch} since ${sinceDate(scope.days)}: ${runs.total} runs`];
     const conclusions = Object.entries(runs.byConclusion).map(([
         conclusion,

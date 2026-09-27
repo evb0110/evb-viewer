@@ -27,7 +27,7 @@ interface ILocaleDefinitionLike {
     file: string;
 }
 
-export interface ILocaleKeyAllowance {
+interface ILocaleKeyAllowance {
     extra?: readonly string[];
     missing?: readonly string[];
 }
@@ -37,7 +37,7 @@ type TLocaleKeyAllowlist = Readonly<Record<string, ILocaleKeyAllowance>>;
 
 // Locale schema deviations must be reviewed individually. Keep this empty unless a
 // deliberately staged rollout needs a short-lived, path-specific exception.
-export const LOCALE_KEY_ALLOWLIST = {} satisfies TLocaleKeyAllowlist;
+const LOCALE_KEY_ALLOWLIST = {} satisfies TLocaleKeyAllowlist;
 
 
 function collectLeafPaths(node: unknown, prefix = ''): string[] {

@@ -35,7 +35,7 @@ export async function assertOcrPdfSemanticOutput(pdfPath: string, expectedText: 
     return recognizedText;
 }
 
-export function assertOcrResultApplied(
+function assertOcrResultApplied(
     workingCopyRevision: {token: string},
     sourceDocumentRevisionToken: string,
 ) {

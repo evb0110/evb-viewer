@@ -3,7 +3,7 @@ import type {
     ShallowRef,
 } from 'vue';
 
-export interface IScanCleanupDragPoint {
+interface IScanCleanupDragPoint {
     x: number;
     y: number;
 }
@@ -13,7 +13,7 @@ export interface IScanCleanupDragRect extends IScanCleanupDragPoint {
     height: number;
 }
 
-export interface IScanCleanupDragSnapshot<TGeometry> {
+interface IScanCleanupDragSnapshot<TGeometry> {
     canonicalGeometry: DeepReadonly<TGeometry>;
     fitScale: number;
     pointerId: number;
@@ -34,7 +34,7 @@ interface IScanCleanupDragTransaction<TGeometry> {
     ) => TGeometry;
 }
 
-export interface IStartScanCleanupDragOptions<TGeometry> {
+interface IStartScanCleanupDragOptions<TGeometry> {
     canonicalGeometry: TGeometry;
     commit: IScanCleanupDragTransaction<TGeometry>['commit'];
     fitScale: number;

@@ -1475,9 +1475,3 @@ export async function shutdownDjvuConversions() {
 
     await Promise.allSettled(workerTerminations);
 }
-
-export async function clearDjvuJobsForTests() {
-    await djvuJobs.dispose();
-    activeNativeJobCancels.clear();
-    activeDjvuJobSettled.clear();
-}

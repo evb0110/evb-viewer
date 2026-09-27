@@ -16,9 +16,9 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 
-export type TProject8ProcessProofRole = 'worker' | 'native-parent' | 'native-descendant';
+type TProject8ProcessProofRole = 'worker' | 'native-parent' | 'native-descendant';
 
-export interface IProject8ProcessIdentity {
+interface IProject8ProcessIdentity {
     command: string;
     executable: string;
     fixtureRoot: string;
@@ -50,7 +50,7 @@ interface IProject8StartedMarker {
     token: string;
 }
 
-export interface IProject8ProcessProofEvidence {
+interface IProject8ProcessProofEvidence {
     descendant: IProject8ProcessIdentity;
     descendantExitedAfterProof: boolean;
     descendantProcessGroupGoneAfterProof: boolean;
@@ -189,7 +189,7 @@ function isTaskOwnedIdentity(
         && identity.command.includes(commandLine);
 }
 
-export function matchesProject8ProcessIdentity(
+function matchesProject8ProcessIdentity(
     actual: IProject8ProcessIdentity,
     expected: IProject8ProcessIdentity,
 ) {
@@ -382,7 +382,7 @@ async function cleanupFixture(
     });
 }
 
-export async function runProject8ProcessProof(): Promise<IProject8ProcessProofEvidence> {
+export default async function runProject8ProcessProof(): Promise<IProject8ProcessProofEvidence> {
     if (process.platform !== 'linux') {
         throw new Error('Project 8 process proof is a local Linux fixture');
     }

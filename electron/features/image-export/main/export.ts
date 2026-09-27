@@ -351,7 +351,7 @@ async function tryConvertRenderedPpmToPngNative(
     }
 }
 
-export async function convertRenderedPpmToPng(
+async function convertRenderedPpmToPng(
     sourcePath: string,
     signal?: AbortSignal,
     cancelGroup?: string,
@@ -447,7 +447,7 @@ async function moveFile(sourcePath: string, targetPath: string) {
     }
 }
 
-export interface IStagedFilePublication {
+interface IStagedFilePublication {
     targetPath: string;
     backupPath: string | null;
     targetIdentity: {

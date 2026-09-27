@@ -82,7 +82,7 @@ export const OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES = {
     vie: 'Vietnamese',
 } as const satisfies Record<TOcrLanguageCode, string>;
 
-export const OCR_LANGUAGE_NAME_KEYS = {
+const OCR_LANGUAGE_NAME_KEYS = {
     ara: 'ocr.languagePicker.names.ara',
     bul: 'ocr.languagePicker.names.bul',
     ces: 'ocr.languagePicker.names.ces',
@@ -252,12 +252,12 @@ export function shouldShowOcrLanguageSearch(languageCount: number) {
     return languageCount > 12;
 }
 
-export interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
+interface IOcrPopupCompletePayload extends IOcrSearchablePdfResult {
     sourceWorkingCopyPath: TDocumentRef;
     sourcePageToRestore: number;
 }
 
-export interface IOcrPopupPresenterContext {
+interface IOcrPopupPresenterContext {
     pdfDocument: MaybeRefOrGetter<IPdfDocument | null>;
     currentPage: MaybeRefOrGetter<number>;
     totalPages: MaybeRefOrGetter<number>;
@@ -267,7 +267,7 @@ export interface IOcrPopupPresenterContext {
     externalError: MaybeRefOrGetter<string | null | undefined>;
 }
 
-export interface IOcrPopupPresenterEvents {
+interface IOcrPopupPresenterEvents {
     onRunningChange: (value: boolean) => void;
     onOcrComplete: (payload: IOcrPopupCompletePayload) => void;
     onExportDocx: (selectedLanguages: string[]) => void;

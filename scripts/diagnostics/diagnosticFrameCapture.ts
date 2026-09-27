@@ -17,7 +17,7 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-export type TDiagnosticFrameCaptureMode = 'cdp-screencast' | 'screenshot-fallback';
+type TDiagnosticFrameCaptureMode = 'cdp-screencast' | 'screenshot-fallback';
 
 interface IDiagnosticFrameCaptureOptions {
     ffmpegCommand?: string;
@@ -43,14 +43,14 @@ interface IScreencastFrameEvent {
     sessionId: number;
 }
 
-export interface IDiagnosticFrameCaptureFrame {
+interface IDiagnosticFrameCaptureFrame {
     atMs: number;
     cdpTimestamp: number | null;
     index: number;
     path: string;
 }
 
-export interface IFfmpegCommandSpec {
+interface IFfmpegCommandSpec {
     args: string[];
     outputPath: string;
 }

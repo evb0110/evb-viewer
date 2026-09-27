@@ -20,10 +20,8 @@ import type {
     IOcrCancelResult,
     IOcrCompleteResult,
     IOcrErrorEnvelope,
-    IOcrJobProjectionState,
     IOcrProgress,
     IOcrSearchablePdfOptions,
-    TOcrJobProjectionPhase,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 import {
@@ -533,62 +531,6 @@ export function recoverOcrJobManager() {
 
 export function shutdownOcrJobManager() {
     return ocrJobs.dispose();
-}
-
-function toOcrJobPhase(phase: string | undefined): TOcrJobProjectionPhase {
-    return phase === 'queued'
-        || phase === 'recognizing'
-        || phase === 'applying'
-        || phase === 'cancel-requested'
-        || phase === 'preparing'
-        || phase === 'model-prep'
-        || phase === 'pdf-prep'
-        || phase === 'dpi-inspection'
-        || phase === 'page-size-probing'
-        || phase === 'processing'
-        || phase === 'merging'
-        || phase === 'indexing'
-        ? phase
-        : 'recognizing';
-}
-
-function projectOcrJob(snapshot: TOcrJobSnapshot): IOcrJobProjectionState {
-    const progress = snapshot.progress;
-    const percent = progress.phaseProgress
-        ?? (progress.totalPages > 0 ? (progress.processedCount / progress.totalPages) * 100 : 0);
-    return {
-        jobId: requireJobId(`${snapshot.owner.webContentsId}:${snapshot.jobId}`),
-        requestId: requireRequestId(snapshot.jobId),
-        status: snapshot.status === 'canceling' || snapshot.status === 'committing'
-            ? 'running'
-            : snapshot.status,
-        phase: snapshot.status === 'canceling'
-            ? 'cancel-requested'
-            : toOcrJobPhase(progress.phase),
-        percent,
-        current: progress.processedCount,
-        total: progress.totalPages,
-        ...(progress.error ? {error: progress.error} : {}),
-        updatedAtMs: snapshot.updatedAtMs,
-        ...progress.projection,
-    };
-}
-
-export function getOcrJobProjection(context: IOcrManagerContext, requestId: TRequestId) {
-    const snapshot = ocrJobs.get(requestId, toOcrActor(context));
-    return snapshot ? projectOcrJob(snapshot) : null;
-}
-
-export function subscribeOcrJobProjection(
-    context: IOcrManagerContext,
-    requestId: TRequestId,
-    listener: (state: IOcrJobProjectionState) => void,
-) {
-    return ocrJobs.subscribe(
-        requestId,
-        toOcrActor(context),
-        snapshot => listener(projectOcrJob(snapshot)),
-    ) ?? (() => {});
 }
 
 export function subscribeManagedOcrProgress(context: IOcrManagerContext) {

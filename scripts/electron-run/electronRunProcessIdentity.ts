@@ -13,7 +13,7 @@ import {
     sessionDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
 
-export type TSessionProcessKind = 'controller' | 'electron' | 'nuxt';
+type TSessionProcessKind = 'controller' | 'electron' | 'nuxt';
 
 export interface IProcessIdentitySnapshot {
     pid: number;

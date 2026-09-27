@@ -4,7 +4,7 @@ import type {
     TScanCleanupActivityStep,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 
-export interface IScanCleanupActivityStepTiming {
+interface IScanCleanupActivityStepTiming {
     startedAtMs: number;
     endedAtMs?: number;
 }

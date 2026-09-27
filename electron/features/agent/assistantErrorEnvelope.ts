@@ -4,7 +4,7 @@ import type {
 } from '@contracts/agent';
 import {createEpochMs} from '@contracts/timestamps';
 
-export function classifyAssistantError(message: string): {
+function classifyAssistantError(message: string): {
     code: TAgentAssistantErrorCode;
     retryable: boolean;
 } {

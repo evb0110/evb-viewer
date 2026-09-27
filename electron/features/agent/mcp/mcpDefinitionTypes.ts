@@ -44,7 +44,7 @@ export interface IMcpPromptDefinition {
     }>;
 }
 
-export type TCapabilityAvailabilityKind =
+type TCapabilityAvailabilityKind =
     | 'always'
     | 'document'
     | 'pdf'

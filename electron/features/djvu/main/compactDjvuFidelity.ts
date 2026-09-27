@@ -29,7 +29,7 @@ export function getCompactDjvuFidelity(preset: TDjvuCompactFidelityPreset | unde
     return COMPACT_FIDELITY[preset ?? 'balanced'];
 }
 
-export interface ICompactDjvuFidelityPage {
+interface ICompactDjvuFidelityPage {
     pageNumber: number;
     kind: string;
     reason: string;

@@ -81,7 +81,7 @@ import {
     useVirtualList,
 } from '@vueuse/core';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
-import type { ICombineFile } from '@app/modules/combine/combinePdfTypes';
+import type { ICombineFile } from '@app/modules/combine/combineFile';
 import { formatBytes } from '@app/utils/formatters';
 
 const props = defineProps<{

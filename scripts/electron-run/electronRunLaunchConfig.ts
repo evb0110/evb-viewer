@@ -75,7 +75,7 @@ export function shouldDisableAutomationSandbox(
     return platform === 'linux' && env.CI === 'true';
 }
 
-export function shouldDisableMacOSAutomationGpu(
+function shouldDisableMacOSAutomationGpu(
     env: NodeJS.ProcessEnv = process.env,
     platform = process.platform,
 ) {
@@ -89,7 +89,7 @@ export function shouldDisableMacOSAutomationGpu(
 // classic scroll bars as a mouse connects or sleeps, which changes every
 // viewport width by the scroll bar. Hidden sessions pin classic scroll bars,
 // as hosted runners use, through AppKit's argument domain.
-export function resolveMacOSAutomationScrollBarArgs(
+function resolveMacOSAutomationScrollBarArgs(
     env: NodeJS.ProcessEnv = process.env,
     platform = process.platform,
 ) {
@@ -101,7 +101,7 @@ export function resolveMacOSAutomationScrollBarArgs(
         : [];
 }
 
-export const AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV = 'EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES';
+const AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV = 'EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES';
 
 /**
  * Stress-test host profiles need Chromium switches (`--js-flags`,
@@ -109,7 +109,7 @@ export const AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV = 'EVB_AUTOMATION_EXTRA_CHRO
  * caller sets. The value is whitespace-separated; every token must start with
  * `--` so a stray file path can never become a positional argument.
  */
-export function parseExtraChromiumSwitches(rawValue: string | undefined) {
+function parseExtraChromiumSwitches(rawValue: string | undefined) {
     if (!rawValue) {
         return [];
     }
@@ -424,7 +424,7 @@ export interface IHiddenAppBundleDirCandidate {
     mtimeMs: number;
 }
 
-export function readElectronDistVersion(rootDir = projectRoot) {
+function readElectronDistVersion(rootDir = projectRoot) {
     const packageJson = JSON.parse(
         readFileSync(join(rootDir, 'node_modules', 'electron', 'package.json'), 'utf8'),
     ) as PackageJson;
@@ -435,7 +435,7 @@ export function readElectronDistVersion(rootDir = projectRoot) {
     return version;
 }
 
-export function resolveMacOSHiddenAppBundlesRoot(rootDir = projectRoot) {
+function resolveMacOSHiddenAppBundlesRoot(rootDir = projectRoot) {
     return join(rootDir, ...HIDDEN_APP_BUNDLES_ROOT_SEGMENTS);
 }
 

@@ -30,10 +30,8 @@ import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import type { IBeginSerializedPdfPersistenceResult } from '@electron/features/documents/serializedPdfPersistenceContract';
 import { invokeWithChannelContext } from '@electron/preload/ipcClient';
-import {
-    assertAbsolutePath,
-    assertPdfSerializedSaveOptions,
-} from '@electron/features/documents/preloadShared';
+import assertPdfSerializedSaveOptions from '@electron/features/documents/assertPdfSerializedSaveOptions';
+import {assertAbsolutePath} from '@contracts/ipcAssertions';
 
 // The documents methods that are not plain invokes: savePdfData streams bytes
 // over a MessagePort and runs renderer callbacks before its commit, and DOCX

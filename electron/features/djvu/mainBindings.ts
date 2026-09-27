@@ -29,7 +29,7 @@ import {
 const logger = createLogger('djvu-main-bindings');
 
 // fallow-ignore-next-line unused-export
-export const djvuMainBindings = {
+const djvuMainBindings = {
     startOpenForViewing: handleDjvuStartOpenForViewingOperation,
     releaseViewingPath: handleDjvuReleaseViewingPath,
     startConvertToPdf: handleDjvuStartConvertToPdfOperation,
@@ -50,7 +50,7 @@ export const djvuMainBindings = {
     subscribeProgress: subscribeDjvuProgress,
 } satisfies TFeatureMainBindings<typeof DJVU_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 
-export function prepareDjvuMainBindings() {
+export default function prepareDjvuMainBindings() {
     void pruneStaleDjvuArtifactJobs().catch((error: unknown) => {
         logger.warn(`DjVu artifact job cleanup failed: ${String(error)}`);
     });

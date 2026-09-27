@@ -11,9 +11,6 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
-    "@evb/contracts": "workspace:*",
-    "@evb/i18n-core": "workspace:*",
-    "@evb/releaseSelection": "workspace:*",
     "@iconify-json/circle-flags": "^1.2.11",
     "@iconify-json/ph": "^1.2.2",
     "@iconify-json/simple-icons": "^1.2.95",
@@ -21,8 +18,6 @@
     "@nuxtjs/i18n": "10.5.0",
     "@nuxtjs/sitemap": "^8.5.0",
     "@vercel/analytics": "2.0.1",
-    "@vueuse/core": "^14.4.0",
-    "es-toolkit": "^1.52.0",
     "nuxt": "4.5.2",
     "tailwindcss": "^4.3.3",
     "vue-i18n": "^11.4.10",
@@ -32,7 +27,6 @@
     "@nuxt/eslint": "1.15.2",
     "@stylistic/eslint-plugin": "^5.10.0",
     "eslint": "^9.39.5",
-    "type-fest": "^5.9.0",
     "typescript": "^6.0.3",
     "vue-tsc": "3.3.11"
   }

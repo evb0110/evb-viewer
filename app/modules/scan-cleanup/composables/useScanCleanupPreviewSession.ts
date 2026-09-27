@@ -57,7 +57,7 @@ import {
 
 type TScanCleanupLayoutClassification = IScanCleanupPreviewResult['pageMetadata']['layoutClassification'];
 
-export interface IScanCleanupPreviewPrefetchCandidate<TRequest> {
+interface IScanCleanupPreviewPrefetchCandidate<TRequest> {
     key: string;
     request: TRequest;
 }

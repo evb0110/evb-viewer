@@ -22,7 +22,7 @@ export interface IOcrPipelinePaths {
     tempDir: string;
 }
 
-export type TOcrLogLevel = 'debug' | 'warn' | 'error';
+type TOcrLogLevel = 'debug' | 'warn' | 'error';
 
 export type TWorkerLog = (
     level: TOcrLogLevel,

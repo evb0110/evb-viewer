@@ -21,7 +21,7 @@ export function hasWorkspaceRecoveryEvidence(name = getCurrentSessionName()) {
  * Callers must first establish that the session's Electron processes have
  * stopped, and must skip this operation when workspace recovery is preserved.
  */
-export function cleanupSessionAppTemp(name = getCurrentSessionName()) {
+function cleanupSessionAppTemp(name = getCurrentSessionName()) {
     rmSync(electronAppTempDirPath(name), {
         recursive: true,
         force: true,

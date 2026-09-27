@@ -1,9 +1,4 @@
-import {
-    type Dirent,
-    readdirSync,
-    readFileSync,
-    rmSync,
-} from 'fs';
+import type {Dirent} from 'fs';
 import {
     readFile,
     readdir,
@@ -94,40 +89,7 @@ async function collectAssistantChatSnapshotBlobReferences(
     return references;
 }
 
-function collectAssistantChatSnapshotBlobReferencesSync(
-    directories: readonly string[],
-    parseRecord: (line: string) => unknown,
-) {
-    const references = new Set<string>();
-    for (const directory of directories) {
-        let entries;
-        try {
-            entries = readdirSync(directory, {withFileTypes: true});
-        } catch (error) {
-            if (isMissingPathError(error)) {
-                continue;
-            }
-            throw error;
-        }
-        for (const entry of entries) {
-            if (!isAssistantChatSnapshotLog(entry)) {
-                continue;
-            }
-            const filePath = join(directory, entry.name);
-            try {
-                addSnapshotBlobReferences(readFileSync(filePath, 'utf8'), parseRecord, references);
-            } catch (error) {
-                if (isMissingPathError(error)) {
-                    continue;
-                }
-                throw error;
-            }
-        }
-    }
-    return references;
-}
-
-export async function pruneAssistantChatSnapshotBlobs(
+export default async function pruneAssistantChatSnapshotBlobs(
     directories: readonly string[],
     blobsDir: string,
     parseRecord: (line: string) => unknown,
@@ -150,37 +112,6 @@ export async function pruneAssistantChatSnapshotBlobs(
         const filePath = join(blobsDir, entry.name);
         try {
             await rm(filePath, {force: true});
-        } catch (error) {
-            if (!isMissingPathError(error)) {
-                reportSnapshotBlobPruneError(filePath, error, onError);
-            }
-        }
-    }
-}
-
-export function pruneAssistantChatSnapshotBlobsSync(
-    directories: readonly string[],
-    blobsDir: string,
-    parseRecord: (line: string) => unknown,
-    onError?: (message: string, error: unknown) => void,
-) {
-    const referencedBlobFiles = collectAssistantChatSnapshotBlobReferencesSync(directories, parseRecord);
-    let entries;
-    try {
-        entries = readdirSync(blobsDir, {withFileTypes: true});
-    } catch (error) {
-        if (isMissingPathError(error)) {
-            return;
-        }
-        throw error;
-    }
-    for (const entry of entries) {
-        if (!isUnreferencedSnapshotBlob(entry, referencedBlobFiles)) {
-            continue;
-        }
-        const filePath = join(blobsDir, entry.name);
-        try {
-            rmSync(filePath, {force: true});
         } catch (error) {
             if (!isMissingPathError(error)) {
                 reportSnapshotBlobPruneError(filePath, error, onError);

@@ -10,7 +10,7 @@ function createRunId() {
     return `${RUN_ID_PREFIX}-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
 }
 
-export function normalizeE2ERunId(value: string) {
+function normalizeE2ERunId(value: string) {
     const normalized = value
         .trim()
         .replace(RUN_ID_SAFE_CHARS, '-')

@@ -21,7 +21,7 @@ type TRedactedCheckpointTab = Pick<
     paneIndex: number;
 };
 
-export interface IViewerBugReportCheckpointShape {
+interface IViewerBugReportCheckpointShape {
     activeTabIndex: number;
     paneCount: number;
     tabCount: number;

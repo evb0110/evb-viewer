@@ -47,19 +47,19 @@ export interface IExactPdfFixtureStageResult {
     stagedPath: string;
 }
 
-export type TCopyFileImplementation = (
+type TCopyFileImplementation = (
     sourcePath: string,
     targetPath: string,
     mode?: number,
 ) => Promise<void>;
 
-export type TStreamCopyImplementation = (
+type TStreamCopyImplementation = (
     sourcePath: string,
     targetPath: string,
     signal?: AbortSignal,
 ) => Promise<void>;
 
-export type TSyncFileImplementation = (path: string) => Promise<void>;
+type TSyncFileImplementation = (path: string) => Promise<void>;
 
 export interface IExactPdfCopyOptions {
     copyFileImpl?: TCopyFileImplementation;
@@ -109,9 +109,9 @@ export const EXACT_PDF_FIXTURE_MANIFEST = Object.freeze({
     },
 } satisfies Record<string, IExactPdfFixtureExpectation>);
 
-export const EXACT_FIXTURE_MANIFEST = EXACT_PDF_FIXTURE_MANIFEST;
 
-export const EXACT_FIXTURE_OPT_IN_REQUIRED = 'EXACT_FIXTURE_OPT_IN_REQUIRED';
+
+const EXACT_FIXTURE_OPT_IN_REQUIRED = 'EXACT_FIXTURE_OPT_IN_REQUIRED';
 
 const DEFAULT_MAX_BYTES = 2_500_000_000;
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
@@ -139,7 +139,7 @@ function parseErrnoCode(error: unknown) {
     return typeof code === 'string' ? code : undefined;
 }
 
-export function isCloneUnsupportedError(error: unknown) {
+function isCloneUnsupportedError(error: unknown) {
     return CLONE_UNSUPPORTED_CODES.has(parseErrnoCode(error) ?? '');
 }
 
@@ -512,7 +512,7 @@ export async function stageExactPdfFixture(
     }
 }
 
-export type TExactPdfFixtureProfileName = keyof typeof EXACT_PDF_FIXTURE_MANIFEST;
+type TExactPdfFixtureProfileName = keyof typeof EXACT_PDF_FIXTURE_MANIFEST;
 
 function isExactPdfFixtureProfileName(value: string): value is TExactPdfFixtureProfileName {
     return Object.hasOwn(EXACT_PDF_FIXTURE_MANIFEST, value);

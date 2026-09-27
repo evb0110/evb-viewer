@@ -15,7 +15,7 @@ export type TCommittedSurfaceKind =
     | 'page-shell'
     | 'tool-surface';
 
-export type TCommittedEmptySource = 'live-empty-state';
+type TCommittedEmptySource = 'live-empty-state';
 
 export interface ICommittedSurfaceRect {
     height: number;
@@ -30,14 +30,14 @@ export interface ICommittedSurfaceStyle {
     boxShadow: string;
 }
 
-export interface ICommittedSurfaceSkeletonDiagnostic {
+interface ICommittedSurfaceSkeletonDiagnostic {
     display: string;
     intersectsViewport: boolean;
     pageNumber: number | null;
     rect: ICommittedSurfaceRect | null;
 }
 
-export interface ICommittedSurfaceTargetCanvasDiagnostic {
+interface ICommittedSurfaceTargetCanvasDiagnostic {
     connected: boolean;
     hasSkeleton: boolean;
     pageNumber: number | null;
@@ -45,7 +45,7 @@ export interface ICommittedSurfaceTargetCanvasDiagnostic {
     renderedClass: boolean;
 }
 
-export interface ICommittedSurfaceVisiblePdfPageVisual {
+interface ICommittedSurfaceVisiblePdfPageVisual {
     canonicalCanvasId: number | null;
     canonicalCanvasNonblank: boolean;
     canonicalCanvasVisible: boolean;
@@ -111,7 +111,7 @@ export interface ICommittedSurfaceFrame {
     visiblePdfPageVisuals?: ICommittedSurfaceVisiblePdfPageVisual[];
 }
 
-export interface ICommittedSurfaceSamplerError {
+interface ICommittedSurfaceSamplerError {
     checkpoint: string | null;
     elapsedMs: number;
     frame: number;

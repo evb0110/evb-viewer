@@ -50,7 +50,7 @@ interface IPdfRasterOptimizePreset {
     grayscale: boolean;
 }
 
-export interface IPdfOptimizePageRange {
+interface IPdfOptimizePageRange {
     firstPage: number;
     lastPage: number;
 }

@@ -10,9 +10,9 @@
 
 import {spawnSync} from 'node:child_process';
 
-export const FIX_CHAIN_OVERRIDE_TRAILER = 'Fix-Chain-Override';
-export const FIX_CHAIN_WINDOW_DAYS = 7;
-export const FIX_CHAIN_LIMIT = 3;
+const FIX_CHAIN_OVERRIDE_TRAILER = 'Fix-Chain-Override';
+const FIX_CHAIN_WINDOW_DAYS = 7;
+const FIX_CHAIN_LIMIT = 3;
 
 const OVERRIDE_PATTERN = /^Fix-Chain-Override:[ \t]*(\S.*)$/imu;
 const FIX_SUBJECT_PATTERN = /^(?:fix(?:\([^)]*\))?!?:|fix\b)/iu;
@@ -40,17 +40,17 @@ function git(arguments_, cwd) {
 }
 
 /** @param {string} subject @returns {boolean} */
-export function isFixSubject(subject) {
+function isFixSubject(subject) {
     return FIX_SUBJECT_PATTERN.test(subject.trim()) && !REVERT_SUBJECT_PATTERN.test(subject.trim());
 }
 
 /** @param {string} path @returns {boolean} */
-export function isFixChainProductPath(path) {
+function isFixChainProductPath(path) {
     return PRODUCT_PATH_PATTERN.test(path) && !EXCLUDED_PATH_PATTERN.test(path);
 }
 
 /** @param {string} message @returns {string | null} */
-export function readFixChainOverride(message) {
+function readFixChainOverride(message) {
     return OVERRIDE_PATTERN.exec(message)?.[1]?.trim() ?? null;
 }
 

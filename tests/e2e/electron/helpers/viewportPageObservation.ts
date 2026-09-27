@@ -7,7 +7,7 @@ import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 // so a test built on these samples cannot pass by agreeing with the model the
 // viewer keeps of itself.
 
-export interface IViewportPageCoverage {
+interface IViewportPageCoverage {
     page: number;
     /** Height of the page rectangle that falls inside the viewport rectangle. */
     coveredHeight: number;
@@ -158,7 +158,7 @@ export async function installViewportPageSampler(page: Page): Promise<IViewportP
     };
 }
 
-export async function readViewportPageSamples(page: Page) {
+async function readViewportPageSamples(page: Page) {
     return evaluateInPage(page, () => (
         (window as IViewportPageSamplerWindow).__evbViewportPageSampler?.samples ?? []
     )) as Promise<IViewportPageSample[]>;

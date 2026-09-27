@@ -13,7 +13,7 @@ export interface IElectronWindowSize {
     height: number;
 }
 
-export interface IElectronWindowMetrics {
+interface IElectronWindowMetrics {
     /** Size of the content area: what the document layout actually gets. */
     contentSize: IElectronWindowSize;
     /** Size of the whole window, content area plus the native frame. */

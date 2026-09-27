@@ -13,7 +13,7 @@ export const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 export const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const ASSISTANT_IMAGE_SIZE_LIMIT_LABEL = `${Math.round(ASSISTANT_MAX_IMAGE_BYTES / (1024 * 1024))} MB`;
 
-export interface IExpandedImageItem {
+interface IExpandedImageItem {
     src: string;
     name: string;
 }

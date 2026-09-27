@@ -33,7 +33,7 @@ import {
     PREVIEW_DPI,
 } from '@evb/scan-cleanup/core/detection';
 
-export const SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION = 2 as const;
+const SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION = 2 as const;
 export const DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH = '.devkit/tmp/detection-cache';
 
 /**

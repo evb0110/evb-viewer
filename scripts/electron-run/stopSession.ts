@@ -346,7 +346,7 @@ export async function stopSingleSession(
     console.log(`Session '${name}' stopped.`);
 }
 
-export async function stopAllSessions() {
+async function stopAllSessions() {
     await cleanupOrphanedProjectNuxtRoots('stop all sessions');
     const names = listAllSessionNames();
     if (names.length === 0) {

@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {runProject8ProcessProof} from '@scripts/diagnostics/project8-process-proof/project8ProcessProofHarness';
+import runProject8ProcessProof from '@scripts/diagnostics/project8-process-proof/project8ProcessProofHarness';
 
 describe('Project 8 real process proof fixture', () => {
     it.runIf(process.platform === 'linux')('proves detached descendant survival, identity checks, and tree termination', async () => {

@@ -13,7 +13,7 @@ export const RAW_IPC_HANDLER_DESCRIPTORS = [
     },
 ] as const;
 
-export type TRawIpcHandlerName = typeof RAW_IPC_HANDLER_DESCRIPTORS[number]['name'];
+type TRawIpcHandlerName = typeof RAW_IPC_HANDLER_DESCRIPTORS[number]['name'];
 
 export interface IRawIpcRegistrationAudit {
     register(name: TRawIpcHandlerName, register: () => void, scope?: string): void;

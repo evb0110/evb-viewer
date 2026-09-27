@@ -199,44 +199,7 @@ const DOCUMENT_TEXT_CATALOG_PAGE_WINDOW = 64;
  * Streams canonical text windows from the desktop main process. The caller
  * receives one page at a time while each IPC response stays bounded.
  */
-export async function* iterateDocumentTextCatalogPages(
-    workingCopyPath: TDocumentRef,
-    documentRevisionToken: string,
-    pageCount: number,
-    signal?: AbortSignal,
-): AsyncGenerator<IDocumentTextCatalogPage> {
-    throwIfAborted(signal);
-    const revision = parseDocumentRevisionToken(documentRevisionToken);
-    if (revision === null) {
-        return;
-    }
-    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
-        return;
-    }
-    const capability = getOcrCapability();
-    for (
-        let firstPage = 1;
-        firstPage <= pageCount;
-        firstPage += DOCUMENT_TEXT_CATALOG_PAGE_WINDOW
-    ) {
-        throwIfAborted(signal);
-        const lastPage = Math.min(pageCount, firstPage + DOCUMENT_TEXT_CATALOG_PAGE_WINDOW - 1);
-        const window = await loadDocumentTextCatalogWindow(
-            capability,
-            workingCopyPath,
-            revision,
-            firstPage,
-            lastPage,
-            pageCount,
-            signal,
-        );
-        throwIfAborted(signal);
-        for (const page of window.pages) {
-            throwIfAborted(signal);
-            yield page;
-        }
-    }
-}
+
 
 /**
  * Prepares a replayable text-page stream after checking for at least one

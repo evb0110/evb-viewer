@@ -9,14 +9,14 @@ import path from 'node:path';
 const WORKSPACE_FILE_NAME = 'pnpm-workspace.yaml';
 const FALLBACK_PACKAGE_PATTERN = 'packages/*';
 
-export const FOCUSED_ARCHITECTURE_STATIC_ROOTS = [
+const FOCUSED_ARCHITECTURE_STATIC_ROOTS = [
     'app',
     'electron',
     'scripts',
     'server',
 ];
 
-export const ALL_ARCHITECTURE_STATIC_ROOTS = [
+const ALL_ARCHITECTURE_STATIC_ROOTS = [
     'app',
     'electron',
     'landing',

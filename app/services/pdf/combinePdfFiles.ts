@@ -86,7 +86,7 @@ function classifyCombineError(error: unknown, signal?: AbortSignal): TCombinePdf
     }
 }
 
-export interface ICombinePdfInputFile {file: File;}
+interface ICombinePdfInputFile {file: File;}
 
 export interface ICombinePdfCapabilities {
     supportedExtensions: readonly string[];

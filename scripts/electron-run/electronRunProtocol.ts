@@ -1,7 +1,6 @@
-import type { MergeExclusive } from 'type-fest';
 import { isJsonRecord } from '@scripts/electron-run/isJsonRecord';
 
-export const ELECTRON_RUN_COMMANDS = [
+const ELECTRON_RUN_COMMANDS = [
     'ping',
     'recording',
     'screenshot',
@@ -28,27 +27,7 @@ export type TElectronRunCommand = typeof ELECTRON_RUN_COMMANDS[number];
 
 const ELECTRON_RUN_COMMAND_SET: ReadonlySet<string> = new Set<TElectronRunCommand>(ELECTRON_RUN_COMMANDS);
 
-export interface IElectronRunCommandRequest {
-    command: TElectronRunCommand;
-    args: unknown[];
-}
 
-interface IElectronRunCommandSuccessResponse {
-    success: true;
-    result: unknown;
-    error?: never;
-}
-
-interface IElectronRunCommandFailureResponse {
-    success: false;
-    error: string;
-    result?: never;
-}
-
-export type TElectronRunCommandResponse = MergeExclusive<
-    IElectronRunCommandSuccessResponse,
-    IElectronRunCommandFailureResponse
->;
 
 export function isElectronRunCommand(value: unknown): value is TElectronRunCommand {
     return typeof value === 'string' && ELECTRON_RUN_COMMAND_SET.has(value);

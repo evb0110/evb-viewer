@@ -47,7 +47,7 @@ const GENERATED_PDF_HANDOFF_TIMEOUT_MS = 30_000;
 
 export type TScanCleanupRunReconciliationFailure = 'subscription' | 'recovery';
 
-export type TScanCleanupStartFallback = 'already-running' | 'unavailable';
+type TScanCleanupStartFallback = 'already-running' | 'unavailable';
 
 export type TScanCleanupRendererStartResult =
     | Extract<TBridgeScanCleanupStartResult, {started: true}>

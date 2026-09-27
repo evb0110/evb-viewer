@@ -4,7 +4,7 @@ import type { TOcrPageRange } from '@app/utils/ocr/ocrTypes';
 /** Keep renderer-side page lists small. Larger contiguous scopes stay scalar. */
 export const OCR_PAGE_SELECTION_EXPANSION_LIMIT = 5_000;
 
-export interface IOcrPageScopeRange {
+interface IOcrPageScopeRange {
     firstPage: number;
     lastPage: number;
 }

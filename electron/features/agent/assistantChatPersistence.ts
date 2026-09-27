@@ -45,7 +45,7 @@ import {
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
 import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
-import {pruneAssistantChatSnapshotBlobs} from '@electron/features/agent/assistantChatSnapshotBlobMaintenance';
+import pruneAssistantChatSnapshotBlobs from '@electron/features/agent/pruneAssistantChatSnapshotBlobs';
 import {pruneAssistantChatArchives} from '@electron/features/agent/pruneAssistantChatArchives';
 
 const ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION = 1;

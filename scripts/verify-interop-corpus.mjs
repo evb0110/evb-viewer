@@ -174,7 +174,7 @@ function isBlankAppearance(dictionary, context) {
     return normal instanceof PDFRawStream && normal.contents.length === 0;
 }
 
-export function isLegacyFreeTextPopup(dictionary, context) {
+function isLegacyFreeTextPopup(dictionary, context) {
     if (asName(dictionaryValue(dictionary, PDF_NAME_KEYS.subtype, context), context) !== 'FreeText') {
         return false;
     }

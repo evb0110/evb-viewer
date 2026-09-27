@@ -1338,7 +1338,7 @@ function stableAffine(matrix) {
 }
 
 /** @param {any[][]} matrix @param {{x: number, y: number, width: number, height: number}} polygon */
-export function transformPolygon(matrix, polygon) {
+function transformPolygon(matrix, polygon) {
     const corners = [
         [
             polygon.x,
@@ -1788,10 +1788,5 @@ export async function generateOcrLanguageQualityFixture({
 }
 
 export {
-    DEGRADATION_PROFILES,
-    DEGRADATION_BASE_DPI,
-    LANGUAGE_CODES,
-    MIXED_DOCUMENT_DEFINITIONS,
-    OCR_POLICY,
-    PAGE_DPI,
+    DEGRADATION_PROFILES, LANGUAGE_CODES, PAGE_DPI,
 };

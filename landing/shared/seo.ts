@@ -21,7 +21,7 @@ export function normalizeSiteUrl(siteUrl?: string): string {
     }
 }
 
-export function normalizeCanonicalPath(path: string): string {
+function normalizeCanonicalPath(path: string): string {
     if (!path || path === '/') {
         return '/';
     }

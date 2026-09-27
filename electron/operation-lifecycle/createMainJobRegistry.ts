@@ -72,10 +72,10 @@ export type TMainJobSnapshot<TProgress, TResult, TError extends ISerializableErr
     };
 export type TMainJobTerminalSnapshot<TProgress, TResult, TError extends ISerializableErrorEnvelope> = Extract<TMainJobSnapshot<TProgress, TResult, TError>, {status: 'completed' | 'canceled' | 'failed'}>;
 export type TMainJobErrorKind = 'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized';
-export type TMainJobOwnerEndAction = IMainOperationLifecyclePolicy['destroyed'];
-export type IMainJobOwnerLifecyclePolicy = IMainOperationLifecyclePolicy;
+type TMainJobOwnerEndAction = IMainOperationLifecyclePolicy['destroyed'];
+type IMainJobOwnerLifecyclePolicy = IMainOperationLifecyclePolicy;
 export interface IMainJobScratch {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;}
-export interface IMainJobTerminalController<TProgress, TResult, _TError extends ISerializableErrorEnvelope> {
+interface IMainJobTerminalController<TProgress, TResult, _TError extends ISerializableErrorEnvelope> {
     complete(result: TResult, progress?: TProgress): boolean;
     cancel(cause?: unknown, progress?: TProgress): boolean;
     fail(cause: unknown, progress?: TProgress): boolean;
@@ -89,7 +89,7 @@ export interface IMainJobRunContext<TProgress, TResult, TError extends ISerializ
     markCommitStarted(progress?: TProgress): void;
     terminal: IMainJobTerminalController<TProgress, TResult, TError>;
 }
-export interface IMainJobStartOptions<
+interface IMainJobStartOptions<
     TProgress,
     TResult,
     TError extends ISerializableErrorEnvelope,

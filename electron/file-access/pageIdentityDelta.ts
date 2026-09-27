@@ -170,7 +170,7 @@ function createLargeIdentityDelta(
     } satisfies IPageIdentityDelta;
 }
 
-export function createIdentityDelta(pageCount: number): IPageIdentityDelta {
+function createIdentityDelta(pageCount: number): IPageIdentityDelta {
     assertPageCount(pageCount, 'pageCount');
     if (pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT) {
         return {
@@ -471,31 +471,7 @@ export function createPageMoveRangesIdentityDelta(
     return createLegacyOrRangeDelta(pageCount, pages, outputRanges, pageCount);
 }
 
-export function createDeleteRangeIdentityDelta(pageCount: number, fromPageNumber: number, count: number) {
-    assertPageCount(pageCount, 'pageCount');
-    assertPositivePageNumber(fromPageNumber, 'fromPageNumber');
-    assertRangeCount(count, 'count');
-    if (fromPageNumber + count - 1 > pageCount) {
-        throw new Error('Page identity delete range exceeds the document page count');
-    }
-    if (pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT) {
-        return createDeleteIdentityDelta(
-            pageCount,
-            Array.from({length: count}, (_value, index) => fromPageNumber + index),
-        );
-    }
-    const nextPageCount = pageCount - count;
-    const ranges: TMutablePageIdentityRangeOperation[] = [];
-    appendMapping(ranges, 1, 1, fromPageNumber - 1);
-    appendDelete(ranges, fromPageNumber, count);
-    appendMapping(
-        ranges,
-        fromPageNumber + count,
-        fromPageNumber,
-        pageCount - (fromPageNumber + count) + 1,
-    );
-    return createLegacyOrRangeDelta(pageCount, [], ranges, nextPageCount);
-}
+
 
 /**
  * Creates a sparse identity mapping for deleting sorted, disjoint page runs.

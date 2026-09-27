@@ -20,7 +20,7 @@ import {
     type TNativeToolResourceFamilyId,
 } from '@scripts/nativeResourceManifest';
 
-export type TRuntimeBinaryArchiveKind = 'tar.gz' | 'zip';
+type TRuntimeBinaryArchiveKind = 'tar.gz' | 'zip';
 
 export interface IRuntimeBinaryManifestEntry {
     archiveKind: TRuntimeBinaryArchiveKind;

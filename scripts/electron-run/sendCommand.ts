@@ -18,7 +18,7 @@ class ElectronRunCommandError extends Error {
     }
 }
 
-export class ElectronRunCommandUncertainError extends Error {
+class ElectronRunCommandUncertainError extends Error {
     readonly sessionName: string;
     readonly command: TElectronRunCommand;
     readonly requestTimeoutMs: number;

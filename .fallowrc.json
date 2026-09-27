@@ -47,7 +47,6 @@
         "app/types/*.d.ts",
         "electron/types/semver.d.ts",
         "electron/types/utif.d.ts",
-        "electron/image/export.ts",
         "app/assets/css/*.scss",
         "landing/**",
         "nuxt-output/**",
