@@ -717,6 +717,13 @@ jobs:
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: artifacts/*
+      - name: Promote real release draft
+        id: promote
+        if: ${{ needs.package.result == 'success' && needs.gate.outputs.drill != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false
       - name: Stage and activate mirror transaction
         id: mirror_stage
         if: ${{ needs.package.result == 'success' }}
@@ -750,13 +757,6 @@ jobs:
           args=(artifacts "$TAG" --transaction)
           if [ "$DRILL" = true ]; then args+=(--drill); fi
           node scripts/release/publish-release-mirror.mjs "${args[@]}"
-      - name: Promote real release draft
-        id: promote
-        if: ${{ needs.package.result == 'success' && needs.gate.outputs.drill != 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.gate.outputs.tag }}
-        run: gh release edit "$TAG" --draft=false
       - name: Verify public release and updater mirror
         if: ${{ needs.package.result == 'success' && steps.mirror_stage.outcome == 'success' && (needs.gate.outputs.drill == 'true' || steps.promote.outcome == 'success') }}
         env:

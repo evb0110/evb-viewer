@@ -20,7 +20,7 @@ here is required reading for an ordinary cut.
 - `release:cut` selects the newest commit on `origin/main` with a successful exact-SHA `ci.yml` push run and green `gates_ok`, after the newest stable release tag. `pnpm run release:cut -- patch --preflight` runs the same selection without pushing the tag. A real cut pushes a lightweight tag and leaves `package.json` on `main` unchanged.
 - The tag-triggered `release.yml` validates tag format, main ancestry, and exact-SHA CI before running the five required package targets. Dispatch with an existing tag only for recovery; `dry_run=true` runs the same gates and package steps, allowing only the absence of a main push run for the branch SHA as a notice, and uses a unique prerelease version, draft, and isolated mirror namespace.
 - Windows ARM64 is a required package target before promotion. The Store AppX lane remains a separate manual workflow.
-- The draft is promoted only after final updater metadata, checksums, provenance, and the mirror transaction pass. `electron-builder --publish never` remains necessary because macOS notarization rewrites the DMG and updater metadata before explicit upload.
+- The workflow validates final updater metadata, checksums, and provenance before promoting the GitHub draft, then activates the production stable mirror channel. If promotion fails, the channel still points to the previous release; if mirror activation fails, GitHub already has a public release while installed clients stay on the previous channel. `electron-builder --publish never` remains necessary because macOS notarization rewrites the DMG and updater metadata before explicit upload.
 
 ## macOS signing, startup, and Gatekeeper
 

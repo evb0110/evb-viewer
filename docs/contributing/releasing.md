@@ -18,7 +18,7 @@ To recover a workflow for a tag that already exists, dispatch `Release` with tha
 
 ## Release workflow
 
-One tag-triggered workflow packages five targets in parallel: macOS arm64 (Developer ID signed and notarized DMG plus updater ZIP), Windows x64 and ARM64 (NSIS), and Linux x64 and ARM64 (deb). It sets the package version from the tag before building, uploads Sentry source maps before packaging, checks each package, validates final updater metadata and asset bytes, creates checksums and provenance, stages the mirror transaction, and promotes the GitHub draft last. electron-builder remains on `--publish never`; the final upload happens only after macOS notarization rewrites the DMG and updater metadata.
+One tag-triggered workflow packages five targets in parallel: macOS arm64 (Developer ID signed and notarized DMG plus updater ZIP), Windows x64 and ARM64 (NSIS), and Linux x64 and ARM64 (deb). It sets the package version from the tag before building, uploads Sentry source maps before packaging, checks each package, validates final updater metadata and asset bytes, creates checksums and provenance, promotes the GitHub draft, and then activates the stable mirror channel. A failed promotion leaves installed clients on the previous channel; if mirror activation fails after promotion, the GitHub release is public while clients remain on the previous channel. electron-builder remains on `--publish never`; the final upload happens only after macOS notarization rewrites the DMG and updater metadata.
 
 The Microsoft Store AppX lane remains manual. Dispatch `store-appx.yml` for the published tag, download both artifacts, then submit them in Partner Center as described in [Microsoft Store packages](release-guardrails.md#microsoft-store-packages).
 

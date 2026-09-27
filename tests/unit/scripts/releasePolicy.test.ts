@@ -17,6 +17,10 @@ import {
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import {
+    getStaticYAMLValue,
+    parseYAML,
+} from 'yaml-eslint-parser';
+import {
     delimiter,
     join,
     resolve,
@@ -820,18 +824,25 @@ describe('release policy', () => {
     });
 
     it('uses the unified tag-triggered five-target release workflow', () => {
-        const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
-        expect(workflow).toContain('tags: [\'v*\']');
-        expect(workflow).toContain('windows-11-arm');
-        expect(workflow).toContain('name: Validate assets, checksum, mirror, promote');
-        expect(workflow).toContain('wait-for-exact-sha-ci.mjs');
-        expect(workflow).toContain('electron-builder --publish never');
-        expect(workflow).toContain('assert-final-release-assets.mjs');
-        expect(workflow).toContain('attest-build-provenance');
-        expect(workflow).toContain('publish-release-mirror.mjs');
-        expect(workflow).toContain('Promote real release draft');
-        expect(workflow).not.toContain('release-supplemental.yml');
-        expect(workflow).not.toContain('release-artifacts.yml');
+        const workflowSource = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
+        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {jobs: {finalize: {steps: Array<{id?: string}>;};};};
+        const workflowText = workflowSource;
+        expect(workflowText).toContain('tags: [\'v*\']');
+        expect(workflowText).toContain('windows-11-arm');
+        expect(workflowText).toContain('name: Validate assets, checksum, mirror, promote');
+        expect(workflowText).toContain('wait-for-exact-sha-ci.mjs');
+        expect(workflowText).toContain('electron-builder --publish never');
+        expect(workflowText).toContain('assert-final-release-assets.mjs');
+        expect(workflowText).toContain('attest-build-provenance');
+        expect(workflowText).toContain('publish-release-mirror.mjs');
+        expect(workflowText).toContain('Promote real release draft');
+        expect(workflowText).not.toContain('release-supplemental.yml');
+        expect(workflowText).not.toContain('release-artifacts.yml');
+        const promoteIndex = workflow.jobs.finalize.steps.findIndex(step => step.id === 'promote');
+        const mirrorActivationIndex = workflow.jobs.finalize.steps.findIndex(step => step.id === 'mirror_stage');
+        expect(promoteIndex).toBeGreaterThanOrEqual(0);
+        expect(mirrorActivationIndex).toBeGreaterThanOrEqual(0);
+        expect(promoteIndex).toBeLessThan(mirrorActivationIndex);
     });
 
     it('keeps standalone release verification split into check and package gates', () => {
