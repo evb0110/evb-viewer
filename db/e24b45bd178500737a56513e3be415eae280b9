@@ -1,0 +1,28 @@
+tests/unit/electron/preloadFileClient.test.ts
+  s_05e5ebbff366ab::t_0dab2d0439d0e6 53-56,242-255
+electron/features/documents/assertPdfSerializedSaveOptions.ts
+  s_05e5ebbff366ab::t_646485c7a301bf 28-29
+electron/features/documents/main/serializedPdfPersistence.ts
+  s_05e5ebbff366ab::t_1be8b09c871da0 369
+  s_05e5ebbff366ab::t_0170fb3b4ee032 77,515-518
+  s_05e5ebbff366ab::t_f900f22dc4fe15 55,508-514,519-523,527-528
+  s_05e5ebbff366ab::t_841037eddaa0d5 377-379,388
+electron/features/documents/documentsMainBindings.ts
+  s_05e5ebbff366ab::t_1be8b09c871da0 179,679
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dbe24b45bd178500737a56513e3be415eae280b9",
+  "prompts": {},
+  "sessions": {
+    "s_05e5ebbff366ab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e47d-6fec-79a0-a309-6be3e0b20a4e",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
