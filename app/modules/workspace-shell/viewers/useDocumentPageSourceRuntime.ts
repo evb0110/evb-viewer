@@ -29,10 +29,10 @@ import {
     type IDocumentZoomAnchor,
     type IDocumentZoomPageLayout,
     type ILazyIndexedCollection,
+    workspaceSurfaceBudgetController,
+    type TWorkspaceResourcePressureLevel,
 } from '@app/modules/document-viewer/public';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
-import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import type { TWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,

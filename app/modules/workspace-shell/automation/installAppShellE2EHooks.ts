@@ -3,7 +3,7 @@ import {
     workspaceSurfaceBudgetController,
     type IWorkspaceSurfaceBudgetSnapshot,
     type TWorkspaceResourcePressureLevel,
-} from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+} from '@app/modules/document-viewer/public';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 
 type TEditorSplitDirection = 'left' | 'right' | 'up' | 'down';

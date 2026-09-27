@@ -9,8 +9,6 @@ import type {
     IPdfPageLabelRange,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
-// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeAnnotationIdentityBinding,
@@ -23,11 +21,13 @@ import type {
     IPdfSerializedCommitCallbacks,
 } from '@contracts/electronApiDocuments';
 import type {TPdfDateString} from '@contracts/pdfDateString';
-import type {
-    IPdfViewerSaveExpose,
-    IPdfViewerSaveTransactionDocumentStructure,
-    IPdfViewerSaveTransactionNativeCapabilities,
-    IPdfViewerSaveTransactionRequest,
+import {
+    NativePdfSaveRequiredError,
+    type IPdfDocument,
+    type IPdfViewerSaveExpose,
+    type IPdfViewerSaveTransactionDocumentStructure,
+    type IPdfViewerSaveTransactionNativeCapabilities,
+    type IPdfViewerSaveTransactionRequest,
 } from '@app/modules/pdf-viewer/public';
 import type {
     IPdfPersistResult, IPdfSaveResult,
@@ -39,9 +39,8 @@ import {readDocumentBytes} from '@app/utils/documentBytes';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {
     consumeNativePdfMutationProjection,
-    NativePdfSaveRequiredError,
     type INativePdfSaveTransactionOptions,
-} from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
+} from '@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection';
 import type {
     IPostSaveReloadWaiter,
     ISaveCompletionPolicy,

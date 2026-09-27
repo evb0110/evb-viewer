@@ -8,7 +8,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import { readDocumentBytes } from '@app/utils/documentBytes';
-import { consumeNativePdfMutationProjection } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
+import { consumeNativePdfMutationProjection } from '@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection';
 
 interface IPrintSaveViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
 

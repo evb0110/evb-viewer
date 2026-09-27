@@ -12,7 +12,7 @@ import {
     vi,
 } from 'vitest';
 import { cast } from '@tests/helpers/cast';
-import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/public';
 import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
 
 describe('renderPdfDocumentPageSource abort window', () => {

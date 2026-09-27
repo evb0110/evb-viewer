@@ -107,9 +107,25 @@ export { intersectClientRects } from '@app/modules/document-viewer/region-geomet
 export {
     normalizeMemoryPressureLevel, resolveInactiveViewerResidencyState, resolvePostReclaimResidencyState, selectViewerReclaimCandidates, shouldReclaimViewerResidencyState, type IRuntimeMemoryPressureSignal, type IViewerReclaimCandidate, type TMemoryPressureLevel, type TViewerResidencyState,
 } from '@app/utils/viewerResidencyPolicy';
-export type {
-    IWorkspaceSurfaceBudgetController, IWorkspaceSurfaceLease, 
-} from '@app/modules/workspace-shell/public/workspaceSurfaceBudget';
+export {
+    resolveWorkspaceMemoryBudget,
+    resolveWorkspaceMemoryDeviceTier,
+    resolveWorkspaceMemoryReclaimPlan,
+    type IResolveWorkspaceMemoryBudgetOptions,
+    type IWorkspaceMemoryBudget,
+    type IResolveWorkspaceMemoryReclaimPlanOptions,
+    type IWorkspaceMemoryReclaimPlan,
+} from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
+export {
+    createWorkspaceSurfaceBudgetController,
+    estimateCanvasSurfaceBytes,
+    workspaceSurfaceBudgetController,
+    type IWorkspaceSurfaceBudgetController,
+    type IWorkspaceSurfaceLease,
+    type IWorkspaceSurfaceBudgetSnapshot,
+    type TWorkspaceResourcePressureLevel,
+    type TWorkspaceSurfaceCategory,
+} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 export { normalizeClientRect } from '@app/modules/document-viewer/region-geometry/normalizeClientRect';
 export {
     reconcileDocumentSidebarTab, type TDocumentSidebarTab,

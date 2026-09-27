@@ -16,7 +16,7 @@ import type {
     IDocumentPageSource,
     TDocumentPageSourceKind,
 } from '@app/modules/document-viewer/source/documentPageSource';
-import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/public/workspaceSurfaceBudget';
+import { workspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import {
     createDocumentViewportWritePort,
     type IDocumentViewportWritePort,

@@ -1,12 +1,12 @@
 import { useIntervalFn } from '@vueuse/core';
 import { getSystemCapability } from '@app/utils/getSystemCapability';
-import { resolveWorkspaceMemoryBudget } from '@app/modules/workspace-shell/memory/workspaceMemoryBudget';
-import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 import {
+    resolveWorkspaceMemoryBudget,
     workspaceSurfaceBudgetController,
+    type TMemoryPressureLevel,
     type TWorkspaceResourcePressureLevel,
-} from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
-import type { TMemoryPressureLevel } from '@app/modules/document-viewer/public';
+} from '@app/modules/document-viewer/public';
+import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 
 const MEMORY_SAMPLE_INTERVAL_MS = 2_000;

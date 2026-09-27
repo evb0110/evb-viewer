@@ -4,22 +4,11 @@ import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDo
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {
     IPdfViewerSaveTransactionRequest,
-    IPdfViewerNativeRequiredFailure,
     INativePdfMutationProjection,
 } from '@app/modules/pdf-viewer/public';
+import { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/public';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {toPdfDateString} from '@app/utils/pdfDate';
-
-export class NativePdfSaveRequiredError extends Error {
-    readonly code = 'native-save-required' as const;
-    readonly failure: IPdfViewerNativeRequiredFailure;
-
-    constructor(failure: IPdfViewerNativeRequiredFailure) {
-        super(failure.detail ?? 'Native PDF persistence is required for this document');
-        this.name = 'NativePdfSaveRequiredError';
-        this.failure = failure;
-    }
-}
 
 export interface INativePdfSaveTransactionOptions {
     nativeCapabilities: NonNullable<IPdfViewerSaveTransactionRequest['nativeCapabilities']>;

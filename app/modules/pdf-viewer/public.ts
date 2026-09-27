@@ -72,3 +72,8 @@ export type { IPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf
 export type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
 
 export { createPdfSourceDataReader } from '@app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader';
+export { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/runtime/save/nativePdfSaveRequiredError';
+export type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';

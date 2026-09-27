@@ -1,5 +1,3 @@
-// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     createZoomState,
     getZoomMode,
@@ -13,6 +11,7 @@ import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tab
 import { useDropdownManager } from '@app/modules/workspace-shell/composables/useDropdownManager';
 import type {
     IDocumentViewerExpose,
+    IPdfDocument,
     IPdfViewerExpose,
 } from '@app/modules/pdf-viewer/public';
 import type {

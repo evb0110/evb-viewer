@@ -1,4 +1,4 @@
-import { resolveWorkspaceMemoryBudget } from '@app/modules/workspace-shell/memory/workspaceMemoryBudget';
+import { resolveWorkspaceMemoryBudget } from '@app/modules/document-viewer/runtime/workspaceMemoryBudget';
 
 export type TWorkspaceSurfaceCategory =
     | 'pdf-page-canvas'

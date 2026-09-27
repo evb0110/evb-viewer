@@ -6,7 +6,7 @@ import {
 import {
     createWorkspaceSurfaceBudgetController,
     estimateCanvasSurfaceBytes,
-} from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+} from '@app/modules/document-viewer/public';
 import {
     DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS,
     shouldRetainInactiveDocumentPageSourceLease,

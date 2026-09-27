@@ -10,7 +10,10 @@ import type {
     IDocumentSearchMatch,
     IDocumentPageMetrics,
     IDocumentPageSource,
-    IDocumentSourceCapabilities, IDocumentTransition , IDocumentViewerRuntime,  
+    IDocumentSourceCapabilities,
+    IDocumentTransition,
+    IDocumentViewerRuntime,
+    workspaceSurfaceBudgetController,
 } from '@app/modules/document-viewer/public';
 import {
     createDocumentTransitionChannel, createDjvuPageSource , resolveDocumentPageSourceOpeningFrame , DOCUMENT_PAGE_GUTTER_PX,  
@@ -22,7 +25,6 @@ import {
     type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
-import type { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 
 /** Keep background DjVu metric work within the visible and render-priority window. */
 const DOCUMENT_SOURCE_BACKGROUND_METRIC_HYDRATION_MAX_PAGES = 128;

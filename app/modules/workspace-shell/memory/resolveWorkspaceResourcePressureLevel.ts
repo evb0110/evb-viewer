@@ -2,7 +2,7 @@ import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
 import type {
     IWorkspaceSurfaceBudgetSnapshot,
     TWorkspaceResourcePressureLevel,
-} from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+} from '@app/modules/document-viewer/public';
 
 export interface IWorkspaceMemoryPressureSample {
     memoryInfo: ISystemMemoryInfo | null;

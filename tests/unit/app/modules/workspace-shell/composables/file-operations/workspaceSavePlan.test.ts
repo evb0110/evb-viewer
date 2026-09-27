@@ -30,10 +30,7 @@ const recoveryMocks = vi.hoisted(() => ({
     readDocumentBytes: vi.fn(),
 }));
 
-vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({
-    consumeNativePdfMutationProjection: recoveryMocks.consumeNativePdfMutationProjection,
-    NativePdfSaveRequiredError: class NativePdfSaveRequiredError extends Error {},
-}));
+vi.mock('@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection', () => ({consumeNativePdfMutationProjection: recoveryMocks.consumeNativePdfMutationProjection}));
 vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: recoveryMocks.readDocumentBytes}));
 
 const RECOVERY_CLONE_REF = requireDocumentRef('browser://documents/recovery-clone.pdf');

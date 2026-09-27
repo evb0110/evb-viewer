@@ -6,7 +6,7 @@ import { toTransferableUint8Array } from '@app/platform/browser-api/public';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
-import { NativePdfSaveRequiredError } from '@app/modules/workspace-shell/public/nativePdfMutationArtifact';
+import { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/runtime/save/nativePdfSaveRequiredError';
 
 export function createPdfSourceDataReader(deps: {
     pdfData: Ref<Uint8Array | null>;

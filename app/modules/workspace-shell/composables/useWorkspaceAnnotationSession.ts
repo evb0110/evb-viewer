@@ -1,5 +1,3 @@
-// eslint-disable-next-line import-classic/no-restricted-paths -- Share the PDF structural contract as a type only.
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { Ref } from 'vue';
 import {
     syncRef,
@@ -7,14 +5,16 @@ import {
 } from '@vueuse/core';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import { getLocalStorageForVueUse } from '@app/utils/localStorage';
-import {annotationIdForSummary} from '@app/modules/pdf-viewer/public';
+import {
+    annotationIdForSummary,
+    type AnnotationId,
+    type IPdfDocument,
+} from '@app/modules/pdf-viewer/public';
 import { useAnnotationContextMenu } from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 import type { IWorkspacePdfViewerAnnotationSessionPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { hasAnnotationChanges as detectAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
-import type { AnnotationId } from '@app/modules/pdf-viewer/public';
-
 const INVISIBLE_NOTE_PLACEHOLDER_RE = /[\u200B\uFEFF]/gu;
 
 interface IWorkspaceAnnotationSessionOptions {

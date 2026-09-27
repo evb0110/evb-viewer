@@ -51,7 +51,7 @@ vi.mock('@app/utils/electronPlatformBridge', () => ({
     getRawElectronPlatformApi: () => platformApi,
     hasElectronPlatformBridge: () => true,
 }));
-vi.mock('@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController', () => (
+vi.mock('@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController', () => (
     {workspaceSurfaceBudgetController: {
         getSnapshot: mocks.getSnapshot,
         setPressureLevel: mocks.setPressureLevel,

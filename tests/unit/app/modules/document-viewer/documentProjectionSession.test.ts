@@ -16,7 +16,7 @@ import {
     createDocumentProjectionSession,
     ensurePdfProjection,
 } from '@app/modules/document-viewer/session/documentProjectionSession';
-import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+import { createWorkspaceSurfaceBudgetController } from '@app/modules/document-viewer/public';
 
 const djvuRouteMocks = vi.hoisted(() => ({loadDjvuJs: vi.fn()}));
 

@@ -40,10 +40,7 @@ const mocks = vi.hoisted(() => ({
     readDocumentBytes: vi.fn(),
 }));
 
-vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({
-    consumeNativePdfMutationProjection: mocks.consumeNativePdfMutationProjection,
-    NativePdfSaveRequiredError: class NativePdfSaveRequiredError extends Error {},
-}));
+vi.mock('@app/modules/workspace-shell/composables/consumeNativePdfMutationProjection', () => ({consumeNativePdfMutationProjection: mocks.consumeNativePdfMutationProjection}));
 
 vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: mocks.readDocumentBytes}));
 
