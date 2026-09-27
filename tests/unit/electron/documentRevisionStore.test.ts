@@ -410,6 +410,49 @@ describe('documentRevisionStore', () => {
         expect(existsSync(`${workingPath}.evb-revision.json`)).toBe(false);
         expect(existsSync(join(dirname(workingPath), 'manifest.json'))).toBe(true);
     });
+
+    it('migrates a legacy sync-required fence before deleting its journal', async () => {
+        const originalPath = join(tempRoot, 'legacy-sync-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-legacy-sync', 'document.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, 'published-target');
+        writeFileSync(workingPath, 'stale-working-copy');
+        writeFileSync(`${workingPath}.evb-revision.json`, JSON.stringify({
+            sidecarVersion: 1,
+            version: 1,
+            documentRef: requireDocumentRef(workingPath),
+            authority: 'electron-working-copy',
+            token: requireDocumentRevisionToken('drt1:legacy:3:sync'),
+            contentRevision: 3,
+            mintedAt: requireEpochMs(123),
+            updatedAt: requireEpochMs(123),
+        }));
+        writeFileSync(`${workingPath}.evb-revision-journal.json`, JSON.stringify({
+            version: 1,
+            updatedAt: 123,
+            entries: [{
+                kind: 'working-copy-sync-required',
+                id: 'sync-required:test',
+                reason: 'target saved but working copy refresh failed',
+                originalPath,
+                ownerWebContentsId: 7,
+                updatedAt: 123,
+            }],
+        }));
+
+        const {readWorkingCopyRevision} = await import('@electron/file-access/workingCopyManifest');
+        const {assertWorkingCopyMutationAllowed} = await import('@electron/file-access/documentRevisionStore');
+        await expect(readWorkingCopyRevision(workingPath)).resolves.toMatchObject({contentRevision: 3});
+        vi.resetModules();
+        const {
+            hasWorkingCopySyncRequired, assertWorkingCopyMutationAllowed: assertAfterRestart,
+        } = await import('@electron/file-access/documentRevisionStore');
+        expect(hasWorkingCopySyncRequired(workingPath)).toBe(true);
+        expect(() => assertAfterRestart(workingPath)).toThrow(/target saved but working copy refresh failed/u);
+        await expect(readFile(`${workingPath}.evb-revision-journal.json`)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('published-target');
+        expect(() => assertWorkingCopyMutationAllowed(workingPath)).toThrow();
+    });
 });
 
 const NEXT = requireDocumentRevisionToken('drt1:test:2:next');

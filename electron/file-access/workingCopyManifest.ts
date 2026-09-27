@@ -89,16 +89,44 @@ async function importLegacyRevision(workingCopyPath: string) {
             // An unreadable legacy revision is replaced by a fresh one.
         }
     }
+    let syncRequired: IWorkingCopySyncRequired | undefined;
+    const legacyJournalPath = `${workingCopyPath}.evb-revision-journal.json`;
+    try {
+        const legacyJournal = JSON.parse(await readFile(legacyJournalPath, 'utf8')) as {entries?: unknown};
+        if (Array.isArray(legacyJournal.entries)) {
+            for (const entry of legacyJournal.entries) {
+                const record = typeof entry === 'object' && entry !== null
+                    ? entry as Record<string, unknown>
+                    : null;
+                if (record?.kind !== 'working-copy-sync-required') {
+                    continue;
+                }
+                const result = v.safeParse(syncRequiredSchema, record, {abortEarly: true});
+                syncRequired = result.success
+                    ? result.output
+                    : {reason: 'The working copy must be reconciled with its saved file before it can be changed.'};
+                break;
+            }
+        }
+    } catch (error) {
+        if (!(isErrnoException(error) && error.code === 'ENOENT')) {
+            syncRequired = {reason: 'The working copy save state could not be read and must be reconciled before it can be changed.'};
+        }
+    }
     const manifest = revision === null ? null : {
         version: 1 as const,
         revision,
+        ...(syncRequired === undefined ? {} : {syncRequired}),
     };
+    if (syncRequired !== undefined && manifest === null) {
+        return null;
+    }
     if (manifest) {
         await writeJsonAtomic(getWorkingCopyManifestPath(workingCopyPath), manifest, {markMutationCommitStarted: false});
     }
     await Promise.all([
         legacyPath,
-        `${workingCopyPath}.evb-revision-journal.json`,
+        legacyJournalPath,
     ].map(path => rm(path, {force: true})));
     return manifest;
 }
