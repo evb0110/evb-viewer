@@ -2,18 +2,61 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {
-    bumpReleaseVersion, parseCutReleaseArgs, planRelease, releaseVersionParts, selectReleaseCandidate,
+    bumpReleaseVersion, main, parseCutReleaseArgs, planRelease, releaseVersionParts, selectReleaseCandidate,
 } from '@scripts/release/cut-release.mjs';
 
 describe('tag release cutter', () => {
     it('accepts only one release level', () => {
-        expect(parseCutReleaseArgs(['patch'])).toBe('patch');
-        expect(parseCutReleaseArgs(['minor'])).toBe('minor');
+        expect(parseCutReleaseArgs(['patch'])).toEqual({
+            level: 'patch',
+            preflight: false,
+        });
+        expect(parseCutReleaseArgs(['minor'])).toEqual({
+            level: 'minor',
+            preflight: false,
+        });
         expect(parseCutReleaseArgs([
             '--',
             'patch',
-        ])).toBe('patch');
+        ])).toEqual({
+            level: 'patch',
+            preflight: false,
+        });
+        expect(parseCutReleaseArgs([
+            'patch',
+            '--preflight',
+        ])).toEqual({
+            level: 'patch',
+            preflight: true,
+        });
         expect(() => parseCutReleaseArgs(['--resume'])).toThrow('Usage:');
+    });
+
+    it('runs candidate selection in preflight mode without pushing a tag', async () => {
+        const commands: string[][] = [];
+        let selectedLevel = '';
+        await main([
+            'patch',
+            '--preflight',
+        ], {
+            runCommand: (_command, args) => {
+                commands.push(args);
+                return '';
+            },
+            planReleaseFn: level => {
+                selectedLevel = level;
+                return {
+                    candidateCiRunId: 42,
+                    candidateCiRunUrl: '',
+                    candidateSha: 'candidate-sha',
+                    currentVersion: '1.2.3',
+                    nextVersion: '1.2.4',
+                    tag: 'v1.2.4',
+                };
+            },
+        });
+        expect(selectedLevel).toBe('patch');
+        expect(commands).toEqual([]);
     });
 
     it('derives versions from the newest stable tag', () => {

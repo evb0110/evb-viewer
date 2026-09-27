@@ -6,6 +6,10 @@ import {
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
 import {runtimeConfig} from '@electron/runtimeConfig';
+import {
+    DEFAULT_UPDATES_MIRROR_METADATA_URL,
+    DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL,
+} from '@contracts/updateMirrorDefaults.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 type TElectronAppPackagingState = Pick<typeof app, 'isPackaged'>;
@@ -24,8 +28,6 @@ const DEFAULT_SERVER_PORT = runtimeConfig.serverPort;
 const DEFAULT_SERVER_PATH = normalizeServerPath(runtimeConfig.serverPath, '/electron');
 const APP_PROTOCOL_ORIGIN = 'evb-viewer://app';
 const DEFAULT_UPDATES_METADATA_URL = 'https://evb-viewer.com/api/releases/latest';
-const DEFAULT_UPDATES_MIRROR_METADATA_URL = 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/channels/stable.json';
-const DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL = 'https://vps-420c0bae.vps.ovh.net/api/mss-backend/api/evb-viewer/releases';
 const DEFAULT_UPDATES_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_UPDATES_INITIAL_DELAY_MS = 2 * 60 * 1000;
 let runtimeServerHost = DEFAULT_SERVER_HOST;

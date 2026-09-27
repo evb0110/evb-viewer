@@ -134,25 +134,38 @@ export function planRelease(level, {
     };
 }
 
-/** @param {string[]} argv @returns {'patch'|'minor'|'major'} */
+/** @param {string[]} argv @returns {{level: 'patch'|'minor'|'major', preflight: boolean}} */
 export function parseCutReleaseArgs(argv) {
-    // pnpm forwards the `--` in `pnpm run release:cut -- patch`.
     const args = argv[0] === '--' ? argv.slice(1) : argv;
-    const level = args[0];
-    if (args.length !== 1 || !LEVELS.has(/** @type {'patch'|'minor'|'major'} */ (level))) throw new Error('Usage: pnpm run release:cut -- <patch|minor|major>');
-    return /** @type {'patch'|'minor'|'major'} */ (level);
+    const level = args.find(argument => argument !== '--preflight');
+    const preflight = args.includes('--preflight');
+    if (args.length !== (preflight ? 2 : 1) || !LEVELS.has(/** @type {'patch'|'minor'|'major'} */ (level))) {
+        throw new Error('Usage: pnpm run release:cut -- <patch|minor|major> [--preflight]');
+    }
+    return {
+        level: /** @type {'patch'|'minor'|'major'} */ (level),
+        preflight,
+    };
 }
 
 /** @param {string[]} argv */
-export async function main(argv = process.argv.slice(2)) {
-    const level = parseCutReleaseArgs(argv);
-    const plan = planRelease(level);
-    run('git', [
+export async function main(argv = process.argv.slice(2), {
+    runCommand = run, planReleaseFn = planRelease,
+} = {}) {
+    const {
+        level, preflight,
+    } = parseCutReleaseArgs(argv);
+    const plan = planReleaseFn(level);
+    if (preflight) {
+        process.stdout.write(`Release preflight passed: ${plan.candidateSha} (ci.yml run ${plan.candidateCiRunId}) ${plan.currentVersion} -> ${plan.nextVersion}.\n`);
+        return;
+    }
+    runCommand('git', [
         'push',
         'origin',
         `${plan.candidateSha}:refs/tags/${plan.tag}`,
     ]);
-    const repo = run('gh', [
+    const repo = runCommand('gh', [
         'repo',
         'view',
         '--json',

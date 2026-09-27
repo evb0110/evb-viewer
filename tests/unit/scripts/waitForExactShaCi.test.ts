@@ -177,6 +177,22 @@ describe('waitForExactShaCiGates', () => {
         expect(Math.max(...harness.pollTimes)).toBeGreaterThanOrEqual(lateSuccessAtMs);
     });
 
+    it('fails immediately on exact-SHA API errors when dry-run lookup is strict', async () => {
+        const harness = createHarness(() => ({status: 'absent'}));
+        const runCommand = (command: string, args: string[]) => {
+            if (args.some(argument => argument.includes('/runs?head_sha='))) {
+                throw new Error('HTTP 403: resource not accessible');
+            }
+            return harness.runCommand(command, args);
+        };
+        await expect(waitForExactShaCiGates(TARGET_SHA, {
+            ...harness,
+            failOnLookupError: true,
+            runCommand,
+        })).rejects.toThrow('HTTP 403: resource not accessible');
+        expect(harness.nowFn()).toBe(0);
+    });
+
     it('accepts a skipped-CI release commit after its version-only parent is green', async () => {
         const harness = createParentVerificationHarness();
 

@@ -17,8 +17,8 @@ here is required reading for an ordinary cut.
 
 ## Release invariants
 
-- `release:cut` selects the newest commit on `origin/main` with a successful exact-SHA `ci.yml` push run and green `gates_ok`, after the newest stable release tag. It pushes a lightweight tag and leaves `package.json` on `main` unchanged.
-- The tag-triggered `release.yml` validates tag format, main ancestry, and exact-SHA CI before running the five required package targets. Dispatch with an existing tag only for recovery; `dry_run=true` uses a unique prerelease version, draft, and isolated mirror namespace.
+- `release:cut` selects the newest commit on `origin/main` with a successful exact-SHA `ci.yml` push run and green `gates_ok`, after the newest stable release tag. `pnpm run release:cut -- patch --preflight` runs the same selection without pushing the tag. A real cut pushes a lightweight tag and leaves `package.json` on `main` unchanged.
+- The tag-triggered `release.yml` validates tag format, main ancestry, and exact-SHA CI before running the five required package targets. Dispatch with an existing tag only for recovery; `dry_run=true` runs the same gates and package steps, allowing only the absence of a main push run for the branch SHA as a notice, and uses a unique prerelease version, draft, and isolated mirror namespace.
 - Windows ARM64 is a required package target before promotion. The Store AppX lane remains a separate manual workflow.
 - The draft is promoted only after final updater metadata, checksums, provenance, and the mirror transaction pass. `electron-builder --publish never` remains necessary because macOS notarization rewrites the DMG and updater metadata before explicit upload.
 
@@ -43,8 +43,9 @@ here is required reading for an ordinary cut.
 ## Pre-release proof of packaged behaviour
 
 - Every release package runs its platform's native-tool, content, version, and packaged smoke checks before the finalization job can promote the draft.
-- The packaged core-PDF smoke remains a Linux-only proof by design. Windows NSIS install journeys run on x64 and ARM64, and macOS signing, notarization, startup, and updater metadata checks run on the Apple Silicon target.
-- The workflow-dispatch dry run uses the same package and finalization jobs, keeps a draft, writes to an isolated mirror prefix and channel, and removes its draft, tag, and prefix. It does not replace post-promotion installed-client updater acceptance.
+- The packaged core-PDF smoke runs on all five release targets and includes OCR of a one-page English image PDF with `lantern` required in the searchable output. Windows NSIS install journeys run on x64 and ARM64, and macOS signing, notarization, startup, and updater metadata checks run on the Apple Silicon target.
+- After promotion, the release workflow verifies GitHub latest, the app's updater channel URL, the release manifest and a served mirror asset. The daily CI Nightly workflow checks the same public routes for the current latest release and reports through one `release-mirror-health` issue, which it closes after recovery.
+- The workflow-dispatch dry run keeps a draft, writes to an isolated mirror prefix and channel, verifies the drill route publicly when available or checks the objects through S3 otherwise, and removes its draft, tag, and prefix. It does not replace post-promotion installed-client updater acceptance.
 
 ## Dependency advisories
 
@@ -54,7 +55,7 @@ here is required reading for an ordinary cut.
 
 ## Dry-run flow
 
-Dispatch `release.yml` with `dry_run=true` to exercise the real package matrix, final asset checks, checksums, and isolated mirror transaction without promoting a release. The run uses a unique `v0.0.0-drill.<run_id>` version and removes its draft, tag, and run-specific mirror prefix. There is no scheduled artifact canary or synthetic publication drill.
+Dispatch `release.yml` with `dry_run=true` to exercise the exact-SHA lookup, real package matrix, OCR and core-PDF smoke, final asset checks, checksums, and isolated mirror transaction without promoting a release. The run uses a unique `v0.0.0-drill.<run_id>` version and removes its draft, tag, and run-specific mirror prefix. Daily public mirror health is checked by `ci-nightly.yml`.
 
 ## Current-tree size and Git history
 

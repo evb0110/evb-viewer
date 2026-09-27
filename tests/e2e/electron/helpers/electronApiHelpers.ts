@@ -62,13 +62,26 @@ export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
     return documentRef;
 }
 
+interface IOcrSearchablePdfResult {
+    requestId: string;
+    started: boolean;
+    progressEventCount: number;
+    success: boolean;
+    pdfPath: string | null;
+    sourceDocumentRevisionToken?: string | null;
+    errors: string[];
+    startError: string | null;
+    requiresCleanupAck: boolean;
+    recognizedText: string | null;
+}
+
 export async function runOcrSearchablePdf(
     page: Page,
     sourcePdfPath: string,
     requestId: string,
     expectedText: string,
     languages = ['eng'],
-) {
+): Promise<IOcrSearchablePdfResult> {
     const result = await evaluateInPage(page, async ({
         sourcePath,
         id,

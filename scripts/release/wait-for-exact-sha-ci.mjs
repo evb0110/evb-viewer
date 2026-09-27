@@ -27,7 +27,7 @@ import {
 /** @typedef {{conclusion?: string | null, event?: string, head_branch?: string, head_sha?: string, html_url?: string, id: number, run_number?: number, status?: string}} IWorkflowRun */
 /** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => string} TCommandRunner */
 /** @typedef {{write: (chunk: string) => unknown}} IWritable */
-/** @typedef {{appearanceTimeoutMs?: number | undefined, completionTimeoutMs?: number | undefined, pollIntervalMs?: number | undefined, nowFn?: (() => number) | undefined, sleepFn?: (milliseconds: number) => Promise<unknown>, runCommand?: TCommandRunner | undefined, stderr?: IWritable | undefined}} IWaitOptions */
+/** @typedef {{appearanceTimeoutMs?: number | undefined, completionTimeoutMs?: number | undefined, pollIntervalMs?: number | undefined, nowFn?: (() => number) | undefined, sleepFn?: (milliseconds: number) => Promise<unknown>, runCommand?: TCommandRunner | undefined, stderr?: IWritable | undefined, failOnLookupError?: boolean | undefined}} IWaitOptions */
 
 // A target that is not a version-only release commit must have its own push
 // run; this window covers the API lag between a push and its run listing.
@@ -78,7 +78,7 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
     ]);
     const workflowRuns = JSON.parse(payload)?.workflow_runs;
     if (!Array.isArray(workflowRuns)) {
-        return null;
+        throw new Error('Unexpected GitHub API response while looking up exact-SHA push runs');
     }
     return workflowRuns
         .filter(runInfo => isMainPushRun(runInfo) && runInfo.head_sha === targetSha)
@@ -221,6 +221,7 @@ export async function waitForExactShaCiGates(targetSha, {
     // Only .write is part of the contract; keep the option narrow so test
     // harnesses can satisfy it without impersonating process.stderr.
     stderr = {write: chunk => process.stderr.write(chunk)},
+    failOnLookupError = false,
 } = {}) {
     const versionOnlyParentSha = readVersionOnlyParent(targetSha, runCommand);
     if (versionOnlyParentSha !== null) {
@@ -238,6 +239,7 @@ export async function waitForExactShaCiGates(targetSha, {
                 knownRun = latestRun;
             }
         } catch (error) {
+            if (failOnLookupError) throw error;
             // Transient API failures must not abort the wait; the deadlines
             // below keep the loop bounded and fail-closed.
             stderr.write(`Transient CI lookup failure for ${targetSha}; retrying: ${
@@ -265,6 +267,7 @@ export async function waitForExactShaCiGates(targetSha, {
             try {
                 gatesConclusion = readGatesOkConclusion(knownRun.id, runCommand);
             } catch (error) {
+                if (failOnLookupError) throw error;
                 gatesLookupError = error instanceof Error
                     ? getCliErrorMessage(error).split('\n')[0]
                     : String(error);
@@ -360,6 +363,8 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     const argv = process.argv.slice(2);
+    const noticeIfMissing = argv.includes('--notice-if-no-main-run');
+    const failOnLookupError = argv.includes('--fail-on-lookup-error');
     const requestedTarget = argv.find(argument => !argument.startsWith('--')) ?? 'HEAD';
     /** @param {string} argument @returns {string} */
     const resolveCliTarget = (argument) => {
@@ -372,7 +377,19 @@ if (isDirectCliRun) {
         }
     };
     const targetSha = resolveCliTarget(requestedTarget);
-    waitForExactShaCiGates(targetSha)
+    if (noticeIfMissing) {
+        try {
+            const matchingRun = findLatestMatchingRun(targetSha);
+            if (!matchingRun) {
+                process.stdout.write(`::notice::No ci.yml push run on main exists for dry-run commit ${targetSha}; exact-SHA gate lookup succeeded.\n`);
+                process.exit(0);
+            }
+        } catch (error) {
+            process.stderr.write(`::error::Exact-SHA CI lookup failed: ${getCliErrorMessage(error)}\n`);
+            process.exit(1);
+        }
+    }
+    waitForExactShaCiGates(targetSha, {failOnLookupError})
         .then(({id}) => {
             process.stdout.write(`::notice::Release target ${targetSha} passed exact-SHA CI run ${id}.\n`);
         })

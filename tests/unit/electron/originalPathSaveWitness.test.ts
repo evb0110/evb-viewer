@@ -121,9 +121,15 @@ describe('originalPathSaveBaseMatches', () => {
 
     it('rejects a same-size edit even when its mtime is restored', async () => {
         const originalPath = join(tempDir, 'original.pdf');
-        await writeFile(originalPath, Buffer.from('base'));
+        const originalBytes = Buffer.from('base');
+        await writeFile(originalPath, originalBytes);
         const expected = await captureExpectation(originalPath);
-        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(expected);
+        const hash = createOriginalFileContentFingerprintHash(originalBytes.byteLength);
+        hash.update(originalBytes);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+        });
 
         await writeFile(originalPath, Buffer.from('edit'));
         const restoredSeconds = Number(BigInt(expected.mtimeNs)) / 1_000_000_000;

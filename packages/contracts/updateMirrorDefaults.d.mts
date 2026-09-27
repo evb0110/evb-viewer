@@ -1,0 +1,2 @@
+export const DEFAULT_UPDATES_MIRROR_METADATA_URL: string;
+export const DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL: string;

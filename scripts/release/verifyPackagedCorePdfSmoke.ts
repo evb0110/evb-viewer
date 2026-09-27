@@ -32,7 +32,9 @@ import {
 } from '@scripts/electron-run/electronRunProcessTree';
 import {capturePackagedCorePdfFailureArtifacts} from '@tests/e2e/electron/helpers/capturePackagedCorePdfFailureArtifacts';
 import {
+    assertOcrPdfSemanticOutput,
     getActiveWorkspaceWorkingCopyPath,
+    runOcrSearchablePdf,
     rotatePages,
 } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
@@ -129,6 +131,10 @@ const PACKAGED_SMOKE_FIXTURE = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     '../../tests/fixtures/release/packaged-core-smoke.pdf',
 );
+const PACKAGED_OCR_SMOKE_FIXTURE = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../tests/fixtures/release/packaged-core-ocr-smoke.pdf',
+);
 
 async function waitForSaveEnabled(page: Page) {
     const deadline = Date.now() + OPERATION_TIMEOUT_MS;
@@ -195,9 +201,11 @@ async function run() {
     const executablePath = parseExecutablePath(process.argv.slice(2));
     const workDirectory = await mkdtemp(path.join(tmpdir(), 'evb-packaged-core-smoke-'));
     const fixturePath = path.join(workDirectory, 'packaged-core-smoke.pdf');
+    const ocrFixturePath = path.join(workDirectory, 'packaged-core-ocr-smoke.pdf');
     const userDataPath = path.join(workDirectory, 'user-data');
     const cdpPort = await findFreePort();
     await copyFile(PACKAGED_SMOKE_FIXTURE, fixturePath);
+    await copyFile(PACKAGED_OCR_SMOKE_FIXTURE, ocrFixturePath);
 
     const launch = preparePackagedAutomationLaunch({
         executablePath,
@@ -336,12 +344,22 @@ async function run() {
             throw new Error('Packaged smoke search returned no fixture matches');
         }
 
+        await openPdfInApp(page, ocrFixturePath, STARTUP_TIMEOUT_MS);
+        await waitForPdfLoaded(page, STARTUP_TIMEOUT_MS);
+        await waitForViewerInteractive(page, STARTUP_TIMEOUT_MS);
+        const ocrSourcePath = await getActiveWorkspaceWorkingCopyPath(page);
+        const ocr = await runOcrSearchablePdf(page, ocrSourcePath, `packaged-core-${Date.now()}`, 'Harbor lantern signal');
+        if (!ocr.success || !ocr.pdfPath) {
+            throw new Error(`Packaged smoke OCR failed: ${ocr.errors.join('; ')}`);
+        }
+        await assertOcrPdfSemanticOutput(ocr.pdfPath, 'lantern');
+
         // Give errors queued by the final renderer operation a chance to reach
         // CDP before deciding that the packaged journey passed.
         await delay(250);
         assertNoPackagedRendererFailures(rendererFailures);
 
-        console.log('Packaged core-PDF smoke passed: open, annotation save, metadata-preserving rotate, source isolation, and search.');
+        console.log('Packaged core-PDF smoke passed: OCR, open, annotation save, metadata-preserving rotate, source isolation, and search.');
     } catch (error) {
         primaryError = error instanceof Error ? error : new Error(String(error));
         try {

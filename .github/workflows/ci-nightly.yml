@@ -33,6 +33,65 @@ env:
   EVB_E2E_PRESERVE_ARTIFACTS: '1'
 
 jobs:
+  release_mirror_health:
+    name: Public release mirror health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: main
+
+      - name: Setup CI environment
+        id: setup
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Check latest public release and updater mirror
+        id: mirror_check
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: node --import tsx scripts/release/verifyReleaseMirror.mjs --latest
+
+      - name: Report through the release-mirror-health issue
+        if: ${{ always() && steps.setup.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_OUTCOME: ${{ steps.mirror_check.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          label='release-mirror-health'
+          if ! gh label list --json name --jq '.[].name' | grep -Fxq "$label"; then
+            gh label create "$label" --color E11D48 --description 'Public release mirror health failures'
+          fi
+          issue_number="$(gh issue list --label "$label" --state open --limit 1 --json number --jq '.[0].number // empty')"
+
+          if [ "$CHECK_OUTCOME" = 'success' ]; then
+            if [ -n "$issue_number" ]; then
+              gh issue close "$issue_number" --comment "$(printf 'The current GitHub release and updater mirror agree and serve a release asset again.\n\nRun: %s' "$RUN_URL")"
+            fi
+            exit 0
+          fi
+
+          latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || echo unavailable)"
+          body="$(printf '%s\n' \
+            "The public release mirror health check failed for latest release $latest_tag." \
+            "The GitHub latest release, updater channel, release manifest, and served asset must name the same tag." \
+            "Run: $RUN_URL")"
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --body "$body"
+          else
+            gh issue create --title 'Public release mirror health check failed' --label "$label" --body "$body"
+          fi
+          exit 1
+
   nightly_scan_cleanup_heavy:
     name: Scan Cleanup Heavy Gates
     runs-on: ubuntu-latest

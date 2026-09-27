@@ -22,7 +22,11 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export function getAllGateDefinitions() {
     return [
         {
-            args: ['scripts/release/release-cut-preflight.mjs'],
+            args: [
+                'scripts/release/cut-release.mjs',
+                'patch',
+                '--preflight',
+            ],
             command: 'node',
             description: 'Cheap publication prerequisites and candidate eligibility, including hosted CI and artifact evidence',
             id: 'release-cut-preflight',

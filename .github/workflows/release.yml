@@ -93,7 +93,6 @@ jobs:
             echo "drill=$drill"
           } >> "$GITHUB_OUTPUT"
       - name: Validate signing credentials
-        if: ${{ inputs.dry_run != true }}
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -129,15 +128,14 @@ jobs:
             exit 1
           fi
       - name: Require exact-SHA push CI verdict
-        if: ${{ inputs.dry_run != true }}
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ steps.resolve.outputs.target_sha }}
-        run: node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"
-      - name: Report dry-run gate bypass
-        if: ${{ inputs.dry_run == true }}
-        run: echo '::notice::Dry run from a branch cannot satisfy the protected-main exact-SHA gates_ok gate; packaging continues without publication.'
+        run: |
+          args=("$TARGET_SHA")
+          if [ "${{ inputs.dry_run }}" = true ]; then args+=(--notice-if-no-main-run --fail-on-lookup-error); fi
+          node scripts/release/wait-for-exact-sha-ci.mjs "${args[@]}"
 
   package:
     name: Package (${{ matrix.os }}, ${{ matrix.platform }}, ${{ matrix.arch }})
@@ -428,6 +426,8 @@ jobs:
           sudo apt-get install -y "$(realpath "$deb")"
           installed_executable="$(command -v evb-viewer)"
           test -x "$installed_executable"
+          export TMPDIR="$GITHUB_WORKSPACE/.devkit/tmp"
+          mkdir -p "$TMPDIR"
           xvfb-run -a pnpm run test:packaged-core-pdf-smoke -- --executable "$installed_executable"
           cleanup_deb
           trap - EXIT
@@ -444,6 +444,11 @@ jobs:
         # stays blocking on both arches; the NSIS journey below covers the
         # installed app on both architectures.
         run: |
+          TMPDIR="$(cygpath -u "$GITHUB_WORKSPACE")/.devkit/tmp"
+          TMP="$(cygpath -w "$TMPDIR")"
+          export TMPDIR TMP
+          export TEMP="$TMP"
+          mkdir -p "$TMPDIR"
           executable="$(find release -type f -path '*/win*-unpacked/EVB Viewer.exe' -print -quit)"
           test -n "$executable"
           pnpm run test:packaged-core-pdf-smoke -- --executable "$executable"
@@ -454,6 +459,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $taskTemp = Join-Path $env:GITHUB_WORKSPACE '.devkit\tmp'
+          New-Item -ItemType Directory -Force -Path $taskTemp | Out-Null
+          $env:TMPDIR = $taskTemp
+          $env:TMP = $taskTemp
+          $env:TEMP = $taskTemp
           $installer = Get-ChildItem release -File -Filter '*-setup.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Windows NSIS installer was not produced.' }
 
@@ -548,7 +558,10 @@ jobs:
       - name: Verify packaged macOS arm64 core PDF journey
         if: runner.os == 'macOS' && matrix.arch == 'arm64'
         shell: bash
-        run: pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"
+        run: |
+          export TMPDIR="$GITHUB_WORKSPACE/.devkit/tmp"
+          mkdir -p "$TMPDIR"
+          pnpm run test:packaged-core-pdf-smoke -- --executable "release/mac-arm64/EVB Viewer.app/Contents/MacOS/EVB Viewer"
 
       - name: Upload packaged core PDF diagnostics
         if: failure() || steps.nsis_journey.outcome == 'failure'
@@ -705,6 +718,7 @@ jobs:
         with:
           subject-path: artifacts/*
       - name: Stage and activate mirror transaction
+        id: mirror_stage
         if: ${{ needs.package.result == 'success' }}
         env:
           MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
@@ -720,11 +734,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$MIRROR_S3_ENDPOINT" ] || [ -z "$MIRROR_S3_BUCKET" ] || [ -z "$MIRROR_S3_ACCESS_KEY_ID" ] || [ -z "$MIRROR_S3_SECRET_KEY" ]; then
-            if [ "$DRILL" = true ]; then
-              echo '::notice::Isolated mirror transaction skipped because release environment S3 credentials are unavailable to this branch.'
-              exit 0
-            fi
-            echo '::error::Public release mirror credentials are missing.'
+            echo '::error::Release mirror credentials are missing.'
             exit 1
           fi
           if [ "$DRILL" = true ]; then
@@ -741,11 +751,29 @@ jobs:
           if [ "$DRILL" = true ]; then args+=(--drill); fi
           node scripts/release/publish-release-mirror.mjs "${args[@]}"
       - name: Promote real release draft
+        id: promote
         if: ${{ needs.package.result == 'success' && needs.gate.outputs.drill != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.gate.outputs.tag }}
         run: gh release edit "$TAG" --draft=false
+      - name: Verify public release and updater mirror
+        if: ${{ needs.package.result == 'success' && steps.mirror_stage.outcome == 'success' && (needs.gate.outputs.drill == 'true' || steps.promote.outcome == 'success') }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.gate.outputs.tag }}
+          DRILL: ${{ needs.gate.outputs.drill }}
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        run: |
+          if [ "$DRILL" = true ]; then
+            node --import tsx scripts/release/verifyReleaseMirror.mjs "$TAG" --drill "${{ github.run_id }}"
+          else
+            node --import tsx scripts/release/verifyReleaseMirror.mjs "$TAG"
+          fi
       - name: Verify drill stable channel is untouched and clean up
         if: ${{ always() && needs.gate.outputs.drill == 'true' }}
         env:

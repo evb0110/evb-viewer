@@ -8,10 +8,10 @@ pnpm run release:cut -- patch
 
 Use `minor` or `major` for the corresponding version change. The cutter fetches `origin/main`, chooses the newest commit with a successful exact-SHA `ci.yml` push run and green `gates_ok` that descends from the previous release tag, computes the next version from the newest stable tag, and pushes a lightweight tag. It does not write a version commit or dispatch a workflow. The tag starts `.github/workflows/release.yml`.
 
-Inspect a candidate without creating a tag:
+Run the same candidate selection and release checks without pushing the tag:
 
 ```sh
-node scripts/release/release-cut-preflight.mjs patch
+pnpm run release:cut -- patch --preflight
 ```
 
 To recover a workflow for a tag that already exists, dispatch `Release` with that tag. The workflow validates that the tag points to a commit on `main` and waits for that commit's exact-SHA CI verdict before packaging.
@@ -24,9 +24,9 @@ The Microsoft Store AppX lane remains manual. Dispatch `store-appx.yml` for the 
 
 ## Dry run
 
-Dispatch `Release` with `dry_run=true` to build the same five packages and exercise draft asset validation and the mirror transaction under a unique drill version. The run reports that protected-main and exact-SHA CI gates are bypassed for branch dry runs. It keeps the GitHub release as a draft, uses a run-specific mirror prefix and channel, verifies the stable channel was not changed, and cleans up the draft, drill tag, and mirror prefix. It does not run on a schedule and does not publish a real release.
+Dispatch `Release` with `dry_run=true` to run the same five package jobs, exact-SHA lookup, draft validation and mirror transaction under a unique drill version. If the candidate has no exact-SHA push run on main, the lookup reports a notice; API, authentication and permission errors fail the run. The drill keeps its GitHub release as a draft, uses a run-specific mirror prefix and channel, verifies the stable channel was not changed, checks the public updater route when it serves the drill prefix (otherwise it reads the isolated objects through the mirror client), and cleans up the draft, drill tag and mirror prefix. The packaged core smoke includes an English OCR job and requires the recognized word `lantern` on each target.
 
-A branch dry run cannot use secrets or environments restricted to protected branches or tags. The affected signing, notarization, Sentry upload, or mirror steps will be reported by the run; do not weaken environment protections to make a branch run pass.
+After a real release becomes public, the workflow fetches GitHub's latest release and the same updater channel, release manifest and asset route used by the app. All must name the new tag and serve an asset. The daily public mirror health check reports failures through one `release-mirror-health` issue and closes it after recovery.
 
 ## Status and recovery
 
