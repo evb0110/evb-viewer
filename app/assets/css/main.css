@@ -395,7 +395,7 @@
     --app-search-virtual-group-row-height: 36px;
     --app-search-virtual-row-height: 84px;
     --app-search-progress-height: 3px;
-    --app-ocr-language-picker-max-height: max(9rem, calc(100dvh - 36rem));
+    --app-ocr-dialog-max-width: 72rem;
     --app-sidebar-content-min-height: 5rem;
     --app-crop-dialog-input-width: 7.5rem;
     --app-zoom-menu-separator-height: var(--app-hairline-height);

@@ -13,7 +13,6 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {createScannedTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {assertOcrPdfSemanticOutput} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
-    clickToolbarButtonWhenEnabled,
     openDocumentSidebarTab,
     openPdfInApp,
     saveViaVisibleToolbar,
@@ -57,7 +56,8 @@ async function waitForTextLayerWord(page: Page) {
 
 describe('Electron E2E - OCR journey', () => {
     it('makes a scanned page searchable, saves it, and finds a recognized word after reopening', async () => {
-        const {page} = sessionFixture.getSession();
+        const session = sessionFixture.getSession();
+        const {page} = session;
         const sourcePath = await createScannedTextFixturePdf(
             'ocr-journey-scan.pdf',
             SCANNED_TEXT,
@@ -66,8 +66,29 @@ describe('Electron E2E - OCR journey', () => {
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
 
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
         // English is the preselected recognition language.
-        await clickToolbarButtonWhenEnabled(page, 'OCR');
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        const dialogLayout = await page.$eval('[role="dialog"]', (dialog) => {
+            const scrollableElements = Array.from(dialog.querySelectorAll<HTMLElement>('*')).filter((element) => {
+                const overflowY = window.getComputedStyle(element).overflowY;
+                return element.scrollHeight > element.clientHeight
+                    && (overflowY === 'auto' || overflowY === 'scroll');
+            });
+            return {
+                width: dialog.getBoundingClientRect().width,
+                hasNestedScrollRegions: scrollableElements.some(element => (
+                    scrollableElements.some(parent => parent !== element && parent.contains(element))
+                )),
+            };
+        });
+        expect(dialogLayout.width).toBeGreaterThanOrEqual(900);
+        expect(dialogLayout.hasNestedScrollRegions).toBe(false);
+
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await waitForFunctionInPage(page, () => (
             document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true

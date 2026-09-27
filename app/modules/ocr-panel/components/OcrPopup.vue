@@ -3,7 +3,7 @@
         v-model:open="isOpen"
         :title="t('ocr.runTitle')"
         :dismissible="!progress.isRunning && !isExporting"
-        :ui="{ content: 'sm:max-w-2xl top-16 translate-y-0 max-h-[calc(100dvh-5rem)]', footer: 'justify-end gap-2' }"
+        :ui="{ content: '@container/ocr-dialog w-[calc(100vw-4rem)] max-w-[var(--app-ocr-dialog-max-width)] h-[calc(100dvh-5rem)] max-h-[calc(100dvh-5rem)] top-16 translate-y-0', body: 'min-h-0 flex flex-col @min-[60rem]/ocr-dialog:overflow-y-hidden', footer: 'justify-end gap-2' }"
     >
         <template #description>
             <span class="sr-only">
@@ -38,166 +38,146 @@
         <span v-else class="hidden-trigger" aria-hidden="true" />
 
         <template #body>
-            <div class="ocr-body flex flex-col gap-4">
+            <div
+                class="ocr-body flex min-h-0 flex-1 flex-col gap-4"
+                :class="{ 'is-configuring': viewState === 'configure' || viewState === 'error' }"
+            >
                 <!-- CONFIGURE / ERROR STATE (config stays editable so errors stay recoverable) -->
                 <template v-if="viewState === 'configure' || viewState === 'error'">
-                    <!-- Error banner -->
-                    <div
-                        v-if="viewState === 'error'"
-                        class="error"
-                        role="alert"
-                        aria-live="assertive"
-                    >
-                        <UIcon name="i-ph-warning-circle" class="size-4" />
-                        <div class="error-content flex flex-1 flex-col gap-2">
-                            <span class="error-text">{{ effectiveError }}</span>
-                            <span
-                                v-if="hasLanguageDownloadFailure"
-                                class="error-retry-hint"
-                            >
-                                {{ t('ocr.languagePicker.retryDownload') }}
-                            </span>
-                            <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
-                                <UButton
-                                    icon="i-ph-copy"
-                                    variant="ghost"
-                                    color="neutral"
-                                    size="xs"
-                                    class="copy-logs"
-                                    :loading="isCopyingLogs"
-                                    :aria-label="t('ocr.copyLogs')"
-                                    @click="handleCopyLogs"
-                                />
-                            </AppTooltip>
-                        </div>
-                    </div>
-
-                    <!-- Page Range Selection -->
-                    <div
-                        class="section"
-                    >
-                        <URadioGroup
-                            v-model="settings.pageRange"
-                            name="pageRange"
-                            :legend="t('ocr.pages')"
-                            :items="pageRangeOptions"
-                            value-key="value"
-                            variant="table"
-                            orientation="horizontal"
-                            indicator="hidden"
-                            :ui="segmentedRadioGroupUi"
-                        />
+                    <div class="ocr-settings app-scrollbar app-scroll-region--balanced flex flex-col gap-4">
+                        <!-- Error banner -->
                         <div
-                            class="custom-range-reveal"
-                            :class="{ 'is-open': showCustomRange }"
+                            v-if="viewState === 'error'"
+                            class="error"
+                            role="alert"
+                            aria-live="assertive"
                         >
-                            <div class="custom-range-reveal-inner">
-                                <UInput
-                                    v-model="settings.customRange"
-                                    :placeholder="t('ocr.customRangePlaceholder')"
-                                    size="sm"
-                                    class="custom-input"
-                                    :disabled="!showCustomRange"
-                                    :tabindex="showCustomRange ? 0 : -1"
-                                    :aria-hidden="!showCustomRange"
-                                />
+                            <UIcon name="i-ph-warning-circle" class="size-4" />
+                            <div class="error-content flex flex-1 flex-col gap-2">
+                                <span class="error-text">{{ effectiveError }}</span>
+                                <span
+                                    v-if="hasLanguageDownloadFailure"
+                                    class="error-retry-hint"
+                                >
+                                    {{ t('ocr.languagePicker.retryDownload') }}
+                                </span>
+                                <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                                    <UButton
+                                        icon="i-ph-copy"
+                                        variant="ghost"
+                                        color="neutral"
+                                        size="xs"
+                                        class="copy-logs"
+                                        :loading="isCopyingLogs"
+                                        :aria-label="t('ocr.copyLogs')"
+                                        @click="handleCopyLogs"
+                                    />
+                                </AppTooltip>
                             </div>
                         </div>
-                    </div>
 
-                    <div class="section">
-                        <URadioGroup
-                            v-model="supersessionChoiceModel"
-                            name="ocrSupersessionPolicy"
-                            :items="supersessionChoiceItems"
-                            value-key="value"
-                            :ui="listRadioGroupUi"
+                        <!-- Page Range Selection -->
+                        <div
+                            class="section"
                         >
-                            <template #legend>
-                                {{ t('ocr.supersession.label') }}
-                                <OcrSettingHelpTooltip
-                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.supersession.label') })"
-                                    :options="supersessionPolicyHelpItems"
-                                />
-                            </template>
-                            <template #description="{ item }">
-                                <span class="policy-option-description">{{ item.description }}</span>
-                            </template>
-                        </URadioGroup>
-                        <UCollapsible
-                            v-if="supersessionChoiceModel === 'repeat'"
-                            v-model:open="repeatAdvancedOpen"
-                            :unmount-on-hide="false"
-                            class="supersession-advanced"
-                        >
-                            <template #default="{ open: isAdvancedOpen }">
-                                <button
-                                    type="button"
-                                    class="supersession-advanced-toggle"
-                                    :aria-expanded="isAdvancedOpen ? 'true' : 'false'"
-                                >
-                                    <UIcon
-                                        :name="isAdvancedOpen ? 'i-ph-caret-down' : 'i-ph-caret-right'"
-                                        class="supersession-advanced-icon"
+                            <URadioGroup
+                                v-model="settings.pageRange"
+                                name="pageRange"
+                                :legend="t('ocr.pages')"
+                                :items="pageRangeOptions"
+                                value-key="value"
+                                variant="table"
+                                orientation="horizontal"
+                                indicator="hidden"
+                                :ui="segmentedRadioGroupUi"
+                            />
+                            <div
+                                class="custom-range-reveal"
+                                :class="{ 'is-open': showCustomRange }"
+                            >
+                                <div class="custom-range-reveal-inner">
+                                    <UInput
+                                        v-model="settings.customRange"
+                                        :placeholder="t('ocr.customRangePlaceholder')"
+                                        size="sm"
+                                        class="custom-input"
+                                        :disabled="!showCustomRange"
+                                        :tabindex="showCustomRange ? 0 : -1"
+                                        :aria-hidden="!showCustomRange"
                                     />
-                                    <span>{{ t('ocr.supersession.advanced') }}</span>
-                                </button>
-                            </template>
-                            <template #content>
-                                <div class="supersession-advanced-content">
-                                    <UCheckbox
-                                        v-model="replaceOnlyEvbModel"
-                                        :label="t('ocr.supersession.onlyEvb')"
-                                    />
-                                    <div
-                                        v-if="!replaceOnlyEvbModel"
-                                        class="supersession-acknowledgement"
-                                        role="alert"
-                                    >
-                                        <p>{{ t('ocr.supersession.replaceAllDescription') }}</p>
-                                        <UCheckbox
-                                            v-model="settings.replaceAllAcknowledged"
-                                            :label="t('ocr.supersession.replaceAllAcknowledgement')"
-                                        />
-                                    </div>
                                 </div>
-                            </template>
-                        </UCollapsible>
-                    </div>
+                            </div>
+                        </div>
 
-                    <!-- Quality Profile Selection -->
-                    <div
-                        class="section"
-                    >
-                        <URadioGroup
-                            v-model="settings.qualityProfile"
-                            name="ocrQualityProfile"
-                            :legend="t('ocr.qualityProfile.label')"
-                            :items="qualityProfileItems"
-                            value-key="value"
-                            variant="table"
-                            orientation="horizontal"
-                            indicator="hidden"
-                            :ui="segmentedRadioGroupUi"
-                        >
-                            <template #legend>
-                                {{ t('ocr.qualityProfile.label') }}
-                                <OcrSettingHelpTooltip
-                                    :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.qualityProfile.label') })"
-                                    :options="qualityProfileHelpItems"
-                                />
-                            </template>
-                        </URadioGroup>
-                    </div>
-
-                    <!-- OCR tuning -->
-                    <div class="section-row">
                         <div class="section">
                             <URadioGroup
-                                v-model="settings.preprocessingMode"
-                                name="ocrPreprocessingMode"
-                                :legend="t('ocr.preprocessing.label')"
-                                :items="preprocessingModeItems"
+                                v-model="supersessionChoiceModel"
+                                name="ocrSupersessionPolicy"
+                                :items="supersessionChoiceItems"
+                                value-key="value"
+                                :ui="listRadioGroupUi"
+                            >
+                                <template #legend>
+                                    {{ t('ocr.supersession.label') }}
+                                    <OcrSettingHelpTooltip
+                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.supersession.label') })"
+                                        :options="supersessionPolicyHelpItems"
+                                    />
+                                </template>
+                                <template #description="{ item }">
+                                    <span class="policy-option-description">{{ item.description }}</span>
+                                </template>
+                            </URadioGroup>
+                            <UCollapsible
+                                v-if="supersessionChoiceModel === 'repeat'"
+                                v-model:open="repeatAdvancedOpen"
+                                :unmount-on-hide="false"
+                                class="supersession-advanced"
+                            >
+                                <template #default="{ open: isAdvancedOpen }">
+                                    <button
+                                        type="button"
+                                        class="supersession-advanced-toggle"
+                                        :aria-expanded="isAdvancedOpen ? 'true' : 'false'"
+                                    >
+                                        <UIcon
+                                            :name="isAdvancedOpen ? 'i-ph-caret-down' : 'i-ph-caret-right'"
+                                            class="supersession-advanced-icon"
+                                        />
+                                        <span>{{ t('ocr.supersession.advanced') }}</span>
+                                    </button>
+                                </template>
+                                <template #content>
+                                    <div class="supersession-advanced-content">
+                                        <UCheckbox
+                                            v-model="replaceOnlyEvbModel"
+                                            :label="t('ocr.supersession.onlyEvb')"
+                                        />
+                                        <div
+                                            v-if="!replaceOnlyEvbModel"
+                                            class="supersession-acknowledgement"
+                                            role="alert"
+                                        >
+                                            <p>{{ t('ocr.supersession.replaceAllDescription') }}</p>
+                                            <UCheckbox
+                                                v-model="settings.replaceAllAcknowledged"
+                                                :label="t('ocr.supersession.replaceAllAcknowledgement')"
+                                            />
+                                        </div>
+                                    </div>
+                                </template>
+                            </UCollapsible>
+                        </div>
+
+                        <!-- Quality Profile Selection -->
+                        <div
+                            class="section"
+                        >
+                            <URadioGroup
+                                v-model="settings.qualityProfile"
+                                name="ocrQualityProfile"
+                                :legend="t('ocr.qualityProfile.label')"
+                                :items="qualityProfileItems"
                                 value-key="value"
                                 variant="table"
                                 orientation="horizontal"
@@ -205,39 +185,63 @@
                                 :ui="segmentedRadioGroupUi"
                             >
                                 <template #legend>
-                                    {{ t('ocr.preprocessing.label') }}
+                                    {{ t('ocr.qualityProfile.label') }}
                                     <OcrSettingHelpTooltip
-                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.preprocessing.label') })"
-                                        :options="preprocessingModeHelpItems"
+                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.qualityProfile.label') })"
+                                        :options="qualityProfileHelpItems"
                                     />
                                 </template>
                             </URadioGroup>
                         </div>
 
-                        <div class="section">
-                            <UFormField
-                                :label="t('ocr.pageSegmentation.label')"
-                                :ui="formFieldUi"
-                            >
-                                <template #label>
-                                    {{ t('ocr.pageSegmentation.label') }}
-                                    <OcrSettingHelpTooltip
-                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.pageSegmentation.label') })"
-                                        :options="pageSegmentationHelpItems"
-                                    />
-                                </template>
-                                <USelect
-                                    id="ocr-page-segmentation-mode"
-                                    v-model="pageSegmentationModeSelectValue"
-                                    :items="pageSegmentationItems"
+                        <!-- OCR tuning -->
+                        <div class="section-row">
+                            <div class="section">
+                                <URadioGroup
+                                    v-model="settings.preprocessingMode"
+                                    name="ocrPreprocessingMode"
+                                    :legend="t('ocr.preprocessing.label')"
+                                    :items="preprocessingModeItems"
                                     value-key="value"
-                                    class="w-full"
-                                    size="sm"
-                                />
-                            </UFormField>
+                                    variant="table"
+                                    orientation="horizontal"
+                                    indicator="hidden"
+                                    :ui="segmentedRadioGroupUi"
+                                >
+                                    <template #legend>
+                                        {{ t('ocr.preprocessing.label') }}
+                                        <OcrSettingHelpTooltip
+                                            :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.preprocessing.label') })"
+                                            :options="preprocessingModeHelpItems"
+                                        />
+                                    </template>
+                                </URadioGroup>
+                            </div>
+
+                            <div class="section">
+                                <UFormField
+                                    :label="t('ocr.pageSegmentation.label')"
+                                    :ui="formFieldUi"
+                                >
+                                    <template #label>
+                                        {{ t('ocr.pageSegmentation.label') }}
+                                        <OcrSettingHelpTooltip
+                                            :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.pageSegmentation.label') })"
+                                            :options="pageSegmentationHelpItems"
+                                        />
+                                    </template>
+                                    <USelect
+                                        id="ocr-page-segmentation-mode"
+                                        v-model="pageSegmentationModeSelectValue"
+                                        :items="pageSegmentationItems"
+                                        value-key="value"
+                                        class="w-full"
+                                        size="sm"
+                                    />
+                                </UFormField>
+                            </div>
                         </div>
                     </div>
-
                     <!-- Language Selection -->
                     <div class="section language-picker">
                         <div class="language-picker-header">
@@ -894,16 +898,39 @@ defineExpose<IOcrPopupAgentExpose>({
     max-width: var(--app-settings-select-max-size);
 }
 
-/* The scroll region must stay on this element rather than the checkbox group's
-   <fieldset>: a scrollable fieldset ignores the wheel everywhere except over a
-   chip, so the gaps and padding swallowed it.
-   The height is fixed rather than capped so the dialog keeps one footprint
-   while the inventory loads, errors, or is filtered by search. */
+/* Keep scrolling on this wrapper rather than the checkbox group's <fieldset>:
+   a fieldset ignores wheel input over gaps; the wide list fills the fixed frame
+   while inventory loads, errors, or search results change. */
 .language-picker-list {
-    height: var(--app-ocr-language-picker-max-height);
-    overflow-y: auto;
-    overscroll-behavior: contain;
     padding: var(--app-space-3xs);
+}
+
+@container ocr-dialog (min-width: 60rem) {
+    .language-picker {
+        min-height: 0;
+    }
+
+    .ocr-body.is-configuring {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .ocr-settings {
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    .language-picker {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .language-picker-list {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
 }
 
 .language-inventory-status {
