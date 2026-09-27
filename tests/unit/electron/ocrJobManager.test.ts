@@ -165,6 +165,24 @@ describe('OCR job manager on the main job registry', () => {
         });
     });
 
+    it('removes a staged PDF when cancellation wins after the pipeline returns it', async () => {
+        const result = await stageResult('ocr-late-merged.pdf');
+        mocks.runOcrJob.mockImplementationOnce((job: IOcrJob) => new Promise((resolve) => {
+            job.signal.addEventListener('abort', () => resolve(result), {once: true});
+        }));
+
+        await expect(startJob('ocr-late')).resolves.toMatchObject({started: true});
+        await vi.waitFor(() => expect(mocks.runOcrJob).toHaveBeenCalled());
+        expect(jobManager.handleOcrCancel(createContext() as never, requireRequestId('ocr-late')))
+            .toEqual({canceled: true});
+        expect(await waitForCompletion()).toMatchObject({
+            requestId: 'ocr-late',
+            success: false,
+            errors: ['OCR job was cancelled'],
+        });
+        await expect(stat(result.success ? result.pdfPath : '')).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
     it('keeps every recognition error of a failed run and passes a no-pages outcome through', async () => {
         mocks.runOcrJob.mockResolvedValueOnce({
             success: false,

@@ -340,7 +340,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                         result.diagnostics,
                     ));
                 }
-                return {
+                const outcome = {
                     result: result.success
                         ? {
                             ...result,
@@ -361,6 +361,13 @@ export async function handleOcrCreateSearchablePdfAsync(
                         }
                         : null,
                 };
+                if (result.success && registry.signal.aborted) {
+                    await removeOcrResultArtifacts(result.pdfPath, log);
+                }
+                if (!registry.terminal.complete(outcome) && result.success) {
+                    await removeOcrResultArtifacts(result.pdfPath, log);
+                }
+                return outcome;
             },
         });
         void handle.terminal.then(async (snapshot) => {
