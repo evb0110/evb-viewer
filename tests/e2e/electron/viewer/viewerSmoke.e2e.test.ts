@@ -1400,12 +1400,16 @@ describe('Electron E2E - Viewer Smoke', () => {
                 downPage: 0,
                 pressTop: 0,
                 initialTop: rail.scrollTop,
+                lastWheelAt: 0,
             };
             const surfaces = new Map<HTMLCanvasElement, {
                 id: number;
                 ink: boolean
             }>();
             Object.assign(window, {__thumbsRegression: probe});
+            rail.addEventListener('wheel', event => {
+                probe.lastWheelAt = performance.timeOrigin + event.timeStamp;
+            }, {passive: true});
             rail.addEventListener('pointerdown', event => {
                 probe.downPage = Number((event.target as Element).closest<HTMLElement>('[data-thumbnail-page]')?.dataset.thumbnailPage);
                 probe.pressTop = rail.scrollTop;
@@ -1477,11 +1481,31 @@ describe('Electron E2E - Viewer Smoke', () => {
         });
         await page.mouse.wheel({deltaY: returnDelta});
         await waitForAnimationFrames(page, 4);
+        // CDP makes each wheel packet a complete native sequence. Preserve the
+        // tail's production time across renderer delays so CI load cannot turn
+        // this one gesture into a new user intent at the shared idle boundary.
+        const tailTimestamp = await page.evaluate(() => (window as Window & {__thumbsRegression?: {lastWheelAt: number}}).__thumbsRegression!.lastWheelAt / 1000);
+        const input = await page.createCDPSession();
         await page.mouse.down();
-        await page.mouse.wheel({deltaY: -750});
+        await input.send('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x: box!.x + box!.width / 2,
+            y: box!.y + box!.height / 2,
+            deltaX: 0,
+            deltaY: -750,
+            timestamp: tailTimestamp + 0.001,
+        });
         await new Promise(resolve => setTimeout(resolve, 80));
         await page.mouse.up();
-        await page.mouse.wheel({deltaY: -50});
+        await input.send('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x: box!.x + box!.width / 2,
+            y: box!.y + box!.height / 2,
+            deltaX: 0,
+            deltaY: -50,
+            timestamp: tailTimestamp + 0.002,
+        });
+        await input.detach();
         await new Promise(resolve => setTimeout(resolve, 1_000));
         const observed = await page.evaluate(() => {
             const probe = (window as Window & {__thumbsRegression?: {
