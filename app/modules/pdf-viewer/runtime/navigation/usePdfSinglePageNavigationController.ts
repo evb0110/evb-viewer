@@ -269,7 +269,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         getDocumentRevision: options.getDocumentRevision,
         getGeometryRevision: options.getGeometryRevision,
         isIntentCurrent: isIntentDocumentCurrent,
-        shouldStageNavigationVisual: intent => isUnplacedOpeningNavigation(intent.navigationTicket),
+        shouldStageNavigationVisual: intent => intent.navigation?.readiness === 'text-layer' || isUnplacedOpeningNavigation(intent.navigationTicket),
         reportNavigation,
         hasPendingNavigationTicket: () => ticketTargetPage.value !== null,
         onWorkCancelled: cancellation => options.onViewportWorkCancelled?.(cancellation),

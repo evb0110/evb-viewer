@@ -49,7 +49,9 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
         outcome: 'arrived' | 'abandoned',
     ) {
         const ticket = options.openSurface?.navigationTicket.value;
-        if (ticket) {
+        // Page feedback cannot certify text readiness or match alignment.
+        // Those requests are completed by the viewport executor.
+        if (ticket && (outcome === 'abandoned' || ticket.request.readiness !== 'text-layer')) {
             const released = options.openSurface?.reportNavigation(ticket, outcome === 'arrived'
                 ? {
                     kind: 'arrived',
