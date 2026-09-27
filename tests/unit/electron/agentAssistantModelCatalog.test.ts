@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
     describe,
     expect,
@@ -10,17 +11,48 @@ import {
 } from '@electron/features/agent/assistantModelCatalog';
 
 describe('agent assistant model catalog', () => {
+    it('reads a real Codex 0.157.1 app-server model/list response', () => {
+        const response = JSON.parse(readFileSync(
+            'tests/fixtures/electron/codex-app-server-model-list-0.157.1.json',
+            'utf8',
+        )) as unknown;
+        const models = normalizeCodexModelListResponse(response) ?? [];
+        expect(models.map(model => [
+            model.id,
+            model.label,
+            model.defaultReasoningEffort,
+        ])).toEqual([
+            [
+                'gpt-6-astra',
+                'GPT-6-Astra',
+                'medium',
+            ],
+            [
+                'gpt-6-sol',
+                'GPT-6-Sol',
+                'medium',
+            ],
+            [
+                'gpt-6-luna',
+                'GPT-6-Luna',
+                'medium',
+            ],
+        ]);
+        expect(normalizeCodexAssistantModelFromCatalog(models, null)).toBe('gpt-6-astra');
+        expect(normalizeCodexAssistantModelFromCatalog(models, 'gpt-5.6-sol')).toBe('gpt-6-astra');
+    });
+
     it('keeps visible entries from the newest GPT generation and uses the backend default', () => {
         const models = normalizeCodexModelListResponse({data: [
             {
                 model: 'gpt-5.6-sol',
                 displayName: 'GPT-5.6-Sol',
-                visibility: 'list',
+                hidden: false,
             },
             {
                 model: 'gpt-6-astra',
                 displayName: 'GPT-6-Astra Live',
-                visibility: 'list',
+                hidden: false,
                 isDefault: true,
                 defaultServiceTier: 'fast',
                 serviceTiers: [
@@ -53,18 +85,18 @@ describe('agent assistant model catalog', () => {
             {
                 id: 'gpt-6-sol',
                 displayName: 'GPT-6-Sol',
-                visibility: 'list',
+                hidden: false,
                 additionalSpeedTiers: ['fast'],
             },
             {
                 id: 'gpt-7-luna',
-                visibility: 'hide',
+                hidden: true,
                 isDefault: true,
             },
             {
                 id: 'custom-runtime-model',
                 displayName: 'Custom Runtime Model',
-                visibility: 'list',
+                hidden: false,
             },
         ]});
 
@@ -128,19 +160,19 @@ describe('agent assistant model catalog', () => {
         const models = normalizeCodexModelListResponse({data: [
             {
                 model: 'custom-runtime-model',
-                visibility: 'list',
+                hidden: false,
             },
             {
                 model: 'gpt-6-sol',
-                visibility: 'list',
+                hidden: false,
             },
             {
                 model: 'gpt-6-astra',
-                visibility: 'list',
+                hidden: false,
             },
             {
                 model: 'gpt-5.6-sol',
-                visibility: 'list',
+                hidden: false,
                 isDefault: true,
             },
         ]}) ?? [];
@@ -157,39 +189,45 @@ describe('agent assistant model catalog', () => {
         expect(normalizeCodexAssistantModelFromCatalog([], 'gpt-5.6-sol')).toBe('gpt-6-astra');
     });
 
-    it('deduplicates visible Codex models and ignores hidden, unmarked, and blank records', () => {
+    it('deduplicates visible Codex models and ignores hidden and blank records', () => {
         expect(normalizeCodexModelListResponse({data: [
             {
                 model: 'gpt-6-astra',
                 displayName: 'GPT-6-Astra',
-                visibility: 'list',
+                hidden: false,
             },
             {
                 id: 'gpt-6-astra',
                 displayName: 'Duplicate',
-                visibility: 'list',
+                hidden: false,
             },
             {
                 model: 'gpt-99-hidden',
-                visibility: 'hide',
+                hidden: true,
             },
             {model: 'gpt-6-sol'},
             {
                 model: '   ',
-                visibility: 'list',
+                hidden: false,
             },
             null,
-        ]})).toEqual([{
-            id: 'gpt-6-astra',
-            label: 'GPT-6-Astra',
-        }]);
+        ]})).toEqual([
+            {
+                id: 'gpt-6-astra',
+                label: 'GPT-6-Astra',
+            },
+            {
+                id: 'gpt-6-sol',
+                label: 'gpt-6-sol',
+            },
+        ]);
         expect(normalizeCodexModelListResponse({data: 'bad'})).toBeNull();
     });
 
     it('preserves arbitrary Codex reasoning efforts advertised by model/list', () => {
         const models = normalizeCodexModelListResponse({data: [{
             model: 'custom-runtime-model',
-            visibility: 'list',
+            hidden: false,
             defaultReasoningEffort: 'super-high',
             supportedReasoningEfforts: [
                 {

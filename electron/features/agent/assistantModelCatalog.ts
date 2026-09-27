@@ -139,7 +139,7 @@ function normalizeCodexReasoningEfforts(
 }
 
 function normalizeCodexModelOption(rawModel: unknown): TCodexAssistantModelOption | null {
-    if (!isRecord(rawModel) || rawModel.visibility !== 'list') {
+    if (!isRecord(rawModel) || rawModel.hidden === true) {
         return null;
     }
 
