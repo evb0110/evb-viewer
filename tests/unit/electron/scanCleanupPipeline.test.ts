@@ -216,7 +216,7 @@ const options: IScanCleanupOptions = {
 };
 const highTierPolicy: IScanCleanupRuntimePolicy = {
     rasterConcurrency: 3,
-    rasterStreaming: true,
+    rasterStreaming: false,
     logicalCpus: 11,
     totalRamBytes: 32 * 1024 ** 3,
 };
@@ -2157,99 +2157,6 @@ describe('scan cleanup pipeline', () => {
 
         expect(pipelineDependencies.detectSourceDpi).not.toHaveBeenCalled();
         expect(pipelineDependencies.runCommand).toHaveBeenCalledTimes(2);
-    });
-
-    it.runIf(process.platform !== 'win32')('streams raw rasters to the native consumer before rasterization finishes', async () => {
-        const fixture = await setup();
-        const rasterStarted = Promise.withResolvers<undefined>();
-        const releaseRaster = Promise.withResolvers<undefined>();
-        const sidecarStarted = Promise.withResolvers<undefined>();
-        const canonicalRendered = Promise.withResolvers<undefined>();
-        let canonicalPath = '';
-        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
-            async (_binary, manifestPath, _signal, _log, onProgress) => {
-                sidecarStarted.resolve(undefined);
-                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-                    rasterWindow?: number;
-                    pages: Array<{
-                        analysisInputPath: string;
-                        pageMetadataPath: string;
-                        options: {dpi: number};
-                        outputs: ICleanupOutput[]
-                    }>;
-                };
-                expect(manifest.rasterWindow).toBe(highTierPolicy.rasterConcurrency);
-                const page = manifest.pages[0]!;
-                canonicalPath = page.analysisInputPath;
-                await canonicalRendered.promise;
-                await expect(readFile(canonicalPath)).resolves.toEqual(PPM);
-                await writeFile(page.pageMetadataPath, JSON.stringify({
-                    layoutClassification: 'single-uncut-page',
-                    cutterXPx: null,
-                    rotationDegrees: 0,
-                    excluded: false,
-                    blankOutputsSkipped: 0,
-                    outputCount: 1,
-                }));
-                await writeCleanupOutput(
-                    page.outputs[0]!,
-                    'single-uncut-page',
-                    true,
-                    false,
-                    page.options.dpi,
-                );
-                onProgress({
-                    stage: 'page-complete',
-                    completedPages: 1,
-                    totalPages: 1,
-                    pageNumber: 1,
-                });
-            },
-        );
-        const pipelineDependencies = dependencies(runSidecar);
-        pipelineDependencies.getPageCount = vi.fn(async () => 1);
-        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
-            1,
-            300,
-        ]]));
-        pipelineDependencies.createRasterPipes = vi.fn(async () => undefined);
-        pipelineDependencies.renderPagePpm = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
-            if (outputPath.includes('-analysis-')) {
-                await writeFile(outputPath, PPM);
-                canonicalRendered.resolve(undefined);
-            } else {
-                rasterStarted.resolve(undefined);
-                await releaseRaster.promise;
-            }
-        });
-        const progress = vi.fn();
-        const running = runScanCleanupPipeline({
-            sourcePdfPath: fixture.sourcePdfPath,
-            outputPdfPath: fixture.outputPdfPath,
-            options: {
-                ...options,
-                matchPageSize: false,
-                outputMode: 'color',
-            },
-        }, pipelinePaths(fixture.dir), new AbortController().signal, progress, highTierPolicy, undefined, pipelineDependencies);
-
-        await rasterStarted.promise;
-        await expect(Promise.race([
-            sidecarStarted.promise.then(() => true),
-            new Promise<boolean>(resolve => setTimeout(() => resolve(false), 100)),
-        ])).resolves.toBe(true);
-        releaseRaster.resolve(undefined);
-        await running;
-
-        await expect(readFile(canonicalPath)).rejects.toMatchObject({code: 'ENOENT'});
-        expect(pipelineDependencies.createRasterPipes).toHaveBeenCalledOnce();
-        expect(runSidecar).toHaveBeenCalledOnce();
-        const progressReports = progress.mock.calls.map(([report]) => report as TScanCleanupProgress);
-        expect(progressReports.some(report => report.stage === 'rasterizing')).toBe(false);
-        expect(progressReports).toContainEqual(expect.objectContaining({
-            stage: 'rendering',
-            completedUnits: 1,
-        }));
     });
 
     it('processes and assembles only scoped source pages with scoped progress totals', async () => {

@@ -2,7 +2,7 @@ import {
     describe, it, expect, afterEach, vi,
 } from 'vitest';
 import {
-    lstat, mkdtemp, readFile, rm, writeFile, readdir, stat,
+    mkdtemp, readFile, rm, writeFile, readdir, stat,
 } from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
@@ -55,17 +55,14 @@ const dependenciesOverride = {
         },
         signal,
     }),
-    acquireDetectionLease: (ownerId: string, signal: AbortSignal, policy: {
-        rasterConcurrency: number;
-        rasterStreaming: boolean
-    }) => mainJobBroker.acquire({
+    acquireDetectionLease: (ownerId: string, signal: AbortSignal, policy: {rasterConcurrency: number;}) => mainJobBroker.acquire({
         ownerId,
         kind: 'scan-cleanup-detect-all',
         priority: 'user' as const,
         resources: {
             cpuTokens: policy.rasterConcurrency,
             estimatedResidentBytes: policy.rasterConcurrency * scanCleanupPreviewRasterSlotResidentBytes,
-            nativeProcesses: policy.rasterConcurrency + Number(policy.rasterStreaming),
+            nativeProcesses: policy.rasterConcurrency,
             ioWeight: 2,
         },
         perOwnerLimit: 1,
@@ -1658,14 +1655,9 @@ describe('scanCleanupPreviewCompositionTest', () => {
             expect(entries.map(entry => entry.name)).toEqual(['source.pdf']);
             await expect(defaultDependencies.getSourceStatIdentity!(sourcePath)).resolves.toMatch(/^\d+:\d+$/u);
             expect(defaultDependencies.getPageSizeStore).toBeDefined();
-            const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy(true);
+            const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy();
             expect(rasterPolicy.rasterConcurrency).toBeGreaterThan(0);
             const signal = new AbortController().signal;
-            if (process.platform !== 'win32') {
-                const pipePath = join(scratch, 'detection.pipe');
-                await defaultDependencies.createRasterPipes!([pipePath], signal, () => undefined);
-                expect((await lstat(pipePath)).isFIFO()).toBe(true);
-            }
             const detectionLease = await defaultDependencies.acquireDetectionLease!(
                 'scan-cleanup-defaults-test',
                 signal,
@@ -1736,7 +1728,6 @@ describe('scanCleanupPreviewCompositionTest', () => {
         };
         const policy = resolveScanCleanupPreviewRasterAdmissionPolicy(
             capacity,
-            false,
             {
                 preserveOriginalQuality: false,
                 outputMode: 'color',
@@ -1761,7 +1752,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
         mainJobBroker.reconfigureCapacity(capacity);
         try {
             const signal = new AbortController().signal;
-            const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy!(false);
+            const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy!();
             const detectionLease = await defaultDependencies.acquireDetectionLease!(
                 'scan-cleanup-low-memory-test',
                 signal,

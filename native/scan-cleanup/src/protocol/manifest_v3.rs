@@ -9,7 +9,6 @@ use std::{
 };
 
 pub const VERSION: u32 = 3;
-pub const MAX_RASTER_WINDOW: usize = 16;
 /// A staged-input window is a residency bound, not a queue: it may never grow
 /// past the number of pages the sidecar can hold leases for at once.
 pub const MAX_STAGED_INPUT_WINDOW: usize = 16;
@@ -27,10 +26,6 @@ where
     D: serde::Deserializer<'de>,
 {
     deserialize_bounded_vec::<D, Page, MAX_MANIFEST_PAGES_PER_BATCH>(deserializer)
-}
-
-const fn default_raster_window() -> usize {
-    1
 }
 
 /// Optional diagnostic geometry for a non-straight page seam. The existing
@@ -294,9 +289,6 @@ pub struct ManifestV3 {
     /// worker pool and stage cache are sized from it. Absent for direct CLI
     /// invocations, which then size themselves conservatively.
     pub host_memory_bytes: Option<u64>,
-    /// Bounded streamed-raster look-ahead. Direct CLI callers that do not
-    /// coordinate producers retain the one-page acknowledgement turnstile.
-    pub raster_window: usize,
     /// Number of Analyze page inputs the owning process keeps staged at once.
     ///
     /// Present only when that process stages replayable page rasters through
@@ -359,7 +351,6 @@ fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
             "canvasScope",
             "documentCanvas",
             "hostMemoryBytes",
-            "rasterWindow",
             "stagedInputWindow",
             "stagedInputPeakPixels",
             "pages",
@@ -589,8 +580,6 @@ struct ManifestV3Wire {
     document_canvas: Option<DocumentCanvas>,
     #[serde(default)]
     host_memory_bytes: Option<u64>,
-    #[serde(default = "default_raster_window")]
-    raster_window: usize,
     #[serde(default)]
     staged_input_window: Option<usize>,
     #[serde(default)]
@@ -609,7 +598,6 @@ impl From<ManifestV3Wire> for ManifestV3 {
             canvas_scope: value.canvas_scope,
             document_canvas: value.document_canvas,
             host_memory_bytes: value.host_memory_bytes,
-            raster_window: value.raster_window,
             staged_input_window: value.staged_input_window,
             staged_input_peak_pixels: value.staged_input_peak_pixels,
             pages: value.pages,
@@ -662,11 +650,6 @@ impl ManifestV3 {
         if self.host_memory_bytes == Some(0) {
             return Err(invalid("Host memory must be a positive byte count"));
         }
-        if !(1..=MAX_RASTER_WINDOW).contains(&self.raster_window) {
-            return Err(invalid(format!(
-                "Raster window must be between 1 and {MAX_RASTER_WINDOW}",
-            )));
-        }
         if let Some(window) = self.staged_input_window {
             if self.operation != Operation::Analyze {
                 return Err(invalid(
@@ -713,7 +696,7 @@ impl ManifestV3 {
         }
         for page in &self.pages {
             let page_number = page.source_page_index.saturating_add(1);
-            if self.operation == Operation::Analyze {
+            if self.operation == Operation::Analyze && self.staged_input_window.is_none() {
                 validate_existing_regular_path(&page.input_path, page_number, "inputPath")?;
             }
             for (field, path) in [
@@ -834,16 +817,24 @@ impl ManifestV3 {
                 ));
             }
         }
+        if self.operation == Operation::Render {
+            for page in &self.pages {
+                validate_existing_regular_path(
+                    &page.input_path,
+                    page.source_page_index.saturating_add(1),
+                    "inputPath",
+                )?;
+            }
+        }
         self.validate_destination_paths()?;
         Ok(())
     }
 
     /// Validate the filesystem contract before starting a native operation.
     ///
-    /// Analyze pages are replayed by more than one native stage, so their
-    /// primary input must already be an existing regular file. Render keeps
-    /// its one-shot FIFO input contract, and producer-created auxiliary paths
-    /// remain optional until the corresponding Render stage consumes them.
+    /// Inputs are regular staged rasters before execution. Analyze windows may
+    /// publish their bounded inputs on demand, and producer-created auxiliary
+    /// paths remain optional until the corresponding Render stage consumes them.
     ///
     /// A manifest that declares `stagedInputWindow` is the one exception: its
     /// owning process stages a bounded window of replayable rasters and
@@ -865,7 +856,7 @@ impl ManifestV3 {
                 )));
             }
         }
-        if self.operation == Operation::Analyze && self.staged_input_window.is_none() {
+        if self.operation == Operation::Render || self.staged_input_window.is_none() {
             for page in &self.pages {
                 validate_required_regular_path(
                     &page.input_path,
@@ -951,11 +942,9 @@ impl ManifestV3 {
     }
 }
 
-/// Render may receive a one-shot FIFO through `inputPath`, but every other
-/// raster the native worker may read must be replayable. Producer-created
-/// files can legitimately be absent during shape validation, so only an
-/// existing path is checked here; execution admission applies the stricter
-/// Analyze input contract below.
+/// Producer-created files can legitimately be absent during shape
+/// validation, so only an existing path is checked here; execution admission
+/// applies the stricter primary-input contract below.
 fn validate_existing_regular_path(
     path: &Path,
     page_number: usize,
@@ -1302,7 +1291,7 @@ mod tests {
     }
 
     #[test]
-    fn host_memory_and_raster_window_are_bounded_additive_fields() {
+    fn host_memory_is_an_optional_positive_byte_count() {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
@@ -1312,7 +1301,6 @@ mod tests {
         let absent: ManifestV3 = serde_json::from_str(json).unwrap();
         absent.validate().unwrap();
         assert_eq!(absent.host_memory_bytes, None);
-        assert_eq!(absent.raster_window, 1);
 
         let reported: ManifestV3 = serde_json::from_str(
             &json.replace("\"pages\"", "\"hostMemoryBytes\":34359738368,\"pages\""),
@@ -1329,21 +1317,6 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Host memory"));
-
-        let windowed: ManifestV3 =
-            serde_json::from_str(&json.replace("\"pages\"", "\"rasterWindow\":3,\"pages\""))
-                .unwrap();
-        windowed.validate().unwrap();
-        assert_eq!(windowed.raster_window, 3);
-
-        let oversized: ManifestV3 =
-            serde_json::from_str(&json.replace("\"pages\"", "\"rasterWindow\":17,\"pages\""))
-                .unwrap();
-        assert!(oversized
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("Raster window"));
     }
 
     #[test]
@@ -1550,7 +1523,7 @@ mod tests {
     }
 
     #[test]
-    fn analyze_rejects_nonregular_input_but_render_keeps_stream_input_allowed() {
+    fn render_and_analyze_reject_nonregular_inputs() {
         let scratch = std::env::temp_dir().join(format!(
             "evb-scan-cleanup-manifest-contract-{}",
             std::process::id()
@@ -1588,7 +1561,9 @@ mod tests {
         .unwrap();
         let mut render: ManifestV3 = serde_json::from_slice(&render_bytes).unwrap();
         root_fixture_destinations(&mut render, &scratch);
-        render.pages[0].input_path = nonregular.clone();
+        let regular_input = scratch.join("regular-input.png");
+        std::fs::write(&regular_input, b"input").unwrap();
+        render.pages[0].input_path = regular_input;
         render.pages[0].analysis_input_path = Some(nonregular.clone());
         render.pages[0].analysis_dpi = Some(150.0);
         let analysis_error = render.validate().unwrap_err();
@@ -1605,7 +1580,10 @@ mod tests {
         assert!(trusted_error.message.contains("regular file"));
 
         render.pages[0].trusted_foreground_mask_path = None;
-        render.validate_for_execution().unwrap();
+        render.pages[0].input_path = nonregular.clone();
+        let render_input_error = render.validate().unwrap_err();
+        assert!(render_input_error.message.contains("inputPath"));
+        assert!(render_input_error.message.contains("regular file"));
 
         let _ = std::fs::remove_dir_all(scratch);
     }

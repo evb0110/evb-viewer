@@ -160,18 +160,14 @@ export function resolveScanCleanupPreviewRasterSlotResidentBytes(
 
 export interface IScanCleanupRasterAdmissionPolicy {
     rasterConcurrency: number;
-    rasterStreaming: boolean;
     /** The per-page pixel cap paired with the broker's resident-byte reserve. */
     rasterMaxPixels?: number;
 }
 
 export function resolveScanCleanupPreviewRasterAdmissionPolicy(
     capacity: IJobResourceVector = mainJobBroker.getSnapshot().capacity,
-    supportsRasterStreaming = process.platform !== 'win32',
     options?: TScanCleanupRasterBudgetOptions,
 ): IScanCleanupRasterAdmissionPolicy {
-    const rasterStreaming = supportsRasterStreaming && capacity.nativeProcesses >= 3;
-    const nativeProcessReserve = SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE + Number(rasterStreaming);
     const configuredRasterMaxPixels = resolveScanCleanupPreviewRasterMaxPixels(options);
     const capacityRasterMaxPixels = Math.floor(
         capacity.estimatedResidentBytes / SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL,
@@ -189,11 +185,10 @@ export function resolveScanCleanupPreviewRasterAdmissionPolicy(
             1,
             Math.min(
                 Math.floor(capacity.cpuTokens),
-                capacity.nativeProcesses - nativeProcessReserve,
+                capacity.nativeProcesses - SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE,
                 Math.floor(capacity.estimatedResidentBytes / rasterSlotResidentBytes),
             ),
         ),
-        rasterStreaming,
         rasterMaxPixels,
     };
 }

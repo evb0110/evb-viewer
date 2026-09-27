@@ -316,9 +316,8 @@ export function createScanCleanupPreviewDependencies(
     const base: TScanCleanupPreviewFixtureDependencies = {
         fileSystem,
         getAvailableScratchBytes: async () => Number.MAX_SAFE_INTEGER,
-        resolveRasterAdmissionPolicy: (supportsRasterStreaming, options) => resolveScanCleanupRasterAdmissionPolicy(
+        resolveRasterAdmissionPolicy: options => resolveScanCleanupRasterAdmissionPolicy(
             mainJobBroker.getSnapshot().capacity,
-            supportsRasterStreaming,
             options,
         ),
         acquirePreviewLease: async () => ({release: () => true}),

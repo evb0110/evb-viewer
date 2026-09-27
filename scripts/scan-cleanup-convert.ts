@@ -916,7 +916,7 @@ async function main() {
     const policy: IScanCleanupRuntimePolicy = {
         logicalCpus: availableParallelism(),
         rasterConcurrency: Math.max(1, Math.min(8, availableParallelism())),
-        rasterStreaming: process.platform !== 'win32',
+        rasterStreaming: false,
         totalRamBytes: totalmem(),
     };
     const logProgress = (prefix: string) => {
@@ -962,13 +962,6 @@ async function main() {
             resolveBinary: () => scanCleanupBinary,
             renderPage: renderers.renderPage,
             renderPagePpm: renderers.renderPagePpm,
-            createRasterPipes: async (paths, signal, pipeLog) => {
-                await runCommand('mkfifo', [...paths], {
-                    commandLabel: 'mkfifo(scan-cleanup-cli-detection-streams)',
-                    log: pipeLog,
-                    signal,
-                });
-            },
             runSidecar: runCliScanCleanupSidecar,
         };
         const detection = await runScanCleanupDetectionWithCache({
@@ -1027,13 +1020,6 @@ async function main() {
                 runCommand,
             }),
             detectSourceDpi,
-            createRasterPipes: async (paths: readonly string[], signal: AbortSignal, pipeLog: TScanCleanupLog) => {
-                await runCommand('mkfifo', [...paths], {
-                    commandLabel: 'mkfifo(scan-cleanup-cli-raster-streams)',
-                    log: pipeLog,
-                    signal,
-                });
-            },
             renderPage: renderers.renderPage,
             renderPagePpm: renderers.renderPagePpm,
             runSidecar: runCliScanCleanupSidecar,

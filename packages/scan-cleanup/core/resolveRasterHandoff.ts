@@ -5,10 +5,7 @@ import {createFileBackedPdfCombineEnv} from '@contracts/pdfCombineOutputPolicy';
 // PPM removes the costly PNG encode/decode step on both sides of the native
 // handoff: pdftoppm writes a JPEG 2000 scan page in about a second where the
 // same page spends five more seconds in deflate. The cost is scratch space.
-// Retained handoffs budget the whole manifest. FIFO handoffs budget the
-// concurrent producer window plus the native consumer's bounded materialized
-// copies; draining a FIFO moves bytes between those two scratch files rather
-// than making the producer's file disappear instantaneously.
+// The estimate includes every materialized raster in the admitted batch.
 const RAW_RASTER_BUDGET_FLOOR_BYTES = 512 * 1024 * 1024;
 const RAW_RASTER_FREE_SPACE_SHARE = 0.25;
 const RAW_RASTER_FREE_SPACE_RESERVE_BYTES = 512 * 1024 * 1024;
@@ -332,65 +329,6 @@ export function resolveScanCleanupCombineEnv(outputPageCount: number) {
         maxPages: outputPageCount,
         maxOutputBytes: resolveCombineOutputByteCap(outputPageCount),
     });
-}
-
-export async function runRasterProducerConsumer({
-    signal,
-    stream,
-    createStreams,
-    produce,
-    consume,
-    onProducerComplete,
-}: {
-    signal: AbortSignal;
-    stream: boolean;
-    createStreams?: () => Promise<void>;
-    produce: (signal: AbortSignal) => Promise<void>;
-    consume: (signal: AbortSignal) => Promise<void>;
-    onProducerComplete: () => void;
-}) {
-    if (!stream) {
-        await produce(signal);
-        onProducerComplete();
-        await consume(signal);
-        return;
-    }
-
-    if (createStreams === undefined) {
-        throw new Error('Raster streaming requires a stream factory');
-    }
-    await createStreams();
-    const abort = new AbortController();
-    const operationSignal = AbortSignal.any([
-        signal,
-        abort.signal,
-    ]);
-    const run = (operation: (signal: AbortSignal) => Promise<void>) => operation(operationSignal)
-        .catch((error: unknown) => {
-            abort.abort(error);
-            throw error;
-        });
-    // The consumer opens every FIFO for reading before the producer writes.
-    // Starting it first prevents a producer open from blocking the event loop.
-    const consumer = run(consume);
-    const producer = run(produce);
-    const combined = Promise.all([
-        producer,
-        consumer,
-    ]);
-    void combined.catch(() => undefined);
-    try {
-        await producer;
-        onProducerComplete();
-        await combined;
-    } catch (error) {
-        abort.abort(error);
-        await Promise.allSettled([
-            producer,
-            consumer,
-        ]);
-        throw error;
-    }
 }
 
 // Rasterizing a page is the pipeline's dominant cost and each one holds a full

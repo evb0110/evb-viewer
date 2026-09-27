@@ -155,23 +155,6 @@ describe('createScanCleanupRenderers', () => {
         expect(mocks.readPpmDimensions).toHaveBeenCalledWith('/tmp/page.ppm');
     });
 
-    it('leaves FIFO PPM dimensions to the streaming consumer', async () => {
-        mocks.stat.mockResolvedValue({isFile: () => false});
-        const runCommand = vi.fn().mockResolvedValue(undefined);
-        const {renderPagePpm} = createScanCleanupRenderers(runCommand);
-
-        await renderPagePpm(
-            {pdftoppmBinary: '/bin/pdftoppm'},
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/page.ppm',
-            300,
-        );
-
-        expect(mocks.readPpmDimensions).not.toHaveBeenCalled();
-    });
-
     it('rejects and removes an oversized PPM render', async () => {
         const runCommand = vi.fn().mockResolvedValue(undefined);
         mocks.readPpmDimensions.mockResolvedValue({

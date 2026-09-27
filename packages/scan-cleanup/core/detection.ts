@@ -390,11 +390,6 @@ export interface IScanCleanupDetectionDependencies {
         pageNumber: number;
         width: number
     }>>;
-    createRasterPipes?: (
-        paths: readonly string[],
-        signal: AbortSignal,
-        log: TScanCleanupLog,
-    ) => Promise<void>;
     runSidecar: TScanCleanupRunSidecar;
 }
 

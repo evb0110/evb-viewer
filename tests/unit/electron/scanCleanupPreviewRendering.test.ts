@@ -83,10 +83,7 @@ function createRenderingScenarioOwner(deps: IScanCleanupPreviewDependencies): IS
 }
 
 const dirs: string[] = [];
-const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({
-    rasterConcurrency: 2,
-    rasterStreaming: false,
-})};
+const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({rasterConcurrency: 2})};
 
 async function previewFixture() {
     const {

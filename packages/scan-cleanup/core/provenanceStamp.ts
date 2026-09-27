@@ -860,7 +860,6 @@ function assertBuildIds(
         'source-preserved',
     ].includes(value.assemblerBackend as string)) fail('assemblerBackend is invalid');
     if (![
-        'fifo-ppm',
         'file-ppm',
         'file-png',
         'source-preserved',

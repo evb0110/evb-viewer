@@ -162,7 +162,6 @@ import {
     resolveScanCleanupCombineEnv,
     resolveRasterHandoff,
     resolveScanCleanupScratchAdmission,
-    runRasterProducerConsumer,
     type IScanCleanupRasterHandoffPlan,
 } from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {preserveScanCleanupJsonEvidence} from '@evb/scan-cleanup/core/preserveScanCleanupJsonEvidence';
@@ -1401,9 +1400,6 @@ async function runStreamingScanCleanupConversion({
     // planning that batch so no consumer reopens the sidecar from page one.
     const pageSizeStore = createPageSizeStoreFromGeometrySidecar(geometrySidecarPath, signal);
     const boundedDpiSource = resolvePageRasterSource(dpiDetails);
-    const supportsRasterStreaming = policy.rasterStreaming
-        && process.platform !== 'win32'
-        && dependencies.createRasterPipes !== undefined;
     let documentDpi = resolveSourceDpi(boundedDpiSource.documentDpi);
     let largestBatchBytes: number | null = 0;
     for (const batch of iterateScanCleanupPageBatches(pageCount, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
@@ -1454,7 +1450,7 @@ async function runStreamingScanCleanupConversion({
                 renderDpi,
                 raster: guardrail,
                 additionalRenderDpis: [DETECTION_DPI],
-                renderCopies: supportsRasterStreaming ? 2 : 1,
+                renderCopies: 1,
                 additionalScratchBytes: Number.isSafeInteger(outputBytes)
                     ? outputBytes
                     : SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES,
@@ -1734,10 +1730,6 @@ export async function runScanCleanupConversion(
     // Set once the run knows which assembler it is actually using: a matched
     // lossless run whose pages cannot keep their own pixels renders instead.
     let losslessRun = request.options.preserveOriginalQuality === true;
-    const supportsRasterStreaming = policy.rasterStreaming
-        && process.platform !== 'win32'
-        && dependencies.createRasterPipes !== undefined;
-    let rasterStreamingRun = supportsRasterStreaming;
     let preserveScratchForDiagnostics = false;
     let pendingSidecarRecovery: Promise<boolean> | null = null;
     let sidecarRecoveryResult: boolean | null = null;
@@ -1772,7 +1764,7 @@ export async function runScanCleanupConversion(
             return undefined;
         });
     };
-    const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun, {isRasterStreaming: () => rasterStreamingRun});
+    const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun);
     try {
         emitProgress('normalizing', 0, 1, []);
         // The viewer has already opened this exact revision successfully, and
@@ -2440,12 +2432,8 @@ export async function runScanCleanupConversion(
             raster: plan.guardrail,
             additionalRenderDpis: [canonicalAnalysisDpi],
             additionalScratchBytes: estimateNativeOutputScratchBytes(plan),
-            // A streaming slot can hold the producer/native working copies and
-            // one canonical file until native reports that page complete.
-            renderCopies: supportsRasterStreaming ? 2 : 1,
-        })), scratch, dependencies.getAvailableScratchBytes, supportsRasterStreaming
-            ? policy.rasterConcurrency
-            : rasterPlans.length);
+            renderCopies: 1,
+        })), scratch, dependencies.getAvailableScratchBytes, rasterPlans.length);
         logRasterHandoff(log, 'final', rasterHandoff);
         const pageDpi = new Map<number, number>();
         const trustedMrcLayersByPage = new Map<number, IPdfMrcLayers>();
@@ -2672,9 +2660,6 @@ export async function runScanCleanupConversion(
         // any native work starts. Native page work is replayed in bounded
         // manifests below, so a long source document keeps the same canvas,
         // modes, and placement while native residency remains bounded.
-        const canStreamRasters = supportsRasterStreaming
-            && rasterHandoff.format === 'ppm'
-            && dependencies.createRasterPipes !== undefined;
         const outputPages: IRenderedCleanupOutputPage[] = [];
         const pageMetadataBySource = new Map<number, INativeScanCleanupPageMetadataV3>();
         const emptyOutputMappings: IScanCleanupOutputMapping[] = [];
@@ -2689,15 +2674,11 @@ export async function runScanCleanupConversion(
         const collectedPageNumbers = new Set<number>();
         const manifestPageBySource = new Map<number, INativeScanCleanupPageV3>();
         let collectedPages = 0;
-        rasterStreamingRun = canStreamRasters;
         await runScanCleanupPageBatches(rasterPlans.length, async batch => {
             const analysisReleasePromises: Array<Promise<void>> = [];
             const releasedAnalysisPages = new Set<number>();
             const batchRasterPlans = collectScanCleanupPageBatch(rasterPlans, batch);
             const batchPageInputs = collectScanCleanupPageBatch(pageInputs, batch);
-            // On POSIX, raw PPM inputs are FIFOs: Poppler produces each page
-            // while the native worker consumes it. Replaying only this window
-            // keeps both the manifest and the producer's path list bounded.
             // Validate the exact manifest that will be written and passed to
             // native, so geometry is assembled only once for this batch.
             const manifest = buildRunnableNativeScanCleanupManifest({
@@ -2706,7 +2687,6 @@ export async function runScanCleanupConversion(
                 canvasScope: 'document',
                 qualityPath: 'raster',
                 hostMemoryBytes: policy.totalRamBytes,
-                ...(canStreamRasters ? {rasterWindow: policy.rasterConcurrency} : {}),
                 options,
                 ...(policy.rasterMaxPixels === undefined ? {} : {rasterMaxPixels: policy.rasterMaxPixels}),
                 ...(documentCanvas === null ? {} : {documentCanvas}),
@@ -2725,7 +2705,7 @@ export async function runScanCleanupConversion(
             await writeFile(manifestPath, JSON.stringify(manifest));
             let rasterizedCount = batch.startOffset;
             emitProgress(
-                canStreamRasters ? 'rendering' : 'rasterizing',
+                'rasterizing',
                 batch.startOffset,
                 pageCount,
                 renderedPageNumbers,
@@ -2788,26 +2768,22 @@ export async function runScanCleanupConversion(
                         limits,
                         pageGeometryByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
                     );
-                    if (!canStreamRasters) {
-                        const dimensions = rasterHandoff.format === 'ppm'
-                            ? await readPpmDimensions(page.inputPath)
-                            : await readPngDimensions(page.inputPath);
-                        if (
-                            dimensions.width > limits.maxDimensionPx
-                        || dimensions.height > limits.maxDimensionPx
-                        || dimensions.width * dimensions.height > limits.maxPixels
-                        ) {
-                            throw new Error(
-                                `Scan cleanup page ${String(plan.pageNumber)} raster dimensions `
-                            + `${String(dimensions.width)}x${String(dimensions.height)} exceed limits`,
-                            );
-                        }
+                    const dimensions = rasterHandoff.format === 'ppm'
+                        ? await readPpmDimensions(page.inputPath)
+                        : await readPngDimensions(page.inputPath);
+                    if (
+                        dimensions.width > limits.maxDimensionPx
+                    || dimensions.height > limits.maxDimensionPx
+                    || dimensions.width * dimensions.height > limits.maxPixels
+                    ) {
+                        throw new Error(
+                            `Scan cleanup page ${String(plan.pageNumber)} raster dimensions `
+                        + `${String(dimensions.width)}x${String(dimensions.height)} exceed limits`,
+                        );
                     }
                     rasterizedCount += 1;
                     rasterizedPageNumbers.add(plan.pageNumber);
-                    if (!canStreamRasters) {
-                        emitProgress('rasterizing', rasterizedCount, pageCount, rasterizedPageNumbers);
-                    }
+                    emitProgress('rasterizing', rasterizedCount, pageCount, rasterizedPageNumbers);
                 });
             };
             const sourcePageNumberByManifestIndex = new Map(pages.map((page, index) => [
@@ -2844,32 +2820,19 @@ export async function runScanCleanupConversion(
                 emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
             };
             try {
-                await runRasterProducerConsumer({
+                await rasterize(signal);
+                emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
+                await dependencies.runSidecar(
+                    paths.scanCleanupBinary,
+                    manifestPath,
                     signal,
-                    stream: canStreamRasters,
-                    ...(canStreamRasters ? {createStreams: () => dependencies.createRasterPipes!(
-                        batchPageInputs.map(page => page.inputPath),
-                        signal,
-                        log,
-                    )} : {}),
-                    produce: rasterize,
-                    consume: operationSignal => dependencies.runSidecar(
-                        paths.scanCleanupBinary,
-                        manifestPath,
-                        operationSignal,
-                        log,
-                        reportNativeProgress,
-                        {
-                            allowedPathRoot: scratch,
-                            onRecoveryPending: retainScratchUntilRecovery,
-                        },
-                    ),
-                    onProducerComplete: () => {
-                        if (!canStreamRasters) {
-                            emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
-                        }
+                    log,
+                    reportNativeProgress,
+                    {
+                        allowedPathRoot: scratch,
+                        onRecoveryPending: retainScratchUntilRecovery,
                     },
-                });
+                );
             } finally {
                 await observeScanCleanupAnalysisReleasePromises(analysisReleasePromises, log);
             }
@@ -3315,9 +3278,7 @@ export async function runScanCleanupConversion(
                     : 'native-pdf-image-combine');
         const transportMode = request.transportMode
             ?? paths.transportMode
-            ?? (canStreamRasters && rasterHandoff.format === 'ppm'
-                ? 'fifo-ppm'
-                : rasterHandoff.format === 'ppm' ? 'file-ppm' : 'file-png');
+            ?? (rasterHandoff.format === 'ppm' ? 'file-ppm' : 'file-png');
         const buildIds = await buildScanCleanupStampBuildIds({
             paths,
             assemblerBackend,

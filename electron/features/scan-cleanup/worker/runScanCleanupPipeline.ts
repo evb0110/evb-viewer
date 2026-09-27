@@ -35,13 +35,6 @@ const defaultDependencies: IRunScanCleanupPipelineDependencies = {
     getPageCount: getPdfPageCount,
     getPageSizeStore: (pdfPath, options) => createPdfPageSizeStore(pdfPath, options),
     detectSourceDpi: detectSourceDpiDetails,
-    createRasterPipes: async (paths, signal, log) => {
-        await runNativeToolCommand('mkfifo', [...paths], {
-            signal,
-            commandLabel: 'mkfifo(scan-cleanup-raster-streams)',
-            log,
-        });
-    },
     renderPage: renderPdfPageToPng,
     renderPagePpm: renderPdfPageToPpm,
     runSidecar: runScanCleanupSidecar,

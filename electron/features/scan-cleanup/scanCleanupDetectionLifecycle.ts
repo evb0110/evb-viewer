@@ -532,11 +532,7 @@ export function scanCleanupDetectionOwner(
                     try {
                         const acquire = dependencies.acquireDetectionLease;
                         if (!acquire) throw new Error('Scan cleanup detection requires injected admission capability');
-                        const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(
-                            process.platform !== 'win32'
-                                && dependencies.createRasterPipes !== undefined,
-                            request.options,
-                        );
+                        const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(request.options);
                         lease = await acquire(
                             brokerOwnerId(sender, request),
                             job.signal,
@@ -572,9 +568,6 @@ export function scanCleanupDetectionOwner(
                             ...(dependencies.renderPageBatch === undefined
                                 ? {}
                                 : {renderPageBatch: dependencies.renderPageBatch}),
-                            ...(!rasterPolicy.rasterStreaming || dependencies.createRasterPipes === undefined
-                                ? {}
-                                : {createRasterPipes: dependencies.createRasterPipes}),
                             runSidecar: dependencies.runSidecar,
                         };
                         // Preview and detection share the retained document's

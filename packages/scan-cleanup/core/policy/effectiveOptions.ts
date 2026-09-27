@@ -266,7 +266,7 @@ export function resolveScanCleanupDocumentGuardrail(
 // A page with no measurable source raster may still contain vector text that
 // cleanup must synthesize into a binary layer. Give only that synthesized
 // raster a 600-DPI floor. Re-rendering an existing scan above its measured
-// sample grid cannot recover detail, but it multiplies Poppler, FIFO, native,
+// sample grid cannot recover detail, but it multiplies Poppler, native,
 // and output work quadratically.
 const SCAN_CLEANUP_SYNTHETIC_BINARY_RENDER_DPI_FLOOR = 600;
 

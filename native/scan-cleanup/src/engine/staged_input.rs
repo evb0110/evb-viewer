@@ -1,14 +1,8 @@
-//! Stream and staged raster input coordination.
-//!
-//! The manifest metadata directory is admitted and preflighted before this
-//! module materializes streamed pages. Its randomized `create_new` temporary
-//! protects that materialization boundary while the directory is treated as
-//! process-owned for the duration of the operation.
+//! Staged raster input coordination.
 use crate::engine::resource_planning::{
     CleanupOptionsView, PageDescriptor, PlanningManifest, PlanningOperation,
 };
-use crate::io::MAX_STREAM_INPUT_BYTES;
-use crate::io::{copy_bounded_cancelable, open_randomized_temporary, raster, BoundedIoError};
+use crate::io::raster;
 use crate::protocol::manifest_v3::{normalized_path, ManifestV3, Operation, Page};
 use evb_native_support::{output::existing_file_identity, NativeError, NativeErrorCode};
 use std::collections::HashSet;
@@ -16,11 +10,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc::sync_channel,
-    Arc,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -32,21 +22,6 @@ pub(crate) enum LeaseEvent {
 
 pub(crate) type LeaseAnnouncer<'a> =
     &'a (dyn Fn(LeaseEvent, usize, usize) -> Result<(), NativeError> + Sync);
-
-#[derive(Clone, Debug)]
-pub(crate) struct StagedPageDescriptor {
-    pub(crate) input_path: PathBuf,
-    pub(crate) metadata_path: PathBuf,
-    pub(crate) source_page_index: usize,
-    pub(crate) max_bytes: usize,
-    pub(crate) stream_input: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct StagedInputBatch {
-    pub(crate) pages: Vec<StagedPageDescriptor>,
-    pub(crate) raster_window: usize,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct StagedPathPlan {
@@ -66,8 +41,6 @@ pub(crate) fn planning_page(page: &Page) -> PageDescriptor {
     PageDescriptor {
         input_path: page.input_path.clone(),
         source_page_index: page.source_page_index,
-        stream_input: fs::metadata(&page.input_path)
-            .is_ok_and(|metadata| !metadata.file_type().is_file()),
         trusted_foreground_mask_path: page.trusted_foreground_mask_path.clone(),
         trusted_mrc_background_path: page.trusted_mrc_background_path.clone(),
         options: CleanupOptionsView {
@@ -80,50 +53,15 @@ pub(crate) fn planning_page(page: &Page) -> PageDescriptor {
     }
 }
 
-fn planning_page_from_staged(
-    original: &PageDescriptor,
-    staged: &StagedPageDescriptor,
-) -> PageDescriptor {
-    PageDescriptor {
-        input_path: staged.input_path.clone(),
-        stream_input: staged.stream_input,
-        ..original.clone()
-    }
-}
-
 pub(crate) fn page_from_staged(page: &Page, staged: &PageDescriptor) -> Page {
     let mut translated = page.clone();
     translated.input_path = staged.input_path.clone();
     translated
 }
 
-fn staged_page_descriptor(page: &Page) -> StagedPageDescriptor {
-    let stream_input =
-        fs::metadata(&page.input_path).is_ok_and(|metadata| !metadata.file_type().is_file());
-    staged_page_descriptor_with_stream(page, stream_input)
-}
-
-fn staged_page_descriptor_with_stream(page: &Page, stream_input: bool) -> StagedPageDescriptor {
-    StagedPageDescriptor {
-        input_path: page.input_path.clone(),
-        metadata_path: page.page_metadata_path.clone(),
-        source_page_index: page.source_page_index,
-        max_bytes: MAX_STREAM_INPUT_BYTES,
-        stream_input,
-    }
-}
-
-fn staged_input_batch(manifest: &ManifestV3) -> StagedInputBatch {
-    StagedInputBatch {
-        raster_window: manifest.raster_window,
-        pages: manifest.pages.iter().map(staged_page_descriptor).collect(),
-    }
-}
-
 pub(crate) fn run_one_staged_page_job<T, F>(
     manifest: &ManifestV3,
     index: usize,
-    stream_input: bool,
     is_canceled: &AtomicBool,
     task: F,
 ) -> Result<T, Box<dyn Error>>
@@ -131,26 +69,11 @@ where
     T: Send,
     F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
 {
-    let batch = StagedInputBatch {
-        raster_window: 1,
-        pages: vec![staged_page_descriptor_with_stream(
-            &manifest.pages[index],
-            stream_input,
-        )],
-    };
-    let mut results =
-        crate::engine::staged_input::run_stream_page_jobs(&batch, is_canceled, |(_, staged)| {
-            let original = planning_page(&manifest.pages[index]);
-            let descriptor = planning_page_from_staged(&original, staged);
-            task((index, &descriptor))
-        })?;
-    results.pop().ok_or_else(|| {
-        NativeError::new(
-            NativeErrorCode::NativeFailure,
-            "Staged scan-cleanup page job produced no result",
-        )
-        .into()
-    })
+    if is_canceled.load(Ordering::Acquire) {
+        return Err(crate::engine::cancellation_error().into());
+    }
+    let descriptor = planning_page(&manifest.pages[index]);
+    task((index, &descriptor)).map_err(Into::into)
 }
 
 pub(crate) fn staged_path_plan(manifest: &ManifestV3) -> StagedPathPlan {
@@ -212,23 +135,6 @@ impl PlanningManifest for ManifestV3 {
     fn page(&self, index: usize) -> PageDescriptor {
         planning_page(&self.pages[index])
     }
-
-    fn run_stream_page_jobs<T, F>(
-        &self,
-        is_canceled: &AtomicBool,
-        task: F,
-    ) -> Result<Vec<T>, Box<dyn Error>>
-    where
-        T: Send,
-        F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
-    {
-        let batch = staged_input_batch(self);
-        crate::engine::staged_input::run_stream_page_jobs(&batch, is_canceled, |(index, staged)| {
-            let original = planning_page(&self.pages[index]);
-            let descriptor = planning_page_from_staged(&original, staged);
-            task((index, &descriptor))
-        })
-    }
 }
 
 pub(crate) fn finish_staged_rerun<T>(
@@ -268,19 +174,6 @@ pub(crate) fn map_raster_error(
             path.display(),
         ),
     )
-}
-
-pub(crate) struct MaterializedStreamPage {
-    page: StagedPageDescriptor,
-    temporary_input: Option<PathBuf>,
-}
-
-impl Drop for MaterializedStreamPage {
-    fn drop(&mut self) {
-        if let Some(path) = &self.temporary_input {
-            let _ = fs::remove_file(path);
-        }
-    }
 }
 
 pub(crate) fn assert_paths_within_root(
@@ -422,99 +315,6 @@ fn resolved_manifest_path(path: &Path) -> PathBuf {
     }
 }
 
-pub(crate) fn stream_materialized_path(page: &StagedPageDescriptor, index: usize) -> PathBuf {
-    let parent = page
-        .metadata_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
-    parent.join(format!(
-        ".scan-cleanup-stream-{}-{index}.raster",
-        std::process::id()
-    ))
-}
-
-pub(crate) fn materialize_stream_page(
-    index: usize,
-    page: &StagedPageDescriptor,
-    is_canceled: impl Fn() -> bool,
-) -> Result<MaterializedStreamPage, NativeError> {
-    let mut materialized = page.clone();
-    if !page.stream_input {
-        return Ok(MaterializedStreamPage {
-            page: materialized,
-            temporary_input: None,
-        });
-    }
-    let temporary_base = stream_materialized_path(page, index);
-    let (mut destination, temporary_input) =
-        open_randomized_temporary(&temporary_base, &mut |bytes| {
-            getrandom::fill(bytes)
-                .map_err(|error| format!("unable to obtain random bytes: {error}"))
-        })
-        .map_err(|error| {
-            NativeError::new(
-                NativeErrorCode::Io,
-                format!(
-                    "Unable to reserve streamed scan-cleanup page {}: {error}",
-                    page.source_page_index.saturating_add(1)
-                ),
-            )
-        })?;
-    let copy_result = (|| -> Result<(), BoundedIoError> {
-        if is_canceled() {
-            return Err(BoundedIoError::Canceled);
-        }
-        #[cfg(unix)]
-        {
-            use crate::io::copy_bounded_nonblocking_stream_cancelable;
-            use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
-
-            if fs::metadata(&page.input_path)?.file_type().is_fifo() {
-                let mut source = fs::OpenOptions::new()
-                    .read(true)
-                    .custom_flags(libc::O_NONBLOCK)
-                    .open(&page.input_path)?;
-                copy_bounded_nonblocking_stream_cancelable(
-                    &mut source,
-                    &mut destination,
-                    page.max_bytes,
-                    &is_canceled,
-                )?;
-                return Ok(());
-            }
-        }
-        let mut source = fs::File::open(&page.input_path)?;
-        copy_bounded_cancelable(&mut source, &mut destination, page.max_bytes, &is_canceled)?;
-        Ok(())
-    })();
-    if let Err(error) = copy_result {
-        drop(destination);
-        let _ = fs::remove_file(&temporary_input);
-        if matches!(error, BoundedIoError::Canceled) {
-            return Err(crate::engine::cancellation_error());
-        }
-        let code = match &error {
-            #[cfg(unix)]
-            BoundedIoError::ConnectTimeout => NativeErrorCode::Timeout,
-            BoundedIoError::TooLarge { .. } => NativeErrorCode::TooLarge,
-            BoundedIoError::Canceled | BoundedIoError::Io(_) => NativeErrorCode::Io,
-        };
-        return Err(NativeError::new(
-            code,
-            format!(
-                "Unable to materialize streamed scan-cleanup page {}: {error}",
-                page.source_page_index.saturating_add(1)
-            ),
-        ));
-    }
-    materialized.input_path = temporary_input.clone();
-    materialized.stream_input = false;
-    Ok(MaterializedStreamPage {
-        page: materialized,
-        temporary_input: Some(temporary_input),
-    })
-}
-
 /// How often an absent staged page input is re-probed while its producer
 /// renders it. The wait is a rendezvous, not a poll loop over useful work: the
 /// page worker owning this lease has nothing else to do until the raster is on
@@ -645,158 +445,6 @@ pub(crate) fn with_announced_staged_page_input<T>(
     outcome.and_then(|value| released.map(|()| value))
 }
 
-pub(crate) fn run_stream_page_jobs<T, F>(
-    batch: &StagedInputBatch,
-    is_canceled: &AtomicBool,
-    task: F,
-) -> Result<Vec<T>, Box<dyn Error>>
-where
-    T: Send,
-    F: Fn((usize, &StagedPageDescriptor)) -> Result<T, NativeError> + Send + Sync,
-{
-    if batch.raster_window <= 1 {
-        // A FIFO is a one-shot transport, not a replayable page file. Direct
-        // callers coordinate no producer window, so keep the conservative
-        // acknowledgement turnstile: it never opens an unwritten future FIFO
-        // after a task failure and bounds scratch to one raster.
-        return thread::scope(|scope| {
-            let (sender, receiver) = sync_channel(0);
-            let (acknowledge, acknowledged) = sync_channel(0);
-            let canceled = Arc::new(AtomicBool::new(false));
-            let reader_canceled = Arc::clone(&canceled);
-            scope.spawn(move || {
-                for (index, page) in batch.pages.iter().enumerate() {
-                    if is_canceled.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let materialized = materialize_stream_page(index, page, || {
-                        is_canceled.load(Ordering::Acquire)
-                            || reader_canceled.load(Ordering::Acquire)
-                    });
-                    let failed = materialized.is_err();
-                    if sender.send(materialized).is_err() || failed {
-                        break;
-                    }
-                    // Taking a rendezvous message does not mean page processing
-                    // succeeded. Wait for its explicit acknowledgement before
-                    // opening the next FIFO, otherwise a task failure can strand
-                    // this scoped thread forever in an unwritten future stream.
-                    if acknowledged.recv() != Ok(true) {
-                        break;
-                    }
-                }
-            });
-
-            let mut results = Vec::with_capacity(batch.pages.len());
-            let mut first_error = None;
-            for (index, materialized) in receiver.into_iter().enumerate() {
-                if is_canceled.load(Ordering::Acquire) {
-                    canceled.store(true, Ordering::Release);
-                    first_error = Some(crate::engine::cancellation_error());
-                    let _ = acknowledge.send(false);
-                    break;
-                }
-                match materialized {
-                    Ok(materialized) if first_error.is_none() => {
-                        match task((index, &materialized.page)) {
-                            Ok(result) => {
-                                results.push(result);
-                                if acknowledge.send(true).is_err() {
-                                    first_error = Some(NativeError::new(
-                                        NativeErrorCode::Io,
-                                        "Streamed scan-cleanup reader stopped before acknowledgement",
-                                    ));
-                                }
-                            }
-                            Err(error) => {
-                                canceled.store(true, Ordering::Release);
-                                first_error = Some(error);
-                                let _ = acknowledge.send(false);
-                            }
-                        }
-                    }
-                    Ok(_) => {
-                        let _ = acknowledge.send(false);
-                    }
-                    Err(error) => {
-                        canceled.store(true, Ordering::Release);
-                        first_error.get_or_insert(error);
-                        break;
-                    }
-                }
-            }
-            match first_error {
-                Some(error) => Err(error.into()),
-                None if is_canceled.load(Ordering::Acquire) => {
-                    Err(crate::engine::cancellation_error().into())
-                }
-                None if results.len() == batch.pages.len() => Ok(results),
-                None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
-            }
-        });
-    }
-
-    // The owning process has promised this many concurrent producers. Keep
-    // page processing serial (nested Rayon work still owns the native pool),
-    // but let the dedicated reader materialize the next pages while the
-    // current page is processed. The channel is two slots smaller than the
-    // window because the processing page and the reader's in-progress page
-    // are both live outside it.
-    let channel_capacity = batch.raster_window.saturating_sub(2);
-    thread::scope(|scope| {
-        let (sender, receiver) = sync_channel(channel_capacity);
-        let canceled = Arc::new(AtomicBool::new(false));
-        let reader_canceled = Arc::clone(&canceled);
-        scope.spawn(move || {
-            for (index, page) in batch.pages.iter().enumerate() {
-                if is_canceled.load(Ordering::Acquire) || reader_canceled.load(Ordering::Acquire) {
-                    break;
-                }
-                let materialized = materialize_stream_page(index, page, || {
-                    is_canceled.load(Ordering::Acquire) || reader_canceled.load(Ordering::Acquire)
-                });
-                let failed = materialized.is_err();
-                if sender.send(materialized).is_err() || failed {
-                    break;
-                }
-            }
-        });
-
-        let mut results = Vec::with_capacity(batch.pages.len());
-        let mut first_error = None;
-        for (index, materialized) in receiver.into_iter().enumerate() {
-            if is_canceled.load(Ordering::Acquire) {
-                canceled.store(true, Ordering::Release);
-                first_error = Some(crate::engine::cancellation_error());
-                break;
-            }
-            match materialized {
-                Ok(materialized) => match task((index, &materialized.page)) {
-                    Ok(result) => results.push(result),
-                    Err(error) => {
-                        canceled.store(true, Ordering::Release);
-                        first_error = Some(error);
-                        break;
-                    }
-                },
-                Err(error) => {
-                    canceled.store(true, Ordering::Release);
-                    first_error = Some(error);
-                    break;
-                }
-            }
-        }
-        match first_error {
-            Some(error) => Err(error.into()),
-            None if is_canceled.load(Ordering::Acquire) => {
-                Err(crate::engine::cancellation_error().into())
-            }
-            None if results.len() == batch.pages.len() => Ok(results),
-            None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -812,31 +460,6 @@ mod tests {
         time::Duration,
     };
 
-    #[cfg(unix)]
-    fn staged_page(
-        input_path: PathBuf,
-        metadata_path: PathBuf,
-        source_page_index: usize,
-        stream_input: bool,
-        max_bytes: usize,
-    ) -> StagedPageDescriptor {
-        StagedPageDescriptor {
-            input_path,
-            metadata_path,
-            source_page_index,
-            max_bytes,
-            stream_input,
-        }
-    }
-
-    #[cfg(unix)]
-    fn staged_batch(pages: Vec<StagedPageDescriptor>, raster_window: usize) -> StagedInputBatch {
-        StagedInputBatch {
-            raster_window,
-            pages,
-        }
-    }
-
     fn staged_lease(
         input_path: PathBuf,
         page_number: usize,
@@ -849,162 +472,6 @@ mod tests {
             total_pages,
             enabled,
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn streamed_pages_are_bounded_materialized_files_during_processing() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-materialization-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo_paths = (0..3)
-            .map(|index| dir.join(format!("page-{index}.fifo")))
-            .collect::<Vec<_>>();
-        for fifo in &fifo_paths {
-            assert!(std::process::Command::new("mkfifo")
-                .arg(fifo)
-                .status()
-                .unwrap()
-                .success());
-        }
-        let batch = staged_batch(
-            fifo_paths
-                .iter()
-                .enumerate()
-                .map(|(index, input_path)| {
-                    staged_page(
-                        input_path.clone(),
-                        dir.join(format!("page-{index}.json")),
-                        index,
-                        true,
-                        crate::io::MAX_STREAM_INPUT_BYTES,
-                    )
-                })
-                .collect(),
-            1,
-        );
-        let producer_paths = fifo_paths.clone();
-        let producer = std::thread::spawn(move || {
-            for (index, path) in producer_paths.iter().enumerate() {
-                fs::write(path, format!("page-{index}")).unwrap();
-            }
-        });
-
-        let processed = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, page)| {
-            let metadata = fs::metadata(&page.input_path).unwrap();
-            assert!(metadata.is_file(), "the task must never reopen a FIFO");
-            let bytes = fs::read(&page.input_path).unwrap();
-            assert_eq!(bytes, format!("page-{index}").as_bytes());
-            Ok::<_, NativeError>(bytes)
-        })
-        .unwrap();
-
-        producer.join().unwrap();
-        assert_eq!(processed.len(), 3);
-        assert!(
-            fs::read_dir(&dir).unwrap().all(|entry| !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .contains(".raster")),
-            "bounded materializations must be removed after processing"
-        );
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn streamed_page_window_overlaps_materialization_without_exceeding_its_bound() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-window-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo_paths = (0..5)
-            .map(|index| dir.join(format!("page-{index}.fifo")))
-            .collect::<Vec<_>>();
-        for fifo in &fifo_paths {
-            assert!(std::process::Command::new("mkfifo")
-                .arg(fifo)
-                .status()
-                .unwrap()
-                .success());
-        }
-        let batch = staged_batch(
-            fifo_paths
-                .iter()
-                .enumerate()
-                .map(|(index, input_path)| {
-                    staged_page(
-                        input_path.clone(),
-                        dir.join(format!("page-{index}.json")),
-                        index,
-                        true,
-                        crate::io::MAX_STREAM_INPUT_BYTES,
-                    )
-                })
-                .collect(),
-            3,
-        );
-        let producer_paths = fifo_paths.clone();
-        let (producer_signal, producer_receiver) = std::sync::mpsc::channel();
-        let producer_signaled = Mutex::new(producer_receiver);
-        let producer = std::thread::spawn(move || {
-            for (index, path) in producer_paths.iter().enumerate() {
-                fs::write(path, format!("page-{index}")).unwrap();
-                producer_signal.send(()).unwrap();
-            }
-        });
-        let observed_lookahead = AtomicBool::new(false);
-        let peak_materializations = AtomicUsize::new(0);
-        let count_materializations = || {
-            fs::read_dir(&dir)
-                .unwrap()
-                .filter(|entry| {
-                    entry
-                        .as_ref()
-                        .is_ok_and(|entry| entry.file_name().to_string_lossy().contains(".raster"))
-                })
-                .count()
-        };
-
-        let processed = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, page)| {
-            if index == 0 {
-                let producer_signaled = producer_signaled.lock().unwrap();
-                for _ in 0..batch.raster_window {
-                    producer_signaled
-                        .recv()
-                        .expect("producer did not publish a lookahead page");
-                }
-                let live = count_materializations();
-                peak_materializations.fetch_max(live, Ordering::AcqRel);
-                assert_eq!(live, batch.raster_window);
-                observed_lookahead.store(true, Ordering::Release);
-            }
-            let live = count_materializations();
-            peak_materializations.fetch_max(live, Ordering::AcqRel);
-            assert!(live <= batch.raster_window);
-            let bytes = fs::read(&page.input_path).unwrap();
-            assert_eq!(bytes, format!("page-{index}").as_bytes());
-            Ok::<_, NativeError>(bytes)
-        })
-        .unwrap();
-
-        producer.join().unwrap();
-        assert_eq!(processed.len(), 5);
-        assert!(observed_lookahead.load(Ordering::Acquire));
-        assert_eq!(peak_materializations.load(Ordering::Acquire), 3);
-        assert!(
-            fs::read_dir(&dir).unwrap().all(|entry| !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .contains(".raster")),
-            "windowed materializations must be removed after processing"
-        );
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -1202,211 +669,21 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), b"late");
         let _ = fs::remove_dir_all(dir);
     }
-
-    #[cfg(unix)]
-    #[test]
-    fn precreated_stream_materialization_path_is_not_followed() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-randomized-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo = dir.join("page.fifo");
-        assert!(std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .unwrap()
-            .success());
-        let descriptor = staged_page(fifo.clone(), dir.join("page.json"), 0, true, 64);
-        let predicted_path = stream_materialized_path(&descriptor, 0);
-        let protected = dir.join("protected");
-        fs::write(&protected, b"must survive").unwrap();
-        std::os::unix::fs::symlink(&protected, &predicted_path).unwrap();
-        let producer = std::thread::spawn(move || {
-            fs::write(fifo, b"streamed page").unwrap();
-        });
-
-        let materialized = materialize_stream_page(0, &descriptor, || false).unwrap();
-        producer.join().unwrap();
-        assert_eq!(fs::read(&protected).unwrap(), b"must survive");
-        assert!(fs::symlink_metadata(&predicted_path)
-            .unwrap()
-            .file_type()
-            .is_symlink());
-        let actual_path = materialized.page.input_path.clone();
-        assert_ne!(actual_path, predicted_path);
-        drop(materialized);
-        assert!(!actual_path.exists());
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn oversized_stream_removes_its_partial_materialization() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-oversize-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo = dir.join("page.fifo");
-        assert!(std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .unwrap()
-            .success());
-        let descriptor = staged_page(fifo.clone(), dir.join("page.json"), 0, true, 8);
-        let producer = std::thread::spawn(move || {
-            let _ = fs::write(fifo, b"this stream is larger than eight bytes");
-        });
-
-        let error = match materialize_stream_page(0, &descriptor, || false) {
-            Ok(_) => panic!("oversize stream unexpectedly materialized"),
-            Err(error) => error,
-        };
-
-        producer.join().unwrap();
-        assert_eq!(error.code, NativeErrorCode::TooLarge);
-        assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .contains(".raster")));
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn first_stream_task_failure_never_opens_an_unwritten_next_fifo() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-turnstile-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo_paths = [dir.join("page-0.fifo"), dir.join("page-1.fifo")];
-        for fifo in &fifo_paths {
-            assert!(std::process::Command::new("mkfifo")
-                .arg(fifo)
-                .status()
-                .unwrap()
-                .success());
-        }
-        let batch = staged_batch(
-            fifo_paths
-                .iter()
-                .enumerate()
-                .map(|(index, input_path)| {
-                    staged_page(
-                        input_path.clone(),
-                        dir.join(format!("page-{index}.json")),
-                        index,
-                        true,
-                        crate::io::MAX_STREAM_INPUT_BYTES,
-                    )
-                })
-                .collect(),
-            1,
-        );
-        let first_fifo = fifo_paths[0].clone();
-        let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
-
-        let error = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, _)| {
-            Err::<(), _>(NativeError::new(
-                NativeErrorCode::NativeFailure,
-                format!("page {} failed", index + 1),
-            ))
-        })
-        .unwrap_err();
-
-        producer.join().unwrap().unwrap();
-        assert!(error.to_string().contains("page 1 failed"));
-        assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .contains(".raster")));
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn windowed_stream_task_failure_cancels_an_open_unwritten_fifo() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-window-failure-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo_paths = (0..3)
-            .map(|index| dir.join(format!("page-{index}.fifo")))
-            .collect::<Vec<_>>();
-        for fifo in &fifo_paths {
-            assert!(std::process::Command::new("mkfifo")
-                .arg(fifo)
-                .status()
-                .unwrap()
-                .success());
-        }
-        let batch = staged_batch(
-            fifo_paths
-                .iter()
-                .enumerate()
-                .map(|(index, input_path)| {
-                    staged_page(
-                        input_path.clone(),
-                        dir.join(format!("page-{index}.json")),
-                        index,
-                        true,
-                        crate::io::MAX_STREAM_INPUT_BYTES,
-                    )
-                })
-                .collect(),
-            3,
-        );
-        let first_fifo = fifo_paths[0].clone();
-        let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
-        let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
-        let run = std::thread::spawn(move || {
-            let result = run_stream_page_jobs(&batch, &AtomicBool::new(false), |(index, _)| {
-                Err::<(), _>(NativeError::new(
-                    NativeErrorCode::NativeFailure,
-                    format!("page {} failed", index + 1),
-                ))
-            });
-            let _ = finished_sender.send(result.map_err(|error| error.to_string()));
-        });
-
-        producer.join().unwrap().unwrap();
-        let error = finished_receiver
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("windowed reader remained blocked on an unwritten future FIFO")
-            .unwrap_err();
-        run.join().unwrap();
-        assert!(error.contains("page 1 failed"));
-        assert!(fs::read_dir(&dir).unwrap().all(|entry| !entry
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .contains(".raster")));
-        let _ = fs::remove_dir_all(dir);
-    }
 }
+
 #[cfg(test)]
 mod moved_tests {
-    use super::*;
-    use crate::engine::resource_planning::{manifest_cache, page_cache_for, PlanningOperation};
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, PageOutput, RenderMode, VERSION,
     };
     use crate::CleanupOptions;
     use evb_native_support::NativeError;
     use std::{fs, path::PathBuf};
-    // The path-safety and FIFO tests below exercise POSIX filesystem features
-    // (symlinks, FIFOs), so their fixtures exist only there.
-    #[cfg(unix)]
-    use crate::engine::resource_planning::PlanningManifest;
+
     #[cfg(unix)]
     use crate::protocol::manifest_v3::{DetailPixelRect, DetailRenderPlan};
     #[cfg(unix)]
-    use std::{io::Write, path::Path, thread};
+    use std::path::Path;
 
     #[cfg(unix)]
     fn assert_manifest_paths_within_root(
@@ -1451,7 +728,6 @@ mod moved_tests {
             canvas_scope: CanvasScope::Page,
             document_canvas: None,
             host_memory_bytes: None,
-            raster_window: 1,
             staged_input_window: None,
             staged_input_peak_pixels: None,
             pages: vec![Page {
@@ -1698,7 +974,6 @@ mod moved_tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: None,
-            raster_window: 1,
             staged_input_window: None,
             staged_input_peak_pixels: None,
             pages: vec![Page {
@@ -1748,116 +1023,5 @@ mod moved_tests {
         assert_eq!(fs::read(&destination_alias).unwrap(), b"old output");
 
         let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn staged_translation_passes_materialized_input_to_downstream_once() {
-        let original = PageDescriptor {
-            input_path: PathBuf::from("/source/page.fifo"),
-            source_page_index: 4,
-            options: CleanupOptionsView {
-                max_pixels: 100,
-                max_dimension: 200,
-                output_mode: crate::OutputMode::Auto,
-                source_has_bilevel_layer: false,
-                thickness: 0,
-            },
-            stream_input: true,
-            trusted_foreground_mask_path: None,
-            trusted_mrc_background_path: None,
-        };
-        let staged = StagedPageDescriptor {
-            input_path: PathBuf::from("/scratch/materialized-page.raster"),
-            metadata_path: PathBuf::from("/scratch/page.json"),
-            source_page_index: 4,
-            max_bytes: MAX_STREAM_INPUT_BYTES,
-            stream_input: false,
-        };
-
-        let materialized = std::env::temp_dir().join(format!(
-            "scan-cleanup-adapter-staged-{}-{}.raster",
-            std::process::id(),
-            original.source_page_index
-        ));
-        fs::write(&materialized, b"materialized page").unwrap();
-        let staged = StagedPageDescriptor {
-            input_path: materialized.clone(),
-            ..staged
-        };
-        let translated = super::planning_page_from_staged(&original, &staged);
-        assert_eq!(translated.input_path, staged.input_path);
-        assert!(!translated.stream_input);
-        assert_eq!(translated.source_page_index, original.source_page_index);
-        let cache = manifest_cache(PlanningOperation::Analyze, None);
-        assert!(page_cache_for(&translated, &cache).is_ok());
-        assert!(!original.input_path.exists());
-        fs::remove_file(materialized).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn production_stream_planning_reads_the_materialized_fifo_copy_once() {
-        use crate::protocol::manifest_v3::{
-            AnalysisPurpose, CanvasScope, Operation, RenderMode, VERSION,
-        };
-        use std::os::unix::fs::FileTypeExt;
-
-        let root =
-            std::env::temp_dir().join(format!("scan-cleanup-adapter-fifo-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir(&root).unwrap();
-        let fifo = root.join("source.fifo");
-        let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
-        assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
-        assert!(fs::metadata(&fifo).unwrap().file_type().is_fifo());
-
-        let page = crate::protocol::manifest_v3::Page {
-            input_path: fifo.clone(),
-            analysis_input_path: None,
-            analysis_dpi: None,
-            trusted_foreground_mask_path: None,
-            trusted_mrc_background_path: None,
-            outputs: Vec::new(),
-            source_page_index: 0,
-            page_metadata_path: root.join("page.json"),
-            options: crate::CleanupOptions::default(),
-            document_prior: None,
-            detail_render_plan: None,
-            pdf_page: None,
-        };
-        let manifest = ManifestV3 {
-            version: VERSION,
-            operation: Operation::Render,
-            analysis_purpose: AnalysisPurpose::PagePlan,
-            render_mode: RenderMode::Preview,
-            canvas_scope: CanvasScope::Page,
-            document_canvas: None,
-            host_memory_bytes: None,
-            raster_window: 1,
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            pages: vec![page],
-        };
-        let producer_path = fifo.clone();
-        let producer = thread::spawn(move || {
-            let mut source = fs::OpenOptions::new()
-                .write(true)
-                .open(producer_path)
-                .unwrap();
-            source.write_all(b"one materialized read").unwrap();
-        });
-
-        let reads = manifest
-            .run_stream_page_jobs(&AtomicBool::new(false), |(_, descriptor)| {
-                assert_ne!(descriptor.input_path, fifo);
-                assert!(!descriptor.stream_input);
-                Ok::<_, NativeError>(fs::read(&descriptor.input_path).unwrap())
-            })
-            .unwrap();
-        producer.join().unwrap();
-
-        assert_eq!(reads, vec![b"one materialized read".to_vec()]);
-        assert!(fs::metadata(&fifo).unwrap().file_type().is_fifo());
-        fs::remove_dir_all(root).unwrap();
     }
 }

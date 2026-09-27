@@ -84,8 +84,8 @@ export function reportScanCleanupSummaryWarningEvent(
     report(formatScanCleanupWarningEvent(entry.event, entry.pageNumber));
 }
 
-// Non-streaming transports really do materialize the complete raster handoff
-// before native rendering starts, so they retain separate bands.
+// The raster handoff is materialized before native rendering starts, so each
+// phase keeps its own progress band.
 const RASTER_STAGE_WEIGHTS = [
     [
         'normalizing',
@@ -114,40 +114,6 @@ const RASTER_STAGE_WEIGHTS = [
     [
         'assembling',
         12,
-    ],
-    [
-        'handoff',
-        2,
-    ],
-] as const satisfies TStageWeights;
-
-// FIFO production and native consumption are one pipeline. Native page
-// completion is its authoritative counter; presenting producer completion as
-// an earlier stage made the meter stall and then jump by most of its width.
-const STREAMING_RASTER_STAGE_WEIGHTS = [
-    [
-        'normalizing',
-        1,
-    ],
-    [
-        'probing',
-        3,
-    ],
-    [
-        'extracting',
-        6,
-    ],
-    [
-        'rendering',
-        78,
-    ],
-    [
-        'collecting',
-        1,
-    ],
-    [
-        'assembling',
-        9,
     ],
     [
         'handoff',
@@ -215,7 +181,6 @@ function resolveBands(weights: TStageWeights) {
 // Both profiles are fixed tables, so they are laid out once rather than on
 // every progress report a run emits.
 const RASTER_BANDS = resolveBands(RASTER_STAGE_WEIGHTS);
-const STREAMING_RASTER_BANDS = resolveBands(STREAMING_RASTER_STAGE_WEIGHTS);
 const LOSSLESS_BANDS = resolveBands(LOSSLESS_STAGE_WEIGHTS);
 
 const ETA_MIN_COMPLETED_UNITS = 5;
@@ -281,10 +246,7 @@ export function createScanCleanupProgressEtaEstimator(): IScanCleanupProgressEta
 export function createScanCleanupProgressReporter(
     callback: (progress: TScanCleanupProgress) => void,
     isLossless: () => boolean,
-    options: {
-        isRasterStreaming?: () => boolean;
-        now?: () => number
-    } = {},
+    options: {now?: () => number} = {},
 ): TEmitScanCleanupProgress {
     const now = options.now ?? (() => performance.now());
     let lastPercent = 0;
@@ -296,15 +258,10 @@ export function createScanCleanupProgressReporter(
                 bands: LOSSLESS_BANDS,
                 weights: LOSSLESS_STAGE_WEIGHTS,
             }
-            : options.isRasterStreaming?.() === true
-                ? {
-                    bands: STREAMING_RASTER_BANDS,
-                    weights: STREAMING_RASTER_STAGE_WEIGHTS,
-                }
-                : {
-                    bands: RASTER_BANDS,
-                    weights: RASTER_STAGE_WEIGHTS,
-                };
+            : {
+                bands: RASTER_BANDS,
+                weights: RASTER_STAGE_WEIGHTS,
+            };
         const stageIndex = profile.weights.findIndex(([profileStage]) => profileStage === stage) + 1;
         const bands = profile.bands;
         const band = bands.get(stage);

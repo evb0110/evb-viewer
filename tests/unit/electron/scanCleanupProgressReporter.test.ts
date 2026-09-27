@@ -44,61 +44,31 @@ describe('scan cleanup progress reporter', () => {
         expect(SCAN_CLEANUP_PROGRESS_SCHEMA.decode(reports[0])).toEqual(reports[0]);
     });
 
-    it('uses one monotonic rendering band for a streaming raster pipeline', () => {
+    it('keeps materialized raster progress monotonic across separate stages', () => {
         const reports: TScanCleanupProgress[] = [];
         const emit = createScanCleanupProgressReporter(
             progress => reports.push(progress),
             () => false,
-            {
-                isRasterStreaming: () => true,
-                now: () => 0,
-            },
+            {now: () => 0},
         );
 
         emit('probing', 3, 10);
         emit('extracting', 10, 10);
+        emit('rasterizing', 392, 392);
         emit('rendering', 0, 392);
         emit('rendering', 196, 392);
         emit('rendering', 392, 392);
         emit('assembling', 1, 2);
 
-        expect(reports.map(report => report.stage)).not.toContain('rasterizing');
+        expect(reports.map(report => report.stage)).toContain('rasterizing');
+        expect(reports.map(report => report.stage)).toContain('rendering');
         expect(reports.map(report => report.percent)).toEqual(
             [...reports.map(report => report.percent)].sort((left, right) => left - right),
         );
-        expect(reports.find(report => report.stage === 'rendering' && report.completedUnits === 0)?.percent)
-            .toBe(10);
-        expect(reports.find(report => report.stage === 'rendering' && report.completedUnits === 392)?.percent)
-            .toBe(88);
-        expect(reports.map(report => [
-            report.stageIndex,
-            report.stageCount,
-        ])).toEqual([
-            [
-                2,
-                7,
-            ],
-            [
-                3,
-                7,
-            ],
-            [
-                4,
-                7,
-            ],
-            [
-                4,
-                7,
-            ],
-            [
-                4,
-                7,
-            ],
-            [
-                6,
-                7,
-            ],
-        ]);
+        const rasterizing = reports.findLast(report => report.stage === 'rasterizing')!;
+        const rendering = reports.find(report => report.stage === 'rendering')!;
+        expect(rendering.stageIndex).toBeGreaterThan(rasterizing.stageIndex!);
+        expect(new Set(reports.map(report => report.stageCount))).toEqual(new Set([8]));
     });
 
     it('withholds ETA until sampled and then estimates only the reporting stage', () => {
@@ -107,10 +77,7 @@ describe('scan cleanup progress reporter', () => {
         const emit = createScanCleanupProgressReporter(
             progress => reports.push(progress),
             () => false,
-            {
-                isRasterStreaming: () => true,
-                now: () => now,
-            },
+            {now: () => now},
         );
 
         emit('rendering', 0, 392);
@@ -132,10 +99,7 @@ describe('scan cleanup progress reporter', () => {
         const emit = createScanCleanupProgressReporter(
             progress => reports.push(progress),
             () => false,
-            {
-                isRasterStreaming: () => true,
-                now: () => now,
-            },
+            {now: () => now},
         );
 
         // Finish rendering fast enough that its closing ETA is a few seconds.
@@ -159,10 +123,7 @@ describe('scan cleanup progress reporter', () => {
         const emit = createScanCleanupProgressReporter(
             progress => reports.push(progress),
             () => false,
-            {
-                isRasterStreaming: () => true,
-                now: () => now,
-            },
+            {now: () => now},
         );
 
         emit('rendering', 0, 392);

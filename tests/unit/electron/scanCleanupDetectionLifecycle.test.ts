@@ -233,7 +233,6 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
     const deliveredPageNumbers: number[] = [];
     let activeRasterizers = 0;
     let peakActiveRasterizers = 0;
-    deps.createRasterPipes = vi.fn();
     deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
         activeRasterizers += 1;
         peakActiveRasterizers = Math.max(peakActiveRasterizers, activeRasterizers);
@@ -329,7 +328,6 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
         started.jobId,
         detectionRequest,
     )?.status).toBe('completed'));
-    expect(deps.createRasterPipes).not.toHaveBeenCalled();
     expect(peakActiveRasterizers).toBeGreaterThan(1);
     expect(deps.renderPage).toHaveBeenCalledTimes(3);
     expect(deliveredPageNumbers).toEqual([
@@ -349,7 +347,6 @@ export async function scenarioRemovesTemporaryDetectionRasterPathsWhenNativeAnal
 
     const {deps} = await previewDependencies();
     const stagedPaths: string[] = [];
-    deps.createRasterPipes = vi.fn();
     deps.renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
         stagedPaths.push(outputPath);
         await writeFile(outputPath, pngWithDimensions(1, 1));
@@ -379,7 +376,6 @@ export async function scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis
     const {deps} = await previewDependencies();
     const sidecarEntered = Promise.withResolvers<undefined>();
     const rasterFinished = Promise.withResolvers<undefined>();
-    deps.createRasterPipes = vi.fn();
     deps.renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
         await writeFile(outputPath, pngWithDimensions(1, 1));
         rasterFinished.resolve(undefined);
@@ -854,10 +850,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
     expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
         'scan-cleanup:1:preview-owner',
         expect.any(AbortSignal),
-        expect.objectContaining({
-            rasterConcurrency: 4,
-            rasterStreaming: false,
-        }),
+        expect.objectContaining({rasterConcurrency: 4}),
         expect.objectContaining({outputMode: 'bw'}),
     );
     // The visible page-1 raster is reused by 150-DPI detection; only pages
@@ -889,7 +882,6 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
         startedRasters += 1;
         if (startedRasters === resolveScanCleanupRasterAdmissionPolicy(
             mainJobBroker.getSnapshot().capacity,
-            false,
         ).rasterConcurrency) {
             rasterBatchReady.resolve(undefined);
         }
@@ -917,16 +909,12 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
     expect(deps.renderPage).toHaveBeenCalledTimes(8);
     const policy = resolveScanCleanupRasterAdmissionPolicy(
         mainJobBroker.getSnapshot().capacity,
-        false,
     );
     expect(peakRasters).toBe(policy.rasterConcurrency);
     expect(acquire).toHaveBeenCalledWith(
         'scan-cleanup:1:preview-owner',
         expect.any(AbortSignal),
-        expect.objectContaining({
-            rasterConcurrency: policy.rasterConcurrency,
-            rasterStreaming: false,
-        }),
+        expect.objectContaining({rasterConcurrency: policy.rasterConcurrency}),
         expect.objectContaining({outputMode: 'bw'}),
     );
 
@@ -937,9 +925,6 @@ export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAd
     const {deps} = await previewDependencies();
     const acquire = vi.fn(async () => ({release: vi.fn(() => true)}));
     deps.acquireDetectionLease = acquire;
-    deps.createRasterPipes = vi.fn(async () => {
-        throw new Error('stop after streaming admission');
-    });
     deps.runSidecar = vi.fn(async () => {
         throw new Error('stop after non-streaming admission');
     });
@@ -954,62 +939,13 @@ export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAd
     )?.status).toBe('failed'));
     const policy = resolveScanCleanupRasterAdmissionPolicy(
         mainJobBroker.getSnapshot().capacity,
-        process.platform !== 'win32',
     );
     expect(acquire).toHaveBeenCalledWith(
         'scan-cleanup:1:preview-owner',
         expect.any(AbortSignal),
-        expect.objectContaining({
-            rasterConcurrency: policy.rasterConcurrency,
-            // Raster FIFO streaming is POSIX-only; Windows admits the retained handoff.
-            rasterStreaming: process.platform !== 'win32',
-        }),
+        expect.objectContaining({rasterConcurrency: policy.rasterConcurrency}),
         expect.objectContaining({outputMode: 'bw'}),
     );
-
-}
-
-export async function scenarioFallsBackFromRasterStreamingUntilBrokerCapacityCanAdmitItsSidecar(): Promise<void> {
-
-    const {deps} = await previewDependencies();
-    const snapshot = mainJobBroker.getSnapshot();
-    const getSnapshot = vi.spyOn(mainJobBroker, 'getSnapshot').mockReturnValue({
-        ...snapshot,
-        capacity: {
-            ...snapshot.capacity,
-            nativeProcesses: 1,
-        },
-    });
-    try {
-        deps.createRasterPipes = vi.fn(async () => {
-            throw new Error('raster pipes must stay disabled at bootstrap capacity');
-        });
-        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
-        deps.runSidecar = vi.fn(async () => {
-            throw new Error('stop after non-streaming fallback');
-        });
-        const service = createDetectionScenarioOwner(deps);
-        const owner = sender();
-        const started = await service.detectAll(owner, detectionRequest);
-
-        await vi.waitFor(() => expect(service.getDetectionJobState(
-            owner,
-            started.jobId,
-            detectionRequest,
-        )?.status).toBe('failed'));
-        expect(deps.acquireDetectionLease).toHaveBeenCalledWith(
-            'scan-cleanup:1:preview-owner',
-            expect.any(AbortSignal),
-            expect.objectContaining({
-                rasterConcurrency: 1,
-                rasterStreaming: false,
-            }),
-            expect.objectContaining({outputMode: 'bw'}),
-        );
-        expect(deps.createRasterPipes).not.toHaveBeenCalled();
-    } finally {
-        getSnapshot.mockRestore();
-    }
 
 }
 
@@ -1910,10 +1846,6 @@ describe('scanCleanupDetectionLifecycleTest', () => {
         [
             'admit the classifier sidecar',
             scenarioIncludesTheClassifierSidecarInStreamingDetectionAdmission,
-        ],
-        [
-            'fall back when streaming cannot be admitted',
-            scenarioFallsBackFromRasterStreamingUntilBrokerCapacityCanAdmitItsSidecar,
         ],
         [
             'emit each detection classification once',

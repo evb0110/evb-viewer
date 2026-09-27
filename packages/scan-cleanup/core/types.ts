@@ -31,7 +31,6 @@ export type TScanCleanupAssemblerBackend =
     | 'source-preserved';
 
 export type TScanCleanupTransportMode =
-    | 'fifo-ppm'
     | 'file-ppm'
     | 'file-png'
     | 'source-preserved';
@@ -507,11 +506,6 @@ export interface IRunScanCleanupPipelineDependencies {
     getPageCount: TScanCleanupGetPageCount;
     getPageSizeStore: TScanCleanupGetPageSizeStore;
     detectSourceDpi: TScanCleanupDetectSourceDpi;
-    createRasterPipes?: (
-        paths: readonly string[],
-        signal: AbortSignal,
-        log: TScanCleanupLog,
-    ) => Promise<void>;
     renderPage: TScanCleanupRenderPage;
     renderPagePpm: TScanCleanupRenderPage;
     runSidecar: TScanCleanupRunSidecar;

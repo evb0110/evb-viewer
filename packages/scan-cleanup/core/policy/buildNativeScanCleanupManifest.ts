@@ -76,7 +76,6 @@ export interface IBuildNativeScanCleanupManifestInput {
     documentCanvas?: IScanCleanupDocumentCanvasPlan;
     experimental?: IScanCleanupExperimentalOptions;
     hostMemoryBytes?: number;
-    rasterWindow?: number;
     /**
      * Bounded number of replayable Analyze page rasters this process keeps
      * staged at once. Declaring it moves the sidecar onto the staged-input
@@ -354,7 +353,6 @@ function assembleNativeScanCleanupManifest({
     documentCanvas,
     experimental,
     hostMemoryBytes,
-    rasterWindow,
     stagedInputWindow,
     stagedInputPeakPixels,
     rasterMaxPixels,
@@ -379,9 +377,6 @@ function assembleNativeScanCleanupManifest({
         canvasScope,
         ...(documentCanvas === undefined ? {} : {documentCanvas}),
         ...(hostMemoryBytes !== undefined && hostMemoryBytes > 0 ? {hostMemoryBytes} : {}),
-        ...(rasterWindow === undefined
-            ? {}
-            : {rasterWindow: clampNativeLimit(rasterWindow, 16, 'rasterWindow')}),
         ...(stagedInputWindow === undefined
             ? {}
             : {stagedInputWindow: clampNativeLimit(

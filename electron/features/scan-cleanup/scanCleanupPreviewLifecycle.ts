@@ -90,9 +90,8 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     open,
     stat,
     getAvailableScratchBytes: readAvailableScratchBytes,
-    resolveRasterAdmissionPolicy: (supportsRasterStreaming, options) => resolveScanCleanupPreviewRasterAdmissionPolicy(
+    resolveRasterAdmissionPolicy: options => resolveScanCleanupPreviewRasterAdmissionPolicy(
         mainJobBroker.getSnapshot().capacity,
-        supportsRasterStreaming,
         options,
     ),
     getPageCount: getPdfPageCount,
@@ -104,13 +103,6 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         ...fileSystem,
         rename,
     }),
-    createRasterPipes: async (paths, signal, log) => {
-        await runNativeToolCommand('mkfifo', [...paths], {
-            signal,
-            commandLabel: 'mkfifo(scan-cleanup-detection-streams)',
-            log,
-        });
-    },
     runSidecar: runScanCleanupSidecar,
     resolveBinary: resolveScanCleanupPreviewPath,
     resolvePageOpsBinary: resolveNativePageOpsPath,
@@ -175,7 +167,7 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
             cpuTokens: rasterPolicy.rasterConcurrency,
             estimatedResidentBytes: rasterPolicy.rasterConcurrency
                 * resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterPolicy.rasterMaxPixels),
-            nativeProcesses: rasterPolicy.rasterConcurrency + Number(rasterPolicy.rasterStreaming),
+            nativeProcesses: rasterPolicy.rasterConcurrency,
             ioWeight: 2,
         },
         perOwnerLimit: 1,
@@ -190,7 +182,6 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     ) => {
         const effectiveRasterMaxPixels = rasterMaxPixels ?? resolveScanCleanupPreviewRasterAdmissionPolicy(
             mainJobBroker.getSnapshot().capacity,
-            process.platform !== 'win32',
             options,
         ).rasterMaxPixels;
         return mainJobBroker.acquire({

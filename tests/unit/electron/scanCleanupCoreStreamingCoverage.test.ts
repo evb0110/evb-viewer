@@ -65,8 +65,6 @@ import {
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const roots: string[] = [];
-// Raster FIFO streaming is POSIX-only; Windows retains the whole handoff instead.
-const RASTER_STREAMING = process.platform !== 'win32';
 const PNG = Buffer.from(encodePng({
     width: 1,
     height: 1,
@@ -105,7 +103,7 @@ const options: IScanCleanupOptions = {
 
 const policy: IScanCleanupRuntimePolicy = {
     rasterConcurrency: 2,
-    rasterStreaming: true,
+    rasterStreaming: false,
     logicalCpus: 8,
     totalRamBytes: 8 * 1024 ** 3,
 };
@@ -814,7 +812,6 @@ describe('scan-cleanup-core conversion coverage', () => {
             getPageCount: vi.fn(async () => documentPageCount),
             getPageSizeStore: vi.fn(async () => pageSizeStore),
             detectSourceDpi: vi.fn(async () => sourceDpi),
-            createRasterPipes: vi.fn(async () => undefined),
             renderPage: vi.fn(),
             renderPagePpm,
             runSidecar,
@@ -930,7 +927,6 @@ describe('scan-cleanup-core conversion coverage', () => {
         expect(await readFile(outputPdfPath, 'utf8')).toContain('%PDF-1.7');
         expect(pageSizeStore.forEachChunk).toHaveBeenCalledOnce();
         expect(pageSizeStore.close).toHaveBeenCalledOnce();
-        expect(dependencies.createRasterPipes).toHaveBeenCalledTimes(RASTER_STREAMING ? 1 : 0);
         expect(runSidecar).toHaveBeenCalledOnce();
         expect(placementAnchorsByBatch).toEqual([[
             {full: {yNormalized: 0}},
@@ -1087,9 +1083,6 @@ describe('scan-cleanup-core conversion coverage', () => {
             getPageCount: vi.fn(async () => documentPageCount),
             getPageSizeStore: vi.fn(async () => pageSizeStore),
             detectSourceDpi: vi.fn(async () => sourceDpi),
-            createRasterPipes: vi.fn(async () => undefined),
-            // Without FIFO streaming this budget exceeds the raw-raster share
-            // and the retained handoff falls back to PNG.
             renderPage: vi.fn(async (
                 _paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
                 _log: TScanCleanupLog,
@@ -1311,7 +1304,6 @@ describe('scan-cleanup-core conversion coverage', () => {
                     height: 300,
                 }),
             })),
-            createRasterPipes: vi.fn(async () => undefined),
             renderPage: vi.fn(),
             renderPagePpm,
             runSidecar: vi.fn(async (
@@ -1387,7 +1379,6 @@ describe('scan-cleanup-core conversion coverage', () => {
             excludedPages: 0,
         });
         expect(await readFile(outputPdfPath, 'utf8')).toContain('%PDF-1.7');
-        expect(dependencies.createRasterPipes).toHaveBeenCalledTimes(RASTER_STREAMING ? 1 : 0);
         expect(renderPagePpm).toHaveBeenCalledTimes(4);
         expect(dependencies.runSidecar).toHaveBeenCalledOnce();
         expect(progress.at(-1)).toMatchObject({
@@ -1465,10 +1456,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             paths(root),
             new AbortController().signal,
             vi.fn(),
-            {
-                ...policy,
-                rasterStreaming: false,
-            },
+            {...policy},
             vi.fn<TScanCleanupLog>(),
             dependencies,
         )).rejects.toThrow('sidecar termination was not proven');

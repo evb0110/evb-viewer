@@ -510,7 +510,6 @@ export interface IScanCleanupPreviewDependencies {
     open?: typeof open;
     getAvailableScratchBytes?: (directory: string) => Promise<number | null>;
     resolveRasterAdmissionPolicy: (
-        supportsRasterStreaming: boolean,
         options?: IScanCleanupOptions,
     ) => IScanCleanupRasterAdmissionPolicy;
     getPageCount: typeof getPdfPageCount;
@@ -524,11 +523,6 @@ export interface IScanCleanupPreviewDependencies {
     renderPage: typeof renderPdfPageToPng;
     renderPagePpm: typeof renderPdfPageToPpm;
     renderPageBatch?: ReturnType<typeof createScanCleanupRasterBatchRenderer>;
-    createRasterPipes?: (
-        paths: readonly string[],
-        signal: AbortSignal,
-        log: TWorkerLog,
-    ) => Promise<void>;
     runSidecar: TScanCleanupRunSidecar;
     resolveBinary: () => string | null;
     resolvePageOpsBinary: () => string | null;
@@ -584,7 +578,7 @@ export type IScanCleanupRasterDependencies = Pick<IScanCleanupPreviewDependencie
     | 'resolveQpdfBinary'>;
 
 export type IScanCleanupDetectionOwnerDependencies = Pick<IScanCleanupPreviewDependencies,
-    | 'acquireDetectionLease' | 'createRasterPipes' | 'getPdftoppmBinary' | 'fileSystem' | 'resolveRasterAdmissionPolicy'
+    | 'acquireDetectionLease' | 'getPdftoppmBinary' | 'fileSystem' | 'resolveRasterAdmissionPolicy'
     | 'getTempDir' | 'renderPage' | 'renderPagePpm' | 'renderPageBatch' | 'getAvailableScratchBytes'
     | 'resolveBinary' | 'runSidecar' | 'materializeWorkingCopy' | 'materializeRequest'>;
 

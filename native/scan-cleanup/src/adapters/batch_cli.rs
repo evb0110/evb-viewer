@@ -492,14 +492,9 @@ fn run_manifest_inner(
         let rerun = |index, prior| {
             let page = &manifest.pages[index];
             let lease = staged_lease(manifest, index, page);
-            let stream_input = planning_page(page).stream_input;
             acquire_staged_page_input(&lease, &announce_lease, is_canceled)?;
-            let rerun_result = run_one_staged_page_job(
-                manifest,
-                index,
-                stream_input,
-                is_canceled,
-                |(_, descriptor)| {
+            let rerun_result =
+                run_one_staged_page_job(manifest, index, is_canceled, |(_, descriptor)| {
                     let page = page_from_staged(&manifest.pages[index], descriptor);
                     let page_cache = page_cache_for(descriptor, &cache)?;
                     run_classification(
@@ -513,8 +508,7 @@ fn run_manifest_inner(
                         is_canceled,
                     )
                     .map_err(|error| map_page_error(error.as_ref()))
-                },
-            );
+                });
             let released = release_staged_page_input(&lease, &announce_lease);
             finish_staged_rerun(rerun_result, released)
         };

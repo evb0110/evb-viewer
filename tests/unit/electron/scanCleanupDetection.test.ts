@@ -976,16 +976,12 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
             'base64',
         );
-        const createRasterPipes = vi.fn(async () => undefined);
         const publish = vi.fn();
         const sidecarRoots: Array<string | undefined> = [];
-        const manifests: Array<{
-            rasterWindow?: number;
-            pages: Array<{
-                inputPath: string;
-                pageMetadataPath: string;
-            }>;
-        }> = [];
+        const manifests: Array<{pages: Array<{
+            inputPath: string;
+            pageMetadataPath: string;
+        }>;}> = [];
         const renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
             await writeFile(outputPath, png);
         });
@@ -1035,12 +1031,10 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 resolveBinary: () => 'evb-scan-cleanup',
                 renderPage,
                 renderPagePpm: vi.fn(),
-                createRasterPipes,
                 runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress, sidecarOptions) => {
                     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as typeof manifests[number];
                     manifests.push(manifest);
                     sidecarRoots.push(sidecarOptions?.allowedPathRoot);
-                    expect(manifest.rasterWindow).toBeUndefined();
                     await Promise.all(manifest.pages.map(page => writeFile(
                         page.pageMetadataPath,
                         JSON.stringify({
@@ -1091,7 +1085,6 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             ])
             .filter(path => !isPathWithinRoot(path, tempDir))).toEqual([]);
         expect(renderPage).toHaveBeenCalledTimes(pageCount);
-        expect(createRasterPipes).not.toHaveBeenCalled();
         expect(retention.release).toHaveBeenCalledOnce();
         expect(publish.mock.calls
             .map(([
@@ -1452,7 +1445,6 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             retention,
             {
                 getTempDir: () => tempDir,
-                // The fallback branch is selected by omitting createRasterPipes.
                 fileSystem,
                 getAvailableScratchBytes: vi.fn(async () => 1),
                 getPdftoppmBinary: () => 'pdftoppm',

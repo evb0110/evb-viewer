@@ -55,10 +55,7 @@ function isCapturedPreviewManifest(value: unknown): value is ICapturedPreviewMan
     return typeof candidate.operation === 'string' && Array.isArray(candidate.pages);
 }
 
-const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({
-    rasterConcurrency: 2,
-    rasterStreaming: false,
-})};
+const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({rasterConcurrency: 2})};
 
 async function previewDependencies() {
     return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);

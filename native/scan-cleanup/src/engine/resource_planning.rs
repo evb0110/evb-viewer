@@ -23,7 +23,6 @@ pub(crate) struct PageDescriptor {
     pub(crate) input_path: PathBuf,
     pub(crate) source_page_index: usize,
     pub(crate) options: CleanupOptionsView,
-    pub(crate) stream_input: bool,
     pub(crate) trusted_foreground_mask_path: Option<PathBuf>,
     pub(crate) trusted_mrc_background_path: Option<PathBuf>,
 }
@@ -44,15 +43,6 @@ pub(crate) trait PlanningManifest {
     fn staged_input_peak_pixels(&self) -> Option<u64>;
     fn page_count(&self) -> usize;
     fn page(&self, index: usize) -> PageDescriptor;
-
-    fn run_stream_page_jobs<T, F>(
-        &self,
-        is_canceled: &AtomicBool,
-        task: F,
-    ) -> Result<Vec<T>, Box<dyn Error>>
-    where
-        T: Send,
-        F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync;
 }
 
 pub(crate) fn manifest_cache(
@@ -95,9 +85,6 @@ where
     T: Send,
     F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
 {
-    if (0..manifest.page_count()).any(|index| manifest.page(index).stream_input) {
-        return manifest.run_stream_page_jobs(is_canceled, task);
-    }
     run_regular_page_jobs(
         manifest,
         is_canceled,
@@ -262,14 +249,7 @@ fn page_worker_threads_on<M: PlanningManifest>(
     manifest: &M,
     available_parallelism: usize,
 ) -> Result<usize, NativeError> {
-    if (0..manifest.page_count()).any(|index| manifest.page(index).stream_input) {
-        // FIFO readers block an OS thread until their producer opens the
-        // matching pipe. Running a page-sized Rayon pool over ordered streams
-        // can occupy the whole pool with future readers while the current page
-        // needs nested Rayon work to finish: a real circular wait observed as
-        // 180-second pdftoppm timeouts near the end of large documents.
-        Ok(1)
-    } else if manifest.page_count() > 1 {
+    if manifest.page_count() > 1 {
         let threads = manifest_worker_threads_on(manifest, available_parallelism)?;
         // Never lease more staged inputs than the owning process promised to
         // keep on disk: a wider page pool would demand a wider raster window
@@ -294,16 +274,10 @@ fn manifest_worker_threads_on<M: PlanningManifest>(
         .map(|index| {
             let page = manifest.page(index);
             let options = &page.options;
-            // Do not synchronously open pipes or other streaming inputs while
-            // sizing the worker pool. Doing so would prevent completed regular
-            // pages from reporting analysis progress until every stream opens.
-            if page.stream_input {
-                return Ok(0);
-            }
-            // A staged window renders page rasters on request, so most inputs
+            // A staged window renders page rasters on request, so some inputs
             // are legitimately absent here. Those pages are measured by the
-            // producer's declared document peak below rather than by opening a
-            // file that does not exist yet.
+            // declared document peak below rather than by opening a file that
+            // does not exist yet.
             if staged_inputs && !page.input_path.exists() {
                 return Ok(0);
             }
@@ -436,8 +410,7 @@ mod tests {
     use super::*;
     use crate::engine::page_statistics::{derive_page_ink_contexts, derive_page_ink_sample};
     use crate::engine::staged_input::{
-        with_announced_staged_page_input, LeaseEvent, StagedInputBatch, StagedLeaseDescriptor,
-        StagedPageDescriptor,
+        with_announced_staged_page_input, LeaseEvent, StagedLeaseDescriptor,
     };
     use crate::{CleanupOptions, OutputMode};
     use evb_native_support::{NativeError, NativeErrorCode};
@@ -461,7 +434,6 @@ mod tests {
         host_memory_bytes: Option<u64>,
         staged_input_window: Option<usize>,
         staged_input_peak_pixels: Option<u64>,
-        raster_window: usize,
         pages: Vec<PageDescriptor>,
     }
 
@@ -484,51 +456,11 @@ mod tests {
         fn page(&self, index: usize) -> PageDescriptor {
             self.pages[index].clone()
         }
-
-        fn run_stream_page_jobs<T, F>(
-            &self,
-            is_canceled: &AtomicBool,
-            task: F,
-        ) -> Result<Vec<T>, Box<dyn Error>>
-        where
-            T: Send,
-            F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
-        {
-            let batch = StagedInputBatch {
-                raster_window: self.raster_window,
-                pages: self
-                    .pages
-                    .iter()
-                    .map(|page| StagedPageDescriptor {
-                        input_path: page.input_path.clone(),
-                        metadata_path: page.input_path.with_extension("json"),
-                        source_page_index: page.source_page_index,
-                        max_bytes: crate::io::MAX_STREAM_INPUT_BYTES,
-                        stream_input: page.stream_input,
-                    })
-                    .collect(),
-            };
-            crate::engine::staged_input::run_stream_page_jobs(
-                &batch,
-                is_canceled,
-                move |(index, staged)| {
-                    let original = &self.pages[index];
-                    let descriptor = PageDescriptor {
-                        input_path: staged.input_path.clone(),
-                        stream_input: false,
-                        ..original.clone()
-                    };
-                    task((index, &descriptor))
-                },
-            )
-        }
     }
 
     fn typed_test_manifest(
         dir: &Path,
         page_count: usize,
-        raster_window: usize,
-        stream_input: bool,
         staged_input_window: Option<usize>,
     ) -> TypedTestManifest {
         TypedTestManifest {
@@ -536,7 +468,6 @@ mod tests {
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
             staged_input_window,
             staged_input_peak_pixels: None,
-            raster_window,
             pages: (0..page_count)
                 .map(|index| PageDescriptor {
                     input_path: dir.join(format!("page-{index}.png")),
@@ -548,7 +479,6 @@ mod tests {
                         source_has_bilevel_layer: false,
                         thickness: 0,
                     },
-                    stream_input,
                     trusted_foreground_mask_path: None,
                     trusted_mrc_background_path: None,
                 })
@@ -566,7 +496,6 @@ mod tests {
             host_memory_bytes,
             staged_input_window: None,
             staged_input_peak_pixels: None,
-            raster_window: 1,
             pages,
         }
     }
@@ -586,52 +515,9 @@ mod tests {
                 source_has_bilevel_layer: false,
                 thickness: 0,
             },
-            stream_input: false,
             trusted_foreground_mask_path: None,
             trusted_mrc_background_path: None,
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn streamed_inputs_use_one_page_worker_to_avoid_fifo_pool_deadlock() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-worker-sizing-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo = dir.join("page.fifo");
-        assert!(std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .unwrap()
-            .success());
-        let manifest = TypedTestManifest {
-            operation: PlanningOperation::Analyze,
-            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            raster_window: 1,
-            pages: (0..8)
-                .map(|source_page_index| PageDescriptor {
-                    input_path: fifo.clone(),
-                    source_page_index,
-                    options: CleanupOptionsView {
-                        max_pixels: 1_000_000_000,
-                        max_dimension: 100_000,
-                        output_mode: OutputMode::Bw,
-                        source_has_bilevel_layer: false,
-                        thickness: 0,
-                    },
-                    stream_input: true,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                })
-                .collect(),
-        };
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
-        let _ = fs::remove_file(fifo);
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -652,7 +538,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let window = 2usize;
-        let manifest = typed_test_manifest(&dir, 8, 1, false, Some(window));
+        let manifest = typed_test_manifest(&dir, 8, Some(window));
         let leases: Mutex<Vec<(LeaseEvent, usize)>> = Mutex::new(Vec::new());
         /// What a real producer keeps: which rasters are on disk, and which of
         /// them the sidecar currently holds a lease on. Both live under one
@@ -774,7 +660,7 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let mut manifest = typed_test_manifest(&dir, 64, 1, false, Some(2));
+        let mut manifest = typed_test_manifest(&dir, 64, Some(2));
         // The unbounded baseline needs measurable inputs; the staged variants
         // below are the ones that must hold with the rasters still unrendered.
         for page in &manifest.pages {
@@ -908,7 +794,6 @@ mod tests {
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
             staged_input_window: None,
             staged_input_peak_pixels: None,
-            raster_window: 1,
             pages: (0..12)
                 .map(|index| PageDescriptor {
                     input_path: input.clone(),
@@ -920,7 +805,6 @@ mod tests {
                         source_has_bilevel_layer: true,
                         thickness: 0,
                     },
-                    stream_input: false,
                     trusted_foreground_mask_path: Some(mask.clone()),
                     trusted_mrc_background_path: Some(background.clone()),
                 })
@@ -1366,7 +1250,6 @@ mod moved_tests {
             canvas_scope: CanvasScope::Page,
             document_canvas: None,
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            raster_window: 1,
             staged_input_window: None,
             staged_input_peak_pixels: None,
             pages: (0..2)

@@ -512,7 +512,6 @@ export function scanCleanupPreviewRenderingOwner(
                         throw error;
                     }
                     const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(
-                        process.platform !== 'win32',
                         request.options,
                     );
                     return withPreviewLease(

@@ -523,11 +523,11 @@ function resolveScanCleanupRuntimePolicy(
 ): IScanCleanupRuntimePolicy {
     const rasterPolicy = resolvePreviewRasterAdmissionPolicy(
         mainJobBroker.getSnapshot().capacity,
-        process.platform !== 'win32',
         options,
     );
     return {
         ...rasterPolicy,
+        rasterStreaming: false,
         logicalCpus: profile.logicalCpus,
         totalRamBytes: profile.totalRamBytes,
     };
@@ -810,8 +810,7 @@ export function createScanCleanupService(
                                             request.options,
                                             runtimePolicy.rasterMaxPixels,
                                         ),
-                                    nativeProcesses: runtimePolicy.rasterConcurrency
-                                        + Number(runtimePolicy.rasterStreaming),
+                                    nativeProcesses: runtimePolicy.rasterConcurrency,
                                     ioWeight: 4,
                                 },
                                 perOwnerLimit: 1,

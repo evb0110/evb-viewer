@@ -53,10 +53,7 @@ vi.mock('@electron/platform-ipc/trustedIpcSender', () => trustedSender);
 const SCAN_CLEANUP_CHANNELS = SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels;
 const SCAN_CLEANUP_IPC_CODECS = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs;
 const dirs: string[] = [];
-const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({
-    rasterConcurrency: 2,
-    rasterStreaming: false,
-})};
+const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({rasterConcurrency: 2})};
 
 async function previewDependencies() {
     return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);

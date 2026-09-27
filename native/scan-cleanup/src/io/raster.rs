@@ -193,8 +193,7 @@ fn validate_dimensions(width: usize, height: usize) -> Result<(), String> {
     Ok(())
 }
 
-// Inputs may be FIFOs (streamed pages), so the consumed magic bytes are
-// chained back in front of the stream instead of seeking.
+// Check the file signature so raster decoding does not depend on its suffix.
 fn open_sniffed(path: &Path) -> Result<(impl Read, bool), RasterReadError> {
     let mut file = File::open(path)?;
     let mut magic = [0u8; 2];

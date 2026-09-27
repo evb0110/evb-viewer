@@ -478,7 +478,7 @@ describe('scan-cleanup provenance stamp contract', () => {
         const rasterChildBuildIds = await buildScanCleanupStampBuildIds({
             paths,
             assemblerBackend: 'native-pdf-image-combine',
-            transportMode: 'fifo-ppm',
+            transportMode: 'file-ppm',
             hashNativeBinary,
             reusableNativeBinarySha256s: nativeBinarySha256s,
         });
@@ -493,7 +493,7 @@ describe('scan-cleanup provenance stamp contract', () => {
         expect(hashNativeBinary).toHaveBeenCalledTimes(3);
         expect(losslessChildBuildIds.nativeBinarySha256s).toEqual(rasterChildBuildIds.nativeBinarySha256s);
         expect(rasterChildBuildIds.assemblerBackend).toBe('native-pdf-image-combine');
-        expect(rasterChildBuildIds.transportMode).toBe('fifo-ppm');
+        expect(rasterChildBuildIds.transportMode).toBe('file-ppm');
         expect(losslessChildBuildIds.assemblerBackend).toBe('native-pdf-page-ops');
         expect(losslessChildBuildIds.transportMode).toBe('source-preserved');
     });

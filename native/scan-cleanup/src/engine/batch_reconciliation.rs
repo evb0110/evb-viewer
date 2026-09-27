@@ -646,7 +646,6 @@ mod moved_tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: Some(8 * 1024 * 1024 * 1024),
-            raster_window: 1,
             staged_input_window: None,
             staged_input_peak_pixels: None,
             pages: (0..4)
@@ -843,7 +842,6 @@ mod moved_tests {
             canvas_scope: CanvasScope::default(),
             document_canvas: None,
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            raster_window: 1,
             staged_input_window: None,
             staged_input_peak_pixels: None,
             pages: (0..4)
