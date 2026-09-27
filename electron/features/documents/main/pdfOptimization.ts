@@ -36,27 +36,13 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { parseDocumentRef } from '@contracts/documentRef';
 import type { TRequestId } from '@contracts/shared';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 
-const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = parseIntegerEnv(
-    'EVB_PDF_OPTIMIZE_RENDER_CHUNK_PAGES',
-    25,
-    1,
-    100,
-);
-const PDF_OPTIMIZE_RENDER_TIMEOUT_MS = parseIntegerEnv(
-    'EVB_PDF_OPTIMIZE_RENDER_TIMEOUT_MS',
-    15 * 60 * 1000,
-    10_000,
-);
-const PDF_OPTIMIZE_MERGE_TIMEOUT_MS = parseIntegerEnv(
-    'EVB_PDF_OPTIMIZE_MERGE_TIMEOUT_MS',
-    30 * 60 * 1000,
-    10_000,
-);
+const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = 25;
+const PDF_OPTIMIZE_RENDER_TIMEOUT_MS = 15 * 60 * 1000;
+const PDF_OPTIMIZE_MERGE_TIMEOUT_MS = 30 * 60 * 1000;
 
 interface IPdfRasterOptimizePreset {
     dpi: number;

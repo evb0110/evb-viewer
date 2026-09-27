@@ -46,7 +46,6 @@ function triggerMainFrameNavigation(owner: ITestOwner) {
 
 describe('open path capabilities', () => {
     let tempRoot = '';
-    const previousTtl = process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS;
 
     beforeEach(() => {
         vi.resetModules();
@@ -59,18 +58,12 @@ describe('open path capabilities', () => {
             force: true,
             recursive: true,
         });
-        if (previousTtl === undefined) {
-            delete process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS;
-        } else {
-            process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS = previousTtl;
-        }
         vi.useRealTimers();
     });
 
-    it('expires grants after the configured lifetime', async () => {
+    it('expires grants after a day', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1_000);
-        process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS = '60000';
 
         const filePath = join(tempRoot, 'opened.pdf');
         writeFileSync(filePath, new Uint8Array([1]));
@@ -83,7 +76,7 @@ describe('open path capabilities', () => {
         expect(allowOpenPath(filePath)).not.toBeNull();
         expect(() => requireOpenPath(filePath)).not.toThrow();
 
-        vi.setSystemTime(61_001);
+        vi.setSystemTime(24 * 60 * 60 * 1000 + 1_001);
 
         expect(() => requireOpenPath(filePath)).toThrow('Path not allowed');
     });

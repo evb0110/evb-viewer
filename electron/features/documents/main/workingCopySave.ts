@@ -40,7 +40,6 @@ import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPath
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     optimizeLargePdfForOrdinarySave,
@@ -48,11 +47,7 @@ import {
 } from '@electron/features/documents/main/pdfSaveAsOptimization';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
 
-const QPDF_REPAIR_SAVE_TIMEOUT_MS = parseIntegerEnv(
-    'EVB_QPDF_REPAIR_SAVE_TIMEOUT_MS',
-    10 * 60 * 1000,
-    1_000,
-);
+const QPDF_REPAIR_SAVE_TIMEOUT_MS = 10 * 60 * 1000;
 const logger = createLogger('working-copy-save');
 
 function requireSenderId(context: IDocumentsSenderIdContext): number {

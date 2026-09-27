@@ -13,20 +13,8 @@ interface IOpenPathGrant { expiresAtMs: number; }
 const allowedOpenPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
 const allowedRevealPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>();
 const ownerCleanupRegistered = new Set<number>();
-export const MAX_ALLOWED_OPEN_PATHS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_ALLOWED_OPEN_PATHS_MAX ?? '2048', 10);
-    if (!Number.isFinite(parsed) || parsed < 64) {
-        return 2048;
-    }
-    return Math.min(parsed, 100_000);
-})();
-export const OPEN_PATH_CAPABILITY_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_OPEN_PATH_CAPABILITY_TTL_MS ?? `${24 * 60 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 60_000) {
-        return 24 * 60 * 60 * 1000;
-    }
-    return Math.min(parsed, 7 * 24 * 60 * 60 * 1000);
-})();
+export const MAX_ALLOWED_OPEN_PATHS = 2_048;
+export const OPEN_PATH_CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
 
 function normalizeOpenPath(filePath: string) {
     if (typeof filePath !== 'string' || !filePath.trim()) {

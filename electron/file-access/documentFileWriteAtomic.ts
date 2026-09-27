@@ -15,19 +15,14 @@ import { getErrorMessage } from '@electron/utils/error';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     atomicReplace, makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 
 const log = createLogger('documentFileWriteAtomic');
 
-const MAX_IPC_WRITE_BYTES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_MAX_IPC_WRITE_BYTES ?? `${16 * 1024 * 1024}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 1024) {
-        return 16 * 1024 * 1024;
-    }
-    return parsed;
-})();
+const MAX_IPC_WRITE_BYTES = 16 * 1024 * 1024;
 const RECOVERABLE_IMMUTABLE_LINK_CODES = new Set([
     'EXDEV',
     'ENOTSUP',
@@ -45,7 +40,7 @@ function assertWithinIpcWriteBudget(byteLength: number) {
 async function linkImmutableSourceForAtomicCopy(sourcePath: string, targetPath: string) {
     if (
         process.env.NODE_ENV === 'test'
-        && process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT === 'cross-device'
+        && runtimeConfig.test.forceImmutableLinkResult === 'cross-device'
     ) {
         throw Object.assign(new Error('Forced cross-device immutable link for tests'), {code: 'EXDEV'});
     }

@@ -59,13 +59,7 @@ import {
 } from '@electron/file-access/workingCopyQuarantine';
 
 const logger = createLogger('working-copy');
-const STALE_WORK_DIR_MAX_AGE_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_WORKING_COPY_STALE_MAX_AGE_MS ?? `${24 * 60 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 60_000) {
-        return 24 * 60 * 60 * 1000;
-    }
-    return parsed;
-})();
+const STALE_WORK_DIR_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const CLOSING_WORKING_COPY_REASON = 'Working copy is closing';
 // Closing a document cancels the jobs that read its working copy, and the
 // directory may only go away once they have actually stopped. Scan cleanup is
@@ -75,16 +69,7 @@ const CLOSING_WORKING_COPY_REASON = 'Working copy is closing';
 // do is turn expiry into permission. A dependent still running when the bound
 // expires keeps its directory; the close reports that and leaves the bytes
 // alone.
-const DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS = (() => {
-    const parsed = Number.parseInt(
-        process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS ?? `${30_000}`,
-        10,
-    );
-    if (!Number.isFinite(parsed) || parsed < 0) {
-        return 30_000;
-    }
-    return Math.min(parsed, 5 * 60_000);
-})();
+const DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS = 30_000;
 // Shutdown has already refused new operations and cancelled every running one,
 // so its dependents are unwinding rather than starting, and the app owes the
 // user a prompt exit. The bound is short for that reason and, like the close
@@ -93,13 +78,7 @@ const SHUTDOWN_DEPENDENT_SETTLEMENT_TIMEOUT_MS = Math.min(
     DEPENDENT_OPERATION_SETTLEMENT_TIMEOUT_MS,
     5_000,
 );
-const STALE_WORK_DIR_SCAN_LIMIT = (() => {
-    const parsed = Number.parseInt(process.env.EVB_WORKING_COPY_STALE_SCAN_LIMIT ?? '512', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 512;
-    }
-    return Math.min(parsed, 10_000);
-})();
+const STALE_WORK_DIR_SCAN_LIMIT = 512;
 
 let staleWorkingCopyCleanupBlockedReason: string | null = null;
 let staleWorkingCopyCleanupPromise: Promise<void> | null = null;

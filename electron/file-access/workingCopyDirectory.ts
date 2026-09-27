@@ -21,6 +21,7 @@ import {
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { getAppTempDir } from '@electron/utils/appTempDir';
+import {runtimeConfig} from '@electron/runtimeConfig';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {createLogger} from '@electron/utils/createLogger';
 
@@ -48,14 +49,12 @@ function isCopyOnWriteUnavailable(error: unknown) {
 }
 
 function shouldUseMacCloneHelper() {
-    if (
-        process.env.NODE_ENV === 'test'
-        && process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER === '1'
-    ) {
+    const isTest = process.env.NODE_ENV === 'test';
+    if (isTest && runtimeConfig.test.forceMacCloneHelper) {
         return true;
     }
     return process.platform === 'darwin'
-        && process.env.EVB_TEST_DISABLE_MAC_CLONE_HELPER !== '1';
+        && !(isTest && runtimeConfig.test.disableMacCloneHelper);
 }
 
 interface IMacCloneAttemptResult {
@@ -197,7 +196,7 @@ function getForcedCloneOutcomeForTests() {
     if (process.env.NODE_ENV !== 'test') {
         return null;
     }
-    const forcedOutcome = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+    const forcedOutcome = runtimeConfig.test.forceWorkingCopyCloneResult;
     return forcedOutcome === 'success' || forcedOutcome === 'unsupported'
         ? forcedOutcome
         : null;

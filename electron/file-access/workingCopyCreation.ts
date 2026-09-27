@@ -85,21 +85,9 @@ interface IWorkingCopyPhaseTiming {
     phase: string;
 }
 
-type TWorkingCopyMaterializationMode = 'eager' | 'background' | 'lazy';
-
 interface IWorkingCopyCreationResult {
     workingPath: string;
     wasEncrypted: true | undefined;
-}
-
-// Permanent runtime kill-switch, not a compatibility shim: 'eager' restores
-// pre-lazy behavior for filesystems where background materialization
-// misbehaves; remove only if the lazy backing itself is ever removed.
-function getWorkingCopyMaterializationMode(): TWorkingCopyMaterializationMode {
-    const configuredMode = process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE ?? 'background';
-    return configuredMode === 'eager' || configuredMode === 'lazy'
-        ? configuredMode
-        : 'background';
 }
 
 async function measureWorkingCopyPhase<T>(
@@ -168,65 +156,50 @@ async function createWorkingCopyWithOutcomeInternal(
     try {
         const workingPath = join(workDir, getWorkingCopyFileName(basename(originalPath)));
         const isPdf = workingPath.toLowerCase().endsWith('.pdf');
-        const materializationMode = getWorkingCopyMaterializationMode();
         let admissionSnapshot: Awaited<ReturnType<typeof captureWorkingCopyAdmissionSnapshot>> | undefined;
         let backingState: 'cloned' | 'eager' | 'lazy-original';
         let encrypted = false;
 
-        if (materializationMode === 'eager') {
-            const cloneOutcome = await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
-                attemptWorkingCopyClone(originalPath, workingPath));
-            if (cloneOutcome === 'known-unsupported') {
+        const cloneOutcome = await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
+            attemptWorkingCopyClone(originalPath, workingPath));
+        if (cloneOutcome === 'known-unsupported') {
+            const beforeProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-before-probe', () =>
+                captureWorkingCopyAdmissionSnapshot(originalPath));
+            encrypted = isPdf
+                ? await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
+                    isPdfFileEncrypted(originalPath))
+                : false;
+            const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
+                captureWorkingCopyAdmissionSnapshot(originalPath));
+            if (!workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
+                throw new WorkingCopyMaterializationError(
+                    'SOURCE_BACKING_CHANGED',
+                    'The original document changed while it was being opened',
+                );
+            }
+            admissionSnapshot = afterProbe;
+            if (encrypted || !isPdf) {
                 await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
                     copyFileFromStableSource(originalPath, workingPath));
+                if (isPdf) {
+                    const decryption = await decryptPdfWorkingCopy(
+                        workingPath,
+                        password,
+                        phaseTimings,
+                        signal,
+                    );
+                    encrypted = decryption.wasEncrypted;
+                }
+                backingState = 'eager';
+            } else {
+                backingState = 'lazy-original';
             }
+        } else {
             if (isPdf) {
                 const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
                 encrypted = decryption.wasEncrypted;
             }
             backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
-        } else {
-            const cloneOutcome = await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
-                attemptWorkingCopyClone(originalPath, workingPath));
-            if (cloneOutcome === 'known-unsupported') {
-                const beforeProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-before-probe', () =>
-                    captureWorkingCopyAdmissionSnapshot(originalPath));
-                encrypted = isPdf
-                    ? await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
-                        isPdfFileEncrypted(originalPath))
-                    : false;
-                const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
-                    captureWorkingCopyAdmissionSnapshot(originalPath));
-                if (!workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
-                    throw new WorkingCopyMaterializationError(
-                        'SOURCE_BACKING_CHANGED',
-                        'The original document changed while it was being opened',
-                    );
-                }
-                admissionSnapshot = afterProbe;
-                if (encrypted || !isPdf) {
-                    await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
-                        copyFileFromStableSource(originalPath, workingPath));
-                    if (isPdf) {
-                        const decryption = await decryptPdfWorkingCopy(
-                            workingPath,
-                            password,
-                            phaseTimings,
-                            signal,
-                        );
-                        encrypted = decryption.wasEncrypted;
-                    }
-                    backingState = 'eager';
-                } else {
-                    backingState = 'lazy-original';
-                }
-            } else {
-                if (isPdf) {
-                    const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
-                    encrypted = decryption.wasEncrypted;
-                }
-                backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
-            }
         }
 
         await measureWorkingCopyPhase(phaseTimings, 'register-source', () => setWorkingCopyOriginalPath(
@@ -240,7 +213,7 @@ async function createWorkingCopyWithOutcomeInternal(
         ));
         await measureWorkingCopyPhase(phaseTimings, 'revision-sidecar', () =>
             initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId));
-        if (backingState === 'lazy-original' && materializationMode === 'background') {
+        if (backingState === 'lazy-original') {
             const backgroundMaterialization = startBackgroundWorkingCopyMaterialization(
                 workingPath,
                 ownerWebContentsId,
@@ -253,7 +226,6 @@ async function createWorkingCopyWithOutcomeInternal(
         logger.debug('Working copy source-critical timings', {
             deferredUntilNeeded: ['page-identity-on-mutation'],
             backingState,
-            materializationMode,
             phases: phaseTimings,
             totalMs: Math.round((performance.now() - operationStartedAt) * 10) / 10,
             workingPath,

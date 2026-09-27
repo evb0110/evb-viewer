@@ -102,6 +102,18 @@ export const runtimeConfig = {
             get atomicReplaceBarrierFile() { // unset; coordinate the Windows atomic replacement test
                 return process.env.EVB_ATOMIC_REPLACE_TEST_BARRIER_FILE;
             },
+            get documentSaveUtilityThresholdBytes() { // 64 MiB; let the Windows publication test enter the utility path with a small fixture
+                return integer(
+                    process.env.EVB_DOCUMENT_SAVE_UTILITY_THRESHOLD_BYTES,
+                    64 * 1024 * 1024,
+                    1,
+                    Number.MAX_SAFE_INTEGER,
+                    false,
+                );
+            },
+            get disableMacCloneHelper() { // false; exercise the portable clone fallback on macOS test hosts
+                return boolean(process.env.EVB_TEST_DISABLE_MAC_CLONE_HELPER);
+            },
             get e2eOpenDialogPath() { // unset; answer the native open dialog in automation
                 return process.env.EVB_E2E_OPEN_DIALOG_PATH?.trim();
             },
@@ -111,11 +123,29 @@ export const runtimeConfig = {
             get e2eSaveDialogPath() { // unset; answer the native save dialog in automation
                 return process.env.EVB_E2E_SAVE_DIALOG_PATH?.trim();
             },
+            get forceImmutableLinkResult() { // unset; simulate a cross-device hard-link result
+                return process.env.EVB_TEST_FORCE_IMMUTABLE_LINK_RESULT;
+            },
+            get forceMacCloneHelper() { // false; exercise the macOS clone helper on other test hosts
+                return boolean(process.env.EVB_TEST_FORCE_MAC_CLONE_HELPER);
+            },
+            get forceWorkingCopyCloneResult() { // unset; exercise clone success and fallback paths
+                return process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+            },
             get holdSelectedPageQpdfMarker() { // unset; pause the selected-page print child for cancellation tests
                 return process.env.EVB_E2E_HOLD_SELECTED_PAGE_QPDF_MARKER?.trim();
             },
             get issue124Acceptance() { // false; enable the selected-page print cancellation test hook
                 return boolean(process.env.EVB_E2E_ISSUE_124_ACCEPTANCE);
+            },
+            get largePdfSaveOptimizeMinBytes() { // 64 MiB; let the save benchmark exercise optimization with its small fixture
+                return integer(
+                    process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES,
+                    64 * 1024 * 1024,
+                    1,
+                    Number.MAX_SAFE_INTEGER,
+                    false,
+                );
             },
             get nativePdfImageCombineEnabled() { // false; enable the native image-combiner test path
                 return boolean(process.env.EVB_PDF_IMAGE_COMBINE_ENABLE);

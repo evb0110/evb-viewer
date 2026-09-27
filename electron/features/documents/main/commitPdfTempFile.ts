@@ -9,12 +9,9 @@ import type {IDocumentsSenderIdContext} from '@electron/features/documents/docum
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import {runDocumentSaveUtilityProcess} from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
-const DEFAULT_THRESHOLD = 64 * 1024 * 1024;
-const SAVE_UTILITY_THRESHOLD = (() => {
-    const value = Number.parseInt(process.env.EVB_DOCUMENT_SAVE_UTILITY_THRESHOLD_BYTES ?? `${DEFAULT_THRESHOLD}`, 10);
-    return Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_THRESHOLD;
-})();
+const SAVE_UTILITY_THRESHOLD = runtimeConfig.test.documentSaveUtilityThresholdBytes;
 
 function shouldUseDocumentSaveUtility(bytes: number) {
     return bytes >= SAVE_UTILITY_THRESHOLD;

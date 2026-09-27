@@ -107,13 +107,7 @@ const pendingWorkingCopyTransferAccess = new Map<string, {
     targetOwner: number;
 }>();
 let nextWorkingCopyRegistrationId = 0;
-const RETIRED_WORKING_COPY_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_RETIRED_WORKING_COPY_TTL_MS ?? `${10 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 1_000) {
-        return 10 * 60 * 1000;
-    }
-    return Math.min(parsed, 60 * 60 * 1000);
-})();
+const RETIRED_WORKING_COPY_TTL_MS = 10 * 60 * 1000;
 const ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 

@@ -5,20 +5,8 @@ import {
 import type { WebContents } from 'electron';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 
-const DOCX_WRITE_PATH_MAX_ENTRIES = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DOCX_WRITE_PATH_MAX_ENTRIES ?? '64', 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-        return 64;
-    }
-    return Math.min(parsed, 1_024);
-})();
-const DOCX_WRITE_PATH_TTL_MS = (() => {
-    const parsed = Number.parseInt(process.env.EVB_DOCX_WRITE_PATH_TTL_MS ?? `${15 * 60 * 1000}`, 10);
-    if (!Number.isFinite(parsed) || parsed < 10_000) {
-        return 15 * 60 * 1000;
-    }
-    return parsed;
-})();
+const DOCX_WRITE_PATH_MAX_ENTRIES = 64;
+const DOCX_WRITE_PATH_TTL_MS = 15 * 60 * 1000;
 const allowedDocxWritePaths = new Map<string, {
     expiresAt: number;
     senderWebContentsId: number;

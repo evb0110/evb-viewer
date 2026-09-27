@@ -34,6 +34,7 @@ import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import type * as NodeChildProcess from 'node:child_process';
 import type * as NodeFs from 'fs';
 import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
+import type * as WorkingCopyMaterialization from '@electron/file-access/workingCopyMaterialization';
 import type * as FsPromises from 'fs/promises';
 
 let tempRoot = '';
@@ -44,6 +45,17 @@ function setPlatform(platform: NodeJS.Platform) {
         configurable: true,
         value: platform,
     });
+}
+
+function preventAutomaticWorkingCopyMaterialization() {
+    vi.doMock('@electron/file-access/workingCopyMaterialization', async importOriginal => {
+        const original = await importOriginal<typeof WorkingCopyMaterialization>();
+        return {
+            ...original,
+            startBackgroundWorkingCopyMaterialization: () => null,
+        };
+    });
+    vi.resetModules();
 }
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn((_name: string) => tempRoot) } }));
@@ -72,7 +84,7 @@ describe('workingCopy', () => {
         setPlatform(originalPlatform);
         vi.unstubAllEnvs();
         delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
-        delete process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE;
+        vi.doUnmock('@electron/file-access/workingCopyMaterialization');
         vi.useRealTimers();
         rmSync(tempRoot, {
             force: true,
@@ -126,8 +138,10 @@ describe('workingCopy', () => {
 
     it('bounds internal names for near-limit multibyte source filenames', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
-        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {
+            createWorkingCopy,
+            ensureWorkingCopyDirectory,
+        } = await import('@electron/file-access/workingCopyCreation');
         const {getWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
         const {getWorkingCopyManifestPath} = await import('@electron/file-access/workingCopyDirectory');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
@@ -139,6 +153,7 @@ describe('workingCopy', () => {
         expect(trustedOriginalPath).not.toBeNull();
 
         const workingPath = await createWorkingCopy(trustedOriginalPath!, 17);
+        await ensureWorkingCopyDirectory(workingPath, 17);
         const workingDirectoryEntries = readdirSync(dirname(workingPath));
 
         expect(readFileSync(workingPath)).toEqual(originalBytes);
@@ -177,7 +192,7 @@ describe('workingCopy', () => {
 
     it('publishes unsupported durable PDFs as lazy while hashing the original in the background', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {
@@ -205,7 +220,7 @@ describe('workingCopy', () => {
 
     it('serializes explicit directory ensures with background materialization', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        preventAutomaticWorkingCopyMaterialization();
         const {
             createWorkingCopy,
             ensureWorkingCopyDirectory,
@@ -242,7 +257,6 @@ describe('workingCopy', () => {
 
     it('rejects source replacement during eager non-PDF fallback before registration', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'background';
         const sourcePath = join(tempRoot, 'replacement-source.djvu');
         const replacementPath = join(tempRoot, 'replacement-source-new.djvu');
         const originalBytes = Buffer.alloc(32 * 1024 * 1024 + 17, 41);
@@ -516,13 +530,9 @@ describe('workingCopy', () => {
         }
     });
 
-    it('keeps eager mode and generated-path creation fully materialized', async () => {
+    it('keeps generated-path copies fully materialized', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'eager';
-        const {
-            createWorkingCopy,
-            createWorkingCopyFromPath,
-        } = await import('@electron/file-access/workingCopyCreation');
+        const {createWorkingCopyFromPath} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
         const originalPath = join(tempRoot, 'eager-original.pdf');
@@ -536,11 +546,6 @@ describe('workingCopy', () => {
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
 
-        const eagerWorkingPath = await createWorkingCopy(trustedOriginalPath!, 7);
-        expect(readFileSync(eagerWorkingPath).equals(originalBytes)).toBe(true);
-        expect(getWorkingCopyBackingEntry(eagerWorkingPath, 7)?.backingState).toBe('eager');
-
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
         const generatedWorkingPath = await createWorkingCopyFromPath(trustedOriginalPath!, undefined, 7);
         expect(readFileSync(generatedWorkingPath).equals(originalBytes)).toBe(true);
         expect(getWorkingCopyBackingEntry(generatedWorkingPath, 7)?.backingState).toBe('eager');
@@ -548,7 +553,6 @@ describe('workingCopy', () => {
 
     it('keeps encrypted PDFs eager and captures a constant-time original stat witness', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
         const writer = vi.fn(async () => ({
             outcome: 'decrypted' as const,
             wasEncrypted: true as const,
@@ -934,7 +938,7 @@ describe('workingCopy', () => {
 
     it('accepts a lazy managed ref without recreating or revising it', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        preventAutomaticWorkingCopyMaterialization();
         const {
             createWorkingCopy,
             requireManagedWorkingCopyPath,
@@ -959,7 +963,7 @@ describe('workingCopy', () => {
 
     it('runs lazy working-copy reads against the witnessed original without materializing', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';
+        preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');

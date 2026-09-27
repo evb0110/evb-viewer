@@ -17,7 +17,6 @@ import {
     resolve,
 } from 'node:path';
 import {
-    afterAll,
     afterEach,
     beforeEach,
     describe,
@@ -50,27 +49,6 @@ function createDeferred<T>() {
     };
 }
 
-// The module reads its dependent-settlement bound from the environment once, at
-// import time. A wedged dependent has to be provable in a unit test without
-// spending the production 30 seconds on it, so the override has to be in place
-// before the import — which is what `vi.hoisted` buys. The process environment
-// outlives this file, so whatever was there before is put back once the suite is
-// done; a leaked 50ms bound would silently reshape any later suite that imports
-// the same module.
-const dependentSettleBound = vi.hoisted(() => {
-    const previousValue = process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS;
-    process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS = '50';
-    return {restore: () => {
-        if (previousValue === undefined) {
-            delete process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS;
-            return;
-        }
-        process.env.EVB_WORKING_COPY_DEPENDENT_SETTLE_TIMEOUT_MS = previousValue;
-    }};
-});
-
-afterAll(dependentSettleBound.restore);
-
 const state = vi.hoisted(() => ({
     cancelClosingOperations: vi.fn((_workingCopyPath: string, _reason?: string): Array<{
         id: string;
@@ -93,6 +71,7 @@ const state = vi.hoisted(() => ({
         kind: 'abortable-work' | 'critical-write';
         workingCopyPath: string;
     }>,
+    unsettledOperationIds: new Set<string>(),
     tempRoot: '',
     workingCopyMap: new Map<string, {
         admissionSnapshot?: {
@@ -171,6 +150,15 @@ vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
         }>,
         options: {timeoutMs: number},
     ) => {
+        const forcedPendingIds = new Set(canceledOperations
+            .filter(operation => state.unsettledOperationIds.has(operation.id))
+            .map(operation => operation.id));
+        if (forcedPendingIds.size > 0) {
+            return {
+                settled: false,
+                pending: state.operations.filter(operation => forcedPendingIds.has(operation.id)),
+            };
+        }
         // The losing side of the race is still armed once the race resolves. The
         // handle is cleared on both outcomes, so a settlement does not leave a
         // timer behind for whatever runs next in this file.
@@ -256,6 +244,7 @@ describe('working-copy cleanup materialization retirement', () => {
         state.logger.info.mockClear();
         state.logger.warn.mockClear();
         state.operations.length = 0;
+        state.unsettledOperationIds.clear();
         state.workingCopyMap.clear();
     });
 
@@ -491,6 +480,7 @@ describe('working-copy cleanup materialization retirement', () => {
             kind: 'critical-write',
             workingCopyPath: workingPath,
         });
+        state.unsettledOperationIds.add('scan-cleanup');
         state.cancelClosingOperations.mockImplementationOnce(() => [{
             id: 'scan-cleanup',
             kind: 'critical-write' as const,
@@ -724,6 +714,7 @@ describe('working-copy cleanup materialization retirement', () => {
             kind: 'abortable-work',
             workingCopyPath: wedged.workingPath,
         });
+        state.unsettledOperationIds.add('shutdown-wedged-indexing');
         state.cancelClosingOperations.mockImplementation((workingCopyPath: string) => {
             const round = (roundsByPath.get(workingCopyPath) ?? 0) + 1;
             roundsByPath.set(workingCopyPath, round);

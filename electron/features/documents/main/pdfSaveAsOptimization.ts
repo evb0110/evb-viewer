@@ -16,7 +16,6 @@ import {
 } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {
@@ -29,20 +28,12 @@ import {
 } from '@electron/utils/abort';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 import * as v from 'valibot';
+import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('documents-pdfSaveAsOptimization');
 
-const QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS = parseIntegerEnv(
-    'EVB_QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS',
-    10 * 60 * 1000,
-    1_000,
-);
-const DEFAULT_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = 64 * 1024 * 1024;
-const LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = parseIntegerEnv(
-    'EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES',
-    DEFAULT_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES,
-    1,
-);
+const QPDF_SAVE_AS_OPTIMIZE_TIMEOUT_MS = 10 * 60 * 1000;
+const LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES = runtimeConfig.test.largePdfSaveOptimizeMinBytes;
 
 interface IPdfSaveOptimizationOptions {
     cancelGroup?: string;
