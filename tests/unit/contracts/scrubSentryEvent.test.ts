@@ -203,11 +203,27 @@ describe('scrubSentryEvent', () => {
         const main = scrubSentryEvent(mainEvent);
         const renderer = scrubSentryEvent(rendererEvent) as Record<string, unknown>;
 
-        expect(main.exception.values[0]?.value).toBe('ENOENT: no such file or directory, open <redacted>');
-        expect(renderer.message).toBe('Search failed for <redacted> in <path> <file>');
+        expect(main.exception.values[0]?.value).toBe('Application error');
+        expect(renderer.message).toBe('Application error');
         expect(rendererEvent.exception.values[0]!.stacktrace.frames[0]!.filename).toContain('evb-viewer://');
         expect(scrubSentryEvent(rendererEvent).exception.values[0]?.stacktrace.frames[0]?.filename)
             .toBe('app:///_nuxt/usePdfSearch.BwB4a1.js');
+    });
+
+    it('removes every part of a multiword document path from exception text', () => {
+        const event = {exception: {values: [{
+            type: 'Error',
+            value: 'Source PDF does not exist: /tmp/Report Confidential Acquisition.pdf',
+            stacktrace: {frames: [{
+                filename: '/tmp/Report Confidential Acquisition.pdf',
+                abs_path: '/tmp/Report Confidential Acquisition.pdf',
+            }]},
+        }]}};
+
+        const scrubbed = scrubSentryEvent(event);
+        expect(JSON.stringify(scrubbed)).not.toContain('Confidential');
+        expect(scrubbed.exception.values[0]?.value).toBe('Application error');
+        expect(scrubbed.exception.values[0]?.stacktrace.frames[0]?.filename).toBe('<external>');
     });
 
     it('drops attachments such as minidumps before the envelope is built', () => {

@@ -2,13 +2,13 @@
  * The one privacy boundary for Sentry reports from main, renderer and the
  * hosted browser build. It keeps an allowlist of event fields and rewrites
  * free text so that no local path, file name, URL, quoted value or document
- * text leaves the machine. Breadcrumbs, request data, user data, extra data,
+ * text leaves the machine. Free-form messages become stable labels. Breadcrumbs,
+ * request data, user data, extra data,
  * local variables, source context and attachments are never sent.
  */
 
 type TRecord = Record<string, unknown>;
 
-const MAX_TEXT_LENGTH = 200;
 const KEPT_EVENT_KEYS = [
     'event_id',
     'timestamp',
@@ -18,7 +18,6 @@ const KEPT_EVENT_KEYS = [
     'dist',
     'environment',
     'sdk',
-    'fingerprint',
 ] as const;
 const KEPT_CONTEXT_KEYS: Record<string, readonly string[]> = {
     app: ['app_version'],
@@ -45,29 +44,6 @@ const KEPT_FRAME_KEYS = [
 ] as const;
 const APP_PATH_MARKER = /(?:^|[\\/])((?:app\.asar|dist-electron|nuxt-output|_nuxt)[\\/].*)$/u;
 const APP_ORIGIN_PREFIX = /^(?:evb-viewer:\/\/app|app:\/\/[^/]*)\//u;
-const TEXT_REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
-    [
-        /\b[a-z][a-z0-9+.-]*:\/\/\S*/giu,
-        '<url>',
-    ],
-    [
-        /(?:\b[a-z]:|\\\\[^\\\s]+)[\\/][^\s'"`<>|]*/giu,
-        '<path>',
-    ],
-    [
-        /(?<![\w.])~?\/[^\s'"`<>,;)]+/gu,
-        '<path>',
-    ],
-    [
-        /(["'`“‘«])[^"'`”’»]*["'`”’»]/gu,
-        '<redacted>',
-    ],
-    [
-        /[^\s\\/'"`<>]+\.(?:pdf|djvu?|tiff?|png|jpe?g|gif|bmp|webp|txt|docx?|rtf|odt|json|xml|html?|zip)\b/giu,
-        '<file>',
-    ],
-];
-
 function isRecord(value: unknown): value is TRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -82,28 +58,17 @@ function pick(source: TRecord, keys: readonly string[]) {
     return result;
 }
 
-export function scrubSentryText(value: string) {
-    let text = value;
-    for (const [
-        pattern,
-        replacement,
-    ] of TEXT_REDACTIONS) {
-        text = text.replace(pattern, replacement);
-    }
-    return text.length > MAX_TEXT_LENGTH ? `${text.slice(0, MAX_TEXT_LENGTH)}…` : text;
-}
-
-/** App bundles keep their app-relative path for source maps; any other file keeps only its base name. */
+/** App bundles keep relative paths for source maps; other local paths are hidden. */
 export function scrubSentryFramePath(value: string) {
     const normalized = value.replace(APP_ORIGIN_PREFIX, 'app:///');
-    if (normalized.startsWith('app:///') || normalized.startsWith('node:') || !/[\\/]/u.test(normalized)) {
+    if (normalized.startsWith('app:///') || normalized.startsWith('node:')) {
         return normalized;
     }
     const appRelative = APP_PATH_MARKER.exec(normalized)?.[1];
     if (appRelative !== undefined) {
         return `app:///${appRelative.replaceAll('\\', '/')}`;
     }
-    return normalized.split(/[\\/]/u).pop() ?? '';
+    return '<external>';
 }
 
 function scrubFrame(frame: unknown) {
@@ -128,11 +93,9 @@ function scrubException(value: unknown) {
         return {};
     }
     const result: TRecord = {};
-    if (typeof value.type === 'string') {
-        result.type = scrubSentryText(value.type);
-    }
-    if (typeof value.value === 'string') {
-        result.value = scrubSentryText(value.value);
+    if (typeof value.type === 'string' || typeof value.value === 'string') {
+        result.type = 'Error';
+        result.value = 'Application error';
     }
     if (isRecord(value.mechanism)) {
         result.mechanism = pick(value.mechanism, [
@@ -189,17 +152,27 @@ export function scrubSentryEvent<T extends object>(event: T): T {
     const source = event as TRecord;
     const result = pick(source, KEPT_EVENT_KEYS);
     if (isRecord(source.tags)) {
-        result.tags = Object.fromEntries(Object.entries(source.tags).map(([
+        const tags = Object.fromEntries(Object.entries(source.tags).filter(([
             key,
             value,
-        ]) => [
-            key,
-            typeof value === 'string' ? scrubSentryText(value) : value,
-        ]));
+        ]) =>
+            key === 'diagnostic_code' && typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/u.test(value)
+            || key === 'event.process' && (value === 'browser' || value === 'main'),
+        ));
+        if (Object.keys(tags).length > 0) {
+            result.tags = tags;
+        }
+        const code = tags.diagnostic_code;
+        if (typeof code === 'string') {
+            result.fingerprint = [
+                '{{ default }}',
+                code,
+            ];
+        }
     }
     const message = isRecord(source.message) ? source.message.formatted : source.message;
     if (typeof message === 'string') {
-        result.message = scrubSentryText(message);
+        result.message = 'Application error';
     }
     if (isRecord(source.exception) && Array.isArray(source.exception.values)) {
         result.exception = {values: source.exception.values.map(scrubException)};
