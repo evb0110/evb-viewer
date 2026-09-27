@@ -246,6 +246,11 @@ jobs:
       - name: Install PDF test tools
         run: brew install imagemagick
 
+      - name: Install Playwright Chromium
+        # annotationStrokeParity compares Electron with standalone Chromium.
+        if: ${{ matrix.lane == 'e2e-drawing' }}
+        run: pnpm exec playwright install chromium
+
       - name: Electron E2E ${{ matrix.lane }}
         run: pnpm run test:e2e "${{ matrix.lane }}" --reporter verbose
 

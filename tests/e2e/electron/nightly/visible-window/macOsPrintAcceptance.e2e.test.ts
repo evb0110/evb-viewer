@@ -21,7 +21,7 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
-import {resolvePlatformArchTag} from '@electron/utils/platformArch';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     EXACT_PDF_FIXTURE_MANIFEST,
@@ -230,40 +230,9 @@ async function completeMacOsPrintDialog(targetPath: string, electronPid: number)
     });
 }
 
-function resolveBundledPdftoppmPath() {
-    const executable = resolve(
-        process.cwd(),
-        'resources',
-        'poppler',
-        resolvePlatformArchTag(),
-        'bin',
-        'pdftoppm',
-    );
-    if (!existsSync(executable)) {
-        throw new Error(`Missing bundled pdftoppm: ${executable}`);
-    }
-    return executable;
-}
-
-function resolveBundledQpdfPath() {
-    const executable = process.platform === 'win32' ? 'qpdf.exe' : 'qpdf';
-    const path = resolve(
-        process.cwd(),
-        'resources',
-        'qpdf',
-        resolvePlatformArchTag(),
-        'bin',
-        executable,
-    );
-    if (!existsSync(path)) {
-        throw new Error(`Missing bundled qpdf: ${path}`);
-    }
-    return path;
-}
-
 async function renderPdfPage(pdfPath: string, pageNumber: number, outputPrefix = renderedFirstPagePrefix) {
     mkdirSync(dirname(outputPrefix), {recursive: true});
-    await execFileAsync(resolveBundledPdftoppmPath(), [
+    await execFileAsync(getPdfNativeToolPaths().pdftoppm, [
         '-png',
         '-singlefile',
         '-r',
@@ -434,7 +403,7 @@ acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
         expect(printResult).toEqual(expect.objectContaining({success: true}));
         expect(existsSync(outputPath)).toBe(true);
 
-        const qpdfPath = resolveBundledQpdfPath();
+        const qpdfPath = getPdfNativeToolPaths().qpdf;
         await execFileAsync(qpdfPath, [
             '--check',
             outputPath,
@@ -517,7 +486,7 @@ printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () 
         expect(printResult).toEqual(expect.objectContaining({success: true}));
         expect(existsSync(printLayoutSmokeOutputPath)).toBe(true);
 
-        const qpdfPath = resolveBundledQpdfPath();
+        const qpdfPath = getPdfNativeToolPaths().qpdf;
         await execFileAsync(qpdfPath, [
             '--check',
             printLayoutSmokeOutputPath,

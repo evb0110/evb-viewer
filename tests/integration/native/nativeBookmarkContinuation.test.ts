@@ -29,6 +29,7 @@ import {
 } from 'vitest';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const execFileAsync = promisify(execFile);
 const NATIVE_BOOKMARK_TIMEOUT_MS = 180_000;
@@ -70,7 +71,7 @@ describe('native bookmark continuation integration', () => {
     it('saves and reopens 10,001 flat bookmarks through bounded native appends', async () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-native-bookmarks-'));
         const binaryPath = nativeBinaryPath();
-        const qpdfPath = process.env.EVB_QPDF_PATH?.trim() || 'qpdf';
+        const qpdfPath = getPdfNativeToolPaths().qpdf;
         await access(binaryPath);
         const inputPath = join(tempRoot, 'input.pdf');
         const workingPath = join(tempRoot, 'working.pdf');

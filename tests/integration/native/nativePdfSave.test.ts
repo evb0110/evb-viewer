@@ -25,6 +25,7 @@ import {
     it,
 } from 'vitest';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const execFileAsync = promisify(execFile);
 const NATIVE_INTEGRATION_TIMEOUT_MS = 120_000;
@@ -45,7 +46,7 @@ function resolveNativePageOpsPath() {
 }
 
 async function runQpdf(args: string[]) {
-    return execFileAsync(process.env.EVB_QPDF_PATH?.trim() || 'qpdf', args, {
+    return execFileAsync(getPdfNativeToolPaths().qpdf, args, {
         encoding: 'utf8',
         maxBuffer: 256 * 1024,
         timeout: NATIVE_INTEGRATION_TIMEOUT_MS,
@@ -127,7 +128,7 @@ describe('native PDF save integration', () => {
             '--modified-at',
             'D:20260829000000Z',
             '--qpdf',
-            process.env.EVB_QPDF_PATH?.trim() || 'qpdf',
+            getPdfNativeToolPaths().qpdf,
         ], {
             encoding: 'utf8',
             maxBuffer: 512 * 1024,
@@ -167,7 +168,7 @@ describe('native PDF save integration', () => {
             '--modified-at',
             'D:20260829000000Z',
             '--qpdf',
-            process.env.EVB_QPDF_PATH?.trim() || 'qpdf',
+            getPdfNativeToolPaths().qpdf,
         ]);
         await expect(access(failedOutputPath)).rejects.toMatchObject({code: 'ENOENT'});
 

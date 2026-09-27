@@ -55,6 +55,7 @@ import {
     readWorkspaceStateValues,
     requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 /**
  * Opt in explicitly with:
@@ -704,7 +705,7 @@ async function stageFixture(sourcePath: string): Promise<IStagedFixture> {
 }
 
 async function assertQpdfCheck(pdfPath: string) {
-    await execFileAsync('qpdf', [
+    await execFileAsync(getPdfNativeToolPaths().qpdf, [
         '--check',
         pdfPath,
     ], {
@@ -1205,7 +1206,7 @@ async function readAnnotationObjectContents(
     pdfPath: string,
     annotation: Pick<IPdfAnnotationIndexEntry, 'generationNumber' | 'objectNumber'>,
 ) {
-    const {stdout} = await execFileAsync('qpdf', [
+    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
         `--show-object=${annotation.objectNumber},${annotation.generationNumber}`,
         '--raw-stream-data',
         pdfPath,

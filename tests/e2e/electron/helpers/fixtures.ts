@@ -45,6 +45,7 @@ import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionP
 import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/annotations/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
@@ -1229,9 +1230,9 @@ async function writeFixtureCatalog(filePath: string, catalog: Pick<IPdfNativeMut
         projectRoot: process.cwd(),
         resourcesBase: resolve(process.cwd(), 'resources'),
     });
-    const qpdf = resolveQpdfBinary();
-    if (!pageOps || !qpdf) {
-        throw new Error(`pdf-page-ops and qpdf are required to write fixture catalog metadata: ${filePath}`);
+    const qpdf = getPdfNativeToolPaths().qpdf;
+    if (!pageOps) {
+        throw new Error(`pdf-page-ops is required to write fixture catalog metadata: ${filePath}`);
     }
     const mutationsPath = `${filePath}.catalog.json`;
     writeFileSync(mutationsPath, JSON.stringify(catalog));
@@ -2186,23 +2187,6 @@ export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAn
     };
 }
 
-export function resolveQpdfBinary() {
-    return resolveNativeToolPath({
-        binaryName: process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
-        binaryRelativePath: [
-            'bin',
-            process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
-        ],
-        crateName: 'qpdf',
-        currentDir: process.cwd(),
-        includeRustTargetCandidates: false,
-        isPackaged: false,
-        platformArch: resolvePlatformArchTag(),
-        projectRoot: process.cwd(),
-        resourcesBase: resolve(process.cwd(), 'resources'),
-    });
-}
-
 async function runQpdf(
     filePath: string,
     args: string[],
@@ -2212,10 +2196,7 @@ async function runQpdf(
         maxStdoutBytes: number;
     },
 ) {
-    const qpdf = resolveQpdfBinary();
-    if (!qpdf) {
-        throw new Error(`qpdf is unavailable for ${operation}: ${filePath}`);
-    }
+    const qpdf = getPdfNativeToolPaths().qpdf;
     try {
         return await runNativeCommand(qpdf, args, {
             commandLabel: `qpdf ${operation}`,
@@ -2342,10 +2323,7 @@ export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSn
 }
 
 export async function readPdfMetadataWithQpdf(filePath: string) {
-    const qpdf = resolveQpdfBinary();
-    if (!qpdf) {
-        throw new Error('qpdf is unavailable for PDF metadata verification');
-    }
+    const qpdf = getPdfNativeToolPaths().qpdf;
 
     await runNativeCommand(qpdf, [
         '--check',

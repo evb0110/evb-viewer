@@ -36,6 +36,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const CORPUS_DIRECTORY = resolve(
     process.cwd(),
@@ -87,7 +88,7 @@ function createGeneratedEncryptedFixture(sourcePath: string) {
     interopE2eFixtureDirectories.push(directory);
     const destination = join(directory, 'encrypted-input.pdf');
     const password = `evb-interop-${process.pid}-${Date.now()}-${randomUUID()}`;
-    execFileSync('qpdf', [
+    execFileSync(getPdfNativeToolPaths().qpdf, [
         '--encrypt',
         password,
         password,

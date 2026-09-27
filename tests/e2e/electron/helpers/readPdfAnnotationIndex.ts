@@ -7,7 +7,7 @@ import {
 } from 'path';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import { resolveQpdfBinary } from '@tests/e2e/electron/helpers/fixtures';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 export interface IPdfAnnotationObjectRef {
     objectNumber: number;
@@ -66,9 +66,9 @@ export async function readPdfAnnotationIndex(filePath: string): Promise<IPdfAnno
         projectRoot: process.cwd(),
         resourcesBase: resolve(process.cwd(), 'resources'),
     });
-    const qpdf = resolveQpdfBinary();
-    if (!pageOps || !qpdf) {
-        throw new Error('pdf-page-ops and qpdf are required to read a PDF annotation index');
+    const qpdf = getPdfNativeToolPaths().qpdf;
+    if (!pageOps) {
+        throw new Error('pdf-page-ops is required to read a PDF annotation index');
     }
     const directory = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'evb-annotation-index-'));
     const outputPath = join(directory, 'index.jsonl');

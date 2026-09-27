@@ -63,7 +63,7 @@ export function attachShowLifecycle(
         deleteWindowRendererReadyCallback(windowId);
     };
 
-    const showWindowNow = async () => {
+    const showWindowNow = () => {
         if (window.isDestroyed() || hasShownWindow) {
             return;
         }
@@ -82,25 +82,8 @@ export function attachShowLifecycle(
             stabilityCheckTimeout = null;
         }
 
-        if (options.isDev) {
-            options.showAndFocusMaximizedWindow(window);
-            logNavEvent('window-shown-early-for-dev');
-
-            try {
-                await window.webContents.executeJavaScript(`
-                    window.__navigationTimeline = window.__navigationTimeline || [];
-                    window.__navigationTimeline.push({
-                        event: 'window-shown',
-                        timestamp: ${Date.now()},
-                    });
-                `);
-            } catch {
-                // Page might be navigating.
-            }
-        } else {
-            options.showAndFocusMaximizedWindow(window);
-        }
-
+        options.showAndFocusMaximizedWindow(window);
+        logNavEvent('window-shown');
         options.logWindowStartup(`Window shown (windowId=${window.id})`, {hasShownWindow});
         cleanupShowHandlers();
     };
@@ -117,7 +100,7 @@ export function attachShowLifecycle(
         const timeSinceLastNav = Date.now() - lastNavigationTime;
         if (timeSinceLastNav >= STABILITY_WINDOW_MS) {
             logNavEvent('stability-check-passed', { timeSinceLastNav });
-            void showWindowNow();
+            showWindowNow();
             return;
         }
 
@@ -148,7 +131,7 @@ export function attachShowLifecycle(
             clearTimeout(pendingShowTimeout);
         }
         pendingShowTimeout = setTimeout(() => {
-            void showWindowNow();
+            showWindowNow();
         }, SHOW_DEBOUNCE_MS);
     };
 
@@ -158,7 +141,7 @@ export function attachShowLifecycle(
         }
 
         forceShowTimeout = setTimeout(() => {
-            void showWindowNow();
+            showWindowNow();
         }, FORCE_SHOW_MS);
     };
 
@@ -245,7 +228,7 @@ export function attachShowLifecycle(
         }
         mainFrameLoadFinished = false;
 
-        void showWindowNow();
+        showWindowNow();
     };
 
     setWindowRendererReadyCallback(windowId, onRendererReadyForShow);

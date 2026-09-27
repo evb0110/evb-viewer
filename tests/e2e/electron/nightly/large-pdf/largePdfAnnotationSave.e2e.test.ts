@@ -17,10 +17,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
-import {
-    execFile,
-    execFileSync,
-} from 'node:child_process';
+import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {
@@ -96,6 +93,7 @@ import {
     readPdfAnnotationIndex,
     type IPdfAnnotationIndexEntry,
 } from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const LARGE_PDF_TIMEOUT_MS = 360_000;
 // The 8-second user-facing save budget missed by small margins on Ubuntu CI.
@@ -111,16 +109,6 @@ const EXACT_ZALIZNYAK_EXPECTATION = resolveExactPdfFixtureExpectation();
 const LARGE_PDF_ARTIFACT_ROOT_ENV = 'EVB_E2E_LARGE_PDF_ARTIFACT_ROOT';
 const largePdfFixture = resolveLargePdfFixtureAvailability();
 const largePdfDescribe = selectFixtureDescribe(describe, largePdfFixture);
-const qpdfAvailable = (() => {
-    try {
-        execFileSync('qpdf', ['--version'], {stdio: 'ignore'});
-        return true;
-    } catch {
-        return false;
-    }
-})();
-const runStickyRestartScenario = qpdfAvailable
-    || process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1';
 const IMPORTED_TEXT_POPUP_NAME = 'evb-pdf-003-text-parent';
 const IMPORTED_TEXT_POPUP_TEXT = 'PDF-003 imported Text Popup note';
 const IMPORTED_MARKUP_NOTE_NAME = 'evb-pdf-001-highlight-parent';
@@ -154,8 +142,7 @@ function resolveExactZaliznyakSourcePath() {
 }
 
 const exactZaliznyakSourcePath = resolveExactZaliznyakSourcePath();
-const runImportedTextPopupScenario = qpdfAvailable
-    && process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1';
+const runImportedTextPopupScenario = process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1';
 
 interface IImportedTextPopupFixture {
     annotationName: string;
@@ -1157,7 +1144,7 @@ function expectPdfRectClose(
 }
 
 async function qpdfCheck(filePath: string) {
-    await execFileAsync('qpdf', [
+    await execFileAsync(getPdfNativeToolPaths().qpdf, [
         '--check',
         filePath,
     ], {
@@ -1167,7 +1154,7 @@ async function qpdfCheck(filePath: string) {
 }
 
 async function qpdfPageCount(filePath: string) {
-    const {stdout} = await execFileAsync('qpdf', [
+    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
         '--show-npages',
         filePath,
     ], {
@@ -1285,7 +1272,7 @@ async function combineImportedTextPopupWithExactFixture(
     exactFixturePath: string,
     outputPath: string,
 ) {
-    await execFileAsync('qpdf', [
+    await execFileAsync(getPdfNativeToolPaths().qpdf, [
         onePageFixturePath,
         '--pages',
         '.',
@@ -1326,7 +1313,7 @@ async function readQpdfObject(
     },
     streamData: 'filtered' | 'none' | 'raw' = 'raw',
 ) {
-    const {stdout} = await execFileAsync('qpdf', [
+    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
         `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
         ...(streamData === 'filtered'
             ? ['--filtered-stream-data']
@@ -1352,7 +1339,7 @@ async function inspectImportedTextPopupStructure(
         popupInPageAnnots?: boolean;
     } = {},
 ) {
-    const {stdout: pagesOutput} = await execFileAsync('qpdf', [
+    const {stdout: pagesOutput} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
         '--show-pages',
         filePath,
     ], {
@@ -3341,7 +3328,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         })).toEqual(expect.arrayContaining(existingFixtureNotes));
     }, LARGE_PDF_TIMEOUT_MS);
 
-    it.runIf(runStickyRestartScenario)('reopens a saved sticky note cleanly after a hard restart', async () => {
+    it('reopens a saved sticky note cleanly after a hard restart', async () => {
         const initialSession = sessionFixture.getSession();
         const fixtureSourcePath = largePdfFixture.path;
         if (!fixtureSourcePath) {
@@ -4231,7 +4218,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(twiceSavedNotes.filter(note => note.contents === secondText)).toHaveLength(1);
     }, LARGE_PDF_TIMEOUT_MS);
 
-    it.runIf(runStickyRestartScenario)('deletes a persisted ordinary FreeText through the sidebar and keeps it absent after restart', async () => {
+    it('deletes a persisted ordinary FreeText through the sidebar and keeps it absent after restart', async () => {
         const initialSession = sessionFixture.getSession();
         const fixtureSourcePath = largePdfFixture.path;
         if (!fixtureSourcePath) {

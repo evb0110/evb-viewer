@@ -11,7 +11,7 @@ import {vi} from 'vitest';
 import type {TOcrJobResult} from '@electron/features/ocr/pipeline/types';
 import {getErrorMessage} from '@electron/utils/error';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {resolveTestQpdfBinary} from '@tests/helpers/resolveTestQpdfBinary';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 export interface IOcrWorkerPipelineHarness {
     callLogPath: string;
@@ -153,9 +153,9 @@ printf 'level\\tpage_num\\tblock_num\\tpar_num\\tline_num\\tword_num\\tleft\\tto
             paths: {
                 tesseractBinary: fakeTesseract,
                 tessdataPath: root,
-                pdftoppmBinary: process.env.EVB_PDFTOPPM_PATH ?? 'pdftoppm',
-                pdftotextBinary: process.env.EVB_PDFTOTEXT_PATH ?? 'pdftotext',
-                qpdfBinary: resolveTestQpdfBinary(),
+                pdftoppmBinary: getPdfNativeToolPaths().pdftoppm,
+                pdftotextBinary: getPdfNativeToolPaths().pdftotext,
+                qpdfBinary: getPdfNativeToolPaths().qpdf,
                 tempDir: root,
             },
             signal: controller.signal,

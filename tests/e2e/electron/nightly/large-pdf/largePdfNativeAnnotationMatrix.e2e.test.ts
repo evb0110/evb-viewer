@@ -61,6 +61,7 @@ import {
     validateExactPdfFixtureIdentity,
 } from '@scripts/ci/stageExactPdfFixture';
 import type {Page} from 'puppeteer-core';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const MATRIX_TIMEOUT_MS = 15 * 60_000;
 const NATIVE_SAVE_TIMEOUT_MS = 120_000;
@@ -222,7 +223,7 @@ async function readShapeIndex(page: Page, documentPath: string) {
 }
 
 async function readObject(documentPath: string, ref: IAnnotationRef) {
-    const {stdout} = await execFileAsync('qpdf', [
+    const {stdout} = await execFileAsync(getPdfNativeToolPaths().qpdf, [
         `--show-object=${ref.objectNumber},${ref.generationNumber}`,
         '--raw-stream-data',
         documentPath,
@@ -894,7 +895,7 @@ async function saveCanonicalRevision(page: Page, documentPath: string, label: st
         {label},
     );
     expect(event.detail.documentRevisionToken).toEqual(expect.any(String));
-    await execFileAsync('qpdf', [
+    await execFileAsync(getPdfNativeToolPaths().qpdf, [
         '--check',
         documentPath,
     ], {timeout: 60_000});

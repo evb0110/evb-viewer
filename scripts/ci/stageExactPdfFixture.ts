@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {execFile} from 'node:child_process';
 import {
     createHash,
@@ -71,7 +72,6 @@ export interface IExactPdfCopyOptions {
 
 export interface IExactPdfIdentityOptions {
     maxBytes?: number;
-    qpdfPath?: string;
     signal?: AbortSignal;
     timeoutMs?: number;
 }
@@ -429,8 +429,7 @@ export async function readExactPdfFixtureIdentity(
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     assertTimeout(timeoutMs);
     throwIfAborted(options.signal);
-    const configuredQpdfPath = options.qpdfPath?.trim() ?? process.env.EVB_QPDF_PATH?.trim();
-    const qpdfPath = configuredQpdfPath === undefined || configuredQpdfPath === '' ? 'qpdf' : configuredQpdfPath;
+    const qpdfPath = getPdfNativeToolPaths().qpdf;
     assertMaxBytes(maxBytes);
     const fileStat = await stat(path);
     if (!fileStat.isFile()) {
@@ -571,7 +570,6 @@ async function main(argv = process.argv.slice(2)) {
         );
     }
     const expectation = resolveExactPdfFixtureExpectation();
-    const configuredQpdfPath = process.env.EVB_QPDF_PATH?.trim();
     const result = await stageExactPdfFixture({
         expectedIdentity: expectation,
         maxBytes: process.env.EVB_EXACT_FIXTURE_MAX_BYTES
@@ -579,7 +577,6 @@ async function main(argv = process.argv.slice(2)) {
             : DEFAULT_MAX_BYTES,
         mode: (readArgument(argv, 'mode') ?? process.env.EVB_EXACT_FIXTURE_STAGE_MODE ?? 'auto') as 'auto' | TExactPdfFixtureCopyMode,
         outputPath,
-        qpdfPath: configuredQpdfPath === undefined || configuredQpdfPath === '' ? 'qpdf' : configuredQpdfPath,
         sourcePath,
         timeoutMs: process.env.EVB_EXACT_FIXTURE_TIMEOUT_MS
             ? asPositiveInteger(process.env.EVB_EXACT_FIXTURE_TIMEOUT_MS, 'EVB_EXACT_FIXTURE_TIMEOUT_MS')

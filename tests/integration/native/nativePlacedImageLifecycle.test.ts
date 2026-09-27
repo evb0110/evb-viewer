@@ -33,6 +33,7 @@ import {
 import type {TPdfNativeMutationSetNativeToolPayload} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {formatPdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 const execFileAsync = promisify(execFile);
 const NATIVE_LIFECYCLE_TIMEOUT_MS = 120_000;
@@ -149,7 +150,7 @@ describe('native placed-image lifecycle integration', () => {
     it('places, reopens, updates, reopens, deletes, and reopens one stable live image graph', async () => {
         tempRoot = await mkdtemp(join(tmpdir(), 'evb-native-image-lifecycle-'));
         const binaryPath = nativeBinaryPath();
-        const qpdfPath = process.env.EVB_QPDF_PATH?.trim() || 'qpdf';
+        const qpdfPath = getPdfNativeToolPaths().qpdf;
         await access(binaryPath);
         const pdfPath = join(tempRoot, 'lifecycle.pdf');
         const imagePath = join(tempRoot, 'pixel.jpg');

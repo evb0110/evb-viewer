@@ -23,7 +23,7 @@ import {
     inspectPdfPageTextVisibility,
     shouldOcrClassifiedPage,
 } from '@electron/features/ocr/pipeline/pageTextClassifier';
-import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 
 describe('OCR page text classification and supersession', () => {
     it('distinguishes native, foreign hidden OCR, current EVB generation, and missing text', () => {
@@ -222,7 +222,7 @@ describe('OCR page text classification and supersession', () => {
                 1,
                 2,
                 3,
-            ], resolveTestQpdfBinary());
+            ], getPdfNativeToolPaths().qpdf);
             expect(visibilityAnalysis.status).toBe('available');
             if (visibilityAnalysis.status !== 'available') {
                 throw new Error(visibilityAnalysis.message);

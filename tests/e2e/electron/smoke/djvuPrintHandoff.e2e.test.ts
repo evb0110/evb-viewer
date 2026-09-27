@@ -18,7 +18,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {
     resolveDjvuFixturePath,
     selectFixtureDescribe,
@@ -61,23 +61,8 @@ afterAll(() => {
     });
 });
 
-function resolveBundledPdftoppmPath() {
-    const executable = process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm';
-    return resolve(
-        process.cwd(),
-        'resources',
-        'poppler',
-        resolvePlatformArchTag(),
-        'bin',
-        executable,
-    );
-}
-
 async function renderFirstPdfPage(pdfPath: string) {
-    const pdftoppmPath = resolveBundledPdftoppmPath();
-    if (!existsSync(pdftoppmPath)) {
-        throw new Error(`Missing bundled pdftoppm: ${pdftoppmPath}`);
-    }
+    const pdftoppmPath = getPdfNativeToolPaths().pdftoppm;
 
     await execFileAsync(pdftoppmPath, [
         '-png',
