@@ -152,6 +152,38 @@ function readPageSurfaceOrigin(): IPageSurfaceOrigin {
     };
 }
 
+async function viewerLayoutSettledInPage() {
+    const readLayout = () => {
+        const pane = document.querySelector<HTMLElement>('.workspace-viewer-host');
+        const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+        const page = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container[data-page="1"]',
+        );
+        if (!pane || !viewport || !page) {
+            return null;
+        }
+        const paneBounds = pane.getBoundingClientRect();
+        const viewportBounds = viewport.getBoundingClientRect();
+        const pageBounds = page.getBoundingClientRect();
+        return {
+            fillsPane: Math.abs(paneBounds.top - viewportBounds.top) <= 1
+                && Math.abs(paneBounds.bottom - viewportBounds.bottom) <= 1
+                && Math.abs(paneBounds.left - viewportBounds.left) <= 1
+                && Math.abs(paneBounds.right - viewportBounds.right) <= 1,
+            pageLeft: pageBounds.left,
+            pageTop: pageBounds.top,
+        };
+    };
+    const previous = readLayout();
+    await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()));
+    const current = readLayout();
+    return previous !== null
+        && current !== null
+        && current.fillsPane
+        && previous.pageLeft === current.pageLeft
+        && previous.pageTop === current.pageTop;
+}
+
 function readInteriorSamplePoints(): IInteriorSamplePoint[] {
     const pageContainer = document.querySelector<HTMLElement>(
         '.editor-pane.is-active .page_container[data-page="1"]',
@@ -354,6 +386,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
             height: 900,
             width: 1_440,
         });
+        await session.page.waitForFunction(viewerLayoutSettledInPage);
         const electronPageOrigin = await session.page.evaluate(readPageSurfaceOrigin);
         console.info(`STROKE_PARITY_STEP electron-metrics:complete ${JSON.stringify(electronMetrics)}`);
         await session.page.screenshot({
@@ -419,6 +452,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
                 height: 900,
                 width: 1_440,
             });
+            await webPage.waitForFunction(viewerLayoutSettledInPage);
             const playwrightPageOrigin = await webPage.evaluate(readPageSurfaceOrigin);
             await webPage.screenshot({path: PLAYWRIGHT_SCREENSHOT_PATH});
             console.info(`STROKE_PARITY_STEP playwright-measure:complete ${JSON.stringify(webMetrics)}`);

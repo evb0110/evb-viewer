@@ -1849,9 +1849,11 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const editorHydrationDomState = await restartedPage.evaluate(() => {
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
             const layer = host?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+            const editors = Array.from(layer?.querySelectorAll<HTMLElement>('[data-annotation-kind="text-box"]') ?? []);
             return {
                 activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
-                editorCount: layer?.querySelectorAll('[data-annotation-kind="text-box"]').length ?? 0,
+                editorCount: editors.length,
+                editorTexts: editors.map(editor => editor.getAttribute('aria-label') ?? editor.textContent ?? ''),
                 layerClassName: layer?.className ?? null,
             };
         });
@@ -1875,6 +1877,10 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             editorHydrationDebugState,
             editorHydrationDomState,
         })).toBe(2);
+        expect(editorHydrationDomState.editorTexts.sort()).toEqual([
+            'EVB deterministic existing FreeText note',
+            persistedText,
+        ].sort());
         let secondFreeTextCount: number;
         try {
             secondFreeTextCount = await createFreeTextAnnotationWithPointer(
@@ -1931,6 +1937,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             await saveViaWindowHandle(restartedPage, LARGE_PDF_TIMEOUT_MS);
         }
         const twiceSavedNotes = await readPdfNoteContents(fixturePath);
+        expect(twiceSavedNotes.filter(note => note.contents === 'EVB deterministic existing FreeText note')).toHaveLength(1);
         expect(twiceSavedNotes.filter(note => note.contents === persistedText)).toHaveLength(1);
         expect(twiceSavedNotes.filter(note => note.contents === secondText)).toHaveLength(1);
     }, LARGE_PDF_TIMEOUT_MS);
