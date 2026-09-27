@@ -1,11 +1,25 @@
 import { execFile } from 'node:child_process';
-import { resolve } from 'node:path';
+import {
+    mkdtemp,
+    rm,
+    writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import {
+    join,
+    resolve,
+} from 'node:path';
 import { promisify } from 'node:util';
+import {
+    PDFDocument,
+    StandardFonts,
+} from 'pdf-lib';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
+import { streamPdfPageTexts } from '@electron/features/search/pdfPageTexts';
 
 const execFileAsync = promisify(execFile);
 const hostResourceDirectory = `${process.platform}-${process.arch}`;
@@ -65,6 +79,44 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
         expect(stdout).toContain('Hello Arabic world');
         expect(stdout).toContain('First');
         expect(stdout).toContain('Second text box');
+    }, nativeToolContractTestTimeoutMs);
+
+    it('extracts every page across Poppler text windows', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-text-pages-'));
+        try {
+            const pdfPath = join(directory, 'search-text-pages.pdf');
+            const document = await PDFDocument.create();
+            const font = await document.embedFont(StandardFonts.Helvetica);
+            const expectedPageNumbers = Array.from({length: 260}, (_value, index) => index + 1);
+            for (const pageNumber of expectedPageNumbers) {
+                const page = document.addPage([
+                    612,
+                    792,
+                ]);
+                page.drawText(`EVB_SEARCH_WINDOW_PAGE_${pageNumber}`, {
+                    font,
+                    size: 18,
+                    x: 24,
+                    y: 720,
+                });
+            }
+            await writeFile(pdfPath, await document.save());
+
+            const pages = [];
+            for await (const page of streamPdfPageTexts(pdfPath)) {
+                pages.push(page);
+            }
+
+            expect(pages.map(page => page.pageNumber)).toEqual(expectedPageNumbers);
+            pages.forEach((page, index) => {
+                expect(page.text).toContain(`EVB_SEARCH_WINDOW_PAGE_${expectedPageNumbers[index]}`);
+            });
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     }, nativeToolContractTestTimeoutMs);
 
     it('runs the shipped DjVuLibre command-line pair', async () => {

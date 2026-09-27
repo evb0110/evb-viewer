@@ -13,9 +13,9 @@ import {
 import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
 import type { IPageText } from '@electron/features/search/pageText';
 import type { IPdfPageRange } from '@electron/features/search/pdfjsPageTexts';
-import { streamItems } from '@electron/features/search/streamItems';
 
 const PDF_TEXT_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-text'].fileName;
+const POPPLER_TEXT_PAGE_WINDOW_SIZE = 256;
 
 function decodePageMessage(message: unknown): IPageText | null {
     if (!isRecord(message) || message.type !== 'page' || !isRecord(message.page)) {
@@ -48,12 +48,28 @@ function normalizePopplerPageText(text: string) {
 
 type TStreamPdfPageTextsOptions = IPdfPageRange & {signal?: AbortSignal | undefined};
 
+async function readPdfPageCount(pdfPath: string, signal?: AbortSignal) {
+    const paths = getPdfNativeToolPaths();
+    const env = buildPopplerEnv(paths);
+    const result = await runNativeToolCommand(paths.pdfinfo, [pdfPath], {
+        ...(env === undefined ? {} : {env}),
+        ...(signal === undefined ? {} : {signal}),
+        commandLabel: 'pdfinfo(page count)',
+        maxStdoutBytes: 1024 * 1024,
+    });
+    const pageCount = Number(result.stdout.match(/^Pages:\s*(\d+)\s*$/mu)?.[1]);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 0) {
+        throw new Error('pdfinfo did not report a valid page count');
+    }
+    return pageCount;
+}
+
 /**
  * Reads the requested pages with one pdftotext process. Returns null when
  * Poppler could not map a font for lack of its CJK data, so the text is
  * incomplete. pdftotext ends every page, empty or not, with a form feed.
  */
-async function readPopplerPageTexts(pdfPath: string, range: IPdfPageRange, signal: AbortSignal) {
+async function readPopplerPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
     const paths = getPdfNativeToolPaths();
     const env = buildPopplerEnv(paths);
     const pages: IPageText[] = [];
@@ -72,7 +88,7 @@ async function readPopplerPageTexts(pdfPath: string, range: IPdfPageRange, signa
         '-',
     ], {
         ...(env === undefined ? {} : {env}),
-        signal,
+        ...(signal === undefined ? {} : {signal}),
         commandLabel: 'pdftotext(page text)',
         maxStdoutBytes: 64 * 1024,
         rejectOnStdoutTruncation: false,
@@ -97,8 +113,9 @@ async function readPopplerPageTexts(pdfPath: string, range: IPdfPageRange, signa
  * it converts every embedded font, so it is many times slower than pdftotext
  * on OCR layers that embed a font per page.
  */
-function readPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, emit: (page: IPageText) => void, signal: AbortSignal) {
-    return runResultWorkerTask({
+async function readPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
+    const pages: IPageText[] = [];
+    await runResultWorkerTask({
         workerPath: resolveUnpackedWorkerPath(dirname(fileURLToPath(import.meta.url)), PDF_TEXT_WORKER_FILENAME),
         workerData: {
             pdfPath,
@@ -112,11 +129,12 @@ function readPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, emit: (page: 
             if (page === null) {
                 return false;
             }
-            emit(page);
+            pages.push(page);
             return true;
         },
-        signal,
+        ...(signal === undefined ? {} : {signal}),
     });
+    return pages;
 }
 
 /**
@@ -128,17 +146,33 @@ export function streamPdfPageTexts(
     options: TStreamPdfPageTextsOptions = {},
 ): AsyncGenerator<IPageText> {
     const {
-        signal: _signal,
+        signal,
         ...range
     } = options;
-    return streamItems<IPageText>(async (emit, signal) => {
-        const pages = await readPopplerPageTexts(pdfPath, range, signal);
-        if (pages === null) {
-            await readPdfjsPageTexts(pdfPath, range, emit, signal);
-            return;
+    return (async function* () {
+        signal?.throwIfAborted();
+        const lastPage = range.lastPage ?? await readPdfPageCount(pdfPath, signal);
+        for (
+            let firstPage = range.firstPage ?? 1;
+            firstPage <= lastPage;
+            firstPage += POPPLER_TEXT_PAGE_WINDOW_SIZE
+        ) {
+            signal?.throwIfAborted();
+            const batchRange = {
+                firstPage,
+                lastPage: Math.min(firstPage + POPPLER_TEXT_PAGE_WINDOW_SIZE - 1, lastPage),
+            };
+            let pages = await readPopplerPageTexts(pdfPath, batchRange, signal);
+            pages ??= await readPdfjsPageTexts(pdfPath, batchRange, signal);
+            for (const page of pages) {
+                signal?.throwIfAborted();
+                yield page;
+            }
+            if (pages.length < batchRange.lastPage - firstPage + 1) {
+                return;
+            }
         }
-        pages.forEach(emit);
-    }, options.signal);
+    })();
 }
 
 /** Reads the text of the requested pages, one pass per contiguous range. */
