@@ -39,7 +39,7 @@ export type TDocumentNavigationTarget =
 export interface IDocumentNavigationRequest {
     searchNavigationId?: number | undefined;
     target: TDocumentNavigationTarget;
-    alignment: 'page-top' | 'rect-center' | 'keep-visible';
+    alignment: 'page-top' | 'page-bottom' | 'rect-center' | 'keep-visible';
     readiness: 'metrics' | 'page-canvas' | 'text-layer' | 'annotation-editor';
     postArrival?: 'search-highlight' | 'annotation-pulse' | 'flash';
     source: 'toolbar' | 'wheel' | 'search' | 'bookmark' | 'annotation' | 'thumbnail' | 'activation' | 'restore';

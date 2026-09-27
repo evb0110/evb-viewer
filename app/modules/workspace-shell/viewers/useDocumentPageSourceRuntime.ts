@@ -1060,7 +1060,10 @@ export const useDocumentPageSourceRuntime = (options: {
             pageHeights: pageHeights.value,
             viewMode: props.value.viewMode,
         });
-        if (target !== null) scrollToPage(target, 'wheel');
+        if (target !== null) scrollToPage(target, {
+            navigationSource: 'wheel',
+            alignPageBottom: interaction.event.deltaY < 0,
+        });
     }
     function positionPage(pageNumber: number) {
         const normalized = Math.max(1, Math.min(
@@ -1091,14 +1094,10 @@ export const useDocumentPageSourceRuntime = (options: {
     }
     function scrollToPage(
         pageNumber: number,
-        navigationSource: Parameters<IDocumentViewerExpose['scrollToPage']>[1] | 'wheel' = undefined,
+        options: Parameters<IDocumentViewerExpose['scrollToPage']>[1] = {},
         existingTicket?: IDocumentNavigationTicket,
     ) {
-        const options = typeof navigationSource === 'object'
-            ? navigationSource
-            : {navigationSource};
-        const navigationSourceValue = options.navigationSource ?? 'toolbar';
-        if (navigationSourceValue !== 'wheel') {
+        if (options.navigationSource !== 'wheel') {
             pagedWheelNavigation.reset();
         }
         const normalized = Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
@@ -1110,10 +1109,7 @@ export const useDocumentPageSourceRuntime = (options: {
         const requestedTargetPage = ticket?.request.target && 'page' in ticket.request.target
             ? ticket.request.target.page
             : normalized;
-        const targetPage = Math.max(1, Math.min(
-            source.value?.pageCount ?? normalized,
-            Math.trunc(requestedTargetPage),
-        ));
+        const targetPage = Math.max(1, Math.min(source.value?.pageCount ?? normalized, Math.trunc(requestedTargetPage)));
         const readyState = presentation.pageStates.get(normalized);
         const intent = chassisAuthority?.viewportWritePort.beginIntent(
             `page-source-navigation:${String(targetPage)}:${String(transitions.loadGeneration.value)}`,
@@ -1162,7 +1158,9 @@ export const useDocumentPageSourceRuntime = (options: {
                             (pageTops.value[targetPage - 1] ?? DOCUMENT_PAGE_GUTTER_PX)
                                 - DOCUMENT_PAGE_GUTTER_PX,
                         )
-                        : 0,
+                        : options.alignPageBottom
+                            ? Math.max(0, (pageHeights.value[targetPage - 1] ?? 0) + DOCUMENT_PAGE_GUTTER_PX * 2 - viewerContainer.value.clientHeight)
+                            : 0,
                 });
                 layoutLifecycle.refreshLayoutTransactionAnchor();
             }

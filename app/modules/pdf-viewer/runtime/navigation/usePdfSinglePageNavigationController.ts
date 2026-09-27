@@ -1182,19 +1182,16 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             event.preventDefault();
             return true;
         }
-        const desiredPage = navigationAnchorPage.value
-            ?? viewportAuthority.currentPage.value;
-        const target = resolveWheelTargetPage(
-            desiredPage,
-            options.viewMode.value,
-            options.numPages.value,
-            direction,
-        );
+        const desiredPage = navigationAnchorPage.value ?? viewportAuthority.currentPage.value;
+        const target = resolveWheelTargetPage(desiredPage, options.viewMode.value, options.numPages.value, direction);
         if (target === desiredPage) {
             return false;
         }
         event.preventDefault();
-        const submitted = submitPageNavigation(toPageNumber(target), {navigationSource: 'wheel'});
+        const submitted = submitPageNavigation(toPageNumber(target), {
+            navigationSource: 'wheel',
+            alignPageBottom: direction < 0,
+        });
         if (submitted) {
             wheelFlipGate.recordFlip(direction, event.timeStamp, event.deltaY);
         }

@@ -792,6 +792,66 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         await openPdfInApp(session.page, pdfPath, 45_000);
     }, 90_000);
 
+    it('turns back onto the end of a tall previous page with the mouse wheel', async () => {
+        const session = sessionFixture.getSession();
+        await setFitWidthAndWaitForPage(session, 4);
+        if ((await getWorkspaceToolbarSnapshot(session.page))?.continuousScroll !== false) {
+            await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+        }
+        await session.page.waitForFunction(() => (
+            (window as IRapidNavigationProbeWindow).__evbTestApi
+                ?.getActiveToolbarSnapshot?.()?.continuousScroll === false
+        ), {timeout: 15_000});
+        await waitForSettledViewport(session, 4);
+        const readPage = (pageNumber: number) => session.page.evaluate((target: number) => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
+            const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(target)}"]`);
+            if (!viewer || !page) {
+                return null;
+            }
+            const viewerRect = viewer.getBoundingClientRect();
+            const pageRect = page.getBoundingClientRect();
+            return {
+                pageTop: pageRect.top - viewerRect.top,
+                pageBottom: pageRect.bottom - viewerRect.top,
+                viewportHeight: viewer.clientHeight,
+                x: Math.round(viewerRect.left + viewerRect.width / 2),
+                y: Math.round(viewerRect.top + viewerRect.height / 2),
+            };
+        }, pageNumber);
+        const start = await readPage(4);
+        if (!start) {
+            throw new Error('Page 4 is not mounted');
+        }
+        expect(start.pageBottom - start.pageTop, JSON.stringify(start)).toBeGreaterThan(start.viewportHeight);
+        await session.page.mouse.move(start.x, start.y);
+        for (let attempt = 0; attempt < 5 && (await getWorkspaceToolbarSnapshot(session.page))?.currentPage !== 3; attempt += 1) {
+            await session.page.mouse.wheel({deltaY: -180});
+            await delay(300);
+        }
+        await waitForToolbarCurrentPage(session, 3);
+        await waitForSettledViewport(session, 3);
+        await waitForAnimationFrames(session.page, 10);
+        const landed = await readPage(3);
+        // Turning back continues from the end of page 3, not from its top.
+        expect(landed, JSON.stringify({
+            start,
+            landed,
+        })).not.toBeNull();
+        expect(landed!.pageTop, JSON.stringify({
+            start,
+            landed,
+        })).toBeLessThan(0);
+        expect(Math.abs(landed!.pageBottom - landed!.viewportHeight), JSON.stringify({
+            start,
+            landed,
+        })).toBeLessThanOrEqual(40);
+        // The next test in this suite starts from page 1.
+        await jumpToPageAndWaitForCanvas(session, 1);
+    }, 90_000);
+
     it('returns from page 6 to page 1 and closes cleanly using mouse wheel navigation', async () => {
         const session = sessionFixture.getSession();
         if (!pdfPath) {

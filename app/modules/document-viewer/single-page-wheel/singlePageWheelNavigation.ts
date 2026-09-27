@@ -1,9 +1,6 @@
 import type { TDocumentViewMode } from '@contracts/shared';
 import { stepBySpread } from '@app/utils/pdfViewMode';
-import type {
-    TPageSnapAnchor,
-    TWheelDirection,
-} from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
+import type { TWheelDirection } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
 import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
 
 const HORIZONTAL_INTENT_REJECT_RATIO = 1;
@@ -99,14 +96,4 @@ export function resolveWheelTargetPage(
         direction,
         1,
     );
-}
-
-export function resolveWheelTargetAnchor(
-    targetPageIsTall: boolean,
-    direction: TWheelDirection,
-): TPageSnapAnchor {
-    if (!targetPageIsTall) {
-        return 'top';
-    }
-    return direction > 0 ? 'top' : 'bottom';
 }

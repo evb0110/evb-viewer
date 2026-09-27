@@ -26,7 +26,7 @@ export function createPdfPageNavigationRequest(
         kind: 'page',
         page,
     };
-    let alignment: IDocumentNavigationRequest['alignment'] = 'page-top';
+    let alignment: IDocumentNavigationRequest['alignment'] = options.alignPageBottom ? 'page-bottom' : 'page-top';
     const readiness: IDocumentNavigationRequest['readiness'] = source === 'search'
         ? 'text-layer'
         : source === 'annotation'

@@ -9,7 +9,6 @@ import {
     isWithinPageScrollBoundsInterior,
     resolveNextTopWithinPageBounds,
     resolveWheelDirection,
-    resolveWheelTargetAnchor,
     resolveWheelTargetPage,
     shouldHandleSinglePageWheel,
 } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
@@ -175,12 +174,5 @@ describe('singlePageWheelNavigation', () => {
         expect(resolveWheelTargetPage(4, 'facing', 6, -1)).toBe(1);
         expect(resolveWheelTargetPage(1, 'facing-first-single', 6, 1)).toBe(2);
         expect(resolveWheelTargetPage(4, 'facing-first-single', 6, -1)).toBe(2);
-    });
-
-    it('selects directional anchors only for tall target pages', () => {
-        expect(resolveWheelTargetAnchor(true, 1)).toBe('top');
-        expect(resolveWheelTargetAnchor(true, -1)).toBe('bottom');
-        expect(resolveWheelTargetAnchor(false, 1)).toBe('top');
-        expect(resolveWheelTargetAnchor(false, -1)).toBe('top');
     });
 });

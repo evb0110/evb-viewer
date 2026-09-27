@@ -99,6 +99,18 @@ export function resolvePdfNavigationAnchor(
             affinity: revealStart ? 'start' : 'center',
         };
     }
+    // A page that fits the viewport keeps its top in view.
+    const pageRect = geometry?.pageRects[target.page - 1];
+    if (request.alignment === 'page-bottom' && pageRect && geometry && pageRect.height > geometry.viewportHeight) {
+        return {
+            page: target.page,
+            pageXFraction: 0.5,
+            pageYFraction: 1,
+            viewportXFraction: 0.5,
+            viewportYFraction: 1,
+            affinity: 'end',
+        };
+    }
     return {
         page: target.page,
         pageXFraction: 0.5,

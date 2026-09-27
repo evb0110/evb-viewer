@@ -9,6 +9,8 @@ export interface IScrollToPageOptions {
     navigationRequest?: IDocumentNavigationRequest | undefined;
     navigationSource?: 'bookmark' | 'toolbar' | 'search' | 'annotation' | 'thumbnail' | 'activation' | 'restore' | 'wheel' | undefined;
     preferExactDom?: boolean;
+    /** Land on the page's end, as turning back in a continuous scroll would. */
+    alignPageBottom?: boolean;
     /**
      * Align a normalized page y coordinate to the top of the viewport. This is
      * used for PDF outline destinations such as /XYZ and /FitH, where the

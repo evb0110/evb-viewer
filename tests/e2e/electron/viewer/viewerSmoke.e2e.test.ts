@@ -5761,6 +5761,22 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
 
         await requireWorkspaceCommand(session.page, 'handleGoToPage', [1]);
         expect(await waitForReadyCurrentPage(1)).toBe(1);
+
+        // Turning back onto a page taller than the viewport continues from its end.
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [3]);
+        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 3}, {timeoutMs: 20_000});
+        expect(await waitForReadyCurrentPage(3)).toBe(3);
+        for (let attempt = 0; attempt < 5 && (await getWorkspaceToolbarSnapshot(session.page))?.currentPage !== 2; attempt += 1) {
+            await session.page.mouse.wheel({deltaY: -180});
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 2}, {timeoutMs: 20_000});
+        expect(await waitForReadyCurrentPage(2)).toBe(2);
+        const turnedBack = await collectPagedState();
+        const maxTop = turnedBack.scrollHeight - turnedBack.clientHeight;
+        expect(maxTop, JSON.stringify(turnedBack)).toBeGreaterThan(0);
+        expect(Math.abs(turnedBack.scrollTop - maxTop), JSON.stringify(turnedBack)).toBeLessThanOrEqual(2);
     }, 120_000);
 
     it('keeps the DjVu render window ahead of monotonic projected trackpad scrolling', async () => {
