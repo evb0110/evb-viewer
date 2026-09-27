@@ -935,22 +935,23 @@ describe('scan-cleanup-core conversion coverage', () => {
         const renderingReports = progress.filter(report => report.stage === 'rendering');
         expect(renderingReports.length).toBeGreaterThan(0);
         expect(renderingReports.every(report => report.completedUnits <= report.totalUnits)).toBe(true);
+        // Pages finish in either order; the renderer reads completedPageNumbers as a set.
         expect(renderingReports.at(-1)).toMatchObject({
             completedUnits: 2,
             totalUnits: 2,
-            completedPageNumbers: [
+            completedPageNumbers: expect.arrayContaining([
                 1,
                 2,
-            ],
+            ]),
         });
         expect(progress.at(-1)).toMatchObject({
             stage: 'handoff',
             completedUnits: 2,
             totalUnits: 2,
-            completedPageNumbers: [
+            completedPageNumbers: expect.arrayContaining([
                 1,
                 2,
-            ],
+            ]),
         });
     });
 
