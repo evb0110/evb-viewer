@@ -6,6 +6,7 @@ import {
     mkdir,
     open,
     readFile,
+    rm,
     rename,
     writeFile,
 } from 'node:fs/promises';
@@ -77,6 +78,7 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {getErrorMessage} from '@contracts/getErrorMessage';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 
 const E2E_TIMEOUT_MS = 180_000;
 const SAVE_TIMEOUT_MS = 60_000;
@@ -114,6 +116,7 @@ type TSaveReceiptProbeWindow = Window & {
 
 interface ISettingsSnapshot {
     authorName?: string;
+    clientDiagnosticsPreference?: 'unknown' | 'denied' | 'granted';
     suppressUnencryptedSaveNotice?: boolean;
 }
 
@@ -920,6 +923,55 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             author,
             secondAuthor,
         ]);
+    }, E2E_TIMEOUT_MS);
+
+    it.skipIf(process.platform === 'win32')('does not persist a failed diagnostics grant after an unrelated settings save', async () => {
+        const sessionName = `e2e-save-diagnostics-consent-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {clean: true});
+        const userDataPath = electronUserDataPath(session.name);
+        await clickVisibleToolbarButton(session.page, 'Settings');
+        await session.page.waitForSelector('#settings-author', {
+            timeout: SAVE_TIMEOUT_MS,
+            visible: true,
+        });
+
+        const switchSelector = '[role="switch"][aria-label="Send privacy-sanitized error diagnostics"]';
+        const initial = await session.page.$eval(switchSelector, element => element.getAttribute('aria-checked'));
+        expect(initial).toBe('false');
+
+        const seedAuthor = `Consent seed ${Date.now()}`;
+        await session.page.click('#settings-author');
+        await session.page.$eval('#settings-author', element => (element as HTMLInputElement).select());
+        await session.page.keyboard.type(seedAuthor);
+        await waitForPersistedAuthor(session.page, seedAuthor);
+        const settingsPath = join(userDataPath, 'settings.json');
+        const backupPath = `${settingsPath}.e2e-backup`;
+        await rename(settingsPath, backupPath);
+        await mkdir(settingsPath);
+        try {
+            await session.page.click(switchSelector);
+            await session.page.waitForSelector('.settings-save-error[role="alert"]', {
+                timeout: SAVE_TIMEOUT_MS,
+                visible: true,
+            });
+            const checkedAfterFailure = await session.page.$eval(switchSelector, element => element.getAttribute('aria-checked'));
+            expect(checkedAfterFailure).toBe('false');
+        } finally {
+            await rm(settingsPath, {
+                recursive: true,
+                force: true,
+            });
+            await rename(backupPath, settingsPath);
+        }
+
+        const author = `Consent recovery ${Date.now()}`;
+        await session.page.click('#settings-author');
+        await session.page.$eval('#settings-author', element => (element as HTMLInputElement).select());
+        await session.page.keyboard.type(author);
+        await waitForPersistedAuthor(session.page, author);
+        const persisted = JSON.parse(await readFile(settingsPath, 'utf8')) as ISettingsSnapshot;
+        expect(persisted.clientDiagnosticsPreference).not.toBe('granted');
+        expect(persisted.authorName).toBe(author);
     }, E2E_TIMEOUT_MS);
 
     it('keeps the rendered page and annotation sidebar mounted while saving applied OCR', async () => {

@@ -256,20 +256,32 @@ export async function updateSettings(
                 ...mutationResult,
             }
             : draft);
+        let consentRevision = options.diagnosticsConsentRevision;
         if (
-            options.diagnosticsConsentRevision === undefined
+            consentRevision === undefined
             && next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
         ) {
-            recordMainDiagnosticsConsentIntent(next.clientDiagnosticsPreference);
+            consentRevision = recordMainDiagnosticsConsentIntent(next.clientDiagnosticsPreference);
         }
         // A choice made while this write was in flight is written after it.
-        for (;;) {
-            const revision = consentIntent.revision;
-            next = withLatestConsent(next);
-            await writeSettingsAtomically(storagePath, next);
-            if (revision === consentIntent.revision) {
-                break;
+        try {
+            for (;;) {
+                const revision = consentIntent.revision;
+                next = withLatestConsent(next);
+                await writeSettingsAtomically(storagePath, next);
+                if (revision === consentIntent.revision) {
+                    break;
+                }
             }
+        } catch (error) {
+            if (
+                next.clientDiagnosticsPreference === 'granted'
+                && consentRevision !== undefined
+                && consentRevision === consentIntent.revision
+            ) {
+                recordMainDiagnosticsConsentIntent(current.clientDiagnosticsPreference);
+            }
+            throw error;
         }
         setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
         if (generation === settingsCacheGeneration) {

@@ -113,6 +113,35 @@ describe('Electron diagnostics consent persistence ordering', () => {
         ]);
     });
 
+    it('does not persist a failed grant through a later unrelated settings save', async () => {
+        mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-consent-failed-grant-'));
+        mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
+            await rename(source, target);
+        });
+        const settings = await import('@electron/settings');
+        const {createSettingsMainBindings} = await import('@electron/features/settings/createSettingsMainBindings');
+        const bindings = createSettingsMainBindings(async () => undefined);
+        await settings.updateSettings(() => ({clientDiagnosticsPreference: 'denied'}));
+        mocks.events.length = 0;
+        mocks.atomicReplace.mockRejectedValueOnce(new Error('settings disk full'));
+
+        await expect(bindings.save(
+            {senderId: 21} as never,
+            {clientDiagnosticsPreference: 'granted'},
+        ))
+            .rejects.toThrow('settings disk full');
+        mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
+            await rename(source, target);
+        });
+
+        await bindings.save({senderId: 21} as never, {authorName: 'Still private'});
+        const laterSettings = await settings.loadSettings();
+        const persisted = JSON.parse(readFileSync(join(mocks.userDataPath, 'settings.json'), 'utf-8')) as Record<string, unknown>;
+        expect(laterSettings.clientDiagnosticsPreference).toBe('denied');
+        expect(persisted.clientDiagnosticsPreference).toBe('denied');
+        expect(mocks.events).not.toContain('preference:granted');
+    });
+
     it('keeps an older ordinary save denied when revocation is admitted during its atomic write', async () => {
         vi.useFakeTimers();
         try {
