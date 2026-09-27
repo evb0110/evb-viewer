@@ -304,7 +304,7 @@ export async function runLosslessScanCleanup(
                     dpi: DETECTION_DPI,
                     ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
                         ? {}
-                        : {observedLayout: request.layoutByPage[String(plan.pageNumber)]}),
+                        : {observedLayout: request.layoutByPage[String(plan.pageNumber)]!}),
                     ...pagePlanResolver.resolve(plan.pageNumber),
                     pdfPage: {
                         xPoints: pageSize.xPoints,

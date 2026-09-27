@@ -90,6 +90,7 @@ pub struct ClusterDimensions {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DocumentPrior {
     pub dominant_layout: LayoutClassification,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub cutter_ratio_median: Option<f64>,
     pub cluster_dims: ClusterDimensions,
     pub agreement_strength: f64,
@@ -97,8 +98,10 @@ pub struct DocumentPrior {
     /// raster's effective-DPI pixels. These anchors let a spread share one
     /// threshold scale without making a noisy leaf's local estimate the
     /// document policy.
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_width_median_px: Option<f64>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x_height_median_px: Option<f64>,
 }

@@ -131,6 +131,12 @@ function previewResult(): IScanCleanupPreviewResult {
                 canvasOverflow: false,
                 matchedCanvasTargetWidthPx: 1224,
                 matchedCanvasTargetHeightPx: 1700,
+                matchedCanvasTargetWidthPoints: null,
+                matchedCanvasTargetHeightPoints: null,
+                matchedCanvasContentWidthPx: null,
+                matchedCanvasContentHeightPx: null,
+                matchedCanvasOpticalContentLeftPx: null,
+                matchedCanvasOpticalContentRightPx: null,
                 placementOffsetXPx: 0,
                 placementOffsetYPx: 0,
                 forwardTransform: {matrix: [
@@ -167,8 +173,23 @@ type TScanCleanupChannel = keyof IScanCleanupInvokeMap;
 
 const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
     [SCAN_CLEANUP_CHANNELS.preview]: previewResult(),
-    [SCAN_CLEANUP_CHANNELS.resolvePlacementAnchorCalibration]:
-        SCAN_CLEANUP_PLATFORM_FEATURE.methods.resolvePlacementAnchorCalibration.ipc.result.example(),
+    [SCAN_CLEANUP_CHANNELS.resolvePlacementAnchorCalibration]: {
+        summary: {
+            schemaVersion: 1,
+            sampleCount: 0,
+            referenceHeightPoints: 0,
+            toleranceNormalized: 0,
+            topEdgeNormalized: 0,
+            identity: {
+                documentRevision: 'revision-7',
+                detectionSignature: 'detection-1',
+                calibrationSignature: 'calibration-1',
+            },
+            clusters: [],
+            samples: [],
+        },
+        placementAnchors: {},
+    },
     [SCAN_CLEANUP_CHANNELS.cancelPreview]: true,
     [SCAN_CLEANUP_CHANNELS.detectAll]: {
         started: true,

@@ -32,7 +32,8 @@ import type {
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupPageMetadata} from '@contracts/scan-cleanup/nativeArtifactCodecs';
-import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
+import * as v from 'valibot';
+import {SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {compactScanCleanupDetectionVerdicts} from '@scripts/scanCleanupCliAdapters';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
@@ -200,17 +201,17 @@ describe('scan-cleanup split diagnostic IPC compatibility', () => {
             updatedAtMs: 1,
         });
 
-        const decoded = decodeScanCleanupDetectionJobState(makeState(diagnostics));
+        const decoded = v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, makeState(diagnostics), {abortEarly: true});
         expect(decoded?.results[0]?.splitDiagnostics).toEqual(diagnostics);
 
-        expect(() => decodeScanCleanupDetectionJobState(makeState({
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, makeState({
             ...diagnostics,
             leftOuterMarginScore: 'weak' as never,
-        }))).toThrow('invalid scan-cleanup split diagnostics');
-        expect(() => decodeScanCleanupDetectionJobState(makeState({
+        }), {abortEarly: true})).toThrow('invalid scan-cleanup split diagnostics');
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, makeState({
             ...diagnostics,
             outerMarginWeakEdge: 'middle' as never,
-        }))).toThrow('invalid scan-cleanup split diagnostics');
+        }), {abortEarly: true})).toThrow('invalid scan-cleanup split diagnostics');
     });
 });
 
@@ -267,7 +268,7 @@ describe('scan-cleanup detection renderer projection', () => {
             updatedAtMs: 1,
         };
 
-        const decoded = decodeScanCleanupDetectionJobState(state);
+        const decoded = v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true});
 
         expect(decoded?.progress.completedPageNumbers).toEqual([]);
         expect(decoded?.progress.completedPageNumbersTruncated).toBe(true);
@@ -281,7 +282,7 @@ describe('scan-cleanup detection renderer projection', () => {
             pagePlanEvidence: {pageNumber: lastPage},
             splitDiagnostics: {foldBand: {status: 'unmeasured'}},
         });
-        const lateRevision = decodeScanCleanupDetectionJobState({
+        const lateRevision = v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, {
             ...state,
             results: [
                 ...state.results,
@@ -291,7 +292,7 @@ describe('scan-cleanup detection renderer projection', () => {
                     reconciled: true,
                 },
             ],
-        });
+        }, {abortEarly: true});
         expect(lateRevision?.results).toHaveLength(visibleResults.length + 1);
         expect(lateRevision?.results.at(-1)).toMatchObject({
             pageNumber: firstVisiblePage,
@@ -302,10 +303,10 @@ describe('scan-cleanup detection renderer projection', () => {
             ...state.results[0]!,
             pageNumber: index + 1,
         }));
-        const boundaryDecoded = decodeScanCleanupDetectionJobState({
+        const boundaryDecoded = v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, {
             ...state,
             results: boundaryResults,
-        });
+        }, {abortEarly: true});
         expect(boundaryDecoded?.results).toHaveLength(SCAN_CLEANUP_STREAMING_BATCH_PAGES);
         expect(boundaryDecoded?.resultCount).toBe(totalPages);
         expect(boundaryDecoded?.detectionResultStoreId).toBe('persisted-large-detection-store');
@@ -313,7 +314,7 @@ describe('scan-cleanup detection renderer projection', () => {
             ...state.results[0]!,
             pageNumber: index + 1,
         }));
-        expect(() => decodeScanCleanupDetectionJobState({
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, {
             ...state,
             progress: {
                 ...state.progress,
@@ -322,16 +323,16 @@ describe('scan-cleanup detection renderer projection', () => {
             },
             resultCount: oversizedResults.length,
             results: oversizedResults,
-        })).toThrow('detection job state');
-        expect(() => decodeScanCleanupDetectionJobState({
+        }, {abortEarly: true})).toThrow('detection job state');
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, {
             ...state,
             resultCount: 255,
             progress: {
                 ...state.progress,
                 completedUnits: 255,
             },
-        })).toThrow('invalid scan-cleanup detection result count');
-        expect(() => decodeScanCleanupDetectionJobState({
+        }, {abortEarly: true})).toThrow('invalid scan-cleanup detection result count');
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, {
             ...state,
             status: 'running',
             progress: {
@@ -340,7 +341,7 @@ describe('scan-cleanup detection renderer projection', () => {
             },
             resultCount: visibleResults.length,
             results: state.results,
-        })).toThrow('invalid scan-cleanup detection result count');
+        }, {abortEarly: true})).toThrow('invalid scan-cleanup detection result count');
     });
 });
 
@@ -1381,14 +1382,14 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             results: detection.results,
             updatedAtMs: 1,
         };
-        const decoded = decodeScanCleanupDetectionJobState(state);
+        const decoded = v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true});
         expect(decoded?.results[0]!.splitDiagnostics).toEqual(diagnostics);
         expect(compactScanCleanupDetectionVerdicts(decoded!.results)[0]!.splitDiagnostics)
             .toEqual(diagnostics);
 
         const malformedState = structuredClone(state);
         malformedState.results[0]!.splitDiagnostics!.gutterGatePassed = 'yes' as never;
-        expect(() => decodeScanCleanupDetectionJobState(malformedState))
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, malformedState, {abortEarly: true}))
             .toThrow('invalid scan-cleanup split diagnostics');
 
         const malformedFoldState = structuredClone(state);
@@ -1397,7 +1398,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             reason: 'unknown',
             nominalHalfWidthPx: 6,
         } as never;
-        expect(() => decodeScanCleanupDetectionJobState(malformedFoldState))
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, malformedFoldState, {abortEarly: true}))
             .toThrow('invalid scan-cleanup split diagnostics');
 
         const missingFoldState = structuredClone(state);
@@ -1405,7 +1406,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             foldBand: _foldBand, ...splitDiagnosticsWithoutFoldBand
         } = missingFoldState.results[0]!.splitDiagnostics!;
         missingFoldState.results[0]!.splitDiagnostics = splitDiagnosticsWithoutFoldBand as never;
-        expect(() => decodeScanCleanupDetectionJobState(missingFoldState))
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, missingFoldState, {abortEarly: true}))
             .toThrow('invalid scan-cleanup split diagnostics');
     });
 

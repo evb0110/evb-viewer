@@ -242,14 +242,14 @@ function assertManifestPagePaths(
             label,
         } of MANIFEST_OUTPUT_PATH_FIELDS) {
             check(
-                output[field],
+                output[field] ?? undefined,
                 `${pageTrail}.outputs.${String(outputIndex)}.${field}`,
                 `${pageLabel} output ${String(outputIndex)} ${label}`,
             );
         }
     }
     const detailRenderPlan = page.detailRenderPlan;
-    if (detailRenderPlan === undefined) {
+    if (detailRenderPlan == null) {
         return;
     }
     for (const {
@@ -257,7 +257,7 @@ function assertManifestPagePaths(
         label,
     } of MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS) {
         check(
-            detailRenderPlan[field],
+            detailRenderPlan[field] ?? undefined,
             `${pageTrail}.detailRenderPlan.${field}`,
             `${pageLabel} ${label}`,
         );
@@ -489,7 +489,22 @@ function assembleNativeScanCleanupManifest({
                     ),
                 }),
                 outputs: page.outputs ?? [],
-                ...(page.documentPrior === undefined ? {} : {documentPrior: page.documentPrior}),
+                ...(page.documentPrior == null
+                    ? {}
+                    : {documentPrior: {
+                        dominantLayout: page.documentPrior.dominantLayout,
+                        ...(page.documentPrior.cutterRatioMedian === undefined
+                            ? {}
+                            : {cutterRatioMedian: page.documentPrior.cutterRatioMedian}),
+                        clusterDims: page.documentPrior.clusterDims,
+                        agreementStrength: page.documentPrior.agreementStrength,
+                        ...(page.documentPrior.strokeWidthMedianPx === undefined
+                            ? {}
+                            : {strokeWidthMedianPx: page.documentPrior.strokeWidthMedianPx}),
+                        ...(page.documentPrior.xHeightMedianPx === undefined
+                            ? {}
+                            : {xHeightMedianPx: page.documentPrior.xHeightMedianPx}),
+                    }}),
                 ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
                 ...(page.pdfPage === undefined ? {} : {pdfPage: page.pdfPage}),
             };

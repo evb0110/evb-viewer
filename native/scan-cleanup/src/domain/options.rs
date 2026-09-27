@@ -214,8 +214,11 @@ impl PageAlignment {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ManualContentBoxes {
+    #[cfg_attr(test, ts(optional = nullable))]
     pub full: Option<NormalizedRect>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub left: Option<NormalizedRect>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub right: Option<NormalizedRect>,
 }
 
@@ -229,8 +232,11 @@ impl ManualContentBoxes {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct AutomaticSkewDegrees {
+    #[cfg_attr(test, ts(optional = nullable))]
     pub full: Option<f64>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub left: Option<f64>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub right: Option<f64>,
 }
 
@@ -427,8 +433,11 @@ pub struct ManualZones {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlacementOverrides {
+    #[cfg_attr(test, ts(optional = nullable))]
     pub full: Option<PageAlignment>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub left: Option<PageAlignment>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub right: Option<PageAlignment>,
 }
 
@@ -448,8 +457,11 @@ pub struct PlacementAnchor {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlacementAnchors {
+    #[cfg_attr(test, ts(optional = nullable))]
     pub full: Option<PlacementAnchor>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub left: Option<PlacementAnchor>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub right: Option<PlacementAnchor>,
 }
 
@@ -503,6 +515,7 @@ impl MarginsMm {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExperimentalOptions {
     pub auto_dewarp: bool,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_dewarp_depth: Option<f64>,
 }
@@ -511,8 +524,11 @@ pub struct ExperimentalOptions {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolvedTextToneDiagnostics {
+    #[cfg_attr(test, ts(optional = nullable))]
     pub full: Option<TextToneDiagnostics>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub left: Option<TextToneDiagnostics>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub right: Option<TextToneDiagnostics>,
 }
 
@@ -535,15 +551,19 @@ impl ResolvedTextToneDiagnostics {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CleanupOptions {
     pub dpi: f64,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub source_dpi: Option<f64>,
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub source_has_bilevel_layer: bool,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub source_background_dpi: Option<f64>,
     /// The trusted MRC selection mask is known to be an incomplete ink
     /// carrier (the producer authored a full-resolution background and left
     /// detail there). Mixed composition keeps that background underneath and
     /// stays safe; bilevel output must not adopt the selection as its ink.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub trusted_selection_incomplete: bool,
     /// Set by the batch adapter only after both extracted source-MRC layers
     /// pass their aspect-ratio and format checks. A bare trusted selection is
@@ -554,8 +574,10 @@ pub struct CleanupOptions {
     /// sample. This is runtime state, never caller-authored manifest input.
     #[serde(skip)]
     pub page_ink_consistency: Option<PageInkConsistencyContext>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub requested_render_dpi: Option<f64>,
     /// Optional preview tile in normalized final intrinsic-output space.
+    #[cfg_attr(test, ts(optional = nullable))]
     pub render_crop: Option<NormalizedRect>,
     #[serde(default)]
     pub binarization: BinarizationMode,
@@ -565,11 +587,13 @@ pub struct CleanupOptions {
     pub normalize_illumination: bool,
     pub despeckle: bool,
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub despeckle_level: DespeckleLevel,
     pub output_mode: OutputMode,
     /// Locked Auto representation decision. `None` preserves native policy for
     /// an explicitly selected Mixed mode.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub prefer_soft_alpha_foreground: Option<bool>,
     #[serde(default, skip_serializing_if = "ResolvedTextToneDiagnostics::is_empty")]
     pub resolved_text_tone_diagnostics: ResolvedTextToneDiagnostics,
@@ -578,13 +602,17 @@ pub struct CleanupOptions {
     /// OCR-only raster preparation: detect light text on a dark page and
     /// otherwise pass the source raster through without scan cleanup.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub ocr_polarity_only: bool,
     #[serde(default)]
     pub layout: LayoutMode,
     #[serde(rename = "manualSplit")]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub manual_split_x: Option<NormalizedSplit>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub automatic_split: Option<NormalizedSplit>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manual_skew_degrees: Option<f64>,
     #[serde(default)]
@@ -596,6 +624,7 @@ pub struct CleanupOptions {
     #[serde(skip_serializing_if = "ManualContentBoxes::is_empty")]
     pub automatic_content_boxes: ManualContentBoxes,
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub manual_zones: ManualZones,
     pub crop_content: bool,
     pub match_page_size: bool,
@@ -606,9 +635,11 @@ pub struct CleanupOptions {
     #[serde(skip_serializing_if = "PlacementAnchors::is_empty")]
     pub placement_anchors: PlacementAnchors,
     #[serde(rename = "margins")]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub margins_mm: Option<MarginsMm>,
     #[serde(skip)]
     pub margins_pixels: Option<[f64; 4]>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub dewarp: Option<DewarpOptions>,
     #[serde(default)]
     pub experimental: ExperimentalOptions,

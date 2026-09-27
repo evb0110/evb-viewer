@@ -18,7 +18,7 @@ export type AnalysisPurpose = "classification" | "page-plan";
 
 export type AppliedMargins = { leftPx: number, topPx: number, rightPx: number, bottomPx: number, };
 
-export type AutomaticSkewDegrees = { full: number | null, left: number | null, right: number | null, };
+export type AutomaticSkewDegrees = { full?: number | null, left?: number | null, right?: number | null, };
 
 /**
  * Raw Auto-routing measurements from the canonical, at-most-256px routing
@@ -104,28 +104,28 @@ renderRegion?: PixelRect, canvasWidthPx: number, canvasHeightPx: number, placeme
  */
 warnings: Array<string>, warningEvents: Array<CleanupWarningEvent>, };
 
-export type CleanupOptions = { dpi: number, sourceDpi: number | null, sourceHasBilevelLayer: boolean, sourceBackgroundDpi: number | null, 
+export type CleanupOptions = { dpi: number, sourceDpi?: number | null, sourceHasBilevelLayer?: boolean, sourceBackgroundDpi?: number | null, 
 /**
  * The trusted MRC selection mask is known to be an incomplete ink
  * carrier (the producer authored a full-resolution background and left
  * detail there). Mixed composition keeps that background underneath and
  * stays safe; bilevel output must not adopt the selection as its ink.
  */
-trustedSelectionIncomplete: boolean, requestedRenderDpi: number | null, 
+trustedSelectionIncomplete?: boolean, requestedRenderDpi?: number | null, 
 /**
  * Optional preview tile in normalized final intrinsic-output space.
  */
-renderCrop: NormalizedRect | null, binarization: BinarizationMode, thickness: number, normalizeIllumination: boolean, despeckle: boolean, despeckleLevel: DespeckleLevel, outputMode: OutputMode, 
+renderCrop?: NormalizedRect | null, binarization: BinarizationMode, thickness: number, normalizeIllumination: boolean, despeckle: boolean, despeckleLevel?: DespeckleLevel, outputMode: OutputMode, 
 /**
  * Locked Auto representation decision. `None` preserves native policy for
  * an explicitly selected Mixed mode.
  */
-preferSoftAlphaForeground: boolean | null, resolvedTextToneDiagnostics?: ResolvedTextToneDiagnostics, ocrMode: boolean, 
+preferSoftAlphaForeground?: boolean | null, resolvedTextToneDiagnostics?: ResolvedTextToneDiagnostics, ocrMode: boolean, 
 /**
  * OCR-only raster preparation: detect light text on a dark page and
  * otherwise pass the source raster through without scan cleanup.
  */
-ocrPolarityOnly: boolean, layout: LayoutMode, manualSplit: NormalizedSplit | null, automaticSplit: NormalizedSplit | null, manualSkewDegrees: number | null, manualContentBoxes: ManualContentBoxes, automaticSkewDegrees?: AutomaticSkewDegrees, automaticContentBoxes?: ManualContentBoxes, manualZones: ManualZones, cropContent: boolean, matchPageSize: boolean, pageAlignment: PageAlignment, placementOverrides: PlacementOverrides, placementAnchors?: PlacementAnchors, margins: MarginsMm | null, dewarp: DewarpOptions | null, experimental: ExperimentalOptions, rotationDegrees: OrthogonalRotation, excluded: boolean, skipBlankPages: boolean, maxPixels: number, maxDimensionPx: number, };
+ocrPolarityOnly?: boolean, layout: LayoutMode, manualSplit?: NormalizedSplit | null, automaticSplit?: NormalizedSplit | null, manualSkewDegrees?: number | null, manualContentBoxes: ManualContentBoxes, automaticSkewDegrees?: AutomaticSkewDegrees, automaticContentBoxes?: ManualContentBoxes, manualZones?: ManualZones, cropContent: boolean, matchPageSize: boolean, pageAlignment: PageAlignment, placementOverrides: PlacementOverrides, placementAnchors?: PlacementAnchors, margins?: MarginsMm | null, dewarp?: DewarpOptions | null, experimental: ExperimentalOptions, rotationDegrees: OrthogonalRotation, excluded: boolean, skipBlankPages: boolean, maxPixels: number, maxDimensionPx: number, };
 
 /**
  * Structured counterpart of `CleanupMetadata::warnings` for every condition
@@ -170,7 +170,7 @@ export type DetailRenderPlan = { baseMetadataPath: string, baseRasterPath: strin
  * rendering replays its source-to-cleaned transfer instead of rebuilding
  * illumination and text-tone decisions from a viewport crop.
  */
-baseCleanedRasterPath: string | null, sourceCrop: DetailPixelRect, fullSourceWidthPx: number, fullSourceHeightPx: number, scale: number, renderRegion: DetailPixelRect, sampledRegion: DetailPixelRect, };
+baseCleanedRasterPath?: string | null, sourceCrop: DetailPixelRect, fullSourceWidthPx: number, fullSourceHeightPx: number, scale: number, renderRegion: DetailPixelRect, sampledRegion: DetailPixelRect, };
 
 export type DewarpMappingGrid = { columns: number, rows: number, outputOrigin: Point, outputWidth: number, outputHeight: number, outputToSource: Array<Point>, sourceToOutput: Array<Point>, };
 
@@ -189,16 +189,16 @@ topCurve: Array<Point>, bottomCurve: Array<Point>, depth: number, };
 
 export type DocumentCanvas = { widthPoints: number, heightPoints: number, widthPx: number, heightPx: number, };
 
-export type DocumentPrior = { dominantLayout: LayoutClassification, cutterRatioMedian: number | null, clusterDims: ClusterDimensions, agreementStrength: number, 
+export type DocumentPrior = { dominantLayout: LayoutClassification, cutterRatioMedian?: number | null, clusterDims: ClusterDimensions, agreementStrength: number, 
 /**
  * Robust document-level body-text calibration, measured in the analysis
  * raster's effective-DPI pixels. These anchors let a spread share one
  * threshold scale without making a noisy leaf's local estimate the
  * document policy.
  */
-strokeWidthMedianPx?: number, xHeightMedianPx?: number, };
+strokeWidthMedianPx?: number | null, xHeightMedianPx?: number | null, };
 
-export type ExperimentalOptions = { autoDewarp: boolean, autoDewarpDepth: number | null, };
+export type ExperimentalOptions = { autoDewarp: boolean, autoDewarpDepth?: number | null, };
 
 export type FoldBand = { "status": "measured", leftXPx: number, rightXPx: number, } | { "status": "unmeasured", reason: FoldBandUnmeasuredReason, nominalHalfWidthPx: number, };
 
@@ -223,14 +223,14 @@ export type LosslessPlacement = { cropRect: PdfRect, contentTransform?: ContentT
  */
 contentScaled: boolean, warningEvents?: Array<CleanupWarningEvent>, preview?: PreviewPlacement, };
 
-export type ManifestV3 = { version: number, operation: Operation, analysisPurpose: AnalysisPurpose, renderMode: RenderMode, canvasScope: CanvasScope, documentCanvas: DocumentCanvas | null, 
+export type ManifestV3 = { version: number, operation: Operation, analysisPurpose?: AnalysisPurpose, renderMode: RenderMode, canvasScope: CanvasScope, documentCanvas?: DocumentCanvas | null, 
 /**
  * Physical memory of the host that authored this manifest. The sidecar has
  * no portable way to read it, so the owning process reports it here and the
  * worker pool and stage cache are sized from it. Absent for direct CLI
  * invocations, which then size themselves conservatively.
  */
-hostMemoryBytes: number | null, 
+hostMemoryBytes?: number | null, 
 /**
  * Number of Analyze page inputs the owning process keeps staged at once.
  *
@@ -243,7 +243,7 @@ hostMemoryBytes: number | null,
  * bounded window from changing any classification. Absent means every
  * Analyze input must already exist, which is the direct-CLI contract.
  */
-stagedInputWindow: number | null, 
+stagedInputWindow?: number | null, 
 /**
  * Largest staged Analyze input the owning process will publish, in pixels.
  *
@@ -253,9 +253,9 @@ stagedInputWindow: number | null,
  * geometry, so it declares the document's peak here and the memory-derived
  * bound stays a document fact instead of a staging-order accident.
  */
-stagedInputPeakPixels: number | null, pages: Array<Page>, };
+stagedInputPeakPixels?: number | null, pages: Array<Page>, };
 
-export type ManualContentBoxes = { full: NormalizedRect | null, left: NormalizedRect | null, right: NormalizedRect | null, };
+export type ManualContentBoxes = { full?: NormalizedRect | null, left?: NormalizedRect | null, right?: NormalizedRect | null, };
 
 /**
  * Manual mask overrides use ScanTailor's stable three-pass ordering:
@@ -305,33 +305,33 @@ export type Page = { inputPath: string,
  * Fixed-resolution PDF render that owns analysis and Auto-routing.
  * Raster/image callers omit it because input_path is already canonical.
  */
-analysisInputPath: string | null, analysisDpi: number | null, 
+analysisInputPath?: string | null, analysisDpi?: number | null, 
 /**
  * White samples in this extracted one-bit PDF soft mask select the
  * source MRC foreground. It shares input_path's unrotated page grid.
  */
-trustedForegroundMaskPath: string | null, 
+trustedForegroundMaskPath?: string | null, 
 /**
  * Native-resolution continuous-tone background extracted from the same
  * compact MRC page as trusted_foreground_mask_path.
  */
-trustedMrcBackgroundPath: string | null, sourcePageIndex: number, pageMetadataPath: string, 
+trustedMrcBackgroundPath?: string | null, sourcePageIndex: number, pageMetadataPath: string, 
 /**
  * Any serialized dewarp directrices inside `options` are authored in
  * source-rotated page coordinates (before deskew, dewarp, and crop).
  */
-options: CleanupOptions, documentPrior: DocumentPrior | null, detailRenderPlan: DetailRenderPlan | null, 
+options: CleanupOptions, documentPrior?: DocumentPrior | null, detailRenderPlan?: DetailRenderPlan | null, 
 /**
  * The source page's PDF geometry. When present, outputs also report their
  * placement in PDF points for the lossless assembler.
  */
-pdfPage: PdfPageGeometry | null, outputs: Array<PageOutput>, };
+pdfPage?: PdfPageGeometry | null, outputs: Array<PageOutput>, };
 
 export type PageAlignment = "top-left" | "top-center" | "top-right" | "center-left" | "center" | "center-right" | "bottom-left" | "bottom-center" | "bottom-right" | "ink";
 
 export type PageHalf = "full" | "left" | "right";
 
-export type PageOutput = { outputPath: string, metadataPath: string, bilevelOutputPath: string | null, backgroundOutputPath: string | null, foregroundMaskOutputPath: string | null, foregroundAlphaOutputPath: string | null, pictureMaskOutputPath: string | null, tonePreservationAlphaOutputPath: string | null, };
+export type PageOutput = { outputPath: string, metadataPath: string, bilevelOutputPath?: string | null, backgroundOutputPath?: string | null, foregroundMaskOutputPath?: string | null, foregroundAlphaOutputPath?: string | null, pictureMaskOutputPath?: string | null, tonePreservationAlphaOutputPath?: string | null, };
 
 export type PageResultMetadata = { version: number, sourcePageIndex: number, layoutClassification: LayoutClassification, layoutConfidence: number, cutterXPx: number | null, splitSeam: SplitSeamPolyline | null, rotationDegrees: OrthogonalRotation, canvasScope: CanvasScope, excluded: boolean, blankOutputsSkipped: number, outputCount: number, outputs: Array<AnalysisOutputMetadata>, tier1Verdict: LayoutClassification, reconciled: boolean, clusterAgreement: number, splitDiagnostics: SplitDiagnostics, documentPrior: DocumentPrior | null, textAxis: TextAxisHint | null, recommendedOutputMode: OutputMode | null, recommendedOutputModeConfidence: number | null, recommendedOutputModeReason: OutputModeRecommendationReason | null, softAlphaForegroundRecommendation: boolean | null, outputModeDiagnostics: OutputModeDiagnostics | null, };
 
@@ -364,9 +364,9 @@ export type PixelRect = { xPx: number, yPx: number, widthPx: number, heightPx: n
 
 export type PlacementAnchor = { yNormalized: number, };
 
-export type PlacementAnchors = { full: PlacementAnchor | null, left: PlacementAnchor | null, right: PlacementAnchor | null, };
+export type PlacementAnchors = { full?: PlacementAnchor | null, left?: PlacementAnchor | null, right?: PlacementAnchor | null, };
 
-export type PlacementOverrides = { full: PageAlignment | null, left: PageAlignment | null, right: PageAlignment | null, };
+export type PlacementOverrides = { full?: PageAlignment | null, left?: PageAlignment | null, right?: PageAlignment | null, };
 
 /**
  * Floating-point point in pixel-center coordinates; integer pixels are centered at `(x + .5, y + .5)`.
@@ -396,7 +396,7 @@ export type ProgressStage = "started" | "page-analyzed" | "page-complete" | "pag
 
 export type RenderMode = "preview" | "final";
 
-export type ResolvedTextToneDiagnostics = { full: TextToneDiagnostics | null, left: TextToneDiagnostics | null, right: TextToneDiagnostics | null, };
+export type ResolvedTextToneDiagnostics = { full?: TextToneDiagnostics | null, left?: TextToneDiagnostics | null, right?: TextToneDiagnostics | null, };
 
 export type ResultEnvelope = { version: number, type: string, result: ResultPayload, };
 
@@ -418,7 +418,7 @@ export type SpreadBinarizationPlanDiagnostics = { route: BinarizationMode, thres
 
 export type TextAxisHint = { sideways: boolean, confidence: number, };
 
-export type TextToneDiagnostics = { applied: boolean, rule: TextToneRule, textLineCount: number, textInkPixels: number, pictureFraction: number, outsideMidtoneFraction: number, outsideMidtoneLargestComponentFraction: number, outsideMidtoneLargestComponentWidthFraction: number, outsideMidtoneLargestComponentHeightFraction: number, inkAnchor: number | null, blackPoint: number | null, slope: number | null, };
+export type TextToneDiagnostics = { applied: boolean, rule: TextToneRule, textLineCount: number, textInkPixels: number, pictureFraction: number, outsideMidtoneFraction: number, outsideMidtoneLargestComponentFraction: number, outsideMidtoneLargestComponentWidthFraction: number, outsideMidtoneLargestComponentHeightFraction: number, inkAnchor?: number | null, blackPoint?: number | null, slope?: number | null, };
 
 export type TextToneRule = "applied" | "picture-evidence" | "insufficient-text" | "tonal-mass-outside-text" | "already-dark";
 

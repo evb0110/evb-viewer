@@ -190,16 +190,22 @@ impl DocumentCanvas {
 pub struct PageOutput {
     pub output_path: PathBuf,
     pub metadata_path: PathBuf,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default)]
     pub bilevel_output_path: Option<PathBuf>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default)]
     pub background_output_path: Option<PathBuf>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default)]
     pub foreground_mask_output_path: Option<PathBuf>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default)]
     pub foreground_alpha_output_path: Option<PathBuf>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default)]
     pub picture_mask_output_path: Option<PathBuf>,
+    #[cfg_attr(test, ts(optional = nullable))]
     #[serde(default)]
     pub tone_preservation_alpha_output_path: Option<PathBuf>,
 }
@@ -230,6 +236,7 @@ pub struct DetailRenderPlan {
     /// rendering replays its source-to-cleaned transfer instead of rebuilding
     /// illumination and text-tone decisions from a viewport crop.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub base_cleaned_raster_path: Option<PathBuf>,
     pub source_crop: DetailPixelRect,
     pub full_source_width_px: usize,
@@ -247,16 +254,20 @@ pub struct Page {
     /// Fixed-resolution PDF render that owns analysis and Auto-routing.
     /// Raster/image callers omit it because input_path is already canonical.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub analysis_input_path: Option<PathBuf>,
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub analysis_dpi: Option<f64>,
     /// White samples in this extracted one-bit PDF soft mask select the
     /// source MRC foreground. It shares input_path's unrotated page grid.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub trusted_foreground_mask_path: Option<PathBuf>,
     /// Native-resolution continuous-tone background extracted from the same
     /// compact MRC page as trusted_foreground_mask_path.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub trusted_mrc_background_path: Option<PathBuf>,
     pub source_page_index: usize,
     pub page_metadata_path: PathBuf,
@@ -264,12 +275,15 @@ pub struct Page {
     /// source-rotated page coordinates (before deskew, dewarp, and crop).
     pub options: CleanupOptions,
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub document_prior: Option<DocumentPrior>,
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub detail_render_plan: Option<DetailRenderPlan>,
     /// The source page's PDF geometry. When present, outputs also report their
     /// placement in PDF points for the lossless assembler.
     #[serde(default)]
+    #[cfg_attr(test, ts(optional = nullable))]
     pub pdf_page: Option<crate::engine::lossless_placement::PdfPageGeometry>,
     pub outputs: Vec<PageOutput>,
 }
@@ -280,14 +294,17 @@ pub struct Page {
 pub struct ManifestV3 {
     pub version: u32,
     pub operation: Operation,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub analysis_purpose: AnalysisPurpose,
     pub render_mode: RenderMode,
     pub canvas_scope: CanvasScope,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub document_canvas: Option<DocumentCanvas>,
     /// Physical memory of the host that authored this manifest. The sidecar has
     /// no portable way to read it, so the owning process reports it here and the
     /// worker pool and stage cache are sized from it. Absent for direct CLI
     /// invocations, which then size themselves conservatively.
+    #[cfg_attr(test, ts(optional = nullable))]
     pub host_memory_bytes: Option<u64>,
     /// Number of Analyze page inputs the owning process keeps staged at once.
     ///
@@ -299,6 +316,7 @@ pub struct ManifestV3 {
     /// released here is replayable rather than consumed, which is what keeps a
     /// bounded window from changing any classification. Absent means every
     /// Analyze input must already exist, which is the direct-CLI contract.
+    #[cfg_attr(test, ts(optional = nullable))]
     pub staged_input_window: Option<usize>,
     /// Largest staged Analyze input the owning process will publish, in pixels.
     ///
@@ -307,6 +325,7 @@ pub struct ManifestV3 {
     /// decision is made. The producer already knows every page's raster
     /// geometry, so it declares the document's peak here and the memory-derived
     /// bound stays a document fact instead of a staging-order accident.
+    #[cfg_attr(test, ts(optional = nullable))]
     pub staged_input_peak_pixels: Option<u64>,
     pub pages: Vec<Page>,
 }

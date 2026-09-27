@@ -3,9 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import * as v from 'valibot';
 import {
-    decodeScanCleanupJobState,
-    decodeScanCleanupRawPreviewEvent,
+    SCAN_CLEANUP_JOB_STATE_SCHEMA,
+    SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA,
     decodeScanCleanupPreviewResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
 
@@ -47,11 +48,11 @@ describe('scan cleanup job state diagnostics', () => {
             updatedAtMs: 2,
         };
 
-        expect(decodeScanCleanupJobState(committing)).toEqual(committing);
+        expect(v.parse(SCAN_CLEANUP_JOB_STATE_SCHEMA, committing, {abortEarly: true})).toEqual(committing);
     });
 
     it('preserves the closed main failure receipt on a failed projection', () => {
-        expect(decodeScanCleanupJobState(failedState)).toEqual(failedState);
+        expect(v.parse(SCAN_CLEANUP_JOB_STATE_SCHEMA, failedState, {abortEarly: true})).toEqual(failedState);
     });
 
     it('keeps legacy failed projections compatible while rejecting an invalid receipt', () => {
@@ -59,14 +60,14 @@ describe('scan cleanup job state diagnostics', () => {
             failure: _failure,
             ...legacy
         } = failedState;
-        expect(decodeScanCleanupJobState(legacy)).toEqual(legacy);
-        expect(() => decodeScanCleanupJobState({
+        expect(v.parse(SCAN_CLEANUP_JOB_STATE_SCHEMA, legacy, {abortEarly: true})).toEqual(legacy);
+        expect(() => v.parse(SCAN_CLEANUP_JOB_STATE_SCHEMA, {
             ...failedState,
             failure: {
                 ...failedState.failure,
                 eventId: 'not-an-event-id',
             },
-        })).toThrow('invalid failure receipt');
+        }, {abortEarly: true})).toThrow('invalid failure receipt');
     });
 
     it('preserves typed scratch figures on a failed run projection', () => {
@@ -78,7 +79,7 @@ describe('scan cleanup job state diagnostics', () => {
                 requiredBytes: 1_100 * 1024 * 1024,
             },
         };
-        expect(decodeScanCleanupJobState(runState)).toEqual(runState);
+        expect(v.parse(SCAN_CLEANUP_JOB_STATE_SCHEMA, runState, {abortEarly: true})).toEqual(runState);
     });
 });
 
@@ -95,23 +96,23 @@ describe('scan cleanup raw preview result', () => {
     };
 
     it('bounds the owner identity fields at the result boundary', () => {
-        expect(decodeScanCleanupRawPreviewEvent(rawPreview)).toMatchObject(rawPreview);
-        expect(decodeScanCleanupRawPreviewEvent({
+        expect(v.parse(SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA, rawPreview, {abortEarly: true})).toMatchObject(rawPreview);
+        expect(v.parse(SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA, {
             ...rawPreview,
             ownerId: 'o'.repeat(128),
             documentRevision: 'r'.repeat(128),
-        })).toMatchObject({
+        }, {abortEarly: true})).toMatchObject({
             ownerId: 'o'.repeat(128),
             documentRevision: 'r'.repeat(128),
         });
-        expect(() => decodeScanCleanupRawPreviewEvent({
+        expect(() => v.parse(SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA, {
             ...rawPreview,
             ownerId: 'x'.repeat(129),
-        })).toThrow('raw preview owner id');
-        expect(() => decodeScanCleanupRawPreviewEvent({
+        }, {abortEarly: true})).toThrow('raw preview owner id');
+        expect(() => v.parse(SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA, {
             ...rawPreview,
             documentRevision: 'x'.repeat(129),
-        })).toThrow('raw preview document revision');
+        }, {abortEarly: true})).toThrow('raw preview document revision');
     });
 });
 

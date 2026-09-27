@@ -64,7 +64,7 @@ function decodeProgress(value: unknown): TDecodedProgress {
 
 function decodeSummary(value: unknown): TScanCleanupSummary | null {
     try {
-        return SCAN_CLEANUP_SUMMARY_SCHEMA.decode(value);
+        return v.parse(SCAN_CLEANUP_SUMMARY_SCHEMA, value, {abortEarly: true});
     } catch {
         return null;
     }

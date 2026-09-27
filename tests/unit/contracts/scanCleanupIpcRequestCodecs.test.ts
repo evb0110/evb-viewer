@@ -3,14 +3,15 @@ import {
     expect,
     it,
 } from 'vitest';
+import {SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA} from '@contracts/scan-cleanup/domain';
+import * as v from 'valibot';
 import {
-    decodeDetectionArgs,
-    decodeDocumentPrior,
-    decodeOwnedJobId,
-    decodePreviewArgs,
+    SCAN_CLEANUP_DETECTION_ARGS_SCHEMA,
+    SCAN_CLEANUP_OWNED_JOB_ARGS_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
     decodeScanCleanupPageOverrides,
-    decodeSourcePageMetadata,
-    decodeStartArgs,
+    SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA,
+    SCAN_CLEANUP_START_ARGS_SCHEMA,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
     createScanCleanupInputBudget,
@@ -132,43 +133,43 @@ describe('scan-cleanup IPC request codecs', () => {
             'normalizeIllumination',
             'autoDewarp',
         ]) {
-            expect(() => decodeStartArgs([{
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
                 ...request,
                 options: {
                     ...request.options,
                     [field]: null,
                 },
-            }])).toThrow('invalid scan-cleanup options');
+            }], {abortEarly: true})).toThrow('invalid scan-cleanup options');
         }
     });
 
     it('decodes a detected page plan on preview requests', () => {
         const pagePlanEvidence = request.pagePlanEvidenceByPage['12'];
-        const decoded = decodePreviewArgs([{
+        const decoded = v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
             ...request,
             requestId: 'preview-12',
             pageNumber: 12,
             layoutDetectionComplete: true,
             pagePlanEvidence,
-        }])[0];
+        }], {abortEarly: true})[0];
         expect(decoded.pagePlanEvidence).toEqual(pagePlanEvidence);
         expect(decoded.layoutDetectionComplete).toBe(true);
-        expect(() => decodePreviewArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
             ...request,
             requestId: 'preview-12',
             pageNumber: 11,
             pagePlanEvidence,
-        }])).toThrow('page-plan evidence');
-        expect(() => decodePreviewArgs([{
+        }], {abortEarly: true})).toThrow('page-plan evidence');
+        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
             ...request,
             requestId: 'preview-12',
             pageNumber: 12,
             layoutDetectionComplete: 'yes',
-        }])).toThrow('preview request');
+        }], {abortEarly: true})).toThrow('preview request');
     });
 
     it('decodes typed automatic page-plan evidence', () => {
-        expect(decodeStartArgs([request])[0].pagePlanEvidenceByPage).toEqual(
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [request], {abortEarly: true})[0].pagePlanEvidenceByPage).toEqual(
             request.pagePlanEvidenceByPage,
         );
     });
@@ -182,14 +183,14 @@ describe('scan-cleanup IPC request codecs', () => {
             heightPoints: 792,
             rotation: 0,
         };
-        expect(() => decodeSourcePageMetadata({
+        expect(() => v.parse(SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA, {
             ...metadata,
             rotation: '90',
-        })).toThrow('source page metadata');
-        expect(() => decodeSourcePageMetadata({
+        }, {abortEarly: true})).toThrow('source page metadata');
+        expect(() => v.parse(SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA, {
             ...metadata,
             widthPoints: Number.MAX_SAFE_INTEGER + 1,
-        })).toThrow('source page metadata');
+        }, {abortEarly: true})).toThrow('source page metadata');
     });
 
     it('rejects unsafe finite document-prior dimensions and medians', () => {
@@ -229,7 +230,8 @@ describe('scan-cleanup IPC request codecs', () => {
             },
         ];
         for (const unsafePrior of unsafePriors) {
-            expect(() => decodeDocumentPrior(unsafePrior)).toThrow('document prior');
+            expect(() => v.parse(SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA, unsafePrior, {abortEarly: true}))
+                .toThrow('invalid scan-cleanup document prior');
         }
     });
 
@@ -238,7 +240,7 @@ describe('scan-cleanup IPC request codecs', () => {
             '0',
             null,
         ]) {
-            expect(() => decodeStartArgs([{
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
                 ...request,
                 pagePlanEvidenceByPage: {'12': {
                     ...request.pagePlanEvidenceByPage['12'],
@@ -246,14 +248,14 @@ describe('scan-cleanup IPC request codecs', () => {
                     automaticSplit: undefined,
                     outputs: {full: {detectedSkewDegrees: 0}},
                 }},
-            }])).toThrow('page-plan evidence');
+            }], {abortEarly: true})).toThrow('page-plan evidence');
 
-            expect(() => decodeStartArgs([requestWithOverrides({'12': {
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'12': {
                 ...pageOverride(),
                 rotationDegrees,
-            }})])).toThrow('page override');
+            }})], {abortEarly: true})).toThrow('page override');
 
-            expect(() => decodeStartArgs([{
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
                 ...request,
                 pagePlanEvidenceByPage: {'12': {
                     ...request.pagePlanEvidenceByPage['12'],
@@ -262,7 +264,7 @@ describe('scan-cleanup IPC request codecs', () => {
                         rotationDegrees,
                     },
                 }},
-            }])).toThrow('automatic split rotation');
+            }], {abortEarly: true})).toThrow('automatic split rotation');
         }
     });
 
@@ -273,26 +275,26 @@ describe('scan-cleanup IPC request codecs', () => {
             0.981,
             1,
         ]) {
-            expect(() => decodeStartArgs([requestWithOverrides({'12': {
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'12': {
                 ...pageOverride(),
                 manualSplit: {
                     xNormalized,
                     rotationDegrees: 0,
                 },
-            }})])).toThrow('safe cutter interval');
+            }})], {abortEarly: true})).toThrow('safe cutter interval');
         }
         for (const xNormalized of [
             0.02,
             0.5,
             0.98,
         ]) {
-            expect(() => decodeStartArgs([requestWithOverrides({'12': {
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'12': {
                 ...pageOverride(),
                 manualSplit: {
                     xNormalized,
                     rotationDegrees: 0,
                 },
-            }})])).not.toThrow();
+            }})], {abortEarly: true})).not.toThrow();
         }
     });
 
@@ -334,7 +336,7 @@ describe('scan-cleanup IPC request codecs', () => {
                 0,
                 1,
             ]) {
-                expect(() => decodeStartArgs([{
+                expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
                     ...request,
                     pagePlanEvidenceByPage: {'12': {
                         ...request.pagePlanEvidenceByPage['12'],
@@ -350,10 +352,10 @@ describe('scan-cleanup IPC request codecs', () => {
                             },
                         }},
                     }},
-                }])).not.toThrow();
+                }], {abortEarly: true})).not.toThrow();
             }
         }
-        expect(() => decodeStartArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             pagePlanEvidenceByPage: {'12': {
                 ...request.pagePlanEvidenceByPage['12'],
@@ -362,7 +364,7 @@ describe('scan-cleanup IPC request codecs', () => {
                     rotationDegrees: 0,
                 },
             }},
-        }])).toThrow('automatic split');
+        }], {abortEarly: true})).toThrow('automatic split');
     });
 
     it('carries one scalar page override default beside sparse page entries', () => {
@@ -372,13 +374,13 @@ describe('scan-cleanup IPC request codecs', () => {
             excluded: true,
             manualSplit: null,
         } as const;
-        const decoded = decodeStartArgs([{
+        const decoded = v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             options: {
                 ...request.options,
                 pageOverrideDefaults,
             },
-        }])[0];
+        }], {abortEarly: true})[0];
 
         expect(decoded.options.pageOverrideDefaults).toEqual(pageOverrideDefaults);
         expect(decoded.options.pageOverrides).toEqual({});
@@ -389,22 +391,22 @@ describe('scan-cleanup IPC request codecs', () => {
             left: {yNormalized: 0.08},
             right: {yNormalized: 0.12},
         };
-        expect(decodePreviewArgs([{
+        expect(v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
             ...request,
             requestId: 'preview-12',
             pageNumber: 12,
             placementAnchors,
-        }])[0].placementAnchors).toEqual(placementAnchors);
-        expect(decodeStartArgs([{
+        }], {abortEarly: true})[0].placementAnchors).toEqual(placementAnchors);
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             placementAnchorsByPage: {'12': placementAnchors},
-        }])[0].placementAnchorsByPage).toEqual({'12': placementAnchors});
-        expect(decodePreviewArgs([{
+        }], {abortEarly: true})[0].placementAnchorsByPage).toEqual({'12': placementAnchors});
+        expect(v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
             ...request,
             requestId: 'preview-12',
             pageNumber: 12,
-        }])[0].placementAnchors).toBeUndefined();
-        expect(decodeStartArgs([request])[0].placementAnchorsByPage).toBeUndefined();
+        }], {abortEarly: true})[0].placementAnchors).toBeUndefined();
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [request], {abortEarly: true})[0].placementAnchorsByPage).toBeUndefined();
     });
 
     it('decodes a bounded document-wide ink placement summary', () => {
@@ -445,10 +447,10 @@ describe('scan-cleanup IPC request codecs', () => {
                 },
             ],
         };
-        expect(decodeStartArgs([{
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             placementAnchorSummary,
-        }])[0].placementAnchorSummary).toEqual(placementAnchorSummary);
+        }], {abortEarly: true})[0].placementAnchorSummary).toEqual(placementAnchorSummary);
         for (const malformed of [
             {
                 ...placementAnchorSummary,
@@ -474,10 +476,10 @@ describe('scan-cleanup IPC request codecs', () => {
                 }],
             },
         ]) {
-            expect(() => decodeStartArgs([{
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
                 ...request,
                 placementAnchorSummary: malformed,
-            }])).toThrow('placement anchor summary');
+            }], {abortEarly: true})).toThrow('placement anchor summary');
         }
     });
 
@@ -495,29 +497,29 @@ describe('scan-cleanup IPC request codecs', () => {
             {full: 0.5},
             [anchor],
         ]) {
-            expect(() => decodePreviewArgs([{
+            expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
                 ...request,
                 requestId: 'preview-12',
                 pageNumber: 12,
                 placementAnchors,
-            }])).toThrow();
-            expect(() => decodeStartArgs([{
+            }], {abortEarly: true})).toThrow();
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
                 ...request,
                 placementAnchorsByPage: {'12': placementAnchors},
-            }])).toThrow();
+            }], {abortEarly: true})).toThrow();
         }
-        expect(() => decodeStartArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             placementAnchorsByPage: {'0': {full: anchor}},
-        }])).toThrow('placement anchor map');
+        }], {abortEarly: true})).toThrow('placement anchor map');
     });
 
     it('rejects stale-key and out-of-bounds automatic evidence', () => {
-        expect(() => decodeStartArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             pagePlanEvidenceByPage: {'11': request.pagePlanEvidenceByPage['12']},
-        }])).toThrow('page-plan evidence');
-        expect(() => decodeStartArgs([{
+        }], {abortEarly: true})).toThrow('page-plan evidence');
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             pagePlanEvidenceByPage: {'12': {
                 ...request.pagePlanEvidenceByPage['12'],
@@ -526,8 +528,8 @@ describe('scan-cleanup IPC request codecs', () => {
                     widthNormalized: 1,
                 }}},
             }},
-        }])).toThrow('content box');
-        expect(() => decodeStartArgs([{
+        }], {abortEarly: true})).toThrow('content box');
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             pagePlanEvidenceByPage: {'12': {
                 ...request.pagePlanEvidenceByPage['12'],
@@ -536,12 +538,12 @@ describe('scan-cleanup IPC request codecs', () => {
                     rotationDegrees: 0,
                 },
             }},
-        }])).toThrow('automatic split');
+        }], {abortEarly: true})).toThrow('automatic split');
     });
 
     it('rejects incomplete or internally inconsistent text-tone evidence', () => {
         const evidence = request.pagePlanEvidenceByPage['12'].outputs.full.textToneDiagnostics;
-        expect(() => decodeStartArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             pagePlanEvidenceByPage: {'12': {
                 ...request.pagePlanEvidenceByPage['12'],
@@ -553,8 +555,8 @@ describe('scan-cleanup IPC request codecs', () => {
                     },
                 }},
             }},
-        }])).toThrow('text tone');
-        expect(() => decodeStartArgs([{
+        }], {abortEarly: true})).toThrow('text tone');
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             pagePlanEvidenceByPage: {'12': {
                 ...request.pagePlanEvidenceByPage['12'],
@@ -566,51 +568,51 @@ describe('scan-cleanup IPC request codecs', () => {
                     },
                 }},
             }},
-        }])).toThrow('text tone');
+        }], {abortEarly: true})).toThrow('text tone');
     });
 
     it('allows high page numbers while keeping page-key validation canonical', () => {
         const highPageKey = String(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1);
-        expect(decodeStartArgs([requestWithOverrides({[highPageKey]: pageOverride()})])[0]
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({[highPageKey]: pageOverride()})], {abortEarly: true})[0]
             .options.pageOverrides).toHaveProperty(highPageKey);
-        expect(decodeStartArgs([{
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             layoutByPage: {[highPageKey]: 'single-uncut-page'},
             sourcePageNumbers: [SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1],
-        }])[0].sourcePageNumbers).toEqual([SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1]);
-        expect(decodeStartArgs([{
+        }], {abortEarly: true})[0].sourcePageNumbers).toEqual([SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1]);
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             sourcePageRange: {
                 startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
                 endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
             },
-        }])[0].sourcePageRange).toEqual({
+        }], {abortEarly: true})[0].sourcePageRange).toEqual({
             startPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
             endPageNumber: SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
         });
     });
 
     it('requires source page numbers to be strictly ascending', () => {
-        expect(decodeStartArgs([{
+        expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             sourcePageNumbers: [
                 1,
                 3,
                 12,
             ],
-        }])[0].sourcePageNumbers).toEqual([
+        }], {abortEarly: true})[0].sourcePageNumbers).toEqual([
             1,
             3,
             12,
         ]);
-        expect(() => decodeStartArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             sourcePageNumbers: [
                 1,
                 12,
                 3,
             ],
-        }])).toThrow('invalid scan-cleanup source page numbers');
+        }], {abortEarly: true})).toThrow('invalid scan-cleanup source page numbers');
     });
 
     it('rejects malformed page keys across page-indexed payloads', () => {
@@ -618,12 +620,12 @@ describe('scan-cleanup IPC request codecs', () => {
             '01',
             String(Number.MAX_SAFE_INTEGER + 1),
         ]) {
-            expect(() => decodeStartArgs([requestWithOverrides({[key]: pageOverride()})]))
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({[key]: pageOverride()})], {abortEarly: true}))
                 .toThrow('page override number');
-            expect(() => decodeStartArgs([{
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
                 ...request,
                 layoutByPage: {[key]: 'single-uncut-page'},
-            }])).toThrow('layout classifications');
+            }], {abortEarly: true})).toThrow('layout classifications');
         }
     });
 
@@ -645,13 +647,13 @@ describe('scan-cleanup IPC request codecs', () => {
             options: invalidOptions,
         };
 
-        expect(() => decodeStartArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             options: invalidOptions,
-        }]))
+        }], {abortEarly: true}))
             .toThrow('page override number');
-        expect(() => decodePreviewArgs([preview])).toThrow('page override number');
-        expect(() => decodeDetectionArgs([detection])).toThrow('page override number');
+        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [preview], {abortEarly: true})).toThrow('page override number');
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_ARGS_SCHEMA, [detection], {abortEarly: true})).toThrow('page override number');
         expect(() => decodeScanCleanupSettingsUpdateRequest({document: {
             sourceSha256: 'a'.repeat(64),
             patch: {overrides: invalidOptions.pageOverrides},
@@ -670,29 +672,29 @@ describe('scan-cleanup IPC request codecs', () => {
             documentRevision: request.documentRevision,
             options: request.options,
         };
-        expect(() => decodePreviewArgs([{
+        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
             ...preview,
             requestId: 'x'.repeat(SCAN_CLEANUP_INPUT_MAX_ID_BYTES + 1),
-        }])).toThrow('request id');
-        expect(() => decodePreviewArgs([{
+        }], {abortEarly: true})).toThrow('request id');
+        expect(() => v.parse(SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA, [{
             ...preview,
             ownerId: 'owner\0suffix',
-        }])).toThrow('owner id');
-        expect(() => decodeDetectionArgs([{
+        }], {abortEarly: true})).toThrow('owner id');
+        expect(() => v.parse(SCAN_CLEANUP_DETECTION_ARGS_SCHEMA, [{
             ...detection,
             documentRevision: 'revision\0suffix',
-        }])).toThrow('document revision');
-        expect(() => decodeStartArgs([{
+        }], {abortEarly: true})).toThrow('document revision');
+        expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
             sourcePdfPath: `/${'x'.repeat(SCAN_CLEANUP_INPUT_MAX_PATH_BYTES)}`,
-        }])).toThrow('source PDF path');
-        expect(() => decodeOwnedJobId([
+        }], {abortEarly: true})).toThrow('source PDF path');
+        expect(() => v.parse(SCAN_CLEANUP_OWNED_JOB_ARGS_SCHEMA, [
             'job\0suffix',
             {
                 ownerId: 'owner',
                 documentRevision: 'revision',
             },
-        ])).toThrow('job id');
+        ], {abortEarly: true})).toThrow('job id');
     });
 
     it('accepts convex, concave, and either-winding simple polygons', () => {
@@ -723,13 +725,13 @@ describe('scan-cleanup IPC request codecs', () => {
             [...triangle.points].reverse(),
             concavePoints,
         ]) {
-            expect(() => decodeStartArgs([requestWithOverrides({'1': pageOverride({
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'1': pageOverride({
                 picture: [],
                 fill: [{
                     points,
                     rotationDegrees: 0,
                 }],
-            })})])).not.toThrow();
+            })})], {abortEarly: true})).not.toThrow();
         }
     });
 
@@ -808,13 +810,13 @@ describe('scan-cleanup IPC request codecs', () => {
             ],
         ];
         for (const points of invalidPolygons) {
-            expect(() => decodeStartArgs([requestWithOverrides({'1': pageOverride({
+            expect(() => v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [requestWithOverrides({'1': pageOverride({
                 picture: [],
                 fill: [{
                     points,
                     rotationDegrees: 0,
                 }],
-            })})])).toThrow(/duplicate|near-zero|intersecting|overlapping/u);
+            })})], {abortEarly: true})).toThrow(/duplicate|near-zero|intersecting|overlapping/u);
         }
     });
 

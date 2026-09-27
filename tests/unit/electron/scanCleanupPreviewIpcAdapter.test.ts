@@ -18,6 +18,7 @@ import {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
+import * as v from 'valibot';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {
@@ -28,7 +29,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
-    decodeScanCleanupDetectionJobState, decodeScanCleanupPreviewResult,
+    SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, decodeScanCleanupPreviewResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
 import {
     createScanCleanupPreviewDependencies,
@@ -57,6 +58,24 @@ const dependenciesOverride = {resolveRasterAdmissionPolicy: () => ({rasterConcur
 
 async function previewDependencies() {
     return createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
+}
+
+function platformPreviewResultFixture() {
+    return decodeScanCleanupPreviewResult({
+        pageNumber: requirePageNumber(1),
+        totalPages: 1,
+        rawWidthPx: 1,
+        rawHeightPx: 1,
+        pageMetadata: {
+            layoutClassification: 'single-uncut-page',
+            cutterXPx: null,
+            rotationDegrees: 0,
+            canvasScope: 'page',
+            excluded: false,
+            blankOutputsSkipped: 0,
+        },
+        outputs: [],
+    });
 }
 
 afterEach(async () => {
@@ -889,12 +908,12 @@ export async function scenarioAcceptsOptionalDetectionTextAxisAndRecommendationR
         }],
         updatedAtMs: Date.now(),
     };
-    expect(decodeScanCleanupDetectionJobState(state)?.results[0]?.textAxis).toEqual({
+    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})?.results[0]?.textAxis).toEqual({
         sideways: true,
         confidence: 0.98,
     });
-    expect(decodeScanCleanupDetectionJobState(state)?.results[0]?.recommendedOutputModeReason).toBe('blank');
-    expect(decodeScanCleanupDetectionJobState(state)?.results[0]?.sourcePageMetadata).toEqual(
+    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})?.results[0]?.recommendedOutputModeReason).toBe('blank');
+    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})?.results[0]?.sourcePageMetadata).toEqual(
         state.results[0]!.sourcePageMetadata,
     );
 
@@ -904,25 +923,25 @@ export async function scenarioAcceptsOptionalDetectionTextAxisAndRecommendationR
         ...structuredClone(state),
         results: [axislessResult],
     };
-    expect(decodeScanCleanupDetectionJobState(withoutAxis)?.results[0]).not.toHaveProperty('textAxis');
+    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, withoutAxis, {abortEarly: true})?.results[0]).not.toHaveProperty('textAxis');
 
     const malformed = structuredClone(state);
     malformed.results[0]!.textAxis.confidence = Number.NaN;
-    expect(() => decodeScanCleanupDetectionJobState(malformed)).toThrow('detection result');
+    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, malformed, {abortEarly: true})).toThrow('detection result');
 
     const malformedReason = structuredClone(state);
     malformedReason.results[0]!.recommendedOutputModeReason = 'empty';
-    expect(() => decodeScanCleanupDetectionJobState(malformedReason)).toThrow('detection result');
+    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, malformedReason, {abortEarly: true})).toThrow('detection result');
 
     const mismatchedMetadata = structuredClone(state);
     mismatchedMetadata.results[0]!.sourcePageMetadata.pageNumber = 2;
-    expect(() => decodeScanCleanupDetectionJobState(mismatchedMetadata)).toThrow(
+    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, mismatchedMetadata, {abortEarly: true})).toThrow(
         'detection source page metadata',
     );
 
     const unsafeCutter = structuredClone(state);
     Reflect.set(unsafeCutter.results[0]!, 'cutterXPx', Number.MAX_SAFE_INTEGER + 1);
-    expect(() => decodeScanCleanupDetectionJobState(unsafeCutter)).toThrow('detection result');
+    expect(() => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, unsafeCutter, {abortEarly: true})).toThrow('detection result');
 
 }
 
@@ -1018,7 +1037,7 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
         const cases = createFeatureRegistrarCases(SCAN_CLEANUP_PLATFORM_FEATURE);
         const previewArgs = cases.find(testCase => testCase.channel === SCAN_CLEANUP_PLATFORM_FEATURE.methods.preview.channel)!.validArgs;
         const cancelArgs = cases.find(testCase => testCase.channel === SCAN_CLEANUP_PLATFORM_FEATURE.methods.cancelPreview.channel)!.validArgs;
-        const expectedPreview = SCAN_CLEANUP_PLATFORM_FEATURE.methods.preview.ipc.result.example();
+        const expectedPreview = platformPreviewResultFixture();
         preview.mockResolvedValue(expectedPreview);
         cancelPreview.mockResolvedValue(true);
 
@@ -1029,8 +1048,8 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
     });
 
     it('invokes the captured scan-cleanup handlers through the validated boundary', async () => {
-        const previewResult = SCAN_CLEANUP_PLATFORM_FEATURE.methods.preview.ipc.result.example();
-        const cancelResult = SCAN_CLEANUP_PLATFORM_FEATURE.methods.cancelPreview.ipc.result.example();
+        const previewResult = platformPreviewResultFixture();
+        const cancelResult = true;
         type TScanCleanupBindings = TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
         const preview = vi.fn<TScanCleanupBindings['preview']>(async () => previewResult);
         const cancelPreview = vi.fn<TScanCleanupBindings['cancelPreview']>(async () => cancelResult);

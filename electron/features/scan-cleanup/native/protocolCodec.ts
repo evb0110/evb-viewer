@@ -3,9 +3,10 @@ import {
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import {NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/nativeProtocolV3';
+import * as v from 'valibot';
 
 export function decodeNativeScanCleanupEnvelope(line: string) {
-    return NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA.decode(JSON.parse(line));
+    return v.parse(NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA, JSON.parse(line), {abortEarly: true});
 }
 
 export function parseNativeScanCleanupStderr(stderr: string): {

@@ -828,7 +828,7 @@ function buildConversionPageMetadata({
     return {
         ...(layoutByPage?.[String(pageNumber)] === undefined
             ? {}
-            : {observedLayout: layoutByPage[String(pageNumber)]}),
+            : {observedLayout: layoutByPage[String(pageNumber)]!}),
         ...(documentPriorByPage?.[String(pageNumber)] === undefined
             ? {}
             : {documentPrior: documentPriorByPage[String(pageNumber)]}),
@@ -2905,21 +2905,21 @@ export async function runScanCleanupConversion(
                     if (metadata.layeredWritten) {
                         const candidateBackgroundPath = await requireProducedRasterFile(
                             requirePublishedRaster,
-                            output.backgroundOutputPath,
+                            output.backgroundOutputPath ?? undefined,
                             requirePageNumber(pageNumber),
                             'mixed background layer',
                         );
                         if (metadata.layeredForegroundKind === 'soft-alpha') {
                             foregroundAlphaPath = await requireProducedRasterFile(
                                 requirePublishedRaster,
-                                output.foregroundAlphaOutputPath,
+                                output.foregroundAlphaOutputPath ?? undefined,
                                 pageNumber,
                                 'mixed soft foreground alpha',
                             );
                         } else {
                             foregroundMaskPath = await requireProducedRasterFile(
                                 requirePublishedRaster,
-                                output.foregroundMaskOutputPath,
+                                output.foregroundMaskOutputPath ?? undefined,
                                 pageNumber,
                                 'mixed foreground mask',
                             );
@@ -3034,7 +3034,7 @@ export async function runScanCleanupConversion(
                     } else if (metadata.bilevelWritten) {
                         bilevelPath = await requireProducedRasterFile(
                             requirePublishedRaster,
-                            output.bilevelOutputPath,
+                            output.bilevelOutputPath ?? undefined,
                             pageNumber,
                             'bilevel output',
                         );

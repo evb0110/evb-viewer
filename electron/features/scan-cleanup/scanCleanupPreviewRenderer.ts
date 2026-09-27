@@ -554,7 +554,7 @@ export async function scanCleanupPreviewRenderer(
                     : {preferSoftAlphaForeground: request.softAlphaForegroundRecommendation}),
                 ...(request.layoutByPage?.[String(request.pageNumber)] === undefined
                     ? {}
-                    : {observedLayout: request.layoutByPage[String(request.pageNumber)]}),
+                    : {observedLayout: request.layoutByPage[String(request.pageNumber)]!}),
                 ...reusablePagePlan,
                 ...(request.placementAnchors === undefined
                     ? {}
@@ -602,7 +602,12 @@ export async function scanCleanupPreviewRenderer(
                             : {contentDiagnostics: output.contentDiagnostics}),
                         ...(output.textToneDiagnostics === undefined
                             ? {}
-                            : {textToneDiagnostics: output.textToneDiagnostics}),
+                            : {textToneDiagnostics: {
+                                ...output.textToneDiagnostics,
+                                inkAnchor: output.textToneDiagnostics.inkAnchor ?? null,
+                                blackPoint: output.textToneDiagnostics.blackPoint ?? null,
+                                slope: output.textToneDiagnostics.slope ?? null,
+                            }}),
                     })),
                 },
                 outputs: analyzedOutputs.map(output => {
@@ -663,6 +668,8 @@ export async function scanCleanupPreviewRenderer(
                             matchedCanvasTargetHeightPoints: matchedCanvas?.heightPoints ?? null,
                             matchedCanvasContentWidthPx: placement.contentWidthPx,
                             matchedCanvasContentHeightPx: placement.contentHeightPx,
+                            matchedCanvasOpticalContentLeftPx: null,
+                            matchedCanvasOpticalContentRightPx: null,
                             warnings: [
                                 ...previewWarningEvents,
                                 ...output.pdfPlacement?.warningEvents ?? [],
@@ -689,9 +696,19 @@ export async function scanCleanupPreviewRenderer(
                     imageData,
                     metadata: {
                         ...nativeMetadata,
+                        matchedCanvasOpticalContentLeftPx: nativeMetadata.matchedCanvasOpticalContentLeftPx ?? null,
+                        matchedCanvasOpticalContentRightPx: nativeMetadata.matchedCanvasOpticalContentRightPx ?? null,
                         ...(nativeMetadata.dewarpModel === undefined
                             ? {}
                             : {dewarpApplied: nativeMetadata.dewarpModel !== null}),
+                        ...(nativeMetadata.textToneDiagnostics === undefined
+                            ? {}
+                            : {textToneDiagnostics: {
+                                ...nativeMetadata.textToneDiagnostics,
+                                inkAnchor: nativeMetadata.textToneDiagnostics.inkAnchor ?? null,
+                                blackPoint: nativeMetadata.textToneDiagnostics.blackPoint ?? null,
+                                slope: nativeMetadata.textToneDiagnostics.slope ?? null,
+                            }}),
                         warnings: [
                             ...[
                                 ...previewWarningEvents,

@@ -1,69 +1,56 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
 
 import {
     NATIVE_ERROR_CODES,
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
-import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {
-    IScanCleanupDocumentPrior,
-    IScanCleanupOptions,
-    IScanCleanupReconciliationMetadata,
-    IScanCleanupTextAxis,
     TScanCleanupBinarizationMethod,
-    TScanCleanupCanvasPolicy,
-    TScanCleanupCanvasScope,
     TScanCleanupContentTrimSide,
-    TScanCleanupLayoutByPage,
-    TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
-    TScanCleanupOutputMode,
     TScanCleanupOutputModeRecommendationReason,
-    TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/domain';
-import type {
-    IScanCleanupAppliedMargins,
-    IScanCleanupNormalizedRect,
-    IScanCleanupNormalizedSplit,
-    IScanCleanupPixelRect,
-    IScanCleanupPreviewAffine,
-    IScanCleanupSplitSeamPolyline,
-} from '@contracts/scan-cleanup/geometry';
+import type {IScanCleanupPixelRect} from '@contracts/scan-cleanup/geometry';
 import {
     SCAN_CLEANUP_WARNING_EVENT_SCHEMA,
     type INativeScanCleanupBinarizationDiagnosticsV3,
-    type INativeScanCleanupOutputModeDiagnosticsV3,
-    type INativeScanCleanupSplitDiagnosticsV3,
     type INativeScanCleanupTextToneDiagnosticsV3,
-    type IScanCleanupPlacementAnchor,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
-import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
-import {
-    runtimeSchema,
-    type TInferSchema,
-} from '@contracts/platformFeature';
+import * as v from 'valibot';
 import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
 import type {
-    TJobId,
-    TRequestId,
-} from '@contracts/shared';
-import type {TEpochMs} from '@contracts/timestamps';
+    SCAN_CLEANUP_OWNER_CONTEXT_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_CANCEL_REQUEST_SCHEMA,
+    SCAN_CLEANUP_DETECTION_REQUEST_SCHEMA,
+    SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_REQUEST_SCHEMA,
+    SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA,
+    SCAN_CLEANUP_PAGE_PLAN_EVIDENCE_SCHEMA,
+    SCAN_CLEANUP_START_REQUEST_SCHEMA,
+} from '@contracts/scan-cleanup/ipcRequestCodecs';
+import type {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
+import type {
+    SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA,
+    SCAN_CLEANUP_DETECTION_RESULT_SCHEMA,
+    SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA,
+    SCAN_CLEANUP_JOB_STATE_SCHEMA,
+    SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_METADATA_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_PAGE_METADATA_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA,
+    SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA,
+    SCAN_CLEANUP_START_RESULT_SCHEMA,
+} from '@contracts/scan-cleanup/ipcResultCodecs';
 export type {
     TScanCleanupCanvasPolicy,
     TScanCleanupContentTrimSide,
 } from '@contracts/scan-cleanup/domain';
 
-export interface IScanCleanupOwnerContext {
-    /** Stable for one renderer tab/session; Electron combines this with the sending WebContents id. */
-    ownerId: string;
-    /** Revision token (or mtime-derived token) fencing every recomputable artifact and job. */
-    documentRevision: string;
-}
+export type IScanCleanupOwnerContext = v.InferOutput<typeof SCAN_CLEANUP_OWNER_CONTEXT_SCHEMA>;
 
 export type TScanCleanupErrorCode =
     | TNativeErrorCode
@@ -136,83 +123,12 @@ export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanu
     }
 }
 
-export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
-    /** Renderer-created token joining the raw raster to this exact request generation. */
-    requestId: TRequestId;
-    sourcePdfPath: string;
-    pageNumber: TPageNumber;
-    options: IScanCleanupOptions;
-    documentPrior?: IScanCleanupDocumentPrior;
-    /**
-     * Automatic output-mode evidence already produced by document detection.
-     * Electron resolves it into native page options so preview does not repeat
-     * the same mode analysis.
-     */
-    outputModeRecommendation?: TScanCleanupOutputMode;
-    /**
-     * Physical Mixed-layer representation selected by the same analysis as the
-     * Auto mode. False is meaningful: it locks the stencil path.
-     */
-    softAlphaForegroundRecommendation?: boolean;
-    /**
-     * How the caller expects each page of the document to be cut. Matched page
-     * size is measured over produced pages, so the preview and the run derive
-     * one rectangle only if they are told the same thing about the document.
-     */
-    layoutByPage?: TScanCleanupLayoutByPage;
-    /**
-     * True only after document detection has finished reconciling every
-     * automatic page. Before that, matched-canvas planning treats layout
-     * verdicts as provisional evidence and resists document-wide outliers.
-     */
-    layoutDetectionComplete?: boolean;
-    /**
-     * Automatic geometry already established by document detection for this
-     * page. Preview replays it just like final conversion, so loading, base
-     * preview, detail tiles, and export do not run competing page planners.
-     */
-    pagePlanEvidence?: IScanCleanupPagePlanEvidence;
-    /**
-     * Where `ink` alignment has resolved this page's outputs to sit, clustered
-     * across the whole document. Preview and the final run are handed the same
-     * anchors so the position the user approves is the position that ships.
-     */
-    placementAnchors?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>;
-    detail?: {
-        /** Renderer-visible regions keyed by final output half; drives crop rendering and tile identity. */
-        viewports: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
-        outputMode: TScanCleanupOutputMode;
-    };
-    /**
-     * Set by the request for the page the user is looking at, which is what
-     * preview admission ranks against. A prefetch never sets it.
-     */
-    visible?: boolean;
-}
+export type IScanCleanupPreviewRequest = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_REQUEST_SCHEMA>;
 
-export interface IScanCleanupRawPreviewResult {
-    pageNumber: TPageNumber;
-    totalPages: number;
-    rawImageData: Uint8Array;
-    rawWidthPx: number;
-    rawHeightPx: number;
-}
+export type IScanCleanupRawPreviewEvent = v.InferOutput<typeof SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA>;
+export type IScanCleanupRawPreviewResult = Omit<IScanCleanupRawPreviewEvent, 'ownerId' | 'documentRevision' | 'requestId'>;
 
-/** The raw raster pushed ahead of the cleaned outputs of the request that asked for it. */
-export interface IScanCleanupRawPreviewEvent
-    extends IScanCleanupRawPreviewResult, IScanCleanupOwnerContext { requestId: TRequestId; }
-
-export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerContext {
-    sourcePdfPath: string;
-    invalidateRawCache?: boolean;
-    /**
-     * Pages whose cleaned preview work the renderer still wants. A navigation
-     * names the window it is moving into so the work already running for those
-     * pages survives instead of being restarted; omitting it cancels the whole
-     * document, which is what a settings change or a closing session means.
-     */
-    retainPages?: readonly number[];
-}
+export type IScanCleanupPreviewCancelRequest = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_CANCEL_REQUEST_SCHEMA>;
 
 /**
  * The single rectangle and pixel grid every matched output of a document is
@@ -300,148 +216,19 @@ export interface IScanCleanupPageOutputDiagnostics {
     textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
 }
 
-export interface IScanCleanupPreviewMetadata {
-    half: 'full' | 'left' | 'right';
-    layoutClassification: TScanCleanupLayoutClassification;
-    layoutConfidence: number;
-    detectedSkewDegrees?: number;
-    skewConfidence?: number;
-    skewApplied?: boolean;
-    manualSkew?: boolean;
-    sourceRegion: IScanCleanupPixelRect;
-    contentBox: IScanCleanupPixelRect | null;
-    /** Applied crop in deskewed/dewarped page-region coordinates. */
-    cropRect: IScanCleanupPixelRect;
-    /** Optional for metadata produced before native protocol v2 gained A4 diagnostics. */
-    contentDiagnostics?: IScanCleanupContentDiagnostics;
-    appliedMargins: IScanCleanupAppliedMargins;
-    /** Intrinsic dimensions of the unpadded cleaned raster. */
-    outputWidthPx: number;
-    outputHeightPx: number;
-    /** Intrinsic raster extent before matched-canvas materialization. */
-    intrinsicRasterWidthPx?: number;
-    intrinsicRasterHeightPx?: number;
-    /**
-     * Actual image payload bounds inside the intrinsic cleaned raster.
-     * Absent payloads cover the complete intrinsic raster.
-     */
-    renderRegion?: IScanCleanupPixelRect;
-    /** Logical matched-page canvas dimensions; never smaller than the intrinsic raster. */
-    canvasWidthPx: number;
-    canvasHeightPx: number;
-    /** Matched-canvas decision. */
-    canvasPolicy: TScanCleanupCanvasPolicy;
-    canvasOverflow: boolean;
-    matchedCanvasTargetWidthPx?: number | null;
-    matchedCanvasTargetHeightPx?: number | null;
-    matchedCanvasTargetWidthPoints?: number | null;
-    matchedCanvasTargetHeightPoints?: number | null;
-    /**
-     * Size the intrinsic raster occupies on the matched canvas, in canvas
-     * pixels. It differs from the intrinsic size whenever the page was scaled
-     * to the document's common visual scale, which a final run applies to the
-     * raster it publishes and a preview leaves for the renderer to apply.
-     */
-    matchedCanvasContentWidthPx?: number | null;
-    matchedCanvasContentHeightPx?: number | null;
-    /** True when horizontal placement is anchored to transformed optical content. */
-    matchedCanvasOpticalPlacement?: boolean;
-    matchedCanvasOpticalContentLeftPx?: number | null;
-    matchedCanvasOpticalContentRightPx?: number | null;
-    matchedCanvasIntrinsicOverflowLeftPx?: number;
-    matchedCanvasIntrinsicOverflowRightPx?: number;
-    matchedCanvasIntrinsicOverflowTopPx?: number;
-    /** Canvas-grid columns excluded from the source image at the fold edge. */
-    foldClipLeftPx?: number;
-    foldClipRightPx?: number;
-    /** Intrinsic raster origin within the logical canvas. */
-    placementOffsetXPx: number;
-    placementOffsetYPx: number;
-    /** Maps rotated analysis-page coordinates into intrinsic cleaned-raster coordinates. */
-    forwardTransform: IScanCleanupPreviewAffine | null;
-    cutterXPx: number | null;
-    splitSeam?: IScanCleanupSplitSeamPolyline;
-    splitAbstained?: boolean;
-    inputWidthPx: number;
-    inputHeightPx: number;
-    rotationDegrees: TScanCleanupPageRotation;
-    canvasScope: TScanCleanupCanvasScope;
-    resamplePasses: number;
-    sourceDpi?: number;
-    renderDpi?: number;
-    requestedRenderDpi?: number;
-    rasterScaleLimited: boolean;
-    /** True when multiplicative illumination normalization affected the rendered raster. */
-    illuminationNormalized?: boolean;
-    /** Evidence and exact monotone curve shared by preview, export, and detail tiles. */
-    textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
-    /** Concrete mode that produced this output; absent only for older sidecars. */
-    outputMode?: TScanCleanupOutputMode;
-    binarizationMode?: TScanCleanupBinarizationMethod | null;
-    binarizationDiagnostics?: IScanCleanupBinarizationDiagnostics | null;
-    /** True when despeckle used top-decile fallback anchors because the page had no calibrated seed. */
-    despeckleFallback?: boolean;
-    dewarpConfidence?: number | null;
-    /** Derived by Electron from native dewarp metadata. */
-    dewarpApplied?: boolean;
-    warnings: string[];
-}
+export type IScanCleanupPreviewMetadata = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_METADATA_SCHEMA>;
+export type IScanCleanupPreviewPageMetadata = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_PAGE_METADATA_SCHEMA>;
+export type IScanCleanupPreviewOutput = Extract<
+    v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA>,
+    {pageMetadata: unknown}
+>['outputs'][number];
+export type TScanCleanupPreviewWireResult = v.InferOutput<typeof SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA>;
+export type IScanCleanupPreviewResult = Omit<Extract<
+    TScanCleanupPreviewWireResult,
+    {pageMetadata: unknown}
+>, 'rawImageData'> & {rawImageData: Uint8Array};
 
-export interface IScanCleanupPreviewPageMetadata extends IScanCleanupReconciliationMetadata, IScanCleanupPageDiagnostics {
-    layoutClassification: IScanCleanupPreviewMetadata['layoutClassification'];
-    layoutConfidence: number;
-    cutterXPx: number | null;
-    splitSeam?: IScanCleanupSplitSeamPolyline;
-    splitAbstained?: boolean;
-    rotationDegrees: TScanCleanupPageRotation;
-    canvasScope: TScanCleanupCanvasScope;
-    excluded: boolean;
-    blankOutputsSkipped: number;
-    recommendedOutputMode?: TScanCleanupOutputMode;
-    recommendedOutputModeConfidence?: number;
-    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
-    softAlphaForegroundRecommendation?: boolean;
-}
-
-export interface IScanCleanupPreviewOutput {
-    imageData: Uint8Array;
-    metadata: IScanCleanupPreviewMetadata;
-}
-
-export interface IScanCleanupPreviewResult {
-    /** Request generation that produced this result; present on current IPC results. */
-    requestId?: TRequestId;
-    pageNumber: TPageNumber;
-    totalPages: number;
-    rawImageData: Uint8Array;
-    rawWidthPx: number;
-    rawHeightPx: number;
-    pageMetadata: IScanCleanupPreviewPageMetadata;
-    outputs: IScanCleanupPreviewOutput[];
-}
-
-/**
- * What `preview` puts on the wire. Base previews leave `rawImageData` out:
- * those bytes reached the renderer over `onPreviewRaw` a sidecar run earlier.
- * Detail tiles leave it out too: they reuse the renderer's already-held base
- * raster and carry only the tile outputs and their metadata.
- *
- * A superseded or cancelled request answers with `canceled`. Cancellation is
- * the ordinary outcome of turning a page, so it is a result rather than a
- * rejection: an invoke that rejects is logged by Electron as a handler failure,
- * which would bury the failures that are real.
- */
-export type TScanCleanupPreviewWireResult =
-    | (Omit<IScanCleanupPreviewResult, 'rawImageData'> & {
-        rawImageData?: Uint8Array;
-        canceled?: undefined;
-    })
-    | {canceled: true};
-
-export interface IScanCleanupDetectionRequest extends IScanCleanupOwnerContext {
-    sourcePdfPath: string;
-    options: IScanCleanupOptions;
-}
+export type IScanCleanupDetectionRequest = v.InferOutput<typeof SCAN_CLEANUP_DETECTION_REQUEST_SCHEMA>;
 
 /**
  * Immutable source geometry measured once when detection opens the document.
@@ -449,21 +236,7 @@ export interface IScanCleanupDetectionRequest extends IScanCleanupOwnerContext {
  * reopening a hundreds-page PDF to rediscover the same page boxes and raster
  * resolution.
  */
-export interface IScanCleanupSourcePageMetadata {
-    pageNumber: TPageNumber;
-    xPoints: number;
-    yPoints: number;
-    widthPoints: number;
-    heightPoints: number;
-    rotation: number;
-    sourceDpi: number;
-    /** Explicit Poppler box selected by document detection, when it retried a page. */
-    renderBox?: 'cropbox' | 'mediabox';
-    dominantImageWidthPx?: number;
-    dominantImageHeightPx?: number;
-    dominantImageWidthPoints?: number;
-    dominantImageHeightPoints?: number;
-}
+export type IScanCleanupSourcePageMetadata = v.InferOutput<typeof SCAN_CLEANUP_SOURCE_PAGE_METADATA_SCHEMA>;
 
 /**
  * Automatic geometry already measured by a base preview under the exact
@@ -472,17 +245,7 @@ export interface IScanCleanupSourcePageMetadata {
  * the same plan can be replayed at the source raster's final DPI without
  * treating it as a user-authored override.
  */
-export interface IScanCleanupPagePlanEvidence {
-    pageNumber: TPageNumber;
-    rotationDegrees: TScanCleanupPageRotation;
-    layoutClassification: TScanCleanupLayoutClassification;
-    automaticSplit?: IScanCleanupNormalizedSplit;
-    outputs: Partial<Record<TScanCleanupOutputHalf, {
-        contentBox?: IScanCleanupNormalizedRect;
-        detectedSkewDegrees?: number;
-        textToneDiagnostics?: IScanCleanupTextToneDiagnostics;
-    }>>;
-}
+export type IScanCleanupPagePlanEvidence = v.InferOutput<typeof SCAN_CLEANUP_PAGE_PLAN_EVIDENCE_SCHEMA>;
 
 /**
  * Bounded document-wide calibration for `ink` placement. The detection
@@ -490,174 +253,35 @@ export interface IScanCleanupPagePlanEvidence {
  * calibration needed by a streaming conversion without rebuilding a page map
  * in the renderer or across IPC.
  */
-export interface IScanCleanupPlacementAnchorSummarySample {
-    pageNumber: TPageNumber;
-    half: TScanCleanupOutputHalf;
-    /** The source content-box top, normalized to the document reference height. */
-    yNormalized: number;
-    /** The resolved offset from the document top edge for this sparse sample. */
-    anchor: IScanCleanupPlacementAnchor;
-}
+export type IScanCleanupPlacementAnchorSummary = v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SCHEMA>;
+export type IScanCleanupPlacementAnchorSummarySample = IScanCleanupPlacementAnchorSummary['samples'][number];
+export type IScanCleanupPlacementAnchorSummaryCluster = IScanCleanupPlacementAnchorSummary['clusters'][number];
+export type IScanCleanupPlacementAnchorSummaryIdentity = IScanCleanupPlacementAnchorSummary['identity'];
+export type IScanCleanupPlacementAnchorCalibrationRequest = v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_REQUEST_SCHEMA>;
 
-export interface IScanCleanupPlacementAnchorSummaryCluster {
-    /** First and last normalized values represented by this bounded cluster. */
-    startNormalized: number;
-    endNormalized: number;
-    /** The cluster's deterministic snapped value. */
-    valueNormalized: number;
-}
+export type IScanCleanupPlacementAnchorCalibration = v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA>;
 
-export interface IScanCleanupPlacementAnchorSummaryIdentity {
-    documentRevision: string;
-    detectionSignature: string;
-    calibrationSignature: string;
-}
+export type IScanCleanupDetectionResult = v.InferOutput<typeof SCAN_CLEANUP_DETECTION_RESULT_SCHEMA>;
+export type TScanCleanupDetectionJobState = NonNullable<v.InferOutput<typeof SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA>>;
+export type TScanCleanupDetectionStartResult = v.InferOutput<typeof SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA>;
 
-export interface IScanCleanupPlacementAnchorSummary {
-    schemaVersion: 1;
-    /** Number of ink-aligned output samples in the complete detection pass. */
-    sampleCount: number;
-    /** Tallest rotated included source sheet, in PDF points. */
-    referenceHeightPoints: number;
-    /** Jitter tolerance expressed against `referenceHeightPoints`. */
-    toleranceNormalized: number;
-    /** The document top edge selected from the bounded cluster summary. */
-    topEdgeNormalized: number;
-    /** The document and evidence identity that produced this calibration. */
-    identity: IScanCleanupPlacementAnchorSummaryIdentity;
-    /** At most one bounded cluster per retained sample bucket. */
-    clusters: readonly IScanCleanupPlacementAnchorSummaryCluster[];
-    /** Deterministic early, middle, and late evidence samples. */
-    samples: readonly IScanCleanupPlacementAnchorSummarySample[];
-}
+export type IScanCleanupStartRequest = v.InferOutput<typeof SCAN_CLEANUP_START_REQUEST_SCHEMA>;
 
-export interface IScanCleanupPlacementAnchorCalibrationRequest extends IScanCleanupOwnerContext {
-    sourcePdfPath: string;
-    detectionResultStoreId: string;
-    options: IScanCleanupOptions;
-    pageNumber?: TPageNumber;
-}
-
-export interface IScanCleanupPlacementAnchorCalibration {
-    summary: IScanCleanupPlacementAnchorSummary;
-    placementAnchors: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>;
-}
-
-export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationMetadata {
-    pageNumber: TPageNumber;
-    /** Monotonic within one detection job for this page's provisional/reconciled verdicts. */
-    revision?: number;
-    classification: IScanCleanupPreviewMetadata['layoutClassification'];
-    confidence: number;
-    cutterXPx: number | null;
-    documentPrior: IScanCleanupDocumentPrior | null;
-    textAxis?: IScanCleanupTextAxis;
-    recommendedOutputMode?: TScanCleanupOutputMode;
-    recommendedOutputModeConfidence?: number;
-    recommendedOutputModeReason?: TScanCleanupOutputModeRecommendationReason;
-    softAlphaForegroundRecommendation?: boolean;
-    outputModeDiagnostics?: INativeScanCleanupOutputModeDiagnosticsV3;
-    splitDiagnostics?: INativeScanCleanupSplitDiagnosticsV3;
-    sourcePageMetadata?: IScanCleanupSourcePageMetadata;
-    /**
-     * Resolution-independent geometry and text-tone decisions measured by the
-     * completed document analysis. Final cleanup replays this exact plan rather
-     * than silently reclassifying pages the user never opened in preview.
-     */
-    pagePlanEvidence?: IScanCleanupPagePlanEvidence;
-}
-
-interface IScanCleanupDetectionJobBase {
-    jobId: TJobId;
-    /**
-     * Canonical matched-canvas plan identity for the classifications settled
-     * so far. The pre-detection plan is represented by the empty string, so
-     * merely beginning detection cannot invalidate an identical preview.
-     */
-    documentCanvasSignature?: string;
-    progress: TScanCleanupProgress;
-    /** Scalar count for xlarge jobs whose page records stay file-backed. */
-    resultCount?: number;
-    /** Opaque main-process handoff for xlarge detection results. */
-    detectionResultStoreId?: string;
-    /** Bounded document-wide calibration for xlarge `ink` placement. */
-    placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
-    results: IScanCleanupDetectionResult[];
-    updatedAtMs: TEpochMs;
-}
-
-export type TScanCleanupDetectionJobState =
-    | IScanCleanupDetectionJobBase & {status: 'queued' | 'running' | 'canceling' | 'completed' | 'canceled'}
-    | IScanCleanupDetectionJobBase & {
-        status: 'failed';
-        error: string;
-        errorCode: TScanCleanupErrorCode;
-        /**
-         * Free and required scratch space for an `insufficient-scratch`
-         * failure. The renderer states both figures in the user's language
-         * instead of quoting the English exception.
-         */
-        scratchShortfall?: IScanCleanupScratchShortfall
-    };
-
-export type TScanCleanupDetectionStartResult =
-    | {
-        started: true;
-        jobId: TJobId
-    }
-    | {
-        started: false;
-        jobId: TJobId;
-        error: string;
-        errorCode: TScanCleanupErrorCode;
-        scratchShortfall?: IScanCleanupScratchShortfall
-    };
-
-export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
-    sourcePdfPath: string;
-    options: IScanCleanupOptions;
-    /** Ordered one-based source pages included in this output. Omitted means the full document. */
-    sourcePageNumbers?: number[];
-    /** A contiguous partial selection, used when its page count exceeds one IPC list budget. */
-    sourcePageRange?: {
-        startPageNumber: number;
-        endPageNumber: number
-    };
-    /** Opaque id for the completed file-backed detection result store. */
-    detectionResultStoreId?: string;
-    outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
-    softAlphaForegroundRecommendations?: Partial<Record<string, boolean>>;
-    /** Document-level calibration priors settled by the completed detection pass. */
-    documentPriorByPage?: Partial<Record<string, IScanCleanupDocumentPrior>>;
-    /** The layouts the preview was measured against, so this run matches the same rectangle. */
-    layoutByPage?: TScanCleanupLayoutByPage;
-    sourcePageMetadataByPage?: Partial<Record<string, IScanCleanupSourcePageMetadata>>;
-    /** Valid base-preview geometry that lets final rendering skip duplicate page analysis. */
-    pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
-    /** Document-wide `ink` placement positions, resolved by the renderer the preview used. */
-    placementAnchorsByPage?: Partial<Record<
-        string,
-        Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
-    >>;
-    /** Bounded document-wide calibration for xlarge `ink` placement. */
-    placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
-}
-
-const s = runtimeSchema;
-const summaryPageNumberValue = s.number({
-    integer: true,
-    min: 1,
-    message: 'invalid scan-cleanup summary',
-});
-const summaryPageNumber = s.fromParser<TPageNumber>(
-    value => requirePageNumber(summaryPageNumberValue.decode(value)),
-    () => requirePageNumber(1),
-);
-const summaryCount = s.number({
-    integer: true,
-    min: 0,
-    message: 'invalid scan-cleanup summary',
-});
+const summaryPageNumber = v.message(v.pipe(
+    v.number(),
+    v.finite(),
+    v.integer(),
+    v.minValue(1),
+    v.maxValue(Number.MAX_SAFE_INTEGER),
+    v.transform(value => requirePageNumber(value)),
+), 'invalid scan-cleanup summary');
+const summaryCount = v.message(v.pipe(
+    v.number(),
+    v.finite(),
+    v.integer(),
+    v.minValue(0),
+    v.check((value: number) => Number.isSafeInteger(value)),
+), 'invalid scan-cleanup summary');
 /**
  * One SC-IMP-003 condition a run reported, with the output it belongs to.
  *
@@ -667,21 +291,19 @@ const summaryCount = s.number({
  * per-output condition stays attached to its output across the boundary; a
  * document-wide condition carries neither.
  */
-export const SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA = s.object({
+export const SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA = v.object({
     event: SCAN_CLEANUP_WARNING_EVENT_SCHEMA,
-    pageNumber: s.optional(summaryPageNumber),
-    half: s.optional(s.oneOf([
+    pageNumber: v.optional(summaryPageNumber),
+    half: v.optional(v.picklist([
         'full',
         'left',
         'right',
-    ] as const, 'invalid scan-cleanup summary')),
+    ] as const)),
 });
 
-export type TScanCleanupSummaryWarningEvent = TInferSchema<
-    typeof SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA
->;
+export type TScanCleanupSummaryWarningEvent = v.InferOutput<typeof SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA>;
 
-export const SCAN_CLEANUP_SUMMARY_SCHEMA = s.object({
+export const SCAN_CLEANUP_SUMMARY_SCHEMA = v.object({
     inputPages: summaryCount,
     outputPages: summaryCount,
     spreadsSplit: summaryCount,
@@ -690,50 +312,15 @@ export const SCAN_CLEANUP_SUMMARY_SCHEMA = s.object({
     cropSkipped: summaryCount,
     excludedPages: summaryCount,
     blankPagesSkipped: summaryCount,
-    warnings: s.array(s.string()),
+    warnings: v.array(v.string()),
     /**
      * Optional so a summary written before this channel existed still decodes:
      * such a run reported its conditions as sentences and has no typed list to
      * offer. A live run always publishes one.
      */
-    warningEvents: s.optional(s.array(SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA)),
+    warningEvents: v.optional(v.array(SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA)),
 });
-export type TScanCleanupSummary = TInferSchema<typeof SCAN_CLEANUP_SUMMARY_SCHEMA>;
+export type TScanCleanupSummary = v.InferOutput<typeof SCAN_CLEANUP_SUMMARY_SCHEMA>;
 
-interface IScanCleanupJobBase {
-    jobId: TJobId;
-    progress: TScanCleanupProgress;
-    updatedAtMs: TEpochMs;
-}
-
-export type TScanCleanupJobState =
-    | IScanCleanupJobBase & {status: 'queued' | 'running' | 'canceling' | 'handoff' | 'committing'}
-    | IScanCleanupJobBase & {
-        status: 'completed';
-        outputPdfPath: string;
-        summary: TScanCleanupSummary;
-        partial: boolean
-    }
-    | IScanCleanupJobBase & {status: 'canceled'}
-    | IScanCleanupJobBase & {
-        status: 'failed';
-        error: string;
-        errorCode: TScanCleanupErrorCode;
-        /** Free and required scratch space for an insufficient-scratch run. */
-        scratchShortfall?: IScanCleanupScratchShortfall;
-        failure?: FailureReceipt;
-    };
-
-export type TScanCleanupStartResult =
-    | {
-        started: true;
-        jobId: TJobId;
-        outputPdfPath: string
-    }
-    | {
-        started: false;
-        jobId: TJobId;
-        error: string;
-        errorCode: TScanCleanupErrorCode;
-        scratchShortfall?: IScanCleanupScratchShortfall
-    };
+export type TScanCleanupJobState = NonNullable<v.InferOutput<typeof SCAN_CLEANUP_JOB_STATE_SCHEMA>>;
+export type TScanCleanupStartResult = v.InferOutput<typeof SCAN_CLEANUP_START_RESULT_SCHEMA>;

@@ -33,7 +33,8 @@ import {
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-import {decodeScanCleanupDetectionJobState} from '@contracts/scan-cleanup/ipcResultCodecs';
+import * as v from 'valibot';
+import {SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA} from '@contracts/scan-cleanup/ipcResultCodecs';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     createScanCleanupPreviewTestContext,
@@ -178,7 +179,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         confidence: 0.8,
         reconciled: false,
     })]);
-    expect(decodeScanCleanupDetectionJobState(analyzing)).toEqual(analyzing);
+    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, analyzing, {abortEarly: true})).toEqual(analyzing);
 
     remainingAnalysis.resolve(undefined);
     await reconciliationEntered.promise;
@@ -188,7 +189,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         .map(([
             _channel,
             state,
-        ]) => decodeScanCleanupDetectionJobState(state))
+        ]) => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true}))
         .flatMap(state => state?.results ?? [])
         .filter(result => result.pageNumber === 1)
         .map(result => result.confidence)).toContain(0.9));
@@ -216,7 +217,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         .map(([
             _channel,
             state,
-        ]) => decodeScanCleanupDetectionJobState(state))
+        ]) => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true}))
         .flatMap(state => state?.results ?? [])
         .filter(result => result.pageNumber === 1)
         .map(result => result.confidence);
@@ -796,7 +797,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
         secondPageLayout: 'force-two-page',
     });
     const state = service.getDetectionJobState(sender(), started.jobId, request);
-    expect(decodeScanCleanupDetectionJobState(state)).toEqual(state);
+    expect(v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})).toEqual(state);
     expect(state).toMatchObject({
         status: 'completed',
         progress: {
@@ -1004,7 +1005,7 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
         .map(([
             _channel,
             state,
-        ]) => decodeScanCleanupDetectionJobState(state)!);
+        ]) => v.parse(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA, state, {abortEarly: true})!);
     const started = await service.detectAll(owner, detectionRequest);
     service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
 

@@ -1,4 +1,4 @@
-import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnostics';
+import * as v from 'valibot';
 import {
     decodeNativeScanCleanupOutputMetadata,
     decodeNativeScanCleanupOutputMetadataJson,
@@ -11,6 +11,7 @@ import {
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     MAX_SCAN_CLEANUP_WARNING_EVENTS,
+    NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA,
     SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
     SCAN_CLEANUP_WARNING_EVENT_CODES,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
@@ -221,7 +222,7 @@ describe('scan-cleanup native artifact codecs', () => {
 
     it('detaches split diagnostics from the caller-owned payload', () => {
         const input = fullSplitDiagnostics();
-        const decoded = decodeSplitDiagnostics(input);
+        const decoded = v.parse(NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA, input, {abortEarly: true});
 
         expect(decoded).not.toBe(input);
         expect(decoded.foldBand).not.toBe(input.foldBand);

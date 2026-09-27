@@ -11,6 +11,7 @@ struct Declarations<'a> {
     config: &'a Config,
     seen: Vec<TypeId>,
     declarations: BTreeMap<String, String>,
+    preserve_optional_null: bool,
 }
 
 impl TypeVisitor for Declarations<'_> {
@@ -22,15 +23,19 @@ impl TypeVisitor for Declarations<'_> {
         let docs = T::docs()
             .map(|docs| format!("{docs}\n"))
             .unwrap_or_default();
-        let declaration = omitted_fields_are_never_null(&T::decl(self.config));
+        let declaration = T::decl(self.config);
+        let declaration = if self.preserve_optional_null {
+            declaration
+        } else {
+            omitted_fields_are_never_null(&declaration)
+        };
         self.declarations
             .insert(T::ident(self.config), format!("{docs}export {declaration}"));
         T::visit_dependencies(self);
     }
 }
 
-/// serde omits every `Option` field declared `skip_serializing_if`, so such a
-/// field is absent rather than null: `name?: T | null` becomes `name?: T`.
+/// serde skips `None` outputs; input fields keep nullable omission from ts-rs.
 fn omitted_fields_are_never_null(declaration: &str) -> String {
     let bytes = declaration.as_bytes();
     let mut output = String::with_capacity(declaration.len());
@@ -65,8 +70,11 @@ fn generated() -> String {
         config: &config,
         seen: Vec::new(),
         declarations: BTreeMap::new(),
+        preserve_optional_null: false,
     };
+    declarations.preserve_optional_null = true;
     declarations.visit::<super::manifest_v3::ManifestV3>();
+    declarations.preserve_optional_null = false;
     declarations.visit::<crate::engine::page_workflow::PageResultMetadata>();
     declarations.visit::<crate::pipeline::CleanupMetadata>();
     declarations.visit::<super::progress::ProgressEnvelope>();

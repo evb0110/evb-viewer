@@ -1,249 +1,65 @@
-import type {
-    IScanCleanupDetectionRequest,
-    IScanCleanupOwnerContext,
-    IScanCleanupPlacementAnchorCalibrationRequest,
-    IScanCleanupPlacementAnchorCalibration,
-    IScanCleanupPreviewCancelRequest,
-    IScanCleanupPreviewRequest,
-    IScanCleanupStartRequest,
-    TScanCleanupDetectionJobState,
-    TScanCleanupJobState,
-} from '@contracts/scan-cleanup/ipc';
+import * as v from 'valibot';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    decodeDetectionArgs,
-    decodeOwnedJobId,
-    decodePlacementAnchorCalibrationArgs,
-    decodePreviewArgs,
-    decodePreviewCancelArgs,
-    decodeStartArgs,
+    SCAN_CLEANUP_DETECTION_ARGS_SCHEMA,
+    SCAN_CLEANUP_OWNED_JOB_ARGS_SCHEMA,
+    SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_ARGS_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_CANCEL_ARGS_SCHEMA,
+    SCAN_CLEANUP_START_ARGS_SCHEMA,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {
-    decodeDetectionStartResult,
-    decodeScanCleanupDetectionJobState,
-    decodeScanCleanupJobState,
-    decodeScanCleanupPlacementAnchorCalibration,
-    decodeScanCleanupPreviewResult,
-    decodeScanCleanupRawPreviewEvent,
-    decodeStartResult,
+    SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA,
+    SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA,
+    SCAN_CLEANUP_JOB_STATE_SCHEMA,
+    SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA,
+    SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA,
+    SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA,
+    SCAN_CLEANUP_START_RESULT_SCHEMA,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { createJobId } from '@contracts/shared';
 import {
     defineForwardedPlatformMethod,
     definePlatformFeature,
-    runtimeSchema as s,
     type TFeatureCapability,
     type TFeatureEventMap,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import {
-    createDefaultScanCleanupSettingsFile,
     decodeScanCleanupSettingsResult,
     decodeScanCleanupSettingsReadRequest,
     decodeScanCleanupSettingsUpdateRequest,
-    type IScanCleanupSettingsResult,
-    type IScanCleanupSettingsReadRequest,
-    type IScanCleanupSettingsUpdateRequest,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
-import {
-    parseJobId,
-    parseRequestId,
-    type TJobId,
-} from '@contracts/shared';
-import {createEpochMs} from '@contracts/timestamps';
 
-const owner: IScanCleanupOwnerContext = {
-    ownerId: 'scan-cleanup-fixture',
-    documentRevision: 'revision-1',
-};
-const options = {
-    preserveOriginalQuality: false,
-    layoutMode: 'auto' as const,
-    outputMode: 'color' as const,
-    readingOrder: 'ltr' as const,
-    thickness: 0,
-    crop: true,
-    matchPageSize: true,
-    pageAlignment: 'top-center' as const,
-    marginsMm: {
-        leftMm: 5,
-        topMm: 5,
-        rightMm: 5,
-        bottomMm: 5,
-    },
-    despeckle: true,
-    skipBlankPages: false,
-    pageOverrides: {},
-};
-const previewRequest: IScanCleanupPreviewRequest = {
-    ...owner,
-    requestId: parseRequestId('preview-request-1') ?? (() => {
-        throw new Error('invalid fixture request ID');
-    })(),
-    sourcePdfPath: '/tmp/source.pdf',
-    pageNumber: requirePageNumber(1),
-    options,
-};
-const cancelPreviewRequest: IScanCleanupPreviewCancelRequest = {
-    ...owner,
-    sourcePdfPath: '/tmp/source.pdf',
-};
-const detectionRequest: IScanCleanupDetectionRequest = {
-    ...cancelPreviewRequest,
-    options,
-};
-const startRequest: IScanCleanupStartRequest = detectionRequest;
-const placementAnchorCalibrationRequest: IScanCleanupPlacementAnchorCalibrationRequest = {
-    ...owner,
-    sourcePdfPath: '/tmp/source.pdf',
-    detectionResultStoreId: 'scan-cleanup-fixture-store',
-    options,
-    pageNumber: requirePageNumber(1),
-};
-const queuedProgress = {
-    stage: 'queued' as const,
-    completedUnits: 0,
-    totalUnits: 0,
-    percent: 0,
-    completedPageNumbers: [],
-};
-const queuedJobState: TScanCleanupJobState = {
-    jobId: parseJobId('scan-cleanup-fixture') ?? (() => {
-        throw new Error('invalid fixture job ID');
-    })(),
-    status: 'queued',
-    progress: queuedProgress,
-    updatedAtMs: createEpochMs(0),
-};
-const queuedDetectionState: TScanCleanupDetectionJobState = {
-    jobId: parseJobId('scan-cleanup-detect-fixture') ?? (() => {
-        throw new Error('invalid fixture job ID');
-    })(),
-    status: 'queued',
-    progress: queuedProgress,
-    results: [],
-    updatedAtMs: createEpochMs(0),
-};
-const booleanResult = s.boolean();
-const documentRef = s.branded(
-    s.string('/tmp/scan-cleanup-output.pdf'),
-    (value): value is TDocumentRef => parseDocumentRef(value) !== null,
-    'invalid scan-cleanup document reference',
-);
-type TVoidResult = ReturnType<() => void>;
-const voidResult = s.declared<TVoidResult>()(s.undefined());
-const nonNegativeInteger = s.number({
-    integer: true,
-    min: 0,
-    message: 'invalid scan-cleanup non-negative integer result',
-});
-const decodeArgs = <T>(decode: (value: readonly unknown[]) => T) =>
-    (value: unknown) => decode(Array.isArray(value) ? value : []);
-const settingsReadArgs = s.fromParser(
-    decodeArgs(value => [decodeScanCleanupSettingsReadRequest(value[0])] as [IScanCleanupSettingsReadRequest]),
-    () => [{}],
-);
-const settingsUpdateArgs = s.fromParser(
-    decodeArgs<IScanCleanupSettingsUpdateRequest[]>(value => [decodeScanCleanupSettingsUpdateRequest(value[0])]),
-    () => [{settings: createDefaultScanCleanupSettingsFile().settings}],
-);
-const settingsFile = s.fromParser(
-    decodeScanCleanupSettingsResult,
-    (): IScanCleanupSettingsResult => createDefaultScanCleanupSettingsFile(),
-);
-const previewArgs = s.fromParser(decodeArgs(decodePreviewArgs), () => [previewRequest]);
-const cancelPreviewArgs = s.fromParser(decodeArgs(decodePreviewCancelArgs), () => [cancelPreviewRequest]);
-const detectionArgs = s.fromParser(decodeArgs(decodeDetectionArgs), () => [detectionRequest]);
-const startArgs = s.fromParser(decodeArgs(decodeStartArgs), () => [startRequest]);
-const placementAnchorCalibrationArgs = s.fromParser(
-    decodeArgs(decodePlacementAnchorCalibrationArgs),
-    () => [placementAnchorCalibrationRequest],
-);
-const ownedJobArgs = s.fromParser(decodeArgs(decodeOwnedJobId), () => [
-    parseJobId('scan-cleanup-fixture') ?? (() => {
-        throw new Error('invalid fixture job ID');
-    })(),
-    owner,
-] as [TJobId, IScanCleanupOwnerContext]);
-const rawPreviewEvent = s.fromParser(decodeScanCleanupRawPreviewEvent, () => ({
-    ...owner,
-    requestId: parseRequestId('preview-request-1') ?? (() => {
-        throw new Error('invalid fixture request ID');
-    })(),
-    pageNumber: requirePageNumber(1),
-    totalPages: 1,
-    rawImageData: new Uint8Array([1]),
-    rawWidthPx: 1,
-    rawHeightPx: 1,
-}));
-const previewResult = s.fromParser(
-    decodeScanCleanupPreviewResult,
-    () => ({
-        pageNumber: requirePageNumber(1),
-        totalPages: 1,
-        rawImageData: new Uint8Array([1]),
-        rawWidthPx: 1,
-        rawHeightPx: 1,
-        pageMetadata: {
-            layoutClassification: 'single-uncut-page' as const,
-            layoutConfidence: 0,
-            cutterXPx: null,
-            rotationDegrees: 0 as const,
-            canvasScope: 'document' as const,
-            excluded: false,
-            blankOutputsSkipped: 0,
-            tier1Verdict: 'single-uncut-page' as const,
-            reconciled: false,
-            clusterAgreement: 0,
-        },
-        outputs: [],
-    }),
-);
-const detectionStartResult = s.fromParser(decodeDetectionStartResult, () => ({
-    started: true as const,
-    jobId: createJobId('scan-cleanup-detect-fixture'),
-}));
-const startResult = s.fromParser(decodeStartResult, () => ({
-    started: true as const,
-    jobId: createJobId('scan-cleanup-fixture'),
-    outputPdfPath: '/tmp/cleaned.pdf',
-}));
-const placementAnchorCalibrationResult = s.fromParser(
-    decodeScanCleanupPlacementAnchorCalibration,
-    (): IScanCleanupPlacementAnchorCalibration => ({
-        summary: {
-            schemaVersion: 1,
-            sampleCount: 0,
-            referenceHeightPoints: 0,
-            toleranceNormalized: 0,
-            topEdgeNormalized: 0,
-            identity: {
-                documentRevision: 'revision-1',
-                detectionSignature: 'detection-1',
-                calibrationSignature: 'calibration-1',
-            },
-            clusters: [],
-            samples: [],
-        },
-        placementAnchors: {},
-    }),
-);
-const jobState = s.fromParser(decodeScanCleanupJobState, () => null);
-const detectionJobState = s.fromParser(decodeScanCleanupDetectionJobState, () => null);
-const jobEvent = s.fromNullableDecoder(
-    decodeScanCleanupJobState,
-    'scan-cleanup job state',
-    () => queuedJobState,
-);
-const detectionEvent = s.fromNullableDecoder(
-    decodeScanCleanupDetectionJobState,
-    'scan-cleanup detection job state',
-    () => queuedDetectionState,
-);
+const booleanResult = v.boolean();
+const documentRef = v.pipe(v.string(),
+    v.check(value => parseDocumentRef(value) !== null, 'invalid scan-cleanup document reference'),
+    v.transform(value => parseDocumentRef(value)!));
+const voidResult = v.pipe(v.undefined(), v.transform(() => {}));
+const nonNegativeInteger = v.message(v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    'invalid scan-cleanup non-negative integer result');
+// Settings decoders retain legacy key normalization and file repair semantics.
+const settingsReadArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsReadRequest))]);
+const settingsUpdateArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsUpdateRequest))]);
+const settingsFile = v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsResult));
+const previewArgs = SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA;
+const cancelPreviewArgs = SCAN_CLEANUP_PREVIEW_CANCEL_ARGS_SCHEMA;
+const detectionArgs = SCAN_CLEANUP_DETECTION_ARGS_SCHEMA;
+const startArgs = SCAN_CLEANUP_START_ARGS_SCHEMA;
+const placementAnchorCalibrationArgs = SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_ARGS_SCHEMA;
+const ownedJobArgs = SCAN_CLEANUP_OWNED_JOB_ARGS_SCHEMA;
+const rawPreviewEvent = SCAN_CLEANUP_RAW_PREVIEW_EVENT_SCHEMA;
+const previewResult = SCAN_CLEANUP_PREVIEW_RESULT_SCHEMA;
+const detectionStartResult = SCAN_CLEANUP_DETECTION_START_RESULT_SCHEMA;
+const startResult = SCAN_CLEANUP_START_RESULT_SCHEMA;
+const placementAnchorCalibrationResult = SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_SCHEMA;
+const jobState = SCAN_CLEANUP_JOB_STATE_SCHEMA;
+const detectionJobState = SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA;
+const jobEvent = v.pipe(SCAN_CLEANUP_JOB_STATE_SCHEMA,
+    v.check(state => state !== null, 'invalid scan-cleanup job state'),
+    v.transform(state => state!));
+const detectionEvent = v.pipe(SCAN_CLEANUP_DETECTION_JOB_STATE_SCHEMA,
+    v.check(state => state !== null, 'invalid scan-cleanup detection job state'),
+    v.transform(state => state!));
 const method = defineForwardedPlatformMethod;
 
 export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
@@ -342,7 +158,7 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             kind: 'async',
             channel: 'scan-cleanup:output:prune',
             ipc: {
-                args: s.tuple([]),
+                args: v.strictTuple([]),
                 result: nonNegativeInteger,
             },
             main: {
@@ -356,8 +172,8 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             kind: 'async',
             channel: 'scan-cleanup:output:pending',
             ipc: {
-                args: s.tuple([]),
-                result: s.array(documentRef),
+                args: v.strictTuple([]),
+                result: v.array(documentRef),
             },
             main: {
                 method: 'getPendingCompletedOutputs',
@@ -371,7 +187,7 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             kind: 'async',
             channel: 'scan-cleanup:output:acknowledge',
             ipc: {
-                args: s.tuple([s.array(documentRef)]),
+                args: v.strictTuple([v.array(documentRef)]),
                 result: voidResult,
             },
             main: {

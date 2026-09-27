@@ -20,6 +20,7 @@ import {
     posix,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
+import * as v from 'valibot';
 import {
     constants as osConstants,
     setPriority,
@@ -635,7 +636,7 @@ export async function runCliNativeToolCommand(
 }
 
 function decodeNativeEnvelope(line: string) {
-    return NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA.decode(JSON.parse(line));
+    return v.parse(NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA, JSON.parse(line), {abortEarly: true});
 }
 
 function throwCliProtocolError(error: Error | null) {

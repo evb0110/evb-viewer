@@ -1,8 +1,9 @@
+import * as v from 'valibot';
 import type {
-    IScanCleanupMarginsMm,
-    IScanCleanupNormalizedRect,
-    IScanCleanupNormalizedSplit,
-} from '@contracts/scan-cleanup/geometry';
+    SCAN_CLEANUP_LAYOUT_BY_PAGE_SCHEMA,
+    SCAN_CLEANUP_OPTIONS_SCHEMA,
+    SCAN_CLEANUP_PAGE_OVERRIDE_SCHEMA,
+} from '@contracts/scan-cleanup/ipcRequestCodecs';
 
 export const SCAN_CLEANUP_PAGE_ROTATIONS = [
     0,
@@ -18,6 +19,29 @@ export const SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS = [
     'two-page-spread',
 ] as const;
 export type TScanCleanupLayoutClassification = typeof SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS[number];
+
+const safeFiniteNumber = v.pipe(
+    v.number(),
+    v.finite(),
+    v.check(value => Math.abs(value) <= Number.MAX_SAFE_INTEGER),
+);
+const positiveFiniteNumber = v.pipe(safeFiniteNumber, v.minValue(Number.MIN_VALUE));
+
+export const SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA = v.message(v.pipe(v.strictObject({
+    dominantLayout: v.picklist(SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS),
+    cutterRatioMedian: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0.2), v.maxValue(0.8))),
+    clusterDims: v.strictObject({
+        widthPx: positiveFiniteNumber,
+        heightPx: positiveFiniteNumber,
+    }),
+    agreementStrength: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
+    strokeWidthMedianPx: v.optional(positiveFiniteNumber),
+    xHeightMedianPx: v.optional(positiveFiniteNumber),
+}), v.check(value =>
+    value.dominantLayout !== 'two-page-spread' || value.cutterRatioMedian !== null,
+)), 'invalid scan-cleanup document prior');
+
+export type IScanCleanupDocumentPrior = v.InferOutput<typeof SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA>;
 
 export const SCAN_CLEANUP_LAYOUT_MODES = [
     'auto',
@@ -159,7 +183,7 @@ export type TScanCleanupPictureZoneLayer = typeof SCAN_CLEANUP_PICTURE_ZONE_LAYE
  * detection the user has already watched run. Passing it to the preview and to
  * the run alike is what makes the two agree on one rectangle.
  */
-export type TScanCleanupLayoutByPage = Partial<Record<string, TScanCleanupLayoutClassification>>;
+export type TScanCleanupLayoutByPage = v.InferOutput<typeof SCAN_CLEANUP_LAYOUT_BY_PAGE_SCHEMA>;
 export type TScanCleanupPageOutputMapping = Readonly<Record<string, readonly number[]>>;
 
 export const SCAN_CLEANUP_MANUAL_SKEW_MIN_DEGREES = -15;
@@ -170,16 +194,6 @@ export const SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX = 4;
 export interface IScanCleanupClusterDimensions {
     widthPx: number;
     heightPx: number;
-}
-
-export interface IScanCleanupDocumentPrior {
-    dominantLayout: TScanCleanupLayoutClassification;
-    cutterRatioMedian: number | null;
-    clusterDims: IScanCleanupClusterDimensions;
-    agreementStrength: number;
-    /** Optional robust body-text calibration carried by the native planner. */
-    strokeWidthMedianPx?: number;
-    xHeightMedianPx?: number;
 }
 
 export interface IScanCleanupReconciliationMetadata {
@@ -194,18 +208,7 @@ export interface IScanCleanupTextAxis {
     confidence: number;
 }
 
-export interface IScanCleanupPageOverride {
-    rotationDegrees: TScanCleanupPageRotation;
-    layoutOverride: TScanCleanupPageLayoutOverride;
-    excluded: boolean;
-    manualSplit: IScanCleanupNormalizedSplit | null;
-    manualSkewDegrees?: number | undefined;
-    outputModeOverride?: TScanCleanupOutputMode;
-    manualContentBoxes?: Partial<Record<TScanCleanupOutputHalf, IScanCleanupNormalizedRect>>;
-    manualZones?: IScanCleanupManualZones;
-    marginsMm?: IScanCleanupMarginsMm;
-    placementOverrides?: Partial<Record<TScanCleanupOutputHalf, TScanCleanupPageAlignment>>;
-}
+export type IScanCleanupPageOverride = v.InferOutput<typeof SCAN_CLEANUP_PAGE_OVERRIDE_SCHEMA>;
 
 export interface IScanCleanupNormalizedZonePoint {
     xNormalized: number;
@@ -232,33 +235,4 @@ export interface IScanCleanupManualZones {
 export type TScanCleanupPageOverrides = Record<string, IScanCleanupPageOverride>;
 
 /** Stable renderer/Electron options. Experimental native policy is Electron-internal. */
-export interface IScanCleanupOptions {
-    preserveOriginalQuality: boolean;
-    layoutMode: TScanCleanupLayoutMode;
-    outputMode: TScanCleanupOutputModeSetting;
-    /** Optional only for bridge compatibility with settings created before advanced output controls. */
-    binarization?: TScanCleanupBinarizationMethod;
-    /** Optional only for bridge compatibility with settings created before advanced output controls. */
-    normalizeIllumination?: boolean;
-    thickness: number;
-    crop: boolean;
-    matchPageSize: boolean;
-    pageAlignment: TScanCleanupPageAlignment;
-    marginsMm: IScanCleanupMarginsMm;
-    /** Canonical speckle-removal setting. Older settings may instead provide `despeckle`. */
-    despeckleLevel?: TScanCleanupDespeckleLevel;
-    despeckle?: boolean;
-    /** Experimental automatic page-curvature correction. */
-    autoDewarp?: boolean;
-    /** Fixed automatic dewarp model depth; absent means automatic depth selection. */
-    autoDewarpDepth?: number | undefined;
-    readingOrder: TScanCleanupReadingOrder;
-    skipBlankPages: boolean;
-    pageOverrides: TScanCleanupPageOverrides;
-    /**
-     * One document-wide page override. Pages in `pageOverrides` remain sparse
-     * exceptions to this value, so applying a control to a very large document
-     * does not allocate one object per page.
-     */
-    pageOverrideDefaults?: IScanCleanupPageOverride;
-}
+export type IScanCleanupOptions = v.InferOutput<typeof SCAN_CLEANUP_OPTIONS_SCHEMA>;

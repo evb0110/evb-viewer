@@ -321,7 +321,8 @@ export function createPlatformFeaturePreloadClient<
             let wireArgs = spec.client?.mapArgs
                 ? spec.client.mapArgs(...publicArgs as never[])
                 : publicArgs;
-            if ('decode' in spec.ipc.args) {
+            // Scan-cleanup arguments can be reactive, so encode them as plain IPC values.
+            if ('decode' in spec.ipc.args || feature.path[0] === 'scanCleanup') {
                 try {
                     wireArgs = feature.ipcCodecs[spec.channel]?.encodeArgs?.(wireArgs) ?? wireArgs;
                 } catch (error) {

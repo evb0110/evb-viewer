@@ -179,8 +179,11 @@ pub struct TextToneDiagnostics {
     pub outside_midtone_largest_component_fraction: f64,
     pub outside_midtone_largest_component_width_fraction: f64,
     pub outside_midtone_largest_component_height_fraction: f64,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub ink_anchor: Option<u8>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub black_point: Option<f64>,
+    #[cfg_attr(test, ts(optional = nullable))]
     pub slope: Option<f64>,
 }
 
