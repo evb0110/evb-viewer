@@ -1096,7 +1096,7 @@ describe('PdfViewportSession behavior', () => {
             height: 900,
             margin: 20,
         })).toBe(true);
-        expect(surface.requestNavigation(6, 0)).toBe(6);
+        expect(surface.requestNavigation(6)).toBe(6);
         const navigationFence = createWorkspacePageNavigationFence({
             currentPage,
             openSurface: surface,
@@ -1187,7 +1187,7 @@ describe('PdfViewportSession behavior', () => {
             expect(surface.snapshot.value.committedViewport).toBeNull();
 
             fixture.container.scrollTop = 4_000;
-            expect(surface.requestNavigation(2, 0)).toBe(2);
+            expect(surface.requestNavigation(2)).toBe(2);
             expect(surface.viewportSession.value.requestedPage).toBe(2);
             fixture.documentSession.numPages.value = 10;
             fixture.documentSession.pageMetrics.value = Array.from({length: 10}, () => ({

@@ -1,9 +1,7 @@
 import {
-    afterEach,
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import {
     assertDocumentViewportSessionInvariants,
@@ -16,7 +14,6 @@ import type {
     IDocumentViewportCommitFence,
     IDocumentViewportRenderFence,
     IDocumentViewportSessionState,
-    TDocumentViewportSessionEffect,
     TDocumentViewportSessionEvent,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
@@ -57,20 +54,10 @@ function viewportFence(
 
 class SessionHarness {
     state = createEmptyDocumentViewportSession();
-    effects: TDocumentViewportSessionEffect[] = [];
 
     dispatch(event: TDocumentViewportSessionEvent) {
         const result = reduceDocumentViewportSession(this.state, event);
         if (result.accepted) this.state = result.state;
-        this.effects.push(...result.effects);
-        for (const effect of result.effects) {
-            if (effect.type !== 'schedule-skeleton-delay') continue;
-            setTimeout(() => this.dispatch({
-                type: 'skeleton-delay-elapsed',
-                generation: effect.generation,
-                token: effect.token,
-            }), Math.max(0, effect.deadline - Date.now()));
-        }
         return result;
     }
 
@@ -110,10 +97,6 @@ class SessionHarness {
     }
 }
 
-afterEach(() => {
-    vi.useRealTimers();
-});
-
 describe('DocumentViewportSession', () => {
     it('reports an impossible empty lifecycle with a non-empty visual owner', () => {
         const empty = createEmptyDocumentViewportSession();
@@ -123,7 +106,7 @@ describe('DocumentViewportSession', () => {
                 kind: 'page',
                 generation: 0,
                 pageNumber: 1,
-                presentation: 'cold-shell',
+                presentation: 'skeleton',
                 error: null,
             },
         });
@@ -149,16 +132,13 @@ describe('DocumentViewportSession', () => {
                 kind: 'page',
                 generation: 1,
                 pageNumber: 1,
-                presentation: 'cold-shell',
+                presentation: 'skeleton',
             },
         });
-        expect(result.effects).toEqual([]);
         expect(assertDocumentViewportSessionInvariants(harness.state)).toBe(harness.state);
     });
 
     it('accepts rapid pre-metadata navigation, keeps only latest intent, and clamps on metadata', () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(0);
         const harness = new SessionHarness();
         harness.dispatch({
             type: 'open-requested',
@@ -170,19 +150,11 @@ describe('DocumentViewportSession', () => {
             type: 'navigation-requested',
             pageNumber: 12,
             viewportIntentId: 'nav-1',
-            skeletonDelay: {
-                token: 'delay-1',
-                deadline: 100,
-            },
         });
         const latest = harness.dispatch({
             type: 'navigation-requested',
             pageNumber: 99,
             viewportIntentId: 'nav-2',
-            skeletonDelay: {
-                token: 'delay-2',
-                deadline: 110,
-            },
         });
 
         expect(first.accepted).toBe(true);
@@ -194,15 +166,11 @@ describe('DocumentViewportSession', () => {
         });
         expect(harness.state.visual).toMatchObject({
             kind: 'page',
-            presentation: 'cold-shell',
+            presentation: 'skeleton',
             pageNumber: 99,
         });
-        expect(latest.effects.map(effect => effect.type)).toEqual([
-            'cancel-skeleton-delay',
-            'schedule-skeleton-delay',
-        ]);
 
-        const metadata = harness.dispatch({
+        harness.dispatch({
             type: 'metadata-ready',
             generation: harness.state.generation,
             pageCount: 20,
@@ -214,15 +182,12 @@ describe('DocumentViewportSession', () => {
         });
         expect(harness.state.visual).toMatchObject({
             kind: 'page',
-            presentation: 'cold-shell',
+            presentation: 'skeleton',
             pageNumber: 20,
         });
-        expect(metadata.effects).toEqual([]);
     });
 
-    it('never flashes a skeleton when the current canvas commits before the delay', () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(1_000);
+    it('commits a navigation visual after both canvas and viewport are ready', () => {
         const harness = new SessionHarness();
         harness.openWithMetadata();
         harness.settleCurrentPage();
@@ -230,14 +195,10 @@ describe('DocumentViewportSession', () => {
             type: 'navigation-requested',
             pageNumber: 2,
             viewportIntentId: 'nav-fast',
-            skeletonDelay: {
-                token: 'delay-fast',
-                deadline: 1_120,
-            },
         });
         expect(harness.state.visual).toMatchObject({
             kind: 'page',
-            presentation: 'cold-shell',
+            presentation: 'skeleton',
             pageNumber: 2,
         });
 
@@ -246,7 +207,6 @@ describe('DocumentViewportSession', () => {
             type: 'render-started',
             fence: render,
         });
-        vi.advanceTimersByTime(50);
         harness.dispatch({
             type: 'canvas-committed',
             fence: render,
@@ -265,7 +225,6 @@ describe('DocumentViewportSession', () => {
             pageNumber: 2,
         });
 
-        vi.advanceTimersByTime(100);
         expect(harness.state.visual).toMatchObject({
             kind: 'page',
             presentation: 'canvas',
@@ -283,10 +242,6 @@ describe('DocumentViewportSession', () => {
             type: 'navigation-requested',
             pageNumber: 2,
             viewportIntentId: 'nav-canvas-first',
-            skeletonDelay: {
-                token: 'delay-canvas-first',
-                deadline: Date.now() + 120,
-            },
         });
         const render = renderFence(harness.state, {requestId: 2});
         harness.dispatch({
@@ -300,7 +255,7 @@ describe('DocumentViewportSession', () => {
 
         expect(harness.state.visual).toMatchObject({
             kind: 'page',
-            presentation: 'cold-shell',
+            presentation: 'skeleton',
             pageNumber: 2,
         });
         expect(harness.state.committedPage).toBe(1);
@@ -371,10 +326,6 @@ describe('DocumentViewportSession', () => {
             type: 'navigation-requested',
             pageNumber: 12,
             viewportIntentId: 'nav-superseded',
-            skeletonDelay: {
-                token: 'delay-superseded',
-                deadline: Date.now() + 120,
-            },
         });
         expect(harness.state).toMatchObject({
             lifecycle: 'transitioning',
@@ -398,10 +349,6 @@ describe('DocumentViewportSession', () => {
             pageNumber: 8,
         });
         expect(superseded.accepted).toBe(true);
-        expect(superseded.effects).toEqual([{
-            type: 'cancel-skeleton-delay',
-            token: 'delay-superseded',
-        }]);
         expect(harness.state).toMatchObject({
             lifecycle: 'ready',
             requestedPage: 1,
@@ -411,7 +358,6 @@ describe('DocumentViewportSession', () => {
             renderFence: null,
             stagedRenderFence: null,
             stagedViewportFence: null,
-            skeletonDelay: null,
             visual: {
                 kind: 'page',
                 pageNumber: 1,
@@ -437,82 +383,10 @@ describe('DocumentViewportSession', () => {
 
         expect(harness.state.visual).toMatchObject({
             kind: 'page',
-            presentation: 'cold-shell',
+            presentation: 'skeleton',
             pageNumber: 3,
         });
         expect(harness.state.lifecycle).toBe('opening');
-    });
-
-    it('switches the target shell to its skeleton only after the supplied deadline', () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(2_000);
-        const harness = new SessionHarness();
-        harness.openWithMetadata();
-        harness.settleCurrentPage();
-        harness.dispatch({
-            type: 'navigation-requested',
-            pageNumber: 4,
-            viewportIntentId: 'nav-slow',
-            skeletonDelay: {
-                token: 'delay-slow',
-                deadline: 2_120,
-            },
-        });
-
-        vi.advanceTimersByTime(119);
-        expect(harness.state.visual).toMatchObject({
-            kind: 'page',
-            presentation: 'cold-shell',
-            pageNumber: 4,
-        });
-        vi.advanceTimersByTime(1);
-        expect(harness.state.visual).toMatchObject({
-            kind: 'page',
-            presentation: 'skeleton',
-            pageNumber: 4,
-        });
-        expect(harness.state.skeletonDelay).toBeNull();
-    });
-
-    it('presents the target skeleton after debounce even before metadata resolves', () => {
-        const harness = new SessionHarness();
-        harness.dispatch({
-            type: 'open-requested',
-            identity,
-            viewportIntentId: 'open-intent',
-        });
-        harness.dispatch({
-            type: 'navigation-requested',
-            pageNumber: 50,
-            viewportIntentId: 'nav-before-metadata',
-            skeletonDelay: {
-                token: 'delay',
-                deadline: 100,
-            },
-        });
-        harness.dispatch({
-            type: 'skeleton-delay-elapsed',
-            generation: 1,
-            token: 'delay',
-        });
-        expect(harness.state.visual).toMatchObject({
-            kind: 'page',
-            presentation: 'skeleton',
-            pageNumber: 50,
-        });
-        expect(harness.state.skeletonDelay).toBeNull();
-
-        harness.dispatch({
-            type: 'metadata-ready',
-            generation: 1,
-            pageCount: 8,
-        });
-        expect(harness.state.visual).toMatchObject({
-            kind: 'page',
-            presentation: 'skeleton',
-            pageNumber: 8,
-        });
-        expect(harness.state.skeletonDelay).toBeNull();
     });
 
     it('rejects stale generation, render, revision, page, and viewport-intent commits', () => {
@@ -569,7 +443,7 @@ describe('DocumentViewportSession', () => {
             type: 'render-started',
             fence: staleRender,
         });
-        const replacement = harness.dispatch({
+        harness.dispatch({
             type: 'open-requested',
             identity: {
                 documentId: 'document-b',
@@ -578,7 +452,6 @@ describe('DocumentViewportSession', () => {
             viewportIntentId: 'replacement-open',
         });
 
-        expect(replacement.effects).toEqual([]);
         expect(harness.state.generation).toBe(2);
         expect(harness.dispatch({
             type: 'canvas-committed',
@@ -599,8 +472,7 @@ describe('DocumentViewportSession', () => {
         const closingGeneration = harness.state.generation;
         expect(canOpenRecentDocument(harness.state)).toBe(false);
 
-        const closing = harness.dispatch({type: 'close-requested'});
-        expect(closing.effects).toEqual([]);
+        harness.dispatch({type: 'close-requested'});
         expect(harness.state.observedPage).toBeNull();
         expect(canOpenRecentDocument(harness.state)).toBe(false);
         const closed = harness.dispatch({

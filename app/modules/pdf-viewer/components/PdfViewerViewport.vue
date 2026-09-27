@@ -206,9 +206,6 @@ const groupedVirtualPageItems = computed(() => groupPdfVirtualPageItems(
 ));
 
 function shouldRenderPageSkeleton(page: TPageNumber) {
-    // The viewport-session projection is the only presentation authority.
-    // An opening shell remains a frame during the debounce window; it does not
-    // independently force a skeleton before the session delay elapses.
     return shouldShowSkeleton(page);
 }
 

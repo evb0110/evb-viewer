@@ -138,7 +138,7 @@ export interface ICommittedSurfaceCausalOpenContract {
     maxFirstPageShellMs: number;
     maxReadyAfterCanvasMs: number;
     requirePageShell: boolean;
-    /** Allow the explicit cold-shell handoff before opening geometry exists. */
+    /** Allow opening to remain pending before page geometry exists. */
     allowDeferredOpening?: boolean;
 }
 
@@ -237,7 +237,7 @@ export function findCommittedSurfaceContractViolations(
                 || frame.skeletonCount === 1 && !frame.skeletonSharesShell
             )
         ) {
-            violations.push(`frame ${String(frame.frame)} did not keep its optional debounced skeleton inside the actual page shell`);
+            violations.push(`frame ${String(frame.frame)} did not keep its skeleton inside the actual page shell`);
         }
         if (
             frame.kind === 'page-shell'

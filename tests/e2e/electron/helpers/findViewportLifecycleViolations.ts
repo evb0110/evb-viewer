@@ -4,12 +4,9 @@ import type {
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 
 export interface IViewportLifecycleContract {
-    animationFrameToleranceMs?: number;
     expectedFinalPage: number;
     interactionCheckpoint: string;
-    minimumSkeletonDelayMs?: number;
     rejectUnexpectedCanvasPages?: boolean;
-    requireSkeleton?: boolean;
     startAtOpenSurfaceClaim?: boolean;
 }
 
@@ -69,7 +66,7 @@ function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
             || frame.shellId === null
         )
     ) {
-        return `frame ${String(frame.frame)} did not keep its optional debounced skeleton inside the sole page-shell owner`;
+        return `frame ${String(frame.frame)} did not keep its skeleton inside the sole page-shell owner`;
     }
     if (
         frame.kind !== 'page-shell'
@@ -79,8 +76,6 @@ function findVisibleOwnerViolation(frame: ICommittedSurfaceFrame) {
     }
     return null;
 }
-
-const SKELETON_DEBOUNCE_ALLOWANCE_MS = 250;
 
 /**
  * Release contract for a single interaction generation. It deliberately
@@ -105,42 +100,15 @@ export function findViewportLifecycleViolations(
         if (frame.kind === 'committed-empty') {
             violations.push(`frame ${String(frame.frame)} retained the Recent surface after navigation was requested`);
         }
-    }
-
-    // A preceding zoom/navigation transaction may still own the viewport when
-    // the next intent is issued. Debounce belongs to the requested target
-    // shell, not to any retained/stale page shell sampled before handoff.
-    const skeletonFrames = frames.filter(frame => (
-        frame.kind === 'page-shell'
-        && frame.pageNumber === contract.expectedFinalPage
-        && frame.skeletonCount > 0
-    ));
-    // A resident-canvas or warm reopen commits the target page without any
-    // render delay; the skeleton contract only applies when the target page
-    // actually had to wait for its render. The skeleton is deliberately
-    // debounced, so a bare shell that commits within the debounce allowance
-    // owes no skeleton. A missing skeleton is only a violation when another
-    // sampled RAF proves that the same bare shell outlived the allowance;
-    // elapsed time across an unsampled gap before canvas commit is not visual
-    // evidence that the bare shell remained exposed.
-    const bareTargetShellFrames = frames.filter(frame => (
-        frame.kind === 'page-shell'
-        && frame.pageNumber === contract.expectedFinalPage
-        && frame.skeletonCount === 0
-    ));
-    const firstBareTargetShellFrame = bareTargetShellFrames[0];
-    const overdueBareShellObserved = firstBareTargetShellFrame
-        ? bareTargetShellFrames.some(frame => (
-            frame.elapsedMs - firstBareTargetShellFrame.elapsedMs
-            > SKELETON_DEBOUNCE_ALLOWANCE_MS
-        ))
-        : false;
-    if (
-        contract.requireSkeleton
-        && skeletonFrames.length === 0
-        && overdueBareShellObserved
-    ) {
-        violations.push('the controlled slow render never exposed its delayed page skeleton');
+        if (
+            frame.kind === 'page-shell'
+            && frame.pageNumber === contract.expectedFinalPage
+            && frame.openSurfacePresentation !== 'opening'
+            && frame.pageVisualState !== 'ready'
+            && frame.skeletonCount === 0
+        ) {
+            violations.push(`frame ${String(frame.frame)} exposed a bare pending target page`);
+        }
     }
 
     if (contract.rejectUnexpectedCanvasPages) {
@@ -155,24 +123,6 @@ export function findViewportLifecycleViolations(
             }
         }
     }
-    if (contract.requireSkeleton === false && skeletonFrames.length > 0) {
-        violations.push('the fast render flashed an intermediate page skeleton');
-    }
-    if (
-        contract.minimumSkeletonDelayMs !== undefined
-        && skeletonFrames[0]
-    ) {
-        const firstFrameElapsedMs = frames[0]!.elapsedMs;
-        const skeletonDelayMs = skeletonFrames[0].elapsedMs - firstFrameElapsedMs;
-        const minimumObservedDelayMs = contract.minimumSkeletonDelayMs
-            - (contract.animationFrameToleranceMs ?? 34);
-        if (skeletonDelayMs < minimumObservedDelayMs) {
-            violations.push(
-                `page skeleton appeared after ${String(skeletonDelayMs)}ms; expected the ${String(contract.minimumSkeletonDelayMs)}ms debounce`,
-            );
-        }
-    }
-
     const finalTargetFrameIndex = frames.findIndex(frame => (
         frame.kind === 'committed-canvas'
         && frame.pageNumber === contract.expectedFinalPage

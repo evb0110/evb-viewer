@@ -720,7 +720,6 @@ describe('Electron E2E - Recent Files', () => {
         const initialOpenSurfaceFrame = immediateOpen.firstOpenSurfaceFrame;
         expect(
             [
-                'cold-shell',
                 'skeleton',
                 'canvas',
             ],

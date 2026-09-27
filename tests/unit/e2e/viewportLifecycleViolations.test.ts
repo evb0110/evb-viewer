@@ -40,7 +40,7 @@ function frame(
 }
 
 function bareShell(sequence: number, elapsedMs: number) {
-    return frame(sequence, elapsedMs, {});
+    return frame(sequence, elapsedMs, {pageVisualState: 'none'});
 }
 
 function committedCanvas(sequence: number, elapsedMs: number) {
@@ -48,10 +48,11 @@ function committedCanvas(sequence: number, elapsedMs: number) {
         canvasAuthorityReady: true,
         canvasNonblank: true,
         kind: 'committed-canvas',
+        pageVisualState: 'ready',
     });
 }
 
-describe('viewport lifecycle skeleton sampling', () => {
+describe('viewport lifecycle sampling', () => {
     it('starts Recent lifecycle ownership at the open-surface claim', () => {
         const violations = findViewportLifecycleViolations({frames: [
             frame(1, 0, {
@@ -100,36 +101,35 @@ describe('viewport lifecycle skeleton sampling', () => {
         );
     });
 
-    it('does not infer overdue bare-shell visibility across an unsampled animation-frame gap', () => {
+    it('accepts a skeleton or a resident canvas on the target page', () => {
         const violations = findViewportLifecycleViolations({frames: [
-            bareShell(1, 0),
-            bareShell(2, 47),
+            frame(1, 0, {
+                pageVisualState: 'none',
+                skeletonCount: 1,
+                skeletonSharesShell: true,
+            }),
+            frame(2, 16, {
+                pageVisualState: 'ready',
+                skeletonCount: 0,
+            }),
             committedCanvas(3, 620),
         ]}, {
             expectedFinalPage: TARGET_PAGE,
             interactionCheckpoint: CHECKPOINT,
-            requireSkeleton: true,
         });
 
-        expect(violations).not.toContain(
-            'the controlled slow render never exposed its delayed page skeleton',
-        );
+        expect(violations).toEqual([]);
     });
 
-    it('rejects a bare target shell that is sampled after the debounce allowance', () => {
+    it('rejects a bare target page on the first sampled frame', () => {
         const violations = findViewportLifecycleViolations({frames: [
             bareShell(1, 0),
-            bareShell(2, 47),
-            bareShell(3, 251),
-            committedCanvas(4, 267),
+            committedCanvas(2, 267),
         ]}, {
             expectedFinalPage: TARGET_PAGE,
             interactionCheckpoint: CHECKPOINT,
-            requireSkeleton: true,
         });
 
-        expect(violations).toContain(
-            'the controlled slow render never exposed its delayed page skeleton',
-        );
+        expect(violations).toContain('frame 1 exposed a bare pending target page');
     });
 });

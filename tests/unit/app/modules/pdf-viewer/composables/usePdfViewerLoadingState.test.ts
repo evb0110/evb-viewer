@@ -125,7 +125,7 @@ describe('usePdfViewerLoadingState', () => {
     it('waits for the current page when early navigation supersedes the opening page', () => {
         const harness = createHarness();
         const generation = beginSurface(harness, 'load:1');
-        expect(harness.openSurface.requestNavigation(2, 0)).not.toBeNull();
+        expect(harness.openSurface.requestNavigation(2)).not.toBeNull();
         harness.currentPage.value = 2;
 
         expect(harness.openSurface.createRenderFence({
@@ -149,7 +149,7 @@ describe('usePdfViewerLoadingState', () => {
         markReady(harness, commitPage(harness, generation, 'load:1', 1));
         expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(false);
 
-        expect(harness.openSurface.requestNavigation(2, 0)).not.toBeNull();
+        expect(harness.openSurface.requestNavigation(2)).not.toBeNull();
         harness.currentPage.value = 2;
         expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(true);
 

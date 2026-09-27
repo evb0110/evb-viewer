@@ -97,7 +97,6 @@ const DJVU_FIRST_PAGE_SHELL_BUDGET_MS = 1_250;
 const LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS = {sampleCanvasPixels: false} as const;
 const DJVU_FIRST_VISUAL_BUDGET_MS = 5_000;
 const DJVU_READY_AFTER_VISUAL_BUDGET_MS = 1_000;
-const PDF_NAVIGATION_SKELETON_DEBOUNCE_MS = 150;
 const CDP_CLEANUP_TIMEOUT_MS = 5_000;
 const djvuBlockingFixture = resolveDjvuFixturePath();
 const runDjvuBlockingOrSkip = selectFixtureDescribe(describe, djvuBlockingFixture);
@@ -1674,7 +1673,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             expectedFinalPage: 6,
             interactionCheckpoint: 'recent-early-navigation',
             rejectUnexpectedCanvasPages: true,
-            requireSkeleton: true,
             startAtOpenSurfaceClaim: true,
         });
         expect(
@@ -1721,7 +1719,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             findViewportLifecycleViolations(fastNavigationTrace, {
                 expectedFinalPage: 7,
                 interactionCheckpoint: 'fast-navigation',
-                requireSkeleton: false,
             }),
             JSON.stringify(fastNavigationTrace.frames),
         ).toEqual([]);
@@ -1886,7 +1883,6 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             findViewportLifecycleViolations(slowNavigationTrace, {
                 expectedFinalPage: 10,
                 interactionCheckpoint: 'controlled-slow-navigation',
-                minimumSkeletonDelayMs: PDF_NAVIGATION_SKELETON_DEBOUNCE_MS,
             }),
             JSON.stringify(slowNavigationTrace.frames),
         ).toEqual([]);

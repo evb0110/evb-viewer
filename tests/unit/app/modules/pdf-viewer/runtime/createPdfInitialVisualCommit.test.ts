@@ -225,7 +225,7 @@ describe('createPdfInitialVisualCommit', () => {
         fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
         expect(fixture.surface.viewportSession.value.lifecycle).toBe('ready');
 
-        fixture.surface.requestNavigation(3, 0);
+        fixture.surface.requestNavigation(3);
         expect(fixture.surface.viewportSession.value).toMatchObject({
             lifecycle: 'transitioning',
             requestedPage: 3,

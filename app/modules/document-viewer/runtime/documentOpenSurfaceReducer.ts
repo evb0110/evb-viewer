@@ -31,20 +31,13 @@ export interface IDocumentViewportIntent {
     readonly pageNumber: number | null;
 }
 
-export interface IDocumentViewportSkeletonDelay {
-    readonly generation: number;
-    readonly token: string;
-    readonly pageNumber: number;
-    readonly deadline: number;
-}
-
 export type TDocumentViewportVisualOwner =
     | { readonly kind: 'empty' }
     | {
         readonly kind: 'page';
         readonly generation: number;
         readonly pageNumber: number;
-        readonly presentation: 'cold-shell' | 'skeleton' | 'canvas' | 'error';
+        readonly presentation: 'skeleton' | 'canvas' | 'error';
         readonly error: string | null;
     }
     | {
@@ -74,7 +67,6 @@ export interface IDocumentViewportSessionState {
     readonly stagedViewportFence: IDocumentViewportCommitFence | null;
     readonly committedRenderFence: IDocumentViewportRenderFence | null;
     readonly committedViewportFence: IDocumentViewportCommitFence | null;
-    readonly skeletonDelay: IDocumentViewportSkeletonDelay | null;
     readonly failure: string | null;
 }
 
@@ -84,10 +76,6 @@ export type TDocumentViewportSessionEvent =
         readonly identity: IDocumentViewportIdentity;
         readonly viewportIntentId: string;
         readonly initialPage?: number;
-        readonly skeletonDelay?: {
-            readonly token: string;
-            readonly deadline: number
-        };
     }
     | {
         readonly type: 'identity-refined';
@@ -110,10 +98,6 @@ export type TDocumentViewportSessionEvent =
         readonly type: 'navigation-requested';
         readonly pageNumber: number | null;
         readonly viewportIntentId: string;
-        readonly skeletonDelay?: {
-            readonly token: string;
-            readonly deadline: number
-        };
     }
     | {
         readonly type: 'navigation-resolved';
@@ -153,11 +137,6 @@ export type TDocumentViewportSessionEvent =
         readonly fence: IDocumentViewportRenderFence
     }
     | {
-        readonly type: 'skeleton-delay-elapsed';
-        readonly generation: number;
-        readonly token: string;
-    }
-    | {
         readonly type: 'page-failed';
         readonly fence: IDocumentViewportRenderFence;
         readonly error: string
@@ -180,21 +159,8 @@ export type TDocumentViewportSessionEvent =
         readonly generation: number
     };
 
-export type TDocumentViewportSessionEffect = {
-    readonly type: 'schedule-skeleton-delay';
-    readonly generation: number;
-    readonly pageNumber: number;
-    readonly token: string;
-    readonly deadline: number;
-}
-    | {
-        readonly type: 'cancel-skeleton-delay';
-        readonly token: string
-    };
-
 export interface IDocumentViewportSessionTransition {
     readonly state: IDocumentViewportSessionState;
-    readonly effects: readonly TDocumentViewportSessionEffect[];
     readonly accepted: boolean;
 }
 
@@ -232,7 +198,6 @@ export function collectDocumentViewportSessionInvariantViolations(
         add(state.renderFence === null, 'empty session cannot have render fence');
         add(state.stagedRenderFence === null, 'empty session cannot have staged render fence');
         add(state.stagedViewportFence === null, 'empty session cannot have staged viewport fence');
-        add(state.skeletonDelay === null, 'empty session cannot have skeleton delay');
         add(state.observedPage === null, 'empty session cannot have observed page');
     } else {
         add(state.identity !== null, 'non-empty session must have identity');
@@ -267,14 +232,6 @@ export function collectDocumentViewportSessionInvariantViolations(
     if (state.committedViewportFence && state.identity) {
         add(state.committedViewportFence.generation === state.generation, 'viewport fence generation is stale');
         add(state.committedViewportFence.revision === state.identity.revision, 'viewport fence revision is stale');
-    }
-    if (state.skeletonDelay) {
-        add(state.skeletonDelay.generation === state.generation, 'skeleton delay generation is stale');
-        add(
-            state.visual.kind === 'page' && state.visual.presentation !== 'canvas',
-            'skeleton delay requires a not-ready page visual',
-        );
-        add(state.skeletonDelay.pageNumber === state.requestedPage, 'skeleton delay page is stale');
     }
     if (state.lifecycle === 'ready') {
         add(state.visual.kind === 'page' && state.visual.presentation === 'canvas', 'ready session must own canvas');
@@ -311,7 +268,6 @@ export function createEmptyDocumentViewportSession(
         stagedViewportFence: null,
         committedRenderFence: null,
         committedViewportFence: null,
-        skeletonDelay: null,
         failure: null,
     });
 }
@@ -327,18 +283,13 @@ export function resolveDocumentViewportCurrentPage(state: IDocumentViewportSessi
 function reject(state: IDocumentViewportSessionState): IDocumentViewportSessionTransition {
     return {
         state,
-        effects: [],
         accepted: false,
     };
 }
 
-function accept(
-    state: IDocumentViewportSessionState,
-    effects: readonly TDocumentViewportSessionEffect[] = [],
-): IDocumentViewportSessionTransition {
+function accept(state: IDocumentViewportSessionState): IDocumentViewportSessionTransition {
     return {
         state: assertDocumentViewportSessionInvariants(state),
-        effects,
         accepted: true,
     };
 }
@@ -395,7 +346,6 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
             presentation: 'canvas' as const,
             error: null,
         },
-        skeletonDelay: null,
         failure: null,
     };
 }
@@ -408,10 +358,6 @@ function openRequested(
         event.identity.documentId.length === 0
         || event.identity.revision.length === 0
         || event.viewportIntentId.length === 0
-        || (event.skeletonDelay && (
-            event.skeletonDelay.token.length === 0
-            || !Number.isFinite(event.skeletonDelay.deadline)
-        ))
     ) {
         return reject(state);
     }
@@ -434,7 +380,7 @@ function openRequested(
             kind: 'page',
             generation,
             pageNumber: requestedPage,
-            presentation: 'cold-shell',
+            presentation: 'skeleton',
             error: null,
         },
         viewportIntent: {
@@ -447,27 +393,9 @@ function openRequested(
         stagedViewportFence: null,
         committedRenderFence: null,
         committedViewportFence: null,
-        skeletonDelay: event.skeletonDelay ? {
-            generation,
-            token: event.skeletonDelay.token,
-            pageNumber: requestedPage,
-            deadline: event.skeletonDelay.deadline,
-        } : null,
         failure: null,
     };
-    const effects: TDocumentViewportSessionEffect[] = [];
-    if (state.skeletonDelay) effects.push({
-        type: 'cancel-skeleton-delay',
-        token: state.skeletonDelay.token,
-    });
-    if (event.skeletonDelay) effects.push({
-        type: 'schedule-skeleton-delay',
-        generation,
-        pageNumber: requestedPage,
-        token: event.skeletonDelay.token,
-        deadline: event.skeletonDelay.deadline,
-    });
-    return accept(next, effects);
+    return accept(next);
 }
 
 function metadataReady(
@@ -485,10 +413,6 @@ function metadataReady(
         pageNumber: state.viewportIntent.pageNumber === null ? null : requestedPage,
     };
     let visual = state.visual;
-    const skeletonDelay = state.skeletonDelay && {
-        ...state.skeletonDelay,
-        pageNumber: requestedPage,
-    };
     if (visual.kind === 'page' && visual.presentation !== 'canvas') {
         visual = {
             ...visual,
@@ -524,7 +448,6 @@ function metadataReady(
         committedPage: committedPageInvalidated ? null : state.committedPage,
         committedRenderFence: committedPageInvalidated ? null : state.committedRenderFence,
         committedViewportFence: committedPageInvalidated ? null : state.committedViewportFence,
-        skeletonDelay,
     };
     return accept(next);
 }
@@ -539,44 +462,15 @@ function navigationRequested(
         || state.lifecycle === 'failed' && state.visual.kind !== 'page'
         || event.pageNumber !== null && !isPositivePage(event.pageNumber)
         || event.viewportIntentId.length === 0
-        || (event.skeletonDelay && (
-            event.skeletonDelay.token.length === 0
-            || !Number.isFinite(event.skeletonDelay.deadline)
-        ))
     ) {
         return reject(state);
     }
     const pageNumber = event.pageNumber === null ? state.requestedPage : clampPage(event.pageNumber, state.pageCount);
-    const effects: TDocumentViewportSessionEffect[] = [];
-    if (state.skeletonDelay) effects.push({
-        type: 'cancel-skeleton-delay',
-        token: state.skeletonDelay.token,
-    });
-    // The delay spares a quick navigation from a skeleton flash. Once a
-    // transition already shows the skeleton, the next command keeps it, and a
-    // command that lands while the delay is running keeps its deadline: rapid
-    // Next/Previous otherwise alternated between skeleton and bare page, or
-    // never showed the skeleton at all.
-    const isNavigationTransition = state.lifecycle === 'transitioning';
-    const continuesSkeleton = isNavigationTransition
-        && state.visual.kind === 'page'
-        && state.visual.presentation === 'skeleton';
-    const pendingDeadline = isNavigationTransition && state.skeletonDelay?.generation === state.generation
-        ? state.skeletonDelay.deadline
-        : null;
-    const skeletonDelay = event.skeletonDelay && !continuesSkeleton
-        ? {
-            token: event.skeletonDelay.token,
-            deadline: pendingDeadline === null
-                ? event.skeletonDelay.deadline
-                : Math.min(pendingDeadline, event.skeletonDelay.deadline),
-        }
-        : null;
     const visual: TDocumentViewportVisualOwner = {
         kind: 'page',
         generation: state.generation,
         pageNumber,
-        presentation: skeletonDelay ? 'cold-shell' : 'skeleton',
+        presentation: 'skeleton',
         error: null,
     };
     const next: IDocumentViewportSessionState = {
@@ -599,24 +493,9 @@ function navigationRequested(
         // navigation intent.
         committedRenderFence: state.committedRenderFence,
         committedViewportFence: state.committedViewportFence,
-        skeletonDelay: skeletonDelay ? {
-            generation: state.generation,
-            token: skeletonDelay.token,
-            pageNumber,
-            deadline: skeletonDelay.deadline,
-        } : null,
         failure: null,
     };
-    if (skeletonDelay) {
-        effects.push({
-            type: 'schedule-skeleton-delay',
-            generation: state.generation,
-            pageNumber,
-            token: skeletonDelay.token,
-            deadline: skeletonDelay.deadline,
-        });
-    }
-    return accept(next, effects);
+    return accept(next);
 }
 
 function revisionSwapped(
@@ -686,7 +565,6 @@ function revisionSwapped(
         stagedViewportFence: null,
         committedRenderFence,
         committedViewportFence,
-        skeletonDelay: null,
         failure: null,
     });
 }
@@ -702,23 +580,15 @@ function reduceCommit(
         if (!state.renderFence || !renderFenceMatches(state.renderFence, event.fence)) {
             return reject(state);
         }
-        const effects = state.skeletonDelay
-            ? [{
-                type: 'cancel-skeleton-delay' as const,
-                token: state.skeletonDelay.token,
-            }]
-            : [];
         const next = state.lifecycle === 'ready' ? {
             ...state,
             committedRenderFence: event.fence,
             stagedRenderFence: null,
-            skeletonDelay: null,
         } : settleIfComplete({
             ...state,
             stagedRenderFence: event.fence,
-            skeletonDelay: null,
         });
-        return accept(next, effects);
+        return accept(next);
     }
     if (state.lifecycle === 'ready') {
         return accept({
@@ -786,10 +656,6 @@ export function reduceDocumentViewportSession(
                     presentation: 'skeleton',
                     error: null,
                 },
-                skeletonDelay: state.skeletonDelay && {
-                    ...state.skeletonDelay,
-                    pageNumber,
-                },
             });
         }
         case 'resident-visual-invalidated':
@@ -837,10 +703,6 @@ export function reduceDocumentViewportSession(
             ) {
                 return reject(state);
             }
-            const effects = state.skeletonDelay ? [{
-                type: 'cancel-skeleton-delay' as const,
-                token: state.skeletonDelay.token,
-            }] : [];
             return accept({
                 ...state,
                 lifecycle: 'ready',
@@ -861,9 +723,8 @@ export function reduceDocumentViewportSession(
                 renderFence: null,
                 stagedRenderFence: null,
                 stagedViewportFence: null,
-                skeletonDelay: null,
                 failure: null,
-            }, effects);
+            });
         }
         case 'render-started':
             if (!fenceTargetsCurrentIntent(state, event.fence)) {
@@ -897,23 +758,6 @@ export function reduceDocumentViewportSession(
                 ...state,
                 lifecycle: 'ready',
             });
-        case 'skeleton-delay-elapsed': {
-            const delay = state.skeletonDelay;
-            if (!delay || delay.generation !== event.generation || delay.token !== event.token) {
-                return reject(state);
-            }
-            return accept({
-                ...state,
-                visual: {
-                    kind: 'page',
-                    generation: state.generation,
-                    pageNumber: state.requestedPage,
-                    presentation: 'skeleton',
-                    error: null,
-                },
-                skeletonDelay: null,
-            });
-        }
         case 'page-failed':
             if (!state.renderFence || !renderFenceMatches(state.renderFence, event.fence)) {
                 return reject(state);
@@ -928,12 +772,8 @@ export function reduceDocumentViewportSession(
                     presentation: 'error',
                     error: event.error,
                 },
-                skeletonDelay: null,
                 failure: event.error,
-            }, state.skeletonDelay ? [{
-                type: 'cancel-skeleton-delay',
-                token: state.skeletonDelay.token,
-            }] : []);
+            });
         case 'page-transition-failed':
             if (
                 event.generation !== state.generation
@@ -956,12 +796,8 @@ export function reduceDocumentViewportSession(
                     error: event.error,
                 },
                 renderFence: null,
-                skeletonDelay: null,
                 failure: event.error,
-            }, state.skeletonDelay ? [{
-                type: 'cancel-skeleton-delay',
-                token: state.skeletonDelay.token,
-            }] : []);
+            });
         case 'open-failed':
             if (event.generation !== state.generation || !state.identity) {
                 return reject(state);
@@ -976,25 +812,18 @@ export function reduceDocumentViewportSession(
                     error: event.error,
                 },
                 renderFence: null,
-                skeletonDelay: null,
                 failure: event.error,
             });
         case 'close-requested': {
             if (state.lifecycle === 'empty' || state.lifecycle === 'closing') {
                 return reject(state);
             }
-            const effects: TDocumentViewportSessionEffect[] = [];
-            if (state.skeletonDelay) effects.push({
-                type: 'cancel-skeleton-delay',
-                token: state.skeletonDelay.token,
-            });
             return accept({
                 ...state,
                 lifecycle: 'closing',
                 observedPage: null,
                 renderFence: null,
-                skeletonDelay: null,
-            }, effects);
+            });
         }
         case 'close-committed':
             if (state.lifecycle !== 'closing' || event.generation !== state.generation) {

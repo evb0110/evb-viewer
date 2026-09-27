@@ -108,6 +108,6 @@ export interface IDocumentOpenSurfaceSession {
     reset(): void;
     metadataReady(pageCount: number): boolean;
     invalidateResidentVisual(pageNumber: number): boolean;
-    requestNavigation(pageNumber: number, skeletonDelayMs?: number): number;
+    requestNavigation(pageNumber: number): number;
     observeViewportPage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }

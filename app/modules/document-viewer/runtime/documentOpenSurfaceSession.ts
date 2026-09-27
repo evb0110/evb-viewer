@@ -19,7 +19,6 @@ import {
     reduceDocumentViewportSession,
     resolveDocumentViewportCurrentPage,
     type IDocumentViewportSessionState,
-    type TDocumentViewportSessionEffect,
     type TDocumentViewportSessionEvent,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 import {
@@ -45,9 +44,7 @@ export type {
     IDocumentViewportRenderFence,
     IDocumentViewportSessionState,
     IDocumentViewportSessionTransition,
-    IDocumentViewportSkeletonDelay,
     TDocumentViewportLifecycle,
-    TDocumentViewportSessionEffect,
     TDocumentViewportSessionEvent,
     TDocumentViewportVisualOwner,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
@@ -304,7 +301,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         sessionState.value.viewport,
         revisionSwap.value !== null,
     ));
-    const skeletonTimers = new Map<string, ReturnType<typeof setTimeout>>();
     let nextViewportIntent = 0;
     let nextRenderOwnerVersion = 0;
     const renderOwnerStates = new WeakMap<IDocumentOpenSurfaceRenderOwner, {
@@ -313,36 +309,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         nextSurfaceRequestId: number;
     }>();
     const ownedRenderFences = new WeakMap<IDocumentOpenSurfaceRenderFence, IDocumentOpenSurfaceRenderOwner>();
-    const openingSkeletonDelayMs = 120;
     const diagnostics = createDocumentOpenSurfaceDiagnostics(() => ({
         snapshot: snapshot.value,
         viewport: sessionState.value.viewport,
     }));
-    function cancelSkeletonTimer(token: string) {
-        const timer = skeletonTimers.get(token);
-        if (timer === undefined) {
-            return;
-        }
-        clearTimeout(timer);
-        skeletonTimers.delete(token);
-    }
-    function applyViewportEffect(effect: TDocumentViewportSessionEffect) {
-        if (effect.type === 'cancel-skeleton-delay') {
-            cancelSkeletonTimer(effect.token);
-            return;
-        }
-        if (sessionState.value.viewport.skeletonDelay?.token !== effect.token) return;
-        cancelSkeletonTimer(effect.token);
-        const timer = setTimeout(() => {
-            skeletonTimers.delete(effect.token);
-            dispatchViewport({
-                type: 'skeleton-delay-elapsed',
-                generation: effect.generation,
-                token: effect.token,
-            });
-        }, Math.max(0, effect.deadline - Date.now()));
-        skeletonTimers.set(effect.token, timer);
-    }
     function transitionViewport(
         events: readonly TDocumentViewportSessionEvent[],
         updateVisual?: (
@@ -352,7 +322,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         nextTicket?: IDocumentNavigationTicket | null,
     ) {
         let viewport = sessionState.value.viewport;
-        const effects: TDocumentViewportSessionEffect[] = [];
         for (const event of events) {
             const transition = reduceDocumentViewportSession(viewport, event);
             if (!transition.accepted) {
@@ -360,7 +329,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 return false;
             }
             viewport = transition.state;
-            effects.push(...transition.effects);
         }
         const previousTicket = sessionState.value.ticket;
         let publishedTicket = viewport.lifecycle === 'failed' ? null
@@ -397,7 +365,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                         by: 'command',
                     });
         }
-        for (const effect of effects) applyViewportEffect(effect);
         for (const event of events) diagnostics.record(event.type, true);
         return true;
     }
@@ -450,10 +417,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             },
             viewportIntentId: id,
             initialPage: Math.max(1, Math.trunc(initialPage)),
-            skeletonDelay: {
-                token: createViewportIntentId('skeleton'),
-                deadline: Date.now() + openingSkeletonDelayMs,
-            },
         }, updateVisual, ticket);
         logPdfRenderTrace('viewport-session-open-requested', {
             documentId: identity.documentId,
@@ -463,7 +426,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         return opened;
     }
 
-    function navigate(request: IDocumentNavigationRequest, skeletonDelayMs = 120) {
+    function navigate(request: IDocumentNavigationRequest) {
         const state = sessionState.value.viewport;
         if (!state.identity || state.lifecycle === 'closing'
             || state.lifecycle === 'failed' && state.visual.kind !== 'page') return null;
@@ -471,15 +434,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         if (page !== null && (!Number.isSafeInteger(page) || page < 1)) return null;
         const id = createViewportIntentId('navigation');
         const ticket = makeTicket(request, state.generation, state.identity.revision, id);
-        const token = createViewportIntentId('skeleton');
         const accepted = dispatchViewport({
             type: 'navigation-requested',
             pageNumber: page,
             viewportIntentId: id,
-            ...(skeletonDelayMs > 0 ? {skeletonDelay: {
-                token,
-                deadline: Date.now() + skeletonDelayMs,
-            }} : {}),
         }, page !== null && shouldRetargetOwnedOpeningPageShell(page)
             ? visual => retargetDocumentOpeningShell(visual, page) : undefined, ticket);
         if (!accepted) retire(ticket, {
@@ -1183,8 +1141,8 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 pageNumber: normalized,
             });
         },
-        requestNavigation(pageNumber, skeletonDelayMs = 120) {
-            navigate(createPageNavigationRequest(pageNumber, 'toolbar'), skeletonDelayMs);
+        requestNavigation(pageNumber) {
+            navigate(createPageNavigationRequest(pageNumber, 'toolbar'));
             return sessionState.value.viewport.requestedPage;
         },
         observeViewportPage(pageNumber, options = {}) {

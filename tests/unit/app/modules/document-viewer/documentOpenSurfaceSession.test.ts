@@ -295,14 +295,14 @@ describe('document open surface session', () => {
         commitDefaultGeometry(session, generation);
         const openingFence = createRenderFence(session, generation, 'pdfjs:1');
         commitReadySurface(session, openingFence);
-        session.requestNavigation(7, 0);
+        session.requestNavigation(7);
         const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
             renderVersion: 1,
             requestId: 2,
             pageNumber: 7,
         });
         commitReadySurface(session, pageSevenFence);
-        session.requestNavigation(8, 0);
+        session.requestNavigation(8);
         expect(session.observeViewportPage(7, {supersedeNavigation: true})).toBe(7);
         expect(session.viewportSession.value).toMatchObject({
             lifecycle: 'ready',
@@ -372,7 +372,7 @@ describe('document open surface session', () => {
         commitDefaultGeometry(session, generation);
         const openingFence = createRenderFence(session, generation, 'pdfjs:1');
         commitReadySurface(session, openingFence);
-        session.requestNavigation(7, 0);
+        session.requestNavigation(7);
         const navigationTicket = session.navigationTicket.value;
         expect(navigationTicket).not.toBeNull();
         const pageSevenFence = createRenderFence(session, generation, 'pdfjs:1', {
@@ -426,7 +426,7 @@ describe('document open surface session', () => {
             observedPage: 20,
         });
 
-        expect(session.requestNavigation(1, 0)).toBe(1);
+        expect(session.requestNavigation(1)).toBe(1);
         expect(session.viewportSession.value).toMatchObject({
             lifecycle: 'transitioning',
             requestedPage: 1,
@@ -441,9 +441,7 @@ describe('document open surface session', () => {
         expect(session.viewportSession.value.viewportIntent?.id).not.toBe(previousIntentId);
     });
 
-    it('projects open, metadata, navigation debounce, and close through one viewport session', () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(1_000);
+    it('projects open, metadata, immediate skeleton navigation, and close through one viewport session', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.pdf', 'revision-1');
         expect(session.viewportSession.value).toMatchObject({
@@ -452,13 +450,9 @@ describe('document open surface session', () => {
             committedPage: null,
             visual: {
                 kind: 'page',
-                presentation: 'cold-shell',
+                presentation: 'skeleton',
             },
         });
-        vi.advanceTimersByTime(119);
-        expect(session.viewportSession.value.visual).toMatchObject({presentation: 'cold-shell'});
-        vi.advanceTimersByTime(1);
-        expect(session.viewportSession.value.visual).toMatchObject({presentation: 'skeleton'});
         expect(session.commitOpeningPageGeometry(generation, openingGeometry('scan.pdf', 20, {
             pageNumber: 1,
             width: 612,
@@ -467,13 +461,7 @@ describe('document open surface session', () => {
         }))).toBe(true);
         expect(session.viewportSession.value.pageCount).toBe(20);
 
-        expect(session.requestNavigation(7, 120)).toBe(7);
-        expect(session.viewportSession.value.visual).toMatchObject({
-            kind: 'page',
-            presentation: 'cold-shell',
-            pageNumber: 7,
-        });
-        vi.advanceTimersByTime(120);
+        expect(session.requestNavigation(7)).toBe(7);
         expect(session.viewportSession.value.visual).toMatchObject({
             kind: 'page',
             presentation: 'skeleton',
@@ -486,60 +474,9 @@ describe('document open surface session', () => {
             identity: null,
             committedPage: null,
         });
-        vi.useRealTimers();
-    });
-
-    it('cannot let a superseded skeleton deadline overwrite a newer page or committed canvas', () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(2_000);
-        const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'scan.djvu', 'djvu:1');
-        expect(session.commitOpeningPageGeometry(generation, openingGeometry('scan.djvu', 10, {
-            pageNumber: 1,
-            width: 600,
-            height: 800,
-            rotation: 0,
-        }))).toBe(true);
-        expect(session.commitGeometry(generation, {
-            width: 600,
-            height: 800,
-            margin: 16,
-        })).toBe(true);
-
-        vi.advanceTimersByTime(50);
-        session.requestNavigation(2, 120);
-        vi.advanceTimersByTime(70);
-        expect(session.viewportSession.value.visual).toMatchObject({
-            pageNumber: 2,
-            presentation: 'cold-shell',
-        });
-
-        session.requestNavigation(3, 120);
-        const fence = createRenderFence(session, generation, 'djvu:1', {
-            renderVersion: 1,
-            requestId: 3,
-            pageNumber: 3,
-        });
-        expect(session.commitCanvas(fence)).toBe(true);
-        expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
-        expect(session.markReady(fence)).toBe(true);
-
-        vi.advanceTimersByTime(1_000);
-        expect(session.viewportSession.value).toMatchObject({
-            lifecycle: 'ready',
-            requestedPage: 3,
-            committedPage: 3,
-            visual: {
-                pageNumber: 3,
-                presentation: 'canvas',
-            },
-        });
-        vi.useRealTimers();
     });
 
     it('keeps the skeleton through rapid navigation instead of returning to a bare page', () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(2_000);
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.djvu', 'djvu:1');
         expect(session.commitOpeningPageGeometry(generation, openingGeometry('scan.djvu', 10, {
@@ -561,30 +498,18 @@ describe('document open surface session', () => {
         expect(session.commitCanvas(fence)).toBe(true);
         expect(session.commitViewport(createViewportCommit(fence))).toBe(true);
         expect(session.markReady(fence)).toBe(true);
-        vi.advanceTimersByTime(1_000);
-
-        // A command that lands while the delay runs keeps its deadline.
-        session.requestNavigation(2, 120);
-        vi.advanceTimersByTime(80);
-        session.requestNavigation(3, 120);
-        expect(session.viewportSession.value.visual).toMatchObject({
-            pageNumber: 3,
-            presentation: 'cold-shell',
-        });
-        vi.advanceTimersByTime(40);
+        session.requestNavigation(2);
+        session.requestNavigation(3);
         expect(session.viewportSession.value.visual).toMatchObject({
             pageNumber: 3,
             presentation: 'skeleton',
         });
 
-        // Once the skeleton shows, the next target keeps it immediately.
-        session.requestNavigation(4, 120);
+        session.requestNavigation(4);
         expect(session.viewportSession.value.visual).toMatchObject({
             pageNumber: 4,
             presentation: 'skeleton',
         });
-        expect(session.viewportSession.value.skeletonDelay).toBeNull();
-        vi.useRealTimers();
     });
 
     it('orders same-page commands by ticket and rejects the earlier placement', async () => {
@@ -1296,8 +1221,7 @@ describe('document open surface session', () => {
         expect(session.viewportSession.value.committedViewportFence).toBeNull();
     });
 
-    it('terminalizes a failed current navigation without letting the skeleton timer survive', () => {
-        vi.useFakeTimers();
+    it('terminalizes a failed current navigation', () => {
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'scan.djvu', 'djvu:1');
         session.metadataReady(12);
@@ -1309,15 +1233,13 @@ describe('document open surface session', () => {
         const openingFence = createRenderFence(session, generation, 'djvu:1');
         commitReadySurface(session, openingFence);
 
-        session.requestNavigation(7, 120);
+        session.requestNavigation(7);
         const navigationFence = createRenderFence(session, generation, 'djvu:1', {
             renderVersion: 1,
             requestId: 2,
             pageNumber: 7,
         });
         expect(session.reject(navigationFence, 'Unable to display page 7')).toBe(true);
-        vi.advanceTimersByTime(120);
-
         expect(session.snapshot.value).toMatchObject({
             phase: 'failed',
             presentation: 'failed',
@@ -1326,7 +1248,6 @@ describe('document open surface session', () => {
         expect(session.viewportSession.value).toMatchObject({
             lifecycle: 'failed',
             requestedPage: 7,
-            skeletonDelay: null,
             visual: {
                 kind: 'page',
                 pageNumber: 7,
@@ -1335,11 +1256,9 @@ describe('document open surface session', () => {
             },
         });
         expect(session.reject(openingFence, 'stale opening failure')).toBe(false);
-        vi.useRealTimers();
     });
 
     it('terminalizes a page-source failure that occurs before a render fence exists', () => {
-        vi.useFakeTimers();
         const session = createDocumentOpenSurfaceSession();
         const generation = beginSurface(session, 'oversized.pdf', 'native:1');
         session.metadataReady(431);
@@ -1351,11 +1270,9 @@ describe('document open surface session', () => {
         const openingFence = createRenderFence(session, generation, 'native:1');
         commitReadySurface(session, openingFence);
 
-        session.requestNavigation(5, 120);
+        session.requestNavigation(5);
         expect(session.viewportSession.value.renderFence).toBeNull();
         expect(session.failPageTransition(5, 'Native preview failed')).toBe(true);
-        vi.advanceTimersByTime(120);
-
         expect(session.snapshot.value).toMatchObject({
             phase: 'failed',
             presentation: 'failed',
@@ -1364,7 +1281,6 @@ describe('document open surface session', () => {
         expect(session.viewportSession.value).toMatchObject({
             lifecycle: 'failed',
             requestedPage: 5,
-            skeletonDelay: null,
             failure: 'Native preview failed',
             visual: {
                 kind: 'page',
@@ -1374,7 +1290,6 @@ describe('document open surface session', () => {
             },
         });
         expect(session.failPageTransition(4, 'stale')).toBe(false);
-        vi.useRealTimers();
     });
 
     it('generation-fences the replacement page shell until its joined commit', () => {
@@ -1856,7 +1771,7 @@ describe('document open surface session', () => {
         })!;
         expect(session.commitCanvas(newerRender)).toBe(true);
 
-        session.requestNavigation(2, 0);
+        session.requestNavigation(2);
         const residentCanvas = session.createOwnedResidentRenderFence(owner, {
             generation,
             documentRevision: 'rev-a',

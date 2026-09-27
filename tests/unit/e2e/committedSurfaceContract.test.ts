@@ -185,7 +185,7 @@ describe('committed surface E2E contract', () => {
         expect(findCommittedSurfaceContractViolations({frames})).toEqual([]);
     });
 
-    it('accepts the exact page frame before its debounced skeleton appears', () => {
+    it('accepts the exact page frame before its skeleton appears', () => {
         const frames = [
             frame(1, {
                 committedEmptySource: null,
